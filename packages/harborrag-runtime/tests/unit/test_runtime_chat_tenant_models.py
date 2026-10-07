@@ -7,6 +7,8 @@ had to be threaded through the request contract to make this work.
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
+
 import pytest
 from tenant_chat_fixtures import (
     SHARED_MODEL_CONFIG,
@@ -163,3 +165,79 @@ async def test_a_deployment_with_no_tenant_catalogs_validates_against_the_shared
 
     with pytest.raises(HarborValidationError):
         await service.validate_model("nope", tenant_id="acme")
+
+
+class _RotatingClient(FakeTenantChatClient):
+    """A client whose turn triggers a key rotation part-way through."""
+
+    def __init__(self, label: str, rotate: Callable[[], Awaitable[None]] | None) -> None:
+        super().__init__(label)
+        self.rotate = rotate
+
+    async def _maybe_rotate(self) -> None:
+        if self.rotate is not None:
+            rotate, self.rotate = self.rotate, None
+            await rotate()
+
+    async def achat(self, messages=None, *, request=None, model=None, **kwargs):  # type: ignore[no-untyped-def]
+        await self._maybe_rotate()
+        assert not self.closed, "a client must not be closed while a turn is using it"
+        return await super().achat(messages, request=request, model=model, **kwargs)
+
+    async def astream(self, messages=None, *, request=None, model=None, **kwargs):  # type: ignore[no-untyped-def]
+        del messages, request, model, kwargs
+        yield "first"
+        await self._maybe_rotate()
+        assert not self.closed, "a streaming client must stay open until the stream ends"
+        yield "second"
+
+
+def _rotating_service(
+    catalog: FakeCatalog,
+) -> tuple[RuntimeChatService, list[_RotatingClient]]:
+    made: list[_RotatingClient] = []
+    service = RuntimeChatService(
+        RuntimeSettings(model_config_path=SHARED_MODEL_CONFIG),
+        client_builder=lambda _settings: FakeTenantChatClient("shared"),  # type: ignore[arg-type, return-value]
+        shared_config_loader=_shared_config,
+    )
+
+    async def rotate() -> None:
+        catalog.fingerprints["acme"] = "fp-2"
+        catalog.catalogs["acme"] = tenant_catalog("acme", fingerprint="fp-2")
+        # Any request for the tenant now rebuilds and retires the client in use.
+        await service.validate_model("tenant-primary", tenant_id="acme")
+
+    def build(config: HarborChatClientConfig) -> _RotatingClient:
+        client = _RotatingClient(config.default_model, rotate if not made else None)
+        made.append(client)
+        return client
+
+    service.configure_tenant_models(
+        TenantModelSources(catalog=catalog, secrets=FakeSecrets()),
+        builder=build,  # type: ignore[arg-type]
+    )
+    return service, made
+
+
+@pytest.mark.asyncio
+async def test_a_completion_keeps_its_client_open_across_a_key_rotation() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    service, made = _rotating_service(catalog)
+
+    await service.complete(_request())
+
+    assert len(made) == 2
+    assert made[0].closes == 1, "closed once, after the turn released it"
+    assert made[1].closes == 0
+
+
+@pytest.mark.asyncio
+async def test_a_streaming_turn_keeps_its_client_open_across_a_key_rotation() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    service, made = _rotating_service(catalog)
+
+    chunks = [chunk async for chunk in service.stream(_request())]
+
+    assert chunks == ["first", "second"]  # type: ignore[comparison-overlap]
+    assert made[0].closes == 1

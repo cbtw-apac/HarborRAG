@@ -363,3 +363,89 @@ async def test_a_model_name_is_not_expanded_from_the_process_environment(
         )
 
     assert "HARBOR_TENANT_PROBE" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_a_transient_catalog_failure_is_retried_on_the_next_request() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    catalog.catalog_failure = RuntimeError("control database is unreachable")
+    clients, built = _clients(catalog, FakeSecrets())
+
+    assert (await clients.resolve("acme")).client is None
+    catalog.catalog_failure = None
+    recovered = await clients.resolve("acme")
+
+    # Same fingerprint, so a cached fallback would have pinned the tenant to the
+    # shared client until its rows changed.
+    assert recovered.client is built[0]  # type: ignore[comparison-overlap]
+
+
+@pytest.mark.asyncio
+async def test_a_transient_secret_failure_is_retried_on_the_next_request() -> None:
+    # Non-empty on purpose: FakeSecrets treats an empty map as "use the default ref-1".
+    secrets = FakeSecrets({"unrelated": "x"})
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    clients, built = _clients(catalog, secrets)
+
+    assert (await clients.resolve("acme")).client is None
+    secrets.values["ref-1"] = "sk-tenant"
+
+    assert (await clients.resolve("acme")).client is built[0]  # type: ignore[comparison-overlap]
+
+
+@pytest.mark.asyncio
+async def test_a_leased_client_survives_a_rebuild_until_released() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    clients, built = _clients(catalog, FakeSecrets())
+
+    async with clients.lease("acme") as held:
+        catalog.fingerprints["acme"] = "fp-2"
+        catalog.catalogs["acme"] = tenant_catalog("acme", fingerprint="fp-2")
+        replacement = await clients.resolve("acme")
+        assert replacement.client is not held.client
+        assert built[0].closes == 0, "a client in use must not be closed under its turn"
+
+    assert built[0].closes == 1, "the last lease to go closes the retired client"
+    assert built[1].closes == 0
+
+
+@pytest.mark.asyncio
+async def test_a_leased_client_survives_eviction_until_released() -> None:
+    catalogs = {name: tenant_catalog(name) for name in ("one", "two")}
+    catalog = FakeCatalog(catalogs, fingerprints=dict.fromkeys(catalogs, "fp-1"))
+    clients, built = _clients(
+        catalog, FakeSecrets(), settings=RuntimeSettings(chat_tenant_client_cache_size=1)
+    )
+
+    async with clients.lease("one"):
+        await clients.resolve("two")
+        assert built[0].closes == 0
+
+    assert built[0].closes == 1
+
+
+@pytest.mark.asyncio
+async def test_aclose_defers_closing_a_leased_client_and_closes_it_once() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    clients, built = _clients(catalog, FakeSecrets())
+
+    async with clients.lease("acme"):
+        await clients.aclose()
+        assert built[0].closes == 0
+
+    assert built[0].closes == 1
+    await clients.aclose()
+    assert built[0].closes == 1
+
+
+@pytest.mark.asyncio
+async def test_a_retired_client_closes_only_when_the_last_of_several_leases_ends() -> None:
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    clients, built = _clients(catalog, FakeSecrets())
+
+    async with clients.lease("acme"):
+        async with clients.lease("acme"):
+            await clients.aclose()
+        assert built[0].closes == 0, "one turn is still using the retired client"
+
+    assert built[0].closes == 1

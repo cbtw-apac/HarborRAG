@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborValidationError
@@ -116,8 +117,8 @@ class RuntimeChatService:
         prompt: ChatPrompt | None = None,
     ) -> HarborChatResponse:
         prepared = apply_prompt(request, prompt, self._prompts)
-        client = await self._client_for(request)
-        return await client.achat(request=prepared)
+        async with self._client_for(request) as client:
+            return await client.achat(request=prepared)
 
     async def stream(
         self,
@@ -126,9 +127,11 @@ class RuntimeChatService:
         prompt: ChatPrompt | None = None,
     ) -> AsyncIterator[HarborChatStreamChunk]:
         prepared = apply_prompt(request, prompt, self._prompts)
-        client = await self._client_for(request)
-        async for chunk in client.astream(request=prepared):
-            yield chunk
+        # The lease spans the whole iteration: a stream is the long-lived turn a
+        # key rotation is most likely to land in the middle of.
+        async with self._client_for(request) as client:
+            async for chunk in client.astream(request=prepared):
+                yield chunk
 
     async def aclose(self) -> None:
         """Swap and close the client under the same lock ``_configured_client`` uses.
@@ -146,11 +149,20 @@ class RuntimeChatService:
             if client is not None:
                 await client.aclose()
 
-    async def _client_for(self, request: HarborChatRequest) -> AsyncHarborChatClientProtocol:
-        resolution = await self._resolution(request.metadata.tenant_id)
-        if resolution.client is not None:
-            return resolution.client
-        return await self._configured_client()
+    @asynccontextmanager
+    async def _client_for(
+        self, request: HarborChatRequest
+    ) -> AsyncIterator[AsyncHarborChatClientProtocol]:
+        """Lease the client that answers this turn for exactly as long as the turn runs."""
+
+        if self._tenants is None:
+            yield await self._configured_client()
+            return
+        async with self._tenants.lease(request.metadata.tenant_id) as resolution:
+            if resolution.client is not None:
+                yield resolution.client
+            else:
+                yield await self._configured_client()
 
     def _tenant_client(self, config: HarborChatClientConfig) -> AsyncHarborChatClientProtocol:
         from .composition import build_chat_client_for
