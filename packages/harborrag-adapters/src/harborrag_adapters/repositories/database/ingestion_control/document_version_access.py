@@ -19,6 +19,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
+from .cleanup_lease import cleanup_claimable, cleanup_in_flight
 from .document_version_mapping import replay_state_from_row, snapshot_from_row
 from .row_values import DatabaseRow, required_mapping, required_text
 from .schema import (
@@ -262,20 +263,19 @@ class DocumentVersionReplay:
             }:
                 return current
             cleanup = await self._locked_cleanup(session, document_version_id)
-            if cleanup is not None and cleanup["status"] == CleanupJobState.RUNNING.value:
+            now = utc_now()
+            if cleanup is not None and cleanup_in_flight(cleanup, now):
                 # Transient, like a purge: retrying after the cleanup finishes succeeds.
                 raise HarborUnavailableError("document version cleanup is currently running")
             restored = replay_state_from_row(row)
-            now = utc_now()
             await session.execute(
                 update(DOCUMENT_VERSIONS)
                 .where(DOCUMENT_VERSIONS.c.document_version_id == document_version_id)
                 .values(status=restored.value, updated_at=now)
             )
-            if cleanup is not None and cleanup["status"] in {
-                CleanupJobState.PENDING.value,
-                CleanupJobState.FAILED.value,
-            }:
+            # An expired RUNNING claim belongs to a dead worker: cancel it like a
+            # pending one, so replay is never blocked forever.
+            if cleanup is not None and cleanup_claimable(cleanup, now):
                 await session.execute(
                     update(PROJECTION_CLEANUP_JOBS)
                     .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup["cleanup_job_id"])

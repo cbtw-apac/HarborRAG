@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
+from .cleanup_lease import claimable_cleanup, cleanup_claimable
 from .row_mapping import cleanup_job_from_row
 from .schema import (
     DOCUMENT_FAILURES,
@@ -162,14 +163,7 @@ class IngestionReliabilityRepository:
             raise ValueError("cleanup source_scope_id must be non-empty")
         if document_ids is not None and not document_ids:
             return ()
-        statement = select(PROJECTION_CLEANUP_JOBS).where(
-            PROJECTION_CLEANUP_JOBS.c.status.in_(
-                (
-                    CleanupJobState.PENDING.value,
-                    CleanupJobState.FAILED.value,
-                )
-            )
-        )
+        statement = select(PROJECTION_CLEANUP_JOBS).where(claimable_cleanup(utc_now()))
         if document_ids is not None:
             statement = statement.where(
                 PROJECTION_CLEANUP_JOBS.c.document_id.in_(tuple(dict.fromkeys(document_ids)))
@@ -217,10 +211,7 @@ class IngestionReliabilityRepository:
                 raise HarborNotFoundError(
                     f"projection cleanup job does not exist: {cleanup_job_id}"
                 )
-            if row["status"] not in {
-                CleanupJobState.PENDING.value,
-                CleanupJobState.FAILED.value,
-            }:
+            if not cleanup_claimable(row, now):
                 return False
             await session.execute(
                 update(PROJECTION_CLEANUP_JOBS)

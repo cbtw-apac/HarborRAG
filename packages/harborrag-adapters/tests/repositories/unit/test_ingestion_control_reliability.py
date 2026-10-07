@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
+from sqlalchemy import update
 
+from harborrag_adapters.repositories.database.ingestion_control.schema import (
+    PROJECTION_CLEANUP_JOBS,
+)
+from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DiscoveredSourceItem,
@@ -360,3 +367,91 @@ async def test_pending_cleanup_selection_is_scope_isolated(tmp_path: Path) -> No
                 source_scope_id="scope-a",
                 document_ids=(str(cleanup_by_scope["scope-b"].document_id),),
             )
+
+
+async def _claimed(control_plane, text: str):  # type: ignore[no-untyped-def]
+    value = candidate(text)
+    await control_plane.document_versions.create_candidate(value)
+    job = await control_plane.reliability.enqueue_cleanup(
+        document_id=str(value.document_id),
+        document_version_id=str(value.document_version_id),
+    )
+    assert await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+    return value, job
+
+
+async def _age_claim(control_plane, cleanup_job_id: str, age: timedelta) -> None:  # type: ignore[no-untyped-def]
+    async with control_plane.reliability._client.sessions.begin() as session:
+        await session.execute(
+            update(PROJECTION_CLEANUP_JOBS)
+            .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup_job_id)
+            .values(updated_at=utc_now() - age)
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_dead_workers_cleanup_claim_expires_and_is_reclaimed(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        _, job = await _claimed(control_plane, "cleanup lease")
+        reliability = control_plane.reliability
+
+        assert await reliability.pending_cleanup_jobs() == ()
+        assert await reliability.claim_cleanup(job.cleanup_job_id) is False
+
+        await _age_claim(control_plane, job.cleanup_job_id, timedelta(minutes=16))
+        (listed,) = await reliability.pending_cleanup_jobs()
+        assert listed.cleanup_job_id == job.cleanup_job_id
+        assert listed.status == CleanupJobState.RUNNING
+        assert await reliability.claim_cleanup(job.cleanup_job_id) is True
+        assert await reliability.claim_cleanup(job.cleanup_job_id) is False
+        reclaimed = await reliability.cleanup_for_version(str(job.document_version_id))
+        assert reclaimed is not None and reclaimed.attempt_count == 2
+
+
+@pytest.mark.asyncio
+async def test_a_re_enqueue_does_not_extend_an_expired_claim(tmp_path: Path) -> None:
+    # The lease is updated_at; any writer that refreshed it on a RUNNING row would
+    # silently keep a dead worker's claim alive.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value, job = await _claimed(control_plane, "cleanup lease re-enqueue")
+        await _age_claim(control_plane, job.cleanup_job_id, timedelta(minutes=16))
+
+        await control_plane.reliability.enqueue_cleanup(
+            document_id=str(value.document_id),
+            document_version_id=str(value.document_version_id),
+        )
+
+        assert await control_plane.reliability.claim_cleanup(job.cleanup_job_id) is True
+
+
+@pytest.mark.asyncio
+async def test_replay_waits_for_a_live_cleanup_but_not_for_an_expired_one(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        first = candidate("retired version")
+        await advance_to_verified(control_plane, first)
+        await publish_over_active(
+            control_plane, str(first.document_id), str(first.document_version_id)
+        )
+        second = candidate("replacing version")
+        await advance_to_verified(control_plane, second)
+        await publish_over_active(
+            control_plane, str(second.document_id), str(second.document_version_id)
+        )
+        retired = str(first.document_version_id)
+        job = await control_plane.reliability.cleanup_for_version(retired)
+        assert job is not None
+        assert await control_plane.reliability.claim_cleanup(job.cleanup_job_id)
+
+        with pytest.raises(HarborUnavailableError, match="cleanup is currently running"):
+            await control_plane.document_versions.prepare_replay(retired)
+
+        await _age_claim(control_plane, job.cleanup_job_id, timedelta(minutes=16))
+        await control_plane.document_versions.prepare_replay(retired)
+
+        cancelled = await control_plane.reliability.cleanup_for_version(retired)
+        assert cancelled is not None and cancelled.status == CleanupJobState.CANCELLED
