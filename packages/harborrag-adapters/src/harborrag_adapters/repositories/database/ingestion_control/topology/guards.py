@@ -1,6 +1,6 @@
 """One lock order and eligibility predicate for every canonical topology write."""
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.base import utc_now
@@ -97,3 +97,36 @@ async def require_lease(session: AsyncSession, job: TopologyJob) -> DatabaseRow:
     if row["state"] != "running" or row["lease_until"] is None or row["lease_until"] <= utc_now():
         raise HarborConflictError("topology job lease is expired or no longer running")
     return row
+
+
+def document_lock_probe(job: TopologyJob) -> Select[tuple[str]]:
+    """Lock the job's document row, or return nothing at once if another holds it."""
+
+    return (
+        select(DOCUMENTS.c.document_id)
+        .where(
+            DOCUMENTS.c.tenant_id == job.tenant_id,
+            DOCUMENTS.c.document_id == job.document_id,
+        )
+        .with_for_update(skip_locked=True)
+    )
+
+
+async def try_lock_document(session: AsyncSession, job: TopologyJob) -> bool:
+    """Whether ``lock_job`` may run without waiting on the job's document.
+
+    True when this transaction now holds the document row, and also when the row is
+    gone: ``lock_job`` then rejects the job as obsolete and the claim supersedes it.
+    False when another transaction holds the row -- a publisher mid-activation -- so
+    the job must stay runnable rather than be mistaken for an obsolete one.
+    """
+
+    if (await session.execute(document_lock_probe(job))).first() is not None:
+        return True
+    present = await session.execute(
+        select(DOCUMENTS.c.document_id).where(
+            DOCUMENTS.c.tenant_id == job.tenant_id,
+            DOCUMENTS.c.document_id == job.document_id,
+        )
+    )
+    return present.first() is None

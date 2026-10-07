@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from sqlalchemy import insert, or_, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
@@ -10,7 +11,7 @@ from harborrag_core.contracts import HarborConflictError
 from harborrag_core.topology import ChunkExtractionCheckpoint, TopologyJob
 
 from .configuration import lock_indexing_config
-from .guards import job_from_row, lock_job, require_lease
+from .guards import job_from_row, lock_job, require_lease, try_lock_document
 from .policy_schema import BUDGET_RESERVATIONS
 from .schema import TOPOLOGY_CHECKPOINTS, TOPOLOGY_JOBS
 from .transactions import topology_transaction
@@ -90,63 +91,14 @@ class TopologyJobOperations:
                 query = query.where(TOPOLOGY_JOBS.c.job_id == job_id)
             rows = (await session.execute(query)).mappings().all()
             for candidate in rows:
-                job = job_from_row(candidate)
-                try:
-                    row = await lock_job(session, job)
-                except HarborConflictError:
-                    await session.execute(
-                        update(TOPOLOGY_JOBS)
-                        .where(
-                            TOPOLOGY_JOBS.c.job_id == job.job_id,
-                            TOPOLOGY_JOBS.c.fence == job.fence,
-                            TOPOLOGY_JOBS.c.state.in_(("pending", "running", "deferred")),
-                        )
-                        .values(state="superseded", lease_until=None)
-                    )
-                    continue
-                indexing = await lock_indexing_config(session, tenant_id)
-                if row["state"] not in ("pending", "running", "deferred"):
-                    continue
-                if row["state"] == "running" and row["lease_until"] > now:
-                    continue
-                if indexing.config.spending_paused:
-                    await session.execute(
-                        update(TOPOLOGY_JOBS)
-                        .where(TOPOLOGY_JOBS.c.job_id == job.job_id)
-                        .values(
-                            state="deferred",
-                            available_at=now + timedelta(seconds=30),
-                            error_code="spending_paused",
-                        )
-                    )
-                    continue
-                if row["attempts"] >= indexing.config.budgets.max_job_attempts:
-                    await session.execute(
-                        update(TOPOLOGY_JOBS)
-                        .where(
-                            TOPOLOGY_JOBS.c.job_id == job.job_id,
-                        )
-                        .values(state="failed", lease_until=None, error_code="attempts_exhausted")
-                    )
-                    continue
-                result = await session.execute(
-                    update(TOPOLOGY_JOBS)
-                    .where(
-                        TOPOLOGY_JOBS.c.job_id == job.job_id,
-                        TOPOLOGY_JOBS.c.fence == job.fence,
-                    )
-                    .values(
-                        state="running",
-                        fence=job.fence + 1,
-                        attempts=job.attempts + 1,
-                        lease_until=now + timedelta(seconds=lease_seconds),
-                        error_code=None,
-                    )
-                    .returning(TOPOLOGY_JOBS)
+                claimed = await _claim_candidate(
+                    session,
+                    job_from_row(candidate),
+                    now=now,
+                    lease_seconds=lease_seconds,
                 )
-                claimed = result.mappings().one_or_none()
                 if claimed is not None:
-                    return job_from_row(claimed)
+                    return claimed
         return None
 
     async def defer(
@@ -271,3 +223,75 @@ class TopologyJobOperations:
                     error_code=error_code[:128],
                 )
             )
+
+
+async def _claim_candidate(
+    session: AsyncSession,
+    job: TopologyJob,
+    *,
+    now: datetime,
+    lease_seconds: int,
+) -> TopologyJob | None:
+    """Claim one runnable job, or leave it for a later claim.
+
+    Lock order is document -> indexing config, as in publication. After its first
+    candidate this transaction holds the tenant's indexing config, so it must never
+    wait for a later candidate's document: a publisher holding that document waits for
+    the config, and the two deadlock. A busy document is skipped, its job untouched.
+    """
+
+    if not await try_lock_document(session, job):
+        return None
+    try:
+        row = await lock_job(session, job)
+    except HarborConflictError:
+        await session.execute(
+            update(TOPOLOGY_JOBS)
+            .where(
+                TOPOLOGY_JOBS.c.job_id == job.job_id,
+                TOPOLOGY_JOBS.c.fence == job.fence,
+                TOPOLOGY_JOBS.c.state.in_(("pending", "running", "deferred")),
+            )
+            .values(state="superseded", lease_until=None)
+        )
+        return None
+    indexing = await lock_indexing_config(session, job.tenant_id)
+    if row["state"] not in ("pending", "running", "deferred"):
+        return None
+    if row["state"] == "running" and row["lease_until"] > now:
+        return None
+    if indexing.config.spending_paused:
+        await session.execute(
+            update(TOPOLOGY_JOBS)
+            .where(TOPOLOGY_JOBS.c.job_id == job.job_id)
+            .values(
+                state="deferred",
+                available_at=now + timedelta(seconds=30),
+                error_code="spending_paused",
+            )
+        )
+        return None
+    if row["attempts"] >= indexing.config.budgets.max_job_attempts:
+        await session.execute(
+            update(TOPOLOGY_JOBS)
+            .where(TOPOLOGY_JOBS.c.job_id == job.job_id)
+            .values(state="failed", lease_until=None, error_code="attempts_exhausted")
+        )
+        return None
+    result = await session.execute(
+        update(TOPOLOGY_JOBS)
+        .where(
+            TOPOLOGY_JOBS.c.job_id == job.job_id,
+            TOPOLOGY_JOBS.c.fence == job.fence,
+        )
+        .values(
+            state="running",
+            fence=job.fence + 1,
+            attempts=job.attempts + 1,
+            lease_until=now + timedelta(seconds=lease_seconds),
+            error_code=None,
+        )
+        .returning(TOPOLOGY_JOBS)
+    )
+    claimed = result.mappings().one_or_none()
+    return job_from_row(claimed) if claimed is not None else None
