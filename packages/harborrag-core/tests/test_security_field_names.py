@@ -13,7 +13,7 @@ from harborrag_core.security.field_names import (
     SENSITIVE_FIELD_TOKENS,
     is_sensitive_field_name,
 )
-from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.redaction import redact_mapping, redact_secrets
 
 
 @pytest.mark.parametrize(
@@ -165,3 +165,57 @@ def test_credential_request_headers_are_wrapped_as_secrets(header: str) -> None:
 def test_benign_request_headers_stay_plain_and_are_accepted(header: str) -> None:
     request = HarborEmbedRequest(inputs=("hello",), custom_headers={header: "value"})
     assert request.custom_headers[header] == "value"
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ('curl -H "Bearer eyJhbGciOiJIUzI1NiJ9.payload.signature"', "eyJhbGciOiJIUzI1NiJ9"),
+        ("clone https://alice:hunter2@git.example/repo.git", "hunter2"),
+        ("clone https://deploytoken123@git.example/repo.git", "deploytoken123"),
+        ("Cookie: session=abc123; theme=dark", "abc123"),
+        ("Set-Cookie: sid=s3cr3t; Path=/; HttpOnly", "s3cr3t"),
+        (
+            "https://acct.blob.core.windows.net/c/b?sv=2022-11-02&sig=AbC%2Bxyz%3D&se=2026",
+            "AbC%2Bxyz%3D",
+        ),
+        (
+            "https://tenant.sharepoint.com/_layouts/download.aspx?tempauth=eyJ0eXAi.abc",
+            "eyJ0eXAi.abc",
+        ),
+        ("https://bucket.s3.amazonaws.com/k?X-Amz-Signature=deadbeef01", "deadbeef01"),
+    ],
+)
+def test_unlabeled_credentials_in_free_text_are_redacted(text: str, secret: str) -> None:
+    assert secret not in redact_secrets(text)
+
+
+@pytest.mark.parametrize(
+    "text", ["token_budget=500", "token_count: 12", "max_token_count=9", "tokens=5"]
+)
+def test_token_quantities_survive_redaction(text: str) -> None:
+    assert redact_secrets(text) == text
+
+
+def test_redact_mapping_uses_the_shared_definition() -> None:
+    redacted = redact_mapping(
+        {
+            "token_budget": 500,
+            "token_count": 3,
+            "APIKey": "k1",
+            "credentials": "c1",
+            "Cookie": "sid=1",
+            "Set-Cookie": "sid=2",
+            "team": "platform",
+        }
+    )
+
+    assert redacted == {
+        "token_budget": 500,
+        "token_count": 3,
+        "APIKey": "<redacted>",
+        "credentials": "<redacted>",
+        "Cookie": "<redacted>",
+        "Set-Cookie": "<redacted>",
+        "team": "platform",
+    }
