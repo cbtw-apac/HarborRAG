@@ -30,6 +30,13 @@ from harborrag_engine.topology.summary_planner import SummaryPlanNode, summary_p
 from harborrag_runtime.config.settings import RuntimeSettings
 
 
+def _node_rank(node: GraphNodeRecord) -> tuple[int, int, str]:
+    """Lower ranks first: real before placeholder, richer before thinner, then stable."""
+
+    placeholder = 1 if node.attributes.get("placeholder") is True else 0
+    return (placeholder, -len(node.attributes), digest(node.model_dump(mode="json")))
+
+
 @dataclass(frozen=True)
 class SummaryInputLoader:
     repository: SummaryInputRepositoryPort
@@ -112,9 +119,11 @@ class SummaryInputLoader:
             if node.source_scope_id not in {None, lease.source_scope_id}:
                 continue
             # Shared source observations may have different metadata; select a
-            # stable representation, independent of input iteration order.
+            # stable representation, independent of input iteration order. An
+            # attachment's projection carries its parent issue only as a placeholder
+            # stub, so a real observation always wins over one, and a fuller one over
+            # a thinner one -- otherwise the facets the issue's own document
+            # projected could lose a digest coin-flip to an empty stub.
             previous = nodes.get(node.node_key)
-            if previous is None or digest(node.model_dump(mode="json")) < digest(
-                previous.model_dump(mode="json")
-            ):
+            if previous is None or _node_rank(node) < _node_rank(previous):
                 nodes[node.node_key] = node

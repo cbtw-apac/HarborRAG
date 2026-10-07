@@ -129,9 +129,15 @@ class IngestionExecutionResult:
     published: int
     unchanged: int
     failed: int
+    # A bounded sample of the removed documents; ``removal_count`` has them all.
     removal_candidates: tuple[str, ...]
     unresolved_relations: int
     status: str = "COMPLETED"
+    removal_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.removal_count is None:
+            object.__setattr__(self, "removal_count", len(self.removal_candidates))
 
 
 class IngestionGateway(Protocol):

@@ -51,6 +51,11 @@ def source(item: ReadableSource) -> dict[str, object]:
         "last_successful_source_check_at": _time(item.last_successful_source_check_at),
         "last_successful_ingestion_at": _time(item.last_successful_ingestion_at),
         "active_document_count": item.active_document_count,
+        "entity_facets": [
+            {"name": facet.name, "type": facet.type, "field": facet.field}
+            for facet in item.entity_facets
+        ],
+        "entity_summaries": item.entity_summaries,
     }
 
 

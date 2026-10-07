@@ -96,3 +96,51 @@ def test_liteparse_constructor_kwargs_match_documented_python_options():
         "dpi": 300,
         "custom_option": "value",
     }
+
+
+class _FencedLiteParse:
+    """LiteParse fencing ordinary prose it read as a preformatted block."""
+
+    def parse(self, _input: str | bytes) -> SimpleNamespace:
+        text = "```python\nPaul Nguyen\nHead of Department\n```\n\nSummary\n"
+        return SimpleNamespace(
+            text=text,
+            pages=[{"page_num": 1, "text": text}],
+        )
+
+
+def test_liteparse_strips_spurious_code_fences_by_default() -> None:
+    backend = LiteParseBackend(parser=_FencedLiteParse())
+
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+
+    assert "```" not in result.content
+    # Only the delimiters go; the fenced prose is the document's actual text.
+    assert "Paul Nguyen" in result.content
+    assert "Head of Department" in result.content
+    assert "Summary" in result.content
+
+
+def test_liteparse_strips_fences_from_page_elements_too() -> None:
+    backend = LiteParseBackend(parser=_FencedLiteParse())
+
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+
+    assert result.elements
+    assert all("```" not in element.content for element in result.elements)
+    assert any("Paul Nguyen" in element.content for element in result.elements)
+
+
+def test_liteparse_keeps_code_fences_when_disabled() -> None:
+    backend = LiteParseBackend(parser=_FencedLiteParse(), strip_code_fences=False)
+
+    result = backend.parse_input(ParseInput(content=b"%PDF-1.4", filename="cv.pdf"))
+
+    assert "```python" in result.content
+
+
+def test_liteparse_strip_code_fences_is_not_a_constructor_argument() -> None:
+    # It post-processes LiteParse output; passing it through would raise.
+    backend = LiteParseBackend(options=LiteParseBackendOptions(strip_code_fences=True))
+
+    assert "strip_code_fences" not in backend._constructor_kwargs()

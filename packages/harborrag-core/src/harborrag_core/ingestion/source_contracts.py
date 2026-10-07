@@ -114,3 +114,6 @@ class ActiveSourceDocument(StrictModel):
     document_id: DocumentId
     document_version_id: DocumentVersionId
     title: str | None = None
+    # The target's own declared links as (predicate, target_id), from its descriptor:
+    # relation repair checks them to see whether the target owns a link reciprocally.
+    declared_relations: tuple[tuple[str, str], ...] = ()

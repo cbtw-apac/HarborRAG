@@ -171,6 +171,31 @@ class FakeKnowledgeGraphRepository:
         )
         await self.delete_relations(obsolete, context=context)
 
+    async def prune_external_stubs(
+        self,
+        *,
+        context: StorageOperationContext,
+        grace_seconds: int = 3600,
+    ) -> int:
+        """In-memory twin: no clock, so the grace period is not modelled."""
+
+        del grace_seconds
+        referenced = {
+            key
+            for relation in self.relations.values()
+            for key in (relation.source_node_key, relation.target_node_key)
+        }
+        stale = [
+            key
+            for key, node in self.nodes.items()
+            if node.owner_id == context.tenant_id
+            and node.attributes.get("external") is True
+            and key not in referenced
+        ]
+        for key in stale:
+            del self.nodes[key]
+        return len(stale)
+
     async def retire_legacy_source_relations(
         self,
         source_scope_id: str,

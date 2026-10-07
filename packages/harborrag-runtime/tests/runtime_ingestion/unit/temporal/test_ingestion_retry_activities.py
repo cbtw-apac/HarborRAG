@@ -62,7 +62,7 @@ async def test_retry_activities_cover_selection_release_failure_and_finalization
     )
 
     assert connector_calls == [("jira-main", "config-v1")]
-    assert plans.calls == ["find", "get", "put"]
+    assert plans.calls == ["find", "documents", "put_pages_and_index"]
     assert [name for name, _, _ in sources.calls] == [
         "begin_retry",
         "retry_one",

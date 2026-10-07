@@ -51,6 +51,7 @@ from harborrag_runtime.config import (
     load_connector_catalog,
     load_parser_catalog,
 )
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
@@ -64,9 +65,11 @@ from .document.normalizers import (
 )
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
+from .field_indexes import declared_field_indexes
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
 from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
@@ -114,7 +117,10 @@ class IngestionRuntimeBuilder:
         artifact_reader = ImmutableArtifactReader(object_store)
         vector_store = VectorProjectionStore(
             vectors,
-            VectorProjectionPolicy(dimension=dimensions),
+            VectorProjectionPolicy(
+                dimension=dimensions,
+                field_indexes=declared_field_indexes(GraphBuildConfig.from_settings(settings)),
+            ),
         )
         canonical_artifacts = CanonicalDocumentArtifactRepository(
             artifacts,
@@ -191,6 +197,11 @@ class IngestionRuntimeBuilder:
                 control=control,
                 vector_store=vector_store,
                 graph_store=graph,
+            ),
+            retention=RetiredVersionPurgeService(
+                control=control,
+                object_store=object_store,
+                retention_days=settings.retired_version_retention_days,
             ),
             reindex=DocumentReindexService(dependencies, pipeline=stages),
             source_plans=SourcePlanRepository(artifacts, artifact_reader),

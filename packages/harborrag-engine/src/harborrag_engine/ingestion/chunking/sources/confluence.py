@@ -10,6 +10,10 @@ from ..schemas import ChunkingRequest, ChunkUnit
 from ..transforms import DocumentStructureSegmenter
 from .validation import validate_confluence_chunk
 
+# Stamped on every document at admission and read back only from the canonical
+# document (reindex), so a per-chunk copy is dead weight.
+_DOCUMENT_ONLY_FIELDS = frozenset({"processing_profile"})
+
 
 class ConfluenceChunkingStrategy:
     """Enrich canonical page units with Confluence structural identity."""
@@ -28,7 +32,11 @@ class ConfluenceChunkingStrategy:
     ) -> tuple[ChunkUnit, ...]:
         """Enrich structural document units with Confluence provenance."""
 
-        provenance = dict(request.document.provenance.extra)
+        provenance = {
+            key: value
+            for key, value in request.document.provenance.extra.items()
+            if key not in _DOCUMENT_ONLY_FIELDS
+        }
         page_id = (
             provenance.get("page_id")
             or provenance.get("content_id")

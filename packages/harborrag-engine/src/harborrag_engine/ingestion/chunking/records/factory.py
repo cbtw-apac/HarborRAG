@@ -232,18 +232,27 @@ class CanonicalChunkFactory:
     @staticmethod
     def _relations(request: ChunkingRequest) -> tuple[ChunkRelation, ...]:
         supported = {relation.value: relation for relation in RelationType}
-        return tuple(
-            ChunkRelation(
-                relation_type=supported[relation.predicate],
-                target_id=relation.target_id,
-            )
-            for relation in request.document.relations
-            if relation.predicate in supported
-        )
+        # A chunk relation is keyed by type and target, so two source links that
+        # differ only in provenance -- e.g. two separate Jira "relates to" links to
+        # the same issue -- collapse to one. ChunkRecord rejects duplicates.
+        unique: dict[tuple[str, str], ChunkRelation] = {}
+        for relation in request.document.relations:
+            key = (relation.predicate, relation.target_id)
+            if relation.predicate in supported and key not in unique:
+                unique[key] = ChunkRelation(
+                    relation_type=supported[relation.predicate],
+                    target_id=relation.target_id,
+                )
+        return tuple(unique.values())
 
     @classmethod
     def _metadata(cls, values: CanonicalChunkInput) -> dict[str, object]:
+        # An attachment is its own document, and most strategies copy nothing from
+        # provenance onto its chunks. Its parent's item id is what links a CV back
+        # to the issue whose fields describe it, so every chunk carries it.
+        parent = values.request.document.provenance.extra.get("parent_source_item_id")
         return {
+            **({"parent_source_item_id": str(parent)} if parent else {}),
             **values.candidate.metadata,
             "source_version": cls._source_value(
                 values.request,

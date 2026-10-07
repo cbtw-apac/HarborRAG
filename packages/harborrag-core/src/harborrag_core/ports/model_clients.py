@@ -34,6 +34,11 @@ class StructuredUsageResult[ValueT: BaseModel](Protocol):
     @property
     def provider_calls(self) -> int: ...
 
+    @property
+    def estimated_cost_usd(self) -> float | None:
+        """Sum of the provider-priced cost of every call, or None if any lacked one."""
+        ...
+
 
 @runtime_checkable
 class HarborChatClientProtocol(Protocol):

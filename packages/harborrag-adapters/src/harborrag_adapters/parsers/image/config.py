@@ -9,6 +9,6 @@ from dataclasses import dataclass
 class ImageParserConfig:
     """Image OCR provider and resource limits."""
 
-    engine: str = "pytesseract"
+    engine: str = "liteparse"
     language: str | None = None
     max_pixels: int | None = 100_000_000

@@ -40,6 +40,8 @@ from harborrag_core.topology.search import (
 )
 from harborrag_engine.retrieval import RetrievalLane
 
+from .entity_summary import EntitySummarySearch
+
 
 class ActiveVersionResolver(Protocol):
     async def active_versions(
@@ -149,6 +151,9 @@ class RetrievalDiagnostics:
     graph_documents: tuple[GraphDocumentSummary, ...] = ()
     short_by: int = 0
     topology: TopologyDiagnostics = field(default_factory=TopologyDiagnostics)
+    # Hits dropped because a better-ranked hit carried the same text (same
+    # ``content_hash``); the search window refilled the page behind them.
+    duplicates_collapsed: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -173,6 +178,9 @@ class RetrievalResources:
     document_snapshots: DocumentSnapshotReader | None = None
     source_catalog: SourceCatalogReader | None = None
     summary_repository: SummaryReaderPort | None = None
+    # Searches accepted source-entity cards and expands the hits back into the
+    # ordinary evidence chunks behind them. Absent leaves plain chunk retrieval.
+    entity_summary_search: EntitySummarySearch | None = None
 
 
 @dataclass(frozen=True, slots=True)

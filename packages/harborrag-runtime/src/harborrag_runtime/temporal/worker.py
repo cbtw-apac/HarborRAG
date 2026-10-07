@@ -4,6 +4,7 @@ import asyncio
 import logging
 import signal
 from collections.abc import Callable, Coroutine, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
@@ -19,12 +20,14 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
+from harborrag_runtime.topology.derived_models import RequestEmbedder
 from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
 from harborrag_runtime.topology.summary_worker import serve_summaries
 
 from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
 from .maintenance_activities import MaintenanceActivities
+from .sandbox import workflow_sandbox_runner
 from .worker_registry import (
     validate_worker_registrations,
     worker_registrations,
@@ -32,6 +35,27 @@ from .worker_registry import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
+
+
+def thread_pool_size(config: TemporalRuntimeConfig) -> int:
+    """One thread per activity this process may run at once.
+
+    Connector loads, parsing, normalization and chunking all run through
+    ``asyncio.to_thread``, and a Jira load sleeps in the rate limiter while it
+    holds its thread. The default executor has ``cpu_count + 4`` threads (8 on
+    a 4-vCPU host), which caps the documents a replica can really progress at
+    about eight however many activity slots it has.
+    """
+
+    return config.worker.max_concurrent_activities * len(config.task_queues.as_tuple())
+
+
+def _size_thread_pool(config: TemporalRuntimeConfig) -> None:
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(
+            max_workers=thread_pool_size(config), thread_name_prefix="harborrag-activity"
+        )
+    )
 
 
 async def run_workers(
@@ -42,6 +66,7 @@ async def run_workers(
     """Run the Postgres-authoritative workflow hierarchy until shutdown."""
 
     config = TemporalRuntimeConfig.from_settings(settings)
+    _size_thread_pool(config)
     # Establish the control-plane dependency before opening every ingestion
     # repository and connector. This fails fast during Temporal startup or
     # transport errors and avoids expensive start/close churn in restart loops.
@@ -76,13 +101,54 @@ async def run_workers(
             ", ".join(config.task_queues.as_tuple()),
         )
         summary_run = _summary_runner(settings, runtime, client, stop_event)
+        retention_run = _retention_runner(settings, runtime, stop_event)
         runs = asyncio.gather(
             *(worker.run() for worker in workers),
             *((summary_run,) if summary_run is not None else ()),
+            *((retention_run,) if retention_run is not None else ()),
         )
         await _wait_for_shutdown(workers, runs, stop_event=stop_event)
     finally:
         await runtime.close()
+
+
+def _retention_runner(
+    settings: RuntimeSettings,
+    runtime: Any,
+    stop_event: asyncio.Event | None,
+) -> Coroutine[Any, Any, None] | None:
+    """Sweep every scope for retired versions past their TTL on a fixed interval."""
+
+    interval_hours = getattr(settings, "retired_version_purge_interval_hours", 0.0)
+    retention = getattr(runtime, "retention", None)
+    if not interval_hours or retention is None:
+        return None
+    return _sweep_retired_versions(retention, interval_hours * 3600.0, stop_event)
+
+
+async def _sweep_retired_versions(
+    retention: Any,
+    interval_seconds: float,
+    stop_event: asyncio.Event | None,
+) -> None:
+    stop = stop_event or asyncio.Event()
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+            return
+        except TimeoutError:
+            pass
+        try:
+            batch = await retention.run_all()
+        except Exception as error:  # noqa: BLE001 - a failed sweep waits for the next one
+            logger.error("Retired version sweep failed error_type=%s", type(error).__name__)
+            continue
+        logger.info(
+            "Retired version sweep completed eligible=%d purged=%d failed=%d",
+            batch.eligible,
+            batch.purged,
+            batch.failed,
+        )
 
 
 def _summary_runner(
@@ -105,11 +171,19 @@ def _summary_runner(
         logger.warning("Summary projection enabled but no managed tenants are configured")
         return None
     effective = graph_build.effective_settings(settings)
+    # The durable worker already owns a connected vector repository and embed
+    # client; handing them over is what lets an accepted entity card also become
+    # a searchable point here, not only on the standalone summaries CLI. Same
+    # duck-typing as above: a partial runtime simply gets cards without search.
+    vectors = getattr(runtime, "vector_repository", None)
+    embed_client = getattr(runtime, "embed_client", None)
     factory = SummaryRuntimeFactory(
         effective,
         runtime.control,
         ImmutableArtifactReader(runtime.object_store),
         ImmutableArtifactWriter(runtime.object_store),
+        vectors,
+        RequestEmbedder(embed_client) if embed_client is not None else None,
     )
     logger.info(
         "Temporal summary worker polling queue=%s tenants=%s",
@@ -135,6 +209,7 @@ def _build_worker(
         task_queue=task_queue,
         workflows=workflows,
         activities=activities,
+        workflow_runner=workflow_sandbox_runner(workflows),
         identity=worker.identity,
         max_concurrent_activities=worker.max_concurrent_activities,
         max_concurrent_workflow_tasks=worker.max_concurrent_workflow_tasks,

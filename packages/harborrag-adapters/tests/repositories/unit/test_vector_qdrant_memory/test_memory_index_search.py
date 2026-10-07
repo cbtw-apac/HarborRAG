@@ -51,7 +51,7 @@ async def test_each_scope_filters_on_exactly_its_owner_fields(
     await index.search_memories(_query(owner=owner(tenant_id="tenant-b"), scopes=(scope,)))
 
     # A read follows the caller's own tenant collection, never a constant one.
-    assert raw.query_calls[0]["collection_name"] == "tenant-b_memories"
+    assert raw.query_calls[0]["collection_name"] == "harborrag_tenant-b_memories"
     conditions = must_conditions(raw.query_calls[0])
     assert conditions.pop("invalid_at:is_null") is True
     if scope is MemoryScope.SESSION:

@@ -181,3 +181,66 @@ def test_image_parser_rejects_image_over_configured_max_pixels_with_clear_error(
         parser.parse(
             ParseInput(content=buffer.getvalue(), filename="dashboard_export_over_limit.png")
         )
+
+
+def test_liteparse_sends_image_bytes_to_the_ocr_server_and_reuses_the_parser(monkeypatch) -> None:
+    built: list[dict[str, object]] = []
+    seen: list[bytes] = []
+
+    class _LiteParse:
+        def __init__(self, **options: object) -> None:
+            built.append(options)
+
+        def parse(self, data: bytes) -> object:
+            seen.append(data)
+            return SimpleNamespace(text=" extracted text ")
+
+    monkeypatch.setitem(sys.modules, "liteparse", SimpleNamespace(LiteParse=_LiteParse))
+    parser = ImageParser(
+        ocr_engine="LiteParse",
+        lang="en",
+        ocr_server_url="http://ppocr-server:8888/ocr",
+    )
+    parse_input = ParseInput(content=_png_bytes(), filename="scan.png")
+
+    first = parser.parse(parse_input)
+    second = parser.parse(parse_input)
+
+    assert first.content == "extracted text"
+    assert second.content == "extracted text"
+    assert first.metadata["ocr_engine"] == "liteparse"
+    # Constructing LiteParse is not free, so it is memoized across images.
+    assert len(built) == 1
+    assert built[0]["ocr_server_url"] == "http://ppocr-server:8888/ocr"
+    assert built[0]["ocr_language"] == "en"
+    # `dpi` rasterizes PDF pages; an image already has a native resolution.
+    assert "dpi" not in built[0]
+    assert seen[0] == _png_bytes()
+
+
+def test_liteparse_image_engine_reports_a_missing_package(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "liteparse", None)
+    parser = ImageParser(ocr_engine="liteparse")
+
+    with pytest.raises(ParseError, match="pdf-liteparse"):
+        parser.parse(ParseInput(content=_png_bytes(), filename="scan.png"))
+
+
+def test_image_engine_rejects_an_unknown_ocr_engine() -> None:
+    with pytest.raises(ValueError, match="pytesseract, rapidocr, liteparse"):
+        ImageParser(ocr_engine="nonexistent")
+
+
+def test_liteparse_image_engine_strips_spurious_code_fences(monkeypatch) -> None:
+    class _LiteParse:
+        def __init__(self, **_options: object) -> None: ...
+
+        def parse(self, _data: bytes) -> object:
+            return SimpleNamespace(text="```python\nscanned prose\n```")
+
+    monkeypatch.setitem(sys.modules, "liteparse", SimpleNamespace(LiteParse=_LiteParse))
+    parser = ImageParser(ocr_engine="liteparse")
+
+    result = parser.parse(ParseInput(content=_png_bytes(), filename="scan.png"))
+
+    assert result.content == "scanned prose"

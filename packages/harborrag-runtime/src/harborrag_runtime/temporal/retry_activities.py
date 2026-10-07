@@ -42,12 +42,19 @@ class RetryActivitiesMixin:
             )
             if original is None:
                 raise ValueError("original ingestion source plan is unavailable")
-            planned = await self._runtime.source_plans.get(original, context=context)
+            planned = await self._runtime.source_plans.documents(original, context=context)
             selected_ids = set(request.document_ids)
-            selected = tuple(item for item in planned if item.document_id in selected_ids)
+            selected = tuple(
+                [
+                    item
+                    async for page in planned.pages()
+                    for item in page
+                    if item.document_id in selected_ids
+                ]
+            )
             if len(selected) != len(selected_ids):
                 raise ValueError("retry request contains a document outside the source plan")
-            reference = await self._runtime.source_plans.put(
+            reference = await self._runtime.source_plans.put_pages_and_index(
                 task_id=request.retry_task_id,
                 scan_id=source_scan_id(request.retry_task_id),
                 planned=selected,

@@ -154,10 +154,33 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
 
     adapter_extras = (
         "chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,"
-        "pdf-docling,postgres,qdrant,redis,s3,tables"
+        "pdf-liteparse,postgres,qdrant,redis,s3,tables"
     )
     release_version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]["version"]
     assert f"harborrag-adapters[{adapter_extras}]=={release_version}" in runtime_project
     assert f"harborrag-adapters[{adapter_extras}]'" in dockerfile
+
+
+def test_mcp_compose_does_not_opt_into_plaintext_remote_backends() -> None:
+    # The MCP service uses host networking and reaches every backend on loopback,
+    # which the adapters already accept without TLS. A *_ALLOW_INSECURE_REMOTE
+    # flag there only ever widened a later remote override to plaintext.
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+
+    assert "network_mode: host" in mcp
+    assert "_ALLOW_INSECURE_REMOTE" not in mcp
+    assert "http://127.0.0.1:${MINIO_API_PORT:-9000}" in mcp
+    assert "http://127.0.0.1:${QDRANT_HTTP_PORT:-6333}" in mcp
+    assert "HARBORRAG_FALKORDB_HOST: 127.0.0.1" in mcp
+
+
+def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
+    # The reader never opens the control-plane secret store; the API and worker
+    # files keep requiring the key.
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+    api = API_COMPOSE.read_text(encoding="utf-8")
+
+    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${" not in mcp
+    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?" in api

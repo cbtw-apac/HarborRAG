@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborConflictError,
+    HarborConnectionError,
+    HarborDeadlineExceeded,
+    HarborRateLimitError,
+    HarborUnavailableError,
+)
 from harborrag_core.ingestion import (
     ChunkValidationError,
     DocumentVersionState,
@@ -16,6 +22,7 @@ from harborrag_core.ingestion import (
     SourceAuthenticationError,
     SourceAuthorizationError,
     SourceForbiddenError,
+    SourceItemNotFoundError,
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
@@ -59,6 +66,14 @@ _SIMPLE_FAILURES: tuple[
         "authorization_failed",
     ),
     (SourceForbiddenError, FailureCategory.SOURCE_FORBIDDEN, False, "source_forbidden"),
+    # Before SourceUnavailableError: a connector's not-found error is also a fetch
+    # error, and a deleted item answers the same way however often it is asked.
+    (
+        SourceItemNotFoundError,
+        FailureCategory.SOURCE_FORBIDDEN,
+        False,
+        "source_item_not_found",
+    ),
     (SourceUnavailableError, FailureCategory.TRANSIENT, True, "source_unavailable"),
     (UnsupportedDocumentError, FailureCategory.UNSUPPORTED, False, "document_unsupported"),
     (
@@ -83,6 +98,16 @@ _SIMPLE_FAILURES: tuple[
 )
 
 
+_TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
+    HarborConnectionError,
+    HarborDeadlineExceeded,
+    HarborRateLimitError,
+    HarborUnavailableError,
+    ConnectionError,
+    TimeoutError,
+)
+
+
 class DocumentVersionTransitionPolicy:
     """Validate provider-independent state transitions and replay boundaries."""
 
@@ -94,6 +119,8 @@ class DocumentVersionTransitionPolicy:
                 DocumentVersionState.ACTIVE,
                 DocumentVersionState.RETIRED,
                 DocumentVersionState.FAILED,
+                DocumentVersionState.PURGING,
+                DocumentVersionState.PURGED,
             }
         if current == DocumentVersionState.VERIFIED and target == DocumentVersionState.ACTIVE:
             return True
@@ -147,11 +174,16 @@ class PublicationPolicy:
         decision: SourceAdmissionDecision,
         state: DocumentVersionState,
         requires_processing: bool,
+        is_current_active: bool = False,
     ) -> None:
         if not self.requires_publication(decision):
             raise PublicationConflictError(
                 f"admission decision {decision.value} cannot publish a document version"
             )
+        if state == DocumentVersionState.ACTIVE and is_current_active:
+            # A retried publish whose first attempt committed: the publisher
+            # answers this as an idempotent replay, so it is not a conflict.
+            return
         if requires_processing:
             required = {DocumentVersionState.VERIFIED}
             if decision == SourceAdmissionDecision.FORCE_REPROCESS:
@@ -180,12 +212,29 @@ class SafeFailure:
 
 
 class IngestionFailureClassifier:
-    """Map normalized domain errors to safe durable failure information."""
+    """Map normalized domain errors to safe durable failure information.
+
+    Infrastructure failures -- a dropped connection, a timeout, a full or
+    unavailable object store -- are transient in every stage. Before, any
+    unexpected exception in a parse, persist or chunk stage counted as a
+    validation failure and was never retried, so a short MinIO or database
+    outage failed documents permanently. Adapter-level types the engine cannot
+    import (storage, S3, SQL drivers) are supplied by the runtime.
+    """
+
+    def __init__(self, transient_errors: tuple[type[BaseException], ...] = ()) -> None:
+        self._transient_errors = (*_TRANSIENT_ERRORS, *transient_errors)
 
     def classify(self, stage: str, error: Exception) -> SafeFailure:
         for error_type, category, retryable, code in _SIMPLE_FAILURES:
             if isinstance(error, error_type):
                 return SafeFailure(category, retryable, code)
+        if self._is_transient(error):
+            return SafeFailure(
+                FailureCategory.TRANSIENT,
+                True,
+                f"{stage.lower()}_{type(error).__name__.lower()}",
+            )
         if isinstance(error, ProjectionWriteError):
             return SafeFailure(
                 _STAGE_CATEGORIES.get(stage, FailureCategory.TRANSIENT),
@@ -211,3 +260,19 @@ class IngestionFailureClassifier:
             FailureCategory.UNSUPPORTED,
         }
         return SafeFailure(category, retryable, f"{stage.lower()}_{type(error).__name__.lower()}")
+
+    def _is_transient(self, error: BaseException) -> bool:
+        """Whether ``error`` or an error it was explicitly raised from is an infrastructure fault.
+
+        Only ``raise ... from`` chains count: an error merely raised while handling
+        a timeout (``__context__``) is that handler's own verdict, not the timeout.
+        """
+
+        seen: set[int] = set()
+        current: BaseException | None = error
+        while current is not None and id(current) not in seen and len(seen) < 16:
+            if isinstance(current, self._transient_errors):
+                return True
+            seen.add(id(current))
+            current = current.__cause__
+        return False

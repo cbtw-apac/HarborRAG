@@ -38,7 +38,7 @@ class LinkConnector(_OneDocumentConnector):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("predicate", ["links_to", "is_blocked_by"])
+@pytest.mark.parametrize("predicate", ["links_to", "blocks"])
 async def test_repair_replaces_a_previously_resolved_endpoint_when_resolution_moves(
     tmp_path: Path, predicate: str
 ) -> None:
@@ -74,8 +74,8 @@ async def test_repair_replaces_a_previously_resolved_endpoint_when_resolution_mo
         endpoints = {links[0].source_node_key, links[0].target_node_key}
         assert endpoints == {_key("docs", "docs/a.txt"), _key("moved", "docs/b.txt")}
         assert _key("archive", "docs/b.txt") not in endpoints
-        if predicate == "is_blocked_by":
-            assert links[0].source_node_key == _key("moved", "docs/b.txt")
+        if predicate == "blocks":
+            assert links[0].source_node_key == _key("docs", "docs/a.txt")
 
 
 @pytest.mark.asyncio
@@ -109,8 +109,21 @@ async def test_repair_retracts_resolved_link_when_target_loses_active_version(
         result = await repair.repair(discovery.planned, tenant_id="default")
 
         assert result.unresolved_relations == 1
-        assert not [
+        links = [
             edge
             for edge in resources.graph.relations.values()
             if edge.relation_type == RelationType.LINKS_TO
+        ]
+        # The link no longer reaches the retired target's node: it points at an
+        # external stub, which carries the target's id and nothing else.
+        assert len(links) == 1
+        assert links[0].target_node_key != _key("archive", "docs/b.txt")
+        stub = resources.graph.nodes[links[0].target_node_key]
+        assert stub.attributes == {"placeholder": True, "external": True}
+        assert stub.title == stub.logical_id
+        unresolved = await control.unresolved_relations.unresolved_for(
+            discovery.planned[0].document_id
+        )
+        assert [(row.target_source_item_id, row.predicate) for row in unresolved] == [
+            ("docs/b.txt", "links_to")
         ]

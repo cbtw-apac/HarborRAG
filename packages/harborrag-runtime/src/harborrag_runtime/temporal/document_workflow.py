@@ -102,4 +102,6 @@ class DocumentIngestionWorkflow:
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=discovery_retry,
             )
+            if error_type == "source_item_not_found":
+                return DocumentIngestionOutcome.SOURCE_ITEM_MISSING
             return DocumentIngestionOutcome.FAILED

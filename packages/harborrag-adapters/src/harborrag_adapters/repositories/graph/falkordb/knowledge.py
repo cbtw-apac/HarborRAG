@@ -248,6 +248,18 @@ class FalkorKnowledgeGraphRepository:
             context=context,
         )
 
+    async def prune_external_stubs(
+        self,
+        *,
+        context: StorageOperationContext,
+        grace_seconds: int = 3600,
+    ) -> int:
+        return await knowledge_admin.prune_external_stubs(
+            await self.database_for(context, write=True),
+            context=context,
+            grace_seconds=grace_seconds,
+        )
+
     async def delete_source_scope(
         self,
         source_scope_id: str,

@@ -110,7 +110,10 @@ class SourceIngestionWorkflow:
                     summary=self._summary,
                 ),
                 task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=15),
+                start_to_close_timeout=timedelta(
+                    seconds=request.workflow_options.timeouts.finalization_seconds
+                ),
+                heartbeat_timeout=timedelta(minutes=2),
                 retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                 result_type=SourceIngestionResult,
             )
@@ -280,7 +283,11 @@ class SourceIngestionWorkflow:
                     "harborrag.discover_source_items",
                     request,
                     task_queue=request.workflow_options.task_queues.discovery,
-                    start_to_close_timeout=timedelta(minutes=30),
+                    # Each retry resumes from the last persisted page, so this
+                    # bounds one attempt, not the discovery.
+                    start_to_close_timeout=timedelta(
+                        seconds=request.workflow_options.timeouts.discovery_seconds
+                    ),
                     heartbeat_timeout=timedelta(minutes=2),
                     retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
                     result_type=SourceDiscoveryResult,

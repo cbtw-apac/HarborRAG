@@ -303,4 +303,5 @@ async def test_hybrid_search_fuses_dense_and_sparse_rankings(
         "dense-only",
         "sparse-only",
     ]
-    assert [call["using"] for call in raw.query_calls] == ["dense", "sparse"]
+    # The third call measures the dense similarity of the hit only sparse found.
+    assert [call["using"] for call in raw.query_calls] == ["dense", "sparse", "dense"]

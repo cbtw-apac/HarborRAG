@@ -47,3 +47,27 @@ def test_rendered_markdown_omits_links_section_when_no_anchors_present() -> None
     output = local._render_local_output(Path("page.html"), parsed, markdown=True)
 
     assert "## Links" not in output
+
+
+def test_rendered_markdown_names_the_configured_pdf_engine_and_its_settings() -> None:
+    parsed = ParsedDocument(
+        content="Scanned page text",
+        parser_name="pdf",
+        parser_version="1.0.0",
+        elements=[],
+        metadata={
+            "pdf_engine": "liteparse",
+            "source_engine": "liteparse",
+            "liteparse_ocr_enabled": True,
+            "liteparse_output_format": "markdown",
+            "page_count": 3,
+        },
+    )
+
+    output = local._render_local_output(Path("scan.pdf"), parsed, markdown=True)
+
+    assert "- **PDF engine**: liteparse" in output
+    assert "- **Page count**: 3" in output
+    assert "- **OCR enabled**: True" in output
+    assert "- **Output format**: markdown" in output
+    assert "docling" not in output

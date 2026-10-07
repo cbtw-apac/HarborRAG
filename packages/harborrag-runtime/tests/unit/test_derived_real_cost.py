@@ -24,7 +24,7 @@ pytestmark = pytest.mark.unit
 
 
 class _PricedDescriptions:
-    async def generate_usage(self, packets):
+    async def generate_usage(self, packets, **_):
         del packets
         return DescriptionRun(
             output=DescriptionOutput(
@@ -63,7 +63,7 @@ class _CountingDescriptions:
         self.calls = 0
         self._cost = cost
 
-    async def generate_usage(self, packets):
+    async def generate_usage(self, packets, **_):
         self.calls += 1
         return DescriptionRun(
             output=DescriptionOutput(

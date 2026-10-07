@@ -3,6 +3,7 @@ from urllib.parse import urlparse, urlunparse
 from harborrag_core.ingestion import (
     SourceAuthenticationError,
     SourceAuthorizationError,
+    SourceItemNotFoundError,
     SourceUnavailableError,
 )
 
@@ -65,6 +66,18 @@ class FetchError(SourceUnavailableError, ConnectorError):
         super().__init__(message)
         self.status_code = status_code
         self.detail = detail
+
+
+class ItemNotFoundError(FetchError, SourceItemNotFoundError):
+    """Raised when the source answers HTTP 404 for one item.
+
+    Still a ``FetchError`` for callers that handle fetch failures generically, but
+    classified as not found rather than transient: Jira answers 404 for an issue
+    that was deleted -- or hidden from this account -- after discovery listed it,
+    and retrying returns the same 404.
+    """
+
+    retryable = False
 
 
 class RateLimitError(FetchError):

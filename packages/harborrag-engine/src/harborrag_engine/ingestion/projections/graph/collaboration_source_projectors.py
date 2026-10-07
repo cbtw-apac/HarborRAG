@@ -12,7 +12,6 @@ from .graph_state import GraphProjectionState, GraphRelationSpec
 from .source_projector_support import (
     BaseSourceProjector,
     is_attachment,
-    mapping_sequence,
     mapping_value,
     project_structure_chain,
     selected_values,
@@ -172,23 +171,83 @@ class ConfluenceSourceProjector(BaseSourceProjector):
             project_structure_chain(
                 self, state, container=container, item=item, ancestors=ancestors
             )
-            # Only a page lists attachments. Running this for an attachment document
-            # would let one attachment own another.
-            for attachment_value in mapping_sequence(extra.get("attachments")):
-                attachment_id = text_value(attachment_value, "id", "attachment_id")
-                if not attachment_id:
-                    continue
-                attachment = state.source_node(
-                    GraphEntityType.CONFLUENCE_ATTACHMENT,
-                    attachment_id,
-                    title=(
-                        text_value(attachment_value, "title", "filename", "name") or attachment_id
-                    ),
-                    attributes={"placeholder": True},
-                )
-                self.edge(state, RelationType.HAS_ATTACHMENT, item, attachment, explicit=True)
+            # A page's attachment list draws no edge here: each attachment is its own
+            # document and owns page -> attachment, and the page's `has_attachment`
+            # relations reach any attachment that is not ingested through an external
+            # stub. Drawing it here too gave every pair a second, page-owned edge.
         self.version(state, item, document_version)
         return item
+
+
+def _issue_attributes(extra: Mapping[str, Any]) -> dict[str, Any]:
+    """Describe one issue for the reader that re-attaches this observation.
+
+    ``selected_values`` stringifies anything it cannot keep as a scalar, so the
+    source's own taxonomies are collected separately and stay as sequences. The
+    timestamps are normalized onto one pair of names: ``reidentify`` promotes the
+    canonical provenance dates to ``source_created_at``/``source_updated_at``, and
+    a reader should not have to know which spelling a connector produced.
+    """
+
+    attributes = selected_values(
+        extra,
+        "issue_key",
+        "status",
+        "status_category",
+        "issue_type",
+        "priority",
+        "assignee",
+        "reporter",
+        "creator",
+        "project_key",
+        "project_name",
+        "due_date",
+        "resolved_at",
+    )
+    for key in ("labels", "components"):
+        values = text_sequence(extra.get(key))
+        if values:
+            attributes[key] = list(values)
+    for key, promoted in (
+        ("created_at", "source_created_at"),
+        ("updated_at", "source_updated_at"),
+    ):
+        value = text_value(extra, key, promoted)
+        if value is not None:
+            attributes[key] = value
+    custom_fields = _typed_custom_fields(extra)
+    if custom_fields:
+        attributes["custom_fields"] = custom_fields
+    return attributes
+
+
+def _typed_custom_fields(extra: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Carry the issue's structured custom fields on its own node.
+
+    The connector already split these out of the prose (``typed_custom_attributes``);
+    until now they stopped at document metadata, which nothing downstream reads
+    by field. On the entity node they are what a summary can copy into a facet
+    without a model call. Prose-kind fields stay out: they are already chunks.
+    Bounded to what the graph attribute contract allows, so a project with sixty
+    custom fields does not fail projection.
+    """
+
+    rows = extra.get("typed_custom_attributes")
+    if not isinstance(rows, (list, tuple)):
+        return []
+    selected: list[dict[str, str]] = []
+    for row in rows:
+        if not isinstance(row, Mapping):
+            continue
+        field_id = text_value(row, "field_id")
+        name = text_value(row, "name")
+        value = text_value(row, "text")
+        if not field_id or not name or not value:
+            continue
+        selected.append({"field_id": field_id, "name": name, "value": value[:1024]})
+        if len(selected) == 32:
+            break
+    return selected
 
 
 class JiraSourceProjector(BaseSourceProjector):
@@ -211,7 +270,9 @@ class JiraSourceProjector(BaseSourceProjector):
             state,
             document,
             provider_id=issue_id,
-            attributes=selected_values(extra, "issue_key", "status", "issue_type", "resolved_at"),
+            # The observation a reader re-attaches to this shared node, so it carries
+            # what identifies and dates the issue rather than only how it is filed.
+            attributes=_issue_attributes(extra),
         )
         self.edge(state, RelationType.CONTAINS, container, issue)
         parent = mapping_value(extra.get("parent"))
@@ -230,18 +291,10 @@ class JiraSourceProjector(BaseSourceProjector):
             # wrong project. Where the parent is in the same project the edge merely
             # duplicated the one its own projection makes, so nothing is lost.
             self.edge(state, RelationType.PARENT_OF, parent_issue, issue, explicit=True)
-        for child in mapping_sequence(extra.get("subtasks")):
-            child_id = text_value(child, "key", "id")
-            if not child_id:
-                continue
-            child_issue = state.source_node(
-                GraphEntityType.JIRA_ISSUE,
-                child_id,
-                title=text_value(child, "summary", "key") or child_id,
-                attributes={"placeholder": True},
-            )
-            # Same reasoning as the parent above: the subtask's own projection files it.
-            self.edge(state, RelationType.PARENT_OF, issue, child_issue, explicit=True)
+        # Subtasks draw no edge here: the subtask owns parent -> child (above, from its
+        # own `parent`). The connector declares them as `parent_of` relations instead,
+        # which reach a subtask that is not ingested through an external stub. Drawing
+        # them here too gave every parent/subtask pair a second, parent-owned edge.
         self.version(state, issue, document_version)
         return issue
 

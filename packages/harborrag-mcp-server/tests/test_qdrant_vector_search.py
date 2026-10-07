@@ -125,6 +125,8 @@ class QdrantRetrievalPipeline:
                 text=str((item.payload or {}).get("text", "")),
                 score=item.score,
                 metadata={k: v for k, v in (item.payload or {}).items() if k != "text"},
+                # Cosine collection: the score is the measured similarity.
+                relevance=max(0.0, min(1.0, item.score)),
             )
             for item in response.points
         ]
@@ -169,9 +171,10 @@ def seeded_pipeline(qdrant_url: str):
     import asyncio
 
     seed = [
-        ("doc-1", "HarborRAG vector search integration", {"category": "rag"}),
-        ("doc-2", "Qdrant database running on localhost", {"category": "infra"}),
-        ("doc-3", "Score threshold filters low-quality results", {"category": "rag"}),
+        # "status" rather than an ad-hoc key: vector_search accepts indexed evidence keys only.
+        ("doc-1", "HarborRAG vector search integration", {"status": "rag"}),
+        ("doc-2", "Qdrant database running on localhost", {"status": "infra"}),
+        ("doc-3", "Score threshold filters low-quality results", {"status": "rag"}),
     ]
     collection = _collection_name()
     pipeline = QdrantRetrievalPipeline(url=qdrant_url, collection=collection)
@@ -200,11 +203,11 @@ def test_qdrant_pipeline_filter_works(seeded_pipeline: QdrantRetrievalPipeline) 
     rag_results = _sync_retrieve(
         seeded_pipeline,
         "HarborRAG",
-        filters={"category": "rag"},
+        filters={"status": "rag"},
     )
 
     assert len(rag_results) > 0
-    assert all(item.metadata.get("category") == "rag" for item in rag_results)
+    assert all(item.metadata.get("status") == "rag" for item in rag_results)
 
 
 def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
@@ -215,7 +218,7 @@ def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
         seeded_pipeline,
         query_text,
         top_k=10,
-        filters={"category": "rag"},
+        filters={"status": "rag"},
     )
     if len(live_results) < 2:
         pytest.skip("Not enough Qdrant results to validate threshold filtering")
@@ -258,7 +261,7 @@ def test_vector_search_tool_threshold_with_qdrant_seeded_scores(
                 "tenant_id": "smoke",
                 "top_k": 10,
                 "score_threshold": threshold,
-                "filters": {"category": "rag"},
+                "filters": {"status": "rag"},
             },
             principal_id="smoke-test",
         )

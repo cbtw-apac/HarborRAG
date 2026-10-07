@@ -65,6 +65,9 @@ _ALLOWED_TRANSITIONS: dict[DocumentVersionState, frozenset[DocumentVersionState]
     DocumentVersionState.ACTIVE: frozenset({DocumentVersionState.RETIRED}),
     DocumentVersionState.RETIRED: frozenset(),
     DocumentVersionState.FAILED: frozenset(),
+    # Reached only through the retention purge, never through ``transition``.
+    DocumentVersionState.PURGING: frozenset(),
+    DocumentVersionState.PURGED: frozenset(),
 }
 
 _ARTIFACT_COLUMNS = frozenset(

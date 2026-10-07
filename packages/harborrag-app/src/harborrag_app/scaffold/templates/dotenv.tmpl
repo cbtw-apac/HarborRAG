@@ -11,6 +11,10 @@ HARBORRAG_OBJECT_STORE_ENDPOINT_URL=http://localhost:@{minio_api_port}
 HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID=harborrag
 HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY=@{object_store_secret}
 
+# OCR server for scanned PDF pages and images (config/parsers.yaml). Empty: no
+# OCR server; LiteParse OCRs locally with Tesseract.
+HARBORRAG_OCR_SERVER_URL=
+
 @{local_source_lines}# @{provider_label} credentials referenced by config/models.yaml
 @{credential_lines}
 @{connector_env_lines}

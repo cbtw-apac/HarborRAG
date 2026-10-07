@@ -7,7 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import Any
 
-from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
+from harborrag_core.contracts.errors import (
+    HarborCapabilityError,
+    HarborDeadlineExceeded,
+    HarborValidationError,
+)
 
 # From their defining module, not from the SDK facade: importing a stateless
 # tool should not drag in HarborRAG, chat, memory and execution. The facade
@@ -23,6 +27,7 @@ from harborrag_core.contracts.reader import (
 from harborrag_core.contracts.tools import ToolInvocationContext
 from harborrag_core.retrieval import GraphNodeResolutionQuery, GraphNodeSelectorKind
 
+from .graph_search_support import node_selector
 from .reader_base import ReaderTool
 from .reader_catalog import (
     FETCH_EVIDENCE_SPEC,
@@ -133,6 +138,7 @@ class GetDocumentContextTool(ReaderTool):
                     "outcome": response.outcome,
                     "document_id": response.document_id,
                     "document_version_id": response.document_version_id,
+                    "document_title": response.document_title,
                     "chunks": [
                         {
                             "chunk_id": item.chunk_id,
@@ -248,9 +254,16 @@ class ResolveGraphNodesTool(ReaderTool):
             selector = arguments.get("selector")
             if not isinstance(selector, dict):
                 raise HarborValidationError("selector must be an object")
+            selector_kind = GraphNodeSelectorKind(text(selector, "kind"))
+            value = text(selector, "value")
             query = GraphNodeResolutionQuery(
-                selector_kind=GraphNodeSelectorKind(text(selector, "kind")),
-                value=text(selector, "value"),
+                selector_kind=selector_kind,
+                # A provider id may arrive as the source_item_id vector_search returned.
+                value=(
+                    node_selector(value)
+                    if selector_kind == GraphNodeSelectorKind.PROVIDER_ID
+                    else value
+                ),
                 source_scope_ids=string_list(arguments, "source_ids"),
                 entity_types=string_list(arguments, "entity_types"),
                 limit=integer(arguments, "limit", 5, minimum=1, maximum=10),
@@ -276,6 +289,14 @@ class ResolveGraphNodesTool(ReaderTool):
             return failure(str(exc))
         except HarborCapabilityError as exc:
             return failure(str(exc))
+        except HarborDeadlineExceeded:
+            # A very common exact title can match more nodes than one bounded read can
+            # order; the caller can narrow it, so say how instead of failing opaquely.
+            logger.warning("resolve_graph_nodes graph query timed out")
+            return failure(
+                "graph query timed out; narrow with source_ids or entity_types, "
+                "or use a node_key or provider_id selector"
+            )
         except Exception:
             logger.exception("resolve_graph_nodes failed")
             return failure("graph node resolution failed")

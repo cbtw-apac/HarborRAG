@@ -15,6 +15,7 @@ from harborrag_adapters.repositories.vector.qdrant.client import QdrantDBClient
 from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query_mapping import (
+    dense_similarity,
     fused_results,
     point_record,
     search_result,
@@ -35,6 +36,7 @@ from harborrag_core.indexing import (
     VectorSearchResult,
 )
 from harborrag_core.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage.namespace import tenant_namespace
 
 _MAX_HYBRID_CANDIDATES = 1_000
 """Most candidates per lane fusion will hold in memory at once."""
@@ -63,6 +65,7 @@ class QdrantQueryExecutor:
         self._client = client
         self._config = config
         self._specs = specs
+        self._indexed: dict[tuple[str, str], frozenset[str]] = {}
 
     async def get(
         self,
@@ -117,6 +120,54 @@ class QdrantQueryExecutor:
             records=points,
             next_cursor=str(next_offset) if next_offset is not None else None,
         )
+
+    async def distinct_values(
+        self,
+        collection: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        """Count-free facet over one keyword-indexed field.
+
+        ``exact`` because the answer is used as a filter: an approximate facet
+        could drop a matching value, and with it every point that value names.
+        """
+
+        await self.require_spec(collection, context)
+        response = await self._client.raw.facet(
+            collection_name=self.collection_name(collection, context),
+            key=field,
+            facet_filter=QdrantMapper.filter(filters, qm),
+            limit=limit,
+            exact=True,
+        )
+        return tuple(str(hit.value) for hit in response.hits)
+
+    async def indexed_payload_fields(
+        self,
+        collection: str,
+        *,
+        refresh: bool = False,
+        context: StorageOperationContext,
+    ) -> frozenset[str]:
+        """The payload keys this collection has an index for, as Qdrant reports them.
+
+        Cached per collection because a caller asks on every filtered search; a
+        caller that finds a key missing passes ``refresh`` once, so an index an
+        operator added since is honoured without a restart.
+        """
+
+        key = self.spec_key(collection, context)
+        if not refresh and key in self._indexed:
+            return self._indexed[key]
+        await self.require_spec(collection, context)
+        info = await self._client.raw.get_collection(self.collection_name(collection, context))
+        fields = frozenset(str(name) for name in getattr(info, "payload_schema", None) or {})
+        self._indexed[key] = fields
+        return fields
 
     async def search(
         self,
@@ -221,7 +272,48 @@ class QdrantQueryExecutor:
             query=query,
             spec=spec,
         )
-        return output[query.offset : query.offset + query.top_k]
+        page = output[query.offset : query.offset + query.top_k]
+        dense_ids = {str(point.id) for point in dense_response.points}
+        unmeasured = [result.id for result in page if result.id not in dense_ids]
+        if not unmeasured:
+            return page
+        measured = await self._dense_similarity(query, spec, unmeasured, context=context)
+        return [
+            result.model_copy(update={"relevance": measured[result.id]})
+            if result.id in measured
+            else result
+            for result in page
+        ]
+
+    async def _dense_similarity(
+        self,
+        query: HybridSearchQuery,
+        spec: VectorIndexSpec,
+        ids: Sequence[str],
+        *,
+        context: StorageOperationContext,
+    ) -> dict[str, float | None]:
+        """Measure the dense similarity of hits only the sparse lane found.
+
+        Without it a keyword-only hit has no honest relevance at all, and a
+        threshold either drops it blindly or passes it blindly. Scoring a handful
+        of known ids is an exact comparison over those points alone -- no graph
+        walk, no payload scan -- so it costs a few vector reads, not a search.
+        """
+
+        response = await self._client.raw.query_points(
+            collection_name=self.collection_name(query.index_name, context),
+            query=query.vector,
+            using=spec.dense_vector_name,
+            query_filter=qm.Filter(must=[qm.HasIdCondition(has_id=list(ids))]),
+            limit=len(ids),
+            with_payload=False,
+            with_vectors=False,
+        )
+        return {
+            str(point.id): dense_similarity(float(point.score), spec.distance)
+            for point in response.points
+        }
 
     async def sparse_search(
         self,
@@ -321,7 +413,7 @@ class QdrantQueryExecutor:
                         context=context,
                     ),
                 )
-        return f"{self._config.collection_prefix}{tenant}_{collection}"
+        return f"{tenant_namespace(tenant, self._config.namespace_prefix)}_{collection}"
 
     def spec_key(
         self,

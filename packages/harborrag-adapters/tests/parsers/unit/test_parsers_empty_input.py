@@ -23,8 +23,10 @@ from harborrag_adapters.parsers.compat import (
     ImageParser,
     JsonParser,
     MarkdownParser,
+    MsWordParser,
     OdtParser,
     PdfParser,
+    PptParser,
     PptxParser,
     TextParser,
 )
@@ -37,6 +39,8 @@ pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
     ("parser", "filename"),
     [
         (DocxParser(), "empty.docx"),
+        (MsWordParser(), "empty.doc"),
+        (PptParser(), "empty.ppt"),
         (OdtParser(), "empty.odt"),
         (PptxParser(), "empty.pptx"),
         (EpubParser(), "empty.epub"),

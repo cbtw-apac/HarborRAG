@@ -26,7 +26,6 @@ class QdrantVectorConfig(RepositoryConfig):
     path: str | None = None
     api_key: SecretStr | None = None
     prefer_grpc: bool = True
-    collection_prefix: str = ""
     allow_insecure_remote: bool = False
 
     @model_validator(mode="after")

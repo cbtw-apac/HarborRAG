@@ -7,8 +7,6 @@ from harborrag_core.contracts.reader import (
     DocumentContextResponse,
     DocumentListRequest,
     DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -22,11 +20,6 @@ from .readers import ReaderRetrieval
 
 class RuntimeReaderRetrievalMixin:
     _reader: ReaderRetrieval
-
-    async def get_document_metadata(
-        self, request: DocumentMetadataRequest
-    ) -> DocumentMetadataResponse:
-        return await self._reader.document_metadata(request)
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
         return await self._reader.list_documents(request)

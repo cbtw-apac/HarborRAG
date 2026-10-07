@@ -25,15 +25,15 @@ from harborrag_adapters.parsers.text.config import TextParserConfig
 
 
 def test_parser_family_configuration_defaults_define_deterministic_routing() -> None:
-    assert DocumentParserConfig().engine_order == ("docx", "odt", "epub")
+    assert DocumentParserConfig().engine_order == ("docx", "doc", "odt", "epub")
     assert isinstance(DocxEngineConfig(), DocxEngineConfig)
     assert isinstance(OdtEngineConfig(), OdtEngineConfig)
 
     image = ImageParserConfig()
     ocr = OcrEngineConfig()
-    assert (image.engine, image.max_pixels) == ("pytesseract", 100_000_000)
+    assert (image.engine, image.max_pixels) == ("liteparse", 100_000_000)
     assert (ocr.provider, ocr.timeout, ocr.max_pixels) == (
-        "pytesseract",
+        "liteparse",
         60,
         100_000_000,
     )
@@ -50,3 +50,16 @@ def test_parser_family_configuration_defaults_define_deterministic_routing() -> 
     assert StructuredParserConfig().engine_order == ("json",)
     assert JsonEngineConfig().max_flatten_depth == 200
     assert TextParserConfig().engine == "text"
+
+
+def test_liteparse_is_the_default_pdf_and_image_engine() -> None:
+    from harborrag_adapters.parsers import HarborParserFactory
+    from harborrag_adapters.parsers.image.engines.ocr.engine import OcrImageEngine
+    from harborrag_adapters.parsers.pdf.config import PDFRouterConfig
+
+    router = PDFRouterConfig()
+    assert router.default_profile == "liteparse"
+    assert router.profiles["liteparse"].engine_order == ("liteparse", "pymupdf")
+    parser = HarborParserFactory().create_pdf_parser()
+    assert [engine.name for engine in parser.engines] == ["liteparse", "pymupdf"]
+    assert OcrImageEngine().ocr_engine == "liteparse"

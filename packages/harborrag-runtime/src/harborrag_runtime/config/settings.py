@@ -13,11 +13,16 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
+from harborrag_core.storage import (
+    DEFAULT_STORAGE_NAMESPACE_PREFIX,
+    STORAGE_NAMESPACE_PREFIX_PATTERN,
+)
+from harborrag_core.summary_cards import SUMMARY_DESCRIPTION_MAX_WORDS
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 
 from .memory_settings import MemorySettingsMixin
@@ -61,8 +66,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     summary_processing_allowed: bool = False
     summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
-    control_db_pool_size: int = Field(default=5, ge=1, le=100)
-    control_db_max_overflow: int = Field(default=10, ge=0, le=200)
+    # Matches the Compose defaults: config/temporal.yaml runs 12 activities on each of
+    # six task queues, and TemporalRuntimeConfig refuses 72 > pool + overflow.
+    control_db_pool_size: int = Field(default=40, ge=1, le=100)
+    control_db_max_overflow: int = Field(default=32, ge=0, le=200)
     secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
@@ -104,23 +111,35 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     object_store_access_key_id: SecretStr | None = None
     object_store_secret_access_key: SecretStr | None = None
     object_store_session_token: SecretStr | None = None
+    # One namespace per tenant in every store: `{prefix}_{tenant_id}` names the Qdrant
+    # collections' stem, the FalkorDB graph and the object-store key prefix.
+    storage_namespace_prefix: str = Field(
+        default=DEFAULT_STORAGE_NAMESPACE_PREFIX, pattern=STORAGE_NAMESPACE_PREFIX_PATTERN
+    )
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_prefer_grpc: bool = True
-    qdrant_collection_prefix: str = ""
     qdrant_allow_insecure_remote: bool = False
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
     falkordb_username: str | None = None
     falkordb_password: SecretStr | None = None
     falkordb_graph: str = "harborrag"
-    falkordb_tenant_graph_prefix: str = "harborrag_tenant"
     falkordb_read_username: str | None = None
     falkordb_read_password: SecretStr | None = None
     falkordb_max_cached_tenants: int = Field(default=64, ge=1, le=10000)
     falkordb_ssl: bool = False
     falkordb_max_connections: int = Field(default=32, ge=1, le=1000)
     graph_relation_repair_concurrency: int = Field(default=8, ge=1, le=1000)
+    # Days a RETIRED document version keeps its object-store artifacts and
+    # projection manifest after its projections were cleaned. Past that, the
+    # source-scope maintenance purges them and marks the version PURGED. Unset
+    # (blank, "none" or "off") keeps retired versions forever; 0 purges as soon
+    # as projection cleanup has completed.
+    retired_version_retention_days: int | None = Field(default=30, ge=0, le=36_500)
+    # How often each ingestion worker sweeps every scope for expired retired
+    # versions (besides the purge after each source run). 0 disables the sweep.
+    retired_version_purge_interval_hours: float = Field(default=24.0, ge=0, le=24 * 30)
     falkordb_allow_insecure_remote: bool = False
     embedding_model: str | None = None
     embedding_dimensions: int | None = None
@@ -171,12 +190,28 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     summary_debounce_seconds: float = Field(default=5, ge=0, le=300)
     summary_max_wait_seconds: float = Field(default=60, ge=1, le=3600)
     summary_tenant_enabled: bool = False
+    # A source entity is the first card that spans documents, so it is the one
+    # worth writing as a dossier rather than a navigation hint. Widening this
+    # regenerates source-entity cards and nothing else, because the budget is part
+    # of the summary policy fingerprint.
+    summary_entity_card_max_words: int = Field(default=60, ge=20, le=SUMMARY_DESCRIPTION_MAX_WORDS)
+    # Publishes each accepted source-entity card as its own searchable point, so a
+    # question about a whole issue reaches the issue instead of one chunk of it.
+    # Off by default: it needs a vector backend and one embedding per entity.
+    summary_entity_index_enabled: bool = False
     # Explicit conservative per-operation price bounds are required before LLM dispatch.
     topology_llm_operation_cost_usd: Decimal | None = Field(default=None, gt=0)
     topology_derived_enabled: bool = False
     topology_retrieval_policy: TopologyRetrievalPolicy = Field(
         default_factory=TopologyRetrievalPolicy
     )
+
+    @field_validator("retired_version_retention_days", mode="before")
+    @classmethod
+    def _disable_retention(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in {"", "none", "off", "disabled"}:
+            return None
+        return value
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
@@ -200,15 +235,11 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
                 "HARBORRAG_ENV=prod; SQLite is development-only"
             )
-        if is_blank_secret(self.secrets_encryption_key) and not is_sqlite_control_db:
-            # env=dev with a real (non-SQLite) control DB is a legal combination, and
-            # it would otherwise silently encrypt stored secrets with the
-            # publicly-known dev-default key -- require an explicit key for any
-            # persistent control database, not only in prod.
-            raise ValueError(
-                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
-                "is not SQLite; the dev-only default key is not safe for stored secrets"
-            )
+        # The secrets encryption key is required only by the process that opens
+        # the control-plane secret store (CompositionRoot.production enforces it
+        # for any non-SQLite database). Reader-only processes such as the MCP
+        # server share these settings but never decrypt a stored secret, and
+        # demanding the key here handed it to a container that has no use for it.
         development = self.env == "dev"
         if self.redis_url is not None:
             try:

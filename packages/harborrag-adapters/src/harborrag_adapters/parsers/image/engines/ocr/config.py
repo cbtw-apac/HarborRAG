@@ -9,7 +9,7 @@ from dataclasses import dataclass
 class OcrEngineConfig:
     """Selectable local OCR implementation and resource controls."""
 
-    provider: str = "pytesseract"
+    provider: str = "liteparse"
     language: str | None = None
     timeout: int | float | None = 60
     max_pixels: int | None = 100_000_000

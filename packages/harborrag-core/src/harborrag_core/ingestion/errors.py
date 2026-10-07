@@ -13,6 +13,15 @@ class SourceUnavailableError(IngestionDomainError):
     retryable = True
 
 
+class SourceItemNotFoundError(IngestionDomainError):
+    """The source no longer serves this item: deleted, moved, or no longer visible.
+
+    Unlike ``SourceUnavailableError`` this is not transient -- the same request gets
+    the same answer -- so it is not retried. Scan-based removal reconciliation, not
+    this error, decides whether an already-published version is retired.
+    """
+
+
 class SourceForbiddenError(IngestionDomainError):
     pass
 

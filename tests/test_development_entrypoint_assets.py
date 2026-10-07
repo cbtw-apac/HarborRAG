@@ -5,7 +5,6 @@ from __future__ import annotations
 import os
 import stat
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
@@ -14,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
+MCP_LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -132,7 +132,10 @@ def test_api_and_worker_reuse_local_images_unless_rebuild_is_requested() -> None
         "image: ${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}" in temporal
     )
     assert 'docker image inspect "${API_IMAGE}"' in script
-    assert 'docker image inspect "${TEMPORAL_WORKER_IMAGE}"' in script
+    # start_worker derives a device-specific tag from TEMPORAL_WORKER_IMAGE
+    # (the -gpu suffix under --device gpu) and gates the rebuild on that tag.
+    assert 'local worker_image="${TEMPORAL_WORKER_IMAGE}"' in script
+    assert 'docker image inspect "${worker_image}"' in script
     assert "local -a build_args=(--no-build)" in script
     assert "build_args=(--build)" in script
     assert "api [--build]" in script
@@ -165,60 +168,147 @@ def test_api_subcommand_validates_configuration_and_never_starts_worker() -> Non
     assert "temporal_compose" not in api_function
 
 
-def test_mcp_entrypoint_runs_stdio_without_starting_other_processes() -> None:
-    mcp_script = MCP_SCRIPT.read_text(encoding="utf-8")
+def test_mcp_entrypoint_runs_the_server_container_without_other_services() -> None:
+    entrypoint = MCP_SCRIPT.read_text(encoding="utf-8")
+    launcher = MCP_LAUNCHER.read_text(encoding="utf-8")
+    mcp_script = entrypoint + launcher
     dev_script = DEV_SCRIPT.read_text(encoding="utf-8")
 
-    assert "-m harborrag_mcp_server" in mcp_script
-    assert '--local-stack-root "${ROOT_DIR}" "$@"' in mcp_script
+    assert 'MCP_COMPOSE_FILE="docker-compose.mcp.yml"' in entrypoint
+    assert 'MCP_SERVICE="mcp"' in entrypoint
+    assert 'run --rm --no-deps -T "${MCP_SERVICE}" --transport stdio "$@"' in launcher
     assert "HARBORRAG_CONTROL_DB_URL" not in mcp_script
     assert "HARBORRAG_MODEL_CONFIG_PATH" not in mcp_script
-    assert "source " not in mcp_script
+    # The shared launcher is the only file sourced; env files go to Compose.
+    sources = [
+        line.strip() for line in mcp_script.splitlines() if line.strip().startswith("source ")
+    ]
+    assert sources == ['source "${ROOT_DIR}/scripts/deployment/common/mcp-launcher.sh"']
     assert "start_worker" not in mcp_script
     assert "start_api" not in mcp_script
-    assert "docker compose" not in mcp_script
+    assert "docker-compose.yml" not in mcp_script
+    assert "docker-compose.temporal.yml" not in mcp_script
     assert "start_mcp" not in dev_script
     assert "    mcp)" not in dev_script
 
 
-def test_mcp_entrypoint_reads_environment_as_data_without_exposing_secrets(tmp_path: Path) -> None:
+def _mcp_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     project = tmp_path / "project"
     script = project / "scripts/deployment/mcp.sh"
-    environment = project / "env"
     script.parent.mkdir(parents=True)
-    environment.mkdir()
     script.write_text(MCP_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    launcher = project / "scripts/deployment/common/mcp-launcher.sh"
+    launcher.parent.mkdir()
+    launcher.write_text(MCP_LAUNCHER.read_text(encoding="utf-8"), encoding="utf-8")
+    environment = project / "env"
+    environment.mkdir()
     (environment / ".env.database").write_text("POSTGRES_USER=test\n", encoding="utf-8")
-    fake_key = "sk-proj-" + "a" * 40
-    (environment / ".env.models").write_text(
-        f"HARBOR_CHAT_API_KEY= {fake_key}\n",
+    (environment / ".env.mcp").write_text(
+        "HARBORRAG_MCP_BEARER_TOKEN=test-token\nHARBORRAG_MCP_PORT=8123\n",
         encoding="utf-8",
     )
-    (environment / ".env.api").write_text("HARBORRAG_AUTH_MODE=none\n", encoding="utf-8")
-    config = project / "config"
-    config.mkdir()
-    (config / "mcp.yaml").write_text(
-        (ROOT / "config/mcp.yaml").read_text(encoding="utf-8"), encoding="utf-8"
+
+    fake_bin = project / "fake-bin"
+    fake_bin.mkdir()
+    docker_log = project / "docker.log"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env sh
+printf '%s\\n' "$* HARBORRAG_ENV=${HARBORRAG_ENV:-}" >> "$MCP_DOCKER_LOG"
+case " $* " in
+  *" image inspect "*) [ -n "$MCP_IMAGE_PRESENT" ] ;;
+esac
+""",
+        encoding="utf-8",
     )
+    fake_docker.chmod(0o755)
+    env = {
+        **os.environ,
+        "MCP_DOCKER_LOG": str(docker_log),
+        "PATH": f"{fake_bin}:{os.environ['PATH']}",
+    }
+    return script, docker_log, env
+
+
+@pytest.mark.parametrize(
+    ("arguments", "image_present", "expected_calls", "unexpected_calls"),
+    (
+        (
+            ("--check",),
+            "1",
+            ("run --rm --no-deps -T mcp --transport stdio --check",),
+            (" build mcp",),
+        ),
+        (
+            ("--check",),
+            "",
+            (" build mcp", "run --rm --no-deps -T mcp --transport stdio --check"),
+            (),
+        ),
+        (
+            ("--build", "--http"),
+            "1",
+            (" build mcp", "up --no-build --detach --wait --wait-timeout 120 mcp"),
+            (" run ",),
+        ),
+        (("down",), "1", ("docker-compose.mcp.yml down",), (" build ", " run ")),
+    ),
+)
+def test_mcp_entrypoint_drives_the_mcp_compose_service(
+    tmp_path: Path,
+    arguments: tuple[str, ...],
+    image_present: str,
+    expected_calls: tuple[str, ...],
+    unexpected_calls: tuple[str, ...],
+) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
 
     result = subprocess.run(
-        ["bash", str(script), "--check"],
-        cwd=project,
-        env={**os.environ, "HARBORRAG_MCP_PYTHON_BIN": sys.executable},
+        ["bash", str(script), *arguments],
+        env={**env, "MCP_IMAGE_PRESENT": image_present},
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         check=False,
         text=True,
     )
 
     assert result.returncode == 0, result.stderr
-    assert fake_key not in result.stderr
-    assert fake_key not in result.stdout
+    docker_calls = docker_log.read_text(encoding="utf-8")
+    assert "--env-file" in docker_calls
+    for call in expected_calls:
+        assert call in docker_calls
+    for call in unexpected_calls:
+        assert call not in docker_calls
+    if arguments[-1] == "--http":
+        assert "http://127.0.0.1:8123/" in result.stdout
+    else:
+        # Stdio and check mode must keep stdout free for the MCP protocol.
+        assert result.stdout == ""
+
+
+def test_mcp_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> None:
+    script, docker_log, env = _mcp_project(tmp_path)
+    (script.parents[2] / "env/.env.mcp").unlink()
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        env=env,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 2
+    assert "env/.env.mcp" in result.stderr
+    assert "dev.sh bootstrap" in result.stderr
+    assert not docker_log.exists()
 
 
 def test_deployment_has_explicit_orchestration_and_mcp_entrypoints() -> None:
     scripts = sorted((ROOT / "scripts/deployment").glob("*.sh"))
 
-    assert [script.name for script in scripts] == ["dev.sh", "mcp.sh"]
+    assert [script.name for script in scripts] == ["dev.sh", "mcp-ui.sh", "mcp.sh"]
     assert all(script.stat().st_mode & stat.S_IXUSR for script in scripts)
 
 
@@ -263,3 +353,22 @@ def test_down_subcommand_stops_composed_projects_in_reverse_order() -> None:
     database_position = down_function.index("data_compose")
 
     assert api_position < temporal_position < database_position
+
+
+def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) -> None:
+    # Keys are issued with the API's HARBORRAG_ENV; the server must run with the same one.
+    script, docker_log, env = _mcp_project(tmp_path)
+    (script.parents[2] / "env/.env.api").write_text("HARBORRAG_ENV=prod\n", encoding="utf-8")
+    env = {k: v for k, v in env.items() if k != "HARBORRAG_ENV"}
+
+    result = subprocess.run(
+        ["bash", str(script), "--check"],
+        env={**env, "MCP_IMAGE_PRESENT": "1"},
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "HARBORRAG_ENV=prod" in docker_log.read_text(encoding="utf-8")

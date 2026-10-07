@@ -224,6 +224,34 @@ class QdrantVectorRepository(QdrantCollectionMixin, HarborVectorRepository):
             context=context,
         )
 
+    @traced_repository_operation("distinct_values")
+    async def distinct_values(
+        self,
+        index_name: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        return await self._queries.distinct_values(
+            index_name, field, filters=filters, limit=limit, context=context
+        )
+
+    @traced_repository_operation("indexed_payload_fields")
+    async def indexed_payload_fields(
+        self,
+        index_name: str,
+        *,
+        refresh: bool = False,
+        context: StorageOperationContext,
+    ) -> frozenset[str]:
+        """Payload keys with an index, so a caller can refuse an unindexed filter."""
+
+        return await self._queries.indexed_payload_fields(
+            index_name, refresh=refresh, context=context
+        )
+
     @traced_repository_operation("search")
     async def search(
         self,

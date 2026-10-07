@@ -94,7 +94,12 @@ async def test_vector_tool_enforces_access_identity_and_returns_evidence() -> No
             "id": "chunk-1",
             "text": "evidence",
             "score": 0.91,
-            "metadata": _metadata(),
+            # The tool trims per-hit bookkeeping no consumer reads.
+            "metadata": {
+                key: value
+                for key, value in _metadata().items()
+                if key not in {"record_kind", "quality_score", "retrieval_source"}
+            },
             "relevance": None,
         }
     ]
@@ -164,9 +169,7 @@ def test_agent_tool_catalog_exposes_only_bounded_read_tools() -> None:
         "describe_graph",
         "resolve_graph_nodes",
         "list_documents",
-        "get_document_metadata",
-        "verify_citations",
-        "composed_evidence_search",
+        "find_entities",
     }
     assert {tool.capability for tool in tools} == {"read"}
     shared = build_reader_tool_catalog(provider.runtime, KnowledgeReferenceStore())

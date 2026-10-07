@@ -9,4 +9,4 @@ from dataclasses import dataclass
 class DocumentParserConfig:
     """Enabled document engines in deterministic route order."""
 
-    engine_order: tuple[str, ...] = ("docx", "odt", "epub")
+    engine_order: tuple[str, ...] = ("docx", "doc", "odt", "epub")

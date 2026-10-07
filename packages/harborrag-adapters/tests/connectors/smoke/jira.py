@@ -104,6 +104,22 @@ def _render_jira_output(
         *render_metadata_section(metadata, JIRA_METADATA_FIELDS),
         body,
     ]
+
+    # Attachment *text* is already inlined into the issue body by the
+    # connector, so unlike Confluence this renderer adds no `## Attachments`
+    # section. The downloaded image bytes still need an `![]()` link, or
+    # `_save_image_attachments` writes files nothing ever points at.
+    embedded = [
+        (attachment, asset_rel)
+        for attachment in attachments
+        if (asset_rel := (asset_paths or {}).get(attachment.get("id", "")))
+    ]
+    if embedded:
+        lines += ["", "## Attachment images", ""]
+        for attachment, asset_rel in embedded:
+            image_title = attachment.get("title") or "image"
+            lines += [f"![{image_title}]({asset_rel})", ""]
+
     return "\n".join(lines)
 
 

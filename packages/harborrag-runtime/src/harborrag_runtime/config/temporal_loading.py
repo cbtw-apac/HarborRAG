@@ -29,12 +29,23 @@ from harborrag_runtime.config.temporal import (
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal_models import (
     ActivityRetryConfig,
+    ActivityTimeoutConfig,
     RetryPolicyConfig,
     TaskQueueConfig,
 )
 
 _ROOT_KEYS = frozenset(
-    {"connection", "health", "ingestion", "retries", "task_queues", "version", "worker", "workflow"}
+    {
+        "connection",
+        "health",
+        "ingestion",
+        "retries",
+        "task_queues",
+        "timeouts",
+        "version",
+        "worker",
+        "workflow",
+    }
 )
 _CONNECTION_KEYS = frozenset({"allow_insecure_remote", "identity", "namespace", "target", "tls"})
 _TLS_KEYS = frozenset({"domain", "enabled"})
@@ -53,6 +64,7 @@ _HEALTH_KEYS = frozenset({"timeout_seconds"})
 _INGESTION_KEYS = frozenset({"batch_size", "document_concurrency"})
 _TASK_QUEUE_KEYS = frozenset({"discovery", "index", "io", "model", "parser", "transform"})
 _RETRY_KEYS = frozenset({"discovery", "document"})
+_TIMEOUT_KEYS = frozenset({"discovery_seconds", "finalization_seconds"})
 _RETRY_POLICY_KEYS = frozenset(
     {
         "backoff_coefficient",
@@ -88,6 +100,7 @@ def load_temporal_config(path: str | Path) -> TemporalRuntimeConfig:
     task_queues = _mapping(root.get("task_queues", {}), "Temporal task queues")
     retries = _mapping(root.get("retries", {}), "Temporal retries")
     ingestion = _mapping(root.get("ingestion", {}), "Temporal ingestion")
+    timeouts = _mapping(root.get("timeouts", {}), "Temporal timeouts")
     _reject_unknown(connection, _CONNECTION_KEYS, "Temporal connection")
     _reject_unknown(tls, _TLS_KEYS, "Temporal TLS")
     _reject_unknown(worker, _WORKER_KEYS, "Temporal worker")
@@ -96,6 +109,7 @@ def load_temporal_config(path: str | Path) -> TemporalRuntimeConfig:
     _reject_unknown(task_queues, _TASK_QUEUE_KEYS, "Temporal task queues")
     _reject_unknown(retries, _RETRY_KEYS, "Temporal retries")
     _reject_unknown(ingestion, _INGESTION_KEYS, "Temporal ingestion")
+    _reject_unknown(timeouts, _TIMEOUT_KEYS, "Temporal timeouts")
 
     defaults = TemporalRuntimeConfig()
     default_connection = defaults.connection
@@ -165,6 +179,14 @@ def load_temporal_config(path: str | Path) -> TemporalRuntimeConfig:
             retries=ActivityRetryConfig(
                 discovery=_retry_policy(discovery_retry, defaults.retries.discovery),
                 document=_retry_policy(document_retry, defaults.retries.document),
+            ),
+            timeouts=ActivityTimeoutConfig(
+                discovery_seconds=_integer(
+                    timeouts, "discovery_seconds", defaults.timeouts.discovery_seconds
+                ),
+                finalization_seconds=_integer(
+                    timeouts, "finalization_seconds", defaults.timeouts.finalization_seconds
+                ),
             ),
             workflow_execution_timeout_seconds=_integer(
                 workflow,

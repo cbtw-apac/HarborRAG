@@ -11,7 +11,7 @@ policy-bounded FastMCP transport.
 | --- | --- | --- |
 | `vector_search` | Query, tenant, top-k, lane, filters, `observe_graph`, threshold | Vector results and diagnostics |
 | `fetch_evidence` | Tenant and up to 10 chunk IDs with optional expected document/version | Reauthorized immutable artifact text and per-item availability |
-| `get_document_context` | Tenant, document, optional anchor/version/cursor, limit | Ordered version-bound chunks, bounded outline, continuation cursor |
+| `get_document_context` | Tenant, document, optional anchor/version/cursor, limit | Document title, ordered version-bound chunks, bounded outline, continuation cursor |
 | `list_sources` | Tenant, optional source/type filters, cursor, limit | Readable corpus scopes and safe freshness metadata |
 | `describe_graph` | Empty object | Static schema versions, node kinds, projected relations, and property catalogs |
 | `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
@@ -19,9 +19,7 @@ policy-bounded FastMCP transport.
 | `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
 | `resolve_graph_nodes` | Tenant, exact typed selector, optional source/type scope | Authorized candidates with explicit ambiguity |
 | `list_documents` | Tenant, cursor, limit | Readable active document inventory |
-| `get_document_metadata` | Tenant, document ID | Current title, version, source, and chunk count |
-| `verify_citations` | Tenant, chunk IDs, optional document/version/content expectations | Citation validity and content digest |
-| `composed_evidence_search` | Tenant, query, bounded retrieval controls | Semantic discovery followed by canonical evidence reads |
+| `find_entities` | Tenant, query, optional facets and source scope, limit | Ranked whole entities with summary, facets, and evidence chunk IDs |
 
 Call `describe_graph` first — before any other graph tool — if you are not yet
 familiar with the graph model, or if graph selectors, relations, or directions are
@@ -29,14 +27,17 @@ unclear. It is a static schema lookup, not a query. The MCP server also advertis
 short cross-tool routing instructions (which tool to call for which intent) to any
 client that surfaces server-level `instructions`.
 
-The catalog contains thirteen read-only tools. Twelve require an explicit `tenant_id`;
+The catalog contains eleven read-only tools. Ten require an explicit `tenant_id`;
 `describe_graph` accepts `{}` because it returns only the static supported model.
+A separate server, `harborrag-mcp-ui`, offers the interactive
+[Explorer](setup-and-integration.md#explorer-mcp-ui-server): a UI that helps people
+search, read and trace the corpus, rather than an evidence source for models.
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
 | `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `mode`, `observe_graph`, `include_content`, `score_threshold` (0.0–1.0) | Vector results, retrieval diagnostics, and cost availability |
 | `fetch_evidence` | `tenant_id`, `items[].chunk_id` | Expected document/version IDs | Canonical text, citation locator, and `available`/`unavailable`/`output_limit` per item |
-| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | Ordered chunks and a tenant/principal/version-bound cursor |
+| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | `document_title`, ordered chunks, and a tenant/principal/version-bound cursor |
 | `list_sources` | `tenant_id` | Source IDs, connector types, cursor, limit (1–20) | Only readable source scopes; never connection configuration |
 | `describe_graph` | None | None | `ok`, `versions`, `layers`, and `properties` |
 | `graph_triplet_search` | `tenant_id`, plus at least one of `subject`, `predicate`, `object` | `limit` (1–20, default 10) | Active canonical subject–predicate–object records |
@@ -44,9 +45,7 @@ The catalog contains thirteen read-only tools. Twelve require an explicit `tenan
 | `graph_path_search` | `tenant_id`, `start_node`, `end_node` | Relation types, depth (1–4), paths (1–5), direction | ACL-filtered bounded paths with stable relation provenance |
 | `resolve_graph_nodes` | `tenant_id`, selector kind/value | Source IDs, entity types, limit (1–10) | Unique, ambiguous, or no-match candidates |
 | `list_documents` | `tenant_id` | Cursor, limit (1–20) | Active readable documents with title, version, source, and chunk count |
-| `get_document_metadata` | `tenant_id`, `document_id` | None | Current safe metadata; no content or storage addresses |
-| `verify_citations` | `tenant_id`, `items[].chunk_id` | Expected document/version IDs and content SHA-256 | Citation validity and canonical content digest |
-| `composed_evidence_search` | `tenant_id`, `query` | `top_k` (1–10), lane, filters, graph observation, score threshold | Local semantic expansion followed by canonical evidence reads |
+| `find_entities` | `tenant_id`, `query` | `facets`, `source_ids`, `limit` (1–20, default 10) | Ranked entities with summary, facets, and released evidence chunk IDs for `fetch_evidence` |
 
 Chat and agent are **not** MCP tools. Both use the HarborRAG REST API
 at `/v1/chat/completions` and `/v1/agent/completions`, respectively — see
@@ -94,8 +93,10 @@ fields in this response. The tool accepts no filters or `for_tool` argument.
 ## Evidence and graph workflow
 
 Use `list_sources` when the corpus is unclear, `vector_search` to discover evidence, and
-`fetch_evidence` before citing selected chunk IDs. Use `get_document_context` when ordered
-surrounding text is needed. The graph tools navigate; they do not replace source evidence.
+`fetch_evidence` before citing selected chunk IDs; it rechecks publication, permissions
+and any expected document/version, so it also verifies a citation. Set `vector_search`
+`mode` to `local_semantic` for bounded graph expansion. Use `get_document_context` when
+ordered surrounding text, or the document title, is needed. The graph tools navigate; they do not replace source evidence.
 
 Graph selectors support three exact forms:
 
@@ -164,7 +165,8 @@ Every tool call requires an explicit tenant (except `describe_graph` static tool
 principal through the runtime access context. MCP audits store argument
 digests rather than raw query text.
 
-1. **Capability check** - all thirteen tools declare `read`; nothing else is registered.
+1. **Capability check** - all eleven tools declare `read`; nothing else is registered.
+   The separate Explorer UI server calls the reader tools through this same pipeline.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.
 3. **Argument budget** - a serialized-argument size ceiling.
 4. **Tenant scope** - `tenant_id` is required, and `filters` explicitly cannot carry a

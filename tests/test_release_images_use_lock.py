@@ -110,10 +110,13 @@ def test_mcp_image_installs_its_declared_runtime_stack() -> None:
     assert 'ENTRYPOINT ["python", "-m", "harborrag_mcp_server"]' in dockerfile
 
 
-def test_worker_uses_the_audited_cpu_torch_release() -> None:
+def test_worker_image_excludes_torch() -> None:
+    # Docling was torch's only consumer in the resolved dependency graph, and
+    # it left the worker with the switch to LiteParse. No first-party code
+    # imports torch, and RapidOCR runs on onnxruntime, so the CPU image must
+    # not carry the ~2GB wheel back in.
     dockerfile = DOCKERFILES["worker"].read_text(encoding="utf-8")
 
-    assert "--no-deps" in dockerfile
-    assert "--index-url https://download.pytorch.org/whl/cpu" in dockerfile
-    assert "'torch==2.13.0' 'torchvision==0.28.0'" in dockerfile
+    assert "torch" not in dockerfile
+    assert "download.pytorch.org" not in dockerfile
     assert "/root/.cache" not in dockerfile

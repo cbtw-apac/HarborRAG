@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import RowMapping
@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
-from harborrag_core.contracts import HarborConflictError, HarborNotFoundError
+from harborrag_core.contracts import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     ActiveSourceDocument,
@@ -248,14 +249,22 @@ class DocumentVersionReplay:
             if row is None:
                 raise HarborNotFoundError(f"document version does not exist: {document_version_id}")
             current = DocumentVersionState(row["status"])
+            if current == DocumentVersionState.PURGING:
+                # Transient: once the purge finishes the version is PURGED, and the
+                # retried replay rebuilds it from the source.
+                raise HarborUnavailableError("document version is being purged")
+            # A PURGED version has no artifacts left, so it restores to PENDING and
+            # the same deterministic version id is rebuilt from the source again.
             if current not in {
                 DocumentVersionState.FAILED,
                 DocumentVersionState.RETIRED,
+                DocumentVersionState.PURGED,
             }:
                 return current
             cleanup = await self._locked_cleanup(session, document_version_id)
             if cleanup is not None and cleanup["status"] == CleanupJobState.RUNNING.value:
-                raise HarborConflictError("document version cleanup is currently running")
+                # Transient, like a purge: retrying after the cleanup finishes succeeds.
+                raise HarborUnavailableError("document version cleanup is currently running")
             restored = replay_state_from_row(row)
             now = utc_now()
             await session.execute(
@@ -310,4 +319,23 @@ def _active_source_from_row(row: DatabaseRow) -> ActiveSourceDocument:
         document_id=DocumentId(required_text(row, "document_id")),
         document_version_id=DocumentVersionId(required_text(row, "active_document_version_id")),
         title=title or None,
+        declared_relations=_declared_relations(descriptor),
     )
+
+
+def _declared_relations(descriptor: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    """The (predicate, target_id) links a source item's descriptor declares."""
+
+    metadata = descriptor.get("metadata")
+    relations = metadata.get("relations") if isinstance(metadata, Mapping) else None
+    if not isinstance(relations, (list, tuple)):
+        return ()
+    declared: list[tuple[str, str]] = []
+    for relation in relations:
+        if not isinstance(relation, Mapping):
+            continue
+        predicate = relation.get("predicate")
+        target_id = relation.get("target_id")
+        if isinstance(predicate, str) and isinstance(target_id, str) and target_id.strip():
+            declared.append((predicate, target_id.strip()))
+    return tuple(dict.fromkeys(declared))

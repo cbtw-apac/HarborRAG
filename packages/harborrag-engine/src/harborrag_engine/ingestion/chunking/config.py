@@ -8,6 +8,10 @@ from typing import cast
 from .errors import InvalidChunkingPlanError
 from .table.policy import TableChunkingPolicy
 
+# Route records are checked against this cap rather than the profile maximum;
+# the route planner trims labels and headings to stay within it.
+ROUTE_MAXIMUM_TOKENS = 512
+
 
 @dataclass(frozen=True, slots=True)
 class ChunkingPlan:

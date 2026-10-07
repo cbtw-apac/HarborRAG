@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+
+from pydantic import ValidationError
 from sqlalchemy import and_, func, select
 from sqlalchemy.engine import RowMapping
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.ingestion import ReadableSource, SourceCatalogQuery, SourceScanState
+from harborrag_core.ingestion.source_catalog import EntitySummaryState, SourceEntityFacet
+from harborrag_core.summaries import SummaryFacet
 
 from .schema import DOCUMENT_VERSIONS, DOCUMENTS, SOURCE_SCANS, SOURCE_SCOPES
+from .summary_schema import SUMMARY_SCOPES
 from .topology.authorization import readable_snapshot
 from .topology.policy_schema import PERMISSION_SNAPSHOTS
 
@@ -58,6 +64,10 @@ class SourceCatalogReader:
             .subquery("source_publication")
         )
         permission = PERMISSION_SNAPSHOTS.alias("source_catalog_acl")
+        # The scope's applied summary policy is what declares its entity facets --
+        # the same row the worker wrote the entity points under -- so the facets a
+        # caller is shown are the ones ``find_entities`` can actually filter on.
+        summary = SUMMARY_SCOPES.alias("source_catalog_summary")
         shared = (
             request.access is not None
             and str(request.access.tenant_id) == request.tenant_id
@@ -74,10 +84,19 @@ class SourceCatalogReader:
                     successful.c.last_successful_source_check_at,
                     publication.c.last_successful_ingestion_at,
                     publication.c.active_document_count,
+                    summary.c.policy.label("summary_policy"),
+                    summary.c.execution.label("summary_execution"),
                 )
                 .outerjoin(
                     latest_sequence,
                     latest_sequence.c.source_scope_id == publication.c.source_scope_id,
+                )
+                .outerjoin(
+                    summary,
+                    and_(
+                        summary.c.tenant_id == publication.c.tenant_id,
+                        summary.c.source_scope_id == publication.c.source_scope_id,
+                    ),
                 )
                 .outerjoin(
                     latest,
@@ -124,10 +143,19 @@ class SourceCatalogReader:
                 successful.c.last_successful_source_check_at,
                 publication.c.last_successful_ingestion_at,
                 publication.c.active_document_count,
+                summary.c.policy.label("summary_policy"),
+                summary.c.execution.label("summary_execution"),
             )
             .outerjoin(
                 latest_sequence,
                 latest_sequence.c.source_scope_id == SOURCE_SCOPES.c.source_scope_id,
+            )
+            .outerjoin(
+                summary,
+                and_(
+                    summary.c.tenant_id == SOURCE_SCOPES.c.tenant_id,
+                    summary.c.source_scope_id == SOURCE_SCOPES.c.source_scope_id,
+                ),
             )
             .outerjoin(
                 latest,
@@ -192,7 +220,47 @@ def _source_from_row(values: RowMapping) -> ReadableSource:
         last_successful_source_check_at=values["last_successful_source_check_at"],
         last_successful_ingestion_at=values["last_successful_ingestion_at"],
         active_document_count=int(values["active_document_count"] or 0),
+        entity_facets=_entity_facets(values["summary_policy"]),
+        entity_summaries=_entity_summaries(values["summary_policy"], values["summary_execution"]),
     )
+
+
+def _entity_facets(policy: object) -> tuple[SourceEntityFacet, ...]:
+    """The facets the applied summary policy declares, or none.
+
+    Read through ``SummaryFacet`` so a policy persisted in an older shape still
+    lists its facets; a row that does not validate lists none rather than failing
+    source discovery over a summary projection.
+    """
+
+    raw = policy.get("facets") if isinstance(policy, Mapping) else None
+    if not isinstance(raw, list):
+        return ()
+    try:
+        facets = [SummaryFacet.model_validate(item) for item in raw]
+    except ValidationError:
+        return ()
+    return tuple(
+        SourceEntityFacet(name=facet.name, type=facet.kind, field=facet.field)
+        for facet in facets[:12]
+    )
+
+
+_SUMMARY_STATES: dict[str, EntitySummaryState] = {
+    "idle": "idle",
+    "queued": "queued",
+    "running": "running",
+    "blocked": "blocked",
+    "failed": "failed",
+}
+
+
+def _entity_summaries(policy: object, execution: object) -> EntitySummaryState | None:
+    """``disabled`` without a policy, else the run state; unknown states are omitted."""
+
+    if policy is None:
+        return "disabled"
+    return _SUMMARY_STATES.get(execution) if isinstance(execution, str) else None
 
 
 __all__ = ["SourceCatalogReader"]

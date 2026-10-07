@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
@@ -11,6 +10,7 @@ from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParseRequest, ParseResult
 from harborrag_adapters.parsers.common.resources import (
     coerce_parse_input,
+    filename_suffix,
     parse_input_suffix,
 )
 from harborrag_adapters.parsers.common.utils import (
@@ -227,7 +227,7 @@ class HarborParserRegistry:
         filename: str | None,
         mime_type: str | None,
     ) -> _FamilyRoute | None:
-        suffix = Path(filename).suffix.lower() if filename else ""
+        suffix = filename_suffix(filename)
         extension_builder = self._extensions.get(suffix)
         extension_route = (
             _FamilyRoute(extension_builder, "extension", suffix)

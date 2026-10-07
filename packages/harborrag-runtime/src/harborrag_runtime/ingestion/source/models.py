@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from bisect import bisect_right
+from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 
 from harborrag_adapters.connectors.schemas import ConnectorQuery
@@ -89,7 +91,7 @@ class SourceDispatchSummary:
         return cls(
             published=sum(result is DocumentIngestionOutcome.PUBLISHED for result in results),
             unchanged=sum(result is DocumentIngestionOutcome.UNCHANGED for result in results),
-            failed=sum(result is DocumentIngestionOutcome.FAILED for result in results),
+            failed=sum(result.is_failure for result in results),
         )
 
     @property
@@ -129,7 +131,119 @@ class PlannedDocumentRelease:
 @dataclass(frozen=True, slots=True)
 class SourceDiscoveryRun:
     scan_id: str
+    # Empty for paged discovery: its documents already live in the persisted
+    # pages, and holding every one of them here is what outgrew a worker.
     planned: tuple[PlannedDocumentRelease, ...]
+    # Documents per persisted page, in page order; empty for connectors that
+    # discover without pages (their plan is paged after the fact).
+    page_counts: tuple[int, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PlannedDocuments:
+    """A dispatch plan walked one page at a time.
+
+    Finalization and retry selection only ever read a plan front to back, so
+    they take its pages instead of one tuple of every document: at hundreds of
+    thousands of documents that tuple, and the JSON it was parsed from, no
+    longer fit beside the rest of a worker.
+    """
+
+    document_count: int
+    # Takes the page to start from, so a resumed walk skips what it already read.
+    read_pages: Callable[[int], AsyncIterator[tuple[PlannedDocumentRelease, ...]]]
+
+    def pages(self, start: int = 0) -> AsyncIterator[tuple[PlannedDocumentRelease, ...]]:
+        return self.read_pages(start)
+
+    @classmethod
+    def of(cls, planned: tuple[PlannedDocumentRelease, ...]) -> PlannedDocuments:
+        """An in-memory plan, for discoveries small enough to have been held whole."""
+
+        async def pages(start: int) -> AsyncIterator[tuple[PlannedDocumentRelease, ...]]:
+            if planned and start == 0:
+                yield planned
+
+        return cls(document_count=len(planned), read_pages=pages)
+
+
+@dataclass(slots=True)
+class RelationRepairProgress:
+    """How far relation repair has walked a plan, and what it found on the way.
+
+    Repair over a large source takes hours, and without this a retry of
+    finalization started it again from the first page. The activity heartbeats
+    this object, so the next attempt resumes at ``next_page`` with the totals
+    of the pages it skips.
+    """
+
+    next_page: int = 0
+    repaired_documents: int = 0
+    resolved_relations: int = 0
+    unresolved_relations: int = 0
+
+    @classmethod
+    def resume(cls, detail: object) -> RelationRepairProgress:
+        """Progress from a prior attempt's heartbeat, or from the start when there is none."""
+
+        if not isinstance(detail, dict):
+            return cls()
+        values = {name: detail.get(name) for name in cls.__slots__}
+        if not all(
+            isinstance(value, int) and not isinstance(value, bool) and value >= 0
+            for value in values.values()
+        ):
+            return cls()
+        return cls(**values)  # type: ignore[arg-type]
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePlanPageRange:
+    page_number: int
+    start_index: int
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SourcePlanIndex:
+    """Which persisted page holds which document indexes of a dispatch plan.
+
+    A document workflow carries only its index into the plan. Without this a
+    worker had to download and parse the whole plan to pick one record, which
+    is quadratic in the plan size: at a few hundred documents invisible, at
+    hundreds of thousands the run cannot finish.
+    """
+
+    document_count: int
+    pages: tuple[SourcePlanPageRange, ...]
+
+    def __post_init__(self) -> None:
+        expected = 0
+        for page in self.pages:
+            if page.start_index != expected or page.count < 0:
+                raise ValueError("source plan index pages must be contiguous")
+            expected += page.count
+        if expected != self.document_count:
+            raise ValueError("source plan index pages must cover the document count")
+
+    @classmethod
+    def from_page_counts(cls, counts: Sequence[int]) -> SourcePlanIndex:
+        pages = []
+        start = 0
+        for number, count in enumerate(counts):
+            pages.append(SourcePlanPageRange(page_number=number, start_index=start, count=count))
+            start += count
+        return cls(document_count=start, pages=tuple(pages))
+
+    def locate(self, document_index: int) -> tuple[int, int]:
+        """``(page_number, offset within page)`` for one document index."""
+
+        if document_index < 0 or document_index >= self.document_count:
+            raise IndexError(document_index)
+        starts = [page.start_index for page in self.pages]
+        position = bisect_right(starts, document_index) - 1
+        page = self.pages[position]
+        return page.page_number, document_index - page.start_index
 
 
 @dataclass(frozen=True, slots=True)

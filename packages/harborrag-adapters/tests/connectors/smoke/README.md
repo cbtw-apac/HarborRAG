@@ -21,22 +21,29 @@ credentials or content.
 - Grant credentials access only to the test repository, space, project, site,
   or drive being exercised.
 
-The base connector clients are installed with the adapter:
+One workspace sync installs the connector clients, the parser dependencies,
+and the OCR engines the parser catalog enables. The shipped
+`config/parsers.yaml` parses PDFs and raster images through the same LiteParse
+OCR server, and the root `dev` dependency group pulls
+`harborrag-adapters[parsers,pdf-liteparse]`, so `uv run` already has them:
 
 ```bash
-uv sync --package harborrag-adapters
+uv sync
 ```
 
-Real parsing needs the parser dependencies, plus PDF/OCR engines. These
-scripts parse PDFs with Docling and images with RapidOCR by default:
+Do not narrow this to `uv sync --package harborrag-adapters`: that drops
+`harborrag-runtime`'s own dependencies, which these scripts import from
+source, and the run then fails on `No module named 'yaml'`.
 
-```bash
-uv sync --package harborrag-adapters --extra parsers --extra pdf
-```
+Add `--extra image-rapidocr` (local ONNX image OCR) or `--extra pdf` (every
+PDF engine: Docling, MinerU, PaddleOCR, PyMuPDF) only when exercising one of
+the commented-out alternatives in `config/parsers.yaml`.
 
-The `pdf` extra explicitly installs both `rapidocr` and its default CPU
-inference runtime, `onnxruntime`. Docling acceleration (CPU/CUDA/MPS/XPU) is
-configured through `config/parsers.yaml`.
+LiteParse OCRs scanned pages through the OCR server named by
+`pdf-liteparse.engines[].settings.ocr_server_url`, so that server must be
+running before a PDF with scanned pages can be parsed. See
+[Parser selection](#parser-selection) for how these scripts reach it from the
+host.
 
 ## Configuration
 
@@ -115,9 +122,11 @@ text. `md` saves a structured Markdown document instead: a `#` title, a
 short header list (source, content type), a `## Metadata` section with a
 curated set of provider-specific fields (Jira: issue key, status, assignee,
 priority, labels, ...; Confluence: space, version, author, labels, breadcrumb,
-...; Local: parser, page count, OCR settings, figures extracted, warnings -
-whichever fields have a value), the body, and each parsed attachment under
-its own `###` heading.
+...; Local: parser, PDF engine, page count, OCR settings, figures extracted,
+warnings - whichever fields have a value), and the body. Confluence also adds
+an `## Attachments` section with each parsed attachment under its own `###`
+heading; the JIRA renderer deliberately saves the issue body only, so use
+`--output txt` to inspect JIRA attachment text.
 
 `md` output also makes images actually viewable:
 
@@ -126,12 +135,14 @@ its own `###` heading.
   `![title](stem.assets/filename)`.
 - A local image *file* (the discovered record itself, e.g. a `.png`) is
   embedded with a `file://` link to its original path.
-- Figures embedded *inside* a locally parsed PDF (via Docling) are copied into
-  the same `<output-file-stem>.assets/` convention and listed under a
-  `## Figures` heading - this requires `pdf-docling.image_output_dir` to be
-  set in `config/parsers.yaml` (see [Parser selection](#parser-selection));
-  full-page renders and table crops Docling can also produce are intentionally
-  skipped to keep output focused on actual figures.
+- Figures embedded *inside* a locally parsed PDF are copied into the same
+  `<output-file-stem>.assets/` convention and listed under a `## Figures`
+  heading. This is Docling-only: it requires `pdf-docling.image_output_dir` to
+  be set in `config/parsers.yaml` (see
+  [Parser selection](#parser-selection)), and full-page renders and table
+  crops Docling can also produce are intentionally skipped to keep output
+  focused on actual figures. The shipped LiteParse parser reports no image
+  paths, so its output simply has no `## Figures` section.
 
 `txt` output has no such folder - it's OCR text only, since plain text can't
 reference a file.
@@ -166,34 +177,53 @@ tolerance of blank page/issue bodies.
 
 PDF and image parsing come from `config/parsers.yaml` (falling back to
 `config/parsers.example.yaml`), the same catalog the application uses. The
-shipped default enables `pdf-docling`, which parses PDFs with Docling and OCRs
-scanned pages with RapidOCR. Plain image attachments and local image files
-always OCR through RapidOCR - that routing isn't expressible in the
-declarative parser catalog, so the smoke bootstrap wires it directly.
+shipped default enables `pdf-liteparse`, which parses PDFs with LiteParse and
+OCRs scanned pages through an external OCR server. There is no environment
+override for the engine: change the enabled definition in
+`config/parsers.yaml` and the smoke scripts follow it. Every run prints the
+engines it resolved, for example:
 
-```bash
-HARBOR_SMOKE_PDF_BACKEND=docling \
-  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
+```text
+[parsers] pdf engines=liteparse
+[parsers] image engines=rapidocr
 ```
 
-Docling defaults to `auto`, asks Docling's accelerator resolver for the best
-available device, and prints both the requested and resolved values before the
-smoke check. Override it with `auto`, `cpu`, `cuda`, `cuda:N`, `mps`, or `xpu`:
+Plain image attachments and local image files always OCR through RapidOCR -
+that routing isn't expressible in the declarative parser catalog, so the smoke
+bootstrap wires it directly. On first use the smoke helper reports the ONNX
+Runtime providers it can see and reuses one loaded RapidOCR engine for all
+attachments.
 
-```bash
-HARBOR_SMOKE_PDF_BACKEND=docling \
-HARBOR_SMOKE_DOCLING_DEVICE=xpu \
-  python packages/harborrag-adapters/tests/connectors/smoke/confluence.py
+### LiteParse OCR server
+
+`ocr_server_url` comes from `HARBORRAG_OCR_SERVER_URL`; when it is unset or
+empty no OCR server is used, LiteParse OCRs locally with Tesseract, and the
+rest of this section does not apply. For the containerized ingestion worker it
+is usually the `ppocr-server` Docker DNS alias on `harborrag-data-network`.
+These scripts run on the host, where that name does not resolve and LiteParse would fail every scanned page with
+`OCR failed: ... error sending request`. The bootstrap therefore keeps the
+scheme, port, and path but retargets an unresolvable host at the loopback
+interface, and says so:
+
+```text
+[parsers] liteparse ocr_server_url='http://ppocr-server:8888/ocr' is not
+reachable from this host; using 'http://localhost:8888/ocr'
 ```
 
-CUDA and XPU require a matching accelerator-enabled PyTorch build; MPS requires
-supported Apple hardware. Keep `auto` for portable configuration and CPU
-fallback.
+That assumes the OCR server publishes its port on the host, which the
+`ppocr-server` container normally does (`-p 8888:8888`), and that the port in
+`ocr_server_url` is the published one. `HARBORRAG_OCR_SERVER_URL` (read by
+`config/parsers.yaml` itself) changes what the catalog configures for every
+process, including the worker. Point only the smoke run at a different OCR
+server (when one is configured) with:
 
-Set `HARBOR_SMOKE_IMAGE_BACKEND=rapidocr` to OCR image attachments. Selecting
-Docling as the PDF backend also selects RapidOCR for images unless explicitly
-overridden. On first use the smoke helper reports the ONNX Runtime providers it
-can see and reuses one loaded RapidOCR engine for all attachments.
+```bash
+HARBOR_SMOKE_OCR_SERVER_URL=http://ocr.internal:8888/ocr \
+  python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector jira-main
+```
+
+A resolvable configured host - including a run inside the container - is used
+exactly as configured.
 
 ## Output and troubleshooting
 
@@ -209,4 +239,9 @@ in CI).
 - Authentication failures: verify Cloud email requirements, token scopes,
   tenant/client credentials, VPN, proxy, and provider URL.
 - Attachment/parse failures: install parser extras (`--extra parsers --extra
-  pdf`), verify the attachment type and size, and check `config/parsers.yaml`.
+  pdf-liteparse`), verify the attachment type and size,
+  and check `config/parsers.yaml`.
+- `OCR failed: ... error sending request`: the OCR server LiteParse is
+  configured to call is unreachable. Start it, or set
+  `HARBOR_SMOKE_OCR_SERVER_URL` (see
+  [LiteParse OCR server](#liteparse-ocr-server)).

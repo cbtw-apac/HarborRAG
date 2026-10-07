@@ -180,7 +180,8 @@ async def test_relation_repair_degrades_when_an_active_artifact_was_cleaned(
         )
 
         assert result.repaired_documents == 0
-        assert result.unresolved_relations == 1
+        # Skipped, not unresolved: a missing artifact says nothing about its targets.
+        assert result.unresolved_relations == 0
 
 
 @pytest.mark.asyncio

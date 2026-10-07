@@ -11,13 +11,14 @@ server/server.py            tool registry, policy enforcement, dispatch
 server/http.py              loopback Streamable HTTP transport and status UI
 server/http_auth.py         owner-only bearer and tenant authorization
 server/static/status.html   status page and Tool Playground
+server/explorer/            HarborRAG Explorer MCP App served by harborrag-mcp-ui
 configuration/              config/mcp.yaml loading, validation, env overrides
 policy.py                   compiled safety ceilings
 audit.py                    JSONL audit writer
 defaults/mcp.yaml           packaged fallback configuration
 ```
 
-The 13 reader tool implementations, schemas, catalog, and checked dispatcher live
+The 11 reader tool implementations, schemas, catalog, and checked dispatcher live
 in `harborrag_engine.tools`. Generic contracts live in `harborrag_core`.
 `harborrag_runtime.composition.readers` connects the reader backends and owns
 their lifecycle. MCP adapts authentication, registration, configuration, and
@@ -25,10 +26,11 @@ protocol responses; the optional agent uses the same dispatcher.
 
 ## Team deliverables
 
-- The shipped transport exposes the thirteen read-only tools documented in
+- The shipped transport exposes the eleven read-only tools documented in
   [MCP Tools](../../docs/users/detailed-guides/mcp-server/README.md):
   evidence search/fetch/context, source discovery, static graph description, bounded
-  triplet/subgraph/path traversal, and exact graph-node resolution.
+  triplet/subgraph/path traversal, exact graph-node resolution, document
+  inventory, and faceted entity ranking.
   Chat and agent are not MCP tools; they are served only through the HarborRAG
   REST API's `/v1/chat/completions` and `/v1/agent/completions` endpoints.
 - Every attempt and outcome is durably audited with a principal identifier and
@@ -79,13 +81,14 @@ path loads API settings or executes env files as shell code. The command
 constructs the reader application and communicates over stdin/stdout.
 It is a child process launched by an MCP client, not an interactive terminal or
 HTTP service. Run `scripts/deployment/mcp.sh --check` yourself to perform a real
-MCP handshake and print the thirteen advertised tool names without connecting to
+MCP handshake and print the eleven advertised tool names without connecting to
 providers.
 
 Run an authenticated local Streamable HTTP endpoint and status page:
 
 ```bash
 scripts/deployment/dev.sh bootstrap
+scripts/deployment/dev.sh up         # data services + API, which applies the migrations
 scripts/deployment/mcp.sh --http
 ```
 
@@ -114,6 +117,33 @@ The owner-only browser API is:
 
 The API is a local administrative convenience, not a second unprotected tool
 transport. It requires the same owner bearer token as configuration editing.
+
+## Explorer MCP UI server
+
+`harborrag-mcp-ui` is an optional second MCP server that serves only the
+HarborRAG Explorer, a FastMCP 4 `FastMCPApp` whose Prefab UI helps people search
+the corpus. Hosts that support MCP Apps render it, including the MCP Inspector's
+**Apps** tab. The reader server works without it: its catalog is unchanged, it
+never imports `server/explorer/`, and FastMCP Apps and Prefab come only from the
+`ui` extra (`harborrag-mcp-server[ui]`).
+
+In a checkout, `scripts/deployment/mcp-ui.sh` runs it in Docker from
+`deploy/compose/docker-compose.mcp-ui.yml` and `deploy/docker/Dockerfile.mcp-ui`,
+a thin layer over the reader image.
+
+- `open_explorer` is the model-visible entry point and returns the UI.
+- `explorer_search`, `explorer_read`, `explorer_browse` and `explorer_graph` are
+  app-only backends for search, reading, browsing and graph tracing. They call
+  the registered reader handlers, so authentication, tenant binding,
+  configuration, budgets and audit are shared.
+- Found evidence goes back to the conversation only when the user selects
+  **Send to chat** or **Add to conversation context**.
+- It takes the reader server's flags and environment, listens on
+  `HARBORRAG_MCP_UI_PORT` (default `8011`) over HTTP, and serves `/healthz` only.
+- The renderer loads from `cdn.jsdelivr.net`, declared in the resource CSP.
+
+See [Setup and Integration](../../docs/users/detailed-guides/mcp-server/setup-and-integration.md#explorer-mcp-ui-server)
+for running it and for the MCP Inspector workflow.
 
 ## Tool configuration
 

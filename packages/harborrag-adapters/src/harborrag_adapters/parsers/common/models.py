@@ -109,19 +109,29 @@ class ParseResult:
             metadata={
                 **self.metadata,
                 "engine_name": self.engine_name,
-                "parser_attempts": [
-                    {
-                        "engine": attempt.engine,
-                        "success": attempt.success,
-                        "duration_ms": attempt.duration_ms,
-                        "quality_score": attempt.quality_score,
-                        "message": attempt.message,
-                    }
-                    for attempt in self.attempts
-                ],
+                "parser_attempts": document_attempts(self.attempts),
             },
             warnings=self.warnings or None,
         )
+
+
+def document_attempts(attempts: list[ParserAttempt]) -> list[dict[str, Any]]:
+    """Attempt provenance as stored on the parsed document.
+
+    Wall-clock timings are left out: this metadata reaches the canonical document,
+    whose bytes must be identical every time the same source is parsed, or a parse
+    retry conflicts with the immutable canonical object an earlier attempt wrote.
+    """
+
+    return [
+        {
+            "engine": attempt.engine,
+            "success": attempt.success,
+            "quality_score": attempt.quality_score,
+            "message": attempt.message,
+        }
+        for attempt in attempts
+    ]
 
 
 def _page_number(element: DocumentElement) -> int | None:
