@@ -65,14 +65,14 @@ def chunk(text: str, chunk_id: str = "chunk-1") -> ChunkRecord:
     )
 
 
-def plan_node(key, kind, entity, *, children=(), direct=(), documents=("document:d1",)):
+def plan_node(key, kind, entity, *, children=(), direct=()):
     return SummaryPlanNode(
         node(key, kind, entity),
         kind_name(kind),
         tuple(children),
         tuple(direct),
         ("chunk-1",),
-        documents,
+        ("document:d1",),
     )
 
 

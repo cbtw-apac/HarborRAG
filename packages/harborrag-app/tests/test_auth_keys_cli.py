@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import stat
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -183,7 +184,9 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
 def test_revoke_requires_exactly_one_selector():
     result = CliRunner().invoke(app, ["auth", "keys", "revoke", "--reason", "x"])
     assert result.exit_code != 0
-    assert "--key-id" in result.output
+    # Rich colours the usage error on CI (GITHUB_ACTIONS forces a terminal), which
+    # splits "--key-id" with escape codes; compare the text a reader sees.
+    assert "--key-id" in re.sub(r"\x1b\[[0-9;]*m", "", result.output)
 
 
 def test_operation_errors_report_only_the_type(monkeypatch):
