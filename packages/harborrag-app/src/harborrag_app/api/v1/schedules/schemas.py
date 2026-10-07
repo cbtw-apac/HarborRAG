@@ -35,7 +35,8 @@ class ScheduleUpsertRequest(ApiModel):
     jitter_seconds: int | None = Field(default=None, ge=1)
     pause_on_failure: bool = False
     source: ScheduleSourceRequest
-    paused: bool = False
+    # Omit on PATCH to keep the current pause state; creation defaults to unpaused.
+    paused: bool | None = None
     note: str | None = Field(default=None, max_length=1000)
 
     @model_validator(mode="after")

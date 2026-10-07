@@ -194,6 +194,7 @@ class TemporalScheduleBackend:
     async def update(self, definition: ScheduleDefinition, source: PreparedSourceSubmission) -> None:
         schedule = self._schedule(definition, source)
 
+        # Pause state and note are left as they are; only pause/unpause change them.
         def updater(update: ScheduleUpdateInput) -> ScheduleUpdate:
             return ScheduleUpdate(
                 schedule=replace(
@@ -201,11 +202,6 @@ class TemporalScheduleBackend:
                     action=schedule.action,
                     spec=schedule.spec,
                     policy=schedule.policy,
-                    state=replace(
-                        update.description.schedule.state,
-                        note=definition.note,
-                        paused=definition.paused,
-                    ),
                 )
             )
 

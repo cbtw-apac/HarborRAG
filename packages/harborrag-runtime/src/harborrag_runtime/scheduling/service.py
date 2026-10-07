@@ -81,7 +81,19 @@ class ScheduleService:
         await self._backend.create(definition, self._source(definition))
         return await self._backend.describe(definition.schedule_id)
 
-    async def update_schedule(self, definition: ScheduleDefinition) -> ScheduleView:
+    async def update_schedule(
+        self,
+        definition: ScheduleDefinition,
+        *,
+        apply_pause: bool = True,
+    ) -> ScheduleView:
+        """Replace a schedule's definition.
+
+        With ``apply_pause`` the schedule is paused or unpaused to match
+        ``definition.paused`` (recording ``definition.note``); without it the
+        live pause state and note are kept, e.g. an operator's incident pause.
+        """
+
         validate_definition(definition)
         existing = (await self._backend.describe(definition.schedule_id)).definition
         self._require_owner(existing, definition.owner)
@@ -89,8 +101,17 @@ class ScheduleService:
             raise ScheduleValidationError("a schedule's tenant cannot change")
         if existing.workflow is not definition.workflow:
             raise ScheduleValidationError("a schedule's workflow cannot change")
+        schedule_id = definition.schedule_id
         await self._backend.update(definition, self._source(definition))
-        return await self._backend.describe(definition.schedule_id)
+        if apply_pause and (
+            definition.paused != existing.paused
+            or (definition.note is not None and definition.note != existing.note)
+        ):
+            if definition.paused:
+                await self._backend.pause(schedule_id, note=definition.note)
+            else:
+                await self._backend.unpause(schedule_id, note=definition.note)
+        return await self._backend.describe(schedule_id)
 
     async def pause_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
         validate_schedule_id(schedule_id)
@@ -203,7 +224,7 @@ class ScheduleService:
                     f"schedule {definition.schedule_id!r} already exists and is not "
                     "managed by configuration; delete it or rename the declared schedule"
                 ) from None
-            await self.update_schedule(definition)
+            await self.update_schedule(definition, apply_pause=False)
             return False
 
     def _source(self, definition: ScheduleDefinition) -> PreparedSourceSubmission:

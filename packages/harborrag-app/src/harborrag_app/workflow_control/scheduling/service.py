@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from datetime import datetime
 from functools import partial
 
@@ -75,7 +76,13 @@ class ScheduleApplicationService:
 
     async def update(self, command: ScheduleCommand) -> dict[str, object]:
         with _translated():
-            view = await (await self._service()).update_schedule(_definition(command))
+            service = await self._service()
+            definition = _definition(command)
+            if command.paused is None:
+                # Keep the recorded desired pause state the alerting compares against.
+                current = await service.describe_schedule(command.schedule_id)
+                definition = replace(definition, paused=current.desired_paused)
+            view = await service.update_schedule(definition, apply_pause=command.paused is not None)
         logger.info("Schedule updated schedule_id=%s", command.schedule_id)
         return schedule_response(view)
 
@@ -135,9 +142,6 @@ class ScheduleApplicationService:
         """Reconcile config/schedules.yaml into the engine; None when no file is deployed."""
 
         path = self._settings.schedule_config_path
-        singular_path = path.with_name("schedule.yaml")
-        if not path.is_file() and singular_path.is_file():
-            path = singular_path
         if not path.is_file():
             logger.info("No declarative schedule file at %s; skipping schedule sync", path)
             return None
@@ -172,7 +176,7 @@ def _definition(command: ScheduleCommand) -> ScheduleDefinition:
         catchup_window_seconds=command.catchup_window_seconds,
         jitter_seconds=command.jitter_seconds,
         pause_on_failure=command.pause_on_failure,
-        paused=command.paused,
+        paused=bool(command.paused),
         note=command.note,
         owner=ScheduleOwner.API,
         target=SourceScheduleTarget(

@@ -20,5 +20,6 @@ class ScheduleCommand:
     jitter_seconds: int | None = None
     pause_on_failure: bool = False
     force_reprocess: bool = False
-    paused: bool = False
+    # None leaves an existing schedule's pause state alone; creation treats it as False.
+    paused: bool | None = None
     note: str | None = None

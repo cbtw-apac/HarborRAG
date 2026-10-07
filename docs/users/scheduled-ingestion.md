@@ -4,14 +4,15 @@ HarborRAG manages recurring source ingestion with Temporal Schedules. Define
 long-lived schedules in version-controlled YAML or manage API-owned schedules
 through the authenticated API. Use the Temporal UI to inspect executions and for
 emergency administration; avoid editing config-owned schedules there because
-the next config sync will overwrite those changes.
+the next config sync will overwrite those changes. Pause state is the exception:
+a sync never pauses or unpauses an existing schedule, so a pause applied during
+an incident survives restarts until someone unpauses it.
 
 ## Configure a Schedule
 
 Copy `config/schedules.example.yaml` to `config/schedules.yaml`. API startup
-creates missing schedules and updates existing config-owned schedules. The
-legacy singular path `config/schedule.yaml` is also used when the plural default
-file is absent. Each `connection_id` must identify an enabled connector in
+creates missing schedules and updates existing config-owned schedules. Each
+`connection_id` must identify an enabled connector in
 `config/connectors.yaml`.
 
 This example starts an incremental workspace ingestion every day at 1:00 AM in
@@ -92,7 +93,9 @@ POST /v1/schedules
 }
 ```
 
-Use `PATCH /v1/schedules/{schedule_id}` to update an API-owned schedule. A
+Use `PATCH /v1/schedules/{schedule_id}` to update an API-owned schedule. Omit
+`paused` to keep the schedule's current pause state; send `true` or `false` (with
+an optional `note`) to pause or unpause it as part of the update. A
 schedule ID must be unique. A duplicate create returns a conflict with guidance
 to choose a different ID or update the existing schedule. Config-owned schedules
 are read-only through create/update API calls; edit their YAML instead.
