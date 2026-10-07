@@ -22,8 +22,9 @@ from tenant_chat_fixtures import (
 )
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
+from harborrag_core.ports.model_catalog import TenantModelDeployment
 from harborrag_runtime.chat.tenant_clients import TenantChatClients
-from harborrag_runtime.chat.tenant_config import build_tenant_chat_config
+from harborrag_runtime.chat.tenant_config import TenantChatConfigError, build_tenant_chat_config
 from harborrag_runtime.chat.tenant_models import TenantModelSources
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -307,3 +308,58 @@ async def test_a_blank_tenant_never_reaches_the_catalog_port() -> None:
     assert (await clients.resolve(None)).client is None
     assert (await clients.resolve("")).client is None
     assert catalog.fingerprint_calls == 0
+
+
+_PROBE = "${HARBOR_TENANT_PROBE}"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "deployment",
+    [
+        replace(tenant_deployment("acme"), extra={"api_version": _PROBE}),
+        replace(tenant_deployment("acme"), extra={"organization": _PROBE}),
+        replace(tenant_deployment("acme"), extra={"metadata": {"tags": ["ok", _PROBE]}}),
+        replace(tenant_deployment("acme"), capabilities={"streaming": _PROBE}),  # type: ignore[dict-item,unused-ignore]
+        replace(tenant_deployment("acme"), api_base=f"https://{_PROBE}.example"),
+        replace(tenant_deployment("acme"), name=_PROBE),
+    ],
+    ids=["deployment-field", "extension", "nested-extension", "capability", "api-base", "name"],
+)
+async def test_no_tenant_value_is_expanded_from_the_process_environment(
+    deployment: TenantModelDeployment, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Set, so an expanding path would *succeed* with the operator's value --
+    # the leak -- rather than fail for an unrelated reason.
+    monkeypatch.setenv("HARBOR_TENANT_PROBE", "leaked")
+
+    with pytest.raises(TenantChatConfigError) as caught:
+        await build_tenant_chat_config(
+            tenant_catalog("acme", deployment=deployment),
+            secrets=FakeSecrets(),
+            shared_config_path=SHARED_MODEL_CONFIG,
+        )
+
+    # Neither the variable's name nor its value may reach the message: the
+    # refusal must look the same whether or not the variable exists.
+    assert "HARBOR_TENANT_PROBE" not in str(caught.value)
+    assert "leaked" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+async def test_a_model_name_is_not_expanded_from_the_process_environment(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # default_model is a value in the section, so it was expanded: with the
+    # variable set to a real model name the tenant could confirm its value.
+    monkeypatch.setenv("HARBOR_TENANT_PROBE", "tenant-primary")
+    catalog = replace(tenant_catalog("acme"), default_model=_PROBE)
+
+    with pytest.raises(TenantChatConfigError) as caught:
+        await build_tenant_chat_config(
+            catalog,
+            secrets=FakeSecrets(),
+            shared_config_path=SHARED_MODEL_CONFIG,
+        )
+
+    assert "HARBOR_TENANT_PROBE" not in str(caught.value)

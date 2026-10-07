@@ -97,19 +97,40 @@ class _MappedSecretResolver:
         return value
 
 
-def _reject_expansion(value: str, *, field: str, deployment: str) -> str:
-    """Refuse a tenant string that would be expanded from the process environment.
+_ENVIRONMENT_REFERENCE = "${"
 
-    ``from_dict`` runs ``expand_environment`` over whatever it is given, so a
-    stored ``${VAR}`` would otherwise read a process variable the tenant was
-    never meant to see.
+
+def _contains_environment_reference(value: object) -> bool:
+    """Whether any string anywhere in ``value`` would be expanded from the environment.
+
+    ``from_dict`` runs ``expand_environment`` over every value it is given, at any
+    depth, so a stored ``${VAR}`` in a deployment field, an extension parameter, a
+    capability or a model name would read a process variable the tenant was never
+    meant to see -- and a missing one would say so in the error, which is a probe.
     """
 
-    if "${" in value:
-        raise TenantChatConfigError(
-            f"deployment {deployment!r} field {field!r} must not contain an environment reference"
-        )
-    return value
+    if isinstance(value, str):
+        return _ENVIRONMENT_REFERENCE in value
+    if isinstance(value, Mapping):
+        return any(_contains_environment_reference(item) for item in value.values())
+    if isinstance(value, (list, tuple, set, frozenset)):
+        return any(_contains_environment_reference(item) for item in value)
+    return False
+
+
+def _refuse_environment_references(document: Mapping[str, Any]) -> None:
+    """Refuse a deployment document holding an environment reference anywhere.
+
+    The message names only the top-level field, whose name comes from this module's
+    own vocabulary, never the tenant's value: echoing it would hand the variable name
+    back, and a message that differed by whether the variable exists would be a probe.
+    """
+
+    for field, value in document.items():
+        if _contains_environment_reference(value):
+            raise TenantChatConfigError(
+                f"tenant deployment field {field!r} must not contain an environment reference"
+            )
 
 
 def _sorted_extra(deployment: TenantModelDeployment) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -143,11 +164,9 @@ def _deployment_document(
 ) -> dict[str, Any]:
     fields, extension = _sorted_extra(deployment)
     document: dict[str, Any] = {
-        "name": _reject_expansion(deployment.name, field="name", deployment=deployment.name),
-        "provider": _reject_expansion(
-            deployment.provider, field="provider", deployment=deployment.name
-        ),
-        "model": _reject_expansion(deployment.model, field="model", deployment=deployment.name),
+        "name": deployment.name,
+        "provider": deployment.provider,
+        "model": deployment.model,
         "weight": float(deployment.weight),
         "capabilities": dict(deployment.capabilities),
         **fields,
@@ -155,9 +174,9 @@ def _deployment_document(
     if extension:
         document["extra_litellm_params"] = extension
     if deployment.api_base is not None:
-        document["api_base"] = _reject_expansion(
-            deployment.api_base, field="api_base", deployment=deployment.name
-        )
+        document["api_base"] = deployment.api_base
+    _refuse_environment_references(document)
+    # Added after the check: this placeholder URI is minted here, not stored.
     if secret_uri is not None:
         document["api_key"] = secret_uri
     return document
@@ -202,6 +221,11 @@ async def build_tenant_chat_config(
 
     if catalog.is_empty():
         raise TenantChatConfigError(f"tenant {catalog.tenant_id!r} configured no chat models")
+    names = (catalog.default_model or "", *(item.logical_model for item in catalog.models))
+    if _contains_environment_reference(names):
+        raise TenantChatConfigError(
+            "tenant chat model names must not contain an environment reference"
+        )
     uris, values = await _resolved_secrets(catalog, secrets)
     models: dict[str, Any] = {}
     for definition in catalog.models:
