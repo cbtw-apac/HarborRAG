@@ -514,3 +514,30 @@ async def test_removed_retirement_leaves_a_document_that_is_bound_again(
         assert result.replayed is True
         active = await control_plane.document_versions.active_versions([str(value.document_id)])
         assert active[str(value.document_id)].document_version_id == value.document_version_id
+
+
+@pytest.mark.asyncio
+async def test_removal_retry_returns_documents_still_awaiting_retirement(
+    tmp_path: Path,
+) -> None:
+    # Reconciliation commits is_active=False before finalization retires anything; a
+    # finalization that dies in between used to retry into an empty result and leave
+    # the removed document published forever.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("published then missed")
+        await _bound_and_seen(control_plane, value)
+        await advance_to_verified(control_plane, value)
+        await publish_over_active(
+            control_plane, str(value.document_id), str(value.document_version_id)
+        )
+        scans = control_plane.source_scans
+        missed = await scans.start("scope-engineering")
+        await scans.complete(missed)
+        removed = (str(value.document_id),)
+
+        assert await scans.reconcile_removals(missed, missing_threshold=1) == removed
+        assert await scans.reconcile_removals(missed, missing_threshold=1) == removed
+
+        await control_plane.publisher.retire_removed(document_id=str(value.document_id))
+        assert await scans.reconcile_removals(missed, missing_threshold=1) == ()

@@ -3,14 +3,15 @@ from __future__ import annotations
 from collections.abc import Mapping, Set
 from typing import cast
 
-from sqlalchemy import case, func, select, update
+from sqlalchemy import case, exists, func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError, HarborNotFoundError
 from harborrag_core.ingestion import SourceScanState
 
-from .schema import SOURCE_ITEMS, SOURCE_SCANS
+from .schema import DOCUMENTS, SOURCE_ITEMS, SOURCE_SCANS
 
 # Each reconciled item binds its id plus a value in each of two CASE maps, so a
 # rescan that finds tens of thousands of stale items would pass PostgreSQL's
@@ -68,7 +69,7 @@ class SourceRemovalReconciler:
                 or cast(int, item["last_reconciled_scan_sequence"]) < scan_sequence
             )
             if not stale:
-                return ()
+                return await _awaiting_retirement(session, scan["source_scope_id"])
 
             (
                 misses_by_item,
@@ -126,7 +127,37 @@ class SourceRemovalReconciler:
                         updated_at=reconciled_at,
                     )
                 )
-            return tuple(sorted(removed_documents - documents_with_other_bindings))
+            pending = await _awaiting_retirement(session, scan["source_scope_id"])
+            return tuple(sorted((removed_documents - documents_with_other_bindings) | set(pending)))
+
+
+async def _awaiting_retirement(session: AsyncSession, source_scope_id: object) -> tuple[str, ...]:
+    """Published documents of this scope that no active binding keeps any more.
+
+    Reconciliation commits ``is_active = False`` before the caller retires anything, so
+    a retry after a crash or a failed retirement finds no stale item left to reconcile.
+    Deriving the set from durable state makes that retry retire them anyway; a retired
+    document has no active pointer and drops out.
+    """
+
+    inactive_here = select(SOURCE_ITEMS.c.document_id).where(
+        SOURCE_ITEMS.c.source_scope_id == source_scope_id,
+        SOURCE_ITEMS.c.is_active.is_(False),
+    )
+    active_binding = exists().where(
+        SOURCE_ITEMS.c.document_id == DOCUMENTS.c.document_id,
+        SOURCE_ITEMS.c.is_active.is_(True),
+    )
+    result = await session.execute(
+        select(DOCUMENTS.c.document_id)
+        .where(
+            DOCUMENTS.c.document_id.in_(inactive_here),
+            DOCUMENTS.c.active_document_version_id.is_not(None),
+            ~active_binding,
+        )
+        .order_by(DOCUMENTS.c.document_id)
+    )
+    return tuple(str(document_id) for document_id in result.scalars().all())
 
 
 def _plan_reconciliation(
