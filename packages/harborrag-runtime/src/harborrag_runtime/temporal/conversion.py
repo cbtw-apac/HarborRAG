@@ -85,6 +85,8 @@ def to_prepared_document(
             if prepared.canonical_reference is not None
             else None
         ),
+        expected_active_document_version_id=prepared.expected_active_document_version_id,
+        publication_base_known=prepared.publication_base_known,
     )
 
 
@@ -100,6 +102,8 @@ def to_prepared_stage(
             if prepared.canonical_reference is not None
             else None
         ),
+        expected_active_document_version_id=prepared.expected_active_document_version_id,
+        publication_base_known=prepared.publication_base_known,
     )
 
 

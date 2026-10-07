@@ -493,3 +493,94 @@ async def test_release_adopts_an_unrecorded_canonical_left_by_an_earlier_attempt
         recorded = await control.document_versions.get_version(baseline.document_version_id)
         assert recorded is not None and recorded.canonical_artifact is not None
         assert recorded.canonical_artifact.sha256 != snapshot.canonical_artifact.sha256
+
+
+@pytest.mark.asyncio
+async def test_reindex_never_publishes_over_a_newer_release(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
+
+    from ...fixtures.release import build_release_resources
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    connector = SourceConnector()
+    async with control, resources.store:
+        dependencies = build_dependencies(resources)
+        documents = DocumentReleaseService(dependencies)
+        await documents.provision(tenant_id="default")
+        first = await documents.release(release_request(source_version="1"), connector)
+        pipeline = DocumentStagePipeline(dependencies)
+        rebuild = pipeline.release_prepared
+        newer = []
+
+        async def overtaken(request, prepared):  # type: ignore[no-untyped-def]
+            # A source release lands after the reindex read the active version.
+            connector.body = "The worker timeout is 45 seconds."
+            newer.append(await documents.release(release_request(source_version="2"), connector))
+            return await rebuild(request, prepared)
+
+        monkeypatch.setattr(pipeline, "release_prepared", overtaken)
+        target = processing_profile().model_copy(update={"graph_projection_version": "graph-v2"})
+
+        job = await DocumentReindexService(dependencies, pipeline=pipeline).run(
+            ReindexRequest(
+                reindex_job_id="reindex-race",
+                tenant_id="default",
+                processing=target,
+                document_id=first.document_id,
+            )
+        )
+
+        active = await control.document_versions.active_snapshot(first.document_id)
+        assert newer and newer[0].published is True
+        assert active is not None
+        assert str(active.document_version_id) == newer[0].document_version_id
+        assert job.status == ReindexJobState.COMPLETED
+        assert (job.published_count, job.skipped_count, job.failure_count) == (0, 1, 0)
+
+
+@pytest.mark.asyncio
+async def test_a_release_overtaken_by_a_newer_release_is_skipped_not_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from harborrag_core.ingestion import DocumentVersionState
+    from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
+
+    from ...fixtures.release import build_release_resources
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        dependencies = build_dependencies(resources)
+        overtaking = DocumentReleaseService(dependencies)
+        await overtaking.provision(tenant_id="default")
+        pipeline = DocumentStagePipeline(dependencies)
+        verify = pipeline.projections.verify_projections
+        newer = []
+
+        async def overtaken(request, prepared):  # type: ignore[no-untyped-def]
+            await verify(request, prepared)
+            # A second source task publishes newer content between this task's
+            # verification and its publish.
+            connector = SourceConnector()
+            connector.body = "The worker timeout is 45 seconds."
+            newer.append(await overtaking.release(release_request(source_version="3"), connector))
+
+        monkeypatch.setattr(pipeline.projections, "verify_projections", overtaken)
+
+        stale = await DocumentReleaseService(dependencies, pipeline=pipeline).release(
+            release_request(source_version="2"), SourceConnector()
+        )
+
+        active = await control.document_versions.active_snapshot(stale.document_id)
+        assert stale.published is False
+        assert newer and newer[0].published is True
+        assert active is not None
+        assert str(active.document_version_id) == newer[0].document_version_id
+        assert stale.document_version_id is not None
+        left = await control.document_versions.get_version(stale.document_version_id)
+        assert left is not None and left.state == DocumentVersionState.VERIFIED

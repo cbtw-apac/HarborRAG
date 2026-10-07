@@ -289,3 +289,34 @@ def test_retry_input_accepts_a_bounded_unique_selection() -> None:
 
     assert retry.document_ids == ("doc-1", "doc-2")
     assert retry.document_concurrency == 100
+
+
+def test_prepared_document_round_trips_the_publication_base() -> None:
+    from harborrag_core.ingestion import SourceAdmissionDecision
+    from harborrag_runtime.ingestion.document.stage_models import PreparedDocumentStage
+    from harborrag_runtime.temporal.conversion import to_prepared_document, to_prepared_stage
+
+    first_release = PreparedDocumentStage(
+        document_id="d",
+        document_version_id="v",
+        decision=SourceAdmissionDecision.NEW,
+        expected_active_document_version_id=None,
+        publication_base_known=True,
+    )
+    update = replace(first_release, expected_active_document_version_id="v0")
+
+    assert to_prepared_stage(to_prepared_document(_DOCUMENT, first_release)) == first_release
+    assert to_prepared_stage(to_prepared_document(_DOCUMENT, update)) == update
+
+
+def test_prepared_document_recorded_before_the_base_existed_defers_to_publish_time() -> None:
+    from harborrag_runtime.temporal.conversion import to_prepared_stage
+
+    legacy = PreparedDocument(
+        document=_DOCUMENT, document_id="d", document_version_id="v", decision="UPDATED"
+    )
+
+    stage = to_prepared_stage(legacy)
+
+    assert stage.publication_base_known is False
+    assert stage.expected_active_document_version_id is None

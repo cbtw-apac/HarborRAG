@@ -46,12 +46,14 @@ class DocumentPreparationStages:
         candidate: DocumentVersionCandidate,
         document: Document,
         decision: SourceAdmissionDecision,
+        expected_active_document_version_id: str | None,
     ) -> PreparedDocumentStage:
         return await self._capture.prepare_canonical(
             tenant_id=tenant_id,
             candidate=candidate,
             document=document,
             decision=decision,
+            expected_active_document_version_id=expected_active_document_version_id,
         )
 
     async def replay_from_artifacts(

@@ -32,7 +32,7 @@ from .dependencies import DocumentReleaseDependencies
 from .lifecycle import DocumentVersionLifecycle
 from .materialization_helpers import enrich_raw_document
 from .models import DocumentReleaseRequest
-from .stage_models import PreparedDocumentStage, RawCaptureStageResult
+from .stage_models import PreparedDocumentStage, RawCaptureStageResult, active_version_id
 
 logger = logging.getLogger("harborrag.runtime.ingestion.capture")
 
@@ -217,6 +217,8 @@ class DocumentCaptureStages:
                 document_version_id=candidate_id,
                 decision=decision,
                 canonical_reference=canonical_reference,
+                expected_active_document_version_id=active_version_id(active),
+                publication_base_known=True,
             )
         except Exception as error:
             if candidate_id is not None:
@@ -280,8 +282,13 @@ class DocumentCaptureStages:
         candidate: DocumentVersionCandidate,
         document: Document,
         decision: SourceAdmissionDecision,
+        expected_active_document_version_id: str | None,
     ) -> PreparedDocumentStage:
-        """Start a connector-free release at its canonical replay boundary."""
+        """Start a connector-free release at its canonical replay boundary.
+
+        ``expected_active_document_version_id`` is the active version the caller
+        rebuilds from; publication refuses if it is no longer active.
+        """
 
         document_id = str(candidate.document_id)
         document_version_id = str(candidate.document_version_id)
@@ -292,6 +299,8 @@ class DocumentCaptureStages:
                     document_id=document_id,
                     document_version_id=document_version_id,
                     decision=decision,
+                    expected_active_document_version_id=expected_active_document_version_id,
+                    publication_base_known=True,
                 )
             context = _context(tenant_id)
             materialized, snapshot = await self._lifecycle.materialize_document(
@@ -313,6 +322,8 @@ class DocumentCaptureStages:
                 document_version_id=document_version_id,
                 decision=decision,
                 canonical_reference=reference,
+                expected_active_document_version_id=expected_active_document_version_id,
+                publication_base_known=True,
             )
         except Exception as error:
             await self._lifecycle.record_failure(
@@ -357,11 +368,16 @@ class DocumentCaptureStages:
         if snapshot is None:
             raise HarborInvariantError("snapshot must not be None here")
         if snapshot.canonical_artifact is not None:
+            active = await self._dependencies.control.document_versions.active_snapshot(
+                str(snapshot.document_id)
+            )
             return PreparedDocumentStage(
                 document_id=str(snapshot.document_id),
                 document_version_id=document_version_id,
                 decision=SourceAdmissionDecision.FORCE_REPROCESS,
                 canonical_reference=snapshot.canonical_artifact,
+                expected_active_document_version_id=active_version_id(active),
+                publication_base_known=True,
             )
         if snapshot.raw_artifact is None or snapshot.raw_metadata_artifact is None:
             raise RuntimeError("document version has no reusable raw or canonical artifact")

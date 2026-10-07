@@ -144,6 +144,10 @@ class PreparedDocument:
     document_version_id: str
     decision: str
     canonical_reference: WorkflowArtifactReference | None = None
+    # Appended with defaults: histories recorded before these fields decode to an
+    # unknown base, and publication then reads the pointer itself.
+    expected_active_document_version_id: str | None = None
+    publication_base_known: bool = False
 
     def __post_init__(self) -> None:
         identities = (self.document_id, self.document_version_id, self.decision)

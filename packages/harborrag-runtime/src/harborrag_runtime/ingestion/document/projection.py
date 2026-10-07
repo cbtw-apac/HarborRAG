@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 from harborrag_core.ingestion import (
     DocumentVersionState,
     ProjectionVerificationError,
+    PublicationSupersededError,
 )
 from harborrag_engine.ingestion import (
     ProjectionManifestInput,
@@ -23,7 +25,9 @@ from .projection_coordinator import (
     ProjectionVerificationRequest,
 )
 from .projection_material import ProjectionMaterialLoader, vector_batch
-from .stage_models import PreparedDocumentStage
+from .stage_models import PreparedDocumentStage, active_version_id, publication_base
+
+logger = logging.getLogger("harborrag.runtime.ingestion.projection")
 
 
 class DocumentProjectionStages:
@@ -230,23 +234,34 @@ class DocumentProjectionStages:
         active = await self._dependencies.control.document_versions.active_snapshot(
             prepared.document_id
         )
-        current_active = str(active.document_version_id) if active is not None else None
         self._publication.require_publishable(
             decision=prepared.decision,
             state=snapshot.state,
             requires_processing=prepared.requires_processing,
             is_current_active=(
                 snapshot.state == DocumentVersionState.ACTIVE
-                and current_active == str(prepared.document_version_id)
+                and active_version_id(active) == str(prepared.document_version_id)
             ),
         )
-        publication = await self._dependencies.control.publisher.publish(
-            document_id=prepared.document_id,
-            candidate_document_version_id=prepared.document_version_id,
-            # The pointer as read now. Callers that know the base they built from
-            # pass it instead.
-            expected_active_document_version_id=current_active,
-        )
+        try:
+            publication = await self._dependencies.control.publisher.publish(
+                document_id=prepared.document_id,
+                candidate_document_version_id=prepared.document_version_id,
+                expected_active_document_version_id=publication_base(prepared, active),
+            )
+        except PublicationSupersededError:
+            # Another release moved the pointer after this candidate read it. The
+            # newer version stands; this one stays VERIFIED with invisible projections.
+            logger.info(
+                "Document publication superseded document_id=%s document_version_id=%s",
+                prepared.document_id,
+                prepared.document_version_id,
+            )
+            return DocumentReleaseOutcome(
+                document_id=prepared.document_id,
+                document_version_id=prepared.document_version_id,
+                decision=prepared.decision,
+            )
         if not prepared.requires_processing:
             return DocumentReleaseOutcome(
                 document_id=prepared.document_id,

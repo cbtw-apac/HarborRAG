@@ -193,6 +193,7 @@ class DocumentReindexService:
             candidate=candidate,
             document=reidentified,
             decision=SourceAdmissionDecision.FORCE_REPROCESS,
+            expected_active_document_version_id=str(active.document_version_id),
         )
         await self._reuse.preserve_raw_boundary(prepared, active)
         release_request = DocumentReleaseRequest(
