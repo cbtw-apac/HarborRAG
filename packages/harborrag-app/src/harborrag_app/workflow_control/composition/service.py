@@ -6,6 +6,7 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Mapping
+from datetime import datetime
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
@@ -45,6 +46,8 @@ from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
 from ..retrieval.graph import GraphRetrievalService
+from ..scheduling.models import ScheduleCommand
+from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse
 from .factories import AppServiceFactories
 from .resources import AppResources
@@ -89,6 +92,11 @@ class AppService(
             self._settings,
             client_provider=self._resources.runtime_client,
             task_store_provider=self._resources.public_task_store,
+            source_input_builder=self._source_input_builder,
+        )
+        self._schedules = ScheduleApplicationService(
+            self._settings,
+            backend_provider=self._resources.schedule_backend,
             source_input_builder=self._source_input_builder,
         )
         memory = conversation_memory(self._composition)
@@ -192,6 +200,38 @@ class AppService(
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
             return failure_response(logger, exc, "check ingestion runtime health")
+
+    async def sync_declared_schedules(self) -> dict[str, int] | None:
+        return await self._schedules.sync_declared()
+
+    async def create_schedule(self, command: ScheduleCommand) -> dict[str, object]:
+        return await self._schedules.create(command)
+
+    async def update_schedule(self, command: ScheduleCommand) -> dict[str, object]:
+        return await self._schedules.update(command)
+
+    async def list_schedules(self, *, tenant_ids: frozenset[str] | None) -> dict[str, object]:
+        return await self._schedules.list_all(tenant_ids=tenant_ids)
+
+    async def get_schedule(self, schedule_id: str) -> dict[str, object]:
+        return await self._schedules.get(schedule_id)
+
+    async def pause_schedule(self, schedule_id: str, *, note: str | None) -> dict[str, object]:
+        return await self._schedules.pause(schedule_id, note=note)
+
+    async def unpause_schedule(self, schedule_id: str, *, note: str | None) -> dict[str, object]:
+        return await self._schedules.unpause(schedule_id, note=note)
+
+    async def trigger_schedule(self, schedule_id: str) -> dict[str, object]:
+        return await self._schedules.trigger(schedule_id)
+
+    async def backfill_schedule(
+        self, schedule_id: str, *, start_at: datetime, end_at: datetime
+    ) -> dict[str, object]:
+        return await self._schedules.backfill(schedule_id, start_at=start_at, end_at=end_at)
+
+    async def delete_schedule(self, schedule_id: str) -> dict[str, object]:
+        return await self._schedules.delete(schedule_id)
 
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
         """Drain one pass of the durable secret-retirement/audit-logging outbox.

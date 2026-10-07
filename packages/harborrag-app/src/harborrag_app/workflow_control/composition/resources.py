@@ -14,6 +14,7 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
     ProjectionAdministrationService,
 )
 from harborrag_runtime.ingestion_contracts import IngestionGateway
+from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG
 
 from .tenant_models import tenant_model_sources
@@ -42,11 +43,13 @@ class AppResources:
         # request. None keeps the single process-wide chat client.
         self._tenant_models = tenant_model_sources(composition, settings)
         self._client: IngestionGateway | None = None
+        self._schedule_backend: ScheduleBackend | None = None
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
         self._projection_admin: ProjectionAdministrationService | None = None
         self._event_bus: EventBusPort | None = None
         self._client_lock = asyncio.Lock()
+        self._schedule_backend_lock = asyncio.Lock()
         self._task_registry_lock = asyncio.Lock()
 
     async def runtime_client(self) -> IngestionGateway:
@@ -56,6 +59,14 @@ class AppResources:
             if self._client is None:
                 self._client = await self._factories.client(self._settings)
         return self._client
+
+    async def schedule_backend(self) -> ScheduleBackend:
+        if self._schedule_backend is not None:
+            return self._schedule_backend
+        async with self._schedule_backend_lock:
+            if self._schedule_backend is None:
+                self._schedule_backend = await self._factories.schedule_backend(self._settings)
+        return self._schedule_backend
 
     def runtime_sdk(self) -> HarborRAG:
         """Build the SDK once, telling chat about tenant catalogs if any are wired.
@@ -101,6 +112,7 @@ class AppResources:
                 self._retrieval_runtime.aclose if self._retrieval_runtime else None,
                 self._task_registry.close if self._task_registry else None,
                 self._projection_admin.close if self._projection_admin else None,
+                getattr(self._schedule_backend, "aclose", None) if self._schedule_backend else None,
             )
             if resource is not None
         ]

@@ -87,6 +87,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
     temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
     temporal_config_path: Path = Path("config/temporal.yaml")
+    schedule_config_path: Path = Path("config/schedules.yaml")
     metrics_port: int | None = Field(default=None, ge=1, le=65_535)
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False

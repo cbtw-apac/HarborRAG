@@ -22,6 +22,7 @@ from .schemas import (
     DocumentIngestionInput,
     PreparedDocument,
     RawCaptureResult,
+    ScheduledRunMetricInput,
 )
 from .source_activities import SourceActivitiesMixin
 
@@ -40,6 +41,14 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
         self._documents = PlanDocumentResolver(runtime.source_plans)
+
+    @activity.defn(name="harborrag.record_scheduled_run_metrics")
+    async def record_scheduled_run_metrics(self, request: ScheduledRunMetricInput) -> None:
+        self._runtime.telemetry.record_scheduled_run(
+            request.schedule_id,
+            request.outcome,
+            schedule_to_start_seconds=request.schedule_to_start_seconds,
+        )
 
     @activity.defn(name="harborrag.fetch_and_capture_raw")
     async def fetch_and_capture_raw(

@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio.client import (
+    Schedule,
+    ScheduleActionStartWorkflow,
+    SchedulePolicy,
+    ScheduleSpec,
+)
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_runtime.config.temporal import (
@@ -19,8 +26,17 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
+from harborrag_runtime.scheduling.errors import ScheduleNotFoundError
+from harborrag_runtime.scheduling.models import (
+    ScheduleDefinition,
+    ScheduledWorkflow,
+    ScheduleOverlap,
+    ScheduleOwner,
+    SourceScheduleTarget,
+)
 from harborrag_runtime.temporal import client as client_module
 from harborrag_runtime.temporal import connection as connection_module
+from harborrag_runtime.temporal import schedules as schedules_module
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.maintenance_schemas import (
     ReindexInput,
@@ -49,6 +65,47 @@ def _processing() -> ProcessingProfileInput:
         graph_projection_version="graph-v1",
         vector_projection_schema="vector-v2",
     )
+
+
+@pytest.mark.asyncio
+async def test_schedule_list_describes_concurrently_with_a_bound(monkeypatch) -> None:
+    entries = [
+        SimpleNamespace(
+            id=str(index),
+            memo=AsyncMock(return_value={"harborrag_schedule": {}} if index != 0 else {}),
+        )
+        for index in range(25)
+    ]
+
+    async def iterator():
+        for entry in entries:
+            yield entry
+
+    sdk = _SdkClient()
+    sdk.list_schedules = AsyncMock(return_value=iterator())
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+    active = 0
+    peak = 0
+    described = []
+
+    async def describe(schedule_id):
+        nonlocal active, peak
+        described.append(schedule_id)
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            if schedule_id == "1":
+                raise ScheduleNotFoundError("deleted during collection")
+            return schedule_id
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(backend, "describe", describe)
+
+    assert await backend.list_all() == [str(index) for index in range(2, 25)]
+    assert "0" not in described
+    assert 1 < peak <= 10
 
 
 def _source() -> SourceIngestionInput:
@@ -138,6 +195,14 @@ class _SdkClient:
         self.start_workflow = AsyncMock(side_effect=self._start)
         self.get_workflow_handle = Mock(side_effect=self._handle)
         self.service_client = SimpleNamespace(check_health=AsyncMock(return_value=True))
+        self.create_schedule = AsyncMock()
+        self.schedule_handle = SimpleNamespace(
+            pause=AsyncMock(),
+            unpause=AsyncMock(),
+            trigger=AsyncMock(),
+            delete=AsyncMock(),
+        )
+        self.get_schedule_handle = Mock(return_value=self.schedule_handle)
         self.workflow_service = SimpleNamespace(
             pause_workflow_execution=AsyncMock(),
             unpause_workflow_execution=AsyncMock(),
@@ -224,6 +289,102 @@ async def test_client_submits_source_and_reindex_with_bounded_options() -> None:
     assert reindex_call.args[0] == "harborrag.reindex"
     assert reindex_call.kwargs["id"] == "harborrag-reindex:reindex-1"
     assert reindex_call.kwargs["task_timeout"].total_seconds() == 7
+
+
+@pytest.mark.asyncio
+async def test_client_creates_and_controls_source_ingestion_schedule() -> None:
+    sdk = _SdkClient()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    await client.upsert_ingestion_schedule("source-sync-1", "0 */6 * * *", _source())
+
+    schedule = sdk.create_schedule.await_args.args[1]
+    assert schedule.spec.cron_expressions == ["0 */6 * * *"]
+    assert schedule.policy.overlap.name == "SKIP"
+    assert schedule.action.workflow == "harborrag.scheduled_source_ingestion"
+    assert schedule.action.args[0].schedule_id == "source-sync-1"
+    assert schedule.action.task_queue == "harborrag-discovery"
+
+    await client.pause_ingestion_schedule("source-sync-1", note="maintenance")
+    await client.unpause_ingestion_schedule("source-sync-1", note="maintenance complete")
+    await client.trigger_ingestion_schedule("source-sync-1")
+    await client.delete_ingestion_schedule("source-sync-1")
+
+    sdk.schedule_handle.pause.assert_awaited_once_with(note="maintenance")
+    sdk.schedule_handle.unpause.assert_awaited_once_with(note="maintenance complete")
+    sdk.schedule_handle.trigger.assert_awaited_once()
+    sdk.schedule_handle.delete.assert_awaited_once()
+
+
+def test_schedule_backend_maps_interval_and_policy_fields() -> None:
+    backend = schedules_module.TemporalScheduleBackend(_SdkClient(), TemporalRuntimeConfig())
+    definition = ScheduleDefinition(
+        schedule_id="source-sync-1",
+        workflow=ScheduledWorkflow.SOURCE_INGESTION,
+        cron=None,
+        interval_seconds=3600,
+        target=SourceScheduleTarget(tenant_id="tenant-1", connection_id="local-docs"),
+        overlap=ScheduleOverlap.BUFFER_ONE,
+        catchup_window_seconds=1800,
+        jitter_seconds=60,
+        pause_on_failure=True,
+        owner=ScheduleOwner.API,
+    )
+
+    schedule = backend._schedule(definition, _source())
+
+    assert schedule.spec.cron_expressions == []
+    assert schedule.spec.intervals[0].every.total_seconds() == 3600
+    assert schedule.spec.jitter.total_seconds() == 60
+    assert schedule.policy.overlap.name == "BUFFER_ONE"
+    assert schedule.policy.catchup_window.total_seconds() == 1800
+    assert schedule.policy.pause_on_failure is True
+    assert schedule.action.id == "harborrag-scheduled-source:source-sync-1"
+
+
+def test_schedule_backend_defaults_to_one_hour_catchup_and_skip() -> None:
+    backend = schedules_module.TemporalScheduleBackend(_SdkClient(), TemporalRuntimeConfig())
+    definition = ScheduleDefinition(
+        schedule_id="source-sync-1",
+        workflow=ScheduledWorkflow.SOURCE_INGESTION,
+        cron="0 1 * * *",
+        target=SourceScheduleTarget(tenant_id="tenant-1", connection_id="local-docs"),
+    )
+
+    schedule = backend._schedule(definition, _source())
+
+    assert schedule.policy.overlap.name == "SKIP"
+    assert schedule.policy.catchup_window.total_seconds() == 3600
+
+
+@pytest.mark.asyncio
+async def test_client_upserts_existing_schedule_without_changing_pause_state(monkeypatch) -> None:
+    class AlreadyExistsError(Exception):
+        pass
+
+    monkeypatch.setattr(schedules_module, "ScheduleAlreadyRunningError", AlreadyExistsError)
+    sdk = _SdkClient()
+    sdk.create_schedule.side_effect = AlreadyExistsError()
+    sdk.schedule_handle.update = AsyncMock()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+    existing = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "old.workflow",
+            id="old-workflow-id",
+            task_queue="old-queue",
+        ),
+        spec=ScheduleSpec(cron_expressions=["0 1 * * *"]),
+        policy=SchedulePolicy(),
+    )
+
+    await client.upsert_ingestion_schedule("source-sync-1", "0 2 * * *", _source())
+
+    update = sdk.schedule_handle.update.await_args.args[0](
+        SimpleNamespace(description=SimpleNamespace(schedule=existing))
+    )
+    assert update.schedule.spec.cron_expressions == ["0 2 * * *"]
+    assert update.schedule.action.workflow == "harborrag.scheduled_source_ingestion"
+    assert update.schedule.state == existing.state
 
 
 @pytest.mark.asyncio

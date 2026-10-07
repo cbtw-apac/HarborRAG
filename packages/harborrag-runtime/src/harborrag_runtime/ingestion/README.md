@@ -47,6 +47,24 @@ engine modules.
 exports for public application services and contracts; nested modules are for
 runtime and white-box test implementation details.
 
+Temporal recurring ingestion is managed through `harborrag_runtime.scheduling`.
+`ScheduleService` validates definitions and manages creation, updates, pause/unpause,
+manual triggers, deletion, inspection, and backfill through `TemporalScheduleBackend`.
+Each firing starts the existing source-ingestion workflow with a fresh task ID.
+Overlap behavior is configurable and defaults to `skip`.
+
+The application syncs version-controlled `config/schedules.yaml` at startup,
+creating missing config-owned schedules and updating existing ones without
+resetting an operator's pause state or note. API-owned schedules can be managed
+independently. The control-plane `SourceConfig.schedule` field is not the source
+for this reconciliation.
+
+`IngestionScheduleClient` and
+`IngestionTemporalClient.upsert_ingestion_schedule(schedule_id, cron_expression,
+prepared_source_input)` are legacy entry points. Prefer the scheduling service
+for policy controls and config reconciliation; the legacy path requires a
+prepared connector input and uses overlap skipping.
+
 Tests mirror the same boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`: shared fakes are in
 `fixtures/`, fast behavior tests are grouped under `unit/document`,
 `unit/source`, `unit/maintenance`, and `unit/temporal`, while deterministic

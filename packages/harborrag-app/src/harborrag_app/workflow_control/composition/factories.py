@@ -12,6 +12,7 @@ from harborrag_runtime.events import InProcessEventBus
 from harborrag_runtime.execution.gateway import (
     IngestionGatewayDescription,
     connect_ingestion_gateway,
+    connect_schedule_backend,
     describe_ingestion_gateway,
     prepare_configured_source_submission,
 )
@@ -27,6 +28,7 @@ from harborrag_runtime.ingestion_contracts import (
     PreparedSourceSubmission,
     SourceSubmission,
 )
+from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
 from ..ingestion.ports import PublicTaskStore
@@ -35,6 +37,7 @@ type ClientFactory = Callable[
     [RuntimeSettings],
     Awaitable[IngestionGateway],
 ]
+type ScheduleBackendFactory = Callable[[RuntimeSettings], Awaitable[ScheduleBackend]]
 type GatewayDescriptionFactory = Callable[[RuntimeSettings], IngestionGatewayDescription]
 type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
 type SourceInputBuilder = Callable[
@@ -64,6 +67,7 @@ class AppServiceFactories:
     """Collaborator factories, grouped so composition stays overridable in tests."""
 
     client: ClientFactory = connect_ingestion_gateway
+    schedule_backend: ScheduleBackendFactory = connect_schedule_backend
     ingestion_description: GatewayDescriptionFactory = describe_ingestion_gateway
     retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
     source_input_builder: SourceInputBuilder = prepare_configured_source_submission

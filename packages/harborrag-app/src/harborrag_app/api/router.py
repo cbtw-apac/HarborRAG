@@ -14,6 +14,7 @@ from harborrag_app.api.v1.graph import router as graph_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
 from harborrag_app.api.v1.memory import router as memory_router
 from harborrag_app.api.v1.retrieval import router as retrieval_router
+from harborrag_app.api.v1.schedules import router as schedules_router
 
 OPERATIONAL_PREFIX = "/api/v1"
 PUBLIC_PREFIX = "/v1"
@@ -34,5 +35,6 @@ def register_routes(app: FastAPI) -> None:
         agent_router,
         memory_router,
         admin_router,
+        schedules_router,
     ):
         app.include_router(router, prefix=PUBLIC_PREFIX)
