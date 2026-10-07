@@ -232,3 +232,27 @@ def test_graph_access_scope_names_unrestricted_and_deny_all_explicitly() -> None
     assert GraphAccessScope.deny_all().tenant_visible is False
     with pytest.raises(ValueError, match="no allowlists"):
         GraphAccessScope(unrestricted=True, document_ids=("d1",))
+
+
+@pytest.mark.parametrize(
+    "address",
+    [
+        "100.64.0.1",  # CGNAT shared address space
+        "100.127.255.254",
+        "192.0.0.1",  # IETF protocol assignments
+        "198.18.0.1",  # benchmarking
+        "224.0.0.1",  # multicast, which is_global reports as global
+        "2001:db8::1",  # documentation
+        "::ffff:100.64.0.1",  # IPv4-mapped CGNAT, is_global=True on 3.12.3
+        "::ffff:10.0.0.1",
+        "64:ff9b::a00:1",  # NAT64 of 10.0.0.1, is_global=True
+    ],
+)
+def test_url_policy_refuses_non_public_and_embedded_ipv4_addresses(address: str) -> None:
+    with pytest.raises(URLPolicyError, match="not allowed"):
+        URLPolicy(resolver=lambda _host, _port: (address,)).validate("https://edge.example/")
+
+
+@pytest.mark.parametrize("address", ["93.184.216.34", "2606:4700:4700::1111", "64:ff9b::808:808"])
+def test_url_policy_still_accepts_public_addresses(address: str) -> None:
+    URLPolicy(resolver=lambda _host, _port: (address,)).validate("https://public.example/")

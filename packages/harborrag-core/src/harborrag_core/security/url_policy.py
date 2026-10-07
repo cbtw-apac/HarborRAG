@@ -10,30 +10,55 @@ from harborrag_core.contracts.errors import HarborSecurityError
 
 _LOCAL_HOSTNAMES = frozenset({"localhost", "localhost.localdomain", "ip6-localhost"})
 
+type _IPAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+# RFC 6052 well-known NAT64 prefix: the last 32 bits are an IPv4 address.
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
 
 class URLPolicyError(HarborSecurityError):
     """Raised when a URL violates the configured outbound-access policy."""
 
 
-def _is_disallowed_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """Classify an IP as unsafe for server-initiated outbound requests.
+def _embedded_ipv4(ip: _IPAddress) -> ipaddress.IPv4Address | None:
+    """The IPv4 address an IPv4-mapped or NAT64 address routes to, if any."""
 
-    Covers loopback (127.0.0.0/8, ::1), RFC1918/ULA private ranges
-    (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, fc00::/7), link-local ranges
-    including the cloud-metadata address 169.254.169.254 (169.254.0.0/16,
-    fe80::/10), multicast, and other IANA-reserved blocks. `is_private`
-    already subsumes loopback/link-local for both address families, but the
-    other predicates are kept explicit so the intent doesn't silently regress
-    if a future Python release narrows `is_private`.
-    """
+    if isinstance(ip, ipaddress.IPv6Address):
+        if ip.ipv4_mapped is not None:
+            return ip.ipv4_mapped
+        if ip in _NAT64_PREFIX:
+            return ipaddress.IPv4Address(int(ip) & 0xFFFF_FFFF)
+    return None
+
+
+def _is_non_public(ip: _IPAddress) -> bool:
     return (
-        ip.is_private
+        not ip.is_global
+        or ip.is_private
         or ip.is_loopback
         or ip.is_link_local
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
     )
+
+
+def _is_disallowed_ip(ip: _IPAddress) -> bool:
+    """Classify an IP as unsafe for server-initiated outbound requests.
+
+    Anything not globally routable is refused: loopback, RFC1918/ULA, link-local
+    (including the 169.254.169.254 metadata address), CGNAT 100.64.0.0/10, the IETF
+    and benchmarking blocks, documentation ranges and multicast (which ``is_global``
+    counts as global). The narrower predicates are kept explicit so the intent does
+    not silently regress if a Python release changes ``is_global``.
+
+    An IPv4-mapped or NAT64 address is classified by the IPv4 address it embeds,
+    because that is where it routes. The outer ``::/8`` block is flagged reserved,
+    which would otherwise refuse every public NAT64 destination.
+    """
+
+    embedded = _embedded_ipv4(ip)
+    return _is_non_public(ip if embedded is None else embedded)
 
 
 @dataclass(slots=True)
