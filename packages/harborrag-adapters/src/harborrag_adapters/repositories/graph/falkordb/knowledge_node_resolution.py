@@ -71,7 +71,7 @@ async def resolve_knowledge_node(
     database: FalkorDBClient,
     selector: str,
     *,
-    access_scope: GraphAccessScope | None = None,
+    access_scope: GraphAccessScope | None,
     context: StorageOperationContext,
 ) -> GraphNodeRecord | None:
     """Resolve one portable selector without allowing an ambiguous multi-node seed.

@@ -25,11 +25,19 @@ class GraphNodeSelectorKind(StrEnum):
 
 
 class GraphAccessScope(StrictModel):
-    """Canonical resource allowlists applied by the graph store before selection."""
+    """Canonical resource allowlists applied by the graph store before selection.
+
+    Unrestricted access is a named state, never a default: a query whose scope is
+    missing -- unset, or dropped by ``model_dump`` because the field is excluded --
+    is denied by the repository. ``allow_all`` is for callers with no canonical
+    authority configured at all, the same legacy case the vector lane leaves open;
+    tenant isolation still applies to every query.
+    """
 
     document_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     source_scope_ids: tuple[str, ...] = Field(default=(), max_length=10_000)
     tenant_shared: bool = False
+    unrestricted: bool = False
 
     @model_validator(mode="after")
     def validate_unique_ids(self) -> Self:
@@ -37,11 +45,29 @@ class GraphAccessScope(StrictModel):
             raise ValueError("graph access document_ids must be unique")
         if len(set(self.source_scope_ids)) != len(self.source_scope_ids):
             raise ValueError("graph access source_scope_ids must be unique")
+        if self.unrestricted and (self.document_ids or self.source_scope_ids):
+            raise ValueError("an unrestricted graph access scope carries no allowlists")
         return self
+
+    @classmethod
+    def allow_all(cls) -> GraphAccessScope:
+        """Every record in the tenant; only where no canonical authority exists."""
+
+        return cls(unrestricted=True)
+
+    @classmethod
+    def deny_all(cls) -> GraphAccessScope:
+        """No record at all -- what a missing scope means."""
+
+        return cls()
 
     @property
     def tenant_visible(self) -> bool:
-        return self.tenant_shared or bool(self.document_ids or self.source_scope_ids)
+        return (
+            self.unrestricted
+            or self.tenant_shared
+            or bool(self.document_ids or self.source_scope_ids)
+        )
 
 
 class GraphNodeResolutionQuery(StrictModel):

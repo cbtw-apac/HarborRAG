@@ -26,6 +26,7 @@ from harborrag_core.ports.memory import (
     MemoryScope,
     MemoryType,
 )
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.retrieval.graph import GraphPath
 from harborrag_core.schemas.state import WorkflowState
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
@@ -222,3 +223,12 @@ def _tenant_node(node_key: str, *, attributes: dict[str, object] | None = None) 
         owner_id="tenant-a",
         attributes=attributes or {},
     )
+
+
+def test_graph_access_scope_names_unrestricted_and_deny_all_explicitly() -> None:
+    assert GraphAccessScope.allow_all().unrestricted is True
+    assert GraphAccessScope.allow_all().tenant_visible is True
+    assert GraphAccessScope.deny_all() == GraphAccessScope()
+    assert GraphAccessScope.deny_all().tenant_visible is False
+    with pytest.raises(ValueError, match="no allowlists"):
+        GraphAccessScope(unrestricted=True, document_ids=("d1",))

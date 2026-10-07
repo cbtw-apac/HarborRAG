@@ -53,11 +53,17 @@ class GraphVisibilityAuthorizer(Protocol):
 async def graph_access_scope(
     authorizer: GraphVisibilityAuthorizer | None,
     context: StorageOperationContext,
-) -> GraphAccessScope | None:
-    """Resolve canonical allowlists before the graph store selects or limits rows."""
+) -> GraphAccessScope:
+    """Resolve canonical allowlists before the graph store selects or limits rows.
+
+    Never ``None``: the repository denies a missing scope, so the open case is named.
+    It is granted exactly where the vector lane grants it -- no canonical authority
+    configured at all (``RetrievalPermissions`` with no repository) -- which
+    production composition never does.
+    """
 
     if authorizer is None:
-        return None
+        return GraphAccessScope.allow_all()
     if context.access.corpus_mode == "tenant_shared":
         return GraphAccessScope(tenant_shared=True)
     document_ids, source_scope_ids = await asyncio.gather(

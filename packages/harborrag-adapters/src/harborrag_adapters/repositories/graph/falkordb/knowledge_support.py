@@ -9,7 +9,7 @@ from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_core.chunking import RelationType
 from harborrag_core.contracts.errors import HarborDeadlineExceeded
-from harborrag_core.ingestion import KnowledgeNodeKind
+from harborrag_core.ingestion import GraphOwnershipScope, KnowledgeNodeKind
 from harborrag_core.retrieval import GraphAccessScope
 
 NODE_LABELS = {
@@ -49,19 +49,28 @@ def access_predicate(variable: str) -> str:
             AND {variable}.source_scope_id IN $authorized_source_scope_ids)
         OR ({variable}.document_id IS NULL
             AND {variable}.source_scope_id IS NULL
-            AND {variable}.ownership_scope = 'tenant'
+            AND {variable}.ownership_scope = $tenant_ownership_scope
             AND $tenant_visible)
     )"""
 
 
 def access_parameters(scope: GraphAccessScope | None) -> dict[str, Any]:
-    """Encode an absent legacy scope distinctly from an explicit deny-all scope."""
+    """Bind one access scope for ``access_predicate``; a missing scope denies everything.
 
+    ``None`` used to bind ``access_unrestricted``, so any query whose scope was never
+    set, or was dropped by ``model_dump`` (the field is excluded), read the whole
+    tenant. Unrestricted is now asked for by name: ``GraphAccessScope.allow_all()``.
+    The ownership value is bound rather than inlined so it cannot drift from the
+    enum the writes store -- an inlined ``'tenant'`` never matched ``'TENANT'``.
+    """
+
+    effective = scope if scope is not None else GraphAccessScope.deny_all()
     return {
-        "access_unrestricted": scope is None or scope.tenant_shared,
-        "authorized_document_ids": list(scope.document_ids) if scope is not None else [],
-        "authorized_source_scope_ids": (list(scope.source_scope_ids) if scope is not None else []),
-        "tenant_visible": scope.tenant_visible if scope is not None else True,
+        "access_unrestricted": effective.unrestricted or effective.tenant_shared,
+        "authorized_document_ids": list(effective.document_ids),
+        "authorized_source_scope_ids": list(effective.source_scope_ids),
+        "tenant_visible": effective.tenant_visible,
+        "tenant_ownership_scope": GraphOwnershipScope.TENANT.value,
     }
 
 

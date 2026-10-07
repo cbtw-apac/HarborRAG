@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphSubgraphQuery,
     GraphTriplet,
     GraphTripletQuery,
@@ -24,7 +25,7 @@ from harborrag_core.retrieval import (
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import AuthoritativeGraphSearch
-from harborrag_engine.retrieval.graph_visibility import apply_graph_permissions
+from harborrag_engine.retrieval.graph_visibility import apply_graph_permissions, graph_access_scope
 
 
 class ScopedAuthorizer:
@@ -305,3 +306,42 @@ async def test_a_readable_document_does_not_unlock_tenant_nodes_beside_it() -> N
     # "s-1" happening to share the batch.
     assert states["s-1"] == "active"
     assert states["n-1"] == "active"
+
+
+@pytest.mark.asyncio
+async def test_without_an_authorizer_the_scope_is_explicitly_unrestricted() -> None:
+    """Mirrors the vector lane, which also treats "no authority configured" as legacy-open.
+
+    It used to be ``None``, which the repository read as unrestricted -- and so did
+    every query whose scope was merely missing.
+    """
+
+    scope = await graph_access_scope(None, StorageOperationContext.system("tenant-1"))
+
+    assert scope == GraphAccessScope.allow_all()
+
+
+@pytest.mark.asyncio
+async def test_a_caller_supplied_scope_is_always_replaced_by_the_authorized_one() -> None:
+    seen: list[GraphAccessScope | None] = []
+
+    class RecordingRepository(Repository):
+        async def expand_subgraph(
+            self, query: GraphSubgraphQuery, *, context: StorageOperationContext
+        ) -> KnowledgeGraphTraversal:
+            del context
+            seen.append(query.access_scope)
+            return KnowledgeGraphTraversal(nodes=(), relations=())
+
+    search = AuthoritativeGraphSearch(
+        RecordingRepository(),  # type: ignore[arg-type]
+        NoActiveVersions(),
+        ScopedAuthorizer(sources=("visible",)),
+    )
+
+    await search.subgraph(
+        GraphSubgraphQuery(start_node="A", access_scope=GraphAccessScope.allow_all()),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    assert seen == [GraphAccessScope(source_scope_ids=("visible",))]

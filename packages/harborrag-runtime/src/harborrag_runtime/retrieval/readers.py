@@ -108,9 +108,9 @@ class ReaderRetrieval:
         topology = self._resources.topology
         query = request.query
         access_scope = await graph_access_scope(topology, context)
-        if access_scope is not None and not access_scope.tenant_visible:
+        if not access_scope.tenant_visible:
             return None
-        if access_scope is not None and query.source_scope_ids:
+        if not access_scope.unrestricted and query.source_scope_ids:
             allowed = set(query.source_scope_ids) & set(access_scope.source_scope_ids)
             if not allowed:
                 return None
