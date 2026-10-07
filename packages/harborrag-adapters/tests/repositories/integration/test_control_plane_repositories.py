@@ -54,7 +54,6 @@ EXPECTED_TABLES = {
     "projection_manifests",
     "projection_cleanup_jobs",
     "reindex_jobs",
-    "mcp_api_keys",
 }
 
 
