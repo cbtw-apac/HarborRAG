@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from pydantic import SecretStr
 
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.validation import validate_secret_free_config
+from harborrag_core.models.embed import HarborEmbedRequest
 from harborrag_core.models.errors import HarborModelError
 from harborrag_core.security.field_names import (
     SENSITIVE_FIELD_TOKENS,
@@ -102,3 +104,64 @@ def test_every_consumer_agrees_on_one_definition() -> None:
         assert "raw-value" not in redact_secrets(f"{name}=raw-value"), name
         error = HarborModelError("failed", metadata={name: "raw-value"})
         assert error.metadata[name] == "<redacted>", name
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "APIKey",
+        "ApiKey",
+        "apikey",
+        "X-API-KEY",
+        "x-api-key",
+        "api-key",
+        "credentials",
+        "secrets",
+        "passwords",
+        "privatekey",
+        "accesskey",
+        "bearer",
+        "Bearer",
+        "passwd",
+        "clientsecret",
+        "sessionToken",
+        "sessiontoken",
+        "dbPassword",
+    ],
+)
+def test_every_spelling_of_a_credential_is_recognized(name: str) -> None:
+    assert is_sensitive_field_name(name) is True
+
+
+@pytest.mark.parametrize(
+    "name",
+    ["author", "monkey", "keyword", "max_output_tokens", "tokenizer", "token_usage"],
+)
+def test_lookalikes_of_credentials_are_not_flagged(name: str) -> None:
+    assert is_sensitive_field_name(name) is False
+
+
+@pytest.mark.parametrize(
+    "header",
+    [
+        "Authorization",
+        "Proxy-Authorization",
+        "x-api-key",
+        "api-key",
+        "x-goog-api-key",
+        "ocp-apim-subscription-key",
+        "x-auth-token",
+        "X-Session-Token",
+    ],
+)
+def test_credential_request_headers_are_wrapped_as_secrets(header: str) -> None:
+    request = HarborEmbedRequest(inputs=("hello",), custom_headers={header: "raw-value"})
+    assert isinstance(request.custom_headers[header], SecretStr), header
+
+
+@pytest.mark.parametrize(
+    "header", ["Idempotency-Key", "X-Request-Id", "Content-Type", "Accept", "User-Agent"]
+)
+def test_benign_request_headers_stay_plain_and_are_accepted(header: str) -> None:
+    request = HarborEmbedRequest(inputs=("hello",), custom_headers={header: "value"})
+    assert request.custom_headers[header] == "value"

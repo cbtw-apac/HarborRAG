@@ -206,11 +206,22 @@ def test_missing_non_secret_connector_environment_is_rejected(
     [
         '{"access_token":"secret"}',
         '{"nested":{"provider_api_key":"secret"}}',
+        '{"apiKey":"secret"}',
+        '{"APIKey":"secret"}',
+        '{"credentials":"secret"}',
+        '{"x-api-key":"secret"}',
+        '{"Bearer":"secret"}',
+        '{"signedUrl":"https://bucket.example/object?sig=abc"}',
+        '{"items":[{"passwd":"secret"}]}',
     ],
 )
 def test_source_query_rejects_credentials(filters_json: str) -> None:
     with pytest.raises(ValueError, match="cannot contain credentials"):
         SourceQuery(filters_json=filters_json)
+
+
+def test_source_query_keeps_quantities_and_ordinary_filters() -> None:
+    SourceQuery(filters_json='{"token_budget": 5, "max_tokens": 10, "team": "platform"}')
 
 
 @pytest.mark.parametrize("updated_after", ["not-a-date", "2026-07-31T10:00:00"])

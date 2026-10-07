@@ -7,19 +7,11 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
-_SECRET_QUERY_KEYS = frozenset(
-    {
-        "access_token",
-        "api_key",
-        "authorization",
-        "client_secret",
-        "credential",
-        "password",
-        "secret",
-        "signed_url",
-        "token",
-    }
-)
+from harborrag_core.security.field_names import canonical_field_name, is_sensitive_field_name
+
+# A presigned URL is a credential-bearing *value*; core's definition is about names
+# that claim to hold a credential, so this one stays local to source queries.
+_SIGNED_URL_FIELDS = frozenset({"signed_url"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,9 +69,8 @@ class SourceQuery:
 def _reject_secret_query_fields(value: object) -> None:
     if isinstance(value, Mapping):
         for raw_key, item in value.items():
-            key = str(raw_key).strip().lower()
-            if key in _SECRET_QUERY_KEYS or key.endswith(
-                ("_access_token", "_api_key", "_client_secret", "_password", "_secret", "_token")
+            if is_sensitive_field_name(raw_key) or (
+                canonical_field_name(raw_key) in _SIGNED_URL_FIELDS
             ):
                 raise ValueError("source query filters cannot contain credentials")
             _reject_secret_query_fields(item)

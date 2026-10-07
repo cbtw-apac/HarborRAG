@@ -33,7 +33,7 @@ _LABELED_PATTERNS = [
         # ``token`` carries the same lookahead as _SENSITIVE_KEY_PATTERN so a
         # token *count* ("tokens=5") is left alone.
         r"(?i)((?:api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)"
-        r"|secret|passwd|password|credential)[\w-]*)"
+        r"|secret|passwd|password|credential|bearer|subscription[_-]?key)[\w-]*)"
         r"['\"]?\s*[:=]\s*" + _VALUE
     ),
 ]

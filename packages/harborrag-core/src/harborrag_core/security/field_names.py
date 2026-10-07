@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import re
 
-_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])")
+# Lower-to-upper ("apiKey") and acronym-to-word ("APIKey", "HTTPProxy") boundaries.
+_CAMEL_CASE_BOUNDARY = re.compile(r"(?<=[a-z0-9])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])")
 _NON_ALPHANUMERIC = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -28,11 +29,13 @@ SENSITIVE_FIELD_TOKENS = frozenset(
         "access_token",
         "api_key",
         "authorization",
+        "bearer",
         "credential",
         "passwd",
         "password",
         "private_key",
         "secret",
+        "subscription_key",
         "token",
     }
 )
@@ -75,17 +78,38 @@ exception is deliberately narrow and applies to ``token`` alone.
 """
 
 
-_SINGLE_WORD_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" not in t)
 _COMPOUND_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" in t)
+
+_GLUED_STEMS = frozenset(
+    {
+        "accesskey",
+        "accesstoken",
+        "apikey",
+        "authorization",
+        "bearer",
+        "credential",
+        "passwd",
+        "password",
+        "privatekey",
+        "secret",
+    }
+)
+"""Stems matched *inside* one token, so plurals (``credentials``, ``secrets``) and
+glued names (``apikey``, ``clientsecret``, ``dbpassword``) are caught without listing
+every spelling. A false positive here costs a secret reference; a miss costs a leak.
+"""
+
+# ``token`` inside a token, except the plural (``max_tokens``) and ``tokenizer``.
+_TOKEN_WORD = re.compile(r"token(?!s$|iz)")
 
 
 def is_sensitive_field_name(value: object) -> bool:
     """Whether a field name claims to carry a credential.
 
     A compound entry is matched anywhere in the name at token boundaries, so
-    ``ssh_private_key`` and ``my_api_key`` are caught. Comparing the whole
-    canonical name against the set, as this used to, recognised ``api_key``
-    but not ``my_api_key`` -- a prefix was all it took to store a raw key.
+    ``ssh_private_key`` and ``my_api_key`` are caught. A stem is matched inside
+    each token, so ``credentials``, ``APIKey`` and ``sessiontoken`` are too.
+    ``token`` alone yields to a count qualifier: ``token_budget`` is a quantity.
     """
 
     name = canonical_field_name(value)
@@ -93,10 +117,11 @@ def is_sensitive_field_name(value: object) -> bool:
     if any(f"_{entry}_" in padded for entry in _COMPOUND_TOKENS):
         return True
     tokens = canonical_field_tokens(value)
-    matched = tokens & _SINGLE_WORD_TOKENS
-    if matched == {"token"} and tokens & _COUNT_QUALIFIERS:
-        return False
-    return bool(matched)
+    if any(stem in token for token in tokens for stem in _GLUED_STEMS):
+        return True
+    if any(_TOKEN_WORD.search(token) for token in tokens):
+        return not tokens & _COUNT_QUALIFIERS
+    return False
 
 
 __all__ = [
