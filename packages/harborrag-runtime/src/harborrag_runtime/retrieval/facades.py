@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import asdict
 from typing import TYPE_CHECKING, Protocol
 
@@ -10,8 +11,8 @@ from harborrag_core.contracts.reader import (
     DocumentContextResponse,
     DocumentListRequest,
     DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
+    EntityFindRequest,
+    EntityFindResponse,
     EntityResolveRequest,
     EntityResolveResponse,
     EvidenceFetchRequest,
@@ -76,6 +77,10 @@ class RetrievalFacade:
             evidence=report.evidence,
         )
 
+    async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        service = await self._owner._retrieval_service()
+        return await service.find_entities(request)
+
 
 class GraphFacade:
     def __init__(self, owner: _ReaderOwner) -> None:
@@ -118,12 +123,6 @@ class KnowledgeFacade:
 
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner
-
-    async def get_document_metadata(
-        self, request: DocumentMetadataRequest
-    ) -> DocumentMetadataResponse:
-        service = await self._owner._retrieval_service()
-        return await service.get_document_metadata(request)
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
         service = await self._owner._retrieval_service()
@@ -190,18 +189,45 @@ class KnowledgeFacade:
         return await service.find_semantic_paths(request)
 
 
+_RANGE_OPERATORS = {
+    "gte": FilterOperator.GREATER_THAN_OR_EQUAL,
+    "gt": FilterOperator.GREATER_THAN,
+    "lte": FilterOperator.LESS_THAN_OR_EQUAL,
+    "lt": FilterOperator.LESS_THAN,
+}
+
+
 def _build_vector_filter(filters: dict[str, object]) -> VectorFilter | None:
+    """Map ``{"field": value}`` onto payload conditions.
+
+    A scalar is an equality, a list is set membership, and a mapping of bounds
+    (``{"fields.years_of_experience": {"gte": 3}}``) is a range on a number.
+    """
+
     if not filters:
         return None
     return VectorFilter(
         must=[
-            VectorFilterCondition(
-                field=name,
-                operator=FilterOperator.IN
-                if isinstance(value, list | tuple)
-                else FilterOperator.EQUALS,
-                value=value,
-            )
+            condition
             for name, value in sorted(filters.items())
+            for condition in _conditions(name, value)
         ]
     )
+
+
+def _conditions(name: str, value: object) -> list[VectorFilterCondition]:
+    if isinstance(value, Mapping):
+        conditions = []
+        for bound, raw in value.items():
+            operator = _RANGE_OPERATORS.get(str(bound))
+            if operator is None or isinstance(raw, bool) or not isinstance(raw, int | float):
+                raise ValueError(
+                    f"filter {name!r} range bound {bound!r} must be one of "
+                    f"{', '.join(_RANGE_OPERATORS)} with a number"
+                )
+            conditions.append(VectorFilterCondition(field=name, operator=operator, value=raw))
+        if not conditions:
+            raise ValueError(f"filter {name!r} range has no bounds")
+        return conditions
+    operator = FilterOperator.IN if isinstance(value, list | tuple) else FilterOperator.EQUALS
+    return [VectorFilterCondition(field=name, operator=operator, value=value)]

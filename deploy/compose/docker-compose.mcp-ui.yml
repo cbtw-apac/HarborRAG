@@ -1,0 +1,33 @@
+name: harborrag-mcp-ui
+
+services:
+  mcp-ui:
+    extends:
+      file: docker-compose.mcp.yml
+      service: mcp
+    image: ${HARBORRAG_MCP_UI_IMAGE:-harborrag-mcp-ui}
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.mcp-ui
+      args:
+        HARBORRAG_MCP_IMAGE: ${HARBORRAG_MCP_IMAGE:-harborrag-mcp-mcp}
+    command: ["--http"]
+    volumes: !override
+      - ../../config:/app/config:ro
+      - harborrag_mcp_ui_audit:/var/lib/harborrag/.harborrag
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python -c "import urllib.request,sys,os;
+          sys.exit(0 if urllib.request.urlopen(
+          'http://127.0.0.1:'+os.environ.get('HARBORRAG_MCP_UI_PORT','8011')+'/healthz',
+          timeout=5).status==200 else 1)"
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  harborrag_mcp_ui_audit:
+    name: harborrag-mcp-ui-audit

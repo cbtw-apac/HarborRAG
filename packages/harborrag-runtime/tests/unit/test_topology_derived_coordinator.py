@@ -54,13 +54,13 @@ class DescriptionModel:
         self.calls = []
         self.fail = False
 
-    async def generate_usage(self, packets):
+    async def generate_usage(self, packets, **_):
         from harborrag_adapters.topology.descriptions import DescriptionRun
         from harborrag_core.models.chat import HarborChatUsage
 
         return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
 
-    async def generate(self, packets):
+    async def generate(self, packets, **_):
         self.calls.append(packets)
         if self.fail:
             raise RuntimeError("description provider unavailable")

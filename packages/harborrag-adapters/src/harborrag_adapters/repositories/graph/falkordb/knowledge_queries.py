@@ -14,9 +14,11 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_node_resolution im
 )
 from harborrag_adapters.repositories.graph.falkordb.knowledge_paths import AnchoredPathSearch
 from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
+    RELATION_IDENTIFIERS,
     access_parameters,
     access_predicate,
     path_limit_for,
+    read_retrieval_rows,
     read_rows,
 )
 from harborrag_adapters.repositories.graph.traversal import GraphTraversalSyntax
@@ -42,6 +44,9 @@ MIN_TRAVERSAL_DEPTH = 1
 MAX_TRAVERSAL_DEPTH = 8
 MIN_TRAVERSAL_NODES = 1
 MAX_TRAVERSAL_NODES = 5_000
+
+# How many matching triplets a read may collect before ordering them; see search_triplets.
+TRIPLET_SCAN_LIMIT = 500
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,50 +118,114 @@ async def search_triplets(
     *,
     context: StorageOperationContext,
 ) -> GraphTripletResult:
-    """Return bounded canonical subject-predicate-object matches."""
+    """Return bounded canonical subject-predicate-object matches.
 
-    rows = await read_rows(
+    The subject and object selectors are resolved to node keys first, through the same
+    index-anchored tiers as subgraph and path seeds, and the relationship MATCH then
+    starts from a bound node. Matching selectors inline -- as an OR over node_key,
+    logical_id, lower-cased title and the support observations' source/target titles --
+    left nothing to anchor on, so every call walked every relationship in the tenant and
+    timed out. As with node resolution, observation titles are no longer selectors.
+
+    A predicate-only query has no node to start from; it is anchored on the predicate's
+    relationship-type index instead, and the endpoint filters sit behind a WITH so the
+    planner cannot start from a tenant-wide node scan. Either way the candidates are cut
+    at ``TRIPLET_SCAN_LIMIT`` before ordering: sorting every CONTAINS edge of a project
+    with 156k issues to return ten of them timed out, so the relation_id order is exact
+    whenever the matches fit under the cap and covers the first ``TRIPLET_SCAN_LIMIT``
+    otherwise, which ``truncated`` then reports.
+    """
+
+    anchors: dict[str, str | None] = {"subject": None, "object": None}
+    for role, selector in (("subject", query.subject), ("object", query.object)):
+        if selector is None:
+            continue
+        node = await resolve_knowledge_node(
+            database,
+            selector,
+            access_scope=query.access_scope,
+            context=context,
+        )
+        if node is None:
+            return GraphTripletResult(triplets=())
+        anchors[role] = node.node_key
+    rows = await read_retrieval_rows(
         database,
-        f"""
-        MATCH (subject:KnowledgeNode)-[predicate]->(object:KnowledgeNode)
-        WHERE subject.tenant_id = $tenant_id
-          AND object.tenant_id = $tenant_id
-          AND predicate.tenant_id = $tenant_id
-          AND subject.graph_schema_version = $graph_schema_version
-          AND object.graph_schema_version = $graph_schema_version
-          AND predicate.graph_schema_version = $graph_schema_version
-          AND {access_predicate("subject")}
-          AND {access_predicate("predicate")}
-          AND {access_predicate("object")}
-          AND ($subject IS NULL
-               OR subject.node_key = $subject
-               OR subject.logical_id = $subject
-               OR toLower(subject.title) = toLower($subject)
-               OR toLower(predicate.source_title) = toLower($subject))
-          AND ($predicate IS NULL OR predicate.relation_type = $predicate)
-          AND ($object IS NULL
-               OR object.node_key = $object
-               OR object.logical_id = $object
-               OR toLower(object.title) = toLower($object)
-               OR toLower(predicate.target_title) = toLower($object))
-        RETURN subject, predicate, object
-        ORDER BY predicate.relation_id
-        LIMIT $limit
-        """,
+        _triplet_statement(query, anchor=_triplet_anchor(anchors)),
         {
             "tenant_id": str(context.tenant_id),
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "subject": query.subject,
-            "predicate": query.predicate.value if query.predicate is not None else None,
-            "object": query.object,
+            "subject_key": anchors["subject"],
+            "object_key": anchors["object"],
+            "scan_limit": max(TRIPLET_SCAN_LIMIT, query.limit + 1),
             "limit": query.limit + 1,
             **access_parameters(query.access_scope),
         },
     )
+    # The scan cap is at least limit + 1, so a cut scan always reports truncation.
     return GraphTripletResult(
         triplets=tuple(KnowledgeGraphMapper.triplet(row) for row in rows[: query.limit]),
         truncated=len(rows) > query.limit,
     )
+
+
+def _triplet_anchor(anchors: dict[str, str | None]) -> str | None:
+    """The bound endpoint to start from; the subject wins when both are known."""
+
+    return next((role for role in ("subject", "object") if anchors[role] is not None), None)
+
+
+def _triplet_statement(query: GraphTripletQuery, *, anchor: str | None) -> str:
+    """Build one triplet read that starts from an index rather than a tenant scan.
+
+    With a bound endpoint the relationship MATCH expands from that node. Without one,
+    ``(subject)-[predicate:TYPE]->(object)`` still let the planner start from a node index
+    scan of the whole tenant and probe each node for an edge of the type, which timed out
+    for every type with few or no edges; scanning the edge index of the type and reading
+    its endpoints with startNode/endNode costs only the edges of that type.
+    """
+
+    relation_type = (
+        f":{RELATION_IDENTIFIERS[query.predicate]}" if query.predicate is not None else ""
+    )
+    if anchor is not None:
+        match = f"""
+        MATCH ({anchor}:KnowledgeNode {{
+            tenant_id: $tenant_id,
+            node_key: ${anchor}_key,
+            graph_schema_version: $graph_schema_version
+        }})
+        WITH {anchor}
+        MATCH (subject:KnowledgeNode)-[predicate{relation_type}]->(object:KnowledgeNode)
+        WHERE predicate.tenant_id = $tenant_id
+          AND predicate.graph_schema_version = $graph_schema_version
+          AND {access_predicate("predicate")}
+        WITH subject, predicate, object
+        """
+    else:
+        match = f"""
+        MATCH ()-[predicate{relation_type}]->()
+        WHERE predicate.tenant_id = $tenant_id
+          AND predicate.graph_schema_version = $graph_schema_version
+          AND {access_predicate("predicate")}
+        WITH predicate, startNode(predicate) AS subject, endNode(predicate) AS object
+        """
+    return f"""
+        {match}
+        WHERE subject.tenant_id = $tenant_id
+          AND object.tenant_id = $tenant_id
+          AND subject.graph_schema_version = $graph_schema_version
+          AND object.graph_schema_version = $graph_schema_version
+          AND {access_predicate("subject")}
+          AND {access_predicate("object")}
+          AND ($subject_key IS NULL OR subject.node_key = $subject_key)
+          AND ($object_key IS NULL OR object.node_key = $object_key)
+        WITH subject, predicate, object
+        LIMIT $scan_limit
+        RETURN subject, predicate, object
+        ORDER BY predicate.relation_id
+        LIMIT $limit
+        """
 
 
 async def find_paths(
@@ -211,7 +280,10 @@ async def expand_subgraph(
             break
         remaining = max(query.max_nodes - len(nodes), 1)
         level_limit = path_limit_for(remaining)
-        rows = await read_rows(
+        # The WITH between the frontier lookup and the hop is load-bearing: in one MATCH
+        # the planner preferred the indexed related.tenant_id equality, scanned every node
+        # in the tenant and traversed back to the frontier, and timed out at level two.
+        rows = await read_retrieval_rows(
             database,
             f"""
             UNWIND $frontier AS start_key
@@ -219,7 +291,9 @@ async def expand_subgraph(
                 node_key: start_key,
                 graph_schema_version: $graph_schema_version,
                 tenant_id: $tenant_id
-            }}){left}[relation]{right}(related:KnowledgeNode)
+            }})
+            WITH start
+            MATCH (start){left}[relation]{right}(related:KnowledgeNode)
             WHERE related.tenant_id = $tenant_id
               AND related.graph_schema_version = $graph_schema_version
               AND relation.tenant_id = $tenant_id

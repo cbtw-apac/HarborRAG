@@ -57,6 +57,9 @@ services:
   postgres:
     image: postgres:15-alpine
     restart: unless-stopped
+    # Three worker replicas at 36 control-database connections each, plus Temporal,
+    # the API and MCP, exceed the stock limit of 100.
+    command: ["postgres", "-c", "max_connections=${POSTGRES_MAX_CONNECTIONS:-200}"]
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in the database environment file}
@@ -77,7 +80,9 @@ services:
       - harborrag-data-network
 
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    # Chainguard's free tier publishes only :latest, so it is pinned by digest. Runs as
+    # uid 65532; the image's /data is world-writable, so a fresh volume needs no chown.
+    image: cgr.dev/chainguard/minio:latest@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
     restart: unless-stopped
     command:
       - server

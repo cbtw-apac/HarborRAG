@@ -149,7 +149,7 @@ class Generator:
         self.calls = []
         self.unknown = False
 
-    async def generate(self, packets):
+    async def generate(self, packets, **_):
         self.calls.append(packets)
         await asyncio.sleep(0)
         return DescriptionOutput(

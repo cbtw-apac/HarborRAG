@@ -64,6 +64,7 @@ async def test_shared_source_rows_contain_identity_not_unpublished_provider_meta
 async def test_replacement_verifies_before_retracting_only_named_version_links() -> None:
     client = FakeFalkorDBClient()
     verified_rows(client)
+    client.read_results.append(_types_holding(("LINKS_TO", 2), ("BLOCKS", 0)))
     support = relation().model_copy(update={"attributes": {"source_relation": True}})
 
     await repository(client).replace_source_relations(
@@ -71,13 +72,19 @@ async def test_replacement_verifies_before_retracting_only_named_version_links()
     )
 
     statement, parameters = client.write_calls[-1]
+    # Typed, so the delete uses the type's document_version_id index; only the type
+    # the lookup found holding this version's links is touched.
+    assert statement.startswith("MATCH ()-[relation:LINKS_TO]->()")
+    assert not any("relation:BLOCKS" in call[0] for call in client.write_calls)
     assert "DELETE relation" in statement
     assert "relation.ownership_scope = 'DOCUMENT_VERSION'" in statement
     assert "relation.source_relation = true" in statement
     assert parameters["tenant_id"] == "tenant-1"
     assert parameters["document_version_id"] == "version-1"
     assert parameters["retained_ids"] == ["relation-1"]
-    assert len(client.read_calls) == 2
+    assert len(client.read_calls) == 3
+    assert "UNION ALL" in client.read_calls[-1][0]
+    assert "MATCH ()-[relation]->()" not in client.read_calls[-1][0]
 
 
 @pytest.mark.asyncio
@@ -97,12 +104,19 @@ async def test_failed_replacement_verification_preserves_previous_links() -> Non
 @pytest.mark.asyncio
 async def test_empty_replacement_retracts_all_previously_resolved_links() -> None:
     client = FakeFalkorDBClient()
-    client.read_results = [FakeQueryResult([], []), FakeQueryResult([], [])]
+    client.read_results = [FakeQueryResult([], []), _types_holding(("LINKS_TO", 1))]
 
     await repository(client).replace_source_relations("version-1", (), (), context=CONTEXT)
 
     assert len(client.write_calls) == 1
     assert client.write_calls[0][1]["retained_ids"] == []
+
+
+def _types_holding(*counts: tuple[str, int]) -> FakeQueryResult:
+    return FakeQueryResult(
+        [HeaderItem("relationship_type"), HeaderItem("relations")],
+        [[relationship_type, count] for relationship_type, count in counts],
+    )
 
 
 @pytest.mark.asyncio

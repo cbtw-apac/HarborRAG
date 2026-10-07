@@ -32,7 +32,18 @@ _FORBIDDEN_ATTRIBUTE_TOKENS = frozenset(
 )
 _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
     {
+        "assignee",
+        "components",
         "connector_type",
+        "created_at",
+        "creator",
+        "due_date",
+        "labels",
+        "priority",
+        "project_name",
+        "reporter",
+        "status_category",
+        "updated_at",
         "connection_id",
         "ctag",
         "default_branch",
@@ -40,6 +51,8 @@ _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
         "document_kind",
         "drive_type",
         "etag",
+        # Marks a stand-in for a link target outside every ingested scope.
+        "external",
         "issue_type",
         "issue_key",
         "item_name",
@@ -66,6 +79,11 @@ _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
         "source_relation",
         "title",
         "attributes",
+        # A connector's typed custom fields, as ``[{field_id, name, value}]``: the
+        # structured facts a source entity carries that no fixed schema names.
+        "custom_fields",
+        "field_id",
+        "value",
     }
 )
 

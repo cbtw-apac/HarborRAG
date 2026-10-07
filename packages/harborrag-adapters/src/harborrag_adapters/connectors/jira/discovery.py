@@ -60,7 +60,7 @@ class JiraDescriptorBuilder:
         include_comments = bool(
             self._config.include_comments and record.metadata.get("include_comments", True)
         )
-        comments = self._issues.fetch_comments(issue_key) if include_comments else []
+        comments = self._issues.issue_comments(issue_key, issue) if include_comments else []
         include_attachments = bool(
             self._config.include_attachments and record.metadata.get("include_attachments", True)
         )
@@ -190,6 +190,21 @@ class JiraDescriptorBuilder:
                     "child_of",
                 )
             )
+        # Declared from the parent's side too: the graph keeps one parent -> child edge
+        # (the subtask's own `child_of` owns it), and this side is what reaches a
+        # subtask that is never ingested, through an external stub.
+        for subtask in fields.get("subtasks") or ():
+            if isinstance(subtask, dict) and subtask.get("key"):
+                values.append(
+                    (
+                        SourceRelationDescriptor(
+                            relation_type=RelationType.PARENT_OF,
+                            target_source_item_id=cls._source_id(str(subtask["key"])),
+                            source_relation_version=source_version,
+                        ),
+                        "parent_of",
+                    )
+                )
         for link in fields.get("issuelinks") or ():
             relation = cls._issue_link(link, source_version=source_version)
             if relation is not None:

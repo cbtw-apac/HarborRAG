@@ -79,6 +79,29 @@ async def _wake_retryable_failed_jobs(
     )
 
 
+async def read_indexing_config(session: AsyncSession, tenant_id: str) -> TenantIndexingState:
+    """The tenant's indexing state without provisioning or locking its row.
+
+    ``lock_indexing_config`` inserts the default row and takes FOR UPDATE, which
+    writers need. A reader only needs the answer; an absent row means the
+    default configuration, exactly what the insert would have written.
+    """
+    row = (
+        (
+            await session.execute(
+                select(INDEXING_CONFIGS).where(INDEXING_CONFIGS.c.tenant_id == tenant_id)
+            )
+        )
+        .mappings()
+        .one_or_none()
+    )
+    if row is None:
+        return TenantIndexingState(config=TenantIndexingConfig(tenant_id=tenant_id), epoch=0)
+    return TenantIndexingState(
+        config=TenantIndexingConfig.model_validate(row["config"]), epoch=row["epoch"]
+    )
+
+
 async def lock_indexing_config(session: AsyncSession, tenant_id: str) -> TenantIndexingState:
     default = TenantIndexingConfig(tenant_id=tenant_id)
     factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert

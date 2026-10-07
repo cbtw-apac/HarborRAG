@@ -59,7 +59,7 @@ class DocumentContextReader:
         )
         try:
             start = await self._start(request, artifacts, version_id, context)
-            chunks, next_offset, output_limited = await self._window(
+            chunks, next_offset, output_limited, title = await self._window(
                 request, artifacts, version_id, start, context
             )
         except _ContextUnavailableError:
@@ -79,6 +79,7 @@ class DocumentContextReader:
             chunks,
             outline,
             next_offset,
+            title,
         )
 
     async def _window(
@@ -88,17 +89,26 @@ class DocumentContextReader:
         version_id: str,
         start: int,
         context: StorageOperationContext,
-    ) -> tuple[tuple[DocumentContextChunk, ...], int | None, bool]:
+    ) -> tuple[tuple[DocumentContextChunk, ...], int | None, bool, str | None]:
+        """Read the bounded window, plus the document title its chunks carry.
+
+        Every chunk of a version carries the same ``document_title``, so the first
+        validated one supplies it and callers need no separate metadata read.
+        """
+
         chunks: list[DocumentContextChunk] = []
         used_bytes = 0
         next_offset: int | None = None
         output_limited = False
+        title: str | None = None
         for index, entry in enumerate(artifacts.entries[start:], start=start):
             if len(chunks) >= request.limit:
                 next_offset = index
                 break
             chunk = await self._chunks.get_chunk(artifacts, entry.chunk_id, context=context)
             self._validate_chunk(chunk, request, version_id, context)
+            if title is None:
+                title = chunk.hierarchy.document_title
             size = len(chunk.content.encode("utf-8"))
             if chunks and used_bytes + size > _CONTENT_BUDGET_BYTES:
                 next_offset = index
@@ -118,7 +128,7 @@ class DocumentContextReader:
                     citation_locator=chunk.citation_locator.model_dump(exclude_none=True),
                 )
             )
-        return tuple(chunks), next_offset, output_limited
+        return tuple(chunks), next_offset, output_limited, title
 
     async def _start(
         self,

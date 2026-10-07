@@ -67,7 +67,13 @@ def merge_source_spans(units: tuple[ChunkUnit, ...]) -> SourceSpan:
 
 
 def merge_metadata(units: tuple[ChunkUnit, ...]) -> Mapping[str, Any]:
-    """Preserve common metadata and per-source metadata when values differ."""
+    """Preserve common metadata and per-source metadata when values differ.
+
+    Each ``source_units`` entry keeps only the keys whose value is not already in
+    the common map, so a unit's full metadata is ``{**common, **entry["metadata"]}``.
+    Copying every unit's whole map repeated document-level metadata once per
+    unit: a Jira issue's custom-field list made packed chunks ~150 KB each.
+    """
 
     if len(units) == 1:
         return dict(units[0].metadata)
@@ -87,7 +93,7 @@ def merge_metadata(units: tuple[ChunkUnit, ...]) -> Mapping[str, Any]:
         {
             "anchor": unit.anchor,
             "source_element_ids": unit.source_span.element_ids,
-            "metadata": dict(unit.metadata),
+            "metadata": {key: value for key, value in unit.metadata.items() if key not in common},
         }
         for unit in units
     )

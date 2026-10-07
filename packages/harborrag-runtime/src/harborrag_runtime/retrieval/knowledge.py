@@ -294,6 +294,7 @@ def _result(candidate: VectorSearchResult) -> RetrievalResult:
     for key in (
         "source_scope_id",
         "source_item_id",
+        "parent_source_item_id",
         "document_title",
         "section_path",
         "content_hash",

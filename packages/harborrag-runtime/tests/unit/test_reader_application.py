@@ -22,7 +22,7 @@ from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_mcp_server.server import McpServer
 application = open_reader_application(RuntimeSettings())
-assert len(McpServer(tools=application.tools).list_tools()) == 13
+assert len(McpServer(tools=application.tools).list_tools()) == 11
 assert all(getattr(tool, 'runtime', None) is None for tool in application.tools)
 for prefix in ('harborrag_memory', 'harborrag_runtime.chat',
                'harborrag_runtime.agent', 'harborrag_runtime.sdk',

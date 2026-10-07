@@ -87,9 +87,19 @@ class VectorIndexSpec(StrictModel):
     distance: VectorDistance = VectorDistance.COSINE
     tenant_scoped: bool = True
     metadata_indexes: list[str] = Field(default_factory=list)
+    # The members of ``metadata_indexes`` that hold numbers and are range-filtered.
+    # A backend cannot infer that from an empty collection, and a keyword index on
+    # a number leaves every ``gte``/``lte`` filter on it scanning all points.
+    float_metadata_indexes: list[str] = Field(default_factory=list)
     dense_vector_name: str | None = None
     sparse_vector_name: str | None = None
     sparse_idf: bool = True
+
+    @model_validator(mode="after")
+    def validate_float_indexes(self) -> VectorIndexSpec:
+        if not set(self.float_metadata_indexes) <= set(self.metadata_indexes):
+            raise ValueError("float metadata indexes must also be metadata indexes")
+        return self
 
     @model_validator(mode="after")
     def validate_vector_names(self) -> VectorIndexSpec:
@@ -168,8 +178,11 @@ class VectorSearchResult(StrictModel):
     # ``None`` when the lane cannot say. Distinct from ``score``: on the
     # hybrid lane ``score`` is a reciprocal-rank fusion value rescaled into a
     # 0..1 shape, so its top hit sits near 1.0 whether or not anything matched.
-    # ``relevance`` is the point's own normalized score in the lane it came
-    # from, which is the only number here a caller may threshold on.
+    # ``relevance`` is the point's measured dense similarity to the query (cosine,
+    # clamped at zero), the only number here a caller may threshold on. A sparse
+    # BM25 score is unbounded and not comparable across queries, so a point the
+    # backend can only score that way reports ``None`` rather than a squashed
+    # keyword score dressed up as similarity.
     relevance: float | None = Field(default=None, ge=0, le=1)
     payload: dict[str, Any] = Field(default_factory=dict)
     vector: list[float] | None = None

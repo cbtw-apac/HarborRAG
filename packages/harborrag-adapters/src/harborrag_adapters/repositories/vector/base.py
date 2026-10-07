@@ -96,6 +96,22 @@ class HarborVectorRepository(RepositoryLifecycle):
         """Scan vector points with a provider-independent cursor."""
 
     @abstractmethod
+    async def distinct_values(
+        self,
+        index_name: str,
+        field: str,
+        *,
+        filters: VectorFilter | None = None,
+        limit: int,
+        context: StorageOperationContext,
+    ) -> tuple[str, ...]:
+        """Distinct values of one indexed payload field among the matching points.
+
+        Answered without loading any point: a caller that needs *which* items
+        match -- not their vectors or text -- should not pay for either.
+        """
+
+    @abstractmethod
     async def search(
         self,
         query: VectorSearchQuery,

@@ -4,7 +4,7 @@ import pytest
 
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.ingestion import KnowledgeNodeKind
-from harborrag_core.summaries import SummaryCard, SummaryPolicy
+from harborrag_core.summaries import CardWordBudgets, SummaryCard, SummaryFacet, SummaryPolicy
 from harborrag_core.topology.derived import DescriptionOutput
 from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionInput
 from harborrag_engine.topology.summary_planner import summary_plan
@@ -28,7 +28,7 @@ class Generator:
     def __init__(self):
         self.calls = []
 
-    async def generate(self, packets):
+    async def generate(self, packets, **_):
         self.calls.append(packets)
         return DescriptionOutput(
             description="Published deployment instructions.",
@@ -160,7 +160,7 @@ async def test_reducer_rejects_impossible_budgets_nonprogress_and_invalid_citati
         await reducer._call(("x" * 24001,))
 
     class InvalidGenerator:
-        async def generate(self, _packets):
+        async def generate(self, _packets, **_):
             return DescriptionOutput(
                 description="Invalid citations.",
                 cited_packet_ids=("unknown",),
@@ -176,9 +176,65 @@ async def test_reducer_rejects_impossible_budgets_nonprogress_and_invalid_citati
     reducer = SummaryReducer("tenant", SummaryPolicy(model_fingerprint="model"), Cache(), generator)
     monkeypatch.setattr(reducer, "_fits", lambda inputs: len(inputs) == 1)
 
-    async def same_size(_inputs):
+    async def same_size(_inputs, **_):
         return SummaryCard(description="Long enough replacement")
 
     monkeypatch.setattr(reducer, "_call", same_size)
     with pytest.raises(ValueError, match="cannot make progress"):
         await reducer.reduce("DataSource", {}, ("first", "second"))
+
+
+@pytest.mark.asyncio
+async def test_the_model_is_asked_for_prose_only_even_when_the_scope_declares_facets():
+    """Facets are copied from source fields after reduction; the model never fills one."""
+
+    class Recording:
+        def __init__(self):
+            self.calls = []
+
+        async def generate(self, packets, **kwargs):
+            self.calls.append(kwargs)
+            return DescriptionOutput(
+                description="Senior engineer with banking experience.",
+                cited_packet_ids=tuple(packet.packet_id for packet in packets),
+                complete=True,
+            )
+
+    generator = Recording()
+    policy = SummaryPolicy(
+        model_fingerprint="model",
+        card_words=CardWordBudgets(source_entity=300),
+        facets=(SummaryFacet(name="stage", field="status"),),
+    )
+    card, _ = await SummaryReducer("tenant", policy, Cache(), generator).reduce(
+        "SourceEntity", {"name": "PROJ-1"}, ("a CV", "an interview note")
+    )
+    assert card.attributes == ()
+    # The entity's own budget reached the generator, and nothing else did.
+    assert generator.calls == [{"max_words": 300}]
+
+
+@pytest.mark.asyncio
+async def test_a_wider_budget_is_a_different_generation_not_a_cache_hit():
+    class Counting:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate(self, packets, **_):
+            self.calls += 1
+            return DescriptionOutput(
+                description="Same inputs, different budget.",
+                cited_packet_ids=(packets[0].packet_id,),
+                complete=True,
+            )
+
+    cache, generator = Cache(), Counting()
+    narrow = SummaryPolicy(model_fingerprint="model")
+    wide = SummaryPolicy(model_fingerprint="model", card_words=CardWordBudgets(source_entity=300))
+    await SummaryReducer("tenant", narrow, cache, generator).reduce(
+        "SourceEntity", {"name": "n"}, ("content",)
+    )
+    await SummaryReducer("tenant", wide, cache, generator).reduce(
+        "SourceEntity", {"name": "n"}, ("content",)
+    )
+    assert generator.calls == 2

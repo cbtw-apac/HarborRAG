@@ -142,7 +142,7 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
         try:
             response: dict[str, Any] = await self.client.head_object(
                 Bucket=bucket,
-                Key=physical_object_key(context.tenant_id, key),
+                Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
             )
         except ClientError as exc:
             code = str(exc.response.get("Error", {}).get("Code", ""))

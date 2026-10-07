@@ -1,8 +1,10 @@
 # Deployment Notes
 
 Compose stacks under `compose/`, container images under `docker/`, and
-placeholders for cloud IaC under `aws/`. This file tracks deployment
-constraints that aren't obvious from any single file.
+placeholders for cloud IaC under `aws/`. Per-component provisioning lives in
+its own directory, independent of how the stack is run: `grafana/`, `loki/`,
+`prometheus/` and `temporal/`. This file tracks deployment constraints that aren't obvious
+from any single file.
 
 ## The API must run as exactly one process (for now)
 

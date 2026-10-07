@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 
+from harborrag_core.ingestion import is_explicitly_retryable_failure_code
 from harborrag_core.invariants import require
 
 from .ports import PublicTaskStore
@@ -34,7 +35,7 @@ async def retryable_document_ids(
             document_id = str(result.document_id)
             if requested_set and document_id not in requested_set:
                 continue
-            if result.result.get("retryable") is True:
+            if _retryable(result.result, explicitly_requested=bool(requested_set)):
                 selected.append(document_id)
         if not page.has_more or not page.items:
             break
@@ -45,3 +46,13 @@ async def retryable_document_ids(
         )
         after_document_id = str(last.document_id)
     return tuple(dict.fromkeys(selected))
+
+
+def _retryable(result: Mapping[str, object], *, explicitly_requested: bool) -> bool:
+    # A blanket retry honours the verdict recorded with the failure. A document
+    # the operator names is retried unless its failure is inherent to the source:
+    # that is how a deterministic failure gets re-run once a fix is deployed.
+    code = result.get("safe_error_code")
+    if explicitly_requested and isinstance(code, str) and code.strip():
+        return is_explicitly_retryable_failure_code(code)
+    return result.get("retryable") is True

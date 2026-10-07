@@ -17,6 +17,7 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 
 from .active_versions import ActiveVersionCandidateValidator
+from .duplicates import collapse_duplicates, duplicate_identity
 
 _INITIAL_OVERSAMPLE = 3
 _MINIMUM_WINDOW = 20
@@ -100,6 +101,8 @@ class AuthoritativeSearchDiagnostics:
     malformed_count: int
     search_window: int
     exhausted: bool
+    # Accepted hits dropped because a better-ranked hit had the same text.
+    collapsed_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +146,15 @@ class AuthoritativeProjectionSearch:
             )
             candidates = tuple(evidence)
             validated = await self._validator.validate(candidates)
-            accepted = validated.accepted[: request.top_k]
+            # Collapsed before truncation, so a page of one repeated sentence is
+            # refilled from the rest of the window -- and the window widens when
+            # it holds too few distinct hits, exactly as it does for stale ones.
+            distinct, collapsed = collapse_duplicates(
+                validated.accepted,
+                lambda candidate: duplicate_identity(candidate.payload),
+                limit=request.top_k,
+            )
+            accepted = distinct[: request.top_k]
             exhausted = len(evidence) < window
             if len(accepted) >= request.top_k or exhausted or window == _MAXIMUM_WINDOW:
                 return AuthoritativeSearchResult(
@@ -156,9 +167,10 @@ class AuthoritativeProjectionSearch:
                         malformed_count=validated.malformed_count,
                         search_window=window,
                         exhausted=exhausted,
+                        collapsed_count=collapsed,
                     ),
                 )
-            window = _next_window(window, accepted=len(validated.accepted), wanted=request.top_k)
+            window = _next_window(window, accepted=len(distinct), wanted=request.top_k)
 
     async def _search_collection(
         self,

@@ -134,7 +134,7 @@ Most extras add only the third-party clients their providers require. Four -
 | Install | Adds | Use it when |
 | --- | --- | --- |
 | `harborrag` | MCP transport and lazy public facade | you supply reader providers yourself |
-| `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, Docling PDF, tables, **and the `harborrag` command** | the recommended install: `harborrag init` + `ingest run` |
+| `harborrag[local]` | Qdrant, FalkorDB, S3, model client, chunking, control plane, parsers, LiteParse PDF, RapidOCR images, tables, **and the `harborrag` command** | the recommended install: `harborrag init` + `ingest run` |
 | `harborrag[chat]` | model client | chat completion, embeddings, reranking |
 | `harborrag[cli]` | `harborrag-app` | running the application CLI |
 | `harborrag[server]` | `harborrag-app[api]` and reader providers | running the HTTP API |

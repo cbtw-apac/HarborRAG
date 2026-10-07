@@ -126,6 +126,9 @@ async def permission_dependencies(
 
 class TopologyPermissionOperations:
     _client: SQLAlchemyDBClient
+    # False when summarization is disabled: permission imports then leave the
+    # summary tables alone (no tenant lock, no dirty scopes).
+    _summaries_enabled: bool = True
 
     async def published_document_page(
         self, tenant_id: str, *, access: AccessContext, after: str, limit: int
@@ -151,9 +154,46 @@ class TopologyPermissionOperations:
             )
         return tuple(str(value) for value in rows)
 
+    async def _invalidate_summaries(
+        self,
+        session: AsyncSession,
+        snapshot: ResolvedPermissionSnapshot,
+        *,
+        changed_revision: bool,
+    ) -> None:
+        """Mark the snapshot's summary scope dirty when its permissions moved."""
+
+        scope_id = (
+            snapshot.resource_id
+            if snapshot.resource_kind == "source"
+            else (
+                await session.execute(
+                    select(DOCUMENTS.c.source_scope_id).where(
+                        DOCUMENTS.c.tenant_id == snapshot.tenant_id,
+                        DOCUMENTS.c.document_id == snapshot.resource_id,
+                    )
+                )
+            ).scalar_one_or_none()
+        )
+        if scope_id is None:
+            return
+        blocked_permission = (
+            await session.execute(
+                select(SUMMARY_SCOPES.c.execution).where(
+                    SUMMARY_SCOPES.c.tenant_id == snapshot.tenant_id,
+                    SUMMARY_SCOPES.c.source_scope_id == scope_id,
+                    SUMMARY_SCOPES.c.execution == "blocked",
+                    SUMMARY_SCOPES.c.error_code.in_(SUMMARY_PERMISSION_BLOCKERS),
+                )
+            )
+        ).scalar_one_or_none()
+        if changed_revision or blocked_permission is not None:
+            await invalidate_summary_scope(session, snapshot.tenant_id, scope_id)
+
     async def set_permissions(self, snapshot: ResolvedPermissionSnapshot) -> None:
         async with topology_transaction(self._client) as session:
-            await lock_summary_tenant(session, snapshot.tenant_id)
+            if self._summaries_enabled:
+                await lock_summary_tenant(session, snapshot.tenant_id)
             await lock_indexing_config(session, snapshot.tenant_id)
             predicate = (
                 PERMISSION_SNAPSHOTS.c.tenant_id == snapshot.tenant_id,
@@ -227,32 +267,10 @@ class TopologyPermissionOperations:
                 previous["resolved_at"] != snapshot.resolved_at
                 or previous["expires_at"] != snapshot.expires_at
             )
-            if changed_revision or changed_validity:
-                scope_id = (
-                    snapshot.resource_id
-                    if snapshot.resource_kind == "source"
-                    else (
-                        await session.execute(
-                            select(DOCUMENTS.c.source_scope_id).where(
-                                DOCUMENTS.c.tenant_id == snapshot.tenant_id,
-                                DOCUMENTS.c.document_id == snapshot.resource_id,
-                            )
-                        )
-                    ).scalar_one_or_none()
+            if self._summaries_enabled and (changed_revision or changed_validity):
+                await self._invalidate_summaries(
+                    session, snapshot, changed_revision=changed_revision
                 )
-                if scope_id is not None:
-                    blocked_permission = (
-                        await session.execute(
-                            select(SUMMARY_SCOPES.c.execution).where(
-                                SUMMARY_SCOPES.c.tenant_id == snapshot.tenant_id,
-                                SUMMARY_SCOPES.c.source_scope_id == scope_id,
-                                SUMMARY_SCOPES.c.execution == "blocked",
-                                SUMMARY_SCOPES.c.error_code.in_(SUMMARY_PERMISSION_BLOCKERS),
-                            )
-                        )
-                    ).scalar_one_or_none()
-                    if changed_revision or blocked_permission is not None:
-                        await invalidate_summary_scope(session, snapshot.tenant_id, scope_id)
             if principals:
                 await session.execute(
                     insert(PERMISSION_GRANTS),

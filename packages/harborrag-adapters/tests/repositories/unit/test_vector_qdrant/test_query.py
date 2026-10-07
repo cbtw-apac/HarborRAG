@@ -29,14 +29,14 @@ def test_collection_name_is_readable_and_tenant_scoped() -> None:
             "routes",
             StorageOperationContext.system(tenant_id="DEFAULT"),
         )
-        == "DEFAULT_routes"
+        == "harborrag_DEFAULT_routes"
     )
     assert (
         executor.collection_name(
             "evidence",
             StorageOperationContext.system(tenant_id="tenant-a"),
         )
-        == "tenant-a_evidence"
+        == "harborrag_tenant-a_evidence"
     )
 
 
@@ -317,3 +317,43 @@ def test_assert_dimension_rejects_mismatched_vector_length() -> None:
 
     with pytest.raises(HarborVectorDimensionError):
         executor.assert_dimension(spec, [1.0, 0.0])
+
+
+@pytest.mark.asyncio
+async def test_distinct_values_is_an_exact_facet_on_the_tenant_collection() -> None:
+    """Used as a filter afterwards, so an approximate facet could drop a match."""
+
+    class FacetingRaw(FakeRawQdrant):
+        def __init__(self) -> None:
+            super().__init__()
+            self.facets: list[dict[str, object]] = []
+
+        async def facet(self, **kwargs: object) -> object:
+            self.facets.append(kwargs)
+            return SimpleNamespace(
+                hits=[
+                    SimpleNamespace(value="jira://CPM/CPM-1", count=4),
+                    SimpleNamespace(value="jira://CPM/CPM-2", count=1),
+                ]
+            )
+
+    raw = FacetingRaw()
+    executor = QdrantQueryExecutor(
+        client=FakeQdrantClient(raw),  # type: ignore[arg-type]
+        config=make_config(),
+        specs={},
+    )
+
+    values = await executor.distinct_values(
+        "docs",
+        "source_item_id",
+        limit=11,
+        context=StorageOperationContext.system(tenant_id="tenant-a"),
+    )
+
+    assert values == ("jira://CPM/CPM-1", "jira://CPM/CPM-2")
+    [call] = raw.facets
+    assert call["collection_name"] == "harborrag_tenant-a_docs"
+    assert call["key"] == "source_item_id"
+    assert call["limit"] == 11
+    assert call["exact"] is True

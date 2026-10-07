@@ -98,4 +98,21 @@ def test_installed_command_accepts_env_file_without_checkout(tmp_path: Path) -> 
     )
 
     assert result.returncode == 0, result.stderr
-    assert len(json.loads(result.stdout)) == 13
+    assert len(json.loads(result.stdout)) == 11
+
+
+def test_audit_path_from_env_file_reaches_the_shared_audit_log(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import harborrag_mcp_server.server.server as server_module
+
+    audit_path = tmp_path / "from-env-file" / "audit.jsonl"
+    env_file = tmp_path / "mcp.env"
+    env_file.write_text(f"HARBORRAG_MCP_AUDIT_PATH={audit_path}\n", encoding="utf-8")
+    monkeypatch.delenv("HARBORRAG_MCP_AUDIT_PATH")
+    # The CLI has already imported the server module by the time env files load.
+    monkeypatch.setattr(server_module, "_default_audit_log", None)
+
+    load_launch_environment(checkout_root=None, env_files=[env_file])
+
+    assert server_module.McpServer().audit.path == audit_path

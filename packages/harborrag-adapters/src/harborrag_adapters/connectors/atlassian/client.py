@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
     AuthorizationError,
     FetchError,
+    ItemNotFoundError,
     RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
@@ -208,6 +209,13 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             if response.status_code == 429 and attempt == self.config.max_retries:
                 raise RateLimitError(safe_response_error_detail(response))
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
+                if response.status_code == 404:
+                    detail = safe_response_error_detail(response)
+                    raise ItemNotFoundError(
+                        f"{self._provider_label} request failed with HTTP 404: {detail}",
+                        status_code=404,
+                        detail=detail,
+                    )
                 if response.status_code >= 400:
                     detail = safe_response_error_detail(response)
                     raise FetchError(

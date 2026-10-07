@@ -136,7 +136,8 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
     "get_document_context",
     "Read an ordered, bounded window of chunks from one active document. Anchor by exact "
     "chunk or section path, and continue only with the opaque cursor returned by this tool. "
-    "A publication change is reported explicitly; historical versions are not substituted.",
+    "Returns the document title with the window. A publication change is reported "
+    "explicitly; historical versions are not substituted.",
     {
         "type": "object",
         "required": ["tenant_id", "document_id"],
@@ -172,6 +173,10 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
             },
             "document_id": {"type": "string", "minLength": 1},
             "document_version_id": {"type": ["string", "null"]},
+            # Taken from the window's own chunks, so it costs no extra read. Null when
+            # no chunk was read (unavailable, version_changed, past the end): a refused
+            # read discloses nothing about the document beyond its outcome.
+            "document_title": {"type": ["string", "null"]},
             "chunks": {
                 "type": "array",
                 "items": _CONTEXT_CHUNK,
@@ -189,6 +194,7 @@ GET_DOCUMENT_CONTEXT_SPEC = ToolSpec(
             "outcome",
             "document_id",
             "document_version_id",
+            "document_title",
             "chunks",
             "outline",
             "outline_complete",
@@ -225,6 +231,26 @@ _SOURCE = {
             "format": "date-time",
         },
         "active_document_count": {"type": "integer", "minimum": 0},
+        # The closed facet vocabulary find_entities filters this source's entities
+        # by; empty when the source declares none, which is the common case.
+        "entity_facets": {
+            "type": "array",
+            "maxItems": 12,
+            "items": {
+                "type": "object",
+                "required": ["name", "type", "field"],
+                "properties": {
+                    "name": {"type": "string", "minLength": 1},
+                    "type": {"type": "string", "enum": ["text", "integer"]},
+                    "field": {"type": "string", "minLength": 1},
+                },
+                "additionalProperties": False,
+            },
+        },
+        "entity_summaries": {
+            "type": ["string", "null"],
+            "enum": ["disabled", "idle", "queued", "running", "blocked", "failed", None],
+        },
     },
     "additionalProperties": False,
 }
@@ -233,7 +259,11 @@ LIST_SOURCES_SPEC = ToolSpec(
     "list_sources",
     "List corpus scopes readable by the authenticated principal, with safe connector and "
     "freshness metadata. Source IDs can be used as source_scope_id filters in vector_search "
-    "and resolve_graph_nodes. Connection configuration and storage addresses are excluded.",
+    "and resolve_graph_nodes. Each source also lists entity_facets -- the facet names and "
+    "types find_entities accepts for its entities (field is the connector field each is "
+    "copied from) -- and entity_summaries: disabled means its entities have no summaries, "
+    "so find_entities cannot reach them and vector_search is the way in. Connection "
+    "configuration and storage addresses are excluded.",
     {
         "type": "object",
         "required": ["tenant_id"],

@@ -6,7 +6,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from harborrag_adapters.connectors.attachments.processing import FileType
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -26,16 +25,13 @@ def _bootstrap() -> dict[str, object]:
     return vars(ocr_parser)
 
 
-def test_attachment_custom_parsers_routes_images_to_rapidocr() -> None:
+def test_attachment_custom_parsers_diverts_no_type_from_the_catalog() -> None:
+    # Images used to be pulled out to RapidOCR here. The parser catalog now
+    # configures the image family, so any override would silently parse
+    # attachments with an engine `config/parsers.yaml` does not name.
     scope = _bootstrap()
 
-    custom_parsers = scope["attachment_custom_parsers"]()
-    image_parser = custom_parsers[FileType.IMAGE]
-    image_parser.__globals__["_rapidocr_engine"] = lambda: (
-        lambda _content: SimpleNamespace(txts=("first line", "second line"))
-    )
-
-    assert image_parser(b"image bytes", "png") == "first line\nsecond line"
+    assert scope["attachment_custom_parsers"]() == {}
 
 
 def test_smoke_rapidocr_converts_cmyk_to_rgb_before_ocr() -> None:
@@ -99,16 +95,18 @@ def test_smoke_rapidocr_uses_the_explicit_onnxruntime_dependency(monkeypatch, ca
     assert "runtime='onnxruntime'" in capsys.readouterr().out
 
 
-def test_build_harbor_parser_uses_docling_for_pdf_and_rapidocr_for_images() -> None:
+def test_build_harbor_parser_uses_liteparse_for_both_pdf_and_images() -> None:
     scope = _bootstrap()
 
     harbor_parser = scope["build_harbor_parser"]()
 
     pdf_parser = harbor_parser.create("pdf")
-    assert [backend.name for backend in pdf_parser.backends] == ["docling"]
+    assert [backend.name for backend in pdf_parser.backends] == ["liteparse"]
 
+    # Images go through the same OCR server as scanned PDFs rather than a
+    # second, local inference runtime in the worker.
     image_parser = harbor_parser.create("image")
-    assert image_parser.parser_engine == "rapidocr"
+    assert image_parser.parser_engine == "liteparse"
 
 
 def test_rapid_ocr_image_parser_normalizes_suffixes_for_route_matching() -> None:
@@ -130,4 +128,4 @@ def test_build_harbor_parser_routes_a_local_image_by_suffix_alone() -> None:
 
     assert resolved is not None
     assert resolved.name == "image"
-    assert resolved.parser_engine == "rapidocr"
+    assert resolved.parser_engine == "liteparse"

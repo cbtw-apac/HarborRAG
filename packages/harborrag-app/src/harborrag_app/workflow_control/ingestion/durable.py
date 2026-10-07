@@ -19,6 +19,7 @@ from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import failure_response
 from ..schemas import AppResponse
+from .service import record_control_action
 
 if TYPE_CHECKING:
     from ..composition.factories import TaskRegistry
@@ -31,6 +32,15 @@ type SourceInputBuilder = Callable[
 ]
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.durable")
+
+
+def _operator() -> str:
+    """The local operator, for the run's event trail; access control is the DB credential."""
+
+    import getpass
+    import socket
+
+    return f"{getpass.getuser()}@{socket.gethostname()}"
 
 
 class DurableIngestionOperations:
@@ -185,6 +195,9 @@ class DurableIngestionOperations:
                 await client.cancel(run_id)
             else:
                 raise ValueError(f"unsupported ingestion action: {action!r}")
+            await record_control_action(
+                await self._source_task_registry(), run_id, action=action, actor=_operator()
+            )
             logger.info("Applied %r to ingestion run %r", action, run_id)
             return AppResponse(True, {"run_id": run_id, "action": action})
         except Exception as exc:  # noqa: BLE001 - stable error envelope

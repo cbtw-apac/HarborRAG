@@ -26,6 +26,7 @@ from harborrag_core.topology.derived import (
     description_prompt_json,
 )
 from harborrag_core.topology.extraction import digest
+from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .budgeted_extractor import EnrichmentDeferredError
@@ -96,11 +97,19 @@ class FrozenDescriptionGenerator:
         if self.max_output_tokens < 1:
             raise ValueError("description output budget must be positive")
 
-    async def generate(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionOutput:
+    async def generate(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        *,
+        max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
+    ) -> DescriptionOutput:
         identity = digest(
             [
                 self.artifacts.profile_fingerprint,
                 [packet.model_dump(mode="json") for packet in packets],
+                # Appended only for a non-default budget, so frozen work written
+                # at the navigation-card budget keeps the key it already has.
+                *([] if max_words == PARENT_DESCRIPTION_MAX_WORDS else [max_words]),
             ]
         )
         key = f"topology/descriptions/{self.budget.build_id}/{identity}.json"
@@ -128,7 +137,7 @@ class FrozenDescriptionGenerator:
         settlement: UsageSettlement | None = None
         try:
             async with asyncio.timeout(deadline):
-                run = await self.delegate.generate_usage(packets)
+                run = await self.delegate.generate_usage(packets, max_words=max_words)
             output = run.output
             if self.run_costs is not None:
                 self.run_costs.record(run.cost_usd)

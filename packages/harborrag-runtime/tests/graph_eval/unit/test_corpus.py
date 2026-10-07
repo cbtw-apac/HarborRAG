@@ -97,14 +97,13 @@ def test_confluence_attachment_resolves_and_attached_to_reverses(corpus: EvalCor
     page = corpus.source_item_key("team-handbook")
     attachment = corpus.source_item_key("handbook-pdf")
     page_batch = corpus.batches["team-handbook"]
-    assert (page, attachment) in _edges(page_batch, "has_attachment")
-    # Resolving the target supplies a better stand-in title, not provider metadata: the
-    # page's batch still holds the attachment as a stub, so writing this batch after
-    # handbook-pdf's own cannot downgrade the concretely-projected attachment.
-    assert _node(page_batch, attachment).attributes["placeholder"] is True
-    # The attachment's own batch carries the same edge twice: once from the Confluence
-    # projector's parent_page_id branch (page -> attachment) and once from the reversed
-    # `attached_to` predicate. `relation_entity_type` types the far end of any
+    # The page asserts no has_attachment of its own: the attachment is its own document
+    # and its projection owns page -> attachment. A page-owned copy was a second,
+    # parallel edge that lived and died with the page instead of the attachment.
+    assert (page, attachment) not in _edges(page_batch, "has_attachment")
+    # The attachment's own batch carries the edge, from the Confluence projector's
+    # parent_page_id branch (page -> attachment), with the reversed `attached_to`
+    # predicate deduped against it. `relation_entity_type` types the far end of any
     # HAS_ATTACHMENT edge as an attachment, so the reversed edge's source is an
     # attachment-typed team-handbook node rather than the page itself -- direction is
     # what this pins: handbook-pdf is the object of every has_attachment edge, never
@@ -193,9 +192,10 @@ def test_jira_duplicates_relates_to_and_issue_links(corpus: EvalCorpus) -> None:
     original = corpus.source_item_key("HR-2")
     duplicate = corpus.source_item_key("HR-4")
     assert (original, duplicate) in _edges(corpus.batches["HR-2"], "duplicates")
+    # HR-4's `is_duplicated_by` is the same fact, and HR-2 declares it back, so HR-2
+    # owns the one edge: two declarations, never two parallel edges.
     edges = _edges(corpus.batches["HR-4"], "duplicates")
-    assert (original, duplicate) in edges, "is_duplicated_by must project as original -> duplicate"
-    assert (duplicate, original) not in edges
+    assert edges == set(), "the outward declarer owns a reciprocated duplicates link"
     assert (corpus.source_item_key("HR-5"), corpus.source_item_key("HR-1")) in _edges(
         corpus.batches["HR-5"], "relates_to"
     )

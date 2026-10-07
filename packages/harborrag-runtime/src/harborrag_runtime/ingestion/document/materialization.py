@@ -38,14 +38,10 @@ class DocumentMaterializationStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
-        if not prepared.requires_processing:
-            return
-        document = await self._canonical(prepared, request=request)
-        await self._dependencies.comment_artifacts.put(
-            document,
-            document_version_id=prepared.document_version_id,
-            context=self._context(request),
-        )
+        # Kept as an activity so in-flight workflow histories still replay. Its only
+        # output was the comment artifact, which build_projections writes and records
+        # in the manifest; nothing reads it before then.
+        del request, prepared
 
     async def persist_canonical(
         self,
@@ -54,32 +50,21 @@ class DocumentMaterializationStages:
     ) -> None:
         if not prepared.requires_processing:
             return
-        document = await self._canonical(prepared, request=request)
-        context = self._context(request)
-        canonical_reference, _, _ = await asyncio.gather(
-            self._dependencies.canonical_artifacts.put(
-                document_id=prepared.document_id,
-                document_version_id=prepared.document_version_id,
-                document=document,
-                context=context,
-            ),
-            self._dependencies.comment_artifacts.put(
-                document,
-                document_version_id=prepared.document_version_id,
-                context=context,
-            ),
-            self._dependencies.table_artifacts.put_all(
-                document.table_artifacts,
-                document_id=prepared.document_id,
-                document_version_id=prepared.document_version_id,
-                context=context,
-            ),
-        )
+        # parse_and_normalize already wrote the canonical object; this stage records
+        # it. Re-reading and re-writing the same immutable key cost a GET, two HEADs
+        # and a full serialization per document. Comment and table artifacts are
+        # written once, by build_projections, which records them in the manifest.
+        reference = prepared.canonical_reference
+        if reference is None:
+            snapshot = await self._required_snapshot(prepared.document_version_id)
+            reference = snapshot.canonical_artifact
+        if reference is None:
+            raise ValueError("canonical document artifact is unavailable")
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.CANONICAL_READY,
             artifact_column="canonical_artifact",
-            artifact=canonical_reference,
+            artifact=reference,
         )
 
     async def chunk_and_validate(

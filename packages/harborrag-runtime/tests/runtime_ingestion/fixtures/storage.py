@@ -135,6 +135,22 @@ class InMemoryKnowledgeGraph:
         )
         await self.delete_relations(obsolete, context=context)
 
+    async def prune_external_stubs(self, *, context, grace_seconds=3600) -> int:
+        del grace_seconds
+        referenced = {
+            key
+            for relation in self.relations.values()
+            for key in (relation.source_node_key, relation.target_node_key)
+        }
+        stale = [
+            key
+            for key, node in self.nodes.items()
+            if node.attributes.get("external") is True and key not in referenced
+        ]
+        for key in stale:
+            del self.nodes[key]
+        return len(stale)
+
     async def retire_legacy_source_relations(
         self, source_scope_id, nodes, relations, *, context
     ) -> None:

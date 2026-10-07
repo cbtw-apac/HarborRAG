@@ -9,6 +9,7 @@ from harborrag_core.storage import StorageOperationContext
 
 from . import knowledge_writes
 from .client import FalkorDBClient
+from .knowledge_support import relationship_types_matching
 
 
 async def replace_source_relations(
@@ -41,24 +42,27 @@ async def replace_source_relations(
     )
     if not verification.valid:
         raise ValueError("source relation replacement failed verification")
-    await database.write(
-        """
-        MATCH ()-[relation]->()
-        WHERE relation.tenant_id = $tenant_id
+    predicate = """
+        relation.document_version_id = $document_version_id
+          AND relation.tenant_id = $tenant_id
           AND relation.graph_schema_version = $graph_schema_version
           AND relation.ownership_scope = 'DOCUMENT_VERSION'
-          AND relation.document_version_id = $document_version_id
           AND relation.source_relation = true
           AND NOT relation.relation_id IN $retained_ids
-        DELETE relation
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "document_version_id": document_version_id,
-            "retained_ids": [relation.relation_id for relation in relations],
-        },
-    )
+        """
+    parameters = {
+        "tenant_id": str(context.tenant_id),
+        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+        "document_version_id": document_version_id,
+        "retained_ids": [relation.relation_id for relation in relations],
+    }
+    # Typed, so each statement uses its type's document_version_id index: relation
+    # repair runs this once per document, and untyped it walked every edge each time.
+    for relationship_type in await relationship_types_matching(database, predicate, parameters):
+        await database.write(
+            f"MATCH ()-[relation:{relationship_type}]->() WHERE {predicate} DELETE relation",
+            parameters,
+        )
 
 
 async def retire_legacy_source_relations(

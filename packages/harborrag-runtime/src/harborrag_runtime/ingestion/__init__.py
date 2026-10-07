@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     )
     from .maintenance.reindex_plan import ReindexPlan, processing_profile_from_canonical
     from .maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
+    from .maintenance.retention import RetiredVersionPurgeBatch, RetiredVersionPurgeService
     from .runtime_builder import IngestionRuntimeBuilder
     from .source.models import SourceIngestionOutcome, SourceIngestionRequest
     from .source.plan import SourcePlanRepository
@@ -42,6 +43,8 @@ __all__ = [
     "RelationRepairResult",
     "ReindexRequest",
     "ReindexPlan",
+    "RetiredVersionPurgeBatch",
+    "RetiredVersionPurgeService",
     "SourceIngestionOutcome",
     "SourceIngestionRequest",
     "SourceIngestionService",
@@ -68,6 +71,8 @@ _EXPORT_MODULES = {
     "RelationRepairResult": "harborrag_runtime.ingestion.maintenance.relation_repair",
     "ReindexRequest": "harborrag_runtime.ingestion.maintenance.reindex",
     "ReindexPlan": "harborrag_runtime.ingestion.maintenance.reindex_plan",
+    "RetiredVersionPurgeBatch": "harborrag_runtime.ingestion.maintenance.retention",
+    "RetiredVersionPurgeService": "harborrag_runtime.ingestion.maintenance.retention",
     "SourceDocumentNormalizerBuilder": "harborrag_runtime.ingestion.document.normalizers",
     "SourceIngestionOutcome": "harborrag_runtime.ingestion.source.models",
     "SourceIngestionRequest": "harborrag_runtime.ingestion.source.models",

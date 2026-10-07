@@ -1,10 +1,25 @@
 from __future__ import annotations
 
+import re
 from html.parser import HTMLParser as StdlibHTMLParser
 
 from harborrag_adapters.parsers.common.utils import get_parser_logger
 
 parser_logger = get_parser_logger("text_extraction")
+
+_CODE_FENCE_LINE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})[ \t]*[\w+#.-]*[ \t]*$", re.MULTILINE)
+
+
+def strip_code_fences(text: str) -> str:
+    """Drop Markdown code-fence delimiters while keeping the fenced text.
+
+    Layout-based PDF extractors fence any block they read as preformatted,
+    which on a CV or a scanned page is ordinary prose, sometimes tagged with
+    a guessed language (```python). The delimiters carry no retrieval value
+    even when the guess is right, and a wrong language label is embedded as
+    if it were meaningful, so only the fence lines are removed.
+    """
+    return _CODE_FENCE_LINE.sub("", text)
 
 
 def compact_text(text: str) -> str:

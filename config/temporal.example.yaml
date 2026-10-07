@@ -25,10 +25,12 @@ connection:
 
 worker:
   identity: harborrag-runtime
-  # One process creates one worker for each of the six task queues. Keep
-  # queue_count * max_concurrent_activities no greater than the control DB
-  # pool size plus overflow.
-  max_concurrent_activities: 2
+  # One process creates one worker for each of the six task queues, so it runs
+  # up to queue_count * max_concurrent_activities activities (6 * 4 = 24) and as
+  # many executor threads. Keep that no greater than the control DB pool size
+  # plus overflow, and size it to the host's CPU and memory rather than to I/O
+  # latency (see config/temporal.yaml).
+  max_concurrent_activities: 4
   max_concurrent_workflow_tasks: 4
   max_concurrent_activity_polls: 2
   max_concurrent_workflow_polls: 2
@@ -44,6 +46,15 @@ task_queues:
   model: harborrag-model
   index: harborrag-index
 
+timeouts:
+  # Per-attempt budgets (60s to 7 days) of the source-level activities whose
+  # work grows with the source. Discovery resumes each retry from its last
+  # persisted page, so this bounds one attempt, not the whole listing. Both
+  # heartbeat, so a dead worker is caught within 2 minutes regardless.
+  # Defaults when omitted: discovery 1800, finalization 900.
+  discovery_seconds: 43200
+  finalization_seconds: 21600
+
 retries:
   # maximum_attempts counts the initial execution, so 8 means one initial
   # attempt plus at most 7 retries.
@@ -52,17 +63,22 @@ retries:
     backoff_coefficient: 2
     maximum_interval_seconds: 60
     maximum_attempts: 8
+  # ~23 minutes of retries (2s doubling to a 5-minute cap). Storage, database
+  # and network errors are retried in every stage, so this is what rides out a
+  # MinIO, Postgres or OCR blip; at 5 attempts any outage over ~30s failed the
+  # document for good. A longer outage trips the batch circuit breaker instead.
   document:
     initial_interval_seconds: 2
     backoff_coefficient: 2
-    maximum_interval_seconds: 120
-    maximum_attempts: 5
+    maximum_interval_seconds: 300
+    maximum_attempts: 12
 
 ingestion:
   # Default per-run source batching: documents per SourceBatchWorkflow child,
   # and concurrent DocumentIngestionWorkflow children per wave. A CLI/API
   # caller may override either per submission; these apply when they don't.
-  batch_size: 200
+  # Per-document latency is roughly document_concurrency / throughput.
+  batch_size: 300
   document_concurrency: 8
 
 workflow:

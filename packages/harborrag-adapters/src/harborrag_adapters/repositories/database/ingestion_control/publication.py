@@ -25,8 +25,12 @@ from .topology.intent import enqueue_intent
 class DocumentVersionPublisher:
     """Atomically select the sole authoritative document version in Postgres."""
 
-    def __init__(self, client: SQLAlchemyDBClient) -> None:
+    def __init__(self, client: SQLAlchemyDBClient, *, summaries_enabled: bool = True) -> None:
         self._client = client
+        # Off when summarization is disabled: publishing then neither takes the
+        # summary tenant lock nor marks summary scopes dirty. Re-enabling it
+        # needs `harborrag topology summaries backfill` to catch up.
+        self._summaries_enabled = summaries_enabled
 
     async def publish(
         self,
@@ -40,7 +44,7 @@ class DocumentVersionPublisher:
                     select(DOCUMENTS.c.tenant_id).where(DOCUMENTS.c.document_id == document_id)
                 )
             ).scalar_one_or_none()
-            if tenant is not None:
+            if tenant is not None and self._summaries_enabled:
                 await lock_summary_tenant(session, tenant)
             document_result = await session.execute(
                 select(DOCUMENTS).where(DOCUMENTS.c.document_id == document_id).with_for_update()
@@ -115,8 +119,9 @@ class DocumentVersionPublisher:
                 )
             )
             cleanup_created = False
-            for scope_id in sorted({document["source_scope_id"], candidate["source_scope_id"]}):
-                await invalidate_summary_scope(session, document["tenant_id"], scope_id)
+            if self._summaries_enabled:
+                for scope_id in sorted({document["source_scope_id"], candidate["source_scope_id"]}):
+                    await invalidate_summary_scope(session, document["tenant_id"], scope_id)
             await enqueue_intent(
                 session,
                 {
@@ -157,7 +162,7 @@ class DocumentVersionPublisher:
                     select(DOCUMENTS.c.tenant_id).where(DOCUMENTS.c.document_id == document_id)
                 )
             ).scalar_one_or_none()
-            if tenant is not None:
+            if tenant is not None and self._summaries_enabled:
                 await lock_summary_tenant(session, tenant)
             result = await session.execute(
                 select(DOCUMENTS).where(DOCUMENTS.c.document_id == document_id).with_for_update()
@@ -199,9 +204,10 @@ class DocumentVersionPublisher:
                 document_version_id=active_version,
                 now=now,
             )
-            await invalidate_summary_scope(
-                session, document["tenant_id"], document["source_scope_id"]
-            )
+            if self._summaries_enabled:
+                await invalidate_summary_scope(
+                    session, document["tenant_id"], document["source_scope_id"]
+                )
             return DocumentRetirementResult(
                 document_id=DocumentId(document_id),
                 retired_document_version_id=DocumentVersionId(active_version),

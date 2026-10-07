@@ -553,7 +553,7 @@ More: [CLI reference](docs/users/cli-reference/README.md) ·
 
 ## Connect an MCP client
 
-HarborRAG exposes **thirteen** audited reader tools over MCP, including
+HarborRAG exposes **eleven** audited reader tools over MCP, including
 `vector_search`, evidence and document reads, source discovery, and graph search.
 Tenant-scoped calls require an explicit tenant, pass JSON-schema and
 budget validation, and is recorded in an owner-only audit log that stores argument digests

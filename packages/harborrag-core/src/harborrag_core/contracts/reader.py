@@ -140,6 +140,9 @@ class DocumentContextResponse:
     chunks: tuple[DocumentContextChunk, ...] = ()
     outline: tuple[tuple[str, ...], ...] = ()
     next_offset: int | None = None
+    # Last, with a default, so positional constructions of the earlier fields keep
+    # working. Read from the window's chunks rather than a separate metadata lookup.
+    document_title: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,22 +178,6 @@ class DocumentMetadata:
     source_scope_id: str
     connector_type: str
     chunk_count: int
-
-
-@dataclass(frozen=True, slots=True)
-class DocumentMetadataRequest:
-    access: AccessContext
-    document_id: str
-
-    def __post_init__(self) -> None:
-        if not self.document_id.strip():
-            raise ValueError("document ID must be non-empty")
-
-
-@dataclass(frozen=True, slots=True)
-class DocumentMetadataResponse:
-    request_id: str
-    document: DocumentMetadata | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -235,8 +222,6 @@ __all__ = [
     "DocumentListRequest",
     "DocumentListResponse",
     "DocumentMetadata",
-    "DocumentMetadataRequest",
-    "DocumentMetadataResponse",
     "DOCUMENT_CONTEXT_LIMIT",
     "DOCUMENT_CONTEXT_OUTCOMES",
     "DOCUMENT_CONTEXT_CHUNK_FIELDS",
@@ -264,6 +249,12 @@ __all__ = [
     "RetrievalResponse",
     "EvidenceFetchRequest",
     "EvidenceFetchResponse",
+    "ENTITY_FIND_LIMIT",
+    "ENTITIES_WITHOUT_RELEASED_EVIDENCE",
+    "ENTITY_INDEX_UNAVAILABLE",
+    "EntityFindRequest",
+    "EntityFindResponse",
+    "EntityMatch",
     "EntityResolveRequest",
     "EntityResolveResponse",
     "RelationSearchRequest",
@@ -310,6 +301,65 @@ class RetrievalResponse:
     results: tuple[RetrievalResult, ...]
     diagnostics: dict[str, object]
     evidence: EvidenceBundle = field(default_factory=EvidenceBundle)
+
+
+ENTITY_FIND_LIMIT = 50
+
+
+@dataclass(frozen=True, slots=True)
+class EntityFindRequest:
+    """Rank source entities against a question, within declared facet values.
+
+    ``facets`` is keyed by facet name; a value is a string (equals), a list
+    (any of), or a mapping of ``gte``/``gt``/``lte``/``lt`` bounds for an integer
+    facet. It is the one place a caller states *which* entities qualify, as
+    opposed to what to look for in them.
+    """
+
+    access: AccessContext
+    query: str
+    facets: dict[str, object] = field(default_factory=dict)
+    source_scope_ids: tuple[str, ...] = ()
+    limit: int = 10
+
+    def __post_init__(self) -> None:
+        if not self.query.strip():
+            raise ValueError("entity query must be non-empty")
+        if not 1 <= self.limit <= ENTITY_FIND_LIMIT:
+            raise ValueError(f"entity limit must be between 1 and {ENTITY_FIND_LIMIT}")
+        if len(self.facets) > 12 or len(self.source_scope_ids) > 100:
+            raise ValueError("entity find request exceeds bounded filters")
+
+
+@dataclass(frozen=True, slots=True)
+class EntityMatch:
+    node_key: str
+    source_scope_id: str | None
+    rank: int
+    score: float
+    description: str | None
+    coverage_mode: str | None
+    attributes: tuple[dict[str, object], ...]
+    evidence_chunk_ids: tuple[str, ...]
+
+
+# Why an entity answer may hold fewer matches than the corpus does. Without them
+# "no index has been built" and "nothing matched" were the same empty, complete
+# answer, so a caller had no reason to fall back to chunk search.
+ENTITY_INDEX_UNAVAILABLE = "entity_index_unavailable"
+ENTITIES_WITHOUT_RELEASED_EVIDENCE = "entities_without_released_evidence"
+
+
+@dataclass(frozen=True, slots=True)
+class EntityFindResponse:
+    request_id: str
+    matches: tuple[EntityMatch, ...]
+    truncated: bool = False
+    # Incompleteness other than truncation, as the ``ENTITY_*`` reason codes above.
+    reasons: tuple[str, ...] = ()
+    # Ranked entities left out because the summary authority released no card or
+    # evidence for them -- counted only where that cannot reveal a private entity.
+    withheld_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

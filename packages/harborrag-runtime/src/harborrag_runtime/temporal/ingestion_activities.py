@@ -5,12 +5,6 @@ from temporalio.client import Client
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.ingestion.composition import IngestionRuntime
-from harborrag_runtime.ingestion.document.models import DocumentReleaseRequest
-from harborrag_runtime.ingestion.document.preparation import DocumentPreparationStages
-from harborrag_runtime.ingestion.document.stage_models import (
-    PreparedDocumentStage,
-    RawCaptureStageResult,
-)
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 
 from .activity_observability import ActivityObservability
@@ -22,12 +16,6 @@ from .conversion import (
 )
 from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
-from .process_isolation import (
-    SubprocessCrashError,
-    SubprocessResultSerializationError,
-    SubprocessSerializationError,
-    run_in_isolated_subprocess,
-)
 from .retry_activities import RetryActivitiesMixin
 from .schemas import (
     DocumentFailureInput,
@@ -106,49 +94,22 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "task_id": request.document.task_id,
                 "document_id": request.document_id,
                 "document_index": request.document.document_index,
-                "mode": "subprocess",
+                "mode": "in-process",
                 "resumed": prior is not None,
                 "prior_attempt_count": prior_attempt_count,
             }
-            try:
-                prepared_stage = await run_in_isolated_subprocess(
-                    _parse_and_normalize_sync,
-                    self._runtime.stages.preparation,
+            # Parsing runs in-process. The isolated-subprocess attempt that used to
+            # precede this could never succeed -- the preparation stages hold the
+            # parser registry's local closures, the database engine and the S3
+            # client, none of which pickle -- so every parse paid for a failed spawn
+            # attempt and then ran here anyway.
+            prepared_stage = await heartbeat_while(
+                self._runtime.stages.preparation.parse_and_normalize(
                     planned.request,
                     capture_stage,
-                    heartbeat_detail=heartbeat_detail,
-                )
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "success",
-                )
-            except SubprocessSerializationError as error:
-                is_result_error = isinstance(error, SubprocessResultSerializationError)
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "result_serialization_fail" if is_result_error else "serialization_fail",
-                )
-                prepared_stage = await heartbeat_while(
-                    self._runtime.stages.preparation.parse_and_normalize(
-                        planned.request,
-                        capture_stage,
-                    ),
-                    detail={
-                        **heartbeat_detail,
-                        "mode": "in-process-fallback",
-                        "fallback_reason": (
-                            "spawn-unpicklable-result"
-                            if is_result_error
-                            else "spawn-unpicklable-args"
-                        ),
-                    },
-                )
-            except SubprocessCrashError:
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "crash",
-                )
-                raise
+                ),
+                detail=heartbeat_detail,
+            )
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
 
@@ -339,14 +300,3 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,
             )
-
-
-def _parse_and_normalize_sync(
-    preparation: DocumentPreparationStages,
-    request: DocumentReleaseRequest,
-    capture: RawCaptureStageResult,
-) -> PreparedDocumentStage:
-    """Module-level target for subprocess isolation; picklable by the spawn context."""
-    import asyncio
-
-    return asyncio.run(preparation.parse_and_normalize(request, capture))

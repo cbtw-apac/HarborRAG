@@ -94,13 +94,13 @@ class Descriptions:
     def __init__(self):
         self.calls = 0
 
-    async def generate_usage(self, packets):
+    async def generate_usage(self, packets, **_):
         from harborrag_adapters.topology.descriptions import DescriptionRun
         from harborrag_core.models.chat import HarborChatUsage
 
         return DescriptionRun(await self.generate(packets), HarborChatUsage(), 1)
 
-    async def generate(self, packets):
+    async def generate(self, packets, **_):
         self.calls += 1
         return DescriptionOutput(
             description="Conditional deployment.",

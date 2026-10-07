@@ -133,7 +133,7 @@ def _pdf_factory(
     *,
     backends: list[HarborPDFEngine] | None = None,
     min_content_chars: int = 20,
-    profile: str = "balanced",
+    profile: str = "liteparse",
 ) -> HarborPDFParser:
     if backends is not None:
         return HarborPDFParser(
@@ -188,7 +188,7 @@ class PdfBackendSpec:
 
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
     **{name: frozenset() for name in _PARSER_FACTORIES if name not in {"image", "pdf"}},
-    "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "timeout"}),
+    "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}),
     "pdf": frozenset({"min_content_chars", "profile"}),
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
