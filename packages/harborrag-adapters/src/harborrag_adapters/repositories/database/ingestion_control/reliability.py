@@ -20,6 +20,7 @@ from .cleanup_lease import claimable_cleanup, cleanup_claimable
 from .row_mapping import cleanup_job_from_row
 from .schema import (
     DOCUMENT_FAILURES,
+    DOCUMENTS,
     PROJECTION_CLEANUP_JOBS,
     PROJECTION_MANIFESTS,
     SOURCE_ITEMS,
@@ -154,6 +155,7 @@ class IngestionReliabilityRepository:
         limit: int = 100,
         document_ids: Sequence[str] | None = None,
         source_scope_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> tuple[ProjectionCleanupJob, ...]:
         if not 1 <= limit <= 1_000:
             raise ValueError("cleanup job limit must be between 1 and 1000")
@@ -173,6 +175,13 @@ class IngestionReliabilityRepository:
                 SOURCE_ITEMS,
                 SOURCE_ITEMS.c.document_id == PROJECTION_CLEANUP_JOBS.c.document_id,
             ).where(SOURCE_ITEMS.c.source_scope_id == source_scope_id)
+        if tenant_id is not None:
+            # Cleanup runs under one tenant's storage context; another tenant's
+            # job claimed here would be deleted through the wrong context.
+            statement = statement.join(
+                DOCUMENTS,
+                DOCUMENTS.c.document_id == PROJECTION_CLEANUP_JOBS.c.document_id,
+            ).where(DOCUMENTS.c.tenant_id == tenant_id)
         async with self._client.sessions() as session:
             result = await session.execute(
                 statement.distinct().order_by(PROJECTION_CLEANUP_JOBS.c.created_at).limit(limit)

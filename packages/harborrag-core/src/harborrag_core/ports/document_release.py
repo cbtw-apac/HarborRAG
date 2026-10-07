@@ -126,6 +126,7 @@ class IngestionReliabilityPort(Protocol):
         limit: int = 100,
         document_ids: Sequence[str] | None = None,
         source_scope_id: str | None = None,
+        tenant_id: str | None = None,
     ) -> tuple[ProjectionCleanupJob, ...]: ...
 
     async def cleanup_for_version(

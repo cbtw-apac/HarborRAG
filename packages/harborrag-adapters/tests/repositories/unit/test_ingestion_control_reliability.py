@@ -455,3 +455,25 @@ async def test_replay_waits_for_a_live_cleanup_but_not_for_an_expired_one(
 
         cancelled = await control_plane.reliability.cleanup_for_version(retired)
         assert cancelled is not None and cancelled.status == CleanupJobState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_pending_cleanup_jobs_filter_by_tenant(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        jobs = {}
+        for tenant_id in ("DEFAULT", "OTHER"):
+            source = source_identity(f"page-{tenant_id}").model_copy(
+                update={"tenant_id": tenant_id}
+            )
+            value = candidate(tenant_id, source=source)
+            await control_plane.document_versions.create_candidate(value)
+            jobs[tenant_id] = await control_plane.reliability.enqueue_cleanup(
+                document_id=str(value.document_id),
+                document_version_id=str(value.document_version_id),
+            )
+
+        assert await control_plane.reliability.pending_cleanup_jobs(tenant_id="OTHER") == (
+            jobs["OTHER"],
+        )
+        assert len(await control_plane.reliability.pending_cleanup_jobs()) == 2

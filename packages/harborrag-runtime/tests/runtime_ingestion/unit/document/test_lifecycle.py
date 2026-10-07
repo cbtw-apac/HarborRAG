@@ -157,3 +157,40 @@ async def test_metadata_update_encodes_fresh_when_previous_chunks_are_missing(
 
         assert updated.published is True
         assert updated.document_version_id != first.document_version_id
+
+
+@pytest.mark.asyncio
+async def test_corpus_cleanup_drains_only_the_requesting_tenants_jobs(
+    tmp_path: Path,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    connector = SourceConnector()
+    async with control, resources.store:
+        dependencies = build_dependencies(resources)
+        service = DocumentReleaseService(dependencies)
+        await service.provision(tenant_id="default")
+        first = await service.release(release_request(source_version="1"), connector)
+        connector.labels = ["production"]
+        await service.release(
+            release_request(
+                source_version="1",
+                discovery_decision=SourceAdmissionDecision.METADATA_CHANGED,
+            ),
+            connector,
+        )
+        cleanup = ProjectionCleanupService(
+            control=control,
+            vector_store=dependencies.vector_store,
+            graph_store=resources.graph,
+        )
+
+        foreign = await cleanup.run_pending(tenant_id="another-tenant")
+        job = await control.reliability.cleanup_for_version(str(first.document_version_id))
+        assert foreign.claimed == 0
+        assert job is not None and job.status == CleanupJobState.PENDING
+
+        own = await cleanup.run_pending(tenant_id="default")
+        job = await control.reliability.cleanup_for_version(str(first.document_version_id))
+        assert own.completed == 1
+        assert job is not None and job.status == CleanupJobState.COMPLETED
