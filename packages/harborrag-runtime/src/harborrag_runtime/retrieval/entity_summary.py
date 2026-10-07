@@ -134,6 +134,16 @@ def split_facet_filters(
     )
 
 
+def _within(
+    candidates: tuple[VectorSearchResult, ...],
+    reached: tuple[VectorSearchResult, ...],
+) -> tuple[VectorSearchResult, ...]:
+    """The candidates that are also evidence of a qualifying entity, in search order."""
+
+    reached_ids = {item.id for item in reached}
+    return tuple(item for item in candidates if item.id in reached_ids)
+
+
 @dataclass(frozen=True)
 class EntitySummarySearch:
     """Search accepted source-entity cards and return the evidence behind them."""
@@ -153,17 +163,21 @@ class EntitySummarySearch:
         *,
         context: StorageOperationContext,
         facet_filter: VectorFilter | None = None,
+        within_candidates: bool = False,
     ) -> tuple[VectorSearchResult, ...]:
-        """Fuse entity-reached evidence into the candidate set -- or replace it.
+        """Fuse entity-reached evidence into the candidate set, select it, or narrow it.
 
         Without facet filters this is enrichment: entity hits join the chunk
         candidates by rank fusion. With them it is selection: the caller has said
         which entities qualify, so only evidence from qualifying entities may be
-        returned, and the chunk candidates are set aside.
+        returned, and the chunk candidates are set aside. With facet filters *and*
+        other filters (``within_candidates``) the candidates already satisfy those
+        other filters, which entity evidence never faced, so the lane may only
+        narrow them to the ones that are also evidence of a qualifying entity.
 
-        Returns the input unchanged on every path that cannot be served safely,
-        so a missing index, an empty vector or an unreadable binding degrades to
-        plain chunk retrieval instead of failing the request.
+        Returns the input unchanged on every enrichment path that cannot be served
+        safely, so a missing index, an empty vector or an unreadable binding
+        degrades to plain chunk retrieval instead of failing the request.
         """
 
         if dense_vector is None or len(dense_vector) != self.profile.dimension:
@@ -171,7 +185,7 @@ class EntitySummarySearch:
         node_keys = await self.matching_entities(dense_vector, context, facet_filter)
         reached = await self._evidence_for(node_keys, context)
         if facet_filter is not None:
-            return reached
+            return _within(candidates, reached) if within_candidates else reached
         if not reached:
             return candidates
         return fuse_candidates(

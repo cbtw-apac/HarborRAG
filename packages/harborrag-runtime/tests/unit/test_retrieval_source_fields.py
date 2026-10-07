@@ -7,6 +7,8 @@ the matching issues, then searches their evidence and their attachments'.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from retrieval_test_support import FakeChunkReader, FakeEmbedClient, FakeVectorRepository
 from retrieval_test_support import policy as _policy
@@ -147,3 +149,78 @@ def test_the_trace_refuses_to_loosen_a_callers_alternatives():
 
     with pytest.raises(HarborValidationError, match="alternative"):
         SourceFieldTrace.scope((ISSUE,), alternatives)
+
+
+_PROJECT = VectorFilterCondition(field="project_key", value="CPM")
+_STAGE = VectorFilterCondition(field="facet.stage", value="round 2")
+
+
+class RecordingEntities:
+    """Stands in for the entity lane and records how the service drove it."""
+
+    def __init__(self) -> None:
+        self.calls: list[dict[str, object]] = []
+
+    async def expand(
+        self, candidates, dense_vector, *, context, facet_filter=None, within_candidates=False
+    ):
+        del dense_vector, context
+        self.calls.append({"facet_filter": facet_filter, "within_candidates": within_candidates})
+        return candidates
+
+
+def _entity_service(entities: RecordingEntities) -> RuntimeRetrievalService:
+    return RuntimeRetrievalService(
+        resources=replace(
+            _resources(
+                embed=FakeEmbedClient(), vectors=TracingVectors((ISSUE,)), chunks=FakeChunkReader()
+            ),
+            entity_summary_search=entities,  # type: ignore[arg-type]
+        ),
+        policy=_policy(),
+    )
+
+
+async def _retrieve_with(entities: RecordingEntities, filters: VectorFilter | None) -> None:
+    await _entity_service(entities).retrieve(
+        "anything", tenant_id="tenant-1", top_k=5, options=RetrievalOptions(filters=filters)
+    )
+
+
+@pytest.mark.asyncio
+async def test_without_filters_entity_evidence_still_enriches():
+    entities = RecordingEntities()
+    await _retrieve_with(entities, None)
+    assert entities.calls == [{"facet_filter": None, "within_candidates": False}]
+
+
+@pytest.mark.asyncio
+async def test_an_ordinary_filter_keeps_unfiltered_entity_evidence_out():
+    entities = RecordingEntities()
+    await _retrieve_with(entities, VectorFilter(must=[_PROJECT]))
+    assert entities.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_fields_filter_keeps_unfiltered_entity_evidence_out():
+    entities = RecordingEntities()
+    await _retrieve_with(entities, _filters())
+    assert entities.calls == []
+
+
+@pytest.mark.asyncio
+async def test_a_facet_beside_an_ordinary_filter_narrows_the_filtered_search():
+    entities = RecordingEntities()
+    await _retrieve_with(entities, VectorFilter(must=[_STAGE, _PROJECT]))
+    assert entities.calls == [
+        {"facet_filter": VectorFilter(must=[_STAGE]), "within_candidates": True}
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_facet_beside_a_fields_filter_narrows_the_traced_search():
+    entities = RecordingEntities()
+    await _retrieve_with(entities, VectorFilter(must=[_STAGE, *_filters().must]))
+    assert entities.calls == [
+        {"facet_filter": VectorFilter(must=[_STAGE]), "within_candidates": True}
+    ]

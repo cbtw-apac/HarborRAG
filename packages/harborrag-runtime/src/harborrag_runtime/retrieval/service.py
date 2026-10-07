@@ -18,6 +18,7 @@ from harborrag_core.contracts.reader import (
     SemanticPathRequest,
     SemanticPathResponse,
 )
+from harborrag_core.indexing import VectorFilter, VectorSearchResult
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -237,6 +238,9 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         if facet_filter is not None:
             selected = replace(selected, filters=chunk_filter)
+        # Whatever is left once facets are routed away -- ordinary payload keys and
+        # ``fields.*`` alike -- is a constraint entity-reached evidence never faced.
+        constrained = chunk_filter is not None
         # A ``fields.*`` filter names an item's own fields -- a Jira issue's custom
         # fields -- which its attachments do not carry. It is resolved to the
         # matching items first, then applied as "their evidence or evidence
@@ -274,18 +278,13 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 extra={"request_id": request_id, "tenant_id": tenant_id},
             )
             raise no_indexed_content() from exc
-        candidates = search.candidates
-        # Enrichment fuses entity evidence in without the chunk filter, which would
-        # readmit evidence of items the fields filter just excluded.
-        if self._entities is not None and (facet_filter is not None or field_filter is None):
-            # Entity-reached chunks join the authoritative set before validation,
-            # so they face exactly the permission and active-version checks every
-            # other candidate faces -- reaching them differently is not a reason
-            # to serve them differently. With a facet filter the lane selects
-            # instead of enriching: only qualifying entities' evidence remains.
-            candidates = await self._entities.expand(
-                candidates, dense_vector, context=context, facet_filter=facet_filter
-            )
+        candidates = await self._entity_candidates(
+            search.candidates,
+            dense_vector,
+            context=context,
+            facet_filter=facet_filter,
+            constrained=constrained,
+        )
         topology = await self._topology.prepare(
             query,
             await self._permissions.validate(candidates, context),
@@ -421,6 +420,34 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         request: SemanticPathRequest,
     ) -> SemanticPathResponse:
         return await self._knowledge.find_paths(request)
+
+    async def _entity_candidates(
+        self,
+        candidates: tuple[VectorSearchResult, ...],
+        dense_vector: tuple[float, ...] | None,
+        *,
+        context: StorageOperationContext,
+        facet_filter: VectorFilter | None,
+        constrained: bool,
+    ) -> tuple[VectorSearchResult, ...]:
+        """Let the entity lane enrich, select, or narrow -- never widen -- the candidates.
+
+        Entity-reached evidence faces none of the caller's non-facet filters, so it
+        may only *join* an unfiltered search: with other filters and no facet the
+        lane stays out, and with a facet beside them it narrows the filtered
+        candidates. Entity-reached chunks join before validation, so they face the
+        same permission and active-version checks as every other candidate.
+        """
+
+        if self._entities is None or (constrained and facet_filter is None):
+            return candidates
+        return await self._entities.expand(
+            candidates,
+            dense_vector,
+            context=context,
+            facet_filter=facet_filter,
+            within_candidates=constrained,
+        )
 
     @staticmethod
     def _retrieval_context(

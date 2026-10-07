@@ -430,3 +430,39 @@ def test_a_card_stored_with_tagged_attributes_is_verified_then_upgraded() -> Non
     # Tampering is still caught: the check runs against the stored form.
     with pytest.raises(Exception, match="hash mismatch"):
         SummaryBinding.model_validate({**stored, "artifact_hash": "0" * 64})
+
+
+@pytest.mark.asyncio
+async def test_a_facet_beside_another_filter_narrows_instead_of_replacing() -> None:
+    from test_entity_summary_search import entity_hit, evidence_record
+
+    from harborrag_core.indexing import VectorSearchResult
+
+    vectors = Vectors(
+        records={
+            PROFILE.entity_index_name: {},
+            "evidence": {
+                evidence_record(chunk).id: evidence_record(chunk)
+                for chunk in ("chunk-1", "chunk-2")
+            },
+        },
+        hits=(entity_hit("node-a"),),
+    )
+    search = EntitySummarySearch(Summaries({"node-a": ("chunk-1", "chunk-2")}), vectors, PROFILE)
+    stage = VectorFilter(must=[VectorFilterCondition(field="facet.stage", value="round 2")])
+    filtered = tuple(
+        VectorSearchResult(id=row.id, score=1.0, raw_score=1.0, payload=row.payload)
+        for row in (evidence_record("chunk-2"), evidence_record("chunk-other"))
+    )
+
+    narrowed = await search.expand(
+        filtered,
+        (1.0, 0.0),
+        context=StorageOperationContext.system("DEFAULT"),
+        facet_filter=stage,
+        within_candidates=True,
+    )
+
+    # chunk-1 qualifies by facet but the caller's other filter excluded it;
+    # chunk-other passed that filter but belongs to no qualifying entity.
+    assert [str(item.payload["chunk_id"]) for item in narrowed] == ["chunk-2"]
