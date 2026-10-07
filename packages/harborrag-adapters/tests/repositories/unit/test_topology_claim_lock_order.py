@@ -78,3 +78,25 @@ async def test_claim_skips_a_busy_document_without_superseding_its_job(
         assert claimed.document_id == free
         states = {job.document_id: job.state for job in await control.topology.list_jobs("DEFAULT")}
         assert states[busy] == "pending"
+
+
+@pytest.mark.asyncio
+async def test_targeted_claim_waits_for_its_document_instead_of_skipping(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async with make_control_plane(tmp_path) as control:
+        await _enable(control)
+        await _published(control, "page-1")
+        (job,) = await control.topology.list_jobs("DEFAULT")
+
+        async def busy(session, job: TopologyJob) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        monkeypatch.setattr(jobs, "try_lock_document", busy)
+
+        claimed = await control.topology.claim("DEFAULT", job_id=job.job_id)
+
+        assert claimed is not None
+        assert claimed.job_id == job.job_id
+        assert claimed.state == "running"

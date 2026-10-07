@@ -99,17 +99,17 @@ async def require_lease(session: AsyncSession, job: TopologyJob) -> DatabaseRow:
     return row
 
 
+def _document_row(job: TopologyJob) -> Select[tuple[str]]:
+    return select(DOCUMENTS.c.document_id).where(
+        DOCUMENTS.c.tenant_id == job.tenant_id,
+        DOCUMENTS.c.document_id == job.document_id,
+    )
+
+
 def document_lock_probe(job: TopologyJob) -> Select[tuple[str]]:
     """Lock the job's document row, or return nothing at once if another holds it."""
 
-    return (
-        select(DOCUMENTS.c.document_id)
-        .where(
-            DOCUMENTS.c.tenant_id == job.tenant_id,
-            DOCUMENTS.c.document_id == job.document_id,
-        )
-        .with_for_update(skip_locked=True)
-    )
+    return _document_row(job).with_for_update(skip_locked=True)
 
 
 async def try_lock_document(session: AsyncSession, job: TopologyJob) -> bool:
@@ -117,16 +117,11 @@ async def try_lock_document(session: AsyncSession, job: TopologyJob) -> bool:
 
     True when this transaction now holds the document row, and also when the row is
     gone: ``lock_job`` then rejects the job as obsolete and the claim supersedes it.
-    False when another transaction holds the row -- a publisher mid-activation -- so
-    the job must stay runnable rather than be mistaken for an obsolete one.
+    False when another transaction holds the row -- a publisher mid-activation, or
+    any writer holding it FOR KEY SHARE, such as an insert of a new candidate version
+    -- so the job must stay runnable rather than be mistaken for an obsolete one.
     """
 
     if (await session.execute(document_lock_probe(job))).first() is not None:
         return True
-    present = await session.execute(
-        select(DOCUMENTS.c.document_id).where(
-            DOCUMENTS.c.tenant_id == job.tenant_id,
-            DOCUMENTS.c.document_id == job.document_id,
-        )
-    )
-    return present.first() is None
+    return (await session.execute(_document_row(job))).first() is None

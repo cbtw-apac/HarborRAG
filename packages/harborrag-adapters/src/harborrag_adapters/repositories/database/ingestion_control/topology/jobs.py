@@ -96,6 +96,7 @@ class TopologyJobOperations:
                     job_from_row(candidate),
                     now=now,
                     lease_seconds=lease_seconds,
+                    wait_for_document=job_id is not None,
                 )
                 if claimed is not None:
                     return claimed
@@ -231,6 +232,7 @@ async def _claim_candidate(
     *,
     now: datetime,
     lease_seconds: int,
+    wait_for_document: bool,
 ) -> TopologyJob | None:
     """Claim one runnable job, or leave it for a later claim.
 
@@ -238,9 +240,11 @@ async def _claim_candidate(
     candidate this transaction holds the tenant's indexing config, so it must never
     wait for a later candidate's document: a publisher holding that document waits for
     the config, and the two deadlock. A busy document is skipped, its job untouched.
+    A targeted claim has a single candidate and holds no config yet, so it may wait:
+    skipping would strand a job nobody re-dispatches.
     """
 
-    if not await try_lock_document(session, job):
+    if not wait_for_document and not await try_lock_document(session, job):
         return None
     try:
         row = await lock_job(session, job)
