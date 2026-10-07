@@ -69,6 +69,7 @@ class TemporalIngestionGateway:
             status=status.status,
             paused=status.paused,
             cancel_requested=status.cancel_requested,
+            pause_applied=status.pause_applied,
         )
 
     async def result(self, task_id: str) -> IngestionExecutionResult:

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -127,6 +128,10 @@ def test_load_raises_fetch_error_on_read_failure(tmp_path: Path, monkeypatch):
         )
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="Fails on Windows due to symlink restrictions",
+)
 def test_load_rejects_parent_directory_replaced_by_symlink(tmp_path: Path) -> None:
     source_dir = tmp_path / "source"
     original_dir = source_dir / "docs"

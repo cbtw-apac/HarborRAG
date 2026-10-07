@@ -26,6 +26,8 @@ from harborrag_runtime.ingestion_contracts import (
 
 from ..errors import (
     IngestionAlreadyCompletedError,
+    IngestionAlreadyPausedError,
+    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
     IngestionNotFoundError,
     IngestionRetryConflictError,
@@ -242,6 +244,8 @@ class IngestionApplicationService(TaskListingMixin):
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        if task.status is IngestionTaskState.PAUSED:
+            raise IngestionAlreadyPausedError("The ingestion task is already paused.")
         try:
             await (await self._client_provider()).pause(task_id)
         except WorkflowOperationError as error:
@@ -249,7 +253,7 @@ class IngestionApplicationService(TaskListingMixin):
         await record_control_action(store, task_id, action="pause", actor=actor)
         return {
             "task_id": task.task_id,
-            "status": STATUS_NAMES[task.status],
+            "status": STATUS_NAMES[IngestionTaskState.PENDING],
             "message": "Pause requested",
         }
 
@@ -258,6 +262,8 @@ class IngestionApplicationService(TaskListingMixin):
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        if task.status is IngestionTaskState.RUNNING:
+            raise IngestionAlreadyRunningError("The ingestion task is already running.")
         try:
             await (await self._client_provider()).resume(task_id)
         except WorkflowOperationError as error:
@@ -265,7 +271,7 @@ class IngestionApplicationService(TaskListingMixin):
         await record_control_action(store, task_id, action="resume", actor=actor)
         return {
             "task_id": task.task_id,
-            "status": STATUS_NAMES[task.status],
+            "status": STATUS_NAMES[IngestionTaskState.RUNNING],
             "message": "Resume requested",
         }
 

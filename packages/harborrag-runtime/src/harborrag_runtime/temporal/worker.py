@@ -76,6 +76,7 @@ async def run_workers(
         await runtime.start()
         activities = IngestionActivities(
             runtime,
+            temporal_client=client,
             telemetry=runtime.telemetry,
         )
         maintenance = MaintenanceActivities(

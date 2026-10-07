@@ -11,7 +11,12 @@ from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 
-from .schemas import DocumentDispatchSummary, DocumentIngestionInput, SourceBatchInput
+from .schemas import (
+    DocumentDispatchSummary,
+    DocumentIngestionInput,
+    SourceBatchInput,
+    SourceBatchStatus,
+)
 
 _SLIDING_WINDOW_PATCH = "harborrag-batch-sliding-window"
 _CIRCUIT_BREAKER_PATCH = "harborrag-batch-circuit-breaker"
@@ -53,9 +58,13 @@ class SourceBatchWorkflow:
         self._cancel_requested = False
         self._paused = False
         self._consecutive_failures = 0
+        self._task_id = "pending"
+        self._status = "PENDING"
 
     @workflow.run
     async def run(self, request: SourceBatchInput) -> DocumentDispatchSummary:
+        self._task_id = request.task_id
+        self._status = "RUNNING"
         if not _sliding_window():
             return await self._run_waves(request)
         return await self._run_window(request)
@@ -82,8 +91,12 @@ class SourceBatchWorkflow:
                 next_index += 1
             if not in_flight:
                 if self._cancel_requested or next_index >= request.end_index:
+                    if not self._cancel_requested:
+                        self._status = "COMPLETED"
                     return summary
+                self._status = "PAUSED"
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
+                self._status = "CANCELLING" if self._cancel_requested else "RUNNING"
                 continue
             await workflow.wait(in_flight, return_when=asyncio.FIRST_COMPLETED)
             for future in [future for future in in_flight if future.done()]:
@@ -120,6 +133,7 @@ class SourceBatchWorkflow:
             self._consecutive_failures,
         )
         self._paused = True
+        self._status = "PAUSED"
         self._consecutive_failures = 0
         parent = workflow.info().parent if workflow.in_workflow() else None
         if parent is not None:
@@ -136,8 +150,11 @@ class SourceBatchWorkflow:
             request.document_concurrency,
         ):
             if self._paused:
+                self._status = "PAUSED"
                 await workflow.wait_condition(lambda: not self._paused or self._cancel_requested)
+                self._status = "CANCELLING" if self._cancel_requested else "RUNNING"
             if self._cancel_requested:
+                self._status = "CANCELLING"
                 break
             end = min(request.end_index, start + request.document_concurrency)
             statuses = await asyncio.gather(
@@ -145,6 +162,8 @@ class SourceBatchWorkflow:
             )
             for status in statuses:
                 summary = summary.add(status)
+        if not self._cancel_requested:
+            self._status = "COMPLETED"
         return summary
 
     @staticmethod
@@ -180,6 +199,7 @@ class SourceBatchWorkflow:
 
         self._cancel_requested = True
         self._paused = False
+        self._status = "CANCELLING"
 
     @workflow.signal
     def pause(self) -> None:
@@ -187,8 +207,20 @@ class SourceBatchWorkflow:
 
         if not self._cancel_requested:
             self._paused = True
+            self._status = "PAUSED"
 
     @workflow.signal
     def resume(self) -> None:
         self._paused = False
         self._consecutive_failures = 0
+        if not self._cancel_requested:
+            self._status = "RUNNING"
+
+    @workflow.query
+    def get_status(self) -> SourceBatchStatus:
+        return SourceBatchStatus(
+            task_id=self._task_id,
+            status=self._status,
+            paused=self._paused,
+            cancel_requested=self._cancel_requested,
+        )

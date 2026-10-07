@@ -93,8 +93,8 @@ The live schema is always authoritative - prefer it to this table.
 | `GET` | `/v1/ingestions/{task_id}` | `reader` | Read Postgres-authoritative task progress |
 | `GET` | `/v1/ingestions/{task_id}/documents` | `reader` | Read cursor-paginated document outcomes |
 | `GET` | `/v1/ingestions/{task_id}/stream` | `reader` | Stream task progress as Server-Sent Events |
-| `POST` | `/v1/ingestions/{task_id}/pause` | `editor` | Request durable pause at safe workflow boundaries |
-| `POST` | `/v1/ingestions/{task_id}/resume` | `editor` | Resume a paused ingestion workflow |
+| `POST` | `/v1/ingestions/{task_id}/pause` | `editor` | Accept an asynchronous durable pause request; the task settles at `PAUSED` at a safe boundary |
+| `POST` | `/v1/ingestions/{task_id}/resume` | `editor` | Resume a paused ingestion workflow and permit new batch dispatch |
 | `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
 | `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
 | `GET` | `/v1/connections` | `reader` | List enabled connections submittable by `connection_id` |

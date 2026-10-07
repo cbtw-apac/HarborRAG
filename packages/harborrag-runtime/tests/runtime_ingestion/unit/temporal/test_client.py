@@ -6,13 +6,20 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
     TemporalTLSConfig,
 )
-from harborrag_runtime.errors import RuntimeConnectionError
+from harborrag_runtime.errors import (
+    RuntimeConnectionError,
+    WorkflowNotFoundError,
+    WorkflowNotRunningError,
+    WorkflowOperationError,
+)
+from harborrag_runtime.temporal import client as client_module
 from harborrag_runtime.temporal import connection as connection_module
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.maintenance_schemas import (
@@ -91,6 +98,20 @@ def _reindex_result() -> ReindexResult:
     )
 
 
+def _status(
+    *,
+    status: str = "RUNNING",
+    pause_applied: bool = False,
+) -> SourceIngestionStatus:
+    return SourceIngestionStatus(
+        task_id="task-1",
+        status=status,
+        paused=status == "PAUSED",
+        cancel_requested=False,
+        pause_applied=pause_applied,
+    )
+
+
 class _Handle:
     def __init__(self, result: object, *, status: object | None) -> None:
         self.first_execution_run_id = "execution-1"
@@ -103,12 +124,7 @@ class _Handle:
     @staticmethod
     def _query(name: str, **_options: object) -> object:
         if name == "get_status":
-            return SourceIngestionStatus(
-                task_id="task-1",
-                status="RUNNING",
-                paused=False,
-                cancel_requested=False,
-            )
+            return _status(pause_applied=True)
         return {"published": 1}
 
 
@@ -122,6 +138,10 @@ class _SdkClient:
         self.start_workflow = AsyncMock(side_effect=self._start)
         self.get_workflow_handle = Mock(side_effect=self._handle)
         self.service_client = SimpleNamespace(check_health=AsyncMock(return_value=True))
+        self.workflow_service = SimpleNamespace(
+            pause_workflow_execution=AsyncMock(),
+            unpause_workflow_execution=AsyncMock(),
+        )
 
     def _start(self, workflow_name: str, *_args: object, **_kwargs: object) -> _Handle:
         return self.reindex_handle if workflow_name == "harborrag.reindex" else self.source_handle
@@ -265,6 +285,103 @@ async def test_client_health_and_controls_target_source_workflow() -> None:
         "request_graceful_cancel",
     ]
     sdk.source_handle.cancel.assert_not_awaited()
+    pause_request = sdk.workflow_service.pause_workflow_execution.await_args.args[0]
+    assert pause_request.workflow_id == "harborrag-source:task-1"
+    assert pause_request.namespace == "harborrag"
+    assert pause_request.request_id
+
+
+@pytest.mark.asyncio
+async def test_controls_keep_signaling_when_native_pause_is_unavailable() -> None:
+    sdk = _SdkClient()
+    unavailable = RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+    sdk.workflow_service.pause_workflow_execution.side_effect = unavailable
+    sdk.workflow_service.unpause_workflow_execution.side_effect = unavailable
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    await client.pause("task-1")
+    await client.resume("task-1")
+    await client.cancel("task-1")
+
+    assert [call.args[0] for call in sdk.source_handle.signal.await_args_list] == [
+        "pause",
+        "resume",
+        "request_graceful_cancel",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_pause_relay_rejects_finished_workflow() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status(status="COMPLETED")
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowNotRunningError, match=r"already finished \(COMPLETED\)"):
+        await client.pause("task-1")
+
+    sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pause_relay_times_out_without_acknowledgement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.query.side_effect = lambda *_args, **_kwargs: _status()
+    sleep = AsyncMock()
+    monkeypatch.setattr(client_module.asyncio, "sleep", sleep)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError, match="pause relay did not settle"):
+        await client.pause("task-1")
+
+    assert sleep.await_count == 300
+    sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "expected"),
+    [
+        (RPCStatusCode.NOT_FOUND, WorkflowNotFoundError),
+        (RPCStatusCode.INTERNAL, WorkflowOperationError),
+    ],
+)
+async def test_native_pause_control_maps_rpc_errors(
+    status: RPCStatusCode,
+    expected: type[Exception],
+) -> None:
+    sdk = _SdkClient()
+    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
+        "native pause failed",
+        status,
+        b"",
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(expected):
+        await client._pause_execution(
+            "harborrag-source:task-1",
+            reason="test",
+            best_effort=False,
+        )
+
+
+@pytest.mark.asyncio
+async def test_native_pause_control_ignores_failed_precondition() -> None:
+    sdk = _SdkClient()
+    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
+        "workflow is already paused",
+        RPCStatusCode.FAILED_PRECONDITION,
+        b"",
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    await client._pause_execution(
+        "harborrag-source:task-1",
+        reason="test",
+        best_effort=False,
+    )
 
 
 @pytest.mark.asyncio
@@ -279,6 +396,7 @@ async def test_client_operations_use_stable_workflow_id_for_source_controls() ->
 
     workflow_ids = [call.args[0] for call in sdk.get_workflow_handle.call_args_list]
     assert workflow_ids == [
+        "harborrag-source:task-1",
         "harborrag-source:task-1",
         "harborrag-source:task-1",
         "harborrag-source:task-1",

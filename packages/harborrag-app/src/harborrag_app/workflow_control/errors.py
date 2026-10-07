@@ -34,6 +34,14 @@ class IngestionAlreadyCompletedError(HarborConflictError):
     error_code = "INGESTION_ALREADY_COMPLETED"
 
 
+class IngestionAlreadyPausedError(HarborConflictError):
+    error_code = "INGESTION_ALREADY_PAUSED"
+
+
+class IngestionAlreadyRunningError(HarborConflictError):
+    error_code = "INGESTION_ALREADY_RUNNING"
+
+
 class IngestionIdempotencyConflictError(HarborConflictError):
     error_code = "INGESTION_IDEMPOTENCY_CONFLICT"
 

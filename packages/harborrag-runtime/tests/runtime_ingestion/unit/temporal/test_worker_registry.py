@@ -77,6 +77,8 @@ def test_worker_registration_inventory_is_complete() -> None:
         "finalize_retry_failures",
         "finalize_source_ingestion",
         "parse_and_normalize",
+        "pause_source_ingestion",
+        "pause_workflow_execution",
         "persist_canonical",
         "prepare_retry_failures",
         "publish_version",
@@ -88,7 +90,9 @@ def test_worker_registration_inventory_is_complete() -> None:
         "repair_reindex_relations",
         "retry_document_release",
         "sync_content_units",
+        "unpause_workflow_execution",
         "verify_projections",
         "write_graph_projection",
         "write_vector_projection",
+        "resume_source_ingestion",
     }
