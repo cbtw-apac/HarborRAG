@@ -37,5 +37,5 @@ class ChunkExtractionRunner:
                 profile=job.policy.profile,
                 context=context,
             )
-        merged = merge_window_outputs(value, windows, outputs)
+        merged = merge_window_outputs(value, windows, outputs, profile=job.policy.profile)
         return await self.artifacts.freeze(job.policy.profile, value, merged, context=context)

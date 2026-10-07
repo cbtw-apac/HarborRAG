@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from pydantic import Field
 
 from harborrag_core.base import StrictModel
 
 from .extraction import (
+    MAX_OUTPUT_ASSERTIONS,
+    MAX_OUTPUT_ENTITIES,
+    MAX_OUTPUT_EVIDENCE,
+    MAX_OUTPUT_GAPS,
+    MAX_OUTPUT_TEXT_CHARS,
+    MAX_OUTPUT_TITLE_CHARS,
     ChunkExtractionInput,
     EvidenceSpan,
     ExtractedAssertion,
@@ -19,6 +25,7 @@ from .extraction import (
     ExtractionProfile,
     digest,
 )
+from .text_policy import CHUNK_DESCRIPTION_MAX_WORDS
 
 
 class ExtractionWindow(StrictModel):
@@ -91,70 +98,178 @@ def _shift(span: EvidenceSpan, offset: int) -> EvidenceSpan:
     return span.model_copy(update={"start": span.start + offset, "end": span.end + offset})
 
 
+_TEXT_LIMITS = {
+    "title": MAX_OUTPUT_TITLE_CHARS,
+    "description": MAX_OUTPUT_TEXT_CHARS,
+    "retrieval_context": MAX_OUTPUT_TEXT_CHARS,
+}
+
+
 def merge_window_outputs(
     original: ChunkExtractionInput,
     windows: tuple[ExtractionWindow, ...],
     outputs: Mapping[str, ExtractionOutput],
+    *,
+    profile: ExtractionProfile | None = None,
 ) -> ExtractionOutput:
-    """Merge complete frozen window outputs; model IDs cannot collide across windows."""
+    """Merge complete frozen window outputs into one output that always validates.
+
+    Each window satisfies the single-output caps; their union need not -- eight
+    windows of 40 entities is 320 against a cap of 100. Entities are deduplicated
+    by name, type and external id, assertions by their semantic key, and every
+    collection is then cut to its cap in window order, so the same windows always
+    merge to the same output instead of raising. ``profile`` supplies the schema
+    v4 description word budget, which a plain join of window descriptions breaks.
+    """
+
     _validate_coverage(original, windows, outputs)
     if len(windows) == 1:
         result = outputs[windows[0].window_id]
         result.require_complete()
         result.validate_evidence(original)
         return result
-    entities: list[ExtractedEntity] = []
-    assertions: list[ExtractedAssertion] = []
-    metadata: dict[str, object] = {}
+    merger = _WindowMerger()
     for window in windows:
         output = outputs[window.window_id]
         output.require_complete()
         output.validate_evidence(window.input)
-        ids = {item.local_id: digest([window.window_id, item.local_id]) for item in output.entities}
-        entities.extend(
-            item.model_copy(
-                update={"local_id": ids[item.local_id], "span": _shift(item.span, window.start)}
-            )
-            for item in output.entities
-        )
-        assertions.extend(
-            item.model_copy(
-                update={
-                    "local_id": digest([window.window_id, item.local_id]),
-                    "subject_id": ids[item.subject_id],
-                    "object_id": ids[item.object_id],
-                    "span": _shift(item.span, window.start),
-                }
-            )
-            for item in output.assertions
-        )
-    for name in ("title", "description", "retrieval_context"):
-        # A title identifies the chunk; descriptions/context account for all windows.
-        selected = windows[:1] if name == "title" else windows
-        metadata[name] = "\n".join(
-            dict.fromkeys(
-                getattr(outputs[w.window_id], name)
-                for w in selected
-                if getattr(outputs[w.window_id], name)
-            )
-        )
-        metadata[name + "_evidence"] = tuple(
-            _shift(span, w.start)
-            for w in selected
-            for span in getattr(outputs[w.window_id], name + "_evidence")
-        )
+        merger.add(window, output)
+    description_words = (
+        CHUNK_DESCRIPTION_MAX_WORDS
+        if profile is not None and profile.schema_version == "4"
+        else None
+    )
     result = ExtractionOutput.model_validate(
         {
-            "entities": entities,
-            "assertions": assertions,
-            **metadata,
+            **merger.graph(),
+            **_merged_text(windows, outputs, description_words=description_words),
             "ontology_gaps": tuple(
                 dict.fromkeys(gap for w in windows for gap in outputs[w.window_id].ontology_gaps)
-            ),
+            )[:MAX_OUTPUT_GAPS],
         }
     )
     result.validate_evidence(original)
     return result
+
+
+@dataclass
+class _WindowMerger:
+    """Accumulate window entities and assertions, deduplicated, in window order."""
+
+    entities: dict[tuple[str, str, str | None], ExtractedEntity] = field(default_factory=dict)
+    assertions: dict[tuple[object, ...], ExtractedAssertion] = field(default_factory=dict)
+
+    def add(self, window: ExtractionWindow, output: ExtractionOutput) -> None:
+        ids: dict[str, str] = {}
+        for entity in output.entities:
+            key = (entity.name.strip().casefold(), entity.entity_type, entity.external_id)
+            kept = self.entities.setdefault(key, _shifted_entity(window, entity))
+            ids[entity.local_id] = kept.local_id
+        for assertion in output.assertions:
+            shifted = _shifted_assertion(window, assertion, ids)
+            if (
+                shifted.subject_id == shifted.object_id
+                and assertion.subject_id != assertion.object_id
+            ):
+                continue  # two distinct mentions collapsed into one entity
+            self.assertions.setdefault(_assertion_key(shifted), shifted)
+
+    def graph(self) -> dict[str, object]:
+        entities = tuple(self.entities.values())[:MAX_OUTPUT_ENTITIES]
+        kept = {item.local_id for item in entities}
+        assertions = tuple(
+            item
+            for item in self.assertions.values()
+            if item.subject_id in kept and item.object_id in kept
+        )[:MAX_OUTPUT_ASSERTIONS]
+        return {"entities": entities, "assertions": assertions}
+
+
+def _shifted_entity(window: ExtractionWindow, item: ExtractedEntity) -> ExtractedEntity:
+    return item.model_copy(
+        update={
+            "local_id": digest([window.window_id, item.local_id]),
+            "span": _shift(item.span, window.start),
+            "description_evidence": tuple(
+                _shift(span, window.start) for span in item.description_evidence
+            ),
+        }
+    )
+
+
+def _shifted_assertion(
+    window: ExtractionWindow, item: ExtractedAssertion, ids: Mapping[str, str]
+) -> ExtractedAssertion:
+    return item.model_copy(
+        update={
+            "local_id": digest([window.window_id, item.local_id]),
+            "subject_id": ids[item.subject_id],
+            "object_id": ids[item.object_id],
+            "span": _shift(item.span, window.start),
+        }
+    )
+
+
+def _assertion_key(item: ExtractedAssertion) -> tuple[object, ...]:
+    return (
+        item.subject_id,
+        item.predicate,
+        item.object_id,
+        item.polarity,
+        item.modality,
+        item.time_qualifier,
+        item.statement_text.strip().casefold(),
+    )
+
+
+def _merged_text(
+    windows: tuple[ExtractionWindow, ...],
+    outputs: Mapping[str, ExtractionOutput],
+    *,
+    description_words: int | None,
+) -> dict[str, object]:
+    metadata: dict[str, object] = {}
+    for name, max_chars in _TEXT_LIMITS.items():
+        # A title identifies the chunk; descriptions/context account for windows in order.
+        selected = windows[:1] if name == "title" else windows
+        text, evidence = _bounded_text(
+            tuple((window, outputs[window.window_id]) for window in selected),
+            name,
+            max_chars=max_chars,
+            max_words=description_words if name == "description" else None,
+        )
+        metadata[name] = text
+        metadata[name + "_evidence"] = evidence
+    return metadata
+
+
+def _bounded_text(
+    window_outputs: tuple[tuple[ExtractionWindow, ExtractionOutput], ...],
+    name: str,
+    *,
+    max_chars: int,
+    max_words: int | None,
+) -> tuple[str, tuple[EvidenceSpan, ...]]:
+    """Join window texts in order while they fit; only included windows add evidence.
+
+    The first non-empty text is always kept -- it already passed its own window's
+    validation -- so a generated text never loses the grounding spans it requires.
+    """
+
+    parts: list[str] = []
+    evidence: list[EvidenceSpan] = []
+    for window, output in window_outputs:
+        text = getattr(output, name)
+        if not text or text in parts:
+            continue
+        joined = "\n".join([*parts, text])
+        if parts and (
+            len(joined) > max_chars or (max_words is not None and len(joined.split()) > max_words)
+        ):
+            break
+        parts.append(text)
+        evidence.extend(_shift(span, window.start) for span in getattr(output, name + "_evidence"))
+    return "\n".join(parts), tuple(evidence[:MAX_OUTPUT_EVIDENCE])
 
 
 def _validate_coverage(

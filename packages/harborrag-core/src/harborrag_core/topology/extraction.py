@@ -158,18 +158,32 @@ def _validate_instants(bounds: list[str]) -> None:
         raise ValueError("valid_from cannot follow valid_to")
 
 
+# Single-output caps. Named so the window merge can cut to exactly these rather
+# than re-validate a union that may exceed them.
+MAX_OUTPUT_ENTITIES = 100
+MAX_OUTPUT_ASSERTIONS = 200
+MAX_OUTPUT_TITLE_CHARS = 256
+MAX_OUTPUT_TEXT_CHARS = 2000
+MAX_OUTPUT_EVIDENCE = 32
+MAX_OUTPUT_GAPS = 32
+
+
 class ExtractionOutput(StrictModel):
-    entities: tuple[ExtractedEntity, ...] = Field(default=(), max_length=100)
-    assertions: tuple[ExtractedAssertion, ...] = Field(default=(), max_length=200)
-    title: str = Field(default="", max_length=256)
-    description: str = Field(default="", max_length=2000)
-    retrieval_context: str = Field(default="", max_length=2000)
-    title_evidence: tuple[EvidenceSpan, ...] = Field(default=(), max_length=32)
-    description_evidence: tuple[EvidenceSpan, ...] = Field(default=(), max_length=32)
-    retrieval_context_evidence: tuple[EvidenceSpan, ...] = Field(default=(), max_length=32)
+    entities: tuple[ExtractedEntity, ...] = Field(default=(), max_length=MAX_OUTPUT_ENTITIES)
+    assertions: tuple[ExtractedAssertion, ...] = Field(default=(), max_length=MAX_OUTPUT_ASSERTIONS)
+    title: str = Field(default="", max_length=MAX_OUTPUT_TITLE_CHARS)
+    description: str = Field(default="", max_length=MAX_OUTPUT_TEXT_CHARS)
+    retrieval_context: str = Field(default="", max_length=MAX_OUTPUT_TEXT_CHARS)
+    title_evidence: tuple[EvidenceSpan, ...] = Field(default=(), max_length=MAX_OUTPUT_EVIDENCE)
+    description_evidence: tuple[EvidenceSpan, ...] = Field(
+        default=(), max_length=MAX_OUTPUT_EVIDENCE
+    )
+    retrieval_context_evidence: tuple[EvidenceSpan, ...] = Field(
+        default=(), max_length=MAX_OUTPUT_EVIDENCE
+    )
     complete: bool = True
     overflow: bool = False
-    ontology_gaps: tuple[str, ...] = Field(default=(), max_length=32)
+    ontology_gaps: tuple[str, ...] = Field(default=(), max_length=MAX_OUTPUT_GAPS)
     validation_repairs: int = Field(default=0, ge=0, le=8)
     rejected_output_count: int = Field(default=0, ge=0, le=8)
     rejection_reasons: tuple[str, ...] = Field(default=(), max_length=32)

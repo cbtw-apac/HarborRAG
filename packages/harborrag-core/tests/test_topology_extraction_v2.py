@@ -179,8 +179,10 @@ def test_windows_cover_unicode_once_preserve_identity_and_map_evidence():
     outputs = {window.window_id: output(window.input.content) for window in windows}
     merged = merge_window_outputs(original, windows, outputs)
     merged.validate_evidence(original)
-    assert len({entity.local_id for entity in merged.entities}) == 6
-    assert {claim.span.start for claim in merged.assertions} == {window.start for window in windows}
+    # The same two entities in every window are the same two entities.
+    assert [entity.name for entity in merged.entities] == ["A", "B"]
+    # The same claim three times is one claim, evidenced by its first window.
+    assert [claim.span.start for claim in merged.assertions] == [0]
     assert all(
         claim.polarity == "negative" and claim.qualifiers == ("unless approved",)
         for claim in merged.assertions
@@ -246,3 +248,101 @@ def test_semantic_v4_rejects_scalar_or_sentence_entities_and_long_prose():
         )
     with pytest.raises(ValueError, match="50-word"):
         value.model_copy(update={"description": "word " * 51}).validate_profile(semantic_v4)
+
+
+def _wide_output(content: str, window_index: int, *, entities: int, assertions: int):
+    span = EvidenceSpan(start=0, end=1, quote=content[0])
+    return ExtractionOutput(
+        title="Services",
+        description=f"Window {window_index} services",
+        retrieval_context="Service details",
+        title_evidence=(span,),
+        description_evidence=(span,),
+        retrieval_context_evidence=(span,),
+        entities=tuple(
+            ExtractedEntity(
+                local_id=f"e{index}",
+                name=f"Entity {window_index}-{index}",
+                entity_type="service",
+                span=span,
+            )
+            for index in range(entities)
+        ),
+        assertions=tuple(
+            ExtractedAssertion(
+                local_id=f"a{index}",
+                subject_id=f"e{index % entities}",
+                object_id=f"e{(index + 1) % entities}",
+                predicate="depends_on",
+                span=span,
+                statement_text=f"Statement {window_index}-{index}.",
+            )
+            for index in range(assertions)
+        ),
+    )
+
+
+def test_merging_windows_caps_the_union_instead_of_failing_validation():
+    original = ChunkExtractionInput(chunk_id="wide", content="a" * 300)
+    windows = extraction_windows(original, profile())
+    assert len(windows) == 3
+    outputs = {
+        window.window_id: _wide_output(window.input.content, index, entities=40, assertions=90)
+        for index, window in enumerate(windows)
+    }
+
+    merged = merge_window_outputs(original, windows, outputs)
+
+    assert len(merged.entities) == 100
+    kept = {entity.local_id for entity in merged.entities}
+    assert all(item.subject_id in kept and item.object_id in kept for item in merged.assertions)
+    assert len(merged.assertions) == 200
+    merged.validate_evidence(original)
+    assert merge_window_outputs(original, windows, outputs) == merged, "deterministic"
+
+
+def test_merging_windows_respects_the_v4_description_word_budget():
+    original = ChunkExtractionInput(chunk_id="long", content="a" * 200)
+    windows = extraction_windows(original, profile())
+    span = EvidenceSpan(start=0, end=1, quote="a")
+    outputs = {
+        window.window_id: ExtractionOutput(
+            title="Services",
+            description=f"window {index} " + "word " * 38,
+            title_evidence=(span,),
+            description_evidence=(span,),
+        )
+        for index, window in enumerate(windows)
+    }
+
+    merged = merge_window_outputs(original, windows, outputs, profile=profile(schema_version="4"))
+
+    assert len(merged.description.split()) <= 50
+    assert merged.description.startswith("window 0 ")
+    assert merged.description_evidence == (span,), "only included windows ground the text"
+
+
+def test_merged_entity_description_evidence_points_into_the_original_chunk():
+    original = ChunkExtractionInput(chunk_id="described", content="a" * 100 + "b" * 100)
+    windows = extraction_windows(original, profile())
+    outputs = {}
+    for window in windows:
+        quote = window.input.content[0]
+        span = EvidenceSpan(start=0, end=1, quote=quote)
+        outputs[window.window_id] = ExtractionOutput(
+            entities=(
+                ExtractedEntity(
+                    local_id="e",
+                    name=f"Entity {quote}",
+                    entity_type="service",
+                    description=f"Described by {quote}.",
+                    description_evidence=(span,),
+                    span=span,
+                ),
+            ),
+        )
+
+    merged = merge_window_outputs(original, windows, outputs)
+
+    merged.validate_evidence(original)
+    assert [entity.description_evidence[0].start for entity in merged.entities] == [0, 100]
