@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
     reject_runtime_fields,
 )
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorIndexRecord
 from harborrag_engine.ingestion import EVIDENCE_INDEX
@@ -182,6 +183,7 @@ async def _graph_observations(
                     max_depth=3,
                     max_nodes=200,
                     direction=direction,
+                    access_scope=GraphAccessScope.allow_all(),
                     context=context,
                 )
                 for direction in ("both", "outgoing", "incoming")

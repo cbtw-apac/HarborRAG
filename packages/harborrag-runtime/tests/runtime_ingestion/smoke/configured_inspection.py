@@ -16,6 +16,7 @@ from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
 )
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_engine.ingestion import EVIDENCE_INDEX
 from harborrag_engine.retrieval import RetrievalLane
@@ -128,6 +129,7 @@ async def _inspect_graph(
         max_depth=3,
         max_nodes=300,
         direction="both",
+        access_scope=GraphAccessScope.allow_all(),
         context=context,
     )
     if traversal.truncated:

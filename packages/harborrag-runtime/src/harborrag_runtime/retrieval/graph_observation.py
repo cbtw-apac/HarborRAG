@@ -11,6 +11,8 @@ from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.ingestion import GraphNodeRecord, KnowledgeGraphTraversal, KnowledgeNodeKind
 from harborrag_core.retrieval import compact_node, compact_relation
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.retrieval import graph_access_scope
+from harborrag_engine.retrieval.graph_visibility import GraphVisibilityAuthorizer
 
 from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
@@ -61,8 +63,10 @@ class GraphObserver:
     def __init__(
         self,
         graph: KnowledgeGraphReader,
+        authorizer: GraphVisibilityAuthorizer | None = None,
     ) -> None:
         self._graph = graph
+        self._authorizer = authorizer
 
     async def observe(
         self,
@@ -110,6 +114,12 @@ class GraphObserver:
         )[:_MEMORY_SEED_LIMIT]
         if not results and not extra:
             return GraphObservation()
+        # Resolved once per request. A reader who can see nothing is not walked at
+        # all, and an authorizer failure reaches ``observe``'s handler and degrades
+        # to an empty observation -- never to an unscoped walk.
+        scope = await graph_access_scope(self._authorizer, context)
+        if not scope.tenant_visible:
+            return GraphObservation()
         walks = await asyncio.gather(
             *(
                 self._graph.traverse(
@@ -117,6 +127,7 @@ class GraphObserver:
                     max_depth=_GRAPH_OBSERVE_DEPTH,
                     max_nodes=_GRAPH_OBSERVE_MAX_NODES,
                     direction=_GRAPH_OBSERVE_DIRECTION,
+                    access_scope=scope,
                     context=context,
                 )
                 for node_key in (*results, *extra)

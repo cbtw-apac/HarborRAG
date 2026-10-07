@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
     access_parameters,
     access_predicate,
 )
 from harborrag_core.ingestion import GraphOwnershipScope
 from harborrag_core.retrieval import GraphAccessScope, GraphSubgraphQuery
+from harborrag_core.storage import StorageOperationContext
+
+from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
+from .test_knowledge import repository
 
 
 def test_a_missing_scope_denies_every_record() -> None:
@@ -50,3 +56,27 @@ def test_tenant_owned_records_compare_against_the_stored_enum_value() -> None:
         access_parameters(GraphAccessScope(document_ids=("d1",)))["tenant_ownership_scope"]
         == "TENANT"
     )
+
+
+@pytest.mark.asyncio
+async def test_traverse_applies_the_access_scope_to_every_node_and_relation() -> None:
+    client = FakeFalkorDBClient()
+    client.read_results = [
+        FakeQueryResult([HeaderItem("path_nodes"), HeaderItem("path_relations")], [])
+    ]
+
+    await repository(client).traverse(
+        "chunk-1",
+        max_depth=2,
+        max_nodes=10,
+        direction="both",
+        access_scope=GraphAccessScope(document_ids=("d1",)),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    [(statement, parameters)] = client.read_calls
+    assert access_predicate("node") in statement
+    assert access_predicate("relation") in statement
+    assert parameters["authorized_document_ids"] == ["d1"]
+    assert parameters["access_unrestricted"] is False
+    assert parameters["tenant_ownership_scope"] == "TENANT"

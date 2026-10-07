@@ -20,6 +20,7 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
 )
 from harborrag_core.ports.indexing import KnowledgeGraphRepositoryPort
+from harborrag_core.retrieval import GraphAccessScope
 from harborrag_core.schemas.storage import StorageOperationContext
 
 
@@ -91,13 +92,14 @@ class FakeKnowledgeGraphRepository:
             missing_relation_ids=missing_relations,
         )
 
-    async def traverse(
+    async def traverse(  # noqa: PLR0913 - mirrors the scoped traversal port
         self,
         start_node_key: str,
         *,
         max_depth: int,
         max_nodes: int,
         direction: str,
+        access_scope: GraphAccessScope,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal:
         del max_depth, direction, context
