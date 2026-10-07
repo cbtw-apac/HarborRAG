@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -15,6 +16,7 @@ from temporalio.client import (
     ScheduleDescription,
     ScheduleHandle,
     ScheduleIntervalSpec,
+    ScheduleListDescription,
     ScheduleOverlapPolicy,
     SchedulePolicy,
     ScheduleSpec,
@@ -128,9 +130,7 @@ class IngestionScheduleClient:
             source,
             id=f"harborrag-scheduled-source:{schedule_id}",
             task_queue=self._config.task_queues.discovery,
-            execution_timeout=timedelta(
-                seconds=self._config.workflow_execution_timeout_seconds
-            ),
+            execution_timeout=timedelta(seconds=self._config.workflow_execution_timeout_seconds),
             task_timeout=timedelta(seconds=self._config.workflow_task_timeout_seconds),
         )
         return Schedule(
@@ -165,7 +165,9 @@ class TemporalScheduleBackend:
         self._client = client
         self._config = config
 
-    async def create(self, definition: ScheduleDefinition, source: PreparedSourceSubmission) -> None:
+    async def create(
+        self, definition: ScheduleDefinition, source: PreparedSourceSubmission
+    ) -> None:
         schedule = replace(
             self._schedule(definition, source),
             state=ScheduleState(note=definition.note, paused=definition.paused),
@@ -191,7 +193,9 @@ class TemporalScheduleBackend:
                 f"Could not create schedule {definition.schedule_id!r}"
             ) from error
 
-    async def update(self, definition: ScheduleDefinition, source: PreparedSourceSubmission) -> None:
+    async def update(
+        self, definition: ScheduleDefinition, source: PreparedSourceSubmission
+    ) -> None:
         schedule = self._schedule(definition, source)
 
         # Pause state and note are left as they are; only pause/unpause change them.
@@ -205,7 +209,9 @@ class TemporalScheduleBackend:
                 )
             )
 
-        await self._operate(definition.schedule_id, "update", self._handle(definition.schedule_id).update(updater))
+        await self._operate(
+            definition.schedule_id, "update", self._handle(definition.schedule_id).update(updater)
+        )
 
     async def describe(self, schedule_id: str) -> ScheduleView:
         description = await self._operate(
@@ -222,13 +228,20 @@ class TemporalScheduleBackend:
         except RPCError as error:
             raise WorkflowOperationError("Could not list schedules") from error
         views: list[ScheduleView] = []
-        for entry in entries:
+
+        async def describe_entry(entry: ScheduleListDescription) -> ScheduleView | None:
             if _MEMO_KEY not in await entry.memo():
-                continue
+                return None
             try:
-                views.append(await self.describe(entry.id))
+                return await self.describe(entry.id)
             except ScheduleNotFoundError:
-                continue
+                return None
+
+        for offset in range(0, len(entries), 10):
+            batch = await asyncio.gather(
+                *(describe_entry(entry) for entry in entries[offset : offset + 10])
+            )
+            views.extend(view for view in batch if view is not None)
         return views
 
     async def pause(self, schedule_id: str, *, note: str | None) -> None:
@@ -253,8 +266,12 @@ class TemporalScheduleBackend:
     def _handle(self, schedule_id: str) -> ScheduleHandle:
         return self._client.get_schedule_handle(schedule_id)
 
-    def _schedule(self, definition: ScheduleDefinition, source: PreparedSourceSubmission) -> Schedule:
-        request = replace(to_temporal_source(source), workflow_options=self._config.workflow_options())
+    def _schedule(
+        self, definition: ScheduleDefinition, source: PreparedSourceSubmission
+    ) -> Schedule:
+        request = replace(
+            to_temporal_source(source), workflow_options=self._config.workflow_options()
+        )
         action = ScheduleActionStartWorkflow(
             workflow_policy(definition.workflow).temporal_workflow,
             ScheduledSourceIngestionInput(schedule_id=definition.schedule_id, source=request),
@@ -269,11 +286,7 @@ class TemporalScheduleBackend:
             spec=ScheduleSpec(
                 cron_expressions=[definition.cron] if definition.cron is not None else [],
                 intervals=(
-                    [
-                        ScheduleIntervalSpec(
-                            every=timedelta(seconds=definition.interval_seconds)
-                        )
-                    ]
+                    [ScheduleIntervalSpec(every=timedelta(seconds=definition.interval_seconds))]
                     if definition.interval_seconds is not None
                     else []
                 ),
@@ -346,6 +359,3 @@ async def _view(description: ScheduleDescription) -> ScheduleView | None:
         created_at=info.created_at,
         updated_at=info.last_updated_at,
     )
-
-
-__all__ = ["IngestionScheduleClient", "TemporalScheduleBackend"]

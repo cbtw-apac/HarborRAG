@@ -32,6 +32,7 @@ from .maintenance_schemas import (
     ReindexInput,
     ReindexResult,
 )
+from .schedules import IngestionScheduleClient
 from .schemas import (
     RetryFailuresInput,
     RetryFailuresResult,
@@ -39,7 +40,6 @@ from .schemas import (
     SourceIngestionResult,
     SourceIngestionStatus,
 )
-from .schedules import IngestionScheduleClient
 
 ResultT = TypeVar("ResultT")
 
@@ -112,7 +112,9 @@ class IngestionTemporalClient:
     async def pause_ingestion_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
         await self._schedules.pause(schedule_id, note=note)
 
-    async def unpause_ingestion_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
+    async def unpause_ingestion_schedule(
+        self, schedule_id: str, *, note: str | None = None
+    ) -> None:
         await self._schedules.unpause(schedule_id, note=note)
 
     async def trigger_ingestion_schedule(self, schedule_id: str) -> None:

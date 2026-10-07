@@ -20,6 +20,8 @@ from .policies import (
 )
 from .schemas import (
     DocumentDispatchSummary,
+    ScheduledRunMetricInput,
+    ScheduledSourceIngestionInput,
     SourceBatchInput,
     SourceCancellationInput,
     SourceContinuation,
@@ -29,8 +31,6 @@ from .schemas import (
     SourceIngestionInput,
     SourceIngestionResult,
     SourceIngestionStatus,
-    ScheduledSourceIngestionInput,
-    ScheduledRunMetricInput,
     SourcePauseInput,
     SourceResumeInput,
     WorkflowExecutionControlInput,
@@ -88,8 +88,7 @@ class ScheduledSourceIngestionWorkflow:
             result = cast(SourceIngestionResult, await handle)
         except Exception as error:
             workflow.logger.error(
-                "Scheduled ingestion failed schedule_id=%s workflow_id=%s "
-                "run_id=%s error_type=%s",
+                "Scheduled ingestion failed schedule_id=%s workflow_id=%s run_id=%s error_type=%s",
                 request.schedule_id,
                 info.workflow_id,
                 info.run_id,

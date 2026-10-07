@@ -31,12 +31,8 @@ WORKFLOWS = (
 
 
 def test_scheduled_ingestion_task_ids_are_unique_per_firing() -> None:
-    first = _scheduled_task_id(
-        "schedule-source-1", "harborrag-scheduled:2026-09-28T00:00Z"
-    )
-    second = _scheduled_task_id(
-        "schedule-source-1", "harborrag-scheduled:2026-09-29T00:00Z"
-    )
+    first = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-28T00:00Z")
+    second = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-29T00:00Z")
 
     assert first != second
     assert len(first) <= 128

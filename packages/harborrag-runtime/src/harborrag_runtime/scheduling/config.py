@@ -109,9 +109,7 @@ def _definition(raw: object, index: int) -> ScheduleDefinition:
             schedule_id=_string(entry["id"], f"{label}.id"),
             workflow=parse_workflow(_string(entry["workflow"], f"{label}.workflow")),
             cron=(
-                _string(entry["cron"], f"{label}.cron")
-                if entry.get("cron") is not None
-                else None
+                _string(entry["cron"], f"{label}.cron") if entry.get("cron") is not None else None
             ),
             interval_seconds=_optional_integer(entry, "interval_seconds", label),
             timezone=_string(entry.get("timezone", "UTC"), f"{label}.timezone"),
@@ -140,9 +138,7 @@ def _definition(raw: object, index: int) -> ScheduleDefinition:
             owner=ScheduleOwner.CONFIG,
             target=SourceScheduleTarget(
                 tenant_id=_string(source.get("tenant", "DEFAULT"), f"{label}.source.tenant"),
-                connection_id=_string(
-                    source.get("connection_id"), f"{label}.source.connection_id"
-                ),
+                connection_id=_string(source.get("connection_id"), f"{label}.source.connection_id"),
                 source_scope_id=require_optional_nonblank_string(
                     source.get("source_scope_id"),
                     label=f"{label}.source.source_scope_id",
@@ -187,6 +183,3 @@ def _optional_integer(values: Mapping[str, Any], name: str, label: str) -> int |
         label=f"{label}.{name}",
         error_type=ScheduleConfigurationError,
     )
-
-
-__all__ = ["SCHEDULE_CONFIG_VERSION", "ScheduleCatalog", "load_schedule_catalog"]

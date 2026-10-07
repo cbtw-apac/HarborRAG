@@ -29,7 +29,7 @@ replays from the earliest reusable immutable artifact.
 ## Scheduled ingestion
 
 Schedules are managed through Temporal, with config and API-owned modes. See
-the [Scheduled Ingestion runbook](../../docs/users/scheduled-ingestion.md) for
+the [Scheduled Ingestion runbook](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md) for
 configuration, API operations, incident pause/resume, backfill, and monitoring.
 
 Every one-shot command accepts `--json` after its action and returns

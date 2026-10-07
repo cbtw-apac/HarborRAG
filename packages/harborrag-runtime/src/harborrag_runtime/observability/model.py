@@ -296,9 +296,7 @@ class IngestionTelemetry:
             self._schedule_skipped_overlap.remove(schedule_id)
         for schedule_id, (paused, expected_paused, skipped_overlap) in states.items():
             self._schedule_paused.labels(schedule_id=schedule_id).set(int(paused))
-            self._schedule_expected_paused.labels(schedule_id=schedule_id).set(
-                int(expected_paused)
-            )
+            self._schedule_expected_paused.labels(schedule_id=schedule_id).set(int(expected_paused))
             self._schedule_skipped_overlap.labels(schedule_id=schedule_id).set(
                 max(0, skipped_overlap)
             )

@@ -103,10 +103,13 @@ async def update_schedule(
     service: ScheduleServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> ScheduleResponse:
+    await _authorize_existing(service, schedule_id, principal)
     authorize_tenant(principal, request.source.tenant)
     if request.schedule_id != schedule_id:
         request = request.model_copy(update={"schedule_id": schedule_id})
-    result = await service.update_schedule(_command(request, request.source, schedule_id=schedule_id))
+    result = await service.update_schedule(
+        _command(request, request.source, schedule_id=schedule_id)
+    )
     return ScheduleResponse.model_validate(result)
 
 

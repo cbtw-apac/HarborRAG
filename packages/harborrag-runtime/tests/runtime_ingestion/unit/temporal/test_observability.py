@@ -99,12 +99,23 @@ def test_schedule_metrics_record_runs_latency_and_pause_state() -> None:
 
     output = generate_latest(telemetry.registry).decode()
 
-    assert 'harborrag_temporal_scheduled_runs_total{outcome="started",schedule_id="daily-sync"} 1.0' in output
-    assert 'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 1.0' in output
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="started",schedule_id="daily-sync"} 1.0'
+        in output
+    )
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 1.0'
+        in output
+    )
     assert 'harborrag_temporal_schedule_paused{schedule_id="daily-sync"} 1.0' in output
     assert 'harborrag_temporal_schedule_expected_paused{schedule_id="daily-sync"} 0.0' in output
-    assert 'harborrag_temporal_schedule_actions_skipped_overlap{schedule_id="daily-sync"} 3.0' in output
-    assert 'harborrag_temporal_schedule_to_start_seconds_count{schedule_id="daily-sync"} 1.0' in output
+    assert (
+        'harborrag_temporal_schedule_actions_skipped_overlap{schedule_id="daily-sync"} 3.0'
+        in output
+    )
+    assert (
+        'harborrag_temporal_schedule_to_start_seconds_count{schedule_id="daily-sync"} 1.0' in output
+    )
 
 
 def test_stage_observation_preserves_failures_and_marks_span() -> None:

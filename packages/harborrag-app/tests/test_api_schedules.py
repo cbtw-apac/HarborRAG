@@ -11,7 +11,13 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.errors import (
+    ScheduleManagedByConfigError,
+    ScheduleNotFoundAppError,
+)
 from harborrag_app.workflow_control.scheduling.service import ScheduleApplicationService
 
 
@@ -40,11 +46,15 @@ class _ScheduleService:
         }
         self.actions: list[tuple[str, str]] = []
         self.commands: list[object] = []
+        self.update_error: Exception | None = None
+        self.get_error: Exception | None = None
 
     async def create_schedule(self, command):
         return self.schedule
 
     async def update_schedule(self, command):
+        if self.update_error is not None:
+            raise self.update_error
         self.commands.append(command)
         return self.schedule
 
@@ -52,6 +62,8 @@ class _ScheduleService:
         return {"items": [self.schedule]}
 
     async def get_schedule(self, schedule_id):
+        if self.get_error is not None:
+            raise self.get_error
         return self.schedule
 
     async def pause_schedule(self, schedule_id, *, note):
@@ -109,7 +121,74 @@ def test_schedule_controls_are_exposed(client: TestClient, service: _ScheduleSer
     assert service.actions == [("artifact-update", "pause")]
 
 
-def test_schedule_unpause_route_uses_temporal_term(client: TestClient, service: _ScheduleService) -> None:
+@pytest.mark.parametrize("operation", ["create", "pause", "patch"])
+def test_schedule_rejects_cross_tenant_access(
+    client: TestClient, service: _ScheduleService, operation: str
+) -> None:
+    client.app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="restricted", role="editor", tenant_ids=frozenset({"ACME"})
+    )
+    body = {
+        "schedule_id": "artifact-update",
+        "workflow": "source_ingestion",
+        "cron": "0 1 * * *",
+        "source": {"connection_id": "workspace"},
+    }
+    if operation == "create":
+        response = client.post("/v1/schedules", json=body)
+    elif operation == "pause":
+        response = client.post("/v1/schedules/artifact-update/pause", json={})
+    else:
+        body["source"]["tenant"] = "ACME"
+        response = client.patch("/v1/schedules/artifact-update", json=body)
+
+    assert response.status_code == 403
+    assert service.commands == []
+    assert service.actions == []
+
+
+def test_schedule_reader_cannot_pause(client: TestClient, service: _ScheduleService) -> None:
+    client.app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="reader", role="reader", tenant_ids=frozenset({"DEFAULT"})
+    )
+
+    response = client.post("/v1/schedules/artifact-update/pause", json={})
+
+    assert response.status_code == 403
+    assert service.actions == []
+
+
+def test_config_owned_schedule_update_returns_conflict(
+    client: TestClient, service: _ScheduleService
+) -> None:
+    service.update_error = ScheduleManagedByConfigError("Change the YAML configuration instead")
+
+    response = client.patch(
+        "/v1/schedules/artifact-update",
+        json={
+            "schedule_id": "artifact-update",
+            "workflow": "source_ingestion",
+            "cron": "0 2 * * *",
+            "source": {"connection_id": "workspace"},
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "SCHEDULE_MANAGED_BY_CONFIG"
+
+
+def test_missing_schedule_returns_not_found(client: TestClient, service: _ScheduleService) -> None:
+    service.get_error = ScheduleNotFoundAppError("Schedule was not found")
+
+    response = client.get("/v1/schedules/missing")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SCHEDULE_NOT_FOUND"
+
+
+def test_schedule_unpause_route_uses_temporal_term(
+    client: TestClient, service: _ScheduleService
+) -> None:
     response = client.post(
         "/v1/schedules/artifact-update/unpause",
         json={"note": "maintenance complete"},

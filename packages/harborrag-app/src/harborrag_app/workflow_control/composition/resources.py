@@ -112,9 +112,7 @@ class AppResources:
                 self._retrieval_runtime.aclose if self._retrieval_runtime else None,
                 self._task_registry.close if self._task_registry else None,
                 self._projection_admin.close if self._projection_admin else None,
-                getattr(self._schedule_backend, "aclose", None)
-                if self._schedule_backend
-                else None,
+                getattr(self._schedule_backend, "aclose", None) if self._schedule_backend else None,
             )
             if resource is not None
         ]

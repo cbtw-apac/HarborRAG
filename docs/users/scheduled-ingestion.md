@@ -114,9 +114,6 @@ Available operations:
   timezone-aware `start_at` and `end_at` range.
 - `DELETE /v1/schedules/{schedule_id}` deletes an API-owned schedule.
 
-Backfill is implemented. Confirm the desired backfill behavior and operational
-limits with the product owner before using it for large historical ranges.
-
 ## Monitor and Troubleshoot
 
 Scheduled runs execute the `harborrag.scheduled_source_ingestion` wrapper, which

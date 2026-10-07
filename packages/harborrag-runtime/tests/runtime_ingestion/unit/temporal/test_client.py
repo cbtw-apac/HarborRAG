@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -25,6 +26,14 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
+from harborrag_runtime.scheduling.errors import ScheduleNotFoundError
+from harborrag_runtime.scheduling.models import (
+    ScheduleDefinition,
+    ScheduledWorkflow,
+    ScheduleOverlap,
+    ScheduleOwner,
+    SourceScheduleTarget,
+)
 from harborrag_runtime.temporal import client as client_module
 from harborrag_runtime.temporal import connection as connection_module
 from harborrag_runtime.temporal import schedules as schedules_module
@@ -44,13 +53,6 @@ from harborrag_runtime.temporal_models import (
     RetryPolicyConfig,
     TaskQueueConfig,
 )
-from harborrag_runtime.scheduling.models import (
-    ScheduleDefinition,
-    ScheduleOverlap,
-    ScheduleOwner,
-    ScheduledWorkflow,
-    SourceScheduleTarget,
-)
 
 
 def _processing() -> ProcessingProfileInput:
@@ -63,6 +65,47 @@ def _processing() -> ProcessingProfileInput:
         graph_projection_version="graph-v1",
         vector_projection_schema="vector-v2",
     )
+
+
+@pytest.mark.asyncio
+async def test_schedule_list_describes_concurrently_with_a_bound(monkeypatch) -> None:
+    entries = [
+        SimpleNamespace(
+            id=str(index),
+            memo=AsyncMock(return_value={"harborrag_schedule": {}} if index != 0 else {}),
+        )
+        for index in range(25)
+    ]
+
+    async def iterator():
+        for entry in entries:
+            yield entry
+
+    sdk = _SdkClient()
+    sdk.list_schedules = AsyncMock(return_value=iterator())
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+    active = 0
+    peak = 0
+    described = []
+
+    async def describe(schedule_id):
+        nonlocal active, peak
+        described.append(schedule_id)
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            if schedule_id == "1":
+                raise ScheduleNotFoundError("deleted during collection")
+            return schedule_id
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(backend, "describe", describe)
+
+    assert await backend.list_all() == [str(index) for index in range(2, 25)]
+    assert "0" not in described
+    assert 1 < peak <= 10
 
 
 def _source() -> SourceIngestionInput:
