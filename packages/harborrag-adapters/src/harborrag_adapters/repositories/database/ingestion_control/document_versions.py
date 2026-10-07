@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any, cast
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import Select, insert, select, update
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -258,12 +260,9 @@ class DocumentVersionRepository:
                 raise HarborConflictError(
                     "a document version cannot be verified without a projection manifest"
                 )
-            result = await session.execute(
-                select(DOCUMENT_VERSIONS.c.status).where(
-                    DOCUMENT_VERSIONS.c.document_version_id == document_version_id
-                )
-            )
-            status = result.scalar_one_or_none()
+            status = (
+                await session.execute(document_version_lock(document_version_id))
+            ).scalar_one_or_none()
             if status is None:
                 raise HarborNotFoundError(f"document version does not exist: {document_version_id}")
             current = DocumentVersionState(status)
@@ -277,11 +276,20 @@ class DocumentVersionRepository:
                     f"document version is not ready for verification: {current.value}"
                 )
             now = utc_now()
-            await session.execute(
-                update(DOCUMENT_VERSIONS)
-                .where(DOCUMENT_VERSIONS.c.document_version_id == document_version_id)
-                .values(status=DocumentVersionState.VERIFIED.value, updated_at=now)
+            updated = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    update(DOCUMENT_VERSIONS)
+                    .where(
+                        DOCUMENT_VERSIONS.c.document_version_id == document_version_id,
+                        DOCUMENT_VERSIONS.c.status == current.value,
+                    )
+                    .values(status=DocumentVersionState.VERIFIED.value, updated_at=now)
+                ),
             )
+            if updated.rowcount != 1:
+                await _require_verified_elsewhere(session, document_version_id)
+                return
             await session.execute(
                 update(PROJECTION_MANIFESTS)
                 .where(PROJECTION_MANIFESTS.c.document_version_id == document_version_id)
@@ -358,3 +366,27 @@ class DocumentVersionRepository:
             anchor_document_id=anchor_document_id,
             limit=limit,
         )
+
+
+def document_version_lock(document_version_id: str) -> Select[tuple[str]]:
+    """Read a version's status under its row lock, so no transition interleaves."""
+
+    return (
+        select(DOCUMENT_VERSIONS.c.status)
+        .where(DOCUMENT_VERSIONS.c.document_version_id == document_version_id)
+        .with_for_update()
+    )
+
+
+async def _require_verified_elsewhere(session: AsyncSession, document_version_id: str) -> None:
+    """The status moved after it was read; that is fine only if it moved forward."""
+
+    status = (
+        await session.execute(
+            select(DOCUMENT_VERSIONS.c.status).where(
+                DOCUMENT_VERSIONS.c.document_version_id == document_version_id
+            )
+        )
+    ).scalar_one_or_none()
+    if status not in {DocumentVersionState.VERIFIED.value, DocumentVersionState.ACTIVE.value}:
+        raise HarborConflictError(f"document version changed during verification: {status}")
