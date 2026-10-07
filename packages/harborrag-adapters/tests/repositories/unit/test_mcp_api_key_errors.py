@@ -5,16 +5,20 @@ from __future__ import annotations
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import cast
 
 import pytest
 from sqlalchemy.exc import OperationalError
 
 from harborrag_adapters.repositories.database.control_plane.mcp_api_keys import (
+    PostgresApiKeyManager,
+    PostgresApiKeyReader,
     SqlMcpApiKeyRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import AuthStoreUnavailable
+from harborrag_core.ports.api_keys import Revocation
 
 _SECRET_HASH = "ab" * 32
 
@@ -71,3 +75,30 @@ async def test_failure_log_names_error_type_without_parameters(
 def test_repository_exposes_no_delete() -> None:
     # Rows are never deleted; revocation is the only lifecycle exit.
     assert not any("delete" in name for name in dir(SqlMcpApiKeyRepository))
+
+
+@pytest.mark.asyncio
+async def test_reader_wraps_driver_error() -> None:
+    reader = PostgresApiKeyReader(cast(SessionFactory, _BrokenSessions()))
+
+    with pytest.raises(AuthStoreUnavailable, match="during get") as info:
+        await reader.get_by_key_id("a" * 24)
+
+    assert info.value.__cause__ is None
+
+
+@pytest.mark.asyncio
+async def test_manager_wraps_driver_errors() -> None:
+    manager = PostgresApiKeyManager(cast(SessionFactory, _BrokenSessions()))
+    revocation = Revocation(at=datetime.now(UTC), by="alice")
+
+    with pytest.raises(AuthStoreUnavailable, match="during revoke_by_owner"):
+        await manager.revoke_by_owner("tenant-a", "owner-1", revocation=revocation)
+    with pytest.raises(AuthStoreUnavailable, match="during list_for_tenant"):
+        await manager.list_for_tenant("tenant-a")
+
+
+def test_reader_exposes_no_write_methods() -> None:
+    # The MCP server only ever gets a reader; it must have nothing to mutate with.
+    public = {name for name in dir(PostgresApiKeyReader) if not name.startswith("_")}
+    assert public == {"get_by_key_id", "sessions"}
