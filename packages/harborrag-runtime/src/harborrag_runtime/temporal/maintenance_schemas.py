@@ -14,6 +14,11 @@ class ProjectionCleanupResult:
     completed: int
     cancelled: int
     failed: int
+    # Retired-version retention purge that runs after source-scope cleanup.
+    # Defaulted so results recorded in workflow histories before it existed
+    # still decode.
+    purged_versions: int = 0
+    purge_failed_versions: int = 0
 
     def __post_init__(self) -> None:
         counts = (
@@ -21,6 +26,8 @@ class ProjectionCleanupResult:
             self.completed,
             self.cancelled,
             self.failed,
+            self.purged_versions,
+            self.purge_failed_versions,
         )
         if any(count < 0 for count in counts):
             raise ValueError("cleanup counts must not be negative")

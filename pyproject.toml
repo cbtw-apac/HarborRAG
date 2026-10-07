@@ -129,6 +129,7 @@ module = [
     "docx2txt",
     "odf",
     "odf.*",
+    "olefile",
     "boto3",
     "google.cloud",
     "google.cloud.*",

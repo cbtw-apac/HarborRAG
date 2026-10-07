@@ -25,7 +25,7 @@ from harborrag_adapters.parsers.text.config import TextParserConfig
 
 
 def test_parser_family_configuration_defaults_define_deterministic_routing() -> None:
-    assert DocumentParserConfig().engine_order == ("docx", "odt", "epub")
+    assert DocumentParserConfig().engine_order == ("docx", "doc", "odt", "epub")
     assert isinstance(DocxEngineConfig(), DocxEngineConfig)
     assert isinstance(OdtEngineConfig(), OdtEngineConfig)
 

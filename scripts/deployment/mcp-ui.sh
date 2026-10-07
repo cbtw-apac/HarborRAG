@@ -5,8 +5,8 @@ set -euo pipefail
 # The reader MCP server (scripts/deployment/mcp.sh) never needs it.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-# shellcheck source=lib/mcp-launcher.sh
-source "${ROOT_DIR}/scripts/deployment/lib/mcp-launcher.sh"
+# shellcheck source=common/mcp-launcher.sh
+source "${ROOT_DIR}/scripts/deployment/common/mcp-launcher.sh"
 
 MCP_UI_IMAGE="${HARBORRAG_MCP_UI_IMAGE:-harborrag-mcp-ui}"
 export HARBORRAG_MCP_UI_IMAGE="${MCP_UI_IMAGE}"

@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from harborrag_core.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext, tenant_namespace
 
 from .client import FalkorDBClient
 from .config import FalkorDBGraphConfig
@@ -29,7 +29,7 @@ class TenantGraphRegistry:
                 "graph selection requires a trusted tenant of 1-128 ASCII letters, "
                 "digits, '.', '_' or '-' beginning with a letter or digit"
             )
-        return f"{self.prefix}_{tenant}"
+        return tenant_namespace(tenant, self.prefix)
 
 
 class GraphClientFactory(Protocol):
@@ -79,7 +79,7 @@ class TenantGraphClientPool:
             raise ValueError("isolated graph routing requires a tenant-aware client factory")
         self._config = config
         self._factory = factory or ConfiguredGraphClientFactory(config)
-        self._registry = TenantGraphRegistry(config.tenant_graph_prefix)
+        self._registry = TenantGraphRegistry(config.namespace_prefix)
         self._provisioner = provisioner
         self._legacy = (
             client

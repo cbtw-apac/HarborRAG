@@ -9,7 +9,7 @@ from dataclasses import asdict, dataclass
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import VectorRepositoryPort
-from harborrag_core.storage import StorageOperationContext
+from harborrag_core.storage import StorageOperationContext, tenant_namespace
 from harborrag_runtime.composition.resources import (
     build_knowledge_graph,
     build_vector_repository,
@@ -76,17 +76,18 @@ class ProjectionAdministrationService:
             self._graph.tenant_projection_counts(context=context),
         )
         graph_nodes, graph_relations = graph_counts
+        namespace = tenant_namespace(tenant, self._settings.storage_namespace_prefix)
         return TenantProjectionInventory(
             tenant=tenant,
             vector_collections=tuple(
                 VectorCollectionInventory(
                     logical_name=name,
-                    physical_name=(f"{self._settings.qdrant_collection_prefix}{tenant}_{name}"),
+                    physical_name=f"{namespace}_{name}",
                     exists=present,
                 )
                 for name, present in zip(_VECTOR_INDEXES, exists, strict=True)
             ),
-            graph_name=f"{self._settings.falkordb_tenant_graph_prefix}_{tenant}",
+            graph_name=namespace,
             graph_nodes=graph_nodes,
             graph_relations=graph_relations,
         )

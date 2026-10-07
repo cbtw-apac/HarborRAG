@@ -51,6 +51,8 @@ _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
         "document_kind",
         "drive_type",
         "etag",
+        # Marks a stand-in for a link target outside every ingested scope.
+        "external",
         "issue_type",
         "issue_key",
         "item_name",

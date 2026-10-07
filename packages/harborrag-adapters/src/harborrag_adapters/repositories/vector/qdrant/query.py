@@ -36,6 +36,7 @@ from harborrag_core.indexing import (
     VectorSearchResult,
 )
 from harborrag_core.storage import StorageFamily, StorageOperationContext
+from harborrag_core.storage.namespace import tenant_namespace
 
 _MAX_HYBRID_CANDIDATES = 1_000
 """Most candidates per lane fusion will hold in memory at once."""
@@ -412,7 +413,7 @@ class QdrantQueryExecutor:
                         context=context,
                     ),
                 )
-        return f"{self._config.collection_prefix}{tenant}_{collection}"
+        return f"{tenant_namespace(tenant, self._config.namespace_prefix)}_{collection}"
 
     def spec_key(
         self,

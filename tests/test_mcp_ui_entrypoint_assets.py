@@ -13,7 +13,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 UI_SCRIPT = ROOT / "scripts/deployment/mcp-ui.sh"
 READER_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
-LAUNCHER = ROOT / "scripts/deployment/lib/mcp-launcher.sh"
+LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
 UI_COMPOSE = ROOT / "deploy/compose/docker-compose.mcp-ui.yml"
 READER_COMPOSE = ROOT / "deploy/compose/docker-compose.mcp.yml"
 UI_DOCKERFILE = ROOT / "deploy/docker/Dockerfile.mcp-ui"
@@ -25,7 +25,7 @@ def _ui_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     script = project / "scripts/deployment/mcp-ui.sh"
     script.parent.mkdir(parents=True)
     script.write_text(UI_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
-    launcher = project / "scripts/deployment/lib/mcp-launcher.sh"
+    launcher = project / "scripts/deployment/common/mcp-launcher.sh"
     launcher.parent.mkdir()
     launcher.write_text(LAUNCHER.read_text(encoding="utf-8"), encoding="utf-8")
     environment = project / "env"

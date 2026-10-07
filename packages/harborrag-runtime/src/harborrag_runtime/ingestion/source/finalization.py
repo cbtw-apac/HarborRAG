@@ -123,9 +123,19 @@ class SourceFinalizationService:
                 progress.resolved_relations += result.resolved_relations
                 progress.unresolved_relations += result.unresolved_relations
                 progress.next_page += 1
+            # Then the reverse direction: documents outside this plan whose links point
+            # at something this run (or any earlier one) has now published. Not folded
+            # into ``progress``: it is idempotent, so a retried attempt simply re-runs it
+            # rather than resuming totals it would then count twice.
+            reverse = await self._relations.repair_resolvable(
+                tenant_id=request.tenant_id,
+                graph_projection_version=request.processing.graph_projection_version,
+            )
             return RelationRepairResult(
-                repaired_documents=progress.repaired_documents,
-                resolved_relations=progress.resolved_relations,
+                repaired_documents=progress.repaired_documents + reverse.repaired_documents,
+                resolved_relations=progress.resolved_relations + reverse.resolved_relations,
+                # The plan's own count: the reverse pass only ever reduces what is
+                # unresolved, and its declarers belong to other runs' summaries.
                 unresolved_relations=progress.unresolved_relations,
             )
         except Exception as error:

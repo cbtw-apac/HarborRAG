@@ -94,6 +94,8 @@ async def upsert_nodes(
             ON CREATE SET node = row
             ON MATCH SET node = CASE WHEN node.placeholder = true THEN row ELSE node END
             SET node.title_key = toLower(node.title)
+            SET node.stub_touched_at = CASE
+                    WHEN row.external = true THEN timestamp() ELSE node.stub_touched_at END
             """,
             {"rows": rows},
         )
@@ -293,6 +295,8 @@ def _node_row(node: GraphNodeRecord, *, tenant_id: str) -> dict[str, Any]:
         # Top-level copy of attributes["placeholder"]: FalkorDB stores attributes as a
         # JSON string, so the placeholder guard in upsert_nodes needs it as a property.
         **({"placeholder": True} if node.attributes.get("placeholder") is True else {}),
+        # Likewise for an external stub, so pruning can find it without decoding JSON.
+        **({"external": True} if node.attributes.get("external") is True else {}),
         "tenant_id": tenant_id,
     }
 

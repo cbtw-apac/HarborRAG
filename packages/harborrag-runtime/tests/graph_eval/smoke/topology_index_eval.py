@@ -256,7 +256,7 @@ async def run() -> int:
     config = build_config().model_copy(
         update={
             "tenant_isolation": True,
-            "tenant_graph_prefix": PREFIX,
+            "namespace_prefix": PREFIX,
             "max_cached_tenants": 4,
         }
     )

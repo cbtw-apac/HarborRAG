@@ -119,6 +119,8 @@ class DocumentVersionTransitionPolicy:
                 DocumentVersionState.ACTIVE,
                 DocumentVersionState.RETIRED,
                 DocumentVersionState.FAILED,
+                DocumentVersionState.PURGING,
+                DocumentVersionState.PURGED,
             }
         if current == DocumentVersionState.VERIFIED and target == DocumentVersionState.ACTIVE:
             return True

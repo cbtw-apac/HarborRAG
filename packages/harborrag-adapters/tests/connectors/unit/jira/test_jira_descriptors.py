@@ -64,7 +64,14 @@ def test_describe_dispatches_attachment_and_preserves_issue_relations() -> None:
     assert attachment.metadata["relations"][0]["predicate"] == "attached_to"
 
 
-def test_describe_uses_child_parent_edge_without_inverse_subtask_duplicate() -> None:
+def test_describe_declares_subtasks_so_an_uningested_one_is_still_reachable() -> None:
+    """The parent declares `parent_of` for its subtasks.
+
+    The graph still keeps one parent -> child edge: the subtask's own `child_of` owns it
+    once both are ingested (see the engine's single-owner relation table), and this
+    declaration is what reaches a subtask that is never ingested.
+    """
+
     client = FakeJiraClient()
     issue_value = issue()
     issue_value["fields"]["attachment"] = []
@@ -85,10 +92,12 @@ def test_describe_uses_child_parent_edge_without_inverse_subtask_duplicate() -> 
 
     assert {relation.relation_type for relation in descriptor.admission.relations} == {
         RelationType.CHILD_OF,
+        RelationType.PARENT_OF,
     }
-    assert {relation["predicate"] for relation in descriptor.source.metadata["relations"]} == {
-        "child_of",
-    }
+    assert {
+        (relation["predicate"], relation["target_id"])
+        for relation in descriptor.source.metadata["relations"]
+    } == {("child_of", "jira://ENG/ENG-0"), ("parent_of", "jira://ENG/ENG-2")}
     assert descriptor.source.metadata["subtasks"][0]["key"] == "ENG-2"
 
 

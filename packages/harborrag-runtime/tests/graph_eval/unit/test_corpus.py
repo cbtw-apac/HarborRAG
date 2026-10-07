@@ -192,9 +192,10 @@ def test_jira_duplicates_relates_to_and_issue_links(corpus: EvalCorpus) -> None:
     original = corpus.source_item_key("HR-2")
     duplicate = corpus.source_item_key("HR-4")
     assert (original, duplicate) in _edges(corpus.batches["HR-2"], "duplicates")
+    # HR-4's `is_duplicated_by` is the same fact, and HR-2 declares it back, so HR-2
+    # owns the one edge: two declarations, never two parallel edges.
     edges = _edges(corpus.batches["HR-4"], "duplicates")
-    assert (original, duplicate) in edges, "is_duplicated_by must project as original -> duplicate"
-    assert (duplicate, original) not in edges
+    assert edges == set(), "the outward declarer owns a reciprocated duplicates link"
     assert (corpus.source_item_key("HR-5"), corpus.source_item_key("HR-1")) in _edges(
         corpus.batches["HR-5"], "relates_to"
     )

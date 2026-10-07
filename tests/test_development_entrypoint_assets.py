@@ -13,7 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
-MCP_LAUNCHER = ROOT / "scripts/deployment/lib/mcp-launcher.sh"
+MCP_LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -183,7 +183,7 @@ def test_mcp_entrypoint_runs_the_server_container_without_other_services() -> No
     sources = [
         line.strip() for line in mcp_script.splitlines() if line.strip().startswith("source ")
     ]
-    assert sources == ['source "${ROOT_DIR}/scripts/deployment/lib/mcp-launcher.sh"']
+    assert sources == ['source "${ROOT_DIR}/scripts/deployment/common/mcp-launcher.sh"']
     assert "start_worker" not in mcp_script
     assert "start_api" not in mcp_script
     assert "docker-compose.yml" not in mcp_script
@@ -197,7 +197,7 @@ def _mcp_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     script = project / "scripts/deployment/mcp.sh"
     script.parent.mkdir(parents=True)
     script.write_text(MCP_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
-    launcher = project / "scripts/deployment/lib/mcp-launcher.sh"
+    launcher = project / "scripts/deployment/common/mcp-launcher.sh"
     launcher.parent.mkdir()
     launcher.write_text(MCP_LAUNCHER.read_text(encoding="utf-8"), encoding="utf-8")
     environment = project / "env"

@@ -80,6 +80,12 @@ class VectorPayload(StrictModel):
     # normalized field name and filtered as ``fields.<key>``. Values keep their
     # type, so a range filter works on a number and set membership on a list.
     fields: dict[str, str | float | bool | tuple[str, ...]] | None = None
+    # Where this chunk sits in the knowledge graph of the same document version:
+    # its Chunk node and the source entity the document is a version of. A vector
+    # hit joins the graph on these keys directly, without re-deriving a node key
+    # from a connector-specific source id ("jira://CPM/CPM-1" vs "CPM-1").
+    graph_chunk_node_key: str | None = Field(default=None, min_length=1)
+    graph_source_node_key: str | None = Field(default=None, min_length=1)
 
     @field_validator(
         "language",

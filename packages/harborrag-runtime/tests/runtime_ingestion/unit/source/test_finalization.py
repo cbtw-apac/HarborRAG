@@ -34,6 +34,13 @@ class _Recorder:
 class _PageRepair:
     def __init__(self) -> None:
         self.pages: list[tuple[str, ...]] = []
+        self.reverse_calls: list[dict[str, object]] = []
+
+    async def repair_resolvable(self, **kwargs: object) -> RelationRepairResult:
+        self.reverse_calls.append(kwargs)
+        return RelationRepairResult(
+            repaired_documents=1, resolved_relations=3, unresolved_relations=0
+        )
 
     async def repair(self, planned: Any, *, tenant_id: str) -> RelationRepairResult:
         assert tenant_id == "tenant-1"
@@ -71,6 +78,7 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
         tenant_id="tenant-1",
         missing_threshold=1,
         query=SimpleNamespace(include_attachments=True),
+        processing=SimpleNamespace(graph_projection_version="graph-v2"),
     )
 
     outcome = await finalization.finish(
@@ -81,6 +89,11 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
     )
 
     assert repair.pages == [("a", "b"), ("c",)]
+    # Then the reverse pass, once, after every page: declarers elsewhere whose link
+    # targets are now published. It never adds to the plan's unresolved count.
+    assert repair.reverse_calls == [
+        {"tenant_id": "tenant-1", "graph_projection_version": "graph-v2"}
+    ]
     assert outcome.discovered == 3
     assert outcome.unresolved_relations == 2
     stored = next(kwargs["summary"] for name, _, kwargs in tasks.calls if name == "finalize")
@@ -106,6 +119,7 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
         tenant_id="tenant-1",
         missing_threshold=1,
         query=SimpleNamespace(include_attachments=True),
+        processing=SimpleNamespace(graph_projection_version="graph-v2"),
     )
     progress = RelationRepairProgress(
         next_page=1, repaired_documents=2, resolved_relations=2, unresolved_relations=1

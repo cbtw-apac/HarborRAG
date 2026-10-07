@@ -1962,6 +1962,7 @@ document = [
     { name = "defusedxml" },
     { name = "docx2txt" },
     { name = "odfpy" },
+    { name = "olefile" },
 ]
 falkordb = [
     { name = "falkordb" },
@@ -2007,6 +2008,7 @@ parsers = [
     { name = "docx2txt" },
     { name = "liteparse" },
     { name = "odfpy" },
+    { name = "olefile" },
     { name = "openpyxl" },
     { name = "pillow" },
     { name = "pymupdf" },
@@ -2022,6 +2024,7 @@ parsers-all = [
     { name = "liteparse" },
     { name = "mineru" },
     { name = "odfpy" },
+    { name = "olefile" },
     { name = "onnxruntime" },
     { name = "openpyxl" },
     { name = "paddleocr" },
@@ -2062,6 +2065,7 @@ postgres = [
     { name = "asyncpg" },
 ]
 presentation = [
+    { name = "olefile" },
     { name = "python-pptx" },
 ]
 qdrant = [
@@ -2134,6 +2138,10 @@ requires-dist = [
     { name = "odfpy", marker = "extra == 'document'", specifier = ">=1.4.1" },
     { name = "odfpy", marker = "extra == 'parsers'", specifier = ">=1.4.1" },
     { name = "odfpy", marker = "extra == 'parsers-all'", specifier = ">=1.4.1" },
+    { name = "olefile", marker = "extra == 'document'", specifier = ">=0.47" },
+    { name = "olefile", marker = "extra == 'parsers'", specifier = ">=0.47" },
+    { name = "olefile", marker = "extra == 'parsers-all'", specifier = ">=0.47" },
+    { name = "olefile", marker = "extra == 'presentation'", specifier = ">=0.47" },
     { name = "onnxruntime", marker = "extra == 'image'", specifier = ">=1.20,<2" },
     { name = "onnxruntime", marker = "extra == 'image-rapidocr'", specifier = ">=1.20,<2" },
     { name = "onnxruntime", marker = "extra == 'parsers-all'", specifier = ">=1.20,<2" },

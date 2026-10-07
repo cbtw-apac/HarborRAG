@@ -44,6 +44,8 @@ EVIDENCE_PAYLOAD_INDEXES: tuple[str, ...] = (
     # attachments is a lookup on both, and the distinct-value facet requires an index.
     "source_item_id",
     "parent_source_item_id",
+    # The graph source entity a chunk belongs to: joins the graph to its evidence.
+    "graph_source_node_key",
     "space_id",
     "page_id",
     "project_id",

@@ -9,6 +9,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Parse legacy Microsoft Office binary files: Word 97-2003 `.doc`
+  (body, tables, headers/footers, text boxes, notes) and PowerPoint 97-2003
+  `.ppt`/`.pps` (slide text and speaker notes; templates by MIME type) through new `doc` and
+  `ppt` engines built on `olefile`, which the `parsers`, `document`,
+  `presentation`, and `parsers-all` extras now install. Encrypted files are
+  rejected as password-protected and Word 6/95 files as unsupported.
+
+- Links to items no ingested scope has published get an external stub node in the graph
+  (`ExternalSourceEntity`-style: a `SourceEntity` marked `external`, keyed by tenant, connector,
+  connection and source item id -- never by scope -- and carrying the provider id only, no
+  title or metadata from the unread source). Relation repair persists each unresolved link
+  (`unresolved_source_relations`, migration 0039), and every source run finishes with a
+  reverse pass that re-repairs documents elsewhere whose link targets are now published, so
+  the link moves from the stub to the real node. Stubs nothing references are pruned after a
+  grace period.
+
+- Retention TTL for retired document versions (`HARBORRAG_RETIRED_VERSION_RETENTION_DAYS`,
+  default 30 days; `0` purges as soon as eligible, `off` disables). After a source-scope
+  run's projection cleanup, every version of that scope that has been RETIRED for longer
+  than the TTL, and whose projection cleanup job has COMPLETED, is purged: its object-store
+  artifacts (canonical, chunks and chunk index, representations, relations, comments,
+  tables, projection files) are deleted, raw source and metadata objects are deleted only
+  when no other unpurged version of the document references them, and its
+  `projection_manifests` row is dropped. The version row is kept, with its artifact columns
+  cleared, in the new `PURGED` state (migration 0038), so task results still resolve; the
+  shared parse cache (`parsed/`) and source plans are never touched, and a storage error
+  leaves the version RETIRED for the next run. Re-ingesting content identical to a purged
+  version rebuilds that version from scratch. The cleanup activity result reports
+  `purged_versions` and `purge_failed_versions`.
+  A purge first claims the version (`RETIRED` -> `PURGING`); while it is claimed a replay of
+  the same content is refused as transient and retried, so it can never be restored onto
+  artifacts that are being deleted, and an interrupted purge resumes on the next run. Besides
+  the purge after each source run, every worker sweeps all scopes every
+  `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` (default 24; `0` disables).
 - `harborrag auth keys create|list|revoke`: hashed, tenant-bound MCP reader keys with a
   bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0036) and
   verified on every request. `HARBORRAG_MCP_AUTH_MODE=api_key` accepts them (and keeps the
@@ -66,6 +100,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- A source link is one graph edge however many documents declare it. Each relation type has
+  one owner: the attachment owns `has_attachment`, the child owns `parent_of`, the outward
+  issue owns `blocks`/`duplicates`, the smaller source item id owns `relates_to`; the other end
+  asserts the edge only when the far end is not published or does not declare the link back.
+  Jira subtasks and Confluence page attachment lists no longer draw a second, parent-owned
+  edge, and a GitHub ref -> commit link is one shared edge instead of one per file. The Jira
+  connector now declares `parent_of` for an issue's subtasks. Existing parallel edges heal on
+  the next ingestion run of each scope.
+- A document skipped by relation repair (its artifacts were cleaned) no longer counts as an
+  unresolved relation, and `unresolved_relations` counts each distinct target and predicate
+  once.
+
+- One tenant namespace in every store: `{prefix}_{tenant_id}` (default `harborrag_DEFAULT`) is
+  the Qdrant collection stem (`harborrag_DEFAULT_evidence`), the FalkorDB graph name and the
+  object-store key prefix (`harborrag_DEFAULT/…`, no longer a SHA-256 of the tenant), so a tenant
+  is found and removed by one name per store. `HARBORRAG_STORAGE_NAMESPACE_PREFIX` replaces
+  `HARBORRAG_QDRANT_COLLECTION_PREFIX` and `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`.
+  **Existing data is not moved**: reset the stores and re-ingest after upgrading.
+- Evidence points carry `graph_chunk_node_key` and `graph_source_node_key` (indexed), the
+  chunk's graph node and its document's source entity, so a vector hit joins the graph directly.
 - Summarization is off in the shipped `config/topology/graph_build.yaml` (`summarization.enabled:
   false`), and the switch now stops all summary work, not just the worker: publishing, retiring and
   permission imports no longer take the summary tenant lock or mark `summary_scopes` dirty, and
@@ -170,6 +224,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Report corrupt and encrypted legacy `.xls` workbooks as parser rejections
+  (`ParseError` / `PasswordProtectedError`) instead of leaking `xlrd.XLRDError`.
 - Ingesting a large source no longer fails in discovery. The discovery and finalization
   activities had fixed 30- and 15-minute budgets per attempt, so a Jira project of tens of
   thousands of issues exhausted its retries before listing finished (`TimeoutError`). Both

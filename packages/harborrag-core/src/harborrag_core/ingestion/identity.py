@@ -165,6 +165,33 @@ class DocumentIdentityBuilder:
             },
         )
 
+    def external_source_entity_node_key(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        connection_id: str,
+        source_item_id: str,
+    ) -> str:
+        """Key a stand-in for a link target no ingested scope has published.
+
+        Deliberately scope-free: a source item ID does not establish the scope that will
+        one day ingest it, so two documents in different scopes that link to the same
+        foreign item must reach one stub. The concrete node keeps its scoped key; when
+        the target is ingested, relation repair re-points the links and the stub is
+        pruned once nothing references it.
+        """
+
+        return encoded_identifier(
+            "graph-v2-external-source-entity",
+            {
+                "tenant_id": tenant_id,
+                "connector_type": connector_type,
+                "connection_id": connection_id,
+                "source_item_id": source_item_id,
+            },
+        )
+
     def document_version_node_key(
         self,
         *,

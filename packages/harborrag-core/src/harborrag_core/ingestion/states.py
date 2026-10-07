@@ -75,6 +75,12 @@ class DocumentVersionState(StrEnum):
     ACTIVE = "ACTIVE"
     RETIRED = "RETIRED"
     FAILED = "FAILED"
+    # A RETIRED version whose retention TTL elapsed: its object-store artifacts
+    # and projection manifest are gone, only the row remains for task history.
+    # A purge holds the version while it deletes artifacts: replay waits instead of
+    # restoring a version whose objects are disappearing underneath it.
+    PURGING = "PURGING"
+    PURGED = "PURGED"
 
 
 class FailureCategory(StrEnum):

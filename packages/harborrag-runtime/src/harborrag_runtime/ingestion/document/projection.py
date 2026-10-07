@@ -81,6 +81,7 @@ class DocumentProjectionStages:
                 chunks=material.chunks,
                 representations=material.representations,
                 chunk_artifacts=material.chunk_artifacts,
+                graph=graph,
             )
         )
         context = self._material.context(request)

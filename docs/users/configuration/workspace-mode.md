@@ -492,42 +492,37 @@ required; one is not a substitute for the other. See [Projection and rebuild
 architecture](../../developers/architecture/projection-rebuild.md#the-tenant-spine)
 for the storage design.
 
-### Qdrant collection isolation
+### One tenant namespace in every store
 
-The Qdrant adapter derives a physical collection name from the optional process
-prefix, tenant, and logical index name:
-
-```text
-{qdrant_collection_prefix}{tenant_id}_{logical_index}
-```
-
-Both tenant and logical index must use 1–128 ASCII letters, digits, `.`, `_`, or
-`-`, beginning with a letter or digit. The tenant selects the collection before
-metadata filters are built. Therefore, `tenant_id` is intentionally absent from
-the Qdrant payload and cannot be used as a user-supplied filter to jump between
-collections.
-
-Physical separation simplifies data-path isolation but affects lifecycle work:
-each tenant has separate collection creation, schema validation, inventory,
-rebuild, and deletion. Changing `HARBORRAG_QDRANT_COLLECTION_PREFIX` points the
-runtime at different physical names; it does not rename or repopulate existing
-collections.
-
-### FalkorDB graph isolation
-
-The graph adapter derives a physical graph name from the configured prefix and
-the tenant, mirroring the Qdrant collection naming:
+Every store names a tenant the same way, so finding or removing everything a
+tenant owns is one name per store:
 
 ```text
-{falkordb_tenant_graph_prefix}_{tenant_id}
+{storage_namespace_prefix}_{tenant_id}          # e.g. harborrag_DEFAULT
 ```
 
-The tenant must use 1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with
-a letter or digit - the same charset Qdrant requires. The graph is selected from
-the trusted operation context before any query is built, so a graph name is never
-taken from user input. Changing `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX` points
-the runtime at different physical graphs; it does not rename or repopulate
-existing ones.
+| Store | Physical name |
+|---|---|
+| Qdrant | `harborrag_DEFAULT_{logical_index}` (one collection per logical index, e.g. `_evidence`) |
+| FalkorDB | graph `harborrag_DEFAULT` |
+| S3 / MinIO, filesystem | key prefix `harborrag_DEFAULT/{logical_key}` in each bucket |
+| Postgres | rows with `tenant_id = 'DEFAULT'` |
+
+`HARBORRAG_STORAGE_NAMESPACE_PREFIX` (default `harborrag`) sets the prefix for all
+of them at once; it replaces the former `HARBORRAG_QDRANT_COLLECTION_PREFIX` and
+`HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`. Changing it points the runtime at
+different physical names; it does not rename or move existing data.
+
+The tenant must use 1–128 ASCII letters, digits, `.`, `_`, or `-`, beginning with
+a letter or digit, and the prefix 1–64 letters, digits, `_` or `-` beginning with
+a letter. The namespace is derived from the trusted operation context before any
+query or key is built, never from user input. Therefore `tenant_id` is
+intentionally absent from the Qdrant payload and cannot be used as a
+user-supplied filter to jump between collections.
+
+Each evidence point also stores `graph_chunk_node_key` and
+`graph_source_node_key`: the chunk's node and its document's source entity in the
+tenant graph, so a vector hit joins the graph without re-deriving a node key.
 
 Tenant identity remains part of every relevant node and relationship operation.
 The graph adapter includes `tenant_id` in merge identities, uniqueness
@@ -541,16 +536,14 @@ against a graph, because doing so bypasses those tenant predicates.
 
 ### Object-store isolation
 
-Filesystem and S3 adapters map a logical object key to an opaque physical
-namespace:
+Filesystem and S3 adapters map a logical object key into the tenant namespace:
 
 ```text
-.harborrag/tenants/{sha256(tenant_id)}/{logical_key}
+{storage_namespace_prefix}_{tenant_id}/{logical_key}
 ```
 
 Listing, reading, writing, presigning, and deletion calculate the prefix from
-`context.tenant_id`. The digest makes the prefix path-safe and avoids placing a
-raw tenant label in the object key; it is namespace derivation, not encryption.
+`context.tenant_id`; it is namespace derivation, not encryption.
 Bucket policy and infrastructure credentials must still prevent direct access
 that bypasses HarborRAG.
 

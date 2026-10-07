@@ -101,13 +101,54 @@ async def run_workers(
             ", ".join(config.task_queues.as_tuple()),
         )
         summary_run = _summary_runner(settings, runtime, client, stop_event)
+        retention_run = _retention_runner(settings, runtime, stop_event)
         runs = asyncio.gather(
             *(worker.run() for worker in workers),
             *((summary_run,) if summary_run is not None else ()),
+            *((retention_run,) if retention_run is not None else ()),
         )
         await _wait_for_shutdown(workers, runs, stop_event=stop_event)
     finally:
         await runtime.close()
+
+
+def _retention_runner(
+    settings: RuntimeSettings,
+    runtime: Any,
+    stop_event: asyncio.Event | None,
+) -> Coroutine[Any, Any, None] | None:
+    """Sweep every scope for retired versions past their TTL on a fixed interval."""
+
+    interval_hours = getattr(settings, "retired_version_purge_interval_hours", 0.0)
+    retention = getattr(runtime, "retention", None)
+    if not interval_hours or retention is None:
+        return None
+    return _sweep_retired_versions(retention, interval_hours * 3600.0, stop_event)
+
+
+async def _sweep_retired_versions(
+    retention: Any,
+    interval_seconds: float,
+    stop_event: asyncio.Event | None,
+) -> None:
+    stop = stop_event or asyncio.Event()
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+            return
+        except TimeoutError:
+            pass
+        try:
+            batch = await retention.run_all()
+        except Exception as error:  # noqa: BLE001 - a failed sweep waits for the next one
+            logger.error("Retired version sweep failed error_type=%s", type(error).__name__)
+            continue
+        logger.info(
+            "Retired version sweep completed eligible=%d purged=%d failed=%d",
+            batch.eligible,
+            batch.purged,
+            batch.failed,
+        )
 
 
 def _summary_runner(

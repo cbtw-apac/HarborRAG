@@ -69,6 +69,7 @@ from .field_indexes import declared_field_indexes
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
 from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
@@ -196,6 +197,11 @@ class IngestionRuntimeBuilder:
                 control=control,
                 vector_store=vector_store,
                 graph_store=graph,
+            ),
+            retention=RetiredVersionPurgeService(
+                control=control,
+                object_store=object_store,
+                retention_days=settings.retired_version_retention_days,
             ),
             reindex=DocumentReindexService(dependencies, pipeline=stages),
             source_plans=SourcePlanRepository(artifacts, artifact_reader),

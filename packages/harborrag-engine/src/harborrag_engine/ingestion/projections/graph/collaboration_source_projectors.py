@@ -12,7 +12,6 @@ from .graph_state import GraphProjectionState, GraphRelationSpec
 from .source_projector_support import (
     BaseSourceProjector,
     is_attachment,
-    mapping_sequence,
     mapping_value,
     project_structure_chain,
     selected_values,
@@ -172,21 +171,10 @@ class ConfluenceSourceProjector(BaseSourceProjector):
             project_structure_chain(
                 self, state, container=container, item=item, ancestors=ancestors
             )
-            # Only a page lists attachments. Running this for an attachment document
-            # would let one attachment own another.
-            for attachment_value in mapping_sequence(extra.get("attachments")):
-                attachment_id = text_value(attachment_value, "id", "attachment_id")
-                if not attachment_id:
-                    continue
-                attachment = state.source_node(
-                    GraphEntityType.CONFLUENCE_ATTACHMENT,
-                    attachment_id,
-                    title=(
-                        text_value(attachment_value, "title", "filename", "name") or attachment_id
-                    ),
-                    attributes={"placeholder": True},
-                )
-                self.edge(state, RelationType.HAS_ATTACHMENT, item, attachment, explicit=True)
+            # A page's attachment list draws no edge here: each attachment is its own
+            # document and owns page -> attachment, and the page's `has_attachment`
+            # relations reach any attachment that is not ingested through an external
+            # stub. Drawing it here too gave every pair a second, page-owned edge.
         self.version(state, item, document_version)
         return item
 
@@ -303,18 +291,10 @@ class JiraSourceProjector(BaseSourceProjector):
             # wrong project. Where the parent is in the same project the edge merely
             # duplicated the one its own projection makes, so nothing is lost.
             self.edge(state, RelationType.PARENT_OF, parent_issue, issue, explicit=True)
-        for child in mapping_sequence(extra.get("subtasks")):
-            child_id = text_value(child, "key", "id")
-            if not child_id:
-                continue
-            child_issue = state.source_node(
-                GraphEntityType.JIRA_ISSUE,
-                child_id,
-                title=text_value(child, "summary", "key") or child_id,
-                attributes={"placeholder": True},
-            )
-            # Same reasoning as the parent above: the subtask's own projection files it.
-            self.edge(state, RelationType.PARENT_OF, issue, child_issue, explicit=True)
+        # Subtasks draw no edge here: the subtask owns parent -> child (above, from its
+        # own `parent`). The connector declares them as `parent_of` relations instead,
+        # which reach a subtask that is not ingested through an external stub. Drawing
+        # them here too gave every parent/subtask pair a second, parent-owned edge.
         self.version(state, issue, document_version)
         return issue
 

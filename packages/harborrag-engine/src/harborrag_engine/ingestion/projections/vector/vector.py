@@ -3,16 +3,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from harborrag_core.chunking import ChunkRecord, RecordKind
+from harborrag_core.chunking import ChunkRecord, RecordKind, RelationType
 from harborrag_core.ingestion import (
     ChunkSetArtifacts,
     DocumentIdentityBuilder,
+    KnowledgeNodeKind,
     RepresentationSet,
     VectorEvidenceRecord,
     VectorPayload,
     VectorProjectionBatch,
     reject_runtime_fields,
 )
+
+from ..graph.graph_models import GraphProjectionBatch
 
 EVIDENCE_INDEX = "evidence"
 
@@ -22,6 +25,8 @@ class VectorProjectionInput:
     chunks: tuple[ChunkRecord, ...]
     representations: RepresentationSet
     chunk_artifacts: ChunkSetArtifacts
+    # The same version's graph batch, when built: supplies each point's graph keys.
+    graph: GraphProjectionBatch | None = None
 
 
 class VectorProjectionBuilder:
@@ -39,6 +44,7 @@ class VectorProjectionBuilder:
             request.representations.document_version_id
         ) != str(first.document_version_id):
             raise ValueError("representation set belongs to another document version")
+        chunk_nodes, source_node = _graph_keys(request.graph)
         evidence_records: list[VectorEvidenceRecord] = []
         for chunk in request.chunks:
             if chunk.record_kind != RecordKind.EVIDENCE:
@@ -47,7 +53,11 @@ class VectorProjectionBuilder:
             representation = representations.get(chunk_id)
             if representation is None:
                 raise ValueError(f"representation is missing for chunk {chunk_id}")
-            payload = self._payload(chunk)
+            payload = self._payload(
+                chunk,
+                graph_chunk_node_key=chunk_nodes.get(chunk_id),
+                graph_source_node_key=source_node,
+            )
             record = VectorEvidenceRecord(
                 point_id=self._identity.point_id(chunk_id=chunk_id),
                 tenant_id=chunk.tenant_id,
@@ -61,6 +71,9 @@ class VectorProjectionBuilder:
     def _payload(
         self,
         chunk: ChunkRecord,
+        *,
+        graph_chunk_node_key: str | None = None,
+        graph_source_node_key: str | None = None,
     ) -> VectorPayload:
         metadata = chunk.metadata
         payload: dict[str, object] = {
@@ -128,6 +141,14 @@ class VectorProjectionBuilder:
         fields = metadata.get("fields")
         if isinstance(fields, Mapping) and fields:
             payload["fields"] = dict(fields)
+        payload.update(
+            (key, value)
+            for key, value in (
+                ("graph_chunk_node_key", graph_chunk_node_key),
+                ("graph_source_node_key", graph_source_node_key),
+            )
+            if value
+        )
         reject_runtime_fields(payload)
         return VectorPayload.model_validate(payload)
 
@@ -136,3 +157,24 @@ class VectorProjectionBuilder:
         if isinstance(value, str) or not isinstance(value, (list, tuple)):
             return ()
         return tuple(text for item in value if item is not None and (text := str(item).strip()))
+
+
+def _graph_keys(graph: GraphProjectionBatch | None) -> tuple[dict[str, str], str | None]:
+    """Chunk id -> Chunk node key, and the version's source entity node key."""
+
+    if graph is None:
+        return {}, None
+    chunk_nodes = {
+        node.logical_id: node.node_key
+        for node in graph.nodes
+        if node.node_kind == KnowledgeNodeKind.CHUNK
+    }
+    source_node = next(
+        (
+            relation.source_node_key
+            for relation in graph.relations
+            if relation.relation_type is RelationType.HAS_VERSION
+        ),
+        None,
+    )
+    return chunk_nodes, source_node

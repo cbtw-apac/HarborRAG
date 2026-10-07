@@ -29,14 +29,14 @@ def test_collection_name_is_readable_and_tenant_scoped() -> None:
             "routes",
             StorageOperationContext.system(tenant_id="DEFAULT"),
         )
-        == "DEFAULT_routes"
+        == "harborrag_DEFAULT_routes"
     )
     assert (
         executor.collection_name(
             "evidence",
             StorageOperationContext.system(tenant_id="tenant-a"),
         )
-        == "tenant-a_evidence"
+        == "harborrag_tenant-a_evidence"
     )
 
 
@@ -353,7 +353,7 @@ async def test_distinct_values_is_an_exact_facet_on_the_tenant_collection() -> N
 
     assert values == ("jira://CPM/CPM-1", "jira://CPM/CPM-2")
     [call] = raw.facets
-    assert call["collection_name"] == "tenant-a_docs"
+    assert call["collection_name"] == "harborrag_tenant-a_docs"
     assert call["key"] == "source_item_id"
     assert call["limit"] == 11
     assert call["exact"] is True

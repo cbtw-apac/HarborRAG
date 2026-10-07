@@ -207,6 +207,10 @@ services:
       HARBORRAG_FALKORDB_PORT: ${HARBORRAG_FALKORDB_PORT:-6379}
       HARBORRAG_FALKORDB_MAX_CONNECTIONS: ${HARBORRAG_FALKORDB_MAX_CONNECTIONS:-32}
       HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY: ${HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY:-8}
+      # Days a retired document version keeps its MinIO artifacts and projection
+      # manifest after projection cleanup; "off" keeps them forever.
+      HARBORRAG_RETIRED_VERSION_RETENTION_DAYS: ${HARBORRAG_RETIRED_VERSION_RETENTION_DAYS:-30}
+      HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS: ${HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS:-24}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "true"
       # Raising activity concurrency (config/temporal.yaml worker.max_concurrent_activities)
       # requires headroom here: pool + overflow must cover 6 * max_concurrent_activities.

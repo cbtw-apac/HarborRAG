@@ -423,3 +423,76 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
 
     assert records
     assert {record.payload.parent_source_item_id for record in records} == {"jira://CPM/CPM-116680"}
+
+
+def test_each_point_carries_its_graph_node_keys_from_the_same_version() -> None:
+    """A vector hit joins the graph on stored keys, not on a re-derived source id."""
+
+    from harborrag_core.chunking import RelationType
+    from harborrag_core.ingestion import KnowledgeNodeKind
+    from harborrag_engine.ingestion import GraphProjectionBuilder
+
+    document = make_document(
+        [DocumentElement("p1", "paragraph", "The worker timeout is 30 seconds for AMAST-2.")],
+        source="jira",
+        record_id="AMAST-2",
+        extra={"issue_key": "AMAST-2", "project_id": "10000", "project_key": "AMAST"},
+    )
+    result = make_service(
+        make_profile(name="jira", strategy="jira", target=100, maximum=120),
+        configuration_version="3",
+        create_route_chunks=True,
+    ).chunk(make_request(document))
+    graph = GraphProjectionBuilder().build_structural(
+        document=document,
+        chunks=result.chunks,
+        graph_projection_version="graph-v2",
+    )
+
+    projection = VectorProjectionBuilder().build(
+        VectorProjectionInput(
+            chunks=result.chunks,
+            representations=representation_set(result.chunks),
+            chunk_artifacts=chunk_set(result.chunks),
+            graph=graph,
+        )
+    )
+
+    chunk_nodes = {
+        node.logical_id: node.node_key
+        for node in graph.nodes
+        if node.node_kind == KnowledgeNodeKind.CHUNK
+    }
+    (has_version,) = (r for r in graph.relations if r.relation_type is RelationType.HAS_VERSION)
+    for record in projection.evidence_records:
+        assert record.payload.graph_chunk_node_key == chunk_nodes[record.payload.chunk_id]
+        assert record.payload.graph_source_node_key == has_version.source_node_key
+
+
+def test_points_built_without_a_graph_carry_no_graph_keys() -> None:
+    result = make_service(
+        make_profile(name="jira", strategy="jira", target=100, maximum=120),
+        configuration_version="3",
+        create_route_chunks=True,
+    ).chunk(
+        make_request(
+            make_document(
+                [DocumentElement("p1", "paragraph", "Plain text.")],
+                source="jira",
+                record_id="AMAST-3",
+                extra={"issue_key": "AMAST-3", "project_id": "10000"},
+            )
+        )
+    )
+
+    projection = VectorProjectionBuilder().build(
+        VectorProjectionInput(
+            chunks=result.chunks,
+            representations=representation_set(result.chunks),
+            chunk_artifacts=chunk_set(result.chunks),
+        )
+    )
+
+    payload = projection.evidence_records[0].payload
+    assert payload.graph_chunk_node_key is None
+    assert payload.graph_source_node_key is None

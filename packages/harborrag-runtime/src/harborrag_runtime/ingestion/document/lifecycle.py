@@ -59,6 +59,7 @@ class DocumentVersionLifecycle:
         if current not in {
             DocumentVersionState.FAILED,
             DocumentVersionState.RETIRED,
+            DocumentVersionState.PURGED,
         }:
             return current
         return await self._control.document_versions.prepare_replay(document_version_id)

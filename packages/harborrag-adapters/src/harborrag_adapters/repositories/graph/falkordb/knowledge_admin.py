@@ -89,6 +89,69 @@ async def delete_source_item(
     )
 
 
+async def prune_external_stubs(
+    database: FalkorDBClient,
+    *,
+    context: StorageOperationContext,
+    grace_seconds: int = 3600,
+) -> int:
+    """Delete external stubs that no relationship references any more.
+
+    A stub stands in for a link target nothing has ingested. When the target is
+    ingested, relation repair re-points the links at the real node, and the stub is
+    left edgeless. Only nodes marked ``external`` are ever matched, so concrete
+    nodes and in-scope placeholders are never touched.
+
+    ``delete_relations`` explains why online orphan pruning races projection writes:
+    a projection stages nodes before their relations. The grace period closes that
+    race for stubs -- every upsert refreshes ``stub_touched_at``, so a stub another
+    repair has just staged is younger than the grace period and survives.
+    """
+
+    if grace_seconds < 0:
+        raise ValueError("stub pruning grace period must not be negative")
+    rows = await read_rows(
+        database,
+        """
+        MATCH (node:KnowledgeNode)
+        WHERE node.tenant_id = $tenant_id
+          AND node.graph_schema_version = $graph_schema_version
+          AND node.external = true
+          AND node.placeholder = true
+          AND NOT (node)--()
+          AND coalesce(node.stub_touched_at, 0) < timestamp() - $grace_ms
+        RETURN node.node_key AS node_key
+        """,
+        {
+            "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "grace_ms": grace_seconds * 1000,
+        },
+    )
+    node_keys = [str(row["node_key"]) for row in rows]
+    if not node_keys:
+        return 0
+    # Re-checked inside the delete: a relation written since the read keeps its stub.
+    await database.write(
+        """
+        MATCH (node:KnowledgeNode)
+        WHERE node.tenant_id = $tenant_id
+          AND node.graph_schema_version = $graph_schema_version
+          AND node.node_key IN $node_keys
+          AND node.external = true
+          AND node.placeholder = true
+          AND NOT (node)--()
+        DELETE node
+        """,
+        {
+            "tenant_id": str(context.tenant_id),
+            "graph_schema_version": GRAPH_SCHEMA_VERSION,
+            "node_keys": node_keys,
+        },
+    )
+    return len(node_keys)
+
+
 async def delete_source_scope(
     database: FalkorDBClient,
     source_scope_id: str,

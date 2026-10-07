@@ -68,11 +68,12 @@ def test_confluence_topology_includes_ancestry_and_attachments() -> None:
     assert {
         GraphEntityType.CONFLUENCE_SPACE,
         GraphEntityType.CONFLUENCE_PAGE,
-        GraphEntityType.CONFLUENCE_ATTACHMENT,
     } <= {node.entity_type for node in graph.nodes}
-    assert {"parent_of", "has_attachment", "has_version"} <= {
-        relation.relation_type.value for relation in graph.relations
-    }
+    relation_types = {relation.relation_type.value for relation in graph.relations}
+    assert {"parent_of", "has_version"} <= relation_types
+    # The page's attachment list draws nothing: each attachment owns page -> attachment.
+    assert "has_attachment" not in relation_types
+    assert GraphEntityType.CONFLUENCE_ATTACHMENT not in {node.entity_type for node in graph.nodes}
 
 
 def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links() -> None:

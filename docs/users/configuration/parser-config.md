@@ -8,9 +8,40 @@ blocks.
 
 ## Default parser registry
 
-`HarborParser` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, DOCX, Excel, CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
+`HarborParser` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, legacy PPT, DOCX, legacy DOC, ODT, Excel (including legacy XLS), CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
 
 An enabled catalog definition replaces the matching parser type in that default stack. Parser types not configured in YAML remain available.
+
+### Legacy Microsoft Office binary formats
+
+The `document`, `presentation`, and `spreadsheet` families read the pre-2007
+binary (OLE compound file) formats without LibreOffice or any other external
+converter. The `.doc` and `.ppt` engines need `olefile`, which the
+`parsers`, `document`, `presentation`, and `parsers-all` extras of
+`harborrag-adapters` install.
+
+| Format | Suffixes / MIME type | Engine | What is extracted |
+| --- | --- | --- | --- |
+| Word 97-2003 | `.doc` / `application/msword` | `doc` (olefile) | Body paragraphs and tables, headers/footers, text boxes, footnotes, endnotes, comments; field codes are removed and only their displayed result is kept |
+| PowerPoint 97-2003 | `.ppt`, `.pps` / `application/vnd.ms-powerpoint` | `ppt` (olefile) | One element per slide, plus speaker notes; master-slide placeholder prompts are skipped |
+| Excel 97-2003 | `.xls` / `application/vnd.ms-excel` | `excel` (xlrd) | One table per sheet |
+
+Limits:
+
+- Only Word 97 and later binary files are read. Word 6.0/95 files are rejected
+  as unsupported; re-save them as `.docx`.
+- Text written with legacy 8-bit Vietnamese fonts (TCVN3/ABC, VNI) is stored
+  as Latin-1 look-alike characters inside the file. It is extracted as stored
+  and is not converted to Unicode Vietnamese.
+- Password-protected or obfuscated files are rejected as password-protected.
+- The file content decides the parser, not its name: a `.doc` or `.ppt` that is
+  really a DOCX/PPTX package is handed to the DOCX/PPTX engine, and one that is
+  really RTF, HTML, or MHTML is rejected as unsupported.
+- Table cells in `.doc` files are recovered from cell and row marks without
+  reading table formatting, so tables with empty cells can shift a column.
+- Word and PowerPoint templates (`.dot`, `.pot`) route here only by their MIME
+  type: those suffixes are also Graphviz graphs and gettext templates, which keep
+  reaching the plain-text parser.
 
 ## Active LiteParse PDF parser
 

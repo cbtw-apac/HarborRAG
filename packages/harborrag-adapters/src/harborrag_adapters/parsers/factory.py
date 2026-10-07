@@ -8,6 +8,7 @@ from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.config import ParserConfig
 from harborrag_adapters.parsers.document.engines.docx.engine import DocxDocumentEngine
 from harborrag_adapters.parsers.document.engines.epub.engine import EpubDocumentEngine
+from harborrag_adapters.parsers.document.engines.msword.engine import MsWordBinaryDocumentEngine
 from harborrag_adapters.parsers.document.engines.odt.engine import OdtDocumentEngine
 from harborrag_adapters.parsers.document.parser import HarborDocumentParser
 from harborrag_adapters.parsers.errors import UnknownPDFEngineError
@@ -31,6 +32,9 @@ from harborrag_adapters.parsers.pdf.engines.paddleocr.config import PaddleOCRPDF
 from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import PaddleOCRPDFEngine
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
+from harborrag_adapters.parsers.presentation.engines.msppt.engine import (
+    MsPowerPointBinaryPresentationEngine,
+)
 from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import (
     PythonPptxPresentationEngine,
 )
@@ -92,12 +96,20 @@ class HarborParserFactory:
         pdf_config = config.pdf if isinstance(config.pdf, PDFParserConfig) else PDFParserConfig()
         families: list[HarborParser] = []
         if config.presentation.enabled:
-            families.append(HarborPresentationParser((PythonPptxPresentationEngine(),)))
+            families.append(
+                HarborPresentationParser(
+                    (
+                        PythonPptxPresentationEngine(),
+                        MsPowerPointBinaryPresentationEngine(),
+                    )
+                )
+            )
         if config.document.enabled:
             families.append(
                 HarborDocumentParser(
                     (
                         DocxDocumentEngine(),
+                        MsWordBinaryDocumentEngine(),
                         OdtDocumentEngine(),
                         EpubDocumentEngine(),
                     )
