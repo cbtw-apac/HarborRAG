@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
 from collections.abc import Iterable
 from dataclasses import dataclass
 from uuid import uuid4
 
-from harborrag_core.contracts.errors import HarborCapabilityError
+from harborrag_core.contracts.errors import HarborCapabilityError, HarborDeadlineExceeded
 from harborrag_core.contracts.reader import (
     EntityResolveResponse,
     EvidenceFetchResponse,
@@ -29,6 +30,12 @@ from .permissions import RetrievalPermissions
 from .validation import required_text
 
 _MAX_TOPOLOGY_READ = 256
+# A semantic path search is a BFS over canonical assertions. Without these bounds a
+# dense neighbourhood re-read the same entity once per route that reached it and grew
+# its queue combinatorially. The deadline matches the graph lanes' asyncio.timeout(10).
+_MAX_PATH_EXPANSIONS = 64
+_MAX_PATH_ROUTES = 512
+_PATH_SEARCH_SECONDS = 10.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +43,78 @@ class _Route:
     entity_id: str
     assertions: tuple[CanonicalAssertion, ...] = ()
     visited: frozenset[str] = frozenset()
+
+
+class _PathSearch:
+    """One bounded breadth-first path search.
+
+    ``_reads`` is the request-wide visited set: an entity's assertions are fetched
+    once, however many routes reach it. Routes themselves are not pruned by it --
+    two routes through the same intermediate are two paths -- only the queue cap
+    can drop one, and that is reported as ``truncated``.
+    """
+
+    def __init__(self, topology: TopologySearchPort, request: SemanticPathRequest) -> None:
+        self._topology = topology
+        self._request = request
+        self._reads: dict[str, tuple[CanonicalAssertion, ...]] = {}
+        self._queued = 1
+        self.truncated = False
+
+    async def run(self) -> tuple[tuple[CanonicalAssertion, ...], ...]:
+        request = self._request
+        start = request.start_entity_id
+        queue = deque([_Route(start, visited=frozenset({start}))])
+        paths: list[tuple[CanonicalAssertion, ...]] = []
+        while queue and len(paths) < request.limit:
+            route = queue.popleft()
+            if len(route.assertions) >= request.max_hops:
+                continue
+            for assertion in await self._assertions(route.entity_id):
+                extended = self._extend(route, assertion)
+                if extended is None:
+                    continue
+                if extended.entity_id == request.end_entity_id:
+                    paths.append(extended.assertions)
+                    if len(paths) == request.limit:
+                        self.truncated |= bool(queue)
+                        break
+                    continue
+                self._enqueue(queue, extended)
+        return tuple(paths)
+
+    async def _assertions(self, entity_id: str) -> tuple[CanonicalAssertion, ...]:
+        cached = self._reads.get(entity_id)
+        if cached is not None:
+            return cached
+        if len(self._reads) >= _MAX_PATH_EXPANSIONS:
+            self.truncated = True
+            return ()
+        rows = await self._topology.active_assertions(
+            str(self._request.access.tenant_id),
+            entity_ids=(entity_id,),
+            limit=_MAX_TOPOLOGY_READ,
+            access=self._request.access,
+        )
+        self.truncated |= len(rows) >= _MAX_TOPOLOGY_READ
+        self._reads[entity_id] = tuple(rows)
+        return self._reads[entity_id]
+
+    def _extend(self, route: _Route, assertion: CanonicalAssertion) -> _Route | None:
+        request = self._request
+        if request.predicates and assertion.observation.predicate not in request.predicates:
+            return None
+        next_id = _next_entity(assertion, route.entity_id, request.traversal)
+        if next_id is None or next_id in route.visited:
+            return None
+        return _Route(next_id, (*route.assertions, assertion), route.visited | {next_id})
+
+    def _enqueue(self, queue: deque[_Route], route: _Route) -> None:
+        if self._queued >= _MAX_PATH_ROUTES:
+            self.truncated = True
+            return
+        self._queued += 1
+        queue.append(route)
 
 
 class KnowledgeRetrieval:
@@ -158,44 +237,15 @@ class KnowledgeRetrieval:
     ) -> SemanticPathResponse:
         topology = self._require_topology()
         request_id = f"path-{uuid4().hex}"
-        queue = deque(
-            [
-                _Route(
-                    request.start_entity_id,
-                    visited=frozenset({request.start_entity_id}),
-                )
-            ]
-        )
-        paths: list[tuple[CanonicalAssertion, ...]] = []
-        truncated = False
-        while queue and len(paths) < request.limit:
-            route = queue.popleft()
-            if len(route.assertions) >= request.max_hops:
-                continue
-            assertions = await topology.active_assertions(
-                str(request.access.tenant_id),
-                entity_ids=(route.entity_id,),
-                limit=_MAX_TOPOLOGY_READ,
-                access=request.access,
-            )
-            truncated |= len(assertions) >= _MAX_TOPOLOGY_READ
-            for assertion in assertions:
-                if request.predicates and assertion.observation.predicate not in request.predicates:
-                    continue
-                next_id = _next_entity(assertion, route.entity_id, request.traversal)
-                if next_id is None or next_id in route.visited:
-                    continue
-                extended = (*route.assertions, assertion)
-                if next_id == request.end_entity_id:
-                    paths.append(extended)
-                    if len(paths) == request.limit:
-                        truncated |= bool(queue)
-                        break
-                    continue
-                queue.append(_Route(next_id, extended, route.visited | frozenset({next_id})))
-        assertions = tuple(item for path in paths for item in path)
-        mentions = await self._mentions_for_assertions(topology, assertions, request.access)
-        return SemanticPathResponse(request_id, tuple(paths), mentions, truncated)
+        search = _PathSearch(topology, request)
+        try:
+            async with asyncio.timeout(_PATH_SEARCH_SECONDS):
+                paths = await search.run()
+                assertions = tuple(item for path in paths for item in path)
+                mentions = await self._mentions_for_assertions(topology, assertions, request.access)
+        except TimeoutError as exc:
+            raise HarborDeadlineExceeded("semantic path search exceeded its time budget") from exc
+        return SemanticPathResponse(request_id, paths, mentions, search.truncated)
 
     async def _mentions_for_assertions(
         self,
