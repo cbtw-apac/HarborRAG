@@ -584,3 +584,59 @@ async def test_a_release_overtaken_by_a_newer_release_is_skipped_not_failed(
         assert stale.document_version_id is not None
         left = await control.document_versions.get_version(stale.document_version_id)
         assert left is not None and left.state == DocumentVersionState.VERIFIED
+
+
+@pytest.mark.asyncio
+async def test_release_adopts_an_unrecorded_representation_left_by_an_earlier_attempt(
+    tmp_path: Path,
+) -> None:
+    # An EncodeChunks attempt wrote its representation object and timed out before
+    # recording it; the retry re-embeds to different bytes. That used to fail
+    # permanently with a non-retryable "already contains different content".
+    from harborrag_adapters.repositories.object_store import (
+        ImmutableArtifact,
+        ImmutableArtifactReader,
+        ImmutableArtifactWriter,
+    )
+    from harborrag_core.storage import StorageOperationContext
+
+    from ...fixtures.release import build_release_resources
+
+    context = StorageOperationContext.system("default")
+    probe_control = build_control_plane(tmp_path / "probe")
+    probe = build_release_resources(probe_control)
+    async with probe_control, probe.store:
+        probe_service = build_release_service(probe)
+        await probe_service.provision(tenant_id="default")
+        baseline = await probe_service.release(
+            release_request(source_version="1"), SourceConnector()
+        )
+        assert baseline.document_version_id is not None
+        snapshot = await probe_control.document_versions.get_version(baseline.document_version_id)
+        assert snapshot is not None and snapshot.representation_artifact is not None
+        reference = snapshot.representation_artifact
+        earlier = await ImmutableArtifactReader(probe.store).get(reference, context=context)
+
+    control = build_control_plane(tmp_path / "retry")
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        await ImmutableArtifactWriter(resources.store).put(
+            ImmutableArtifact(
+                bucket=reference.bucket,
+                key=reference.key,
+                payload=earlier + b"\n",
+                media_type="application/octet-stream",
+                artifact_kind="chunk-representations",
+            ),
+            context=context,
+        )
+        service = build_release_service(resources)
+        await service.provision(tenant_id="default")
+
+        outcome = await service.release(release_request(source_version="1"), SourceConnector())
+
+        assert outcome.published is True
+        assert outcome.document_version_id == baseline.document_version_id
+        recorded = await control.document_versions.get_version(baseline.document_version_id)
+        assert recorded is not None and recorded.representation_artifact is not None
+        assert recorded.representation_artifact.sha256 != reference.sha256

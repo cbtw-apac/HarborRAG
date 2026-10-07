@@ -85,6 +85,7 @@ class ProjectionArtifactPort(Protocol):
         *,
         encoder_profile: str,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference: ...
 
     async def get_representation_set(

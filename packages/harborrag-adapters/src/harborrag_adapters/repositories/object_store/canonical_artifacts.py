@@ -168,16 +168,11 @@ class ProjectionArtifactRepository:
         context: StorageOperationContext,
     ) -> ArtifactReference:
         return await self._writer.put(
-            ImmutableArtifact(
-                bucket=ARTIFACT_BUCKET,
-                key=IngestionArtifactLayout.representation(
-                    document_id,
-                    document_version_id,
-                    encoder_profile,
-                ),
+            _representation_artifact(
+                document_id=document_id,
+                document_version_id=document_version_id,
+                encoder_profile=encoder_profile,
                 payload=payload,
-                media_type="application/octet-stream",
-                artifact_kind="chunk-representations",
             ),
             context=context,
         )
@@ -188,13 +183,24 @@ class ProjectionArtifactRepository:
         *,
         encoder_profile: str,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference:
-        return await self.put_representation(
-            document_id=str(representations.document_id),
-            document_version_id=str(representations.document_version_id),
-            encoder_profile=encoder_profile,
-            payload=representations.model_dump_json().encode("utf-8"),
+        """Write one encode's representations.
+
+        ``adopt_existing`` lets the first writer win, as for canonical documents:
+        embeddings are not byte-for-byte reproducible, so a retry that meets an object
+        an earlier attempt wrote but never recorded adopts it instead of failing.
+        """
+
+        return await self._writer.put(
+            _representation_artifact(
+                document_id=str(representations.document_id),
+                document_version_id=str(representations.document_version_id),
+                encoder_profile=encoder_profile,
+                payload=representations.model_dump_json().encode("utf-8"),
+            ),
             context=context,
+            adopt_existing=adopt_existing,
         )
 
     async def get_representation_set(
@@ -302,3 +308,23 @@ class ProjectionArtifactRepository:
         for record in records:
             reject_runtime_fields(record)
         return tuple(records)
+
+
+def _representation_artifact(
+    *,
+    document_id: str,
+    document_version_id: str,
+    encoder_profile: str,
+    payload: bytes,
+) -> ImmutableArtifact:
+    return ImmutableArtifact(
+        bucket=ARTIFACT_BUCKET,
+        key=IngestionArtifactLayout.representation(
+            document_id,
+            document_version_id,
+            encoder_profile,
+        ),
+        payload=payload,
+        media_type="application/octet-stream",
+        artifact_kind="chunk-representations",
+    )

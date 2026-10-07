@@ -130,10 +130,13 @@ class DocumentMaterializationStages:
             previous_chunks=previous_chunks,
             previous_representations=previous_representations,
         )
+        # Only reached while no representation is recorded, so nothing depends on
+        # an object an earlier attempt left at this key: adopt it (see capture).
         reference = await self._dependencies.projection_artifacts.put_representation_set(
             representations,
             encoder_profile=representation_artifact_name(representations),
             context=context,
+            adopt_existing=True,
         )
         await self._lifecycle.advance(
             prepared.document_version_id,

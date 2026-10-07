@@ -93,6 +93,7 @@ class ChunkReuseCoordinator:
                 representations,
                 encoder_profile=representation_artifact_name(representations),
                 context=context,
+                adopt_existing=True,
             )
             await self._lifecycle.advance(
                 prepared.document_version_id,

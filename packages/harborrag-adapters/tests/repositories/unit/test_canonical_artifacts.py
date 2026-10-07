@@ -29,6 +29,7 @@ from harborrag_core.ingestion import (
     GraphNodeRecord,
     GraphOwnershipScope,
     KnowledgeNodeKind,
+    RepresentationSet,
     VectorEvidenceRecord,
     VectorPayload,
 )
@@ -307,3 +308,44 @@ async def test_canonical_put_conflicts_on_different_bytes_unless_adopting() -> N
         assert adopted.key == first.key
         assert adopted.sha256 == first.sha256
         assert await repository.get(adopted, context=context()) == canonical_document()
+
+
+def _representations(dense_dimension: int) -> RepresentationSet:
+    return RepresentationSet(
+        document_id="document-1",
+        document_version_id="version-1",
+        dense_profile_id="dense-v1",
+        sparse_profile_id="bm25-v1",
+        dense_dimension=dense_dimension,
+        records=(),
+    )
+
+
+@pytest.mark.asyncio
+async def test_representation_put_conflicts_on_different_bytes_unless_adopting() -> None:
+    store = MemoryObjectStore()
+    async with store:
+        repository = ProjectionArtifactRepository(
+            ImmutableArtifactWriter(store),
+            ImmutableArtifactReader(store),
+        )
+        first = await repository.put_representation_set(
+            _representations(3), encoder_profile="dense-v1", context=context()
+        )
+        # A retried encode that is not byte-for-byte reproducible.
+        with pytest.raises(HarborConflictError):
+            await repository.put_representation_set(
+                _representations(4), encoder_profile="dense-v1", context=context()
+            )
+        adopted = await repository.put_representation_set(
+            _representations(4),
+            encoder_profile="dense-v1",
+            context=context(),
+            adopt_existing=True,
+        )
+
+        assert adopted.key == first.key
+        assert adopted.sha256 == first.sha256
+        assert await repository.get_representation_set(adopted, context=context()) == (
+            _representations(3)
+        )
