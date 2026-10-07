@@ -6,6 +6,7 @@ import asyncio
 import logging
 
 from harborrag_core.ingestion import (
+    DocumentVersionSnapshot,
     DocumentVersionState,
     ProjectionManifest,
     ProjectionVerificationError,
@@ -238,6 +239,8 @@ class DocumentProjectionStages:
         active = await self._dependencies.control.document_versions.active_snapshot(
             prepared.document_id
         )
+        if _superseded_before_publish(snapshot, prepared, active):
+            return _superseded_outcome(prepared)
         self._publication.require_publishable(
             decision=prepared.decision,
             state=snapshot.state,
@@ -256,16 +259,7 @@ class DocumentProjectionStages:
         except PublicationSupersededError:
             # Another release moved the pointer after this candidate read it. The
             # newer version stands; this one stays VERIFIED with invisible projections.
-            logger.info(
-                "Document publication superseded document_id=%s document_version_id=%s",
-                prepared.document_id,
-                prepared.document_version_id,
-            )
-            return DocumentReleaseOutcome(
-                document_id=prepared.document_id,
-                document_version_id=prepared.document_version_id,
-                decision=prepared.decision,
-            )
+            return _superseded_outcome(prepared)
         if not prepared.requires_processing:
             return DocumentReleaseOutcome(
                 document_id=prepared.document_id,
@@ -312,3 +306,41 @@ class DocumentProjectionStages:
                 manifest.document_version_id,
                 type(error).__name__,
             )
+
+
+def _superseded_before_publish(
+    snapshot: DocumentVersionSnapshot,
+    prepared: PreparedDocumentStage,
+    active: DocumentVersionSnapshot | None,
+) -> bool:
+    """Whether a newer version already won, before the publishable check refuses.
+
+    A RETIRED candidate was published once and then replaced: a retried publish
+    whose first attempt committed but never acked meets it so. A VERIFIED one whose
+    recorded base is no longer the pointer lost the compare-and-set. Both are the
+    newer version standing, not a failed document.
+    """
+
+    if snapshot.state == DocumentVersionState.RETIRED:
+        return True
+    current = active_version_id(active)
+    return (
+        snapshot.state == DocumentVersionState.VERIFIED
+        and current is not None
+        and current != str(prepared.document_version_id)
+        and prepared.publication_base_known
+        and prepared.expected_active_document_version_id != current
+    )
+
+
+def _superseded_outcome(prepared: PreparedDocumentStage) -> DocumentReleaseOutcome:
+    logger.info(
+        "Document publication superseded document_id=%s document_version_id=%s",
+        prepared.document_id,
+        prepared.document_version_id,
+    )
+    return DocumentReleaseOutcome(
+        document_id=prepared.document_id,
+        document_version_id=prepared.document_version_id,
+        decision=prepared.decision,
+    )
