@@ -14,6 +14,7 @@ from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     BindingKind,
     DiscoveredSourceItem,
+    PublicationSupersededError,
     SourceAdmissionDecision,
     SourceBinding,
     SourceIdentity,
@@ -423,3 +424,93 @@ async def test_removal_reconciles_every_stale_item_across_statement_chunks(
                 source_item_id=item.source_identity.source_item_id,
             )
             assert stored is not None and stored.active is False
+
+
+async def _bound_and_seen(control_plane, value) -> str:  # type: ignore[no-untyped-def]
+    """Register the scope and record ``value`` as seen by one completed scan."""
+
+    scans = control_plane.source_scans
+    await scans.register_scope(
+        source_scope_id="scope-engineering",
+        connector_type="confluence",
+        connection_id="wiki.example",
+        configuration_fingerprint="config-v1",
+    )
+    scan_id = await scans.start("scope-engineering")
+    await scans.record_seen(
+        scan_id=scan_id,
+        item=DiscoveredSourceItem(
+            source_identity=value.source_identity,
+            document_id=value.document_id,
+            source_version="1",
+            admission_change_key=value.fingerprints.admission_change_key,
+        ),
+    )
+    await scans.complete(scan_id)
+    return scan_id
+
+
+@pytest.mark.asyncio
+async def test_publication_refuses_a_document_whose_source_bindings_were_all_removed(
+    tmp_path: Path,
+) -> None:
+    # A first-time release races its own removal: its base (no active version) is
+    # still current, but publishing would resurrect a document the source dropped.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("removed before publication")
+        await _bound_and_seen(control_plane, value)
+        await advance_to_verified(control_plane, value)
+        missed = await control_plane.source_scans.start("scope-engineering")
+        await control_plane.source_scans.complete(missed)
+        assert await control_plane.source_scans.reconcile_removals(missed, missing_threshold=1) == (
+            str(value.document_id),
+        )
+
+        with pytest.raises(PublicationSupersededError, match="removed"):
+            await control_plane.publisher.publish(
+                document_id=str(value.document_id),
+                candidate_document_version_id=str(value.document_version_id),
+                expected_active_document_version_id=None,
+            )
+
+        assert await control_plane.document_versions.active_versions([str(value.document_id)]) == {}
+
+
+@pytest.mark.asyncio
+async def test_publication_ignores_documents_that_were_never_scanned(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("no source bindings at all")
+        await advance_to_verified(control_plane, value)
+
+        published = await publish_over_active(
+            control_plane, str(value.document_id), str(value.document_version_id)
+        )
+
+        assert published.active_document_version_id == value.document_version_id
+
+
+@pytest.mark.asyncio
+async def test_removed_retirement_leaves_a_document_that_is_bound_again(
+    tmp_path: Path,
+) -> None:
+    # Reconciliation returned the document, then a newer scan saw it again before
+    # finalization retired it: the source has it, so it must stay published.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("seen again")
+        await _bound_and_seen(control_plane, value)
+        await advance_to_verified(control_plane, value)
+        await publish_over_active(
+            control_plane, str(value.document_id), str(value.document_version_id)
+        )
+
+        result = await control_plane.publisher.retire_removed(document_id=str(value.document_id))
+
+        assert result.retired_document_version_id is None
+        assert result.replayed is True
+        active = await control_plane.document_versions.active_versions([str(value.document_id)])
+        assert active[str(value.document_id)].document_version_id == value.document_version_id

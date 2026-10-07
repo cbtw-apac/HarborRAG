@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import insert, select, update
+from sqlalchemy import case, func, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -18,7 +18,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
-from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS
+from .schema import DOCUMENT_VERSIONS, DOCUMENTS, PROJECTION_CLEANUP_JOBS, SOURCE_ITEMS
 from .summary_intent import invalidate_summary_scope, lock_summary_tenant
 from .topology.intent import enqueue_intent
 
@@ -94,6 +94,7 @@ class DocumentVersionPublisher:
                 current_active=current_active,
                 expected_active=expected_active_document_version_id,
             )
+            await _require_source_present(session, document_id)
 
             now = utc_now()
             retired_version_id = (
@@ -190,6 +191,12 @@ class DocumentVersionPublisher:
                 )
             active_version = document["active_document_version_id"]
             if active_version is None:
+                return DocumentRetirementResult(
+                    document_id=DocumentId(document_id),
+                    replayed=True,
+                )
+            if await _has_active_binding(session, document_id):
+                # Seen again since reconciliation listed it: the source still has it.
                 return DocumentRetirementResult(
                     document_id=DocumentId(document_id),
                     replayed=True,
@@ -292,3 +299,38 @@ def _require_base(
             f"document {document_id} moved from {expected_active or 'no active version'} "
             f"to {current_active or 'no active version'} after its candidate was built"
         )
+
+
+async def _binding_counts(session: AsyncSession, document_id: str) -> tuple[int, int]:
+    """(all, active) source bindings of one document.
+
+    A plain read, not a lock: reconciliation locks ``source_items`` first, and a
+    publisher that did too would close a new lock cycle. The commit order is what
+    keeps this sound -- reconciliation commits ``is_active = False`` before anything
+    is retired, so a publish that reads it refuses, and a publish that commits first
+    is retired by the retirement that follows.
+    """
+
+    row = (
+        await session.execute(
+            select(
+                func.count(),
+                func.coalesce(
+                    func.sum(case((SOURCE_ITEMS.c.is_active.is_(True), 1), else_=0)),
+                    0,
+                ),
+            ).where(SOURCE_ITEMS.c.document_id == document_id)
+        )
+    ).one()
+    return int(row[0]), int(row[1])
+
+
+async def _require_source_present(session: AsyncSession, document_id: str) -> None:
+    bindings, active = await _binding_counts(session, document_id)
+    if bindings and not active:
+        raise PublicationSupersededError(f"document {document_id} was removed from its source")
+
+
+async def _has_active_binding(session: AsyncSession, document_id: str) -> bool:
+    _, active = await _binding_counts(session, document_id)
+    return active > 0
