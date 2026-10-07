@@ -16,6 +16,14 @@ from harborrag_runtime.ingestion.runtime_builder import (
     build_ingestion_runtime,
 )
 
+# CI runs each package's tests from its own directory, so the relative
+# `config/...` defaults would not resolve there: read the repository's own files.
+_REPO_ROOT = Path(__file__).resolve().parents[5]
+_REPOSITORY_CONFIGS = {
+    "parser_config_path": _REPO_ROOT / "config" / "parsers.yaml",
+    "graph_build_config_path": _REPO_ROOT / "config" / "topology" / "graph_build.yaml",
+}
+
 
 @dataclass(frozen=True)
 class _Sentinel:
@@ -117,6 +125,7 @@ def test_build_wires_injected_infrastructure_into_every_service(
         connector_config_path=wired.connector_config,
         model_config_path=Path("models-under-test.yaml"),
         retired_version_retention_days=9,
+        **_REPOSITORY_CONFIGS,
     )
 
     runtime = IngestionRuntimeBuilder(settings, normalizer_builder=normalizers).build()
@@ -159,7 +168,7 @@ def test_build_ingestion_runtime_uses_the_supplied_settings(
     wired: SimpleNamespace,
 ) -> None:
     runtime = build_ingestion_runtime(
-        RuntimeSettings(connector_config_path=wired.connector_config),
+        RuntimeSettings(connector_config_path=wired.connector_config, **_REPOSITORY_CONFIGS),
         normalizer_builder=_FakeNormalizerBuilder(),
     )
 
