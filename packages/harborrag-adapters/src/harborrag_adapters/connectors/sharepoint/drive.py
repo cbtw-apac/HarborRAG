@@ -52,7 +52,7 @@ class SharePointDriveAPI:
     ) -> Iterator[SourceRecord]:
         """Return records for a direct drive item ID, descending into folders."""
         item = self.get_item(str(drive["id"]), item_id)
-        self.require_within_root(item)
+        self.require_within_root(item, item_id)
         if is_drive_file(item):
             if self.should_process_file(item, query):
                 yield build_source_record(
@@ -93,10 +93,9 @@ class SharePointDriveAPI:
         while pending:
             current_item_id, current_path = pending.pop()
             folder_ids: list[str] = []
-            for item in self.iter_children(drive_id, item_id=current_item_id, path=current_path):
-                if not item_within_root(item, self.config.root_path):
-                    logger.debug("Skipping SharePoint item outside root_path %s", item_name(item))
-                    continue
+            for item in self._children_within_root(
+                drive_id, item_id=current_item_id, path=current_path
+            ):
                 if is_drive_file(item):
                     if self.should_process_file(item, query):
                         yield build_source_record(
@@ -117,6 +116,26 @@ class SharePointDriveAPI:
 
             for child_id in reversed(folder_ids):
                 pending.append((child_id, None))
+
+    def _children_within_root(
+        self,
+        drive_id: str,
+        *,
+        item_id: str | None,
+        path: str | None,
+    ) -> Iterator[dict[str, Any]]:
+        """Yield children under ``root_path``; warn once per folder about the rest."""
+        skipped = 0
+        for item in self.iter_children(drive_id, item_id=item_id, path=path):
+            if item_within_root(item, self.config.root_path):
+                yield item
+            else:
+                skipped += 1
+        if skipped:
+            logger.warning(
+                "Skipped %d SharePoint items outside root_path (or without a parent path)",
+                skipped,
+            )
 
     def iter_children(
         self,
@@ -288,12 +307,14 @@ class SharePointDriveAPI:
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
             )
 
-    def require_within_root(self, item: dict[str, Any]) -> None:
-        """Refuse an item addressed by ID that lies outside ``config.root_path``."""
+    def require_within_root(self, item: dict[str, Any], item_id: str) -> None:
+        """Refuse an item addressed by ID that lies outside ``config.root_path``.
+
+        The message carries only the caller-supplied ID, never fetched names or paths.
+        """
         if not item_within_root(item, self.config.root_path):
             raise DocumentProcessingError(
-                f"SharePoint item {item_name(item)!r} is outside configured root_path "
-                f"{self.config.root_path!r}"
+                f"SharePoint item {item_id!r} is outside the configured root_path"
             )
 
     def record_for_item_id(self, item_id: str) -> SourceRecord:

@@ -47,7 +47,13 @@ def test_scoped_drive_root_rejects_prefix_siblings_and_accepts_case_and_encoding
     with pytest.raises(ValueError, match="outside configured root_path"):
         scoped_drive_root("Docs", "Docs-secret")
     assert scoped_drive_root("Docs", "DOCS/Runbooks") == "DOCS/Runbooks"
-    assert scoped_drive_root("Shared Docs", "Shared%20Docs/Runbooks") == "Shared%20Docs/Runbooks"
+    assert scoped_drive_root("Shared Docs", "Shared%20Docs/Runbooks") == "Shared Docs/Runbooks"
+
+
+@pytest.mark.parametrize("requested", ["Docs%2F..%2FPrivate", "Docs/%2e%2e/Private"])
+def test_scoped_drive_root_rejects_encoded_parent_segments(requested):
+    with pytest.raises(ValueError, match=r"'\.\.'"):
+        scoped_drive_root("Docs", requested)
 
 
 def test_item_within_root_normalises_encoding_and_case():
@@ -93,8 +99,11 @@ def test_discover_rejects_item_ids_outside_root():
     client.add("drives/drive1/items/secret", private_file())
     connector = SharePointConnector(config(root_path="Docs"), client=client)
 
-    with pytest.raises(DocumentProcessingError, match="outside configured root_path"):
+    with pytest.raises(DocumentProcessingError, match="outside the configured root_path") as exc:
         list(connector.discover(ConnectorQuery(filters={"item_ids": ["secret"]})))
+    assert "'secret'" in str(exc.value)
+    assert "Payroll" not in str(exc.value)
+    assert "Private" not in str(exc.value)
 
 
 def test_discover_rejects_root_item_id_outside_root():
@@ -103,7 +112,7 @@ def test_discover_rejects_root_item_id_outside_root():
     client.add("drives/drive1/items/folder-x", folder_item("folder-x", "Private"))
     connector = SharePointConnector(config(root_path="Docs"), client=client)
 
-    with pytest.raises(DocumentProcessingError, match="outside configured root_path"):
+    with pytest.raises(DocumentProcessingError, match="outside the configured root_path"):
         list(connector.discover(ConnectorQuery(filters={"root_item_id": "folder-x"})))
     assert not [call for call in client.calls if "children" in call[0]]
 
@@ -128,7 +137,7 @@ def test_load_rejects_item_outside_root_before_download():
     client.add("drives/drive1/items/secret", private_file())
     connector = SharePointConnector(config(root_path="Docs"), client=client)
 
-    with pytest.raises(DocumentProcessingError, match="outside configured root_path"):
+    with pytest.raises(DocumentProcessingError, match="outside the configured root_path") as exc:
         connector.load(
             SourceRecord(
                 "sharepoint://site1/drive1/secret",
@@ -137,5 +146,15 @@ def test_load_rejects_item_outside_root_before_download():
                 metadata={"drive_id": "drive1", "item_id": "secret"},
             )
         )
+    assert "Payroll" not in str(exc.value)
     assert client.byte_calls == []
     assert not [call for call in client.calls if call[0].endswith("/permissions")]
+
+
+def test_encoded_query_path_is_requested_from_graph_encoded_once():
+    client = FakeGraphClient()
+    add_site_and_default_drive(client)
+    client.add("drives/drive1/root:/Shared%20Docs/Runbooks:/children", {"value": []})
+    connector = SharePointConnector(config(root_path="Shared Docs"), client=client)
+
+    assert list(connector.discover(ConnectorQuery(path="Shared%20Docs/Runbooks"))) == []

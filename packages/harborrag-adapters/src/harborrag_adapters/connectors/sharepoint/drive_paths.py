@@ -131,11 +131,15 @@ def item_path(item: dict[str, Any]) -> str:
 
 
 def scoped_drive_root(configured: str | None, requested: str | None) -> str:
-    """Return the traversal root; a query path may narrow but never widen the config root."""
-    root = normalize_drive_path(configured)
+    """Return the decoded traversal root; a query path may narrow but never widen the config root.
+
+    Both paths are percent-decoded once and validated in that decoded form, and the decoded
+    form is what callers use, so Graph endpoint encoding happens exactly once.
+    """
+    root = normalize_drive_path(unquote(configured or ""))
     if not requested:
         return root
-    candidate = normalize_drive_path(requested)
+    candidate = normalize_drive_path(unquote(requested))
     if root and not _path_under(candidate, root):
         raise ValueError(f"query path {requested!r} is outside configured root_path {configured!r}")
     return candidate
@@ -143,19 +147,19 @@ def scoped_drive_root(configured: str | None, requested: str | None) -> str:
 
 def item_within_root(item: dict[str, Any], root_path: str | None) -> bool:
     """Return whether a Graph item lies under ``root_path`` (fail closed without a path)."""
-    root = normalize_drive_path(root_path)
+    root = normalize_drive_path(unquote(root_path or ""))
     if not root:
         return True
     parent_path = str((item.get("parentReference") or {}).get("path") or "")
     if "root:" not in parent_path:
         return False
-    return _path_under(item_path(item), root)
+    return _path_under(unquote(item_path(item)), root)
 
 
 def _path_under(path: str, root: str) -> bool:
-    """Case-insensitive, percent-decoded containment (SharePoint paths are both)."""
-    candidate = unquote(path).casefold()
-    folded_root = unquote(root).casefold()
+    """Case-insensitive containment of already-decoded paths (SharePoint paths are caseless)."""
+    candidate = path.casefold()
+    folded_root = root.casefold()
     return candidate == folded_root or candidate.startswith(f"{folded_root}/")
 
 

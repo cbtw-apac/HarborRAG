@@ -105,7 +105,9 @@ class SharePointConnector(BaseConnector):
         root_path = scoped_drive_root(self.config.root_path, query.path)
         root_item_id = self._root_item_id_from_query(query)
         if root_item_id and self.config.root_path:
-            self._drive.require_within_root(self._drive.get_item(str(drive["id"]), root_item_id))
+            self._drive.require_within_root(
+                self._drive.get_item(str(drive["id"]), root_item_id), root_item_id
+            )
         yield from self._drive.walk_children(
             site=site,
             drive=drive,
@@ -144,7 +146,7 @@ class SharePointConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"SharePoint drive item {item_id} is not a downloadable file"
             )
-        self._drive.require_within_root(item)
+        self._drive.require_within_root(item, item_id)
         self._drive.enforce_size_limit(item)
         acl = self._permissions.item_acl(drive_id, item_id)
         self._gate.require(acl, path=item_id)
