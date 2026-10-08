@@ -174,3 +174,16 @@ def test_attachment_load_checks_the_open_parent_with_one_descriptor_read():
     assert [(endpoint, params) for endpoint, params in client.get_calls] == [
         ("issue/ENG-2", {"fields": ",".join(DESCRIPTOR_FIELDS)})
     ]
+
+
+def test_include_policy_labels_attachment_with_the_parent_acl_read_at_load():
+    client = RecordingJiraClient()
+    client.add_get("issue/ENG-2", secured("ENG-2"))
+    client.downloads[attachment_record().metadata["download_url"]] = b"notes"
+    connector = JiraConnector(
+        cloud_config(include_attachments=True, restricted_content="include"), client=client
+    )
+
+    document = connector.load(attachment_record())
+
+    assert document.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "10100"

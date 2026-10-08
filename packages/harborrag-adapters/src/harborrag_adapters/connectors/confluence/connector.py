@@ -6,7 +6,12 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
+from harborrag_adapters.connectors.acl import (
+    SOURCE_ACL_METADATA_KEY,
+    RestrictedContentGate,
+    SourceAcl,
+    acl_metadata,
+)
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -279,7 +284,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             self._access.page_acl(content), path=content_id
         )
 
-    def _require_parent_access(self, record: SourceRecord) -> None:
+    def _require_parent_access(self, record: SourceRecord) -> SourceAcl:
         """Re-check the parent page's access before downloading an attachment.
 
         The page (or an ancestor) may have been restricted since discovery; one
@@ -288,8 +293,9 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         """
 
         parent_id = attachment_parent_locator(record)
-        parent = self._content.get_content_descriptor(parent_id)
-        self._gate.require(self._access.page_acl(parent), path=parent_id)
+        acl = self._access.page_acl(self._content.get_content_descriptor(parent_id))
+        self._gate.require(acl, path=parent_id)
+        return acl
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
@@ -300,8 +306,11 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
                 or record.metadata.get("include_attachments") is False
             ):
                 raise DocumentProcessingError("Confluence attachment loading is disabled")
-            self._require_parent_access(record)
+            parent_acl = self._require_parent_access(record)
             document = self._attachment_loader.load(record)
+            # The parent's ACL read just now replaces whatever the record carried.
+            document.metadata.pop(SOURCE_ACL_METADATA_KEY, None)
+            document.metadata.update(acl_metadata(parent_acl))
             logger.info("Confluence attachment loaded source_id=%s", record.id)
             return document
         content_id = content_id_from_record(record)

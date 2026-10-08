@@ -407,3 +407,31 @@ def test_attachment_load_rejects_a_parent_page_restricted_since_discovery():
         connector.load(confluence_attachment_record())
     assert client.calls == [("content/1", {"expand": DESCRIPTOR_EXPAND})]
     assert downloads == []
+
+
+def test_include_policy_labels_attachment_with_the_parent_acl_read_at_load():
+    client = FakeConfluenceClient()
+    client.add("content/1", restricted_page("1", groups=("group-a",)))
+    client.downloads[f"{CLOUD_BASE}/download/attachments/1/notes.md"] = b"notes"
+    connector = ConfluenceConnector(
+        cloud_config(include_attachments=True, restricted_content="include"), client=client
+    )
+
+    document = connector.load(confluence_attachment_record())
+
+    assert document.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "id-group-a"
+
+
+def test_attachment_of_a_parent_reopened_since_discovery_drops_its_stale_acl():
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Open"))
+    client.downloads[f"{CLOUD_BASE}/download/attachments/1/notes.md"] = b"notes"
+    connector = ConfluenceConnector(
+        cloud_config(include_attachments=True, restricted_content="include"), client=client
+    )
+    record = confluence_attachment_record()
+    record.metadata[SOURCE_ACL_METADATA_KEY] = {"status": "restricted", "levels": [], "reason": "x"}
+
+    document = connector.load(record)
+
+    assert SOURCE_ACL_METADATA_KEY not in document.metadata

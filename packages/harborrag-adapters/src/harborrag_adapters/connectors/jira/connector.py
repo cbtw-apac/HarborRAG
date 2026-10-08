@@ -6,7 +6,12 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
+from harborrag_adapters.connectors.acl import (
+    SOURCE_ACL_METADATA_KEY,
+    RestrictedContentGate,
+    SourceAcl,
+    acl_metadata,
+)
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -244,7 +249,7 @@ class JiraConnector(BaseConnector):
         )
         return page
 
-    def _require_parent_access(self, record: SourceRecord) -> None:
+    def _require_parent_access(self, record: SourceRecord) -> SourceAcl:
         """Re-check the parent issue's access before downloading an attachment.
 
         The parent may have been secured since discovery; one descriptor read
@@ -252,8 +257,9 @@ class JiraConnector(BaseConnector):
         """
 
         parent_key = attachment_parent_locator(record)
-        parent = self._issues.get_issue_descriptor(parent_key)
-        self._gate.require(issue_acl(parent), path=parent_key)
+        acl = issue_acl(self._issues.get_issue_descriptor(parent_key))
+        self._gate.require(acl, path=parent_key)
+        return acl
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one JIRA issue as a text/markdown raw document."""
@@ -264,8 +270,11 @@ class JiraConnector(BaseConnector):
                 or record.metadata.get("include_attachments") is False
             ):
                 raise DocumentProcessingError("JIRA attachment loading is disabled")
-            self._require_parent_access(record)
+            parent_acl = self._require_parent_access(record)
             document = self._attachment_loader.load(record)
+            # The parent's ACL read just now replaces whatever the record carried.
+            document.metadata.pop(SOURCE_ACL_METADATA_KEY, None)
+            document.metadata.update(acl_metadata(parent_acl))
             logger.info("JIRA attachment loaded source_id=%s", record.id)
             return document
         issue_key = issue_key_from_record(record)
