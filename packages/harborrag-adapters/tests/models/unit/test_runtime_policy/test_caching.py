@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -136,3 +140,29 @@ def test_cache_keys_are_deterministic_and_tenant_partitioned() -> None:
 
     assert key_one == key_two
     assert key_one != other_tenant
+
+
+def test_configuration_fingerprint_is_stable_across_hash_seeds() -> None:
+    """Every worker sharing a Redis cache must derive the same namespace."""
+
+    support_dir = Path(__file__).resolve().parents[1]
+    script = (
+        "import sys\n"
+        "sys.path.insert(0, sys.argv[1])\n"
+        "from model_runtime_support import chat_config, embed_config, rerank_config\n"
+        "from harborrag_adapters.models.runtime.cache import configuration_cache_fingerprint\n"
+        "print(','.join(configuration_cache_fingerprint(c)"
+        " for c in (chat_config(), embed_config(), rerank_config())))\n"
+    )
+    digests = {
+        subprocess.run(
+            [sys.executable, "-c", script, str(support_dir)],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout.strip()
+        for seed in ("1", "2", "3")
+    }
+
+    assert len(digests) == 1

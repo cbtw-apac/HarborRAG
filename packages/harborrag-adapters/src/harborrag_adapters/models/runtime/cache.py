@@ -142,8 +142,8 @@ class ResponseCacheController:
         config: CacheConfig,
         *,
         family: str,
+        configuration_fingerprint: str | None,
         backend: ModelResponseCache | None = None,
-        configuration_fingerprint: str | None = None,
     ) -> None:
         """Bind cache policy to one model family and optional backend."""
 
@@ -254,12 +254,35 @@ class ResponseCacheController:
 def configuration_cache_fingerprint(config: BaseModel) -> str:
     """Invalidate shared caches when routing, models, or generation configuration changes.
 
-    Pydantic's JSON serialization masks secret values; credentials never appear in
-    the returned identity. Request messages remain hashed by deterministic_cache_key.
+    The digest must be identical in every worker that shares a Redis cache or a
+    Redis single-flight lock. Pydantic's JSON mode serializes ``frozenset`` fields
+    in hash-seed-dependent order, so the configuration is dumped in Python mode and
+    sets are sorted here. Secret values are masked, so credentials never contribute
+    to the identity. Request messages remain hashed by deterministic_cache_key.
     """
 
-    encoded = json.dumps(config.model_dump(mode="json"), sort_keys=True).encode()
+    encoded = json.dumps(
+        config.model_dump(mode="python"),
+        sort_keys=True,
+        separators=(",", ":"),
+        default=_fingerprint_value,
+    ).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _fingerprint_value(value: Any) -> Any:
+    """Encode values JSON cannot represent, ordering sets and masking secrets."""
+
+    if isinstance(value, (set, frozenset)):
+        return sorted(
+            value,
+            key=lambda item: json.dumps(item, sort_keys=True, default=_fingerprint_value),
+        )
+    if isinstance(value, SecretStr):
+        return "**********"
+    if isinstance(value, Enum):
+        return value.value
+    return str(value)
 
 
 def deterministic_cache_key(

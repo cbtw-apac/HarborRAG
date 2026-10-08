@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from model_runtime_support import FakeRerankInvocation, rerank_config
 
-from harborrag_adapters.models.rerank import HarborRerankingClient
+from harborrag_adapters.models.rerank import HarborRerankClientConfig, HarborRerankingClient
 from harborrag_adapters.models.rerank.configs import HarborRerankProviderConfig
 from harborrag_adapters.models.rerank.registry import HarborRerankProvider
+from harborrag_adapters.models.runtime.cache import InMemoryModelCache
 from harborrag_adapters.models.runtime.config import CacheConfig, RetryPolicyConfig
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.capabilities import HarborRerankCapabilities
@@ -156,3 +158,46 @@ async def test_rerank_same_deployment_retry_and_nonretryable_error() -> None:
             "q", ["a"]
         )
     assert len(failed.calls) == 1
+
+
+def _rerank_with_deployment(
+    config: HarborRerankClientConfig, **updates: Any
+) -> HarborRerankClientConfig:
+    """Return the config with its single primary deployment changed."""
+    model = config.models["primary"]
+    replaced = model.deployments[0].model_copy(update=updates)
+    return config.model_copy(
+        update={"models": {"primary": model.model_copy(update={"deployments": (replaced,)})}}
+    )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        lambda config: _rerank_with_deployment(config, model="cohere/rerank-other"),
+        lambda config: _rerank_with_deployment(config, api_base="https://rerank.example.test/v1"),
+    ],
+    ids=["provider-model", "api-base"],
+)
+def test_shared_rerank_cache_is_partitioned_by_configuration(
+    variant: Callable[[HarborRerankClientConfig], HarborRerankClientConfig],
+) -> None:
+    base = rerank_config(cache=CacheConfig(enabled=True, ttl_seconds=30))
+    shared = InMemoryModelCache()
+    request = HarborRerankRequest(
+        query="q",
+        documents=({"content": "a", "document_id": "a"},),
+        metadata={"tenant_id": "tenant"},
+        cacheable=True,
+    )
+    HarborRerankingClient(
+        base, invocation=FakeRerankInvocation([raw_rerank(0.5)]), cache=shared
+    ).rerank(request=request)
+
+    repointed = FakeRerankInvocation([raw_rerank(0.9)])
+    response = HarborRerankingClient(variant(base), invocation=repointed, cache=shared).rerank(
+        request=request
+    )
+
+    assert response.cache_hit is False
+    assert len(repointed.calls) == 1

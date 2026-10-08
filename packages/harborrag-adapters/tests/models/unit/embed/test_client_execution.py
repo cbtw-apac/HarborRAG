@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import pytest
 from model_runtime_support import FakeEmbeddingInvocation, embed_config
 
-from harborrag_adapters.models.embed import HarborEmbedClient
+from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.embed.configs import HarborEmbedProviderConfig
 from harborrag_adapters.models.embed.registry import HarborEmbedProvider
+from harborrag_adapters.models.runtime.cache import InMemoryModelCache
 from harborrag_adapters.models.runtime.config import CacheConfig, RetryPolicyConfig
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
@@ -181,3 +183,68 @@ async def test_async_embedding_retry_and_error_path() -> None:
     with pytest.raises(HarborEmbedProviderError):
         await HarborEmbedClient(embed_config(retry=retry), invocation=failed).aembed("x")
     assert len(failed.calls) == 1
+
+
+def _with_deployment(config: HarborEmbedClientConfig, **updates: Any) -> HarborEmbedClientConfig:
+    """Return the config with its single primary deployment changed."""
+    model = config.models["primary"]
+    replaced = model.deployments[0].model_copy(update=updates)
+    return config.model_copy(
+        update={"models": {"primary": model.model_copy(update={"deployments": (replaced,)})}}
+    )
+
+
+def _with_space(config: HarborEmbedClientConfig, space: str) -> HarborEmbedClientConfig:
+    """Return the config with the primary model moved to another embedding space."""
+    model = config.models["primary"]
+    return config.model_copy(
+        update={"models": {"primary": model.model_copy(update={"embedding_space": space})}}
+    )
+
+
+@pytest.mark.parametrize(
+    "variant",
+    [
+        lambda config: _with_deployment(config, model="openai/text-embedding-other"),
+        lambda config: _with_deployment(config, api_base="https://embeddings.example.test/v1"),
+        lambda config: _with_space(config, "other-space"),
+    ],
+    ids=["provider-model", "api-base", "embedding-space"],
+)
+def test_shared_embed_cache_is_partitioned_by_configuration(
+    variant: Callable[[HarborEmbedClientConfig], HarborEmbedClientConfig],
+) -> None:
+    base = embed_config(cache=CacheConfig(enabled=True, ttl_seconds=30))
+    shared = InMemoryModelCache()
+    request = HarborEmbedRequest(
+        inputs=("hello",), metadata={"tenant_id": "tenant"}, cacheable=True
+    )
+    HarborEmbedClient(
+        base, invocation=FakeEmbeddingInvocation([raw_batch([1, 0, 0])]), cache=shared
+    ).embed(request=request)
+
+    repointed = FakeEmbeddingInvocation([raw_batch([0, 1, 0])])
+    response = HarborEmbedClient(variant(base), invocation=repointed, cache=shared).embed(
+        request=request
+    )
+
+    assert response.cache_hit is False
+    assert response.embeddings[0].value == (0.0, 1.0, 0.0)
+    assert len(repointed.calls) == 1
+
+
+def test_shared_embed_cache_hits_for_identical_configuration() -> None:
+    config = embed_config(cache=CacheConfig(enabled=True, ttl_seconds=30))
+    shared = InMemoryModelCache()
+    request = HarborEmbedRequest(
+        inputs=("hello",), metadata={"tenant_id": "tenant"}, cacheable=True
+    )
+    HarborEmbedClient(
+        config, invocation=FakeEmbeddingInvocation([raw_batch([1, 0, 0])]), cache=shared
+    ).embed(request=request)
+
+    again = FakeEmbeddingInvocation([])
+    response = HarborEmbedClient(config, invocation=again, cache=shared).embed(request=request)
+
+    assert response.cache_hit is True
+    assert again.calls == []
