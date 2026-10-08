@@ -24,13 +24,18 @@ def format_query_timestamp(value: datetime) -> str:
     return value.astimezone(UTC).strftime("%Y/%m/%d %H:%M")
 
 
+READ_RESTRICTIONS_EXPAND = (
+    "restrictions.read.restrictions.user,restrictions.read.restrictions.group"
+)
 CONTENT_EXPAND = (
     "body.storage,body.export_view,version,metadata.labels,history,space,"
-    "extensions.position,ancestors,children.page"
+    f"extensions.position,ancestors,children.page,{READ_RESTRICTIONS_EXPAND}"
 )
 CLOUD_CONTENT_EXPAND = f"body.atlas_doc_format,{CONTENT_EXPAND}"
 LIGHT_EXPAND = "version,metadata.labels,space"
-DESCRIPTOR_EXPAND = "version,metadata.labels,history,space,ancestors,children.page"
+DESCRIPTOR_EXPAND = (
+    f"version,metadata.labels,history,space,ancestors,children.page,{READ_RESTRICTIONS_EXPAND}"
+)
 COMMENT_EXPAND = "body.storage,history"
 DEFAULT_PAGE_SIZE = 25
 

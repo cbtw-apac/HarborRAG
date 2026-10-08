@@ -31,7 +31,7 @@ def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
                 {
                     "id": "c1",
                     "body": {"storage": {"value": "<p>Nice</p>"}},
-                    "history": {"createdBy": {"displayName": "Carol"}},
+                    "history": {"createdBy": {"displayName": "User C"}},
                 }
             ]
         },
@@ -68,10 +68,10 @@ def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
     assert document.metadata["metadata_schema_version"] == 1
     assert document.metadata["record_id"] == "1"
     assert document.metadata["title"] == "Page One"
-    assert document.metadata["author"] == "Alice"
+    assert document.metadata["author"] == "User A"
     assert document.metadata["breadcrumb"] == ["Root"]
     assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
-    assert document.metadata["comments"][0]["author"] == "Carol"
+    assert document.metadata["comments"][0]["author"] == "User C"
     processed_attachments = [
         attachment
         for attachment in document.metadata["attachments"]

@@ -18,6 +18,7 @@ from .query import (
     COMMENT_EXPAND,
     CONTENT_EXPAND,
     DESCRIPTOR_EXPAND,
+    READ_RESTRICTIONS_EXPAND,
     build_search_params,
     extract_cursor,
     validate_content_id,
@@ -135,6 +136,15 @@ class ConfluenceContentAPI:
         return self.client.get_json(
             f"content/{content_id}",
             params={"expand": DESCRIPTOR_EXPAND},
+        )
+
+    def get_read_restrictions(self, content_id: str) -> dict[str, Any]:
+        """Fetch only one item's read restrictions (used for ancestor pages)."""
+
+        content_id = validate_content_id(content_id)
+        return self.client.get_json(
+            f"content/{content_id}",
+            params={"expand": READ_RESTRICTIONS_EXPAND},
         )
 
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:

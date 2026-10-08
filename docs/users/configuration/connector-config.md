@@ -134,6 +134,7 @@ do not notice them. Run a full scan after tightening access at the source.
 | Provider | Restriction captured | API access needed |
 | --- | --- | --- |
 | Jira | Issue security level (`fields.security`); comments with `visibility` or `jsdPublic: false` are always dropped from issue text | Browse projects. The credential must be able to see the issues. Cloud OAuth: `read:jira-work` |
+| Confluence | Page read restrictions plus every ancestor's (inherited view restrictions); space permissions are the source scope | The credential must view the page and every ancestor. Cloud OAuth: `read:confluence-content.permission` (verify for your app type). An ancestor the credential cannot read makes the page `unknown` |
 
 ## Secrets and dynamic values
 

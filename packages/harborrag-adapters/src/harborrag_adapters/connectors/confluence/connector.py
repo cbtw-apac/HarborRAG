@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from itertools import islice
+from typing import Any
 
+from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -22,11 +23,13 @@ from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorPage,
     ConnectorQuery,
+    ConnectorSkip,
 )
 from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
+from .access import ConfluenceAccessResolver
 from .client import ConfluenceClient, _RequestsConfluenceClient
 from .config import ConfluenceSpaceConfig
 from .content import ConfluenceContentAPI
@@ -58,6 +61,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         attachments=True,
         comments=True,
         labels=True,
+        permissions=True,
         incremental_sync=True,
         full_sync=True,
         relationships=True,
@@ -101,11 +105,14 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             logger_=logger,
         )
         self._attachment_loader = AttachmentDocumentLoader(attachment_sources)
+        self._access = ConfluenceAccessResolver(self._content)
+        self._gate = RestrictedContentGate(config.restricted_content)
         self._descriptors = ConfluenceDescriptorBuilder(
             content=self._content,
             attachments=attachment_sources,
             config=config,
-            base_url=self.base_url,
+            access=self._access,
+            gate=self._gate,
         )
         self._relations = ConfluenceSourceRelationResolver()
         self._titles = PageTitleResolver(self._content)
@@ -126,10 +133,17 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         """
         verify_credentials(lambda: self.client.get_json("user/current"), provider="Confluence")
 
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Pages the most recent discovery call withheld because of source access."""
+
+        return self._gate.skipped
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search Confluence content or materialize explicitly requested IDs."""
         self._ensure_connected()
         query = query or ConnectorQuery()
+        self._gate.reset()
         content_ids = self._content_ids_from_query(query)
         yielded = 0
         mode = "explicit" if content_ids else "search"
@@ -141,11 +155,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         )
         try:
             if content_ids:
-                ids: Iterator[str] = self._content.with_children(content_ids, query)
-                if query.limit is not None:
-                    ids = islice(ids, query.limit)
-                for content_id in ids:
-                    record = self._record_for_id(content_id, query)
+                for record in self._explicit_records(content_ids, query):
                     yielded += 1
                     yield record
                 return
@@ -154,7 +164,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             for content in self._content.search(cql):
                 content_id = str(content.get("id") or "<unknown>")
                 self._validate_content(content, content_id)
-                if not self._should_process_content(content):
+                if not self._discoverable(content, content_id):
                     continue
                 record = build_source_record(
                     content,
@@ -186,6 +196,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
 
         self._ensure_connected()
         query = query or ConnectorQuery()
+        self._gate.reset()
         if self._content_ids_from_query(query):
             page = super().discover_page(query, cursor=cursor, page_size=page_size)
             logger.debug(
@@ -206,7 +217,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             for content in content_page:
                 content_id = str(content.get("id") or "<unknown>")
                 self._validate_content(content, content_id)
-                if not self._should_process_content(content):
+                if not self._discoverable(content, content_id):
                     continue
                 record = build_source_record(
                     content,
@@ -225,6 +236,32 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             page.next_cursor is not None,
         )
         return page
+
+    def _explicit_records(
+        self, content_ids: list[str], query: ConnectorQuery
+    ) -> Iterator[SourceRecord]:
+        """Resolve requested IDs (and children) to records, withholding restricted pages."""
+
+        admitted = 0
+        for content_id in self._content.with_children(content_ids, query):
+            record = self._record_for_id(content_id, query)
+            content = record.metadata[DISCOVERY_DESCRIPTOR_KEY]
+            if not self._gate.admit(self._access.page_acl(content), path=content_id):
+                continue
+            yield record
+            admitted += 1
+            # Stop before pulling the next ID: `with_children` fetches child pages
+            # lazily, and `test_direct_id_discovery_stops_before_child_traversal_at_limit`
+            # pins that no child request is made once the limit is met.
+            if query.limit is not None and admitted >= query.limit:
+                return
+
+    def _discoverable(self, content: dict[str, Any], content_id: str) -> bool:
+        """Apply label/live-doc filters, then the restricted-content policy."""
+
+        return self._should_process_content(content) and self._gate.admit(
+            self._access.page_acl(content), path=content_id
+        )
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
@@ -246,6 +283,8 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             raise DocumentProcessingError(
                 f"Confluence content {content_id} does not match content filters"
             )
+        acl = self._access.page_acl(content)
+        self._gate.require(acl, path=content_id)
         include_comments = bool(
             self.config.include_comments and record.metadata.get("include_comments", True)
         )
@@ -283,6 +322,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             resolve_title=self._titles.page_id_for_title,
         )
         metadata_payload["attachment_names"] = list(record.metadata.get("attachment_names") or ())
+        metadata_payload.update(acl_metadata(acl))
         document = RawDocument(
             id=record.id,
             source=source_url,

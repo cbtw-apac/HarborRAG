@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from harborrag_adapters.connectors.acl import validate_restricted_content_policy
 from harborrag_adapters.connectors.attachments.processing import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     CustomAttachmentParser,
@@ -61,12 +62,14 @@ class ConfluenceSpaceConfig:
     request_timeout_seconds: float = 30.0
     max_retries: int = 3
     backoff_factor: float = 0.5
+    restricted_content: str = "skip"
 
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
+        self.restricted_content = validate_restricted_content_policy(self.restricted_content)
         self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
         self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
 

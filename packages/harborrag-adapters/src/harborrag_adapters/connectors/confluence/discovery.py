@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from typing import Any
 
+from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
 from harborrag_adapters.connectors.attachments import (
     AttachmentSourceGateway,
     attachment_source_record,
@@ -21,6 +22,7 @@ from harborrag_core.ingestion import (
     SourceRelationDescriptor,
 )
 
+from .access import ConfluenceAccessResolver
 from .config import ConfluenceSpaceConfig
 from .content import ConfluenceContentAPI
 from .mappers import build_source_record, content_id_from_record, validate_content
@@ -38,12 +40,14 @@ class ConfluenceDescriptorBuilder:
         content: ConfluenceContentAPI,
         attachments: AttachmentSourceGateway,
         config: ConfluenceSpaceConfig,
-        base_url: str,
+        access: ConfluenceAccessResolver,
+        gate: RestrictedContentGate,
     ) -> None:
         self._content = content
         self._attachments = attachments
         self._config = config
-        self._base_url = base_url
+        self._access = access
+        self._gate = gate
 
     def describe(
         self,
@@ -57,9 +61,12 @@ class ConfluenceDescriptorBuilder:
             else self._content.get_content_descriptor(content_id)
         )
         validate_content(content, content_id, space_key=self._config.space_key)
+        acl = self._access.page_acl(content)
+        self._gate.require(acl, path=content_id)
+        restricted = acl_metadata(acl)
         discovered = build_source_record(
             content,
-            base_url=self._base_url,
+            base_url=self._config.base_url,
             deployment_type=self._config.deployment,
             default_space_key=self._config.space_key,
         )
@@ -89,7 +96,7 @@ class ConfluenceDescriptorBuilder:
             default_space_key=self._config.space_key,
         )
         bound_records = tuple(
-            attachment_source_record(discovered, descriptor, inherited=container)
+            attachment_source_record(discovered, descriptor, inherited={**container, **restricted})
             for descriptor in attachment_descriptors
             if descriptor.status == "admitted"
         )
@@ -111,6 +118,7 @@ class ConfluenceDescriptorBuilder:
             metadata={
                 **source_metadata,
                 **discovered.metadata,
+                **restricted,
                 "source_version": source_version,
                 "defer_attachments": True,
                 "attachment_names": [descriptor.title for descriptor in attachment_descriptors],

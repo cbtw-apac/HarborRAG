@@ -71,6 +71,15 @@ def dc_config(**overrides: Any) -> ConfluenceSpaceConfig:
     return ConfluenceSpaceConfig(**values)
 
 
+def unrestricted_read() -> dict:
+    """A read-restrictions payload with no user or group restriction."""
+
+    empty = {"results": [], "start": 0, "limit": 200, "size": 0}
+    return {
+        "read": {"operation": "read", "restrictions": {"user": dict(empty), "group": dict(empty)}}
+    }
+
+
 def light_content(
     content_id: str,
     title: str,
@@ -85,6 +94,8 @@ def light_content(
         "space": {"key": space_key},
         "metadata": {"labels": {"results": [{"name": name} for name in labels or []]}},
         "version": {"when": "2024-05-24T20:57:56.130Z"},
+        "ancestors": [],
+        "restrictions": unrestricted_read(),
     }
 
 
@@ -97,14 +108,17 @@ def full_content(content_id: str = "1") -> dict:
         "version": {
             "number": 3,
             "when": "2024-05-24T20:57:56.130Z",
-            "by": {"displayName": "Bob"},
+            "by": {"displayName": "User B"},
         },
         "history": {
-            "createdBy": {"displayName": "Alice"},
+            "createdBy": {"displayName": "User A"},
             "createdDate": "2023-01-01T00:00:00.000Z",
         },
         "metadata": {"labels": {"results": [{"name": "runbook"}]}},
         "body": {"export_view": {"value": "<p>Hello <b>World</b></p>"}},
-        "ancestors": [{"id": "0", "title": "Root", "type": "page"}],
+        "ancestors": [
+            {"id": "0", "title": "Root", "type": "page", "restrictions": unrestricted_read()}
+        ],
+        "restrictions": unrestricted_read(),
         "children": {"page": {"results": [{"id": "9", "title": "Child"}]}},
     }
