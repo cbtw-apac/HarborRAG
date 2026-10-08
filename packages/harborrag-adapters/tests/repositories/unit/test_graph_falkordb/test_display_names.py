@@ -25,7 +25,7 @@ def _node(**overrides: object) -> GraphNodeRecord:
         "node_key": "node-1",
         "node_kind": KnowledgeNodeKind.SOURCE_ENTITY,
         "entity_type": GraphEntityType.CONFLUENCE_PAGE,
-        "logical_id": "91980256",
+        "logical_id": "1000004",
         "ownership_scope": GraphOwnershipScope.SOURCE_SCOPE,
         "owner_id": "tenant-a",
         "source_scope_id": "scope-a",
@@ -43,13 +43,13 @@ def test_shared_node_identity_still_resists_a_staged_version_overwrite() -> None
     # title/title_key remain the version-safe identifier: only `name` is a display field.
     row = _node_row(_node(title="Handover Document"), tenant_id="tenant-a")
 
-    assert row["title"] == "91980256"
+    assert row["title"] == "1000004"
 
 
 def test_shared_node_without_a_title_still_falls_back_to_its_identifier() -> None:
     row = _node_row(_node(), tenant_id="tenant-a")
 
-    assert row["name"] == "91980256"
+    assert row["name"] == "1000004"
 
 
 def test_section_displays_its_ancestry_so_common_leaf_names_are_distinguishable() -> None:

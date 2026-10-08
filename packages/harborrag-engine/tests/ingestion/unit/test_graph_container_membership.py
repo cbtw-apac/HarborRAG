@@ -122,16 +122,16 @@ def test_an_attachment_reaches_its_space_through_its_page_not_beside_it() -> Non
         {
             **_SPACE,
             "binding_kind": "ATTACHMENT",
-            "page_id": "att91980616",
+            "page_id": "att1000003",
             "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att1000003",
     )
 
     assert _space_contains(graph) == {"confluence_page"}
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_space"}
     assert _attachment_edges(graph) == {
-        (("confluence_page", "1000002"), ("confluence_attachment", "att91980616"))
+        (("confluence_page", "1000002"), ("confluence_attachment", "att1000003"))
     }
 
 
@@ -143,16 +143,16 @@ def test_an_attachment_without_space_metadata_still_anchors_somewhere() -> None:
     graph = _project(
         {
             "binding_kind": "ATTACHMENT",
-            "page_id": "att91980616",
+            "page_id": "att1000003",
             "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att1000003",
     )
 
     assert _space_contains(graph) == set()
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_page"}
     assert _attachment_edges(graph) == {
-        (("confluence_page", "1000002"), ("confluence_attachment", "att91980616"))
+        (("confluence_page", "1000002"), ("confluence_attachment", "att1000003"))
     }
 
 
@@ -168,10 +168,10 @@ def test_page_and_attachment_resolve_to_the_very_same_space_node() -> None:
         {
             **_SPACE,
             "binding_kind": "ATTACHMENT",
-            "page_id": "att91980616",
+            "page_id": "att1000003",
             "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att1000003",
     )
 
     def space_key(graph) -> str:

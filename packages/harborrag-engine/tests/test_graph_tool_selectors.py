@@ -37,7 +37,7 @@ _DIAGNOSTICS: dict[str, object] = {
         # vector_search metadata.source_item_id -> the provider id the node is keyed by.
         ("jira://ENG/ENG-1001", "ENG-1001"),
         ("jira://ENG/ENG-1002/attachments/2001", "2001"),
-        ("confluence://SPACE/91980256", "91980256"),
+        ("confluence://SPACE/1000004", "1000004"),
         ("github://owner/repo/src/app.py", "src/app.py"),
         # Everything else is already a selector and passes unchanged.
         ("ENG-1001", "ENG-1001"),
