@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import pytest
-from github_test_helpers import FakeGitHubClient, add_repo_and_commit, config
+from github_test_helpers import FakeGitHubClient, add_repo_and_commit, config, tree_item
 
 from harborrag_adapters.connectors import GitHubConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
@@ -103,3 +103,33 @@ def test_load_rejects_record_outside_configured_root():
     with pytest.raises(DocumentProcessingError, match="outside configured root_path"):
         connector.load(record)
     assert all("/git/blobs/" not in endpoint for endpoint, _ in client.calls)
+
+
+def test_load_by_paths_rejects_out_of_root_path_before_any_request():
+    client = FakeGitHubClient()
+    add_repo_and_commit(client)
+    connector = GitHubConnector(config(root_path="docs"), client=client)
+
+    with pytest.raises(DocumentProcessingError, match="outside configured root_path"):
+        list(connector.load_by_paths(["src/app.py"]))
+    assert all("/contents/" not in endpoint for endpoint, _ in client.calls)
+
+
+def test_remote_tree_entry_with_encoded_parent_segment_is_skipped():
+    client = FakeGitHubClient()
+    add_repo_and_commit(client)
+    client.add(
+        "repos/acme/harbor-rag/git/trees/tree-root",
+        {
+            "tree": [
+                tree_item("a/%2e%2e/x.md", "sha-odd"),
+                tree_item("docs/guide.md", "sha-guide"),
+            ],
+            "truncated": False,
+        },
+    )
+    connector = GitHubConnector(config(), client=client)
+
+    records = list(connector.discover(ConnectorQuery(recursive=True)))
+
+    assert [record.locator for record in records] == ["docs/guide.md"]

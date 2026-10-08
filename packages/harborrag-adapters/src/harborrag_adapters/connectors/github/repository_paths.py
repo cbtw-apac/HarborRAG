@@ -58,21 +58,29 @@ def content_endpoint(owner: str, repo: str, path: str) -> str:
 
 
 def normalize_repo_path(path: str | None) -> str:
-    """Normalize repository paths to GitHub's POSIX path style.
+    """Normalize a caller-supplied repository path to GitHub's POSIX path style.
 
     ``..`` segments (literal or percent-encoded) are rejected rather than
     collapsed: an explicit path is interpolated into REST endpoints, so ``../``
-    would address other API routes with the connector's token.
+    would address other API routes with the connector's token. A name that
+    literally contains a percent-encoded ``..`` segment is therefore rejected
+    for user input. Remote tree/API paths use ``normalize_remote_path`` and are
+    screened with ``has_parent_segment`` instead of aborting discovery.
     """
+    if path and has_parent_segment(str(path)):
+        raise ValueError(f"repository path must not contain '..' segments: {path!r}")
+    return normalize_remote_path(path)
+
+
+def normalize_remote_path(path: str | None) -> str:
+    """Normalize a path reported by GitHub without rejecting any segment."""
     if not path:
         return ""
     normalized = str(path).replace("\\", "/").strip("/")
-    if _has_parent_segment(normalized):
-        raise ValueError(f"repository path must not contain '..' segments: {path!r}")
     return str(PurePosixPath(normalized)) if normalized else ""
 
 
-def _has_parent_segment(path: str) -> bool:
+def has_parent_segment(path: str) -> bool:
     """Return whether a path has a ``..`` segment after any depth of percent-decoding."""
     candidate = path
     for _ in range(4):
@@ -87,7 +95,7 @@ def _has_parent_segment(path: str) -> bool:
 
 def file_extension(path: str) -> str:
     """Return a lowercased file extension from a repository path."""
-    name = normalize_repo_path(path)
+    name = normalize_remote_path(path)
     if "." not in PurePosixPath(name).name:
         return ""
     return PurePosixPath(name).suffix.lower()
@@ -111,8 +119,8 @@ def is_tree(item: dict[str, Any]) -> bool:
 
 def path_in_scope(path: str, root_path: str | None, *, recursive: bool) -> bool:
     """Return whether a repository path is inside the requested root."""
-    normalized = normalize_repo_path(path)
-    root = normalize_repo_path(root_path)
+    normalized = normalize_remote_path(path)
+    root = normalize_remote_path(root_path)
     if not root:
         return recursive or "/" not in normalized
     if normalized == root:
@@ -138,16 +146,16 @@ def scoped_root_path(configured: str | None, requested: str | None) -> str:
 
 def path_matches_patterns(path: str, patterns: list[str]) -> bool:
     """Return whether a repository path matches any include/exclude glob."""
-    normalized = normalize_repo_path(path)
-    return any(fnmatch(normalized, normalize_repo_path(pattern)) for pattern in patterns)
+    normalized = normalize_remote_path(path)
+    return any(fnmatch(normalized, normalize_remote_path(pattern)) for pattern in patterns)
 
 
 def path_matches_query(path: str, pattern: str | None) -> bool:
     """Return whether a repository path matches a query pattern or substring."""
     if not pattern:
         return True
-    normalized_path = normalize_repo_path(path).lower()
-    normalized_pattern = normalize_repo_path(pattern).lower()
+    normalized_path = normalize_remote_path(path).lower()
+    normalized_pattern = normalize_remote_path(pattern).lower()
     if any(char in normalized_pattern for char in "*?[]"):
         return fnmatch(normalized_path, normalized_pattern)
     return normalized_pattern in normalized_path

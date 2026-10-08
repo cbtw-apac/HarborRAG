@@ -7,7 +7,11 @@ from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
 
-from .repository_paths import guess_mime_type, normalize_repo_path
+from .repository_paths import (
+    guess_mime_type,
+    normalize_remote_path,
+    normalize_repo_path,
+)
 from .schemas import GitHubCommitIdentity, GitHubMetadata
 
 
@@ -122,7 +126,7 @@ def build_document_metadata(
 def _required_repo_path(item: dict[str, Any]) -> str:
     """Return a normalized GitHub item path or reject malformed items."""
 
-    path = normalize_repo_path(str(item.get("path") or ""))
+    path = normalize_remote_path(str(item.get("path") or ""))
     if not path:
         raise ValueError("GitHub item path must not be empty")
     return path

@@ -209,12 +209,13 @@ class GitHubConnector(BaseConnector):
     def load_by_paths(self, paths: list[str]) -> Iterator[RawDocument]:
         """Load files for callers that already know repository paths."""
         for path in paths:
+            self._require_in_root(path)
             yield self.load(self._github.record_for_path(path))
 
     def _require_in_root(self, path: str) -> None:
         """Refuse explicit paths and records outside the configured ``root_path``."""
         root = normalize_repo_path(self.config.root_path)
-        if not path_in_scope(path, root, recursive=True):
+        if not path_in_scope(normalize_repo_path(path), root, recursive=True):
             raise DocumentProcessingError(
                 f"GitHub path {path!r} is outside configured root_path {root!r}"
             )

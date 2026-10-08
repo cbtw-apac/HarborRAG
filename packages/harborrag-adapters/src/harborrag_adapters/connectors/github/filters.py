@@ -12,6 +12,7 @@ from .mappers import commit_timestamp
 from .repository_paths import (
     file_extension,
     guess_mime_type,
+    normalize_remote_path,
     normalize_repo_path,
     path_in_scope,
     path_matches_patterns,
@@ -29,7 +30,7 @@ def should_process_file(
     commit: dict[str, Any],
 ) -> bool:
     """Return whether a GitHub tree item satisfies config and query filters."""
-    path = normalize_repo_path(str(item.get("path") or ""))
+    path = normalize_remote_path(str(item.get("path") or ""))
     size = int(item.get("size") or 0)
     extension = file_extension(path)
 

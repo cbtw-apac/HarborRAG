@@ -21,9 +21,10 @@ from .repository_paths import (
     blob_endpoint,
     commit_endpoint,
     content_endpoint,
+    has_parent_segment,
     is_blob,
     is_tree,
-    normalize_repo_path,
+    normalize_remote_path,
     repo_endpoint,
     tree_endpoint,
 )
@@ -68,7 +69,10 @@ class GitHubRepositoryAPI:
             yield from self._walk_tree_non_recursive(tree_sha)
             return
 
-        yield from response.get("tree", [])
+        for item in response.get("tree", []):
+            if _is_traversal_item(item):
+                continue
+            yield item
 
     def load_blob(self, sha: str, *, known_size: int | None = None) -> bytes:
         """Fetch and decode a Git blob while enforcing GitHub and config limits.
@@ -138,7 +142,7 @@ class GitHubRepositoryAPI:
         if not is_blob(response):
             raise DocumentProcessingError(f"GitHub path {path!r} is not a file")
         return {
-            "path": normalize_repo_path(str(response.get("path") or path)),
+            "path": normalize_remote_path(str(response.get("path") or path)),
             "sha": response.get("sha"),
             "size": int(response.get("size") or 0),
             "mode": "100644",
@@ -259,7 +263,18 @@ class GitHubRepositoryAPI:
         if not isinstance(response, dict):
             raise FetchError("GitHub tree response was not an object")
         for item in response.get("tree", []):
-            path = normalize_repo_path(
+            path = normalize_remote_path(
                 f"{prefix}/{item.get('path')}" if prefix else item.get("path")
             )
+            if _is_traversal_item({"path": path}):
+                continue
             yield {**item, "path": path}
+
+
+def _is_traversal_item(item: dict[str, Any]) -> bool:
+    """Skip remote tree entries whose names decode to ``..`` instead of aborting discovery."""
+    path = str(item.get("path") or "")
+    if not has_parent_segment(path):
+        return False
+    logger.warning("Skipping GitHub tree entry with a '..' path segment: %r", path)
+    return True
