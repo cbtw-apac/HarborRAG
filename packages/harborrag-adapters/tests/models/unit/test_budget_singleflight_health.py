@@ -53,8 +53,9 @@ class RedisSync:
         self.closed = 0
 
     def set(self, name: str, value: Any, **kwargs: Any) -> bool:
+        """Return queued SET NX outcomes; once exhausted, the lock stays held elsewhere."""
         del name, value, kwargs
-        return self.leaders.pop(0)
+        return self.leaders.pop(0) if self.leaders else False
 
     def eval(self, script: str, numkeys: int, *args: Any) -> int:
         del script, numkeys, args
@@ -414,3 +415,53 @@ def test_memory_singleflight_follower_takes_over_when_sync_leader_aborts() -> No
     assert result.value.value == "second-leader"
     assert calls == 2
     coordinator.close()
+
+
+def test_redis_singleflight_follower_takes_over_after_leader_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections, sync, _ = redis_lifecycle([False, True])
+    coordinator = RedisSingleFlight(
+        connections,
+        key_prefix="harbor",
+        lock_ttl_seconds=2,
+        follower_timeout_seconds=0.5,
+        poll_interval_seconds=0.001,
+    )
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    produced: list[str] = []
+
+    def producer() -> Response:
+        produced.append("takeover")
+        return Response(value="takeover")
+
+    result = coordinator.execute("k", producer, lambda: None)
+
+    assert result.shared is False
+    assert result.value.value == "takeover"
+    assert produced == ["takeover"]
+    assert sync.eval_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_singleflight_async_follower_takes_over_after_leader_failure() -> None:
+    connections, sync, _ = redis_lifecycle([False, True])
+    coordinator = RedisSingleFlight(
+        connections,
+        key_prefix="harbor",
+        lock_ttl_seconds=2,
+        follower_timeout_seconds=0.5,
+        poll_interval_seconds=0.001,
+    )
+
+    async def producer() -> Response:
+        return Response(value="takeover")
+
+    async def nothing_cached() -> Response | None:
+        return None
+
+    result = await coordinator.aexecute("k", producer, nothing_cached)
+
+    assert result.shared is False
+    assert result.value.value == "takeover"
+    assert sync.eval_calls == 1

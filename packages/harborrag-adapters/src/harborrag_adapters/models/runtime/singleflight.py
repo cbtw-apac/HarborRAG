@@ -12,7 +12,7 @@ from typing import Protocol
 
 from pydantic import BaseModel
 
-from .redis_client import RedisConnectionLifecycle
+from .redis_client import AsyncRedisClient, RedisConnectionLifecycle, SyncRedisClient
 
 
 class SingleFlightTimeoutError(TimeoutError):
@@ -275,21 +275,20 @@ class RedisSingleFlight:
         producer: Callable[[], T],
         follower_loader: Callable[[], T | None],
     ) -> SingleFlightResult[T]:
-        """Execute as Redis lock leader or poll the shared response cache as follower."""
+        """Lead under the Redis lock, or follow the shared cache and take over a freed lock."""
 
         lock_key = self._key(key)
         token = uuid.uuid4().hex
         client = self._connections.sync()
-        leader = bool(client.set(lock_key, token, nx=True, ex=self._lock_ttl))
-        if leader:
-            try:
-                return SingleFlightResult(producer(), False)
-            finally:
-                client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
+        if client.set(lock_key, token, nx=True, ex=self._lock_ttl):
+            return self._lead(client, lock_key, token, producer)
         deadline = time.monotonic() + self._timeout
         while time.monotonic() < deadline:
             if value := follower_loader():
                 return SingleFlightResult(value, True)
+            # A free lock with no cached result means the leader failed: take over.
+            if client.set(lock_key, token, nx=True, ex=self._lock_ttl):
+                return self._lead(client, lock_key, token, producer)
             time.sleep(self._poll)
         raise SingleFlightTimeoutError("Redis single-flight follower timed out")
 
@@ -299,23 +298,41 @@ class RedisSingleFlight:
         producer: Callable[[], Awaitable[T]],
         follower_loader: Callable[[], Awaitable[T | None]],
     ) -> SingleFlightResult[T]:
-        """Execute as asynchronous Redis leader or poll the shared cache as follower."""
+        """Lead asynchronously under the Redis lock, or follow and take over a freed lock."""
 
         lock_key = self._key(key)
         token = uuid.uuid4().hex
         client = self._connections.async_client()
-        leader = bool(await client.set(lock_key, token, nx=True, ex=self._lock_ttl))
-        if leader:
-            try:
-                return SingleFlightResult(await producer(), False)
-            finally:
-                await client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
+        if await client.set(lock_key, token, nx=True, ex=self._lock_ttl):
+            return await self._alead(client, lock_key, token, producer)
         deadline = time.monotonic() + self._timeout
         while time.monotonic() < deadline:
             if value := await follower_loader():
                 return SingleFlightResult(value, True)
+            if await client.set(lock_key, token, nx=True, ex=self._lock_ttl):
+                return await self._alead(client, lock_key, token, producer)
             await asyncio.sleep(self._poll)
         raise SingleFlightTimeoutError("Redis single-flight follower timed out")
+
+    def _lead[T: BaseModel](
+        self, client: SyncRedisClient, lock_key: str, token: str, producer: Callable[[], T]
+    ) -> SingleFlightResult[T]:
+        try:
+            return SingleFlightResult(producer(), False)
+        finally:
+            client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
+
+    async def _alead[T: BaseModel](
+        self,
+        client: AsyncRedisClient,
+        lock_key: str,
+        token: str,
+        producer: Callable[[], Awaitable[T]],
+    ) -> SingleFlightResult[T]:
+        try:
+            return SingleFlightResult(await producer(), False)
+        finally:
+            await client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
 
     def close(self) -> None:
         """Close Redis connections only when owned by this coordinator."""
