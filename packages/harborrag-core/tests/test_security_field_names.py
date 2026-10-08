@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import time
+
 import pytest
 from pydantic import SecretStr
 
@@ -219,3 +221,47 @@ def test_redact_mapping_uses_the_shared_definition() -> None:
         "Set-Cookie": "<redacted>",
         "team": "platform",
     }
+
+
+@pytest.mark.parametrize(
+    "line",
+    ["a." * 50000, "a+" * 50000, "a-" * 50000 + "://"],
+    ids=["dots", "plus", "dashes"],
+)
+def test_redaction_is_linear_on_adversarial_lines(line: str) -> None:
+    started = time.perf_counter()
+    redact_secrets(line)
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://example.com?email=a@b.com",
+        "https://example.com/path#frag@x",
+        "see https://example.com/a@b",
+        "Bearer authentication is required",
+    ],
+)
+def test_text_without_credentials_is_unchanged(text: str) -> None:
+    assert redact_secrets(text) == text
+
+
+@pytest.mark.parametrize(
+    ("text", "secret"),
+    [
+        ('Cookie: "a=b"; other=c', "other=c"),
+        ("https://b.storage.googleapis.com/o?X-Goog-Signature=cafe01", "cafe01"),
+        ("https://b.s3.amazonaws.com/k?X-Amz-Security-Token=FwoGZXIv", "FwoGZXIv"),
+    ],
+)
+def test_remaining_credential_shapes_are_redacted(text: str, secret: str) -> None:
+    assert secret not in redact_secrets(text)
+
+
+def test_redaction_is_linear_on_a_long_whitespace_run() -> None:
+    line = "password=x" + " " * 50000 + "y"
+    started = time.perf_counter()
+    redacted = redact_secrets(line)
+    assert time.perf_counter() - started < 0.5
+    assert "x" not in redacted

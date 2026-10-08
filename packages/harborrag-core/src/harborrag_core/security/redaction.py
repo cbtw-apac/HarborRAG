@@ -27,7 +27,9 @@ def is_sensitive_label(label: object) -> bool:
 # a line break) or the start of the next "key[:=]" pair, so a multi-word secret
 # ("password: My Secret Passphrase 123") is redacted in full while an adjacent
 # field on the same line ("api_key=abc123&user=alice") survives.
-_UNQUOTED_VALUE = r"(?:(?!\s+[\w.-]+\s*[:=]).)+?(?=[,;&}\]\r\n]|\s+[\w.-]+\s*[:=]|$)"
+# The ``(?<!\s)`` anchors keep a whitespace run from being rescanned from every
+# position inside it (quadratic on a long run of blanks): only its start counts.
+_UNQUOTED_VALUE = r"(?:(?!(?<!\s)\s+[\w.-]+\s*[:=]).)+?(?=[,;&}\]\r\n]|(?<!\s)\s+[\w.-]+\s*[:=]|$)"
 _VALUE = rf'(?:"[^"]*"|\'[^\']*\'|{_UNQUOTED_VALUE})'
 
 # Authorization carries a scheme before the credential ("Bearer x", "Basic y"),
@@ -36,7 +38,8 @@ _VALUE = rf'(?:"[^"]*"|\'[^\']*\'|{_UNQUOTED_VALUE})'
 # a real delimiter, placed first.
 _AUTHORIZATION_VALUE = r"(?:\"[^\"]*\"|'[^']*'|[^,;&}\]\r\n]+)"
 # A cookie header is "name=value; name=value": every pair is session state.
-_COOKIE_VALUE = r"(?:\"[^\"]*\"|'[^']*'|[^\r\n]+)"
+# Quotes do not end it: ``Cookie: "a=b"; other=c`` must not leak ``other=c``.
+_COOKIE_VALUE = r"[^\r\n]+"
 
 _LABELED_PATTERNS = [
     re.compile(r"(?i)(authorization)['\"]?\s*[:=]\s*" + _AUTHORIZATION_VALUE),
@@ -54,9 +57,15 @@ _LABELED_PATTERNS = [
 # Credentials with no label of their own: the affixes are kept, the secret is not.
 _AFFIXED_PATTERNS = [
     # "curl -H 'Bearer eyJ...'": an unlabeled bearer credential.
-    re.compile(r"(?i)\b(?P<prefix>bearer\s+)[A-Za-z0-9._~+/-]{8,}=*"),
+    # Token-like content only (a digit or one of ``._~+/=-``), so prose such as
+    # "Bearer authentication is required" is left alone.
+    re.compile(
+        r"(?i)\b(?P<prefix>bearer\s+)(?=[A-Za-z0-9._~+/=-]*[0-9._~+/=-])[A-Za-z0-9._~+/=-]{8,}"
+    ),
     # URL userinfo: "https://user:pass@host" or "https://token@host".
-    re.compile(r"(?i)\b(?P<prefix>[a-z][a-z0-9+.-]*://)[^\s/@]+(?P<suffix>@)"),
+    # The lookbehind keeps a scheme from restarting inside a run ("a.a.a."),
+    # which made the scan quadratic; ``?`` and ``#`` end the authority.
+    re.compile(r"(?i)(?<![a-z0-9+.-])(?P<prefix>[a-z][a-z0-9+.-]*://)[^\s/@?#]+(?P<suffix>@)"),
     # Signed-URL query credentials: Azure SAS, SharePoint, S3 and GCS signatures.
     re.compile(
         r"(?i)(?P<prefix>[?&](?:sig|signature|tempauth|x-amz-signature"
