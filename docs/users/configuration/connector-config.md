@@ -135,6 +135,7 @@ do not notice them. Run a full scan after tightening access at the source.
 | --- | --- | --- |
 | Jira | Issue security level (`fields.security`); comments with `visibility` or `jsdPublic: false` are always dropped from issue text | Browse projects. The credential must be able to see the issues. Cloud OAuth: `read:jira-work` |
 | Confluence | Page read restrictions plus every ancestor's (inherited view restrictions); space permissions are the source scope | The credential must view the page and every ancestor. Cloud OAuth: `read:confluence-content.permission` (verify for your app type). An ancestor the credential cannot read makes the page `unknown` |
+| SharePoint | Item permissions compared with the library root (`/drives/{id}/items/{id}/permissions`, `/drives/{id}/root/permissions`); sharing links are ignored because they only widen access | Graph application permission `Sites.Read.All` or `Files.Read.All` (verify; `Sites.Selected` with a read grant on the site also works). One extra Graph request per file, and results are cached for the run. Site groups cannot be expanded through Graph: map `site_group:<id>` keys in your directory |
 
 ## Secrets and dynamic values
 

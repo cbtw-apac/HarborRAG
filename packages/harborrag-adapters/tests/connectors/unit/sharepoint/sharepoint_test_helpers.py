@@ -7,6 +7,26 @@ from typing import Any
 from harborrag_adapters.connectors import SharePointSiteConfig
 
 SITE_URL = "https://contoso.sharepoint.com/sites/Engineering"
+LIBRARY_GRANT = {
+    "id": "perm-members",
+    "roles": ["write"],
+    "grantedToV2": {"siteGroup": {"id": "3", "displayName": "Engineering Members"}},
+}
+
+
+def library_permissions() -> dict[str, Any]:
+    return {"value": [dict(LIBRARY_GRANT)]}
+
+
+def inherited_item_permissions() -> dict[str, Any]:
+    return {
+        "value": [
+            {
+                **LIBRARY_GRANT,
+                "inheritedFrom": {"driveId": "drive1", "id": "root", "path": "/drive/root:"},
+            }
+        ]
+    }
 
 
 class FakeGraphClient:
@@ -27,9 +47,15 @@ class FakeGraphClient:
     ) -> dict[str, Any]:
         self.calls.append((endpoint, params))
         values = self.responses.get(endpoint)
-        if not values:
-            raise AssertionError(f"Unexpected Microsoft Graph endpoint: {endpoint}")
-        return values.pop(0)
+        if values:
+            return values.pop(0)
+        # Unregistered permission reads answer "inherited from the library" so tests
+        # that are not about access control keep exercising discovery unchanged.
+        if endpoint.endswith("/root/permissions"):
+            return library_permissions()
+        if endpoint.endswith("/permissions"):
+            return inherited_item_permissions()
+        raise AssertionError(f"Unexpected Microsoft Graph endpoint: {endpoint}")
 
     def get_bytes(self, endpoint: str) -> bytes:
         self.byte_calls.append(endpoint)

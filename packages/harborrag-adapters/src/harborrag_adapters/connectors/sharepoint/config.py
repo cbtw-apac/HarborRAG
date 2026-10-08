@@ -6,6 +6,7 @@ import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from harborrag_adapters.connectors.acl import validate_restricted_content_policy
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
@@ -51,11 +52,13 @@ class SharePointSiteConfig:
     request_timeout_seconds: float = 60.0
     max_retries: int = 3
     backoff_factor: float = 0.5
+    restricted_content: str = "skip"
 
     def __post_init__(self) -> None:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
         validate_https_url("graph_api_url", self.graph_api_url)
+        self.restricted_content = validate_restricted_content_policy(self.restricted_content)
         self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
         self.tenant_id = self.tenant_id or os.getenv("MICROSOFT_TENANT_ID")
         self.client_id = self.client_id or os.getenv("MICROSOFT_CLIENT_ID")
