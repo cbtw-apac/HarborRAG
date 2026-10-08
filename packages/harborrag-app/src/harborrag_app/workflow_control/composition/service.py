@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Mapping
@@ -25,6 +26,7 @@ from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.event_stream import replay_backlog, tail_until_terminal
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import (
     LEASE_NAME,
@@ -266,10 +268,12 @@ class AppService(
         last-seen sequence instead of replaying the full backlog. Subscribes
         before reading the backlog so nothing published in the gap between
         the two is ever dropped (a harmless duplicate at worst, since every
-        progress payload is a full snapshot). Stops after a "task.<id>.done"
-        event, or immediately after the backlog if the task's persisted
-        state is already terminal, since the progress bridge only ever
-        touches active (PENDING/RUNNING) tasks.
+        progress payload is a full snapshot). The backlog is read page by
+        page, so a long task's history is never truncated. Stops after a
+        "task.<id>.done" event, or immediately after the backlog if the
+        task's persisted state is already terminal. While tailing, the task's
+        durable status is polled (event_stream.STATUS_POLL_SECONDS) so a
+        missed live ".done" still closes the stream.
 
         ``live`` is closed in a ``finally`` so an abandoned caller -- e.g.
         the SSE route's client disconnecting while this generator is
@@ -283,17 +287,23 @@ class AppService(
         terminal_names = {STATUS_NAMES[state] for state in TERMINAL_STATES}
         if task["status"] not in terminal_names:
             live = self._resources.event_bus().subscribe(f"task.{task_id}.")
+        last_seq = after_seq
         try:
-            for event in await store.list_task_events(task_id, after_seq=after_seq):
-                yield event
-                if event.name.endswith(".done"):
-                    return
+            async with contextlib.aclosing(
+                replay_backlog(store, task_id, after_seq=after_seq)
+            ) as backlog:
+                async for event in backlog:
+                    yield event
+                    last_seq = event.seq if event.seq is not None else last_seq
+                    if event.name.endswith(".done"):
+                        return
             if live is None:
                 return
-            async for event in live:
-                yield event
-                if event.name.endswith(".done"):
-                    return
+            async with contextlib.aclosing(
+                tail_until_terminal(store, task_id, live, last_seq=last_seq)
+            ) as tail:
+                async for event in tail:
+                    yield event
         finally:
             if live is not None:
                 await live.aclose()
