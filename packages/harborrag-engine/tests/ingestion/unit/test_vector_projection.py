@@ -268,7 +268,7 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
     fields = {
         "skill_set": "Data Engineering",
         "years_of_experience": 3.0,
-        "restricted_to": ["Aidan NELL", "Martin PAPY"],
+        "restricted_to": ["User A", "User B"],
         "pd_consent": False,
     }
     result = make_service(
@@ -310,11 +310,11 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
         assert record.payload.fields == {
             "skill_set": "Data Engineering",
             "years_of_experience": 3.0,
-            "restricted_to": ("Aidan NELL", "Martin PAPY"),
+            "restricted_to": ("User A", "User B"),
             "pd_consent": False,
         }
         stored = record.payload.model_dump(mode="json", exclude_none=True)["fields"]
-        assert stored["restricted_to"] == ["Aidan NELL", "Martin PAPY"]
+        assert stored["restricted_to"] == ["User A", "User B"]
         assert stored["pd_consent"] is False
 
 

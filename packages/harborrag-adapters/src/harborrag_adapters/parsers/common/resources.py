@@ -83,7 +83,7 @@ def parse_input_suffix(value: ParseInput) -> str:
 def filename_suffix(candidate: str | Path | None) -> str:
     """Return a name's routing suffix, tolerating surrounding whitespace.
 
-    Interior spaces are ordinary in real upload names -- `Anh Nguyen - Data.pdf`
+    Interior spaces are ordinary in real upload names -- `Sample Data.pdf`
     -- and never affect the suffix. Surrounding whitespace does: `Path` keeps it,
     so `"Resume.pdf "` yields `".pdf "`, which matches no registered extension and
     silently downgrades routing to the media type. Both ends are trimmed, on the
@@ -307,9 +307,9 @@ _FILENAME_METADATA_KEYS = ("filename", "file_name")
 def _name_from_metadata(metadata: Any) -> str | None:
     """Recover the source's own file name, which routes better than its URI.
 
-    A connector records the real upload name here -- `Anh Nguyen - Data.pdf` --
+    A connector records the real upload name here -- `Sample Data.pdf` --
     while `source` is a permalink whose last segment carries no suffix at all
-    (`.../browse/ENG-1#attachment-397115`). The extension router covers roughly
+    (`.../browse/ENG-1#attachment-100001`). The extension router covers roughly
     twice as many formats as the media-type router, and providers routinely
     report a generic type for user uploads, so dropping the name leaves only the
     weaker key and fails every format that just the suffix could have resolved.

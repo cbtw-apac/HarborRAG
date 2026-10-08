@@ -178,13 +178,13 @@ def test_typed_custom_fields_become_one_exact_filterable_map() -> None:
 
     raw, parsed, document = make_inputs(
         fields={
-            "summary": "Anh Nguyen",
+            "summary": "Sample Summary",
             "customfield_1": {"value": "Data Engineering", "id": "10"},
             "customfield_2": 3.0,
-            "customfield_3": [{"displayName": "Aidan NELL"}, {"displayName": "Martin PAPY"}],
+            "customfield_3": [{"displayName": "User A"}, {"displayName": "User B"}],
             "customfield_4": False,
             "customfield_5": "2026-09-13",
-            "customfield_6": "nguyen@example.com",
+            "customfield_6": "user-a@example.com",
             "customfield_7": "A long free-text note\nthat spans lines.",
             "customfield_8": None,
         },
@@ -204,7 +204,7 @@ def test_typed_custom_fields_become_one_exact_filterable_map() -> None:
         "customfield_5": {"type": "date"},
     }
     raw.raw["renderedFields"] = {
-        "customfield_6": '<a href="mailto:nguyen@example.com">nguyen@example.com</a>',
+        "customfield_6": '<a href="mailto:user-a@example.com">user-a@example.com</a>',
     }
 
     result = JiraDocumentTransform().transform(raw, parsed, document)
@@ -212,10 +212,10 @@ def test_typed_custom_fields_become_one_exact_filterable_map() -> None:
     assert result.provenance.extra["fields"] == {
         "skill_set": "Data Engineering",
         "years_of_experience": 3.0,
-        "restricted_to": ["Aidan NELL", "Martin PAPY"],
+        "restricted_to": ["User A", "User B"],
         "pd_consent": False,
         "available_from": "2026-09-13",
-        "candidate_s_email_1": "nguyen@example.com",
+        "candidate_s_email_1": "user-a@example.com",
     }
 
 

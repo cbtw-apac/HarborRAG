@@ -35,12 +35,12 @@ _DIAGNOSTICS: dict[str, object] = {
     ("value", "expected"),
     [
         # vector_search metadata.source_item_id -> the provider id the node is keyed by.
-        ("jira://ENG/ENG-110455", "ENG-110455"),
-        ("jira://ENG/ENG-66246/attachments/256636", "256636"),
+        ("jira://ENG/ENG-1001", "ENG-1001"),
+        ("jira://ENG/ENG-1002/attachments/2001", "2001"),
         ("confluence://SPACE/91980256", "91980256"),
         ("github://owner/repo/src/app.py", "src/app.py"),
         # Everything else is already a selector and passes unchanged.
-        ("ENG-110455", "ENG-110455"),
+        ("ENG-1001", "ENG-1001"),
         ("chunk:9435", "chunk:9435"),
         ("document:5d58", "document:5d58"),
         ("graph-v2-source-entity:b64a", "graph-v2-source-entity:b64a"),
@@ -86,27 +86,27 @@ async def test_path_and_subgraph_tools_map_source_item_ids_to_provider_ids() -> 
     await GraphPathSearchTool(runtime=runtime).call(
         {
             "tenant_id": "demo",
-            "start_node": "jira://ENG/ENG-110455",
-            "end_node": "jira://ENG/ENG-110455/attachments/365004",
+            "start_node": "jira://ENG/ENG-1001",
+            "end_node": "jira://ENG/ENG-1001/attachments/2002",
         },
         principal_id="reader-1",
     )
     await GraphSubgraphSearchTool(runtime=runtime).call(
-        {"tenant_id": "demo", "start_node": "jira://ENG/ENG-110455"},
+        {"tenant_id": "demo", "start_node": "jira://ENG/ENG-1001"},
         principal_id="reader-1",
     )
 
     await GraphTripletSearchTool(runtime=runtime).call(
-        {"tenant_id": "demo", "object": "jira://ENG/ENG-66246/attachments/256636"},
+        {"tenant_id": "demo", "object": "jira://ENG/ENG-1002/attachments/2001"},
         principal_id="reader-1",
     )
 
     path_request, subgraph_request, triplet_request = graph.requests
-    assert path_request.query.start_node == "ENG-110455"  # type: ignore[attr-defined]
-    assert path_request.query.end_node == "365004"  # type: ignore[attr-defined]
-    assert subgraph_request.query.start_node == "ENG-110455"  # type: ignore[attr-defined]
+    assert path_request.query.start_node == "ENG-1001"  # type: ignore[attr-defined]
+    assert path_request.query.end_node == "2002"  # type: ignore[attr-defined]
+    assert subgraph_request.query.start_node == "ENG-1001"  # type: ignore[attr-defined]
     assert triplet_request.query.subject is None  # type: ignore[attr-defined]
-    assert triplet_request.query.object == "256636"  # type: ignore[attr-defined]
+    assert triplet_request.query.object == "2001"  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
@@ -157,10 +157,10 @@ class _RecordingKnowledge:
 @pytest.mark.parametrize(
     ("kind", "value", "expected"),
     [
-        (GraphNodeSelectorKind.PROVIDER_ID, "jira://ENG/ENG-110455", "ENG-110455"),
-        (GraphNodeSelectorKind.PROVIDER_ID, "ENG-110455", "ENG-110455"),
+        (GraphNodeSelectorKind.PROVIDER_ID, "jira://ENG/ENG-1001", "ENG-1001"),
+        (GraphNodeSelectorKind.PROVIDER_ID, "ENG-1001", "ENG-1001"),
         # Only provider ids are reduced; a title or node key is matched as given.
-        (GraphNodeSelectorKind.EXACT_TITLE, "jira://ENG/ENG-110455", "jira://ENG/ENG-110455"),
+        (GraphNodeSelectorKind.EXACT_TITLE, "jira://ENG/ENG-1001", "jira://ENG/ENG-1001"),
     ],
 )
 async def test_resolve_graph_nodes_accepts_source_item_ids_as_provider_ids(

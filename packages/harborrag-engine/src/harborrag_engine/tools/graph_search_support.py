@@ -47,9 +47,9 @@ def node_selector(value: str) -> str:
     """Reduce a canonical source item id to the provider id its graph node carries.
 
     vector_search hands out ``metadata.source_item_id`` values such as
-    ``jira://ENG/ENG-110455`` or ``jira://ENG/ENG-66246/attachments/256636``, while the
+    ``jira://ENG/ENG-1001`` or ``jira://ENG/ENG-1002/attachments/2001``, while the
     projection keys a source entity by the provider id it derives from that identity
-    (``ENG-110455``, ``256636``) and stores it as the node's logical_id. Deriving the
+    (``ENG-1001``, ``2001``) and stores it as the node's logical_id. Deriving the
     selector with the projection's own ``source_provider_id`` -- the URI scheme is the
     connector type -- keeps the two from drifting. Anything that is not a
     ``scheme://`` identity (node keys, chunk and document ids, titles) passes unchanged,

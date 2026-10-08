@@ -196,7 +196,7 @@ def test_coerce_recovers_the_source_filename_from_metadata() -> None:
     """A connector's own upload name routes better than its permalink.
 
     `RawDocument` has no `filename` attribute, so without this the name falls
-    back to the last segment of `source` -- `ENG-1#attachment-397115` -- which
+    back to the last segment of `source` -- `ENG-1#attachment-100001` -- which
     carries no suffix. Routing then has only the media type, and providers
     routinely report a generic one for user uploads.
     """
@@ -204,16 +204,16 @@ def test_coerce_recovers_the_source_filename_from_metadata() -> None:
     from harborrag_core.domain.raw_document import RawDocument
 
     raw = RawDocument(
-        id="jira://ENG/ENG-1/attachments/397115",
-        source="https://example.atlassian.net/browse/ENG-1#attachment-397115",
+        id="jira://ENG/ENG-1/attachments/100001",
+        source="https://example.atlassian.net/browse/ENG-1#attachment-100001",
         content=b"%PDF-1.4",
         content_type="application/octet-stream",
-        metadata={"filename": "Anh Nguyen - Data.pdf", "title": "Anh Nguyen - Data.pdf"},
+        metadata={"filename": "Sample Data.pdf", "title": "Sample Data.pdf"},
     )
 
     parse_input = coerce_parse_input(raw)
 
-    assert parse_input.filename == "Anh Nguyen - Data.pdf"
+    assert parse_input.filename == "Sample Data.pdf"
     assert parse_input_suffix(parse_input) == ".pdf"
 
 
@@ -238,19 +238,19 @@ def test_coerce_decodes_percent_escapes_in_a_uri_derived_name() -> None:
 
     raw = RawDocument(
         id="a",
-        source="https://example.test/download/attachments/9/Anh%20Nguyen%20-%20Data.pdf",
+        source="https://example.test/download/attachments/9/Sample%20Data.pdf",
         content=b"%PDF-1.4",
         content_type="application/octet-stream",
         metadata={},
     )
 
-    assert coerce_parse_input(raw).filename == "Anh Nguyen - Data.pdf"
+    assert coerce_parse_input(raw).filename == "Sample Data.pdf"
 
 
 @pytest.mark.parametrize(
     "filename",
     [
-        "Anh Nguyen - Data.pdf",
+        "Sample Data.pdf",
         "Ảnh màn hình 2026-01-26 lúc 10.31.11.png",
         "Resume.pdf ",
         " Resume.pdf",

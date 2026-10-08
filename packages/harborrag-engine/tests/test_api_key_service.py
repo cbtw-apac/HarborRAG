@@ -198,7 +198,7 @@ async def test_lifetime_limits(store, environment, lifetime, message) -> None:
 @pytest.mark.parametrize(
     ("owner", "name", "tenant"),
     [
-        ("Huy Nguyen", "k", "t"),
+        ("User A", "k", "t"),
         ("huy", "k", "t"),
         ("user-huy", "Bad Name", "t"),
         ("user-huy", "k", " t"),

@@ -102,7 +102,7 @@ class _FencedLiteParse:
     """LiteParse fencing ordinary prose it read as a preformatted block."""
 
     def parse(self, _input: str | bytes) -> SimpleNamespace:
-        text = "```python\nPaul Nguyen\nHead of Department\n```\n\nSummary\n"
+        text = "```python\nUser A\nTeam Lead\n```\n\nSummary\n"
         return SimpleNamespace(
             text=text,
             pages=[{"page_num": 1, "text": text}],
@@ -116,8 +116,8 @@ def test_liteparse_strips_spurious_code_fences_by_default() -> None:
 
     assert "```" not in result.content
     # Only the delimiters go; the fenced prose is the document's actual text.
-    assert "Paul Nguyen" in result.content
-    assert "Head of Department" in result.content
+    assert "User A" in result.content
+    assert "Team Lead" in result.content
     assert "Summary" in result.content
 
 
@@ -128,7 +128,7 @@ def test_liteparse_strips_fences_from_page_elements_too() -> None:
 
     assert result.elements
     assert all("```" not in element.content for element in result.elements)
-    assert any("Paul Nguyen" in element.content for element in result.elements)
+    assert any("User A" in element.content for element in result.elements)
 
 
 def test_liteparse_keeps_code_fences_when_disabled() -> None:
