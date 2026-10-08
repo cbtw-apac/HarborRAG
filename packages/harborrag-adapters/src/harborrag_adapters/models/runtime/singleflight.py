@@ -117,17 +117,19 @@ class InMemorySingleFlight:
         """Run the first producer and share a defensive result copy with followers.
 
         If the leader is abandoned (interrupted rather than failing), a waiting
-        follower claims leadership and produces the result itself.
+        follower claims leadership; it first reuses a result the abandoned leader
+        already cached, and only otherwise produces the result itself.
         """
 
-        del follower_loader
+        recheck: Callable[[], T | None] | None = None
         while True:
             future, leader = self._claim_sync(key)
             if leader:
-                return self._lead_sync(key, future, producer)
+                return self._lead_sync(key, future, producer, recheck)
             try:
                 value = copy.deepcopy(future.result(self._timeout))
             except _LeaderAbandonedError:
+                recheck = follower_loader
                 continue
             except TimeoutError as exc:
                 raise SingleFlightTimeoutError(
@@ -144,19 +146,21 @@ class InMemorySingleFlight:
         """Run the first async producer and share its defensive result copy.
 
         A cancelled leader re-raises its own cancellation; followers are not
-        cancelled and one of them becomes the new leader.
+        cancelled and one of them becomes the new leader, reusing a result the
+        cancelled leader already cached before producing one itself.
         """
 
-        del follower_loader
         loop = asyncio.get_running_loop()
         loop_key = (id(loop), key)
+        recheck: Callable[[], Awaitable[T | None]] | None = None
         while True:
             future, leader = self._claim_async(loop, loop_key)
             if leader:
-                return await self._lead_async(loop_key, future, producer)
+                return await self._lead_async(loop_key, future, producer, recheck)
             try:
                 value = copy.deepcopy(await asyncio.wait_for(asyncio.shield(future), self._timeout))
             except _LeaderAbandonedError:
+                recheck = follower_loader
                 continue
             except TimeoutError as exc:
                 raise SingleFlightTimeoutError(
@@ -185,10 +189,15 @@ class InMemorySingleFlight:
             return future, True
 
     def _lead_sync[T: BaseModel](
-        self, key: str, future: Future[BaseModel], producer: Callable[[], T]
+        self,
+        key: str,
+        future: Future[BaseModel],
+        producer: Callable[[], T],
+        recheck: Callable[[], T | None] | None,
     ) -> SingleFlightResult[T]:
         try:
-            value = producer()
+            cached = recheck() if recheck is not None else None
+            value = producer() if cached is None else cached
         except Exception as exc:
             future.set_exception(exc)
             self._release(self._sync, key, future)
@@ -200,16 +209,18 @@ class InMemorySingleFlight:
             raise
         future.set_result(value)
         self._release(self._sync, key, future)
-        return SingleFlightResult(value, False)
+        return SingleFlightResult(value, cached is not None)
 
     async def _lead_async[T: BaseModel](
         self,
         loop_key: tuple[int, str],
         future: asyncio.Future[BaseModel],
         producer: Callable[[], Awaitable[T]],
+        recheck: Callable[[], Awaitable[T | None]] | None,
     ) -> SingleFlightResult[T]:
         try:
-            value = await producer()
+            cached = await recheck() if recheck is not None else None
+            value = await producer() if cached is None else cached
         except Exception as exc:
             future.set_exception(exc)
             self._release(self._async, loop_key, future)
@@ -223,7 +234,7 @@ class InMemorySingleFlight:
             raise
         future.set_result(value)
         self._release(self._async, loop_key, future)
-        return SingleFlightResult(value, False)
+        return SingleFlightResult(value, cached is not None)
 
     def _release[K, F](self, flights: dict[K, F], key: K, future: F) -> None:
         with self._lock:
@@ -288,7 +299,7 @@ class RedisSingleFlight:
                 return SingleFlightResult(value, True)
             # A free lock with no cached result means the leader failed: take over.
             if client.set(lock_key, token, nx=True, ex=self._lock_ttl):
-                return self._lead(client, lock_key, token, producer)
+                return self._lead(client, lock_key, token, producer, follower_loader)
             time.sleep(self._poll)
         raise SingleFlightTimeoutError("Redis single-flight follower timed out")
 
@@ -310,14 +321,23 @@ class RedisSingleFlight:
             if value := await follower_loader():
                 return SingleFlightResult(value, True)
             if await client.set(lock_key, token, nx=True, ex=self._lock_ttl):
-                return await self._alead(client, lock_key, token, producer)
+                return await self._alead(client, lock_key, token, producer, follower_loader)
             await asyncio.sleep(self._poll)
         raise SingleFlightTimeoutError("Redis single-flight follower timed out")
 
     def _lead[T: BaseModel](
-        self, client: SyncRedisClient, lock_key: str, token: str, producer: Callable[[], T]
+        self,
+        client: SyncRedisClient,
+        lock_key: str,
+        token: str,
+        producer: Callable[[], T],
+        recheck: Callable[[], T | None] | None = None,
     ) -> SingleFlightResult[T]:
         try:
+            # A taking-over follower re-checks the cache: the leader may have stored
+            # its result and released between the follower's miss and its SET NX.
+            if recheck is not None and (cached := recheck()) is not None:
+                return SingleFlightResult(cached, True)
             return SingleFlightResult(producer(), False)
         finally:
             client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
@@ -328,8 +348,11 @@ class RedisSingleFlight:
         lock_key: str,
         token: str,
         producer: Callable[[], Awaitable[T]],
+        recheck: Callable[[], Awaitable[T | None]] | None = None,
     ) -> SingleFlightResult[T]:
         try:
+            if recheck is not None and (cached := await recheck()) is not None:
+                return SingleFlightResult(cached, True)
             return SingleFlightResult(await producer(), False)
         finally:
             await client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)

@@ -465,3 +465,167 @@ async def test_redis_singleflight_async_follower_takes_over_after_leader_failure
     assert result.shared is False
     assert result.value.value == "takeover"
     assert sync.eval_calls == 1
+
+
+def test_redis_singleflight_takeover_returns_result_cached_before_lock_release(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections, sync, _ = redis_lifecycle([False, True])
+    coordinator = RedisSingleFlight(
+        connections,
+        key_prefix="harbor",
+        lock_ttl_seconds=2,
+        follower_timeout_seconds=0.5,
+        poll_interval_seconds=0.001,
+    )
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    # The leader caches and releases between the follower's miss and its SET NX.
+    cached: list[Response | None] = [None, Response(value="leader")]
+    produced: list[str] = []
+
+    def producer() -> Response:
+        produced.append("duplicate")
+        return Response(value="duplicate")
+
+    result = coordinator.execute("k", producer, lambda: cached.pop(0))
+
+    assert result.shared is True
+    assert result.value.value == "leader"
+    assert produced == []
+    assert sync.eval_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_redis_singleflight_async_takeover_returns_result_cached_before_lock_release() -> (
+    None
+):
+    connections, sync, _ = redis_lifecycle([False, True])
+    coordinator = RedisSingleFlight(
+        connections,
+        key_prefix="harbor",
+        lock_ttl_seconds=2,
+        follower_timeout_seconds=0.5,
+        poll_interval_seconds=0.001,
+    )
+    cached: list[Response | None] = [None, Response(value="leader")]
+    produced: list[str] = []
+
+    async def producer() -> Response:
+        produced.append("duplicate")
+        return Response(value="duplicate")
+
+    async def loader() -> Response | None:
+        return cached.pop(0)
+
+    result = await coordinator.aexecute("k", producer, loader)
+
+    assert result.shared is True
+    assert result.value.value == "leader"
+    assert produced == []
+    assert sync.eval_calls == 1
+
+
+def test_redis_singleflight_releases_lock_when_takeover_cache_check_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connections, sync, _ = redis_lifecycle([False, True])
+    coordinator = RedisSingleFlight(
+        connections,
+        key_prefix="harbor",
+        lock_ttl_seconds=2,
+        follower_timeout_seconds=0.5,
+        poll_interval_seconds=0.001,
+    )
+    monkeypatch.setattr(time, "sleep", lambda _seconds: None)
+    lookups = 0
+
+    def loader() -> Response | None:
+        nonlocal lookups
+        lookups += 1
+        if lookups == 2:
+            raise RuntimeError("cache unavailable")
+        return None
+
+    with pytest.raises(RuntimeError, match="cache unavailable"):
+        coordinator.execute("k", lambda: Response(value="duplicate"), loader)
+
+    assert sync.eval_calls == 1
+
+
+def test_memory_singleflight_takeover_returns_result_cached_by_aborted_leader() -> None:
+    class LeaderAborted(BaseException):
+        """Simulate an interpreter-level exit after the result was cached."""
+
+    coordinator = InMemorySingleFlight(follower_timeout_seconds=2)
+    started = threading.Event()
+    release = threading.Event()
+    cache: dict[str, Response] = {}
+    calls = 0
+
+    def producer() -> Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            release.wait(2)
+            cache["k"] = Response(value="cached-by-leader")
+            raise LeaderAborted()
+        return Response(value="duplicate")
+
+    def lead() -> str:
+        try:
+            coordinator.execute("k", producer, lambda: cache.get("k"))
+        except LeaderAborted:
+            return "aborted"
+        return "completed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leader = pool.submit(lead)
+        started.wait(2)
+        follower = pool.submit(coordinator.execute, "k", producer, lambda: cache.get("k"))
+        time.sleep(0.02)
+        release.set()
+        assert leader.result(2) == "aborted"
+        result = follower.result(2)
+
+    assert result.shared is True
+    assert result.value.value == "cached-by-leader"
+    assert calls == 1
+    coordinator.close()
+
+
+@pytest.mark.asyncio
+async def test_memory_singleflight_async_takeover_returns_result_cached_by_cancelled_leader() -> (
+    None
+):
+    coordinator = InMemorySingleFlight(follower_timeout_seconds=2)
+    started = asyncio.Event()
+    cache: dict[str, Response] = {}
+    calls = 0
+
+    async def producer() -> Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            cache["k"] = Response(value="cached-by-leader")
+            started.set()
+            await asyncio.Event().wait()
+        return Response(value="duplicate")
+
+    async def loader() -> Response | None:
+        return cache.get("k")
+
+    leader = asyncio.create_task(coordinator.aexecute("k", producer, loader))
+    await started.wait()
+    follower = asyncio.create_task(coordinator.aexecute("k", producer, loader))
+    await asyncio.sleep(0)
+    leader.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await leader
+
+    result = await asyncio.wait_for(follower, 1)
+
+    assert result.shared is True
+    assert result.value.value == "cached-by-leader"
+    assert calls == 1
+    await coordinator.aclose()
