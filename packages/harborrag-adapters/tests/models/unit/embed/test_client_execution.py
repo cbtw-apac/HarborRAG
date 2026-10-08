@@ -10,7 +10,7 @@ from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClient
 from harborrag_adapters.models.embed.configs import HarborEmbedProviderConfig
 from harborrag_adapters.models.embed.registry import HarborEmbedProvider
 from harborrag_adapters.models.runtime.cache import InMemoryModelCache
-from harborrag_adapters.models.runtime.config import CacheConfig, RetryPolicyConfig
+from harborrag_adapters.models.runtime.config import CacheBackend, CacheConfig, RetryPolicyConfig
 from harborrag_adapters.models.runtime.lifecycle import ResourceOwnership
 from harborrag_core.models.capabilities import HarborEmbedCapabilities
 from harborrag_core.models.embed import HarborEmbedRequest
@@ -248,3 +248,40 @@ def test_shared_embed_cache_hits_for_identical_configuration() -> None:
 
     assert response.cache_hit is True
     assert again.calls == []
+
+
+def test_litellm_preset_cache_key_distinguishes_deployment_and_batch_size() -> None:
+    retry = RetryPolicyConfig(
+        same_deployment_attempts=1,
+        max_deployment_failovers=1,
+        max_model_fallbacks=0,
+        base_delay_seconds=0,
+        max_delay_seconds=0,
+    )
+    second = deployment("second", order=1).model_copy(update={"max_batch_size": 1})
+    invocation = FakeEmbeddingInvocation(
+        [TimeoutError(), raw_batch([1, 0, 0]), raw_batch([0, 1, 0]), raw_batch([0, 0, 1])]
+    )
+    client = HarborEmbedClient(
+        embed_config(
+            deployments=(deployment("first"), second),
+            retry=retry,
+            cache=CacheConfig(enabled=True, backend=CacheBackend.LITELLM),
+        ),
+        invocation=invocation,
+    )
+
+    response = client.embed(
+        request=HarborEmbedRequest(
+            inputs=("a", "b", "c"), metadata={"tenant_id": "tenant"}, cacheable=True
+        )
+    )
+
+    keys = [call["preset_cache_key"] for call in invocation.calls]
+    assert response.deployment == "second"
+    assert [call["input"] for call in invocation.calls] == [["a", "b"], ["a"], ["b"], ["c"]]
+    assert keys[0].endswith(":primary:first:2:0")
+    assert keys[1].endswith(":primary:second:1:0")
+    assert keys[2].endswith(":primary:second:1:1")
+    assert keys[3].endswith(":primary:second:1:2")
+    assert len(set(keys)) == 4

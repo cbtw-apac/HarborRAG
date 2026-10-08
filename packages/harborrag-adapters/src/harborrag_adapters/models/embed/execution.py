@@ -326,7 +326,13 @@ class EmbedExecution(EmbedExecutionContextMixin):
         )
         cache_params = self.cache.provider_parameters(decision)
         if "preset_cache_key" in cache_params:
-            cache_params["preset_cache_key"] = f"{cache_params['preset_cache_key']}:{offset}"
+            # One logical model may fail over between deployments whose batch limits
+            # differ, so the same offset can cover a different slice of inputs.
+            batch_size = effective_batch_size(self.config, attempt.deployment, request)
+            cache_params["preset_cache_key"] = (
+                f"{cache_params['preset_cache_key']}:{attempt.logical_model}:"
+                f"{attempt.deployment.name}:{batch_size}:{offset}"
+            )
         params.update(cache_params)
         params["metadata"] = litellm_telemetry_metadata(
             request_id=request.metadata.request_id,
