@@ -100,7 +100,14 @@ def _read_via_dir_fd(
             next_fd = os.open(component, directory_flags, dir_fd=directory_fd)
             os.close(directory_fd)
             directory_fd = next_fd
-        file_flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        # O_NONBLOCK: opening a FIFO for reading otherwise blocks until a writer
+        # appears; the S_ISREG check below then rejects it. Regular files ignore it.
+        file_flags = (
+            os.O_RDONLY
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+            | getattr(os, "O_NONBLOCK", 0)
+        )
         file_fd = os.open(relative.parts[-1], file_flags, dir_fd=directory_fd)
         descriptor_stat = os.fstat(file_fd)
         if not stat_module.S_ISREG(descriptor_stat.st_mode):
@@ -150,7 +157,9 @@ def _read_via_plain_open(
 
     file_fd = -1
     try:
-        file_fd = os.open(final, os.O_RDONLY | getattr(os, "O_BINARY", 0))
+        file_fd = os.open(
+            final, os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
+        )
         descriptor_stat = os.fstat(file_fd)
         if not stat_module.S_ISREG(descriptor_stat.st_mode):
             raise DocumentProcessingError(f"Local path is not a regular file: {path}")

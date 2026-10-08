@@ -255,9 +255,16 @@ class LocalFileSystem:
         )
 
     def record_for_path(self, path: str | Path) -> SourceRecord:
-        """Resolve a caller-provided path and return its source record."""
+        """Resolve a caller-provided path and return its source record.
+
+        Applies discovery's selection policy (regular file, hidden files, filters,
+        size, callback) before anything opens the file, so a direct load cannot
+        reach what a scan would have excluded.
+        """
         is_symlink = Path(path).is_symlink()
         resolved = self.resolve_candidate(path)
+        if not self.should_process_file(resolved, ConnectorQuery()):
+            raise DocumentProcessingError(f"Local path is excluded by connector policy: {path}")
         return self.source_record(resolved, is_symlink=is_symlink)
 
     def checksum(self, path: Path) -> str | None:
