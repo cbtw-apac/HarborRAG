@@ -1,7 +1,7 @@
 """Citations report the sources the answer used, not the ones retrieval returned.
 
 Retrieval always hands back its top-k, so every answer came back with a full
-set of citations -- including "Your name is Huy.", which used none of them. A
+set of citations -- including "Your name is Alex.", which used none of them. A
 client rendering that list shows five unrelated documents as the evidence for
 an answer that never touched them.
 
@@ -75,7 +75,7 @@ def test_only_the_server_generated_readable_marker_is_accepted() -> None:
 def test_an_answer_that_marks_nothing_cites_nothing() -> None:
     """The 'what is my name?' case: answered from the conversation."""
 
-    assert cited_results("Your name is Huy.", _results(5)) == ()
+    assert cited_results("Your name is Alex.", _results(5)) == ()
 
 
 def test_legacy_plain_marker_is_not_readable_provenance() -> None:

@@ -154,7 +154,7 @@ def cited_results(
 
     Retrieval returns its top-k whether or not any of it bears on the
     question, so reporting all of it as citations claims evidence the answer
-    never used -- "Your name is Huy." came back citing five unrelated
+    never used -- "Your name is Alex." came back citing five unrelated
     documents. The model is instructed to mark what it uses, and marks
     nothing when it uses nothing, which is the only signal here that
     distinguishes the two.

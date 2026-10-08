@@ -33,8 +33,8 @@ def _created() -> CreatedKey:
     return CreatedKey(
         key_id="0123456789abcdef01234567",
         tenant_id="engineering",
-        owner="user-huy",
-        name="huy-laptop",
+        owner="user-a",
+        name="device-a",
         expires_at=EXPIRES,
         raw_key="hrk_dev_v1_0123456789abcdef01234567." + "a" * 43,
     )
@@ -68,15 +68,15 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
     create = AsyncMock(return_value=_created())
     monkeypatch.setattr(api_key_operations, "create_key", create)
     monkeypatch.setattr(auth_keys, "operator_identity", lambda: "op@host")
-    output = tmp_path / "huy-laptop.key"
+    output = tmp_path / "device-a.key"
 
     result = CliRunner().invoke(
         app,
         [
             "auth", "keys", "create",
             "--tenant", "engineering",
-            "--owner", "user-huy",
-            "--name", "huy-laptop",
+            "--owner", "user-a",
+            "--name", "device-a",
             "--expires-in", "30d",
             "--secret-output", str(output),
         ],
@@ -92,8 +92,8 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
     assert create.call_args.kwargs == {
         "operator": "op@host",
         "tenant_id": "engineering",
-        "owner": "user-huy",
-        "name": "huy-laptop",
+        "owner": "user-a",
+        "name": "device-a",
         "lifetime": timedelta(days=30),
     }
 
@@ -143,8 +143,8 @@ def test_a_failed_secret_write_revokes_the_key_it_just_created(tmp_path: Path, m
 
 def test_list_delegates_and_shows_no_secret_material(monkeypatch):
     rows = [
-        {"key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active"},
-        {"key_id": "1" * 24, "name": "old", "owner": "user-huy", "state": "revoked"},
+        {"key_id": "0" * 24, "name": "laptop", "owner": "user-a", "state": "active"},
+        {"key_id": "1" * 24, "name": "old", "owner": "user-a", "state": "revoked"},
     ]
     monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=rows))
 
@@ -174,7 +174,7 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
     monkeypatch.setattr(api_key_operations, "revoke_owner", by_owner)
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
+        ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-a", "--reason", "left"],
     )  # fmt: skip
     assert result.exit_code == 0
     assert json.loads(result.stdout)["data"]["revoked"] == ["a" * 24, "b" * 24]
@@ -245,13 +245,13 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy",
-         "--name", "huy-laptop", "--expires-in", "1d"],
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-a",
+         "--name", "device-a", "--expires-in", "1d"],
     )  # fmt: skip
 
     assert result.exit_code == 0, result.stderr
     key_dir = tmp_path / ".harborrag" / "keys"
-    key_file = key_dir / "huy-laptop.key"
+    key_file = key_dir / "device-a.key"
     assert json.loads(result.stdout)["data"]["secret_written_to"] == str(key_file)
     assert stat.S_IMODE(key_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
@@ -261,11 +261,11 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
 def test_create_makes_a_missing_secret_output_directory(tmp_path: Path, monkeypatch):
     monkeypatch.setattr(api_key_operations, "ensure_key_schema", AsyncMock(return_value=False))
     monkeypatch.setattr(api_key_operations, "create_key", AsyncMock(return_value=_created()))
-    output = tmp_path / "private" / "nested" / "huy-laptop.key"
+    output = tmp_path / "private" / "nested" / "device-a.key"
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-a", "--name", "k",
          "--expires-in", "1d", "--secret-output", str(output)],
     )  # fmt: skip
 
@@ -283,7 +283,7 @@ def test_create_migrate_flag_reaches_the_schema_check_before_issuing(tmp_path: P
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-a", "--name", "k",
          "--expires-in", "1d", "--secret-output", str(tmp_path / "k.key"), "--migrate"],
     )  # fmt: skip
 
@@ -351,7 +351,7 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
 
     result = CliRunner().invoke(
         app,
-        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-a", "--name", "k",
          "--expires-in", "30d", "--secret-output", str(tmp_path / "k.key")],
     )  # fmt: skip
 

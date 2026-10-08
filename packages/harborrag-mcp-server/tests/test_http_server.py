@@ -433,7 +433,7 @@ async def test_reader_keys_use_the_playground_but_not_the_configuration(tmp_path
             },
             reader_token: {
                 "client_id": "mcp-key:0",
-                "sub": "user-huy",
+                "sub": "user-a",
                 "role": "reader",
                 "tenants": ["demo"],
                 "scopes": ["mcp:read"],

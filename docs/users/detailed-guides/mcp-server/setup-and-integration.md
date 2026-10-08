@@ -141,13 +141,13 @@ each person or workload its own reader key from the operator environment:
 
 ```bash
 harborrag auth keys create \
-  --tenant engineering --owner user-huy --name huy-laptop --expires-in 30d
-# secret written to ~/.harborrag/keys/huy-laptop.key (directory created 0700);
+  --tenant engineering --owner user-a --name device-a --expires-in 30d
+# secret written to ~/.harborrag/keys/device-a.key (directory created 0700);
 # --secret-output picks another new file, --migrate applies pending migrations
 # on a stack whose API has not started yet
 harborrag auth keys list --tenant engineering
 harborrag auth keys revoke --key-id 0123456789abcdef01234567 --reason "laptop lost"
-harborrag auth keys revoke --tenant engineering --owner user-huy --reason "left team"
+harborrag auth keys revoke --tenant engineering --owner user-a --reason "left team"
 ```
 
 How it works:

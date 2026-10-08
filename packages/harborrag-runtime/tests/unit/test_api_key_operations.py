@@ -26,7 +26,7 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
         settings,
         operator="op@host",
         tenant_id="engineering",
-        owner="user-huy",
+        owner="user-a",
         name="laptop",
         lifetime=timedelta(days=1),
     )
@@ -56,19 +56,19 @@ async def test_revoke_owner_covers_every_active_key(settings: RuntimeSettings) -
             settings,
             operator="op",
             tenant_id="engineering",
-            owner="user-huy",
+            owner="user-a",
             name=name,
             lifetime=timedelta(hours=2),
         )
         ids.append(created.key_id)
 
     revoked = await api_key_operations.revoke_owner(
-        settings, operator="op", tenant_id="engineering", owner="user-huy", reason="left"
+        settings, operator="op", tenant_id="engineering", owner="user-a", reason="left"
     )
 
     assert sorted(revoked) == sorted(ids)
     assert not await api_key_operations.revoke_owner(
-        settings, operator="op", tenant_id="engineering", owner="user-huy", reason="again"
+        settings, operator="op", tenant_id="engineering", owner="user-a", reason="again"
     )
 
 

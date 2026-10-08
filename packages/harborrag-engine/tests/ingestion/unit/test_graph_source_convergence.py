@@ -139,7 +139,7 @@ def test_confluence_attachment_invents_no_space_for_its_parent() -> None:
 
     page = _project(
         "confluence",
-        {"space_id": "92045319", "space_key": "HARBORRAG", "page_id": "77"},
+        {"space_id": "1000001", "space_key": "HARBORRAG", "page_id": "77"},
         source_item_id="confluence://HARBORRAG/77",
     )
     attachment = _project(
@@ -161,7 +161,7 @@ def test_confluence_attachment_invents_no_space_for_its_parent() -> None:
         ],
     )
 
-    assert set(_keys(page, GraphEntityType.CONFLUENCE_SPACE)) == {"92045319"}
+    assert set(_keys(page, GraphEntityType.CONFLUENCE_SPACE)) == {"1000001"}
     assert _keys(attachment, GraphEntityType.CONFLUENCE_SPACE) == {}
     assert _fallback_containers(attachment) == set()
     # The parent stand-in still converges on the real page, and is reachable through the

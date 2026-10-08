@@ -65,7 +65,7 @@ def _issued(
     record = ApiKeyRecord(
         key_id=new.key_id,
         tenant_id="engineering",
-        owner="user-huy",
+        owner="user-a",
         name="laptop",
         secret_hash=new.secret_hash,
         environment=environment,
@@ -96,7 +96,7 @@ async def test_a_valid_key_yields_the_stored_tenant(store, verifier) -> None:
 
     assert verified is not None
     assert verified.tenant_id == "engineering"
-    assert verified.owner == "user-huy"
+    assert verified.owner == "user-a"
     assert verified.key_id == record.key_id
     assert verified.expires_at == record.expires_at
 
@@ -159,8 +159,8 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
     created = await management.create_key(
         operator="operator@host",
         tenant_id="engineering",
-        owner="user-huy",
-        name="huy-laptop",
+        owner="user-a",
+        name="device-a",
         lifetime=timedelta(days=30),
     )
 
@@ -199,10 +199,10 @@ async def test_lifetime_limits(store, environment, lifetime, message) -> None:
     ("owner", "name", "tenant"),
     [
         ("User A", "k", "t"),
-        ("huy", "k", "t"),
-        ("user-huy", "Bad Name", "t"),
-        ("user-huy", "k", " t"),
-        ("user-huy", "k", ""),
+        ("a", "k", "t"),
+        ("user-a", "Bad Name", "t"),
+        ("user-a", "k", " t"),
+        ("user-a", "k", ""),
     ],
 )
 async def test_bad_identifiers_are_rejected(store, management, owner, name, tenant) -> None:
@@ -233,7 +233,7 @@ async def test_revoke_owner_only_touches_that_owners_active_keys(store, manageme
     _, other = _issued(store, owner="user-other")
 
     revoked = await management.revoke_owner(
-        operator="op", tenant_id="engineering", owner="user-huy", reason="left"
+        operator="op", tenant_id="engineering", owner="user-a", reason="left"
     )
 
     assert set(revoked) == {a.key_id, b.key_id}

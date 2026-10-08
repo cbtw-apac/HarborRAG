@@ -138,7 +138,7 @@ async def test_an_unknown_filter_key_is_refused_before_searching():
             top_k=5,
             options=RetrievalOptions(
                 filters=VectorFilter(
-                    must=[VectorFilterCondition(field="document_title", value="Hung Tran")]
+                    must=[VectorFilterCondition(field="document_title", value="User B")]
                 )
             ),
         )

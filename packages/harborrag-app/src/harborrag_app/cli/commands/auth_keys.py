@@ -173,7 +173,7 @@ def _emit(data: dict[str, Any]) -> None:
 def create(  # noqa: PLR0913 - one parameter per documented option
     tenant: Tenant,
     owner: Annotated[str, typer.Option("--owner", help="user-<name>, svc-<name> or team-<name>.")],
-    name: Annotated[str, typer.Option("--name", help="Device or workload, e.g. huy-laptop.")],
+    name: Annotated[str, typer.Option("--name", help="Device or workload, e.g. device-a.")],
     expires_in: Annotated[
         str, typer.Option("--expires-in", help="Lifetime such as 30d or 12h; required.")
     ],

@@ -28,7 +28,7 @@ class FakeService:
 async def test_a_verified_key_becomes_a_reader_token_bound_to_its_tenant() -> None:
     expires = datetime(2026, 12, 1, tzinfo=UTC)
     service = FakeService(
-        VerifiedKey(key_id="0" * 24, tenant_id="engineering", owner="user-huy", expires_at=expires)
+        VerifiedKey(key_id="0" * 24, tenant_id="engineering", owner="user-a", expires_at=expires)
     )
 
     token = await create_postgres_api_key_verifier(service).verify_token("hrk_dev_v1_x.y")  # type: ignore[arg-type]
@@ -36,7 +36,7 @@ async def test_a_verified_key_becomes_a_reader_token_bound_to_its_tenant() -> No
     assert token is not None
     assert token.claims["role"] == "reader"
     assert token.claims["tenants"] == ["engineering"]
-    assert token.claims["sub"] == "user-huy"
+    assert token.claims["sub"] == "user-a"
     assert token.claims["key_id"] == "0" * 24
     assert token.claims["auth_method"] == "api_key"
     assert token.scopes == ["mcp:read"]

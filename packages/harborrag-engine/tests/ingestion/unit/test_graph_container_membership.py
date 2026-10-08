@@ -17,7 +17,7 @@ from harborrag_engine.ingestion import GraphProjectionBuilder, GraphProjectionIn
 
 from .chunking_helpers import make_document, make_profile, make_request, make_service
 
-_SPACE = {"space_id": "92045319", "space_key": "HARBORRAG"}
+_SPACE = {"space_id": "1000001", "space_key": "HARBORRAG"}
 
 
 def _project(extra: dict[str, object], *, source_item_id: str):
@@ -101,8 +101,8 @@ def _attachment_edges(graph) -> set[tuple[tuple[str, str], tuple[str, str]]]:
 
 def test_a_page_is_contained_by_its_space_not_by_the_data_source() -> None:
     graph = _project(
-        {**_SPACE, "page_id": "91980595"},
-        source_item_id="confluence://HARBORRAG/91980595",
+        {**_SPACE, "page_id": "1000002"},
+        source_item_id="confluence://HARBORRAG/1000002",
     )
 
     assert _space_contains(graph) == {"confluence_page"}
@@ -123,15 +123,15 @@ def test_an_attachment_reaches_its_space_through_its_page_not_beside_it() -> Non
             **_SPACE,
             "binding_kind": "ATTACHMENT",
             "page_id": "att91980616",
-            "parent_source_item_id": "confluence://HARBORRAG/91980595",
+            "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/91980595/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
     )
 
     assert _space_contains(graph) == {"confluence_page"}
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_space"}
     assert _attachment_edges(graph) == {
-        (("confluence_page", "91980595"), ("confluence_attachment", "att91980616"))
+        (("confluence_page", "1000002"), ("confluence_attachment", "att91980616"))
     }
 
 
@@ -144,15 +144,15 @@ def test_an_attachment_without_space_metadata_still_anchors_somewhere() -> None:
         {
             "binding_kind": "ATTACHMENT",
             "page_id": "att91980616",
-            "parent_source_item_id": "confluence://HARBORRAG/91980595",
+            "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/91980595/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
     )
 
     assert _space_contains(graph) == set()
     assert _contained_by(graph, KnowledgeNodeKind.DATA_SOURCE) == {"confluence_page"}
     assert _attachment_edges(graph) == {
-        (("confluence_page", "91980595"), ("confluence_attachment", "att91980616"))
+        (("confluence_page", "1000002"), ("confluence_attachment", "att91980616"))
     }
 
 
@@ -161,17 +161,17 @@ def test_page_and_attachment_resolve_to_the_very_same_space_node() -> None:
     the attachment inherits space_id and not just space_key."""
 
     page = _project(
-        {**_SPACE, "page_id": "91980595"},
-        source_item_id="confluence://HARBORRAG/91980595",
+        {**_SPACE, "page_id": "1000002"},
+        source_item_id="confluence://HARBORRAG/1000002",
     )
     attachment = _project(
         {
             **_SPACE,
             "binding_kind": "ATTACHMENT",
             "page_id": "att91980616",
-            "parent_source_item_id": "confluence://HARBORRAG/91980595",
+            "parent_source_item_id": "confluence://HARBORRAG/1000002",
         },
-        source_item_id="confluence://HARBORRAG/91980595/attachments/att91980616",
+        source_item_id="confluence://HARBORRAG/1000002/attachments/att91980616",
     )
 
     def space_key(graph) -> str:

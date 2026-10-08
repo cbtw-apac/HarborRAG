@@ -34,15 +34,15 @@ def test_a_confluence_attachment_carries_the_space_its_parent_lives_in() -> None
     data source: measured on a live graph, 147 of 147 attachments hung off the DataSource
     while every page hung off the space."""
 
-    inherited = space_identity({"id": "92045319", "key": "HARBORRAG"})
+    inherited = space_identity({"id": "1000001", "key": "HARBORRAG"})
 
     record = attachment_source_record(
-        _parent("confluence://HARBORRAG/91980595"),
+        _parent("confluence://HARBORRAG/1000002"),
         _descriptor(),
         inherited=inherited,
     )
 
-    assert record.metadata["space_id"] == "92045319"
+    assert record.metadata["space_id"] == "1000001"
     assert record.metadata["space_key"] == "HARBORRAG"
 
 
@@ -51,14 +51,14 @@ def test_the_inherited_space_id_is_the_one_the_page_itself_projects() -> None:
     key hashes the provider id, and the page uses space_id in preference to space_key."""
 
     payload = {
-        "id": "91980595",
+        "id": "1000002",
         "title": "Technical Document",
-        "space": {"id": "92045319", "key": "HARBORRAG"},
+        "space": {"id": "1000001", "key": "HARBORRAG"},
         "version": {"number": 3},
     }
     page = ConfluencePageInput.from_api_payload(payload, source_url="https://example.invalid")
     record = attachment_source_record(
-        _parent("confluence://HARBORRAG/91980595"),
+        _parent("confluence://HARBORRAG/1000002"),
         _descriptor(),
         inherited=space_identity(payload["space"]),
     )
@@ -122,14 +122,14 @@ def test_the_loader_forwards_container_identity_into_the_raw_document() -> None:
     """
 
     record = attachment_source_record(
-        _parent("confluence://HARBORRAG/91980595"),
+        _parent("confluence://HARBORRAG/1000002"),
         _descriptor(),
-        inherited=space_identity({"id": "92045319", "key": "HARBORRAG"}),
+        inherited=space_identity({"id": "1000001", "key": "HARBORRAG"}),
     )
 
     raw = AttachmentDocumentLoader(_Gateway()).load(record)  # type: ignore[arg-type]
 
-    assert raw.metadata["space_id"] == "92045319"
+    assert raw.metadata["space_id"] == "1000001"
     assert raw.metadata["space_key"] == "HARBORRAG"
 
 
