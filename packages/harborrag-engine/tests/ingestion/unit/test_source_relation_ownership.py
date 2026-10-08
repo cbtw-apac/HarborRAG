@@ -101,7 +101,7 @@ def test_has_attachment_and_parent_of_defer_to_the_far_ends_projection() -> None
 
 @pytest.mark.parametrize("predicate", ["is_blocked_by", "relates_to", "has_attachment"])
 def test_an_unresolved_link_points_at_an_external_stub_in_repair(predicate: str) -> None:
-    target = "jira://RHR/RHR-2687"
+    target = "jira://OPS/OPS-2687"
 
     structural = _issue(_A, predicate, target, resolved={})
     repaired = _issue(_A, predicate, target, resolved={}, external_stubs=True)
@@ -123,7 +123,7 @@ def test_an_unresolved_link_points_at_an_external_stub_in_repair(predicate: str)
 
 
 def test_the_stub_key_ignores_the_declaring_scope() -> None:
-    target = "jira://RHR/RHR-2687"
+    target = "jira://OPS/OPS-2687"
     in_hr = _issue(_A, "relates_to", target, resolved={}, external_stubs=True)
     in_ops = _issue(
         _B,
@@ -164,12 +164,12 @@ def test_a_parent_already_placed_by_the_projector_gets_no_second_stub() -> None:
             "project_id": "ENG",
             "project_key": "ENG",
             "issue_key": "ENG-2",
-            "parent": {"id": "1", "key": "RHR-1", "summary": "Elsewhere"},
+            "parent": {"id": "1", "key": "OPS-1", "summary": "Elsewhere"},
         },
         source_item_id=_B,
         relations=[
             DocumentRelation(
-                predicate="child_of", target_id="jira://RHR/RHR-1", target_type="document"
+                predicate="child_of", target_id="jira://OPS/OPS-1", target_type="document"
             )
         ],
         resolved_targets={},

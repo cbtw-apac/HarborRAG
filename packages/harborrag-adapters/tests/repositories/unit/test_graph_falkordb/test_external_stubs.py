@@ -24,11 +24,11 @@ def _stub() -> GraphNodeRecord:
         node_key="graph-v2-external-source-entity:stub",
         node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
         entity_type=GraphEntityType.JIRA_ISSUE,
-        logical_id="RHR-2687",
+        logical_id="OPS-2687",
         ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
         owner_id="tenant-1",
         source_scope_id="scope-a",
-        title="RHR-2687",
+        title="OPS-2687",
         attributes={"placeholder": True, "external": True},
     )
 

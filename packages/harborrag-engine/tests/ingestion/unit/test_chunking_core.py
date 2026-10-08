@@ -399,7 +399,7 @@ def test_oversized_table_ignores_whitespace_only_refiner_splits() -> None:
 
 
 def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> None:
-    # Two distinct Jira "relates to" links to the same issue (ENG-145481 -> RHR-2700)
+    # Two distinct Jira "relates to" links to the same issue (ENG-145481 -> OPS-2700)
     # used to fail chunk validation permanently with duplicate relations.
     profile = make_profile(target=20, maximum=25)
     document = replace(
@@ -407,7 +407,7 @@ def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> Non
         relations=[
             DocumentRelation(
                 predicate="relates_to",
-                target_id="jira://RHR/RHR-2700",
+                target_id="jira://OPS/OPS-2700",
                 target_type="document",
                 metadata={"source_relation_version": version},
             )
@@ -420,7 +420,7 @@ def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> Non
     assert [
         (relation.relation_type.value, relation.target_id)
         for relation in result.chunks[0].relations
-    ] == [("relates_to", "jira://RHR/RHR-2700")]
+    ] == [("relates_to", "jira://OPS/OPS-2700")]
 
 
 def test_route_chunk_keeps_labels_and_headings_within_its_token_cap() -> None:

@@ -112,18 +112,18 @@ async def test_replacement_reconciles_the_whole_set_including_an_empty_one(
         await _remember(
             control,
             "declarer",
-            _link("jira://RHR/RHR-1"),
-            _link("jira://RHR/RHR-2", "is_blocked_by"),
+            _link("jira://OPS/OPS-1"),
+            _link("jira://OPS/OPS-2", "is_blocked_by"),
             # The same link declared twice is one row.
-            _link("jira://RHR/RHR-1"),
+            _link("jira://OPS/OPS-1"),
         )
         rows = await control.unresolved_relations.unresolved_for("declarer")
         assert [(row.target_source_item_id, row.predicate) for row in rows] == [
-            ("jira://RHR/RHR-1", "relates_to"),
-            ("jira://RHR/RHR-2", "is_blocked_by"),
+            ("jira://OPS/OPS-1", "relates_to"),
+            ("jira://OPS/OPS-2", "is_blocked_by"),
         ]
 
-        await _remember(control, "declarer", _link("jira://RHR/RHR-2", "is_blocked_by"))
+        await _remember(control, "declarer", _link("jira://OPS/OPS-2", "is_blocked_by"))
         assert len(await control.unresolved_relations.unresolved_for("declarer")) == 1
 
         await _remember(control, "declarer")
@@ -137,14 +137,14 @@ async def test_declarers_become_resolvable_only_once_their_target_is_published(
     async with make_control_plane(tmp_path) as control:
         await _document(control, "declarer", "jira://ENG/ENG-1")
         await _document(control, "inactive-declarer", "jira://ENG/ENG-9", active=False)
-        await _remember(control, "declarer", _link("jira://RHR/RHR-1"))
-        await _remember(control, "inactive-declarer", _link("jira://RHR/RHR-1"))
+        await _remember(control, "declarer", _link("jira://OPS/OPS-1"))
+        await _remember(control, "inactive-declarer", _link("jira://OPS/OPS-1"))
         resolvable = control.unresolved_relations.resolvable_declaring_documents
 
         assert await resolvable(tenant_id="tenant-1") == ()
 
         # Published in another scope of the same connection: that resolves.
-        await _document(control, "target", "jira://RHR/RHR-1", scope="scope-b")
+        await _document(control, "target", "jira://OPS/OPS-1", scope="scope-b")
 
         # An inactive declarer has nothing for repair to rebuild.
         assert await resolvable(tenant_id="tenant-1") == ("declarer",)
@@ -158,11 +158,11 @@ async def test_a_same_connector_target_in_another_connection_does_not_resolve(
 ) -> None:
     async with make_control_plane(tmp_path) as control:
         await _document(control, "declarer", "jira://ENG/ENG-1")
-        await _remember(control, "declarer", _link("jira://RHR/RHR-1"))
+        await _remember(control, "declarer", _link("jira://OPS/OPS-1"))
         await _document(
             control,
             "elsewhere",
-            "jira://RHR/RHR-1",
+            "jira://OPS/OPS-1",
             scope="scope-other-site",
             connection_id="jira-other-site",
         )
@@ -177,7 +177,7 @@ async def test_a_same_connector_target_in_another_connection_does_not_resolve(
 async def test_a_deleted_declarer_is_never_offered_for_repair(tmp_path: Path) -> None:
     async with make_control_plane(tmp_path) as control:
         await _document(control, "declarer", "jira://ENG/ENG-1")
-        await _remember(control, "declarer", _link("jira://RHR/RHR-1"))
+        await _remember(control, "declarer", _link("jira://OPS/OPS-1"))
         async with control._client.sessions.begin() as session:
             await session.execute(DOCUMENTS.delete().where(DOCUMENTS.c.document_id == "declarer"))
 
