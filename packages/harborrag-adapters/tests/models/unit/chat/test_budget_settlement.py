@@ -9,7 +9,9 @@ from harborrag_adapters.models.runtime.budget import (
     BudgetExceededError,
     InMemoryBudgetPolicy,
 )
+from harborrag_adapters.models.runtime.config import CacheConfig
 from harborrag_adapters.models.runtime.distributed_config import BudgetPolicyConfig
+from harborrag_adapters.models.runtime.singleflight import SingleFlightResult
 from harborrag_core.models.chat import HarborChatMessage, StreamEventType
 
 from .chat_client_support import sync_client
@@ -104,3 +106,37 @@ def test_chat_without_response_cost_leaves_budget_spend_untouched() -> None:
     response = client.chat([HarborChatMessage.user("free")])
     assert response.estimated_cost_usd is None
     assert policy.snapshot(SCOPE)["day_cost_usd"] == 0.0
+
+
+class _FollowerCoordinator:
+    """Hand the caller the produced value exactly as a single-flight follower sees it."""
+
+    def execute(self, key: str, producer: Any, follower_loader: Any) -> Any:
+        del key, follower_loader
+        return SingleFlightResult(producer(), True)
+
+    async def aexecute(self, key: str, producer: Any, follower_loader: Any) -> Any:
+        del key, follower_loader
+        return SingleFlightResult(await producer(), True)
+
+    def close(self) -> None: ...
+
+    async def aclose(self) -> None: ...
+
+
+def test_singleflight_follower_settles_zero_cost() -> None:
+    policy = _daily_capped_policy(10.0)
+    client = sync_client(
+        chat_config(cache=CacheConfig(enabled=True)),
+        backend=FakeChatInvocation([_costed_chat(0.4)]),
+        budget=policy,
+        singleflight=_FollowerCoordinator(),
+    )
+
+    response = client.chat(
+        [HarborChatMessage.user("one")], cacheable=True, metadata={"tenant_id": "tenant"}
+    )
+
+    assert response.estimated_cost_usd == 0.0
+    assert response.provider_metadata["singleflight"] == {"shared": True}
+    assert policy.snapshot("tenant:primary")["day_cost_usd"] == 0.0

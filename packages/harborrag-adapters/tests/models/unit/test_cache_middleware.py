@@ -220,3 +220,30 @@ async def test_async_middleware_and_error_hook_isolation() -> None:
     await pipeline.aerror(error, context)
     assert events == ["before", "after", "error"]
     assert any("middleware error hooks" in note for note in error.__notes__)
+
+
+class CostedResponse(BaseModel):
+    """Mimic the cost and metadata fields shared by Harbor model responses."""
+
+    value: int
+    estimated_cost_usd: float | None = None
+    request_id: str | None = None
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+def test_mark_shared_reports_zero_follower_cost_and_keeps_leader_intact() -> None:
+    controller = ResponseCacheController(
+        CacheConfig(enabled=True), family="chat", configuration_fingerprint=None
+    )
+    leader = CostedResponse(value=1, estimated_cost_usd=0.4, request_id="leader")
+
+    follower = controller.mark_shared(leader, request_id="follower")
+    unknown = controller.mark_shared(CostedResponse(value=1), request_id="other")
+
+    assert isinstance(follower, CostedResponse)
+    assert follower.estimated_cost_usd == 0.0
+    assert follower.request_id == "follower"
+    assert follower.provider_metadata["singleflight"] == {"shared": True}
+    assert leader.estimated_cost_usd == 0.4
+    assert isinstance(unknown, CostedResponse)
+    assert unknown.estimated_cost_usd is None

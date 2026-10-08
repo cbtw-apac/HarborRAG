@@ -228,14 +228,18 @@ class ResponseCacheController:
         )
 
     def mark_shared(self, response: BaseModel, *, request_id: str | None) -> BaseModel:
-        """Return an isolated response annotated as a single-flight follower result."""
+        """Return an isolated follower copy of a single-flight leader result.
+
+        The follower incurred no provider spend, so a known leader cost is reported
+        as ``0.0``; settling it again would double-count the budget and telemetry.
+        """
 
         metadata = dict(getattr(response, "provider_metadata", {}))
         metadata["singleflight"] = {"shared": True}
-        return response.model_copy(
-            deep=True,
-            update={"request_id": request_id, "provider_metadata": metadata},
-        )
+        update: dict[str, Any] = {"request_id": request_id, "provider_metadata": metadata}
+        if getattr(response, "estimated_cost_usd", None) is not None:
+            update["estimated_cost_usd"] = 0.0
+        return response.model_copy(deep=True, update=update)
 
     def provider_parameters(self, decision: CacheDecision) -> dict[str, Any]:
         """Return explicit LiteLLM cache controls without leaking tenant identity."""
