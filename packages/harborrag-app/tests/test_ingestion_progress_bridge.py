@@ -12,7 +12,10 @@ from dataclasses import dataclass, field, replace
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.progress_bridge import sync_ingestion_progress
+from harborrag_app.workflow_control.ingestion.progress_bridge import (
+    ActiveTaskTracker,
+    sync_ingestion_progress,
+)
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_runtime.events.in_process import InProcessEventBus
@@ -204,3 +207,95 @@ async def test_reaching_a_terminal_state_publishes_a_done_event_live() -> None:
     done_event = await subscriber.__anext__()
     assert done_event.name == "task.t1.done"
     assert done_event.payload["status"] == "COMPLETED"
+
+
+def _done_count(store: FakeTaskStore, task_id: str) -> int:
+    return sum(
+        1 for owner, event in store.appended if owner == task_id and event.name.endswith(".done")
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_task_that_finishes_between_ticks_gets_exactly_one_done_event() -> None:
+    """The task finishes during the sleep, so the next tick's list_active() no
+    longer returns it. The tracker remembers it was active and the bridge
+    re-reads it, publishing a final .done instead of silently dropping it."""
+    task = _FakeTask("t1", IngestionTaskState.RUNNING)
+    store = FakeTaskStore([task], {"t1": {"succeeded": 1}})
+    bus = InProcessEventBus()
+    tracker = ActiveTaskTracker()
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+    subscriber = bus.subscribe("task.t1.")
+
+    task.status = IngestionTaskState.COMPLETED  # finished between ticks
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+
+    done = await subscriber.__anext__()
+    assert done.name == "task.t1.done"
+    assert done.payload["status"] == IngestionTaskState.COMPLETED.value
+    assert _done_count(store, "t1") == 1
+    assert tracker.task_ids == set()
+
+
+@pytest.mark.asyncio
+async def test_a_same_tick_done_is_not_repeated_by_the_next_tick() -> None:
+    store = FakeTaskStore(
+        [_FakeTask("t1", IngestionTaskState.RUNNING)],
+        {"t1": {"succeeded": 2}},
+        finish_on_progress={"t1": IngestionTaskState.COMPLETED},
+    )
+    bus = InProcessEventBus()
+    tracker = ActiveTaskTracker()
+
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+
+    assert _done_count(store, "t1") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_changed_terminal_outcome_rearms_the_done_marker() -> None:
+    """finalize() may move a retryable FAILED to COMPLETED; that is new news."""
+    task = _FakeTask("t1", IngestionTaskState.RUNNING)
+    store = FakeTaskStore([task], {"t1": {"succeeded": 1}})
+    bus = InProcessEventBus()
+    tracker = ActiveTaskTracker()
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+    task.status = IngestionTaskState.FAILED
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+
+    task.status = IngestionTaskState.RUNNING  # retried finalization re-enters RUNNING
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+    task.status = IngestionTaskState.COMPLETED
+    await sync_ingestion_progress(store, bus, tracker=tracker)
+
+    assert _done_count(store, "t1") == 2
+
+
+@pytest.mark.asyncio
+async def test_a_tick_that_loses_the_lease_does_not_treat_unseen_tasks_as_finished(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "harborrag_app.workflow_control.ingestion.progress_bridge._LIST_ACTIVE_PAGE_LIMIT", 1
+    )
+    store = _PagingFakeTaskStore(
+        tasks=[
+            _FakeTask("t1", IngestionTaskState.RUNNING),
+            _FakeTask("t2", IngestionTaskState.RUNNING),
+        ],
+    )
+    tracker = ActiveTaskTracker(task_ids={"t1", "t2"})
+    calls = 0
+
+    async def still_leader() -> bool:
+        nonlocal calls
+        calls += 1
+        return calls == 1
+
+    await sync_ingestion_progress(
+        store, InProcessEventBus(), still_leader=still_leader, tracker=tracker
+    )
+
+    assert tracker.task_ids == {"t1", "t2"}  # t2 was never seen, so it is kept, not "vanished"

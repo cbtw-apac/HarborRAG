@@ -26,7 +26,12 @@ from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
-from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
+from ..ingestion.progress_bridge import (
+    LEASE_NAME,
+    LEASE_TTL_SECONDS,
+    ActiveTaskTracker,
+    sync_ingestion_progress,
+)
 from ..ingestion.service import IngestionApplicationService
 from ..memory import (
     ConversationDirectoryService,
@@ -77,6 +82,9 @@ class AppService(
         # Identifies this process as a lease holder (ingestion progress bridge);
         # stable for the process's lifetime, unique across concurrently running ones.
         self._instance_id = uuid.uuid4().hex
+        # Which tasks this process saw active on its last complete progress
+        # tick, so a task finishing between ticks still gets its ".done".
+        self._progress_tracker = ActiveTaskTracker()
         selected = factories or AppServiceFactories()
         self._runtime_config = selected.ingestion_description(self._settings)
         self._source_input_builder = selected.source_input_builder
@@ -243,7 +251,10 @@ class AppService(
             )
 
         return await sync_ingestion_progress(
-            store, self._resources.event_bus(), still_leader=still_leader
+            store,
+            self._resources.event_bus(),
+            still_leader=still_leader,
+            tracker=self._progress_tracker,
         )
 
     async def stream_ingestion_events(

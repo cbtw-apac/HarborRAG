@@ -12,10 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Iterable
+from dataclasses import dataclass, field
 
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
 
 from .ports import PublicTaskStore
@@ -31,6 +32,11 @@ _TERMINAL_STATES = frozenset(
     }
 )
 _SNAPSHOT_KEY = "_last_progress_snapshot"
+# Durable exactly-once marker for the terminal ".done" event. It holds the
+# terminal status it was published for, not a bool: finalize() may move a
+# retryable FAILED task to COMPLETED (and replaces the summary wholesale), and
+# that changed outcome is news a subscriber must still receive.
+DONE_MARKER_KEY = "_done_published"
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 _LIST_ACTIVE_PAGE_LIMIT = 500
 
@@ -46,43 +52,120 @@ LEASE_NAME = "ingestion_progress_bridge"
 LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
 
 
+@dataclass
+class ActiveTaskTracker:
+    """Task ids this process saw active on its previous complete tick.
+
+    list_active() only returns PENDING/RUNNING tasks, so a task that finishes
+    during the sleep between ticks silently drops out of it. Remembering what
+    was active lets the next tick re-read exactly those tasks and publish
+    their terminal ``.done``. In-process and best effort: a process that has
+    just taken the lease over starts empty, which is why the SSE stream also
+    polls task status as its own backstop (event_stream.tail_until_terminal).
+    """
+
+    task_ids: set[str] = field(default_factory=set)
+
+
+async def _publish_progress(
+    store: PublicTaskStore, event_bus: EventBusPort, task: IngestionTask
+) -> dict[str, int]:
+    """Append + publish a progress event when the counts changed; return them."""
+
+    counts = await store.progress(task.task_id)
+    if counts != task.summary.get(_SNAPSHOT_KEY):
+        event = HarborEvent(
+            name=f"task.{task.task_id}.progress",
+            trace_id=task.task_id,
+            payload={"status": task.status.value, "counts": counts},
+        )
+        event = await store.append_task_event(task.task_id, event)
+        await event_bus.publish(event)
+        await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
+    return counts
+
+
+async def _publish_done_once(
+    store: PublicTaskStore,
+    event_bus: EventBusPort,
+    task: IngestionTask,
+    counts: dict[str, int],
+) -> None:
+    """Append + publish ``.done`` unless this terminal status was already announced."""
+
+    if task.status not in _TERMINAL_STATES:
+        return
+    if task.summary.get(DONE_MARKER_KEY) == task.status.value:
+        return
+    done_event = HarborEvent(
+        name=f"task.{task.task_id}.done",
+        trace_id=task.task_id,
+        payload={"status": task.status.value, "counts": counts},
+    )
+    done_event = await store.append_task_event(task.task_id, done_event)
+    await event_bus.publish(done_event)
+    await store.update_summary(task.task_id, {DONE_MARKER_KEY: task.status.value})
+
+
+async def _finish_vanished(
+    store: PublicTaskStore, event_bus: EventBusPort, task_ids: Iterable[str]
+) -> None:
+    """Close out tasks that were active last tick and are no longer listed."""
+
+    for task_id in sorted(task_ids):
+        task = await store.get(task_id)
+        if task is None or task.status not in _TERMINAL_STATES:
+            continue  # vanished (deleted) or merely PAUSED; resuming re-lists it
+        counts = await _publish_progress(store, event_bus, task)
+        await _publish_done_once(store, event_bus, task, counts)
+
+
+async def _reconcile(
+    store: PublicTaskStore,
+    event_bus: EventBusPort,
+    tracker: ActiveTaskTracker,
+    seen: set[str],
+    *,
+    complete: bool,
+) -> None:
+    """Advance the tracker; only a complete pagination may declare tasks gone."""
+
+    if not complete:
+        # An aborted tick (lost lease) never saw later pages, so their tasks
+        # are not "gone" -- keep them for whichever tick completes next.
+        tracker.task_ids |= seen
+        return
+    await _finish_vanished(store, event_bus, tracker.task_ids - seen)
+    tracker.task_ids = seen
+
+
 async def sync_ingestion_progress(
     store: PublicTaskStore,
     event_bus: EventBusPort,
     *,
     still_leader: Callable[[], Awaitable[bool]] | None = None,
+    tracker: ActiveTaskTracker | None = None,
 ) -> int:
     """One poll tick: diff every active task's progress snapshot.
 
     For each task whose counts changed since the last tick, append + publish
-    a "task.<id>.progress" event. For a task that reached a terminal status
-    since the last tick, append + publish a final "task.<id>.done" event
-    too -- the stream route's stop signal. Returns the number of active
-    tasks examined.
+    a "task.<id>.progress" event. Every task that reaches a terminal status
+    gets exactly one "task.<id>.done" event -- the stream route's stop
+    signal -- whether it turned terminal within this tick (re-fetched after
+    its progress read) or during the sleep before it (``tracker`` remembers
+    it was active). ``DONE_MARKER_KEY`` in the task summary makes that
+    exactly-once across both paths and across lease handoffs. Returns the
+    number of active tasks examined.
 
-    list_active() is a bounded, keyset-paginated read, not a single snapshot
-    of every active task -- with more active tasks than fit in one page,
-    stopping after the first page would silently starve later tasks of
-    progress/done events. So this walks every page each tick, following the
-    (submitted_at, task_id) cursor from the last row of each page until a
-    short page signals the end.
-
-    ``still_leader``, when given, is re-checked before every page (an
-    AppService caller passes its lease's try_acquire, which re-confirms
-    ownership and renews the lease's ttl in one call). A single ownership
-    check up front, before this pagination existed, was enough because one
-    tick's work was small and fast; now that a tick can span an unbounded
-    number of pages, a large enough backlog of active tasks could make one
-    tick outlive the lease's ttl, letting another process take over the
-    same lease and start its own overlapping drain while this one is still
-    running. If ownership is no longer confirmed, this stops early and
-    returns however many tasks were examined so far -- safe, because the
-    next tick (by whichever process now holds the lease) restarts the
-    pagination from the beginning and re-diffs every active task's
-    snapshot, so nothing already published needs redoing and nothing
-    skipped here is lost.
+    list_active() is a bounded, keyset-paginated read, so this walks every
+    page each tick, following the (submitted_at, task_id) cursor until a
+    short page signals the end. ``still_leader``, when given, is re-checked
+    before every page; if ownership is lost the tick stops early, and the
+    tracker keeps (rather than finishes) the tasks it never got to see.
     """
     examined = 0
+    seen: set[str] = set()
+    complete = False
     after_submitted_at = None
     after_task_id = None
     while True:
@@ -98,33 +181,20 @@ async def sync_ingestion_progress(
             after_task_id=after_task_id,
             limit=_LIST_ACTIVE_PAGE_LIMIT,
         )
-        if not page:
-            break
         for task in page:
-            counts = await store.progress(task.task_id)
-            if counts != task.summary.get(_SNAPSHOT_KEY):
-                event = HarborEvent(
-                    name=f"task.{task.task_id}.progress",
-                    trace_id=task.task_id,
-                    payload={"status": task.status.value, "counts": counts},
-                )
-                event = await store.append_task_event(task.task_id, event)
-                await event_bus.publish(event)
-                await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
+            seen.add(task.task_id)
+            counts = await _publish_progress(store, event_bus, task)
             refreshed = await store.get(task.task_id)
-            if refreshed is not None and refreshed.status in _TERMINAL_STATES:
-                done_event = HarborEvent(
-                    name=f"task.{task.task_id}.done",
-                    trace_id=task.task_id,
-                    payload={"status": refreshed.status.value, "counts": counts},
-                )
-                done_event = await store.append_task_event(task.task_id, done_event)
-                await event_bus.publish(done_event)
+            if refreshed is not None:
+                await _publish_done_once(store, event_bus, refreshed, counts)
         examined += len(page)
         if len(page) < _LIST_ACTIVE_PAGE_LIMIT:
+            complete = True
             break
         after_submitted_at = page[-1].submitted_at
         after_task_id = page[-1].task_id
+    if tracker is not None:
+        await _reconcile(store, event_bus, tracker, seen, complete=complete)
     return examined
 
 
@@ -141,9 +211,10 @@ async def run_ingestion_progress_bridge(
     killing the whole background task, so a single failure can't silently
     stop all future progress delivery for the process's lifetime.
     """
+    tracker = ActiveTaskTracker()
     while True:
         try:
-            await sync_ingestion_progress(store, event_bus)
+            await sync_ingestion_progress(store, event_bus, tracker=tracker)
         except asyncio.CancelledError:
             raise
         except Exception:
