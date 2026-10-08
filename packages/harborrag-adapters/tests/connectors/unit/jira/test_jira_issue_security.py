@@ -120,3 +120,57 @@ def test_include_policy_keeps_secured_issue_and_labels_record_and_document():
         "id": "10100",
         "display_name": "Internal only",
     }
+
+
+class RecordingJiraClient(FakeJiraClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.download_calls: list[str] = []
+
+    def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
+        self.download_calls.append(url)
+        return super().download_bytes(url, max_bytes=max_bytes)
+
+
+def attachment_record(parent_key: str = "ENG-2") -> SourceRecord:
+    return SourceRecord(
+        id=f"jira://ENG/{parent_key}/attachments/100001",
+        source_type="text/markdown",
+        locator="100001",
+        metadata={
+            "binding_kind": "ATTACHMENT",
+            "parent_source_item_id": f"jira://ENG/{parent_key}",
+            "attachment_id": "100001",
+            "filename": "notes.md",
+            "media_type": "text/markdown",
+            "size_bytes": 5,
+            "download_url": "https://example.atlassian.net/secure/attachment/100001/notes.md",
+            "source_version": "1",
+        },
+    )
+
+
+def test_attachment_load_rejects_a_parent_issue_secured_since_discovery():
+    client = RecordingJiraClient()
+    client.add_get("issue/ENG-2", secured("ENG-2"))
+    client.downloads[attachment_record().metadata["download_url"]] = b"notes"
+    connector = JiraConnector(cloud_config(include_attachments=True), client=client)
+
+    with pytest.raises(SourceRestrictedError, match="ENG-2"):
+        connector.load(attachment_record())
+    assert [endpoint for endpoint, _ in client.get_calls] == ["issue/ENG-2"]
+    assert client.download_calls == []
+
+
+def test_attachment_load_checks_the_open_parent_with_one_descriptor_read():
+    client = RecordingJiraClient()
+    client.add_get("issue/ENG-2", issue("ENG-2"))
+    client.downloads[attachment_record().metadata["download_url"]] = b"notes"
+    connector = JiraConnector(cloud_config(include_attachments=True), client=client)
+
+    document = connector.load(attachment_record())
+
+    assert document.content == b"notes"
+    assert [(endpoint, params) for endpoint, params in client.get_calls] == [
+        ("issue/ENG-2", {"fields": ",".join(DESCRIPTOR_FIELDS)})
+    ]

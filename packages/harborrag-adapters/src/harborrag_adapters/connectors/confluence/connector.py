@@ -12,6 +12,7 @@ from harborrag_adapters.connectors.attachments import (
     AttachmentProcessor,
     AttachmentSourceGateway,
     AttachmentSourcePolicy,
+    attachment_parent_locator,
     is_attachment_record,
 )
 from harborrag_adapters.connectors.base import BaseConnector, replay_discovery_page
@@ -278,6 +279,18 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             self._access.page_acl(content), path=content_id
         )
 
+    def _require_parent_access(self, record: SourceRecord) -> None:
+        """Re-check the parent page's access before downloading an attachment.
+
+        The page (or an ancestor) may have been restricted since discovery; one
+        descriptor read tells, and the attachment is refused exactly as the page
+        would be.
+        """
+
+        parent_id = attachment_parent_locator(record)
+        parent = self._content.get_content_descriptor(parent_id)
+        self._gate.require(self._access.page_acl(parent), path=parent_id)
+
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
 
@@ -287,6 +300,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
                 or record.metadata.get("include_attachments") is False
             ):
                 raise DocumentProcessingError("Confluence attachment loading is disabled")
+            self._require_parent_access(record)
             document = self._attachment_loader.load(record)
             logger.info("Confluence attachment loaded source_id=%s", record.id)
             return document

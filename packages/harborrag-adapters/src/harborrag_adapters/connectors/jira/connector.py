@@ -12,6 +12,7 @@ from harborrag_adapters.connectors.attachments import (
     AttachmentProcessor,
     AttachmentSourceGateway,
     AttachmentSourcePolicy,
+    attachment_parent_locator,
     is_attachment_record,
 )
 from harborrag_adapters.connectors.base import BaseConnector
@@ -243,6 +244,17 @@ class JiraConnector(BaseConnector):
         )
         return page
 
+    def _require_parent_access(self, record: SourceRecord) -> None:
+        """Re-check the parent issue's access before downloading an attachment.
+
+        The parent may have been secured since discovery; one descriptor read
+        tells, and the attachment is refused exactly as the issue would be.
+        """
+
+        parent_key = attachment_parent_locator(record)
+        parent = self._issues.get_issue_descriptor(parent_key)
+        self._gate.require(issue_acl(parent), path=parent_key)
+
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one JIRA issue as a text/markdown raw document."""
 
@@ -252,6 +264,7 @@ class JiraConnector(BaseConnector):
                 or record.metadata.get("include_attachments") is False
             ):
                 raise DocumentProcessingError("JIRA attachment loading is disabled")
+            self._require_parent_access(record)
             document = self._attachment_loader.load(record)
             logger.info("JIRA attachment loaded source_id=%s", record.id)
             return document

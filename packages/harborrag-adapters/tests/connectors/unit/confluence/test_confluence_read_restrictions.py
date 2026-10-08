@@ -260,7 +260,8 @@ def test_include_policy_carries_acl_onto_attachment_records_and_documents():
     client = FakeConfluenceClient()
     page = full_content("1")
     page["restrictions"] = read_restricted_to(groups=("group-a",))
-    client.add("content/1", page)
+    # describe(), then the attachment load re-checks the parent page's access.
+    client.add("content/1", page, page)
     client.add(
         "content/1/child/attachment",
         {
@@ -369,3 +370,40 @@ def test_explicit_id_paged_replay_reuses_ancestors_within_one_scan():
 
     assert [r.metadata["content_id"] for r in (*first.records, *second.records)] == ["1", "2"]
     assert [endpoint for endpoint, _ in client.calls].count("content/77") == 1
+
+
+def confluence_attachment_record(parent_id: str = "1") -> SourceRecord:
+    return SourceRecord(
+        id=f"confluence://ENG/{parent_id}/attachments/a1",
+        source_type="text/markdown",
+        locator="a1",
+        metadata={
+            "binding_kind": "ATTACHMENT",
+            "parent_source_item_id": f"confluence://ENG/{parent_id}",
+            "attachment_id": "a1",
+            "filename": "notes.md",
+            "media_type": "text/markdown",
+            "size_bytes": 5,
+            "download_url": f"{CLOUD_BASE}/download/attachments/{parent_id}/notes.md",
+            "source_version": "1",
+        },
+    )
+
+
+def test_attachment_load_rejects_a_parent_page_restricted_since_discovery():
+    downloads: list[str] = []
+
+    class RecordingClient(FakeConfluenceClient):
+        def download_bytes(self, url, *, max_bytes=None):
+            downloads.append(url)
+            return super().download_bytes(url, max_bytes=max_bytes)
+
+    client = RecordingClient()
+    client.add("content/1", restricted_page("1", users=("user-a",)))
+    client.downloads[f"{CLOUD_BASE}/download/attachments/1/notes.md"] = b"notes"
+    connector = ConfluenceConnector(cloud_config(include_attachments=True), client=client)
+
+    with pytest.raises(SourceRestrictedError, match="1"):
+        connector.load(confluence_attachment_record())
+    assert client.calls == [("content/1", {"expand": DESCRIPTOR_EXPAND})]
+    assert downloads == []

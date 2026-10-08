@@ -22,7 +22,8 @@ def test_describe_dispatches_attachment_and_preserves_issue_relations() -> None:
             "outwardIssue": {"key": "ENG-2"},
         }
     ]
-    client.add_get("issue/ENG-1", issue_value)
+    # describe(), then the attachment load re-checks the parent issue's access.
+    client.add_get("issue/ENG-1", issue_value, issue_value)
     client.add_get(
         "issue/ENG-1/comment",
         {

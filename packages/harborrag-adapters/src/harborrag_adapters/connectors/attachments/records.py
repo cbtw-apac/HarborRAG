@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_core.domain.source import SourceRecord
 
 from .sources import AttachmentSourceDescriptor
@@ -73,3 +74,18 @@ def attachment_descriptor_from_record(
 
 def is_attachment_record(record: SourceRecord) -> bool:
     return record.metadata.get("binding_kind") == _ATTACHMENT_BINDING
+
+
+def attachment_parent_locator(record: SourceRecord) -> str:
+    """Return the provider locator of an attachment's parent (issue key, page id).
+
+    The parent's source item id ends in its locator (``jira://ENG/ENG-1``,
+    ``confluence://ENG/123``). Loading re-checks the parent's access with it, so a
+    record that does not name its parent fails closed.
+    """
+
+    parent_id = str(record.metadata.get("parent_source_item_id") or "")
+    locator = parent_id.rpartition("/")[2].strip()
+    if not locator:
+        raise DocumentProcessingError(f"Attachment record {record.id!r} does not name its parent")
+    return locator

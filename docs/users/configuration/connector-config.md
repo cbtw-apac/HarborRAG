@@ -121,7 +121,8 @@ Confluence space, SharePoint library):
 
 Withheld items are left out of discovery, so a full scan retires copies ingested
 earlier. Direct loads and explicit-ID describes of a withheld item raise
-`SourceRestrictedError`.
+`SourceRestrictedError`. Jira and Confluence attachment loads first re-read the
+parent issue or page and are refused the same way when the parent is withheld.
 
 Use `include` only when `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` and you import a
 document snapshot for every restricted document (see `harborrag topology indexing

@@ -18,7 +18,8 @@ def test_describe_dispatches_attachment_without_downloading_it() -> None:
     client = FakeConfluenceClient()
     content = full_content()
     attachment_url = f"{CLOUD_BASE}/download/attachments/1/runbook.md"
-    client.add("content/1", content)
+    # describe(), then the attachment load re-checks the parent page's access.
+    client.add("content/1", content, content)
     client.add(
         "content/1/child/comment",
         {
