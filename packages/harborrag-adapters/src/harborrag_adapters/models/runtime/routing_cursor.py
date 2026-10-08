@@ -94,9 +94,25 @@ class RoutingExecutionCursor[D: DeploymentLike]:
     async def next_attempt(
         self, selector: DeploymentSelector[D]
     ) -> SelectedRoutingAttempt[D] | None:
-        """Select the next available deployment for asynchronous execution."""
+        """Select the next available deployment without blocking the event loop.
 
-        return self.next_attempt_sync(selector)
+        Mirrors ``next_attempt_sync`` but awaits ``DeploymentSelector.select`` so the
+        distributed routing-state reads use the store's asynchronous client.
+        """
+
+        while self.logical_index < len(self.chain):
+            logical = self.chain[self.logical_index]
+            if self.current is None:
+                try:
+                    self.current = await selector.select(
+                        logical, self.models[logical].deployments, exclude=self.excluded
+                    )
+                except NoHealthyDeploymentError:
+                    if not self._advance_model():
+                        return None
+                    continue
+            return SelectedRoutingAttempt(logical, self.current, self.attempt + 1)
+        return None
 
     def failed(self, *, retryable: bool, current_available: bool = True) -> bool:
         """Record a failure and report whether policy permits another attempt."""

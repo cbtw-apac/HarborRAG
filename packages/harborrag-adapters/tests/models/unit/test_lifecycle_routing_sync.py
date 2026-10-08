@@ -24,6 +24,9 @@ from harborrag_adapters.models.runtime.lifecycle import (
 )
 from harborrag_adapters.models.runtime.retry import RetryController
 from harborrag_adapters.models.runtime.routing import DeploymentSelector
+from harborrag_adapters.models.runtime.routing_cursor import RoutingExecutionCursor
+from harborrag_adapters.models.runtime.routing_state import RoutingStateSnapshot
+from harborrag_adapters.models.runtime.routing_state_memory import InMemoryRoutingStateStore
 from harborrag_adapters.models.runtime.sync import (
     AsyncLoopRunner,
     run_awaitable_synchronously,
@@ -232,3 +235,59 @@ async def test_sync_awaitable_inside_running_loop() -> None:
         return threading.get_ident()
 
     assert isinstance(run_awaitable_synchronously(value(), thread_name="nested"), int)
+
+
+@dataclass
+class LogicalModel:
+    """Provide the logical-model attributes the routing cursor reads."""
+
+    deployments: tuple[Deployment, ...]
+    fallbacks: tuple[str, ...] = ()
+    aliases: tuple[str, ...] = ()
+
+
+class AsyncOnlyRoutingState(InMemoryRoutingStateStore):
+    """Fail if routing performs a blocking state read from the event loop."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.async_reads: list[str] = []
+
+    def snapshot(self, deployment_key: str) -> RoutingStateSnapshot:
+        raise AssertionError(f"blocking routing state read for {deployment_key}")
+
+    async def asnapshot(self, deployment_key: str) -> RoutingStateSnapshot:
+        self.async_reads.append(deployment_key)
+        return RoutingStateSnapshot()
+
+
+@pytest.mark.asyncio
+async def test_async_cursor_selects_through_async_state_reads() -> None:
+    """Async selection, including model fallback, never touches the sync store API."""
+    primary = (Deployment("a"),)
+    fallback = (Deployment("b"),)
+    store = AsyncOnlyRoutingState()
+    selector = DeploymentSelector(
+        {"primary": primary, "fallback": fallback},
+        strategy=RoutingStrategy.ORDERED,
+        circuit_breaker=CircuitBreakerConfig(),
+        enable_health_tracking=False,
+        state_store=store,
+    )
+    cursor: RoutingExecutionCursor[Deployment] = RoutingExecutionCursor(
+        {
+            "primary": LogicalModel(primary, fallbacks=("fallback",)),
+            "fallback": LogicalModel(fallback),
+        },
+        "primary",
+        RetryPolicyConfig(max_model_fallbacks=1, base_delay_seconds=0, max_delay_seconds=0),
+    )
+
+    first = await cursor.next_attempt(selector)
+    assert first is not None and first.public.deployment.name == "a"
+    assert cursor.failed(retryable=True, current_available=False)
+    second = await cursor.next_attempt(selector)
+
+    assert second is not None
+    assert (second.logical_model, second.public.deployment.name) == ("fallback", "b")
+    assert store.async_reads == ["primary:a", "fallback:b"]
