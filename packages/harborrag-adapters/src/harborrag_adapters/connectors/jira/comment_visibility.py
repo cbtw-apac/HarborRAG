@@ -1,4 +1,4 @@
-"""Jira comment visibility: only comments every issue reader can see are shared.
+"""Jira comment visibility: only comments (and worklogs) every issue reader can see are shared.
 
 An issue becomes one document with one access decision. A comment Jira limits to
 a project role or group (``visibility``), or a Jira Service Management internal
@@ -35,38 +35,47 @@ def shareable_comments(comments: Iterable[object]) -> list[dict[str, Any]]:
     ]
 
 
-def redact_restricted_comments(issue: dict[str, Any]) -> dict[str, Any]:
-    """Drop restricted comments from an issue's embedded comment pages, in place.
+# Embedded blocks whose entries carry their own ``visibility``: (field, list key).
+_RESTRICTABLE_BLOCKS = (("comment", "comments"), ("worklog", "worklogs"))
 
-    ``get_issue`` expands ``renderedFields``, whose ``comment`` block repeats every
-    comment as rendered HTML, restricted ones included, and may omit
-    ``visibility``. Rendered entries are kept only when their id survived the
-    ``fields.comment`` filter; without that list the rendered block is dropped.
+
+def redact_restricted_comments(issue: dict[str, Any]) -> dict[str, Any]:
+    """Drop restricted comments and worklogs from an issue's embedded pages, in place.
+
+    Worklogs carry a ``comment`` and the same ``visibility`` restriction as
+    comments, so they are filtered by the same predicate. ``get_issue`` expands
+    ``renderedFields``, whose ``comment`` and ``worklog`` blocks repeat every entry
+    as rendered HTML, restricted ones included, and may omit ``visibility``.
+    Rendered entries are kept only when their id survived the ``fields`` filter;
+    without that list the rendered block is dropped.
     """
 
     fields = issue.get("fields")
-    embedded = fields.get("comment") if isinstance(fields, dict) else None
-    shareable_ids: set[str] | None = None
-    if isinstance(embedded, dict) and isinstance(embedded.get("comments"), list):
-        embedded["comments"] = shareable_comments(embedded["comments"])
-        shareable_ids = {str(comment.get("id")) for comment in embedded["comments"]}
     rendered = issue.get("renderedFields")
-    if isinstance(rendered, dict) and "comment" in rendered:
-        _redact_rendered_comments(rendered, shareable_ids)
+    for block_name, list_key in _RESTRICTABLE_BLOCKS:
+        embedded = fields.get(block_name) if isinstance(fields, dict) else None
+        shareable_ids: set[str] | None = None
+        if isinstance(embedded, dict) and isinstance(embedded.get(list_key), list):
+            embedded[list_key] = shareable_comments(embedded[list_key])
+            shareable_ids = {str(entry.get("id")) for entry in embedded[list_key]}
+        if isinstance(rendered, dict) and block_name in rendered:
+            _redact_rendered_block(rendered, block_name, list_key, shareable_ids)
     return issue
 
 
-def _redact_rendered_comments(rendered: dict[str, Any], shareable_ids: set[str] | None) -> None:
-    block = rendered.get("comment")
+def _redact_rendered_block(
+    rendered: dict[str, Any], block_name: str, list_key: str, shareable_ids: set[str] | None
+) -> None:
+    block = rendered.get(block_name)
     if (
         shareable_ids is None
         or not isinstance(block, dict)
-        or not isinstance(block.get("comments"), list)
+        or not isinstance(block.get(list_key), list)
     ):
-        rendered.pop("comment", None)
+        rendered.pop(block_name, None)
         return
-    block["comments"] = [
-        comment
-        for comment in block["comments"]
-        if isinstance(comment, dict) and str(comment.get("id")) in shareable_ids
+    block[list_key] = [
+        entry
+        for entry in block[list_key]
+        if isinstance(entry, dict) and str(entry.get("id")) in shareable_ids
     ]

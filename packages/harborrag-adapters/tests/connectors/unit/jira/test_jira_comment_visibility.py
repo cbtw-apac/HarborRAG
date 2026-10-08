@@ -104,6 +104,47 @@ def test_redact_drops_rendered_comments_it_cannot_verify():
     assert "comment" not in payload["renderedFields"]
 
 
+PUBLIC_WORKLOG = {"id": "w1", "comment": "Public work", "timeSpent": "1h"}
+GROUP_WORKLOG = {
+    "id": "w2",
+    "comment": "Group-only work",
+    "timeSpent": "2h",
+    "visibility": {"type": "group", "value": "group-a"},
+}
+
+
+def test_redact_drops_restricted_worklogs_and_their_rendered_copies():
+    payload = {
+        "fields": {"worklog": {"total": 2, "worklogs": [PUBLIC_WORKLOG, GROUP_WORKLOG]}},
+        "renderedFields": {
+            "worklog": {
+                "worklogs": [
+                    {"id": "w1", "comment": "<p>Public work</p>"},
+                    {"id": "w2", "comment": "<p>Group-only work</p>"},
+                ]
+            }
+        },
+    }
+
+    redact_restricted_comments(payload)
+
+    assert payload["fields"]["worklog"]["worklogs"] == [PUBLIC_WORKLOG]
+    assert payload["renderedFields"]["worklog"]["worklogs"] == [
+        {"id": "w1", "comment": "<p>Public work</p>"}
+    ]
+
+
+def test_redact_drops_rendered_worklogs_it_cannot_verify():
+    payload = {
+        "fields": {},
+        "renderedFields": {"worklog": {"worklogs": [{"id": "w2", "comment": "x"}]}},
+    }
+
+    redact_restricted_comments(payload)
+
+    assert "worklog" not in payload["renderedFields"]
+
+
 def test_fetch_comments_excludes_restricted_comments():
     client = FakeJiraClient()
     client.add_get(
