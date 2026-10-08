@@ -19,6 +19,10 @@ class SingleFlightTimeoutError(TimeoutError):
     """Report that a follower did not observe the leader result before its timeout."""
 
 
+class _LeaderAbandonedError(Exception):
+    """Tell followers the leader exited without a result or a shareable error."""
+
+
 @dataclass(frozen=True, slots=True)
 class SingleFlightResult[T: BaseModel]:
     """Return one result and whether it came from another in-flight caller."""
@@ -110,33 +114,26 @@ class InMemorySingleFlight:
         producer: Callable[[], T],
         follower_loader: Callable[[], T | None],
     ) -> SingleFlightResult[T]:
-        """Run the first producer and share a defensive result copy with followers."""
+        """Run the first producer and share a defensive result copy with followers.
+
+        If the leader is abandoned (interrupted rather than failing), a waiting
+        follower claims leadership and produces the result itself.
+        """
 
         del follower_loader
-        with self._lock:
-            future = self._sync.get(key)
-            leader = future is None
-            if future is None:
-                future = Future()
-                self._sync[key] = future
-        if not leader:
+        while True:
+            future, leader = self._claim_sync(key)
+            if leader:
+                return self._lead_sync(key, future, producer)
             try:
                 value = copy.deepcopy(future.result(self._timeout))
+            except _LeaderAbandonedError:
+                continue
             except TimeoutError as exc:
                 raise SingleFlightTimeoutError(
                     "in-memory single-flight follower timed out"
                 ) from exc
             return SingleFlightResult(value, True)  # type: ignore[arg-type]
-        try:
-            value = producer()
-            future.set_result(value)
-            return SingleFlightResult(value, False)
-        except BaseException as exc:
-            future.set_exception(exc)
-            raise
-        finally:
-            with self._lock:
-                self._sync.pop(key, None)
 
     async def aexecute[T: BaseModel](
         self,
@@ -144,35 +141,94 @@ class InMemorySingleFlight:
         producer: Callable[[], Awaitable[T]],
         follower_loader: Callable[[], Awaitable[T | None]],
     ) -> SingleFlightResult[T]:
-        """Run the first async producer and share its defensive result copy."""
+        """Run the first async producer and share its defensive result copy.
+
+        A cancelled leader re-raises its own cancellation; followers are not
+        cancelled and one of them becomes the new leader.
+        """
 
         del follower_loader
         loop = asyncio.get_running_loop()
         loop_key = (id(loop), key)
-        with self._lock:
-            future = self._async.get(loop_key)
-            leader = future is None
-            if future is None:
-                future = loop.create_future()
-                self._async[loop_key] = future
-        if not leader:
+        while True:
+            future, leader = self._claim_async(loop, loop_key)
+            if leader:
+                return await self._lead_async(loop_key, future, producer)
             try:
                 value = copy.deepcopy(await asyncio.wait_for(asyncio.shield(future), self._timeout))
+            except _LeaderAbandonedError:
+                continue
             except TimeoutError as exc:
                 raise SingleFlightTimeoutError(
                     "in-memory single-flight follower timed out"
                 ) from exc
             return SingleFlightResult(value, True)  # type: ignore[arg-type]
+
+    def _claim_sync(self, key: str) -> tuple[Future[BaseModel], bool]:
+        with self._lock:
+            future = self._sync.get(key)
+            if future is not None:
+                return future, False
+            future = Future()
+            self._sync[key] = future
+            return future, True
+
+    def _claim_async(
+        self, loop: asyncio.AbstractEventLoop, loop_key: tuple[int, str]
+    ) -> tuple[asyncio.Future[BaseModel], bool]:
+        with self._lock:
+            future = self._async.get(loop_key)
+            if future is not None:
+                return future, False
+            future = loop.create_future()
+            self._async[loop_key] = future
+            return future, True
+
+    def _lead_sync[T: BaseModel](
+        self, key: str, future: Future[BaseModel], producer: Callable[[], T]
+    ) -> SingleFlightResult[T]:
+        try:
+            value = producer()
+        except Exception as exc:
+            future.set_exception(exc)
+            self._release(self._sync, key, future)
+            raise
+        except BaseException:
+            # Release before signalling so a woken follower claims a fresh flight.
+            self._release(self._sync, key, future)
+            future.set_exception(_LeaderAbandonedError())
+            raise
+        future.set_result(value)
+        self._release(self._sync, key, future)
+        return SingleFlightResult(value, False)
+
+    async def _lead_async[T: BaseModel](
+        self,
+        loop_key: tuple[int, str],
+        future: asyncio.Future[BaseModel],
+        producer: Callable[[], Awaitable[T]],
+    ) -> SingleFlightResult[T]:
         try:
             value = await producer()
-            future.set_result(value)
-            return SingleFlightResult(value, False)
-        except BaseException as exc:
+        except Exception as exc:
             future.set_exception(exc)
+            self._release(self._async, loop_key, future)
             raise
-        finally:
-            with self._lock:
-                self._async.pop(loop_key, None)
+        except BaseException:
+            # Cancellation belongs to the leader alone: remove the flight first so a
+            # woken follower claims a fresh one, then signal abandonment.
+            self._release(self._async, loop_key, future)
+            future.set_exception(_LeaderAbandonedError())
+            future.exception()  # mark retrieved; there may be no follower to read it
+            raise
+        future.set_result(value)
+        self._release(self._async, loop_key, future)
+        return SingleFlightResult(value, False)
+
+    def _release[K, F](self, flights: dict[K, F], key: K, future: F) -> None:
+        with self._lock:
+            if flights.get(key) is future:
+                del flights[key]
 
     def close(self) -> None:
         """Cancel unfinished followers and clear all in-flight maps."""

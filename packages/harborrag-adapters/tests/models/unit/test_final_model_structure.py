@@ -78,6 +78,7 @@ def test_model_classes_are_descriptive_and_cross_package_contracts_stay_clean() 
     assert set(private_classes) == {
         "budget.py:_BudgetWindow",
         "routing_state_memory.py:_MemoryState",
+        "singleflight.py:_LeaderAbandonedError",
     }
     assert forbidden_core_imports == []
 

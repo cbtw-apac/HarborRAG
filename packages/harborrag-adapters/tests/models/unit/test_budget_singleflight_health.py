@@ -338,3 +338,79 @@ async def test_redis_singleflight_async_paths() -> None:
     assert (await coordinator.aexecute("b", leader_value, cached)).shared
     await coordinator.aclose()
     assert sync.closed == async_client.closed == 1
+
+
+@pytest.mark.asyncio
+async def test_memory_singleflight_followers_take_over_after_leader_cancellation() -> None:
+    coordinator = InMemorySingleFlight(follower_timeout_seconds=2)
+    started = asyncio.Event()
+    calls = 0
+
+    async def producer() -> Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            await asyncio.Event().wait()
+        await asyncio.sleep(0.01)
+        return Response(value="second-leader")
+
+    async def nothing_cached() -> Response | None:
+        return None
+
+    leader = asyncio.create_task(coordinator.aexecute("k", producer, nothing_cached))
+    await started.wait()
+    followers = [
+        asyncio.create_task(coordinator.aexecute("k", producer, nothing_cached)) for _ in range(2)
+    ]
+    await asyncio.sleep(0)
+    leader.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await leader
+
+    results = await asyncio.wait_for(asyncio.gather(*followers), 1)
+
+    assert [item.value.value for item in results] == ["second-leader", "second-leader"]
+    assert sorted(item.shared for item in results) == [False, True]
+    assert calls == 2
+    await coordinator.aclose()
+
+
+def test_memory_singleflight_follower_takes_over_when_sync_leader_aborts() -> None:
+    class LeaderAborted(BaseException):
+        """Simulate an interpreter-level exit such as KeyboardInterrupt."""
+
+    coordinator = InMemorySingleFlight(follower_timeout_seconds=2)
+    started = threading.Event()
+    release = threading.Event()
+    calls = 0
+
+    def producer() -> Response:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            started.set()
+            release.wait(2)
+            raise LeaderAborted()
+        return Response(value="second-leader")
+
+    def lead() -> str:
+        try:
+            coordinator.execute("k", producer, lambda: None)
+        except LeaderAborted:
+            return "aborted"
+        return "completed"
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        leader = pool.submit(lead)
+        started.wait(2)
+        follower = pool.submit(coordinator.execute, "k", producer, lambda: None)
+        time.sleep(0.02)
+        release.set()
+        assert leader.result(2) == "aborted"
+        result = follower.result(2)
+
+    assert result.shared is False
+    assert result.value.value == "second-leader"
+    assert calls == 2
+    coordinator.close()
