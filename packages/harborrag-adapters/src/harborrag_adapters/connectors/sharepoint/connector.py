@@ -23,7 +23,7 @@ from harborrag_core.domain.source import SourceRecord
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
-from .drive_paths import is_drive_file, item_mime_type, item_name
+from .drive_paths import is_drive_file, item_mime_type, item_name, scoped_drive_root
 from .mappers import build_document_metadata, drive_item_id_from_record
 from .permissions import SharePointPermissionResolver
 
@@ -102,8 +102,10 @@ class SharePointConnector(BaseConnector):
                     item_id, site=site, drive=drive, query=query
                 )
             return
-        root_path = query.path or self.config.root_path
+        root_path = scoped_drive_root(self.config.root_path, query.path)
         root_item_id = self._root_item_id_from_query(query)
+        if root_item_id and self.config.root_path:
+            self._drive.require_within_root(self._drive.get_item(str(drive["id"]), root_item_id))
         yield from self._drive.walk_children(
             site=site,
             drive=drive,
@@ -142,6 +144,7 @@ class SharePointConnector(BaseConnector):
             raise DocumentProcessingError(
                 f"SharePoint drive item {item_id} is not a downloadable file"
             )
+        self._drive.require_within_root(item)
         self._drive.enforce_size_limit(item)
         acl = self._permissions.item_acl(drive_id, item_id)
         self._gate.require(acl, path=item_id)

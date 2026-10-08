@@ -22,6 +22,7 @@ from .drive_paths import (
     item_hidden,
     item_mime_type,
     item_name,
+    item_within_root,
     matches_pattern,
     site_path_endpoint,
 )
@@ -51,6 +52,7 @@ class SharePointDriveAPI:
     ) -> Iterator[SourceRecord]:
         """Return records for a direct drive item ID, descending into folders."""
         item = self.get_item(str(drive["id"]), item_id)
+        self.require_within_root(item)
         if is_drive_file(item):
             if self.should_process_file(item, query):
                 yield build_source_record(
@@ -92,6 +94,9 @@ class SharePointDriveAPI:
             current_item_id, current_path = pending.pop()
             folder_ids: list[str] = []
             for item in self.iter_children(drive_id, item_id=current_item_id, path=current_path):
+                if not item_within_root(item, self.config.root_path):
+                    logger.debug("Skipping SharePoint item outside root_path %s", item_name(item))
+                    continue
                 if is_drive_file(item):
                     if self.should_process_file(item, query):
                         yield build_source_record(
@@ -281,6 +286,14 @@ class SharePointDriveAPI:
             raise DocumentProcessingError(
                 f"SharePoint file {item_name(item)!r} size {size} exceeds "
                 f"max_file_size_bytes {self.config.max_file_size_bytes}"
+            )
+
+    def require_within_root(self, item: dict[str, Any]) -> None:
+        """Refuse an item addressed by ID that lies outside ``config.root_path``."""
+        if not item_within_root(item, self.config.root_path):
+            raise DocumentProcessingError(
+                f"SharePoint item {item_name(item)!r} is outside configured root_path "
+                f"{self.config.root_path!r}"
             )
 
     def record_for_item_id(self, item_id: str) -> SourceRecord:

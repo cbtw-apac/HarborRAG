@@ -24,11 +24,13 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 def test_discover_recurses_pages_and_filters_files():
     client = FakeGraphClient()
     add_site_and_default_drive(client)
+    docs_folder = folder_item()
+    docs_folder["parentReference"]["path"] = "/drive/root:/Docs"
     client.add(
         "drives/drive1/root:/Docs:/children",
         {
             "value": [
-                folder_item(),
+                docs_folder,
                 file_item("file1", "Guide.docx"),
                 file_item("skip", "Draft.txt"),
             ],
