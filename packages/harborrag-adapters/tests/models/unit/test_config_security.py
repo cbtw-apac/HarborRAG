@@ -19,6 +19,7 @@ from harborrag_adapters.models.runtime.config import (
     TimeoutConfig,
 )
 from harborrag_adapters.models.runtime.environment import expand_environment
+from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
 from harborrag_adapters.models.runtime.loading import (
     load_config_document,
     merge_config_mappings,
@@ -42,6 +43,7 @@ from harborrag_adapters.models.runtime.security import (
     sanitize_configuration,
 )
 from harborrag_adapters.models.runtime.transport import (
+    is_sensitive_header_name,
     protect_sensitive_headers,
     reveal_headers,
     validate_base_url,
@@ -302,3 +304,44 @@ def test_common_config_validation() -> None:
     config = chat_config()
     assert config.sanitized_dump()["models"]["primary"]["deployments"][0]["api_key"] == "**********"
     assert HarborChatSecurityConfig().allow_custom_providers is False
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "Ocp-Apim-Subscription-Key",
+        "X-Goog-Api-Key",
+        "x_functions_key",
+        "X-Amz-Security-Token",
+        "X-Hub-Signature-256",
+        "Cookie",
+        "X-APIKey",
+        "X-Auth",
+    ],
+)
+def test_credential_like_headers_never_render_but_reach_provider(name: str) -> None:
+    deployment = HarborChatProviderConfig(
+        name="d",
+        provider=HarborProvider.OPENAI,
+        model="openai/test",
+        api_key="k",
+        headers={name: "header-plaintext", "X-Region": "east"},
+    )
+    config = chat_config(deployments=(deployment,))
+
+    assert is_sensitive_header_name(name)
+    assert isinstance(deployment.headers[name], SecretStr)
+    assert deployment.headers["X-Region"] == "east"
+    assert "header-plaintext" not in repr(deployment)
+    assert "header-plaintext" not in repr(config)
+    assert "header-plaintext" not in json.dumps(config.sanitized_dump(), default=str)
+    params = build_provider_params(deployment, litellm_provider="openai")
+    assert params["extra_headers"] == {name: "header-plaintext", "X-Region": "east"}
+
+
+@pytest.mark.parametrize(
+    "name", ["X-Region", "X-Request-Id", "Content-Type", "User-Agent", "x-safe", "X-Tenant"]
+)
+def test_ordinary_headers_stay_readable(name: str) -> None:
+    assert not is_sensitive_header_name(name)
+    assert protect_sensitive_headers({name: "value"}) == {name: "value"}
