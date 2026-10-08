@@ -239,12 +239,11 @@ def _hierarchy_metadata(
     child_results = content.get("children", {}).get("page", {}).get("results", [])
     if max_child_pages is not None:
         child_results = child_results[:max_child_pages]
+    # Children carry no title: a child page may be restricted below this one, and
+    # its title would otherwise reach every reader of the parent. Ancestors keep
+    # theirs, because a restricted ancestor already restricts this page.
     children = [
-        ConfluencePageReference(
-            id=item.get("id"),
-            title=item.get("title"),
-            type=item.get("type", "page"),
-        )
+        ConfluencePageReference(id=item.get("id"), title=None, type=item.get("type", "page"))
         for item in child_results
     ]
     breadcrumb = [str(item.title) for item in ancestors if item.title]

@@ -186,13 +186,10 @@ def _parent(parent: Any) -> JiraIssueReference | None:
 
 
 def _issue_ref(issue: Any) -> JiraIssueReference:
-    fields = issue.get("fields", {}) if isinstance(issue, dict) else {}
+    # Keys and ids only: the related issue's access is unknown without fetching it.
     return JiraIssueReference(
         id=issue.get("id") if isinstance(issue, dict) else None,
         key=issue.get("key") if isinstance(issue, dict) else None,
-        summary=fields.get("summary"),
-        status=_name(fields.get("status")),
-        issue_type=_name(fields.get("issuetype")),
     )
 
 

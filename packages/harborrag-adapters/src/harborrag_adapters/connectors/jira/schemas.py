@@ -13,13 +13,14 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 @dataclass(slots=True)
 class JiraIssueReference:
-    """Compact issue reference used for relationships."""
+    """Compact issue reference used for relationships.
+
+    Only identifiers: a related issue may be one the connector withholds, and its
+    summary or status would otherwise reach readers of the visible issue.
+    """
 
     id: Any
     key: Any
-    summary: Any
-    status: str | None
-    issue_type: str | None
 
 
 @dataclass(slots=True)

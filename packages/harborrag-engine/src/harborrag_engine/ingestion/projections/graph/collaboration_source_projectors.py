@@ -283,7 +283,8 @@ class JiraSourceProjector(BaseSourceProjector):
             parent_issue = state.source_node(
                 GraphEntityType.JIRA_ISSUE,
                 parent_id,
-                title=text_value(parent, "summary", "key") or parent_id,
+                # Never the summary: the parent may be withheld from this issue's readers.
+                title=parent_id,
                 attributes={"placeholder": True},
             )
             # No CONTAINS from this issue's project: a parent may live in another

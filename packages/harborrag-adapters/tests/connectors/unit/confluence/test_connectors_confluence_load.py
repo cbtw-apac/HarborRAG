@@ -70,7 +70,8 @@ def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
     assert document.metadata["title"] == "Page One"
     assert document.metadata["author"] == "User A"
     assert document.metadata["breadcrumb"] == ["Root"]
-    assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
+    # A child page may be restricted, so only its id reaches the parent's metadata.
+    assert document.metadata["children"] == [{"id": "9", "title": None, "type": "page"}]
     assert document.metadata["comments"][0]["author"] == "User C"
     processed_attachments = [
         attachment
@@ -179,7 +180,7 @@ def test_load_truncates_children_metadata_over_configured_limit():
 
     document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
-    assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
+    assert document.metadata["children"] == [{"id": "9", "title": None, "type": "page"}]
 
 
 def test_load_respects_record_comment_and_attachment_flags():

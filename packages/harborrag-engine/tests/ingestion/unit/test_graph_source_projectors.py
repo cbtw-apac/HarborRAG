@@ -103,6 +103,29 @@ def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links
     assert graph.unresolved_relations[0].target_source_item_id == "ENG-3"
 
 
+def test_jira_parent_placeholder_is_titled_by_key_never_by_summary() -> None:
+    """A parent's access is unknown, so its summary must not name the placeholder."""
+
+    for parent in ({"key": "ENG-1", "summary": "Sample Summary"}, {"key": "ENG-1"}):
+        graph = _project(
+            "jira",
+            {
+                "project_id": "project-1",
+                "project_key": "ENG",
+                "issue_key": "ENG-2",
+                "parent": parent,
+            },
+            source_item_id="ENG-2",
+        )
+
+        [placeholder] = [
+            node
+            for node in graph.nodes
+            if node.entity_type == GraphEntityType.JIRA_ISSUE and node.logical_id == "ENG-1"
+        ]
+        assert placeholder.title == "ENG-1"
+
+
 def test_github_topology_resolves_ref_to_commit_without_file_content() -> None:
     graph = _project(
         "github",
