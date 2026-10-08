@@ -81,13 +81,20 @@ class ConfluenceAccessResolver:
     """Combine a page's read restrictions with its ancestors', caching ancestors.
 
     Ancestor restrictions are not part of the page payload, so each ancestor is
-    fetched once per connector instance. Concurrent describes may race on the
-    cache; a duplicate fetch is harmless.
+    fetched once per scan: the connector calls ``reset`` when a scan starts, so a
+    parent restricted after it was first seen is re-read by the next scan. A
+    failed fetch is never cached. Concurrent describes may race on the cache; a
+    duplicate fetch is harmless.
     """
 
     def __init__(self, content: ConfluenceContentAPI) -> None:
         self._content = content
         self._ancestors: dict[str, tuple[SourcePrincipal, ...] | None] = {}
+
+    def reset(self) -> None:
+        """Forget cached ancestor restrictions before a new scan."""
+
+        self._ancestors.clear()
 
     def page_acl(self, content: Mapping[str, Any]) -> SourceAcl:
         own = read_restriction_principals(content)
@@ -113,6 +120,6 @@ class ConfluenceAccessResolver:
             try:
                 payload: Mapping[str, Any] = self._content.get_read_restrictions(ancestor_id)
             except (FetchError, AuthorizationError, ValueError):
-                payload = {}
+                return None
             self._ancestors[ancestor_id] = read_restriction_principals(payload)
         return self._ancestors[ancestor_id]

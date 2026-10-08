@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from dataclasses import replace
 from itertools import islice
 
@@ -17,6 +17,33 @@ from .exceptions import AuthenticationError
 from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 logger = logging.getLogger("harborrag.adapters.connectors.base")
+
+
+def replay_discovery_page(
+    discover: Callable[[ConnectorQuery], Iterator[SourceRecord]],
+    query: ConnectorQuery | None,
+    *,
+    cursor: str | None,
+    page_size: int,
+) -> ConnectorPage:
+    """Serve one page by replaying ``discover`` from the start up to a numeric offset.
+
+    Connectors that keep scan-scoped state pass their record generator here so a
+    replay for the next page is not mistaken for the start of a new scan.
+    """
+
+    if page_size < 1:
+        raise ValueError("connector page_size must be positive")
+    try:
+        offset = int(cursor or 0)
+    except ValueError as exc:
+        raise ValueError("connector does not understand the supplied cursor") from exc
+    if offset < 0:
+        raise ValueError("connector cursor cannot be negative")
+    bounded = replace(query or ConnectorQuery(), limit=offset + page_size)
+    records = tuple(islice(discover(bounded), offset, offset + page_size))
+    next_cursor = str(offset + len(records)) if len(records) == page_size else None
+    return ConnectorPage(records=records, next_cursor=next_cursor)
 
 
 class BaseConnector(ABC):
@@ -101,18 +128,7 @@ class BaseConnector(ABC):
         explicit instead of leaking offset logic into runtime.
         """
 
-        if page_size < 1:
-            raise ValueError("connector page_size must be positive")
-        try:
-            offset = int(cursor or 0)
-        except ValueError as exc:
-            raise ValueError("connector does not understand the supplied cursor") from exc
-        if offset < 0:
-            raise ValueError("connector cursor cannot be negative")
-        bounded = replace(query or ConnectorQuery(), limit=offset + page_size)
-        records = tuple(islice(self.discover(bounded), offset, offset + page_size))
-        next_cursor = str(offset + len(records)) if len(records) == page_size else None
-        return ConnectorPage(records=records, next_cursor=next_cursor)
+        return replay_discovery_page(self.discover, query, cursor=cursor, page_size=page_size)
 
     def load_raw_documents(
         self,

@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.attachments import (
     AttachmentSourcePolicy,
     is_attachment_record,
 )
-from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.base import BaseConnector, replay_discovery_page
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
@@ -140,7 +140,14 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         return self._gate.skipped
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Search Confluence content or materialize explicitly requested IDs."""
+        """Search Confluence content or materialize explicitly requested IDs.
+
+        Each call starts a new scan, so cached ancestor restrictions are dropped.
+        """
+        self._access.reset()
+        return self._discover_records(query)
+
+    def _discover_records(self, query: ConnectorQuery | None) -> Iterator[SourceRecord]:
         self._ensure_connected()
         query = query or ConnectorQuery()
         self._gate.reset()
@@ -192,13 +199,21 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         cursor: str | None,
         page_size: int,
     ) -> ConnectorPage:
-        """Use Confluence's Cloud cursor or Data Center offset directly."""
+        """Use Confluence's Cloud cursor or Data Center offset directly.
+
+        ``cursor=None`` starts a new scan and drops cached ancestor restrictions;
+        later pages, including explicit-ID replays, reuse them.
+        """
 
         self._ensure_connected()
         query = query or ConnectorQuery()
         self._gate.reset()
+        if cursor is None:
+            self._access.reset()
         if self._content_ids_from_query(query):
-            page = super().discover_page(query, cursor=cursor, page_size=page_size)
+            page = replay_discovery_page(
+                self._discover_records, query, cursor=cursor, page_size=page_size
+            )
             logger.debug(
                 "Confluence discovery page mode=explicit records=%d has_next=%s",
                 len(page.records),

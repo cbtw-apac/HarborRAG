@@ -10,10 +10,11 @@ from itertools import islice
 from typing import Any
 
 from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
-from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.base import BaseConnector, replay_discovery_page
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
+    ConnectorPage,
     ConnectorQuery,
     ConnectorSkip,
 )
@@ -75,7 +76,32 @@ class SharePointConnector(BaseConnector):
         return self._gate.skipped
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Discover SharePoint drive-item records from IDs or folder traversal."""
+        """Discover SharePoint drive-item records from IDs or folder traversal.
+
+        Each call starts a new scan, so cached permissions are dropped first.
+        """
+        self._permissions.reset()
+        return self._discover_records(query)
+
+    def discover_page(
+        self,
+        query: ConnectorQuery | None,
+        *,
+        cursor: str | None,
+        page_size: int,
+    ) -> ConnectorPage:
+        """Replay discovery per page, keeping permissions cached for one scan only.
+
+        ``cursor=None`` starts a new scan and drops cached permissions; later pages
+        replay the traversal and reuse what the scan has already classified.
+        """
+        if cursor is None:
+            self._permissions.reset()
+        return replay_discovery_page(
+            self._discover_records, query, cursor=cursor, page_size=page_size
+        )
+
+    def _discover_records(self, query: ConnectorQuery | None) -> Iterator[SourceRecord]:
         query = query or ConnectorQuery()
         self._gate.reset()
         site = self._drive.resolve_site()

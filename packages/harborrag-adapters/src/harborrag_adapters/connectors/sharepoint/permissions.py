@@ -81,15 +81,23 @@ def _grantees(permission: Mapping[str, Any]) -> list[SourcePrincipal]:
 class SharePointPermissionResolver:
     """Read Graph permissions for drive items; cache the library root per drive.
 
-    Item results are cached per ``(drive, item, cTag)`` for the resolver's
-    lifetime, because the base ``discover_page`` fallback replays ``discover()``
-    once per page. Calls without a version (loads) are never cached.
+    Item results are cached per ``(drive, item, cTag)``, because paged discovery
+    replays the whole traversal once per page. Calls without a version (loads)
+    are never cached. The connector calls ``reset`` when a new scan starts:
+    permission changes rarely change an item's ``cTag``, so a cache that outlived
+    the scan would keep serving an item after its access narrowed.
     """
 
     def __init__(self, client: SharePointClient) -> None:
         self._client = client
         self._root_grants: dict[str, frozenset[str]] = {}
         self._items: dict[tuple[str, str, str], SourceAcl] = {}
+
+    def reset(self) -> None:
+        """Forget cached library-root and item permissions before a new scan."""
+
+        self._root_grants.clear()
+        self._items.clear()
 
     def item_acl(self, drive_id: str, item_id: str, *, version: str | None = None) -> SourceAcl:
         """Return the item's ACL, or ``unknown`` when Graph cannot tell us."""

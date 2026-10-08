@@ -10,6 +10,7 @@ from confluence_test_helpers import (
     dc_config,
     full_content,
     light_content,
+    unrestricted_read,
 )
 
 from harborrag_adapters.connectors.acl import SOURCE_ACL_METADATA_KEY
@@ -288,3 +289,83 @@ def test_include_policy_carries_acl_onto_attachment_records_and_documents():
     assert attachment_record.metadata[SOURCE_ACL_METADATA_KEY]["status"] == "restricted"
     attachment = connector.load(attachment_record)
     assert attachment.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "id-group-a"
+
+
+def _child_of_parent_restricted_between_scans() -> FakeConfluenceClient:
+    """A child page whose parent gains a read restriction between two scans."""
+
+    client = FakeConfluenceClient()
+    child = light_content("1", "Child")
+    child["ancestors"] = [{"id": "77", "title": "Parent"}]
+    search = {"results": [child], "_links": {}}
+    client.add("content/search", search, search)
+    client.add(
+        "content/77",
+        {"id": "77", "restrictions": unrestricted_read()},
+        {"id": "77", "restrictions": read_restricted_to(groups=("group-b",))},
+    )
+    return client
+
+
+def test_new_discover_scan_rechecks_a_parent_restricted_after_first_sight():
+    connector = ConfluenceConnector(
+        cloud_config(page_size=10), client=_child_of_parent_restricted_between_scans()
+    )
+
+    assert [record.metadata["content_id"] for record in connector.discover()] == ["1"]
+    assert list(connector.discover()) == []
+    assert [(skip.path, skip.reason) for skip in connector.skipped] == [
+        ("1", SKIP_REASON_ACCESS_RESTRICTED)
+    ]
+
+
+def test_new_paged_scan_rechecks_a_parent_restricted_after_first_sight():
+    connector = ConfluenceConnector(
+        cloud_config(page_size=10), client=_child_of_parent_restricted_between_scans()
+    )
+
+    first = connector.discover_page(None, cursor=None, page_size=10)
+    second = connector.discover_page(None, cursor=None, page_size=10)
+
+    assert [record.metadata["content_id"] for record in first.records] == ["1"]
+    assert second.records == ()
+
+
+def test_ancestor_fetch_failure_is_not_cached():
+    class FlakyClient(FakeConfluenceClient):
+        failures = 1
+
+        def get_json(self, endpoint, *, params=None):
+            if endpoint == "content/77" and self.failures:
+                self.failures -= 1
+                raise AuthorizationError("forbidden", status_code=403)
+            return super().get_json(endpoint, params=params)
+
+    client = FlakyClient()
+    client.add("content/77", {"id": "77", "restrictions": unrestricted_read()})
+    access = resolver(client)
+    page = light_content("1", "Child")
+    page["ancestors"] = [{"id": "77", "title": "Parent"}]
+
+    assert access.page_acl(page).status == "unknown"
+    assert access.page_acl(page).status == "inherited"
+
+
+def test_explicit_id_paged_replay_reuses_ancestors_within_one_scan():
+    client = FakeConfluenceClient()
+    pages = []
+    for content_id in ("1", "2"):
+        page = light_content(content_id, f"Child {content_id}")
+        page["ancestors"] = [{"id": "77", "title": "Parent"}]
+        pages.append(page)
+    client.add("content/1", pages[0], pages[0])
+    client.add("content/2", pages[1])
+    client.add("content/77", {"id": "77", "restrictions": unrestricted_read()})
+    connector = ConfluenceConnector(cloud_config(), client=client)
+    query = ConnectorQuery(filters={"content_ids": ["1", "2"]})
+
+    first = connector.discover_page(query, cursor=None, page_size=1)
+    second = connector.discover_page(query, cursor=first.next_cursor, page_size=1)
+
+    assert [r.metadata["content_id"] for r in (*first.records, *second.records)] == ["1", "2"]
+    assert [endpoint for endpoint, _ in client.calls].count("content/77") == 1

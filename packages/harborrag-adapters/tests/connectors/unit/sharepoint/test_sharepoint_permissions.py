@@ -295,3 +295,62 @@ def test_real_client_401_on_permissions_aborts_discovery():
     with pytest.raises(AuthenticationError) as error:
         list(connector.discover())
     assert error.value.status_code == 401
+
+
+def _scan_connector(client: FakeGraphClient) -> SharePointConnector:
+    return SharePointConnector(
+        SharePointSiteConfig(
+            site_id="site1", drive_id="drive1", access_token="token", requests_per_minute=6000
+        ),
+        client=client,
+    )
+
+
+def _narrowed_between_scans() -> FakeGraphClient:
+    """One file whose grants narrow between two scans while its ``cTag`` stays put."""
+
+    client = FakeGraphClient()
+    listing = {"value": [file_item("doc", "Doc.docx")]}
+    client.add("drives/drive1/root/children", listing, listing)
+    client.add("drives/drive1/root/permissions", library_permissions(), library_permissions())
+    client.add(
+        "drives/drive1/items/doc/permissions", inherited_item_permissions(), {"value": [ADA]}
+    )
+    return client
+
+
+def test_new_discover_scan_reclassifies_item_narrowed_without_ctag_change():
+    connector = _scan_connector(_narrowed_between_scans())
+
+    assert [record.metadata["item_id"] for record in connector.discover()] == ["doc"]
+    assert list(connector.discover()) == []
+    assert [skip.reason for skip in connector.skipped] == [SKIP_REASON_ACCESS_RESTRICTED]
+
+
+def test_new_paged_scan_reclassifies_item_narrowed_without_ctag_change():
+    connector = _scan_connector(_narrowed_between_scans())
+
+    first = connector.discover_page(None, cursor=None, page_size=5)
+    second = connector.discover_page(None, cursor=None, page_size=5)
+
+    assert [record.metadata["item_id"] for record in first.records] == ["doc"]
+    assert second.records == ()
+    assert [skip.reason for skip in connector.skipped] == [SKIP_REASON_ACCESS_RESTRICTED]
+
+
+def test_paged_replay_within_one_scan_reuses_cached_item_permissions():
+    client = FakeGraphClient()
+    listing = {"value": [file_item("a", "A.docx"), file_item("b", "B.docx")]}
+    client.add("drives/drive1/root/children", listing, listing)
+    connector = _scan_connector(client)
+
+    first = connector.discover_page(None, cursor=None, page_size=1)
+    second = connector.discover_page(None, cursor=first.next_cursor, page_size=1)
+
+    assert [record.metadata["item_id"] for record in (*first.records, *second.records)] == [
+        "a",
+        "b",
+    ]
+    endpoints = [endpoint for endpoint, _ in client.calls]
+    assert endpoints.count("drives/drive1/items/a/permissions") == 1
+    assert endpoints.count("drives/drive1/root/permissions") == 1
