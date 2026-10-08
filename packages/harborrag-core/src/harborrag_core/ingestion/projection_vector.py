@@ -83,7 +83,7 @@ class VectorPayload(StrictModel):
     # Where this chunk sits in the knowledge graph of the same document version:
     # its Chunk node and the source entity the document is a version of. A vector
     # hit joins the graph on these keys directly, without re-deriving a node key
-    # from a connector-specific source id ("jira://CPM/CPM-1" vs "CPM-1").
+    # from a connector-specific source id ("jira://ENG/ENG-1" vs "ENG-1").
     graph_chunk_node_key: str | None = Field(default=None, min_length=1)
     graph_source_node_key: str | None = Field(default=None, min_length=1)
 

@@ -28,7 +28,7 @@ _DEFAULT_MAX_RESULTS = MAX_TOOL_RESULTS
 # stated once in a place the model may not read.
 _SELECTOR_HINT = (
     "Node selectors accept a chunk_id or document_id from vector_search, a source item "
-    "id or issue key (e.g. 'jira://CPM/CPM-110455' or 'CPM-110455'), a node_key from an "
+    "id or issue key (e.g. 'jira://ENG/ENG-110455' or 'ENG-110455'), a node_key from an "
     "earlier graph result, or an exact full title shared by few nodes. Titles are never "
     "matched partially."
 )

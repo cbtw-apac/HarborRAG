@@ -309,7 +309,7 @@ def _name_from_metadata(metadata: Any) -> str | None:
 
     A connector records the real upload name here -- `Anh Nguyen - Data.pdf` --
     while `source` is a permalink whose last segment carries no suffix at all
-    (`.../browse/CPM-1#attachment-397115`). The extension router covers roughly
+    (`.../browse/ENG-1#attachment-397115`). The extension router covers roughly
     twice as many formats as the media-type router, and providers routinely
     report a generic type for user uploads, so dropping the name leaves only the
     weaker key and fails every format that just the suffix could have resolved.

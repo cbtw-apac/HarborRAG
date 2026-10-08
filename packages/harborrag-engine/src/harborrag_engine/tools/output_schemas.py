@@ -239,7 +239,7 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 "source_scope_id": {"type": "string"},
                 "source_item_id": {"type": "string"},
                 # The source's own human-readable key (a Jira issue key such as
-                # CPM-101361), so callers need not parse it out of source_item_id.
+                # ENG-101361), so callers need not parse it out of source_item_id.
                 "issue_key": {"type": "string"},
                 "document_title": {"type": ["string", "null"]},
                 "section_path": {"type": "array", "items": {"type": "string"}},
