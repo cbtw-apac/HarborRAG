@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 
 from .client import JiraClient
+from .comment_visibility import redact_restricted_comments, shareable_comments
 from .config import JiraDeploymentType, JiraProjectConfig
 from .mappers import changelog_histories
 from .query import search_body, search_jql_body, validate_issue_key
@@ -76,7 +77,7 @@ class JiraIssueAPI:
                     next_page_token=token,
                 ),
             )
-            issues = list(response.get("issues") or [])
+            issues = [redact_restricted_comments(issue) for issue in response.get("issues") or []]
             next_token = response.get("nextPageToken")
             return (
                 issues,
@@ -96,7 +97,7 @@ class JiraIssueAPI:
                 fields=DISCOVERY_FIELDS,
             ),
         )
-        issues = list(response.get("issues") or [])
+        issues = [redact_restricted_comments(issue) for issue in response.get("issues") or []]
         next_offset = start_at + len(issues)
         total = response.get("total")
         done = (
@@ -142,15 +143,17 @@ class JiraIssueAPI:
                 "expand": ",".join(self.issue_expand()),
             },
         )
-        return response
+        return redact_restricted_comments(response)
 
     def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
         """Fetch admission and relation fields without requesting issue prose."""
 
         issue_key = validate_issue_key(issue_key)
-        return self.client.get_json(
-            f"issue/{issue_key}",
-            params={"fields": ",".join(DESCRIPTOR_FIELDS)},
+        return redact_restricted_comments(
+            self.client.get_json(
+                f"issue/{issue_key}",
+                params={"fields": ",".join(DESCRIPTOR_FIELDS)},
+            )
         )
 
     def issue_comments(self, issue_key: str, issue: dict[str, Any]) -> list[dict[str, Any]]:
@@ -171,7 +174,9 @@ class JiraIssueAPI:
                 and total <= len(values)
             ):
                 comments: list[dict[str, Any]] = []
-                truncate_with_limit(comments, values, limit=self.config.max_comments)
+                truncate_with_limit(
+                    comments, shareable_comments(values), limit=self.config.max_comments
+                )
                 return comments
         return self.fetch_comments(issue_key)
 
@@ -194,7 +199,9 @@ class JiraIssueAPI:
                 len(values),
                 total,
             )
-            truncated = truncate_with_limit(comments, values, limit=self.config.max_comments)
+            truncated = truncate_with_limit(
+                comments, shareable_comments(values), limit=self.config.max_comments
+            )
             if truncated:
                 return comments
             start_at += len(values)
@@ -263,7 +270,7 @@ class JiraIssueAPI:
                 len(issues),
                 bool(response.get("nextPageToken")) and not bool(response.get("isLast")),
             )
-            yield from issues
+            yield from (redact_restricted_comments(issue) for issue in issues)
 
             raw_token = response.get("nextPageToken")
             if response.get("isLast") or not raw_token:
@@ -299,7 +306,7 @@ class JiraIssueAPI:
             )
             if not issues:
                 return
-            yield from issues
+            yield from (redact_restricted_comments(issue) for issue in issues)
 
             start_at += len(issues)
             total = response.get("total")
