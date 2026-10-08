@@ -92,3 +92,17 @@ def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(project_module, "_ACTIVE", None)
+
+
+@pytest.fixture(autouse=True)
+def _hermetic_connector_host_resolution(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Connector config validation resolves DNS names; answer with a public address.
+
+    Literal IP hosts never reach this seam, so private-literal checks still run for
+    real. Tests that need a specific answer override ``_resolve_host`` themselves.
+    """
+
+    monkeypatch.setattr(
+        "harborrag_adapters.connectors.policies.validation._resolve_host",
+        lambda _hostname, _port: ("1.1.1.1",),
+    )

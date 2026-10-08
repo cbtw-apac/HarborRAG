@@ -63,11 +63,14 @@ class ConfluenceSpaceConfig:
     max_retries: int = 3
     backoff_factor: float = 0.5
     restricted_content: str = "skip"
+    allow_private_network: bool = False
 
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
-        validate_https_url("base_url", self.base_url)
+        validate_https_url(
+            "base_url", self.base_url, allow_private_network=self.allow_private_network
+        )
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
         self.restricted_content = validate_restricted_content_policy(self.restricted_content)
         self.token = self.token or os.getenv("CONFLUENCE_TOKEN")

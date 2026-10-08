@@ -150,6 +150,20 @@ denies every reader.
 | Confluence | Page read restrictions plus every ancestor's (inherited view restrictions); space permissions are the source scope | The credential must view the page and every ancestor. Cloud OAuth: `read:confluence-content.permission` (verify for your app type). An ancestor the credential cannot read makes the page `unknown` |
 | SharePoint | Item permissions compared with the library root (`/drives/{id}/items/{id}/permissions`, `/drives/{id}/root/permissions`); sharing links are ignored because they only widen access | Graph application permission `Sites.Read.All` or `Files.Read.All` (verify; `Sites.Selected` with a read grant on the site also works). One extra Graph request per file, and results are cached for the run. Site groups cannot be expanded through Graph: map `site_group:<id>` keys in your directory. A 403 on a permissions read makes that file `unknown`; a 401 aborts the run. Explicit-ID restriction is enforced at load, because describe fetches nothing from SharePoint |
 
+### Network policy
+
+Jira, Confluence, GitHub and SharePoint base URLs must be HTTPS, must carry no
+credentials, and must resolve only to public addresses. Loopback, private
+(RFC 1918 and ULA), link-local (including 169.254.169.254) and other non-public
+addresses are rejected when the configuration is built.
+
+- DNS names are resolved at that point. A name that does not resolve is accepted,
+  and the connection fails later.
+- For an on-premises Data Center or GitHub Enterprise server on a private network,
+  set `allow_private_network: true` on that connector only. HTTPS is still required.
+- Hosts are checked when the configuration is validated, not on every connection,
+  so DNS changes after that point are not re-checked.
+
 ## Secrets and dynamic values
 
 Keep credentials out of `settings`:

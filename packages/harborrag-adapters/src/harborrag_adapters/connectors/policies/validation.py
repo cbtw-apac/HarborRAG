@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import itertools
 import math
+import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
 DEFAULT_MAX_NESTED_ITEMS = 1000
 
@@ -18,8 +20,49 @@ def validate_non_negative_limit(name: str, value: int | None) -> None:
         raise ValueError(f"{name} must be an integer greater than or equal to 0")
 
 
-def validate_https_url(name: str, value: str) -> None:
-    """Require an HTTPS origin for connector URLs that carry credentials."""
+class _DeferredResolution(Exception):
+    """A DNS name did not resolve during config validation; the request fails later anyway."""
+
+
+def _numeric_addresses(hostname: str, port: int) -> tuple[str, ...]:
+    """Parse literal IP syntax (including legacy numeric forms) without touching DNS."""
+
+    try:
+        infos = socket.getaddrinfo(
+            hostname, port, type=socket.SOCK_STREAM, flags=socket.AI_NUMERICHOST
+        )
+    except (socket.gaierror, UnicodeError):
+        return ()
+    return tuple(sorted({str(info[4][0]) for info in infos}))
+
+
+def _system_resolve_host(hostname: str, port: int) -> tuple[str, ...]:
+    """Resolve a DNS name, deferring the decision when resolution fails."""
+
+    try:
+        infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
+    except (socket.gaierror, UnicodeError) as exc:
+        raise _DeferredResolution(hostname) from exc
+    return tuple(sorted({str(info[4][0]) for info in infos}))
+
+
+# Test suites replace this seam with a hermetic stub (see tests/conftest.py).
+_resolve_host = _system_resolve_host
+
+
+def _config_resolver(hostname: str, port: int) -> Iterable[str]:
+    return _numeric_addresses(hostname, port) or _resolve_host(hostname, port)
+
+
+def validate_https_url(name: str, value: str, *, allow_private_network: bool = False) -> None:
+    """Require an HTTPS origin without credentials that targets a public host.
+
+    The host policy is core ``URLPolicy``: local hostnames and every resolved
+    address must be public. Literal IPs never touch DNS. A DNS name that does not
+    resolve is deferred, because nothing can connect to it either. DNS rebinding
+    between validation and connection is not covered here. ``allow_private_network``
+    opts an on-premises deployment out of the host policy only.
+    """
     parsed = urlparse(value)
     if (
         parsed.scheme.lower() != "https"
@@ -28,6 +71,17 @@ def validate_https_url(name: str, value: str) -> None:
         or parsed.password is not None
     ):
         raise ValueError(f"{name} must be an HTTPS URL without embedded credentials")
+    if allow_private_network:
+        return
+    try:
+        URLPolicy(allowed_schemes={"https"}, resolver=_config_resolver).validate(value)
+    except _DeferredResolution:
+        return
+    except URLPolicyError as exc:
+        raise ValueError(
+            f"{name} is not an allowed connector host ({exc}); set "
+            "allow_private_network: true only for an on-premises source on a trusted network"
+        ) from exc
 
 
 def validate_http_tuning(

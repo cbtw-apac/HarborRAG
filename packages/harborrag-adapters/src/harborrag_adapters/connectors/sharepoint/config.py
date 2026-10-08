@@ -53,11 +53,14 @@ class SharePointSiteConfig:
     max_retries: int = 3
     backoff_factor: float = 0.5
     restricted_content: str = "skip"
+    allow_private_network: bool = False
 
     def __post_init__(self) -> None:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
-        validate_https_url("graph_api_url", self.graph_api_url)
+        validate_https_url(
+            "graph_api_url", self.graph_api_url, allow_private_network=self.allow_private_network
+        )
         self.restricted_content = validate_restricted_content_policy(self.restricted_content)
         self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
         self.tenant_id = self.tenant_id or os.getenv("MICROSOFT_TENANT_ID")

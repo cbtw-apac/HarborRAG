@@ -55,14 +55,19 @@ class GitHubRepositoryConfig:
     request_timeout_seconds: float = 30.0
     max_retries: int = 3
     backoff_factor: float = 0.5
+    allow_private_network: bool = False
 
     def __post_init__(self) -> None:
         """Resolve repository URL shortcuts and validate mutually exclusive refs."""
         self.token = self.token or os.getenv("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")
-        validate_https_url("api_url", self.api_url)
-        validate_https_url("web_url", self.web_url)
+        validate_https_url(
+            "api_url", self.api_url, allow_private_network=self.allow_private_network
+        )
+        validate_https_url(
+            "web_url", self.web_url, allow_private_network=self.allow_private_network
+        )
 
         if self.repository_url and (not self.owner or not self.repo):
             owner, repo = parse_github_repository_url(self.repository_url)
