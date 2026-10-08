@@ -267,7 +267,7 @@ def test_jira_request_raises_not_found_on_404_without_retrying():
     )
     client.session = session
     with pytest.raises(ItemNotFoundError, match="HTTP 404") as raised:
-        client.get_json("issue/CPM-1")
+        client.get_json("issue/ENG-1")
 
     assert isinstance(raised.value, FetchError)
     assert isinstance(raised.value, SourceItemNotFoundError)

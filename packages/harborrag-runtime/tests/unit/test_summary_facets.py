@@ -51,10 +51,10 @@ def test_the_config_declares_facets_per_scope_and_they_reach_the_policy() -> Non
         {
             "tenants": [
                 {
-                    "tenant_id": "AUTA-2",
+                    "tenant_id": "TENANT-A-2",
                     "sources": [
                         {
-                            "source_scope_id": "AUTA-2",
+                            "source_scope_id": "TENANT-A-2",
                             "facets": [
                                 {"name": "stage", "field": "Stage"},
                                 {"name": "skills", "field": "Skills"},
@@ -104,7 +104,7 @@ def test_incoherent_facets_are_rejected_at_load(payload: dict[str, object]) -> N
 def test_the_issue_node_carries_its_typed_custom_fields() -> None:
     attributes = _issue_attributes(
         {
-            "issue_key": "AUTA-7",
+            "issue_key": "TENANT-A-7",
             "status": "In Review",
             "typed_custom_attributes": [
                 {"field_id": "customfield_10001", "name": "Stage", "text": "Round 2"},
@@ -122,10 +122,10 @@ def test_the_issue_node_carries_its_typed_custom_fields() -> None:
         node_key="k",
         node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
         entity_type=GraphEntityType.JIRA_ISSUE,
-        logical_id="AUTA-7",
+        logical_id="TENANT-A-7",
         ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
         owner_id=TenantId("DEFAULT"),
-        source_scope_id="AUTA-2",
+        source_scope_id="TENANT-A-2",
         attributes=attributes,
     )
 
@@ -135,7 +135,7 @@ ISSUE_DOCUMENT = str(
         tenant_id="DEFAULT",
         connector_type=ConnectorType.JIRA,
         connection_id="c",
-        source_item_id="AUTA-7",
+        source_item_id="TENANT-A-7",
     )
 )
 
@@ -147,10 +147,10 @@ def _issue_node() -> GraphNodeRecord:
         node_key="node-7",
         node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
         entity_type=GraphEntityType.JIRA_ISSUE,
-        logical_id="AUTA-7",
+        logical_id="TENANT-A-7",
         ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
         owner_id=TenantId("DEFAULT"),
-        source_scope_id="AUTA-2",
+        source_scope_id="TENANT-A-2",
         attributes={
             "custom_fields": [
                 {"field_id": "customfield_10001", "name": "Stage", "value": "Round 2"},
@@ -182,7 +182,7 @@ def _binding(attributes: tuple[SummaryAttribute, ...]) -> SummaryBinding:
         manifest=SummaryManifest(
             node_key="node-7",
             kind="SourceEntity",
-            source_scope_id="AUTA-2",
+            source_scope_id="TENANT-A-2",
             input_chunk_ids=("chunk-1",),
             policy_fingerprint="p",
             membership_digest="m",
@@ -217,7 +217,7 @@ async def test_publication_indexes_each_declared_facet_under_the_dotted_path() -
     vectors, embed = Vectors(), Embed()
     binding = _binding((SummaryAttribute(name="skills", values=("Java",)),))
     await EntitySummaryIndex(vectors, embed, PROFILE).publish(
-        "DEFAULT", "AUTA-2", (binding,), POLICY.facets
+        "DEFAULT", "TENANT-A-2", (binding,), POLICY.facets
     )
     point = vectors.records[PROFILE.entity_index_name][
         entity_point_id("DEFAULT", "node-7", PROFILE.entity_fingerprint)
@@ -231,7 +231,7 @@ def test_facet_filters_are_routed_to_the_entity_lane_and_off_the_chunks() -> Non
     mixed = VectorFilter(
         must=[
             VectorFilterCondition(field="facet.stage", value="round 2"),
-            VectorFilterCondition(field="issue_key", value="AUTA-7"),
+            VectorFilterCondition(field="issue_key", value="TENANT-A-7"),
         ]
     )
     facet, rest = split_facet_filters(mixed)
@@ -245,13 +245,13 @@ def test_facet_filters_are_routed_to_the_entity_lane_and_off_the_chunks() -> Non
 def test_a_facet_mapping_becomes_case_folded_and_ranged_conditions() -> None:
     built = facet_filter_from_mapping(
         {"stage": "Round 2", "skills": ["Java", "K8s"], "years_experience": {"gte": 5}},
-        ("AUTA-2",),
+        ("TENANT-A-2",),
     )
     conditions = {(c.field, c.operator): c.value for c in built.must}
     assert conditions[("facet.stage", FilterOperator.EQUALS)] == "round 2"
     assert conditions[("facet.skills", FilterOperator.IN)] == ["java", "k8s"]
     assert conditions[("facet.years_experience", FilterOperator.GREATER_THAN_OR_EQUAL)] == 5
-    assert conditions[("source_scope_id", FilterOperator.IN)] == ["AUTA-2"]
+    assert conditions[("source_scope_id", FilterOperator.IN)] == ["TENANT-A-2"]
     assert facet_filter_from_mapping({}) is None
     with pytest.raises(ValueError, match="not supported"):
         facet_filter_from_mapping({"years_experience": {"between": 5}})
@@ -308,7 +308,7 @@ def test_a_real_issue_observation_beats_the_placeholder_an_attachment_projects()
     from harborrag_runtime.topology.summary_inputs import _node_rank
 
     real = _issue_node()
-    stub = real.model_copy(update={"title": "CPM-147848", "attributes": {"placeholder": True}})
+    stub = real.model_copy(update={"title": "ENG-147848", "attributes": {"placeholder": True}})
     thinner = real.model_copy(update={"attributes": {}})
     assert _node_rank(real) < _node_rank(stub)
     assert _node_rank(real) < _node_rank(thinner)
@@ -387,8 +387,8 @@ def test_a_policy_stored_with_model_read_facets_still_parses() -> None:
     assert policy.facets[1].kind == "integer"
     # A lease is built straight from the row, which is where the worker failed.
     lease = SummaryLease(
-        tenant_id="AUTA-3",
-        source_scope_id="AUTA-3",
+        tenant_id="TENANT-A-3",
+        source_scope_id="TENANT-A-3",
         revision=1,
         fence=1,
         policy=stored,

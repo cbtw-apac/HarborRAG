@@ -332,8 +332,8 @@ async def test_distinct_values_is_an_exact_facet_on_the_tenant_collection() -> N
             self.facets.append(kwargs)
             return SimpleNamespace(
                 hits=[
-                    SimpleNamespace(value="jira://CPM/CPM-1", count=4),
-                    SimpleNamespace(value="jira://CPM/CPM-2", count=1),
+                    SimpleNamespace(value="jira://ENG/ENG-1", count=4),
+                    SimpleNamespace(value="jira://ENG/ENG-2", count=1),
                 ]
             )
 
@@ -351,7 +351,7 @@ async def test_distinct_values_is_an_exact_facet_on_the_tenant_collection() -> N
         context=StorageOperationContext.system(tenant_id="tenant-a"),
     )
 
-    assert values == ("jira://CPM/CPM-1", "jira://CPM/CPM-2")
+    assert values == ("jira://ENG/ENG-1", "jira://ENG/ENG-2")
     [call] = raw.facets
     assert call["collection_name"] == "harborrag_tenant-a_docs"
     assert call["key"] == "source_item_id"

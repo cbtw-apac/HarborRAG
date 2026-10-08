@@ -19,7 +19,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.ingestion.field_indexes import declared_field_indexes
 from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
 
-ISSUE = "jira://CPM/CPM-116680"
+ISSUE = "jira://ENG/ENG-116680"
 
 
 class IndexedVectors(FakeVectorRepository):
@@ -72,7 +72,7 @@ class RepeatingVectors(FakeVectorRepository):
                     "connector_type": "jira",
                     "content": text,
                     "content_hash": content_hash,
-                    "issue_key": f"CPM-{index}",
+                    "issue_key": f"ENG-{index}",
                 },
             )
             for index, (text, content_hash) in enumerate(texts)
@@ -157,7 +157,7 @@ async def test_identical_texts_are_collapsed_and_counted():
         "Spring Boot microservices",
     ]
     assert report.results[0].id == "chunk-0"
-    assert report.results[0].metadata["issue_key"] == "CPM-0"
+    assert report.results[0].metadata["issue_key"] == "ENG-0"
     assert report.diagnostics.duplicates_collapsed == 2
 
 
@@ -166,10 +166,10 @@ def test_declared_facets_become_typed_source_field_indexes():
         {
             "tenants": [
                 {
-                    "tenant_id": "AUTA-5",
+                    "tenant_id": "TENANT-A-5",
                     "sources": [
                         {
-                            "source_scope_id": "AUTA-5",
+                            "source_scope_id": "TENANT-A-5",
                             "facets": [
                                 {"name": "skill_set", "field": "Skill Set"},
                                 {
@@ -191,8 +191,8 @@ def test_declared_facets_become_typed_source_field_indexes():
 
     declared = declared_field_indexes(config)
 
-    assert set(declared) == {"AUTA-5"}
-    assert [(item.path, item.numeric) for item in declared["AUTA-5"]] == [
+    assert set(declared) == {"TENANT-A-5"}
+    assert [(item.path, item.numeric) for item in declared["TENANT-A-5"]] == [
         ("fields.skill_set", False),
         ("fields.years_of_experience", True),
     ]

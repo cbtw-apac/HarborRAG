@@ -51,7 +51,7 @@ async def test_activity_settings_provider_member_roundtrips(
         ActivityEntry(
             id="a1",
             tenant_id="tenant-a",
-            actor="nguyen.vu@cbtw.tech",
+            actor="admin@example.com",
             verb="created",
             entity_type="project",
             entity_id="p1",
@@ -89,10 +89,10 @@ async def test_activity_settings_provider_member_roundtrips(
     assert await providers.get("pr1", tenant_ids=None) is None
 
     members = SqlMemberRepository(sessions)
-    member = Member(id="m1", tenant_id="tenant-a", subject="user@cbtw.tech", role="editor")
+    member = Member(id="m1", tenant_id="tenant-a", subject="user-a@example.com", role="editor")
     await members.save(member)
-    assert await members.get_by_subject("user@cbtw.tech") == member
-    assert await members.get_by_subject("ghost@cbtw.tech") is None
+    assert await members.get_by_subject("user-a@example.com") == member
+    assert await members.get_by_subject("ghost@example.com") is None
     assert [stored.id for stored in await members.list(tenant_ids=None)] == ["m1"]
     await members.delete("m1", tenant_ids=None)
     assert await members.list(tenant_ids=None) == []
@@ -110,7 +110,7 @@ async def test_activity_append_is_idempotent_by_id(sessions: SessionFactory) -> 
     entry = ActivityEntry(
         id="a1",
         tenant_id="tenant-a",
-        actor="nguyen.vu@cbtw.tech",
+        actor="admin@example.com",
         verb="created",
         entity_type="project",
         entity_id="p1",
@@ -175,10 +175,10 @@ async def test_activity_provider_member_repositories_enforce_tenant_scope(
 
     members = SqlMemberRepository(sessions)
     await members.save(
-        Member(id="mine", tenant_id="tenant-a", subject="me@cbtw.tech", role="editor")
+        Member(id="mine", tenant_id="tenant-a", subject="user-b@example.com", role="editor")
     )
     await members.save(
-        Member(id="theirs", tenant_id="tenant-b", subject="them@cbtw.tech", role="editor")
+        Member(id="theirs", tenant_id="tenant-b", subject="user-c@example.com", role="editor")
     )
     assert [m.id for m in await members.list(tenant_ids=scope)] == ["mine"]
     await members.delete("theirs", tenant_ids=scope)

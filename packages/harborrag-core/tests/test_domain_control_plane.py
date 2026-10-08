@@ -44,7 +44,7 @@ def test_activity_entry_shape() -> None:
     entry = ActivityEntry(
         id="a1",
         tenant_id="DEFAULT",
-        actor="nguyen.vu@cbtw.tech",
+        actor="admin@example.com",
         verb="created",
         entity_type="source",
         entity_id="s1",
@@ -57,7 +57,7 @@ def test_activity_entry_shape() -> None:
 def test_member_and_provider_and_settings_defaults() -> None:
     """Member defaults to reader (least privilege); Provider carries a
     secret_ref only (never a key value); WorkspaceSettings wraps a dict."""
-    member = Member(id="m1", tenant_id="DEFAULT", subject="user@cbtw.tech")
+    member = Member(id="m1", tenant_id="DEFAULT", subject="user-a@example.com")
     assert member.role == "reader"
     provider = Provider(id="pr1", tenant_id="DEFAULT", name="OpenAI", family="chat")
     assert provider.secret_ref is None
@@ -72,6 +72,6 @@ def test_project_member_provider_reject_blank_or_whitespace_ids(bad_id: str) -> 
     with pytest.raises(ValueError, match="id must be non-empty"):
         Project(id=bad_id, tenant_id="DEFAULT", name="Docs", collection="docs_main")
     with pytest.raises(ValueError, match="id must be non-empty"):
-        Member(id=bad_id, tenant_id="DEFAULT", subject="user@cbtw.tech")
+        Member(id=bad_id, tenant_id="DEFAULT", subject="user-a@example.com")
     with pytest.raises(ValueError, match="id must be non-empty"):
         Provider(id=bad_id, tenant_id="DEFAULT", name="OpenAI", family="chat")

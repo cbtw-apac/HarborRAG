@@ -18,7 +18,7 @@ def _database_url() -> str:
     if configured and configured.strip():
         return configured.strip()
     username = quote(env("POSTGRES_USER", "postgres"), safe="")
-    password = quote(env("POSTGRES_PASSWORD", "harborrag-local-dev"), safe="")
+    password = quote(env("POSTGRES_PASSWORD", ""), safe="")
     host = env("POSTGRES_HOST", "127.0.0.1")
     port = env_int("POSTGRES_PORT", 5432)
     database = quote(env("POSTGRES_DB", "harborrag"), safe="")
@@ -47,6 +47,11 @@ def main() -> int:
         "asyncpg",
         'Install it with: uv pip install -e "packages/harborrag-adapters[postgres]"',
     ):
+        return 2
+    if not os.getenv("HARBOR_SMOKE_POSTGRES_URL", "").strip() and not env("POSTGRES_PASSWORD", ""):
+        print(
+            "Unavailable: set POSTGRES_PASSWORD (or HARBOR_SMOKE_POSTGRES_URL) to run this smoke."
+        )
         return 2
     try:
         document_id = asyncio.run(_run())

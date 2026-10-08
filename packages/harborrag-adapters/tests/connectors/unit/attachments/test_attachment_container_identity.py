@@ -68,19 +68,19 @@ def test_the_inherited_space_id_is_the_one_the_page_itself_projects() -> None:
 
 
 def test_a_jira_attachment_carries_its_parent_project() -> None:
-    issue = {"key": "AMAST-7", "fields": {"project": {"key": "AMAST"}}}
+    issue = {"key": "ACME-7", "fields": {"project": {"key": "ACME"}}}
 
     record = attachment_source_record(
-        _parent("jira://AMAST/AMAST-7"),
+        _parent("jira://ACME/ACME-7"),
         _descriptor(),
         inherited=project_identity(issue),
     )
 
-    assert record.metadata["project_key"] == "AMAST"
+    assert record.metadata["project_key"] == "ACME"
 
 
 def test_a_jira_project_falls_back_to_the_issue_key_prefix() -> None:
-    assert project_identity({"key": "AMAST-7", "fields": {}}) == {"project_key": "AMAST"}
+    assert project_identity({"key": "ACME-7", "fields": {}}) == {"project_key": "ACME"}
 
 
 def test_inherited_keys_can_never_overwrite_the_binding_identity() -> None:
@@ -162,9 +162,9 @@ def _jira_attachment_document(security: dict | None):
     from harborrag_adapters.connectors.acl import acl_metadata
     from harborrag_adapters.connectors.jira.access import issue_acl
 
-    issue = {"key": "AMAST-7", "fields": {"project": {"key": "AMAST"}, "security": security}}
+    issue = {"key": "ACME-7", "fields": {"project": {"key": "ACME"}, "security": security}}
     record = attachment_source_record(
-        _parent("jira://AMAST/AMAST-7"),
+        _parent("jira://ACME/ACME-7"),
         _descriptor(),
         inherited={**project_identity(issue), **acl_metadata(issue_acl(issue))},
     )
@@ -176,7 +176,7 @@ def test_an_attachment_of_a_secured_jira_issue_carries_the_parent_source_acl() -
 
     assert raw.metadata["source_acl"]["status"] == "restricted"
     assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "10100"
-    assert raw.metadata["project_key"] == "AMAST"
+    assert raw.metadata["project_key"] == "ACME"
 
 
 def test_an_attachment_of_an_unrestricted_jira_issue_carries_no_acl_label() -> None:

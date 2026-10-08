@@ -185,21 +185,21 @@ def test_the_filters_schema_accepts_indexed_and_prefixed_keys_only() -> None:
     assert validator.is_valid({"fields.years_of_experience": {"gte": 5}})
     assert validator.is_valid({"facet.skill_set": ["BE-Java"]})
     assert not validator.is_valid({"category": "architecture"})
-    assert not validator.is_valid({"tenant_id": "AUTA-5"})
+    assert not validator.is_valid({"tenant_id": "TENANT-A-5"})
 
 
 def test_provisioning_indexes_the_tenants_declared_source_fields() -> None:
     policy = VectorProjectionPolicy(
         dimension=3,
         field_indexes={
-            "AUTA-5": (
+            "TENANT-A-5": (
                 SourceFieldIndex("fields.skill_set"),
                 SourceFieldIndex("fields.years_of_experience", numeric=True),
             )
         },
     )
 
-    spec = policy.index("evidence", tenant_id="AUTA-5")
+    spec = policy.index("evidence", tenant_id="TENANT-A-5")
     other = policy.index("evidence", tenant_id="OTHER")
 
     assert spec.metadata_indexes[: len(EVIDENCE_PAYLOAD_INDEXES)] == list(EVIDENCE_PAYLOAD_INDEXES)

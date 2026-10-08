@@ -82,12 +82,12 @@ def test_vector_projection_writes_only_evidence_content() -> None:
                     DocumentElement(
                         "p1",
                         "paragraph",
-                        "The worker timeout is 30 seconds for AMAST-2.",
+                        "The worker timeout is 30 seconds for ACME-2.",
                     )
                 ],
                 source="jira",
-                record_id="AMAST-2",
-                extra={"issue_key": "AMAST-2", "project_id": "10000"},
+                record_id="ACME-2",
+                extra={"issue_key": "ACME-2", "project_id": "10000"},
             )
         )
     )
@@ -105,8 +105,8 @@ def test_vector_projection_writes_only_evidence_content() -> None:
     evidence_payload = projection.evidence_records[0].payload
     assert evidence_payload.record_kind.value == "evidence"
     assert evidence_payload.document_version_id == "document-version:1"
-    assert evidence_payload.issue_key == "AMAST-2"
-    assert evidence_payload.content == "The worker timeout is 30 seconds for AMAST-2."
+    assert evidence_payload.issue_key == "ACME-2"
+    assert evidence_payload.content == "The worker timeout is 30 seconds for ACME-2."
     assert evidence_payload.document_title == "HarborRAG"
     assert evidence_payload.source_item_id
     assert evidence_payload.document_kind.value == "jira_issue"
@@ -170,9 +170,9 @@ def test_vector_projection_carries_source_descriptors() -> None:
                     )
                 ],
                 source="jira",
-                record_id="AMAST-2",
+                record_id="ACME-2",
                 extra={
-                    "issue_key": "AMAST-2",
+                    "issue_key": "ACME-2",
                     "status": "In Progress",
                     "status_category": "In Progress",
                     "issue_type": "Bug",
@@ -180,7 +180,7 @@ def test_vector_projection_carries_source_descriptors() -> None:
                     "assignee": "Grace",
                     "reporter": "Alan",
                     "creator": "Alan",
-                    "project_key": "AMAST",
+                    "project_key": "ACME",
                     "project_name": "Harbor Ingestion",
                     "labels": ["ingestion", "urgent"],
                     "components": ["worker"],
@@ -211,7 +211,7 @@ def test_vector_projection_carries_source_descriptors() -> None:
     assert payload.assignee == "Grace"
     assert payload.reporter == "Alan"
     assert payload.creator == "Alan"
-    assert payload.project_key == "AMAST"
+    assert payload.project_key == "ACME"
     assert payload.project_name == "Harbor Ingestion"
     assert payload.labels == ("ingestion", "urgent")
     assert payload.components == ("worker",)
@@ -230,9 +230,9 @@ def test_vector_projection_falls_back_to_document_timestamps() -> None:
             make_document(
                 [DocumentElement("summary", "paragraph", "A bug", {"field": "summary"})],
                 source="jira",
-                record_id="AMAST-2",
+                record_id="ACME-2",
                 extra={
-                    "issue_key": "AMAST-2",
+                    "issue_key": "ACME-2",
                     "source_created_at": "2026-01-01T00:00:00+00:00",
                     "source_updated_at": "2026-03-09T00:00:00+00:00",
                 },
@@ -287,8 +287,8 @@ def test_every_evidence_point_of_an_issue_carries_its_typed_fields() -> None:
                     ),
                 ],
                 source="jira",
-                record_id="CPM-1",
-                extra={"issue_key": "CPM-1", "fields": fields},
+                record_id="ENG-1",
+                extra={"issue_key": "ENG-1", "fields": fields},
             )
         )
     )
@@ -327,8 +327,8 @@ def test_a_document_without_typed_fields_stores_no_fields_key() -> None:
             make_document(
                 [DocumentElement("summary", "paragraph", "A bug", {"field": "summary"})],
                 source="jira",
-                record_id="AMAST-2",
-                extra={"issue_key": "AMAST-2"},
+                record_id="ACME-2",
+                extra={"issue_key": "ACME-2"},
             )
         )
     )
@@ -371,8 +371,8 @@ def _minimal_payload() -> dict[str, object]:
             make_document(
                 [DocumentElement("summary", "paragraph", "A bug", {"field": "summary"})],
                 source="jira",
-                record_id="AMAST-2",
-                extra={"issue_key": "AMAST-2"},
+                record_id="ACME-2",
+                extra={"issue_key": "ACME-2"},
             )
         )
     )
@@ -403,7 +403,7 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
                 [DocumentElement("p1", "paragraph", "Data Engineer with five years of Spark.")],
                 extra={
                     "binding_kind": "ATTACHMENT",
-                    "parent_source_item_id": "jira://CPM/CPM-116680",
+                    "parent_source_item_id": "jira://ENG/ENG-116680",
                 },
             )
         )
@@ -422,7 +422,7 @@ def test_an_attachment_chunk_names_the_item_it_is_attached_to() -> None:
     )
 
     assert records
-    assert {record.payload.parent_source_item_id for record in records} == {"jira://CPM/CPM-116680"}
+    assert {record.payload.parent_source_item_id for record in records} == {"jira://ENG/ENG-116680"}
 
 
 def test_each_point_carries_its_graph_node_keys_from_the_same_version() -> None:
@@ -433,10 +433,10 @@ def test_each_point_carries_its_graph_node_keys_from_the_same_version() -> None:
     from harborrag_engine.ingestion import GraphProjectionBuilder
 
     document = make_document(
-        [DocumentElement("p1", "paragraph", "The worker timeout is 30 seconds for AMAST-2.")],
+        [DocumentElement("p1", "paragraph", "The worker timeout is 30 seconds for ACME-2.")],
         source="jira",
-        record_id="AMAST-2",
-        extra={"issue_key": "AMAST-2", "project_id": "10000", "project_key": "AMAST"},
+        record_id="ACME-2",
+        extra={"issue_key": "ACME-2", "project_id": "10000", "project_key": "ACME"},
     )
     result = make_service(
         make_profile(name="jira", strategy="jira", target=100, maximum=120),
@@ -479,8 +479,8 @@ def test_points_built_without_a_graph_carry_no_graph_keys() -> None:
             make_document(
                 [DocumentElement("p1", "paragraph", "Plain text.")],
                 source="jira",
-                record_id="AMAST-3",
-                extra={"issue_key": "AMAST-3", "project_id": "10000"},
+                record_id="ACME-3",
+                extra={"issue_key": "ACME-3", "project_id": "10000"},
             )
         )
     )

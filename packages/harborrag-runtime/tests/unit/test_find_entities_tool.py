@@ -34,7 +34,7 @@ class Retrieval:
             (
                 EntityMatch(
                     node_key="node-a",
-                    source_scope_id="AUTA-2",
+                    source_scope_id="TENANT-A-2",
                     rank=1,
                     score=0.91,
                     description="Senior Java engineer, banking, cleared round two.",
@@ -59,19 +59,19 @@ async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> 
     tool = FindEntitiesTool(retrieval=retrieval, references=KnowledgeReferenceStore())
     result = await tool.call(
         {
-            "tenant_id": "AUTA-2",
+            "tenant_id": "TENANT-A-2",
             "query": "senior java engineer with banking experience",
             "facets": {"stage": "round 2", "years_experience": {"gte": 5}},
-            "source_ids": ["AUTA-2"],
+            "source_ids": ["TENANT-A-2"],
             "limit": 5,
         },
         principal_id="recruiter-1",
     )
     request = retrieval.requests[0]
     assert request.facets == {"stage": "round 2", "years_experience": {"gte": 5}}
-    assert request.source_scope_ids == ("AUTA-2",)
+    assert request.source_scope_ids == ("TENANT-A-2",)
     assert request.limit == 5
-    assert str(request.access.tenant_id) == "AUTA-2"
+    assert str(request.access.tenant_id) == "TENANT-A-2"
     assert result["ok"] is True
     match = result["matches"][0]
     assert match["node_key"] == "node-a"
@@ -85,14 +85,14 @@ async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> 
 @pytest.mark.asyncio
 async def test_bad_arguments_and_a_missing_backend_are_failures_not_exceptions() -> None:
     tool = FindEntitiesTool(retrieval=Retrieval(), references=KnowledgeReferenceStore())
-    blank = await tool.call({"tenant_id": "AUTA-2", "query": "  "}, principal_id="p")
+    blank = await tool.call({"tenant_id": "TENANT-A-2", "query": "  "}, principal_id="p")
     assert blank["ok"] is False
     too_many = await tool.call(
-        {"tenant_id": "AUTA-2", "query": "q", "limit": 500}, principal_id="p"
+        {"tenant_id": "TENANT-A-2", "query": "q", "limit": 500}, principal_id="p"
     )
     assert too_many["ok"] is False
     unconfigured = FindEntitiesTool(references=KnowledgeReferenceStore())
-    missing = await unconfigured.call({"tenant_id": "AUTA-2", "query": "q"}, principal_id="p")
+    missing = await unconfigured.call({"tenant_id": "TENANT-A-2", "query": "q"}, principal_id="p")
     assert missing["ok"] is False and "not configured" in missing["error"]
 
 
@@ -143,7 +143,7 @@ class Unindexed(Retrieval):
 @pytest.mark.asyncio
 async def test_a_missing_index_is_an_incomplete_answer_not_an_empty_one() -> None:
     tool = FindEntitiesTool(retrieval=Unindexed(), references=KnowledgeReferenceStore())
-    result = await tool.call({"tenant_id": "AUTA-5", "query": "java"}, principal_id="p")
+    result = await tool.call({"tenant_id": "TENANT-A-5", "query": "java"}, principal_id="p")
     assert result["ok"] is True
     assert result["matches"] == []
     assert result["withheld_entity_count"] == 0

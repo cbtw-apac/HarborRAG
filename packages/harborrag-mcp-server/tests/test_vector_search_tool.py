@@ -281,7 +281,7 @@ async def test_a_refused_filter_reports_its_reason_not_a_backend_failure() -> No
 @pytest.mark.asyncio
 async def test_hits_carry_the_issue_key_but_not_constant_bookkeeping() -> None:
     hit = _result("vec-1", "Senior Java Engineer", 0.9, 0.5)
-    hit.metadata.update({"issue_key": "CPM-101361", "content_hash": "abc", "raw_score": 0.4})
+    hit.metadata.update({"issue_key": "ENG-101361", "content_hash": "abc", "raw_score": 0.4})
     harbor, _ = runtime([hit])
 
     result = await VectorSearchTool(runtime=harbor).call(
@@ -289,7 +289,7 @@ async def test_hits_carry_the_issue_key_but_not_constant_bookkeeping() -> None:
     )
 
     metadata = result["results"][0]["metadata"]
-    assert metadata["issue_key"] == "CPM-101361"
+    assert metadata["issue_key"] == "ENG-101361"
     assert {
         "record_kind",
         "retrieval_source",

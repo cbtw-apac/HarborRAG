@@ -19,7 +19,7 @@ from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCo
 from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
 from harborrag_runtime.retrieval.source_fields import SourceFieldTrace, split_field_filters
 
-ISSUE = "jira://CPM/CPM-116680"
+ISSUE = "jira://ENG/ENG-116680"
 
 
 class TracingVectors(FakeVectorRepository):
@@ -54,7 +54,7 @@ def _filters() -> VectorFilter:
                 operator=FilterOperator.GREATER_THAN_OR_EQUAL,
                 value=3,
             ),
-            VectorFilterCondition(field="project_key", value="CPM"),
+            VectorFilterCondition(field="project_key", value="ENG"),
         ]
     )
 
@@ -101,7 +101,7 @@ async def test_no_matching_issue_returns_nothing_without_searching():
 
 @pytest.mark.asyncio
 async def test_a_filter_matching_too_many_issues_asks_to_be_narrowed():
-    vectors = TracingVectors(tuple(f"jira://CPM/CPM-{index}" for index in range(10_001)))
+    vectors = TracingVectors(tuple(f"jira://ENG/ENG-{index}" for index in range(10_001)))
 
     with pytest.raises(HarborValidationError, match="narrow"):
         await _service(vectors).retrieve(
@@ -115,7 +115,7 @@ async def test_a_filter_matching_too_many_issues_asks_to_be_narrowed():
 @pytest.mark.asyncio
 async def test_without_a_fields_filter_nothing_is_traced():
     vectors = TracingVectors((ISSUE,))
-    only_project = VectorFilter(must=[VectorFilterCondition(field="project_key", value="CPM")])
+    only_project = VectorFilter(must=[VectorFilterCondition(field="project_key", value="ENG")])
 
     await _service(vectors).retrieve(
         "anything", tenant_id="tenant-1", top_k=5, options=RetrievalOptions(filters=only_project)
@@ -130,7 +130,7 @@ def test_split_keeps_each_condition_in_its_clause():
     mixed = VectorFilter(
         must=[
             VectorFilterCondition(field="fields.skill_set", value="Data Engineering"),
-            VectorFilterCondition(field="issue_key", value="CPM-1"),
+            VectorFilterCondition(field="issue_key", value="ENG-1"),
         ],
         must_not=[VectorFilterCondition(field="fields.currency", value="EUR")],
     )
@@ -151,7 +151,7 @@ def test_the_trace_refuses_to_loosen_a_callers_alternatives():
         SourceFieldTrace.scope((ISSUE,), alternatives)
 
 
-_PROJECT = VectorFilterCondition(field="project_key", value="CPM")
+_PROJECT = VectorFilterCondition(field="project_key", value="ENG")
 _STAGE = VectorFilterCondition(field="facet.stage", value="round 2")
 
 

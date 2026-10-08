@@ -196,7 +196,7 @@ def test_coerce_recovers_the_source_filename_from_metadata() -> None:
     """A connector's own upload name routes better than its permalink.
 
     `RawDocument` has no `filename` attribute, so without this the name falls
-    back to the last segment of `source` -- `CPM-1#attachment-397115` -- which
+    back to the last segment of `source` -- `ENG-1#attachment-397115` -- which
     carries no suffix. Routing then has only the media type, and providers
     routinely report a generic one for user uploads.
     """
@@ -204,8 +204,8 @@ def test_coerce_recovers_the_source_filename_from_metadata() -> None:
     from harborrag_core.domain.raw_document import RawDocument
 
     raw = RawDocument(
-        id="jira://CPM/CPM-1/attachments/397115",
-        source="https://example.atlassian.net/browse/CPM-1#attachment-397115",
+        id="jira://ENG/ENG-1/attachments/397115",
+        source="https://example.atlassian.net/browse/ENG-1#attachment-397115",
         content=b"%PDF-1.4",
         content_type="application/octet-stream",
         metadata={"filename": "Anh Nguyen - Data.pdf", "title": "Anh Nguyen - Data.pdf"},
@@ -223,8 +223,8 @@ def test_coerce_never_reads_a_document_title_as_its_filename() -> None:
     from harborrag_core.domain.raw_document import RawDocument
 
     raw = RawDocument(
-        id="jira://CPM/CPM-2",
-        source="https://example.atlassian.net/browse/CPM-2",
+        id="jira://ENG/ENG-2",
+        source="https://example.atlassian.net/browse/ENG-2",
         content="Loading fails on startup.",
         content_type="text/markdown",
         metadata={"title": "Crash loading config.yaml", "name": "config.yaml"},
