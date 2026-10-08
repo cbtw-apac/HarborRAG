@@ -156,3 +156,30 @@ def test_an_attachment_with_no_inherited_identity_loads_unchanged() -> None:
 
     assert "space_id" not in raw.metadata
     assert raw.metadata["attachment_id"] == "att-1"
+
+
+def _jira_attachment_document(security: dict | None):
+    from harborrag_adapters.connectors.acl import acl_metadata
+    from harborrag_adapters.connectors.jira.access import issue_acl
+
+    issue = {"key": "AMAST-7", "fields": {"project": {"key": "AMAST"}, "security": security}}
+    record = attachment_source_record(
+        _parent("jira://AMAST/AMAST-7"),
+        _descriptor(),
+        inherited={**project_identity(issue), **acl_metadata(issue_acl(issue))},
+    )
+    return AttachmentDocumentLoader(_Gateway()).load(record)  # type: ignore[arg-type]
+
+
+def test_an_attachment_of_a_secured_jira_issue_carries_the_parent_source_acl() -> None:
+    raw = _jira_attachment_document({"id": "10100", "name": "Internal only"})
+
+    assert raw.metadata["source_acl"]["status"] == "restricted"
+    assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "10100"
+    assert raw.metadata["project_key"] == "AMAST"
+
+
+def test_an_attachment_of_an_unrestricted_jira_issue_carries_no_acl_label() -> None:
+    raw = _jira_attachment_document(None)
+
+    assert "source_acl" not in raw.metadata

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 
+from harborrag_adapters.connectors.acl import SOURCE_ACL_METADATA_KEY
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -30,9 +31,12 @@ class AttachmentDocumentLoader:
                 # Forward the parent's container identity before the loader's own keys,
                 # so the projector can file this attachment under the same space or
                 # project its parent lives in instead of falling back to the data source.
+                # The parent's source ACL travels with it: an attachment is readable by no
+                # more people than its parent, and dropping the label would make it look
+                # inherited (project-wide).
                 **{
                     key: record.metadata[key]
-                    for key in CONTAINER_IDENTITY_KEYS
+                    for key in (*CONTAINER_IDENTITY_KEYS, SOURCE_ACL_METADATA_KEY)
                     if key in record.metadata
                 },
                 "attachment_id": descriptor.attachment_id,
