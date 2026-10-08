@@ -142,7 +142,14 @@ def read_parse_input_bytes(
 
 
 def _read_guarded_path(path: Path, *, max_bytes: int) -> bytes:
-    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    # O_NONBLOCK: opening a FIFO for reading otherwise blocks until a writer
+    # appears; the S_ISREG check below then rejects it. Regular files ignore it.
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+        | getattr(os, "O_NONBLOCK", 0)
+    )
     try:
         descriptor = os.open(path, flags)
     except OSError as error:

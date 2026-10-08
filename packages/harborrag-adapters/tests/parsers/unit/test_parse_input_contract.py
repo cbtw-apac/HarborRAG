@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import threading
 from pathlib import Path
 
 import pytest
@@ -184,6 +186,30 @@ def test_path_read_refuses_symbolic_links(tmp_path: Path) -> None:
 
     with pytest.raises(ParseError, match="opened safely"):
         read_parse_input_bytes(ParseInput(path=link))
+
+
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="FIFOs need POSIX mkfifo")
+def test_path_read_refuses_a_fifo_without_blocking(tmp_path: Path) -> None:
+    fifo = tmp_path / "pipe.txt"
+    os.mkfifo(fifo)
+    outcome: dict[str, BaseException] = {}
+
+    def read() -> None:
+        try:
+            read_parse_input_bytes(ParseInput(path=fifo))
+        except BaseException as exc:  # surfaced to the test thread below
+            outcome["error"] = exc
+
+    worker = threading.Thread(target=read, daemon=True)
+    worker.start()
+    worker.join(timeout=5)
+    if worker.is_alive():
+        # Give the blocked reader a writer so the thread can finish, then fail.
+        os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        worker.join(timeout=5)
+        pytest.fail("reading a FIFO blocked waiting for a writer")
+    assert isinstance(outcome.get("error"), ParseError)
+    assert "regular file" in str(outcome["error"])
 
 
 def test_parsed_document_defaults() -> None:
