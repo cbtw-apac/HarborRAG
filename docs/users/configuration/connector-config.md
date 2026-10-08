@@ -119,9 +119,10 @@ Confluence space, SharePoint library):
 | restricted | Narrower than the scope | withheld, skip reason `access_restricted` | ingested with `metadata.source_acl` |
 | unknown | Access could not be determined | withheld, skip reason `access_unresolved` | withheld, skip reason `access_unresolved` |
 
-Withheld items are left out of discovery, so a full scan retires copies ingested
-earlier. Direct loads and explicit-ID describes of a withheld item raise
-`SourceRestrictedError`. Jira and Confluence attachment loads first re-read the
+Withheld items are left out of discovery, so copies ingested earlier are retired,
+but not at once: an item is retired only after `missing_threshold` consecutive
+completed full scans miss it (default 2), and it stays served until then. Direct
+loads and explicit-ID describes of a withheld item raise `SourceRestrictedError`. Jira and Confluence attachment loads first re-read the
 parent issue or page and are refused the same way when the parent is withheld.
 
 Use `include` only when `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` and you import a
@@ -139,7 +140,8 @@ through the graph tools. Use `skip` when titles or attributes are themselves
 sensitive.
 
 Restriction changes usually do not change an item's version, so incremental syncs
-do not notice them. Run a full scan after tightening access at the source.
+do not notice them. After tightening access at the source, run `missing_threshold`
+full scans (default 2) to retire the newly withheld items.
 
 To import snapshots for `include` mode, take each document's `source_acl`
 evidence and map it with
