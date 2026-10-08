@@ -8,6 +8,7 @@ without anybody telling the other replicas.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import replace
 
@@ -449,3 +450,64 @@ async def test_a_retired_client_closes_only_when_the_last_of_several_leases_ends
         assert built[0].closes == 0, "one turn is still using the retired client"
 
     assert built[0].closes == 1
+
+
+class _GatedClosingClient(FakeTenantChatClient):
+    """A client whose ``aclose`` waits until the test opens the gate."""
+
+    def __init__(self, label: str) -> None:
+        super().__init__(label)
+        self.closing = asyncio.Event()
+        self.gate = asyncio.Event()
+
+    async def aclose(self) -> None:
+        self.closing.set()
+        await self.gate.wait()
+        await super().aclose()
+
+
+@pytest.mark.asyncio
+async def test_a_turn_cancelled_while_a_replaced_client_closes_releases_its_lease() -> None:
+    """The turn that rebuilt the client disposes the old one before it is handed the new.
+
+    Cancelling it there used to skip the release: the new client's lease stayed counted,
+    so it was never closed once retired, and the old client's close was abandoned.
+    """
+
+    catalog = FakeCatalog({"acme": tenant_catalog("acme")}, fingerprints={"acme": "fp-1"})
+    built: list[_GatedClosingClient] = []
+
+    def build(config: HarborChatClientConfig) -> _GatedClosingClient:
+        client = _GatedClosingClient(config.default_model)
+        if built:
+            client.gate.set()  # only the first client is slow to close
+        built.append(client)
+        return client
+
+    clients = TenantChatClients(
+        RuntimeSettings().model_copy(update={"model_config_path": SHARED_MODEL_CONFIG}),
+        TenantModelSources(catalog=catalog, secrets=FakeSecrets()),
+        builder=build,  # type: ignore[arg-type]
+    )
+    await clients.resolve("acme")
+    catalog.fingerprints["acme"] = "fp-2"
+    catalog.catalogs["acme"] = tenant_catalog("acme", fingerprint="fp-2")
+
+    async def turn() -> None:
+        async with clients.lease("acme"):
+            pytest.fail("the turn was cancelled before it got its client")
+
+    task = asyncio.create_task(turn())
+    await built[0].closing.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    built[0].gate.set()
+    catalog.fingerprints["acme"] = "fp-3"
+    catalog.catalogs["acme"] = tenant_catalog("acme", fingerprint="fp-3")
+    await clients.resolve("acme")
+    await clients.aclose()
+
+    assert built[1].closes == 1, "the cancelled turn's lease must not keep the client open"
+    assert built[0].closes == 1, "the replaced client must still be closed"

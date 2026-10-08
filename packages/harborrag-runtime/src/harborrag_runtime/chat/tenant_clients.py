@@ -101,6 +101,7 @@ class TenantChatClients:
         self._entries: OrderedDict[str, _Entry] = OrderedDict()
         self._max_entries = settings.chat_tenant_client_cache_size
         self._lock = asyncio.Lock()
+        self._disposals: set[asyncio.Task[None]] = set()
 
     async def resolve(self, tenant_id: str | None) -> TenantChatResolution:
         """Return a snapshot of ``tenant_id``'s resolution, for its catalog.
@@ -122,16 +123,21 @@ class TenantChatClients:
         re-checks under it so concurrent first requests build a single client.
         """
 
-        entry = await self._acquire(tenant_id)
-        if entry is None:
-            yield _SHARED
-            return
+        entry, stale = await self._acquire(tenant_id)
         try:
+            if stale:
+                # Shielded: a turn cancelled here still releases its lease below,
+                # and the replaced clients still finish closing.
+                await asyncio.shield(self._dispose_detached(stale))
+            if entry is None:
+                yield _SHARED
+                return
             yield entry.resolution
         finally:
-            entry.leases -= 1
-            if entry.retired and entry.leases == 0:
-                await _dispose(entry)
+            if entry is not None:
+                entry.leases -= 1
+                if entry.retired and entry.leases == 0:
+                    await _dispose(entry)
 
     async def aclose(self) -> None:
         """Retire every cached tenant client; idle ones close now, leased ones on release.
@@ -145,23 +151,26 @@ class TenantChatClients:
         for entry in entries:
             if entry.retire():
                 await _dispose(entry)
+        await asyncio.gather(*self._disposals)
 
-    async def _acquire(self, tenant_id: str | None) -> _Entry | None:
+    async def _acquire(self, tenant_id: str | None) -> tuple[_Entry | None, list[_Entry]]:
         """Find or build the entry and count a lease on it before anything awaits.
 
         Selecting the entry and counting the lease happen in one synchronous step,
         so a concurrent rebuild cannot retire-and-close an entry between the two.
+        Nothing awaits after the count either: the retired entries a rebuild
+        replaced are returned for the caller to close inside its release scope.
         """
 
         if not tenant_id:
-            return None
+            return None, []
         fingerprint = await self._fingerprint(tenant_id)
         if fingerprint is None:
-            return None
+            return None, []
         entry = self._fresh(tenant_id, fingerprint)
         if entry is not None:
             entry.leases += 1
-            return entry
+            return entry, []
         stale: list[_Entry] = []
         async with self._lock:
             entry = self._fresh(tenant_id, fingerprint)
@@ -169,9 +178,15 @@ class TenantChatClients:
                 entry, stale = await self._rebuild(tenant_id, fingerprint)
             if entry is not None:
                 entry.leases += 1
-        for dropped in stale:
-            await _dispose(dropped)
-        return entry
+        return entry, stale
+
+    def _dispose_detached(self, entries: list[_Entry]) -> asyncio.Task[None]:
+        """Close ``entries`` in a task of its own, which ``aclose`` waits for."""
+
+        task = asyncio.ensure_future(_dispose_all(entries))
+        self._disposals.add(task)
+        task.add_done_callback(self._disposals.discard)
+        return task
 
     async def _fingerprint(self, tenant_id: str) -> str | None:
         try:
@@ -268,6 +283,11 @@ class TenantChatClients:
                 exc_info=True,
             )
             return _SHARED
+
+
+async def _dispose_all(entries: list[_Entry]) -> None:
+    for entry in entries:
+        await _dispose(entry)
 
 
 async def _dispose(entry: _Entry) -> None:
