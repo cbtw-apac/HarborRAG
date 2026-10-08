@@ -33,6 +33,20 @@ PROVIDER_RESERVED_EXTRA_PARAMS = frozenset(
     }
 )
 
+ENDPOINT_EXTENSION_PARAMS = frozenset(
+    {
+        "aws_bedrock_runtime_endpoint",
+        "aws_sts_endpoint",
+        "azure_endpoint",
+        "base_url",
+        "endpoint",
+    }
+)
+"""LiteLLM extension keys known to redirect provider traffic."""
+
+_ENDPOINT_EXTENSION_SUFFIXES = ("_endpoint", "_url", "_base")
+_URL_PREFIXES = ("http://", "https://")
+
 _AUTH_HEADERS = frozenset({"authorization", "proxy-authorization", "x-api-key", "api-key"})
 
 
@@ -119,6 +133,11 @@ def validate_provider_deployment(
             allowed=policy.allowed_extra_litellm_params,
             reserved=reserved_extra_params,
         )
+        validate_endpoint_extension_parameters(
+            deployment.extra_litellm_params,
+            allowed_hosts=policy.allowed_base_url_hosts,
+            require_https=policy.require_https_for_remote_endpoints,
+        )
     except ValueError as exc:
         raise error_type(
             str(exc),
@@ -144,6 +163,51 @@ def validate_extension_parameters(
         raise ValueError(
             "typed parameters cannot be supplied through LiteLLM extensions: "
             + ", ".join(sorted(conflicts))
+        )
+
+
+def is_endpoint_extension_parameter(name: str, value: object) -> bool:
+    """Return whether an extension parameter can redirect provider traffic.
+
+    Known names and ``_endpoint``/``_url``/``_base`` suffixes match regardless of
+    value; any string value that is itself an HTTP(S) URL matches regardless of
+    name, so allowlisting a new LiteLLM key cannot bypass base-URL policy.
+    """
+
+    lowered = name.lower()
+    if lowered in ENDPOINT_EXTENSION_PARAMS or lowered.endswith(_ENDPOINT_EXTENSION_SUFFIXES):
+        return True
+    return isinstance(value, str) and value.strip().lower().startswith(_URL_PREFIXES)
+
+
+def validate_endpoint_extension_parameters(
+    values: Mapping[str, Any],
+    *,
+    allowed_hosts: frozenset[str] | None,
+    require_https: bool,
+) -> None:
+    """Apply deployment base-URL policy to every endpoint-bearing extension parameter."""
+
+    for name, value in values.items():
+        if not is_endpoint_extension_parameter(name, value):
+            continue
+        if not isinstance(value, str):
+            raise ValueError(f"LiteLLM endpoint parameter {name!r} must be a URL string")
+        try:
+            validate_base_url(value, allowed_hosts=allowed_hosts, require_https=require_https)
+        except ValueError as exc:
+            raise ValueError(f"LiteLLM endpoint parameter {name!r}: {exc}") from exc
+
+
+def reject_endpoint_extension_parameters(values: Mapping[str, Any]) -> None:
+    """Forbid per-request extension parameters that would redirect provider traffic."""
+
+    overrides = sorted(
+        name for name, value in values.items() if is_endpoint_extension_parameter(name, value)
+    )
+    if overrides:
+        raise ValueError(
+            "request-level LiteLLM endpoint overrides are not allowed: " + ", ".join(overrides)
         )
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from harborrag_adapters.models.runtime.config import RoutingEngine
 from harborrag_adapters.models.runtime.provider_validation import (
+    reject_endpoint_extension_parameters,
     validate_extension_parameters,
     validate_provider_deployment,
     validate_request_headers,
@@ -116,6 +117,7 @@ def _validate_request_extensions(
     config: HarborRerankClientConfig,
 ) -> None:
     try:
+        reject_endpoint_extension_parameters(request.extra_params)
         validate_extension_parameters(
             request.extra_params,
             allowed=config.security.allowed_extra_litellm_params,
