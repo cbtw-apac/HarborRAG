@@ -29,6 +29,7 @@ from .repository_paths import (
     is_blob,
     normalize_repo_path,
     path_in_scope,
+    scoped_root_path,
 )
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
@@ -107,6 +108,7 @@ class GitHubConnector(BaseConnector):
 
         yielded = 0
         for path in paths:
+            self._require_in_root(path)
             item = self._github.content_file_item(path, ref=ref)
             if not self._github.should_process_file(item, query, commit=commit):
                 continue
@@ -124,7 +126,7 @@ class GitHubConnector(BaseConnector):
     ) -> Iterator[SourceRecord]:
         """Walk one resolved Git tree and emit records that pass query policy."""
 
-        root_path = normalize_repo_path(query.path or self.config.root_path)
+        root_path = scoped_root_path(self.config.root_path, query.path)
         tree_sha = tree_sha_from_commit(commit)
         recursive = query.recursive or bool(root_path)
         yielded = 0
@@ -154,6 +156,7 @@ class GitHubConnector(BaseConnector):
         commit = self._github.resolve_commit(repository)
         ref = self._github.resolved_ref or str(commit.get("sha") or "")
         path = file_path_from_record(record)
+        self._require_in_root(path)
         sha = file_sha_from_record(record)
 
         if not sha:
@@ -207,3 +210,11 @@ class GitHubConnector(BaseConnector):
         """Load files for callers that already know repository paths."""
         for path in paths:
             yield self.load(self._github.record_for_path(path))
+
+    def _require_in_root(self, path: str) -> None:
+        """Refuse explicit paths and records outside the configured ``root_path``."""
+        root = normalize_repo_path(self.config.root_path)
+        if not path_in_scope(path, root, recursive=True):
+            raise DocumentProcessingError(
+                f"GitHub path {path!r} is outside configured root_path {root!r}"
+            )

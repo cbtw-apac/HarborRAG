@@ -58,11 +58,31 @@ def content_endpoint(owner: str, repo: str, path: str) -> str:
 
 
 def normalize_repo_path(path: str | None) -> str:
-    """Normalize repository paths to GitHub's POSIX path style."""
+    """Normalize repository paths to GitHub's POSIX path style.
+
+    ``..`` segments (literal or percent-encoded) are rejected rather than
+    collapsed: an explicit path is interpolated into REST endpoints, so ``../``
+    would address other API routes with the connector's token.
+    """
     if not path:
         return ""
     normalized = str(path).replace("\\", "/").strip("/")
+    if _has_parent_segment(normalized):
+        raise ValueError(f"repository path must not contain '..' segments: {path!r}")
     return str(PurePosixPath(normalized)) if normalized else ""
+
+
+def _has_parent_segment(path: str) -> bool:
+    """Return whether a path has a ``..`` segment after any depth of percent-decoding."""
+    candidate = path
+    for _ in range(4):
+        if ".." in candidate.replace("\\", "/").split("/"):
+            return True
+        decoded = unquote(candidate)
+        if decoded == candidate:
+            return False
+        candidate = decoded
+    return False
 
 
 def file_extension(path: str) -> str:
@@ -103,6 +123,17 @@ def path_in_scope(path: str, root_path: str | None, *, recursive: bool) -> bool:
         return True
     relative = normalized[len(root) + 1 :]
     return "/" not in relative
+
+
+def scoped_root_path(configured: str | None, requested: str | None) -> str:
+    """Return the traversal root; a query path may narrow but never widen the config root."""
+    root = normalize_repo_path(configured)
+    if not requested:
+        return root
+    candidate = normalize_repo_path(requested)
+    if not path_in_scope(candidate, root, recursive=True):
+        raise ValueError(f"query path {requested!r} is outside configured root_path {configured!r}")
+    return candidate
 
 
 def path_matches_patterns(path: str, patterns: list[str]) -> bool:
