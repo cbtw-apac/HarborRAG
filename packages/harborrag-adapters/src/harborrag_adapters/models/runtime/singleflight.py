@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
+import logging
+import threading
 import time
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from concurrent.futures import Future
 from dataclasses import dataclass
 from threading import RLock
@@ -13,6 +16,8 @@ from typing import Protocol
 from pydantic import BaseModel
 
 from .redis_client import AsyncRedisClient, RedisConnectionLifecycle, SyncRedisClient
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class SingleFlightTimeoutError(TimeoutError):
@@ -259,7 +264,12 @@ class InMemorySingleFlight:
 
 
 class RedisSingleFlight:
-    """Coordinate leaders with Redis locks while followers load the shared cache result."""
+    """Coordinate leaders with Redis locks while followers load the shared cache result.
+
+    A leader renews its lock lease every third of ``lock_ttl_seconds`` for as long
+    as its producer runs, so the TTL only bounds how long a crashed leader blocks
+    followers before one of them takes over.
+    """
 
     def __init__(
         self,
@@ -338,7 +348,8 @@ class RedisSingleFlight:
             # its result and released between the follower's miss and its SET NX.
             if recheck is not None and (cached := recheck()) is not None:
                 return SingleFlightResult(cached, True)
-            return SingleFlightResult(producer(), False)
+            with self._renewing(client, lock_key, token):
+                return SingleFlightResult(producer(), False)
         finally:
             client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
 
@@ -353,9 +364,70 @@ class RedisSingleFlight:
         try:
             if recheck is not None and (cached := await recheck()) is not None:
                 return SingleFlightResult(cached, True)
-            return SingleFlightResult(await producer(), False)
+            async with self._arenewing(client, lock_key, token):
+                return SingleFlightResult(await producer(), False)
         finally:
             await client.eval(_RELEASE_LOCK_SCRIPT, 1, lock_key, token)
+
+    @contextlib.contextmanager
+    def _renewing(self, client: SyncRedisClient, lock_key: str, token: str) -> Iterator[None]:
+        """Renew the lock lease from a daemon thread and stop it before release."""
+
+        stop = threading.Event()
+        renewer = threading.Thread(
+            target=self._renew_until_stopped,
+            args=(client, lock_key, token, stop),
+            name="harborrag-singleflight-renewer",
+            daemon=True,
+        )
+        renewer.start()
+        try:
+            yield
+        finally:
+            stop.set()
+            renewer.join(self._lock_ttl)
+
+    def _renew_until_stopped(
+        self, client: SyncRedisClient, lock_key: str, token: str, stop: threading.Event
+    ) -> None:
+        while not stop.wait(self._lock_ttl / 3):
+            try:
+                renewed = client.eval(
+                    _RENEW_LOCK_SCRIPT, 1, lock_key, token, self._lock_ttl * 1_000
+                )
+            except Exception as exc:
+                _LOGGER.warning("single-flight lock renewal failed: %s", type(exc).__name__)
+                continue
+            if not renewed:
+                return
+
+    @contextlib.asynccontextmanager
+    async def _arenewing(
+        self, client: AsyncRedisClient, lock_key: str, token: str
+    ) -> AsyncIterator[None]:
+        """Renew the lock lease from a task and stop it before release."""
+
+        renewer = asyncio.create_task(self._arenew_until_cancelled(client, lock_key, token))
+        try:
+            yield
+        finally:
+            renewer.cancel()
+            await asyncio.wait({renewer})
+
+    async def _arenew_until_cancelled(
+        self, client: AsyncRedisClient, lock_key: str, token: str
+    ) -> None:
+        while True:
+            await asyncio.sleep(self._lock_ttl / 3)
+            try:
+                renewed = await client.eval(
+                    _RENEW_LOCK_SCRIPT, 1, lock_key, token, self._lock_ttl * 1_000
+                )
+            except Exception as exc:
+                _LOGGER.warning("single-flight lock renewal failed: %s", type(exc).__name__)
+                continue
+            if not renewed:
+                return
 
     def close(self) -> None:
         """Close Redis connections only when owned by this coordinator."""
@@ -376,6 +448,13 @@ class RedisSingleFlight:
 _RELEASE_LOCK_SCRIPT = """
 if redis.call('GET', KEYS[1]) == ARGV[1] then
   return redis.call('DEL', KEYS[1])
+end
+return 0
+"""
+
+_RENEW_LOCK_SCRIPT = """
+if redis.call('GET', KEYS[1]) == ARGV[1] then
+  return redis.call('PEXPIRE', KEYS[1], ARGV[2])
 end
 return 0
 """

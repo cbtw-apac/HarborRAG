@@ -21,7 +21,12 @@ class SingleFlightBackend(StrEnum):
 
 
 class SingleFlightConfig(BaseModel):
-    """Configure request deduplication for identical eligible cache keys."""
+    """Configure request deduplication for identical eligible cache keys.
+
+    A Redis leader renews its lock while its producer runs, so ``lock_ttl_seconds``
+    is only the crash-detection window: how long a leader that died without
+    releasing blocks followers before one of them takes over.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -32,7 +37,7 @@ class SingleFlightConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_timeouts(self) -> SingleFlightConfig:
-        """Require follower waiting to outlive the leader lock lease."""
+        """Require follower waiting to outlive the crash-detection lease window."""
 
         if self.follower_timeout_seconds <= self.lock_ttl_seconds:
             raise ValueError("singleflight follower timeout must exceed lock TTL")
