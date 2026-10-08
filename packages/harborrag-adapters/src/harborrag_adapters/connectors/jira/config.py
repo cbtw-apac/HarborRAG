@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from harborrag_adapters.connectors.acl import validate_restricted_content_policy
 from harborrag_adapters.connectors.attachments.processing import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     CustomAttachmentParser,
@@ -40,6 +41,7 @@ DEFAULT_ISSUE_FIELDS = (
     "creator",
     "labels",
     "project",
+    "security",
     "parent",
     "components",
     "fixVersions",
@@ -88,6 +90,7 @@ class JiraProjectConfig:
     request_timeout_seconds: float = 30.0
     max_retries: int = 3
     backoff_factor: float = 0.5
+    restricted_content: str = "skip"
 
     def __post_init__(self) -> None:
         """Normalize env-backed credentials and validate query/load limits."""
@@ -102,6 +105,7 @@ class JiraProjectConfig:
         self.fields = tuple(
             dict.fromkeys(str(field_name) for field_name in self.fields if field_name)
         )
+        self.restricted_content = validate_restricted_content_policy(self.restricted_content)
 
         if self.deployment_type is None:
             self.deployment_type = (
@@ -133,10 +137,14 @@ class JiraProjectConfig:
             raise ValueError("page_size must be between 1 and 100")
 
     def requested_fields(self) -> tuple[str, ...]:
-        """Return the JIRA field selector for search and issue loads."""
+        """Return the JIRA field selector for search and issue loads.
+
+        ``security`` is always requested: without it a security-level issue is
+        indistinguishable from an open one, and the access gate would fail open.
+        """
         if self.include_all_fields:
             return ("*all",)
-        return self.fields
+        return tuple(dict.fromkeys((*self.fields, "security")))
 
     @staticmethod
     def _string_list(value: list[str] | str) -> list[str]:

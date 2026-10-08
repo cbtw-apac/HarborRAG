@@ -25,6 +25,7 @@ DESCRIPTOR_FIELDS = (
     "labels",
     "updated",
     "project",
+    "security",
     "parent",
     "subtasks",
     "issuelinks",

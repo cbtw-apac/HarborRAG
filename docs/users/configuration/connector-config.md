@@ -107,6 +107,34 @@ and `exclude_globs` remove candidates from that set. Filters affect future
 discovery; removing an already published document still follows the normal
 source reconciliation and cleanup lifecycle.
 
+## Source access control
+
+Jira, Confluence and SharePoint connectors check what the source says about who
+may read each item, relative to the connector's configured scope (Jira project,
+Confluence space, SharePoint library):
+
+| Result | Meaning | `restricted_content: skip` (default) | `restricted_content: include` |
+| --- | --- | --- | --- |
+| inherited | Readable by everyone who can read the scope | ingested | ingested |
+| restricted | Narrower than the scope | withheld, skip reason `access_restricted` | ingested with `metadata.source_acl` |
+| unknown | Access could not be determined | withheld, skip reason `access_unresolved` | withheld, skip reason `access_unresolved` |
+
+Withheld items are left out of discovery, so a full scan retires copies ingested
+earlier. Direct loads and explicit-ID describes of a withheld item raise
+`SourceRestrictedError`.
+
+Use `include` only when `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` and you import a
+document snapshot for every restricted document (see `harborrag topology indexing
+permissions-import`). `tenant_shared` serves every active document in the tenant
+and ignores snapshots.
+
+Restriction changes usually do not change an item's version, so incremental syncs
+do not notice them. Run a full scan after tightening access at the source.
+
+| Provider | Restriction captured | API access needed |
+| --- | --- | --- |
+| Jira | Issue security level (`fields.security`); comments with `visibility` or `jsdPublic: false` are always dropped from issue text | Browse projects. The credential must be able to see the issues. Cloud OAuth: `read:jira-work` |
+
 ## Secrets and dynamic values
 
 Keep credentials out of `settings`:

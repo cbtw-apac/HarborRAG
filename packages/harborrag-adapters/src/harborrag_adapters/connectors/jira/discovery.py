@@ -5,6 +5,7 @@ import json
 from dataclasses import replace
 from typing import Any
 
+from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
 from harborrag_adapters.connectors.attachments import (
     AttachmentSourceGateway,
     attachment_source_record,
@@ -24,6 +25,7 @@ from harborrag_core.ingestion import (
     SourceRelationDescriptor,
 )
 
+from .access import issue_acl
 from .config import JiraProjectConfig
 from .issues import DISCOVERY_DESCRIPTOR_KEY, JiraIssueAPI
 from .mappers import build_source_record, issue_key_from_record, project_identity
@@ -39,11 +41,13 @@ class JiraDescriptorBuilder:
         attachments: AttachmentSourceGateway,
         config: JiraProjectConfig,
         base_url: str,
+        gate: RestrictedContentGate,
     ) -> None:
         self._issues = issues
         self._attachments = attachments
         self._config = config
         self._base_url = base_url
+        self._gate = gate
 
     def describe(
         self,
@@ -56,6 +60,9 @@ class JiraDescriptorBuilder:
             if isinstance(cached_issue, dict)
             else self._issues.get_issue_descriptor(issue_key)
         )
+        acl = issue_acl(issue)
+        self._gate.require(acl, path=issue_key)
+        restricted = acl_metadata(acl)
         discovered = build_source_record(issue, base_url=self._base_url)
         include_comments = bool(
             self._config.include_comments and record.metadata.get("include_comments", True)
@@ -88,7 +95,7 @@ class JiraDescriptorBuilder:
             attachment_source_record(
                 discovered,
                 descriptor,
-                inherited=project_identity(issue),
+                inherited={**project_identity(issue), **restricted},
             )
             for descriptor in attachment_descriptors
             if descriptor.status == "admitted"
@@ -110,6 +117,7 @@ class JiraDescriptorBuilder:
             metadata={
                 **source_metadata,
                 **discovered.metadata,
+                **restricted,
                 "source_version": source_version,
                 "defer_attachments": True,
                 "attachment_names": [descriptor.title for descriptor in attachment_descriptors],

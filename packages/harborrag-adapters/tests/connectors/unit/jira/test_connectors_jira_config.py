@@ -40,7 +40,7 @@ def test_config_rejects_out_of_range_page_size():
 
 def test_config_requested_fields_returns_explicit_fields_when_not_all():
     config = dc_config(include_all_fields=False, fields=("summary", "status"))
-    assert config.requested_fields() == ("summary", "status")
+    assert config.requested_fields() == ("summary", "status", "security")
 
 
 def test_config_rejects_non_https_base_url():

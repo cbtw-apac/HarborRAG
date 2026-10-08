@@ -6,6 +6,7 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters.connectors.acl import RestrictedContentGate, acl_metadata
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -25,11 +26,13 @@ from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorPage,
     ConnectorQuery,
+    ConnectorSkip,
 )
 from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
+from .access import issue_acl
 from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig
 from .content import build_raw_content
@@ -68,6 +71,7 @@ class JiraConnector(BaseConnector):
         relationships=True,
         labels=True,
         changelog=True,
+        permissions=True,
         concurrent_describe=True,
     )
 
@@ -109,11 +113,13 @@ class JiraConnector(BaseConnector):
             logger_=logger,
         )
         self._attachment_loader = AttachmentDocumentLoader(attachment_sources)
+        self._gate = RestrictedContentGate(config.restricted_content)
         self._descriptors = JiraDescriptorBuilder(
             issues=self._issues,
             attachments=attachment_sources,
             config=config,
             base_url=self.base_url,
+            gate=self._gate,
         )
 
     def close(self) -> None:
@@ -136,10 +142,17 @@ class JiraConnector(BaseConnector):
         """
         verify_credentials(lambda: self.client.get_json("myself"), provider="JIRA")
 
+    @property
+    def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Issues the most recent discovery call withheld because of source access."""
+
+        return self._gate.skipped
+
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
         """Search JIRA issues or materialize explicitly requested issue keys."""
         self._ensure_connected()
         query = query or ConnectorQuery()
+        self._gate.reset()
         issue_keys = issue_keys_from_query(query)
         yielded = 0
         mode = "explicit" if issue_keys else "search"
@@ -159,6 +172,8 @@ class JiraConnector(BaseConnector):
             for issue in self._issues.search(self._policy.jql(query)):
                 issue_key = str(issue.get("key") or "")
                 self._policy.validate_issue(issue, issue_key)
+                if not self._gate.admit(issue_acl(issue), path=issue_key):
+                    continue
                 record = build_source_record(issue, base_url=self.base_url)
                 record.metadata[DISCOVERY_DESCRIPTOR_KEY] = issue
                 record = self._policy.apply_query(record, query)
@@ -188,6 +203,7 @@ class JiraConnector(BaseConnector):
 
         self._ensure_connected()
         query = query or ConnectorQuery()
+        self._gate.reset()
         if issue_keys_from_query(query):
             page = super().discover_page(query, cursor=cursor, page_size=page_size)
             logger.debug(
@@ -208,6 +224,8 @@ class JiraConnector(BaseConnector):
             for issue in issues:
                 issue_key = str(issue.get("key") or "")
                 self._policy.validate_issue(issue, issue_key)
+                if not self._gate.admit(issue_acl(issue), path=issue_key):
+                    continue
                 record = build_source_record(issue, base_url=self.base_url)
                 record.metadata[DISCOVERY_DESCRIPTOR_KEY] = issue
                 output.append(self._policy.apply_query(record, query))
@@ -240,6 +258,8 @@ class JiraConnector(BaseConnector):
         issue_key = issue_key_from_record(record)
         issue = self._issues.get_issue(issue_key)
         self._policy.validate_issue(issue, issue_key)
+        acl = issue_acl(issue)
+        self._gate.require(acl, path=issue_key)
 
         include_comments = bool(
             self.config.include_comments and record.metadata.get("include_comments", True)
@@ -278,6 +298,7 @@ class JiraConnector(BaseConnector):
         metadata_payload = metadata.to_dict()
         metadata_payload["relations"] = list(record.metadata.get("relations") or ())
         metadata_payload["attachment_names"] = list(record.metadata.get("attachment_names") or ())
+        metadata_payload.update(acl_metadata(acl))
         document = RawDocument(
             id=record.id,
             source=issue_url(self.base_url, issue_key),
