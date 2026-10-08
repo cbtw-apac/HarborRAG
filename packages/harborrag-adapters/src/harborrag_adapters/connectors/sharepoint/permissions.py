@@ -8,8 +8,10 @@ comparing ids also catches a folder that broke inheritance and whose children
 which the library's snapshot already bounds, so they do not affect the result.
 
 An empty grant list, an empty library root, grants naming no identifiable
-principal, or a ``FetchError``/``AuthorizationError`` while reading permissions
-all give ``unknown`` (fail closed). ``AuthenticationError`` still propagates.
+principal, or a ``FetchError``, ``AuthorizationError`` or HTTP 403 while reading
+permissions all give ``unknown`` (fail closed). The SharePoint client reports 403
+as ``AuthenticationError(status_code=403)``; any other ``AuthenticationError``
+(401, token failures) still propagates and aborts the run.
 """
 
 from __future__ import annotations
@@ -18,11 +20,16 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from harborrag_adapters.connectors.acl import SourceAcl, SourcePrincipal
-from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    FetchError,
+)
 
 from .client import SharePointClient
 
 _MAX_PERMISSION_PAGES = 50
+_FORBIDDEN = 403
 _MAX_CACHED_ITEMS = 100_000
 _GRANTEE_KINDS = (
     ("user", "user"),
@@ -96,6 +103,10 @@ class SharePointPermissionResolver:
                 self._root_grant_ids(drive_id),
             )
         except (FetchError, AuthorizationError):
+            return SourceAcl.unknown("item_permissions_unavailable")
+        except AuthenticationError as exc:
+            if exc.status_code != _FORBIDDEN:
+                raise
             return SourceAcl.unknown("item_permissions_unavailable")
         if key is not None:
             if len(self._items) >= _MAX_CACHED_ITEMS:

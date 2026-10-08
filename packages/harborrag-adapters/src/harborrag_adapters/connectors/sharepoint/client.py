@@ -116,7 +116,9 @@ class _RequestsGraphClient:
                 continue
 
             if response.status_code in (401, 403):
-                raise AuthenticationError(safe_response_error_detail(response))
+                raise AuthenticationError(
+                    safe_response_error_detail(response), status_code=response.status_code
+                )
             if response.status_code == 429 and attempt == self.config.max_retries:
                 raise RateLimitError(safe_response_error_detail(response))
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:

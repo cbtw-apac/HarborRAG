@@ -3,12 +3,28 @@
 from __future__ import annotations
 
 import pytest
-from sharepoint_test_helpers import FakeGraphClient, add_site_and_default_drive, config, file_item
+import responses
+from sharepoint_test_helpers import (
+    FakeGraphClient,
+    add_site_and_default_drive,
+    config,
+    file_item,
+    inherited_item_permissions,
+    library_permissions,
+)
 
 from harborrag_adapters.connectors import SharePointConnector, SharePointSiteConfig
 from harborrag_adapters.connectors.acl import SOURCE_ACL_METADATA_KEY
-from harborrag_adapters.connectors.exceptions import AuthorizationError, SourceRestrictedError
-from harborrag_adapters.connectors.schemas import SKIP_REASON_ACCESS_RESTRICTED
+from harborrag_adapters.connectors.exceptions import (
+    AuthenticationError,
+    AuthorizationError,
+    FetchError,
+    SourceRestrictedError,
+)
+from harborrag_adapters.connectors.schemas import (
+    SKIP_REASON_ACCESS_RESTRICTED,
+    SKIP_REASON_ACCESS_UNRESOLVED,
+)
 from harborrag_adapters.connectors.sharepoint.permissions import (
     SharePointPermissionResolver,
     classify_item_permissions,
@@ -168,3 +184,114 @@ def test_load_rejects_restricted_item_before_download():
             )
         )
     assert client.byte_calls == []
+
+
+def test_invalid_permission_value_list_fails_closed():
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/f1/permissions", {"value": "not-a-list"})
+
+    assert SharePointPermissionResolver(client).item_acl("drive1", "f1").status == "unknown"
+
+
+def test_library_root_fetch_failure_is_unknown_and_not_cached():
+    class FlakyRootClient(FakeGraphClient):
+        def get_json(self, endpoint, *, params=None):
+            if endpoint.endswith("/root/permissions") and self.root_failures:
+                self.root_failures -= 1
+                self.calls.append((endpoint, params))
+                raise FetchError("Graph unavailable", status_code=503)
+            return super().get_json(endpoint, params=params)
+
+    client = FlakyRootClient()
+    client.root_failures = 1
+    resolver = SharePointPermissionResolver(client)
+
+    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "unknown"
+    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "inherited"
+    endpoints = [endpoint for endpoint, _ in client.calls]
+    assert endpoints.count("drives/drive1/root/permissions") == 2
+
+
+GRAPH = "https://graph.microsoft.com/v1.0"
+
+
+def _http_connector() -> SharePointConnector:
+    return SharePointConnector(
+        SharePointSiteConfig(
+            site_id="site1",
+            drive_id="drive1",
+            access_token="token",
+            requests_per_minute=6000,
+            max_retries=0,
+        )
+    )
+
+
+def _register_children(*items: dict) -> None:
+    responses.add(
+        responses.GET, f"{GRAPH}/drives/drive1/root/children", json={"value": list(items)}
+    )
+
+
+@responses.activate
+def test_real_client_item_403_withholds_that_item_and_continues():
+    _register_children(file_item("locked", "Locked.docx"), file_item("open", "Open.docx"))
+    responses.add(
+        responses.GET, f"{GRAPH}/drives/drive1/root/permissions", json=library_permissions()
+    )
+    responses.add(
+        responses.GET,
+        f"{GRAPH}/drives/drive1/items/locked/permissions",
+        json={"error": {"code": "accessDenied"}},
+        status=403,
+    )
+    responses.add(
+        responses.GET,
+        f"{GRAPH}/drives/drive1/items/open/permissions",
+        json=inherited_item_permissions(),
+    )
+    connector = _http_connector()
+
+    records = list(connector.discover())
+
+    assert [record.metadata["item_id"] for record in records] == ["open"]
+    assert [(skip.path, skip.reason) for skip in connector.skipped] == [
+        ("Docs/Locked.docx", SKIP_REASON_ACCESS_UNRESOLVED)
+    ]
+
+
+@responses.activate
+def test_real_client_root_403_makes_every_item_unknown():
+    _register_children(file_item("a", "A.docx"), file_item("b", "B.docx"))
+    responses.add(
+        responses.GET,
+        f"{GRAPH}/drives/drive1/root/permissions",
+        json={"error": {"code": "accessDenied"}},
+        status=403,
+    )
+    for item_id in ("a", "b"):
+        responses.add(
+            responses.GET,
+            f"{GRAPH}/drives/drive1/items/{item_id}/permissions",
+            json=inherited_item_permissions(),
+        )
+    connector = _http_connector()
+
+    assert list(connector.discover()) == []
+    assert [skip.reason for skip in connector.skipped] == [SKIP_REASON_ACCESS_UNRESOLVED] * 2
+
+
+@responses.activate
+def test_real_client_401_on_permissions_aborts_discovery():
+    _register_children(file_item("a", "A.docx"))
+    responses.add(
+        responses.GET,
+        f"{GRAPH}/drives/drive1/items/a/permissions",
+        json={"error": {"code": "InvalidAuthenticationToken"}},
+        status=401,
+    )
+    connector = _http_connector()
+
+    with pytest.raises(AuthenticationError) as error:
+        list(connector.discover())
+    assert error.value.status_code == 401
