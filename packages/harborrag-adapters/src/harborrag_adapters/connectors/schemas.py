@@ -101,6 +101,8 @@ SKIP_REASON_SIZE_LIMIT_EXCEEDED = "size_limit_exceeded"
 SKIP_REASON_UNREADABLE = "unreadable"
 SKIP_REASON_OUT_OF_SCOPE = "out_of_scope"
 SKIP_REASON_CALLBACK_REJECTED = "callback_rejected"
+SKIP_REASON_ACCESS_RESTRICTED = "access_restricted"
+SKIP_REASON_ACCESS_UNRESOLVED = "access_unresolved"
 
 
 @dataclass(frozen=True, slots=True)

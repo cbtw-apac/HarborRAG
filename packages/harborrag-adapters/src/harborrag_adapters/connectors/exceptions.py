@@ -88,6 +88,14 @@ class DocumentProcessingError(ConnectorError):
     """Raised when there is an error processing a document."""
 
 
+class SourceRestrictedError(DocumentProcessingError):
+    """Raised when describe/load reaches an item the restricted-content policy withholds.
+
+    Discovery skips such items and reports a ``ConnectorSkip``; this error covers
+    entry points that bypass discovery, such as explicit IDs and direct loads.
+    """
+
+
 class HTTPRequestError(ConnectorError):
     """Raised when there is an error with HTTP requests."""
 
