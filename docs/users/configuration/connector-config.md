@@ -126,7 +126,9 @@ earlier. Direct loads and explicit-ID describes of a withheld item raise
 Use `include` only when `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` and you import a
 document snapshot for every restricted document (see `harborrag topology indexing
 permissions-import`). `tenant_shared` serves every active document in the tenant
-and ignores snapshots.
+and ignores snapshots, so the runtime refuses to build a connector that sets
+`restricted_content: include` unless the corpus access mode is `source_acl`; the
+error names the connector and the other connectors keep working.
 
 Even then, `include` does not fully hide a restricted document. Graph source-scope
 entity nodes (each item's title and attributes) are gated only by the source-scope

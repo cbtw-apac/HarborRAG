@@ -51,6 +51,7 @@ from harborrag_runtime.config import (
     load_connector_catalog,
     load_parser_catalog,
 )
+from harborrag_runtime.config.connectors.corpus_access import require_corpus_access_mode
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
@@ -249,9 +250,15 @@ class IngestionRuntimeBuilder:
         for name in names:
             definition = catalog.get(name)
             connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
+            connector: BaseConnector | HarborConnector | None = None
             try:
-                connectors[name] = catalog.build(name, connector_kwargs=connector_kwargs)
+                connector = catalog.build(name, connector_kwargs=connector_kwargs)
+                require_corpus_access_mode(
+                    name, connector, corpus_access_mode=self._settings.corpus_access_mode
+                )
             except ConnectorConfigurationError as exc:
+                if connector is not None:
+                    connector.close()
                 logger.warning(
                     "Connector %r configuration is invalid; it will remain "
                     "unavailable until fixed and other connectors are unaffected: %s",
@@ -260,6 +267,7 @@ class IngestionRuntimeBuilder:
                 )
                 errors[name] = exc
                 continue
+            connectors[name] = connector
             fingerprints[name] = connector_fingerprint(
                 catalog_version=catalog.version,
                 definition=definition,
