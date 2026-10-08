@@ -7,11 +7,13 @@ directly, independent of any storage backend.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from harborrag_core.ports.memory import (
+    SHARED_SCOPES,
     Memory,
     MemoryMatch,
     MemoryOwner,
@@ -19,6 +21,8 @@ from harborrag_core.ports.memory import (
     MemoryScope,
     MemoryType,
     ResolvedEntity,
+    authored_by,
+    modifiable_by,
     scope_owner_fields,
     visible_to,
 )
@@ -223,3 +227,47 @@ def test_resolved_entity_is_frozen_and_accepts_the_bounds() -> None:
     assert ResolvedEntity(mention="Ingest", entity_id="node-7", confidence=1.0).confidence == 1.0
     with pytest.raises(AttributeError):
         resolved.confidence = 0.9  # type: ignore[misc]
+
+
+_AUTHOR = MemoryOwner(
+    tenant_id="tenant-a", project_id="proj-1", user_id="alice", principal_id="svc"
+)
+_COLLEAGUE = MemoryOwner(
+    tenant_id="tenant-a", project_id="proj-1", user_id="bob", principal_id="svc"
+)
+
+
+@pytest.mark.whitebox
+def test_shared_scopes_are_the_ones_read_beyond_one_user() -> None:
+    assert SHARED_SCOPES == frozenset({MemoryScope.PROJECT, MemoryScope.TENANT, MemoryScope.GLOBAL})
+
+
+@pytest.mark.whitebox
+def test_authorship_keys_on_the_end_user_not_the_credential() -> None:
+    assert authored_by(_AUTHOR, _AUTHOR) is True
+    assert authored_by(_AUTHOR, replace(_AUTHOR, principal_id="other-credential")) is True
+    assert authored_by(_AUTHOR, _COLLEAGUE) is False  # same credential, different human
+    assert authored_by(_AUTHOR, replace(_AUTHOR, tenant_id="tenant-b")) is False
+
+
+@pytest.mark.whitebox
+def test_an_owner_without_a_user_is_authored_only_by_its_exact_self() -> None:
+    tenant_wide = MemoryOwner(tenant_id="tenant-a")
+    assert authored_by(tenant_wide, tenant_wide) is True
+    assert authored_by(tenant_wide, MemoryOwner(tenant_id="tenant-a", user_id="alice")) is False
+
+
+@pytest.mark.whitebox
+def test_a_project_memory_is_visible_to_a_colleague_but_not_modifiable() -> None:
+    assert visible_to(MemoryScope.PROJECT, _AUTHOR, _COLLEAGUE) is True
+    assert modifiable_by(MemoryScope.PROJECT, _AUTHOR, _COLLEAGUE) is False
+    assert modifiable_by(MemoryScope.PROJECT, _AUTHOR, _AUTHOR) is True
+
+
+@pytest.mark.whitebox
+def test_personal_scopes_are_modifiable_by_whoever_can_see_them() -> None:
+    owner = MemoryOwner(tenant_id="tenant-a", user_id="alice", session_id="s-1")
+    other_credential = replace(owner, principal_id="cli")
+    assert modifiable_by(MemoryScope.USER, owner, other_credential) is True
+    assert modifiable_by(MemoryScope.SESSION, owner, other_credential) is True
+    assert modifiable_by(MemoryScope.USER, owner, replace(owner, user_id="bob")) is False

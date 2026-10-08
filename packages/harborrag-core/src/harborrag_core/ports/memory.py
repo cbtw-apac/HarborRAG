@@ -113,6 +113,50 @@ def visible_to(memory_scope: MemoryScope, memory_owner: MemoryOwner, caller: Mem
     )
 
 
+SHARED_SCOPES: frozenset[MemoryScope] = frozenset(
+    {MemoryScope.PROJECT, MemoryScope.TENANT, MemoryScope.GLOBAL}
+)
+"""Scopes read by more people than the one end user who wrote the memory."""
+
+
+def authored_by(memory_owner: MemoryOwner, caller: MemoryOwner) -> bool:
+    """Whether ``caller`` is the end user a memory stored at ``memory_owner`` came from.
+
+    Keyed on ``tenant_id`` + ``user_id`` -- the signed human -- never on
+    ``principal_id``: one service credential fronting several people must not
+    make every one of them an author of the others' memories. An owner that
+    equals ``caller`` exactly is always its own author, which is how an
+    erasure that acts *as* the stored owner keeps working for rows that carry
+    no ``user_id`` (a genuinely tenant-wide fact).
+    """
+
+    if memory_owner == caller:
+        return True
+    return (
+        memory_owner.tenant_id == caller.tenant_id
+        and memory_owner.user_id is not None
+        and memory_owner.user_id == caller.user_id
+    )
+
+
+def modifiable_by(
+    memory_scope: MemoryScope, memory_owner: MemoryOwner, caller: MemoryOwner
+) -> bool:
+    """Whether ``caller`` may delete or supersede a memory, not merely read it.
+
+    Visibility is the read rule. For RUN/SESSION/USER memory it also proves
+    ownership, because only the one end user can see those rows. For
+    ``SHARED_SCOPES`` everyone in the project or tenant can see the row, so
+    changing it additionally requires authorship. Elevated deletion (an
+    editor or admin removing someone else's shared memory) is an application
+    decision, made above this port.
+    """
+
+    if not visible_to(memory_scope, memory_owner, caller):
+        return False
+    return memory_scope not in SHARED_SCOPES or authored_by(memory_owner, caller)
+
+
 def _require_aware(prefix: str, name: str, value: datetime | None) -> None:
     if value is not None and (value.tzinfo is None or value.utcoffset() is None):
         raise ValueError(f"{prefix} {name} must be timezone-aware")
@@ -317,6 +361,7 @@ class MemoryIndex(Protocol):
 
 
 __all__ = [
+    "SHARED_SCOPES",
     "Memory",
     "MemoryEmbedder",
     "MemoryEntityResolver",
@@ -328,6 +373,8 @@ __all__ = [
     "MemoryScope",
     "MemoryType",
     "ResolvedEntity",
+    "authored_by",
+    "modifiable_by",
     "new_memory_id",
     "scope_owner_fields",
     "visible_to",

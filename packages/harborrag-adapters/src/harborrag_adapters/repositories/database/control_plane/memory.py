@@ -25,6 +25,7 @@ from harborrag_core.ports.memory import (
     MemoryQuery,
     MemoryScope,
     MemoryType,
+    modifiable_by,
     scope_owner_fields,
     visible_to,
 )
@@ -212,7 +213,8 @@ class SqlMemoryRepository:
             row = await session.get(MemoryRow, memory_id)
             if row is None:
                 return
-            if not visible_to(MemoryScope(row.scope), _row_to_memory(row).owner, caller):
+            # Reading is not owning: a shared-scope row also needs its author.
+            if not modifiable_by(MemoryScope(row.scope), _row_to_memory(row).owner, caller):
                 return
             await session.delete(row)
 

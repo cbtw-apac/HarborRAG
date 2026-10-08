@@ -304,3 +304,31 @@ async def test_erasure_query_reaches_a_users_project_rows_and_no_one_elses(
         assert [item.content for item in found] == ["alice in atlas"]
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_deleting_a_shared_memory_requires_its_author(tmp_path: Path) -> None:
+    """Seeing a PROJECT memory is not owning it: a colleague's delete is a no-op."""
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        repo = SqlMemoryRepository(sessions)
+        author = MemoryOwner(
+            tenant_id="ACME", project_id="atlas", user_id="user-1", principal_id="svc"
+        )
+        colleague = MemoryOwner(
+            tenant_id="ACME", project_id="atlas", user_id="user-2", principal_id="svc"
+        )
+        memory = _memory(author, MemoryScope.PROJECT, "atlas ships on fridays")
+        await repo.save(memory)
+
+        await repo.delete(colleague, memory.memory_id)
+        assert await repo.get(colleague, memory.memory_id) is not None
+
+        await repo.delete(author, memory.memory_id)
+        assert await repo.get(author, memory.memory_id) is None
+    finally:
+        await engine.dispose()

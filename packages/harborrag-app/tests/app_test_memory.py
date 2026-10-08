@@ -15,6 +15,7 @@ from harborrag_core.ports.memory import (
     MemoryQuery,
     MemoryScope,
     MemoryType,
+    modifiable_by,
     visible_to,
 )
 
@@ -56,7 +57,7 @@ class FakeMemoryStore:
 
     async def delete(self, caller: MemoryOwner, memory_id: str) -> None:
         memory = self.rows.get(memory_id)
-        if memory is not None and visible_to(memory.scope, memory.owner, caller):
+        if memory is not None and modifiable_by(memory.scope, memory.owner, caller):
             del self.rows[memory_id]
 
 
