@@ -810,7 +810,9 @@ In particular, the current workspace concept does not provide:
 - a complete tenant registry, invitation flow, suspension state, retention
   workflow, atomic rename, or cascading deletion;
 - automatic synchronization of source-system document ACLs into resolved
-  permission snapshots;
+  permission snapshots (Jira, Confluence and SharePoint connectors capture ACL
+  evidence and withhold restricted items by default, but snapshots are still
+  imported by an operator);
 - implemented OIDC/JWKS verification in the API.
 
 You can build stronger isolation around HarborRAG by running separate process

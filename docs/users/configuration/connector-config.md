@@ -131,6 +131,19 @@ and ignores snapshots.
 Restriction changes usually do not change an item's version, so incremental syncs
 do not notice them. Run a full scan after tightening access at the source.
 
+To import snapshots for `include` mode, take each document's `source_acl`
+evidence and map it with
+`harborrag_adapters.connectors.acl_snapshots.permission_snapshot`. The evidence
+is in the discovered-item descriptor that discovery records for each
+`document_id` (the serialized source record's `metadata.source_acl`) and in the
+raw document's metadata. Give the mapper a
+directory from source principal keys (`user:<id>`, `group:<id>`,
+`site_group:<id>`, `jira_security_level:<id>`) to HarborRAG principal ids, with
+groups already expanded. Keys use the identifier the source returned: Confluence
+Cloud groups are keyed by group id, Data Center groups by name. Principals
+missing from the directory grant nothing. Unresolved ACLs produce a snapshot that
+denies every reader.
+
 | Provider | Restriction captured | API access needed |
 | --- | --- | --- |
 | Jira | Issue security level (`fields.security`); comments with `visibility` or `jsdPublic: false` are always dropped from issue text | Browse projects. The credential must be able to see the issues. Cloud OAuth: `read:jira-work` |
