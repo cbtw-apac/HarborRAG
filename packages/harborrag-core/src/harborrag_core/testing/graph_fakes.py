@@ -105,10 +105,14 @@ class FakeKnowledgeGraphRepository:
         del max_depth, direction, context
         # One hop, undirected, which is all a fake needs to show that an edgeless node
         # reaches nothing -- the property the retraction contract below depends on.
+        start = self.nodes.get(start_node_key)
+        if start is not None and not _visible(start, access_scope):
+            return KnowledgeGraphTraversal(nodes=(), relations=())
         reached = tuple(
             relation
             for relation in self.relations.values()
             if start_node_key in (relation.source_node_key, relation.target_node_key)
+            and _visible(relation, access_scope)
         )
         keys = {start_node_key} | {
             node_key
@@ -117,7 +121,11 @@ class FakeKnowledgeGraphRepository:
         }
         if not reached:
             return KnowledgeGraphTraversal(nodes=(), relations=())
-        nodes = tuple(self.nodes[key] for key in sorted(keys) if key in self.nodes)
+        nodes = tuple(
+            self.nodes[key]
+            for key in sorted(keys)
+            if key in self.nodes and _visible(self.nodes[key], access_scope)
+        )
         return KnowledgeGraphTraversal(
             nodes=nodes[:max_nodes],
             relations=reached,
@@ -319,6 +327,18 @@ class FakeKnowledgeGraphRepository:
         for owner_id in owners:
             if str(owner_id) != str(context.tenant_id):
                 raise ValueError("graph record owner does not match storage tenant context")
+
+
+def _visible(record: GraphNodeRecord | GraphEdgeRecord, scope: GraphAccessScope) -> bool:
+    """The FalkorDB repository's ``access_predicate``, for one record."""
+
+    if scope.unrestricted or scope.tenant_shared:
+        return True
+    if record.document_id is not None:
+        return str(record.document_id) in scope.document_ids
+    if record.source_scope_id is not None:
+        return record.source_scope_id in scope.source_scope_ids
+    return record.ownership_scope == GraphOwnershipScope.TENANT and scope.tenant_visible
 
 
 # Checked by mypy on every run: a port method nobody implemented fails here, which is the

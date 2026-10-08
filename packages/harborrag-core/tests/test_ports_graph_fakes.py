@@ -156,3 +156,36 @@ async def test_online_item_cleanup_leaves_unrelated_edgeless_staged_nodes() -> N
     assert set(graph.nodes) == {"container", "linker", "stub"}
     assert set(graph.relations) == {"holds"}
     assert await graph.tenant_projection_counts(context=_CONTEXT) == (3, 1)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("scope", "reaches"),
+    [
+        (GraphAccessScope.deny_all(), False),
+        (GraphAccessScope(source_scope_ids=("scope-2",)), False),
+        (GraphAccessScope(document_ids=("doc-1",)), False),
+        (GraphAccessScope(source_scope_ids=("scope-1",)), True),
+        (GraphAccessScope(tenant_shared=True), True),
+        (GraphAccessScope.allow_all(), True),
+    ],
+    ids=["deny-all", "other-scope", "documents-only", "own-scope", "tenant-shared", "allow-all"],
+)
+async def test_traverse_returns_only_what_the_access_scope_allows(
+    scope: GraphAccessScope, reaches: bool
+) -> None:
+    """Mirrors the FalkorDB access predicate, so a scope the fake ignores cannot pass."""
+
+    graph = await _seeded()
+
+    traversal = await graph.traverse(
+        "linker",
+        max_depth=1,
+        max_nodes=10,
+        direction="both",
+        access_scope=scope,
+        context=_CONTEXT,
+    )
+
+    assert bool(traversal.nodes) is reaches
+    assert bool(traversal.relations) is reaches
