@@ -11,13 +11,14 @@ operator's source snapshot, not here.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
+from typing import Any, cast
 
 from harborrag_adapters.connectors.acl import SourceAcl, SourcePrincipal
 from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
 
 from .content import ConfluenceContentAPI
 
+_MISSING: Any = object()
 _ID_FIELDS = {"user": ("accountId", "userKey", "username"), "group": ("id", "name")}
 
 
@@ -116,10 +117,14 @@ class ConfluenceAccessResolver:
         if "restrictions" in ancestor:
             return read_restriction_principals(ancestor)
         ancestor_id = str(ancestor.get("id") or "").strip()
-        if ancestor_id not in self._ancestors:
-            try:
-                payload: Mapping[str, Any] = self._content.get_read_restrictions(ancestor_id)
-            except (FetchError, AuthorizationError, ValueError):
-                return None
-            self._ancestors[ancestor_id] = read_restriction_principals(payload)
-        return self._ancestors[ancestor_id]
+        # One read: a concurrent reset() must not empty the cache between check and use.
+        cached = self._ancestors.get(ancestor_id, _MISSING)
+        if cached is not _MISSING:
+            return cast("tuple[SourcePrincipal, ...] | None", cached)
+        try:
+            payload: Mapping[str, Any] = self._content.get_read_restrictions(ancestor_id)
+        except (FetchError, AuthorizationError, ValueError):
+            return None
+        level = read_restriction_principals(payload)
+        self._ancestors[ancestor_id] = level
+        return level

@@ -354,3 +354,19 @@ def test_paged_replay_within_one_scan_reuses_cached_item_permissions():
     endpoints = [endpoint for endpoint, _ in client.calls]
     assert endpoints.count("drives/drive1/items/a/permissions") == 1
     assert endpoints.count("drives/drive1/root/permissions") == 1
+
+
+def test_cache_reset_between_store_and_read_does_not_raise():
+    class ResetAfterStore(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            self.clear()
+
+    client = FakeGraphClient()
+    client.add("drives/drive1/root/permissions", {"value": [MEMBERS]})
+    client.add("drives/drive1/items/f1/permissions", {"value": [inherited(MEMBERS)]})
+    resolver = SharePointPermissionResolver(client)
+    resolver._root_grants = ResetAfterStore()
+    resolver._items = ResetAfterStore()
+
+    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "inherited"

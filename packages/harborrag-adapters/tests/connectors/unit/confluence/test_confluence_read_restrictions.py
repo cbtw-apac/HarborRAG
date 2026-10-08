@@ -435,3 +435,19 @@ def test_attachment_of_a_parent_reopened_since_discovery_drops_its_stale_acl():
     document = connector.load(record)
 
     assert SOURCE_ACL_METADATA_KEY not in document.metadata
+
+
+def test_ancestor_cache_reset_between_store_and_read_does_not_raise():
+    class ResetAfterStore(dict):
+        def __setitem__(self, key, value):
+            super().__setitem__(key, value)
+            self.clear()
+
+    client = FakeConfluenceClient()
+    client.add("content/77", {"id": "77", "restrictions": unrestricted_read()})
+    access = resolver(client)
+    access._ancestors = ResetAfterStore()
+    page = light_content("1", "Child")
+    page["ancestors"] = [{"id": "77", "title": "Parent"}]
+
+    assert access.page_acl(page).status == "inherited"

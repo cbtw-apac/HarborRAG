@@ -103,8 +103,10 @@ class SharePointPermissionResolver:
         """Return the item's ACL, or ``unknown`` when Graph cannot tell us."""
 
         key = (drive_id, item_id, version) if version else None
-        if key is not None and key in self._items:
-            return self._items[key]
+        if key is not None:
+            cached = self._items.get(key)
+            if cached is not None:
+                return cached
         try:
             acl = classify_item_permissions(
                 self._permissions(f"drives/{drive_id}/items/{item_id}/permissions"),
@@ -123,11 +125,12 @@ class SharePointPermissionResolver:
         return acl
 
     def _root_grant_ids(self, drive_id: str) -> frozenset[str]:
-        if drive_id not in self._root_grants:
-            self._root_grants[drive_id] = grant_ids(
-                self._permissions(f"drives/{drive_id}/root/permissions")
-            )
-        return self._root_grants[drive_id]
+        cached = self._root_grants.get(drive_id)
+        if cached is not None:
+            return cached
+        grants = grant_ids(self._permissions(f"drives/{drive_id}/root/permissions"))
+        self._root_grants[drive_id] = grants
+        return grants
 
     def _permissions(self, endpoint: str) -> list[dict[str, Any]]:
         values: list[dict[str, Any]] = []
