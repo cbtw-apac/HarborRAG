@@ -171,9 +171,10 @@ class PrivacySanitizer:
 def provider_user_identifier(user_id: str | None, privacy: PrivacyConfig) -> str | None:
     """Return the end-user identifier a provider may receive under the privacy policy.
 
-    Applies the same rules as LiteLLM telemetry metadata: nothing leaves the
-    process unless ``propagate_user_identifiers`` is enabled, and the value is
-    hashed when ``hash_user_identifiers`` is enabled.
+    Returns ``None`` unless ``propagate_user_identifiers`` is enabled, and hashes
+    the value when ``hash_user_identifiers`` is enabled. Chat and embedding
+    requests send it as the provider ``user`` parameter, and the LiteLLM Proxy
+    backend copies that parameter into its configured user header.
     """
 
     if not privacy.propagate_user_identifiers:

@@ -102,6 +102,7 @@ def test_request_object_preserves_identity_metadata(base_config) -> None:
 
     assert response.request_id == "req-123"
     assert "user" not in invocation.calls[0]
+    assert "user_id" not in invocation.calls[0]["metadata"]["harborrag"]
 
 
 def _with_privacy(config: HarborChatClientConfig, **privacy: bool) -> HarborChatClientConfig:
@@ -129,6 +130,7 @@ def test_user_identifier_reaches_provider_only_under_privacy_policy(
     sync_client(_with_privacy(base_config, **privacy), backend=invocation).chat(request=request)
 
     assert invocation.calls[0]["user"] == expected
+    assert invocation.calls[0]["metadata"]["harborrag"]["user_id"] == expected
 
 
 def test_stream_user_identifier_follows_privacy_policy(base_config) -> None:

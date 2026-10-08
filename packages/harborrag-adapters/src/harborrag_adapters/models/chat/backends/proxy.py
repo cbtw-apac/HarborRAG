@@ -124,7 +124,12 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
                 del headers[name]
 
     def _propagate_metadata_headers(self, params: dict[str, Any], headers: dict[str, str]) -> None:
-        """Copy selected already-sanitized metadata into explicit Proxy headers."""
+        """Copy selected already-sanitized metadata into explicit Proxy headers.
+
+        The user header carries the provider ``user`` parameter, which
+        ``provider_user_identifier`` sets only when the privacy policy allows
+        propagation, hashed the same way.
+        """
 
         policy = self._proxy.metadata
         if not policy.propagate_headers:
@@ -139,7 +144,7 @@ class LiteLLMProxyBackend(BaseLiteLLMChatBackend):
             (policy.request_id_header, harbor.get("request_id")),
             (policy.trace_id_header, harbor.get("trace_id")),
             (policy.tenant_id_header, harbor.get("tenant_id")),
-            (policy.user_id_header, harbor.get("user_id")),
+            (policy.user_id_header, params.get("user")),
         )
         for name, value in mappings:
             if name and value:

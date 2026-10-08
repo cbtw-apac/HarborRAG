@@ -284,7 +284,11 @@ def litellm_telemetry_metadata(
     request_metadata: object | None = None,
     privacy: PrivacyConfig | None = None,
 ) -> dict[str, Any]:
-    """Build privacy-enforced LiteLLM callback and Proxy spend metadata."""
+    """Build privacy-enforced LiteLLM callback and Proxy spend metadata.
+
+    The metadata is sent to LiteLLM and any Proxy, so it carries ``user_id`` only
+    when ``propagate_user_identifiers`` is enabled.
+    """
 
     policy = privacy or PrivacyConfig()
     raw = (
@@ -293,6 +297,9 @@ def litellm_telemetry_metadata(
         else {}
     )
     sanitized = PrivacySanitizer(policy).metadata(raw)
+    if not policy.propagate_user_identifiers:
+        # This metadata leaves the process with the request; keep the user out of it.
+        sanitized.pop("user_id", None)
     harbor = {
         **sanitized,
         "request_id": request_id,

@@ -81,7 +81,6 @@ def test_request_lifecycle_captures_identity_usage_and_safe_defaults() -> None:
             "request_id": "request-1",
             "tenant_id": started.tenant_id,
             "trace_id": "trace-1",
-            "user_id": started.user_id,
             "workflow_id": "workflow-1",
         },
         "trace_id": "trace-1",

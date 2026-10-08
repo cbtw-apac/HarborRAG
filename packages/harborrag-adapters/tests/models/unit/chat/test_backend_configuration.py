@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -34,8 +35,11 @@ from harborrag_adapters.models.runtime.config import (
     RoutingStrategy,
 )
 from harborrag_adapters.models.runtime.connections import SharedConnectionLifecycle
+from harborrag_adapters.models.runtime.security import PrivacyConfig, provider_user_identifier
+from harborrag_adapters.models.runtime.telemetry import litellm_telemetry_metadata
 from harborrag_core.models.capabilities import HarborChatCapabilities
 from harborrag_core.models.errors import HarborChatConfigurationError
+from harborrag_core.models.metadata import ModelRequestMetadata
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -201,6 +205,7 @@ def test_proxy_backend_authentication_and_metadata_propagation() -> None:
                     "user_id": "user-1",
                 }
             },
+            "user": "provider-user",
             "extra_headers": {"X-Request": "request"},
         }
     )
@@ -213,9 +218,72 @@ def test_proxy_backend_authentication_and_metadata_propagation() -> None:
         "x-harbor-request-id": "request-1",
         "x-harbor-trace-id": "trace-1",
         "X-Tenant": "tenant-1",
-        "X-User": "user-1",
+        "X-User": "provider-user",
         "X-Request": "request",
     }
+    backend.close()
+
+
+@pytest.mark.parametrize(
+    ("privacy", "expected"),
+    [
+        (PrivacyConfig(), None),
+        (
+            PrivacyConfig(propagate_user_identifiers=True),
+            hashlib.sha256(b"user-1").hexdigest(),
+        ),
+    ],
+)
+def test_proxy_user_header_follows_the_privacy_policy(
+    privacy: PrivacyConfig, expected: str | None
+) -> None:
+    backend = LiteLLMProxyBackend(
+        LiteLLMProxyConfig(
+            api_base="https://proxy.example.test",
+            api_key="proxy-key",
+            metadata=ProxyMetadataConfig(user_id_header="X-User"),
+        ),
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig()),
+        completion=lambda **kwargs: kwargs,
+        acompletion=lambda **kwargs: kwargs,
+    )
+    kwargs: dict[str, Any] = {
+        "model": "primary",
+        "metadata": litellm_telemetry_metadata(
+            request_id="request-1",
+            operation="chat",
+            logical_model="primary",
+            request_metadata=ModelRequestMetadata(user_id="user-1"),
+            privacy=privacy,
+        ),
+    }
+    user = provider_user_identifier("user-1", privacy)
+    if user is not None:
+        kwargs["user"] = user
+
+    headers = backend.prepare_parameters(kwargs).get("extra_headers", {})
+
+    assert headers.get("X-User") == expected
+    backend.close()
+
+
+def test_proxy_user_header_ignores_harbor_metadata_without_a_provider_user() -> None:
+    backend = LiteLLMProxyBackend(
+        LiteLLMProxyConfig(
+            api_base="https://proxy.example.test",
+            api_key="proxy-key",
+            metadata=ProxyMetadataConfig(user_id_header="X-User"),
+        ),
+        connections=SharedConnectionLifecycle(ConnectionPoolConfig()),
+        completion=lambda **kwargs: kwargs,
+        acompletion=lambda **kwargs: kwargs,
+    )
+
+    params = backend.prepare_parameters(
+        {"model": "primary", "metadata": {"harborrag": {"user_id": "user-1"}}}
+    )
+
+    assert "X-User" not in params.get("extra_headers", {})
     backend.close()
 
 
