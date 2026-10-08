@@ -44,15 +44,14 @@ _COOKIE_VALUE = r"[^\r\n]+"
 _LABELED_PATTERNS = [
     re.compile(r"(?i)(authorization)['\"]?\s*[:=]\s*" + _AUTHORIZATION_VALUE),
     re.compile(r"(?i)\b((?:set-)?cookie)['\"]?\s*:\s*" + _COOKIE_VALUE),
-    re.compile(
-        # Candidate labels only: the key group spans the whole name, and the match
-        # is redacted only if ``is_sensitive_label`` agrees -- so ``token_budget``
-        # is found here and then left alone.
-        r"(?i)((?:api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)"
-        r"|secret|passwd|password|credential|bearer|subscription[_-]?key)[\w-]*)"
-        r"['\"]?\s*[:=]\s*" + _VALUE
-    ),
 ]
+
+# Any whole word followed by a key separator; ``is_sensitive_label`` decides whether
+# it names a credential. Anchored at a word start and matched possessively, so a long
+# word is scanned once rather than from every credential stem inside it, and only the
+# label is consumed: what follows a harmless label is still scanned for credentials.
+_CANDIDATE_LABEL = re.compile(r"(?<![\w-])([\w-]++)['\"]?\s*+[:=]\s*+")
+_LABELED_VALUE = re.compile(_VALUE)
 
 # Credentials with no label of their own: the affixes are kept, the secret is not.
 _AFFIXED_PATTERNS = [
@@ -85,8 +84,27 @@ _TOKEN_PATTERNS = [
 
 
 def _labeled(match: re.Match[str], replacement: str) -> str:
-    label = match.group(1)
-    return f"{label}={replacement}" if is_sensitive_label(label) else match.group(0)
+    return f"{match.group(1)}={replacement}"
+
+
+def _redact_labeled_values(text: str, replacement: str) -> str:
+    """Mask the value of every credential label, in one left-to-right pass."""
+
+    parts: list[str] = []
+    position = 0
+    while (label := _CANDIDATE_LABEL.search(text, position)) is not None:
+        value = None
+        if is_sensitive_label(label.group(1)):
+            value = _LABELED_VALUE.match(text, label.end())
+        if value is None:
+            parts.append(text[position : label.end()])
+            position = label.end()
+            continue
+        parts.append(text[position : label.start()])
+        parts.append(f"{label.group(1)}={replacement}")
+        position = value.end()
+    parts.append(text[position:])
+    return "".join(parts)
 
 
 def _affixed(match: re.Match[str], replacement: str) -> str:
@@ -97,6 +115,7 @@ def redact_secrets(text: str, replacement: str = "<redacted>") -> str:
     result = text
     for pattern in _LABELED_PATTERNS:
         result = pattern.sub(lambda match: _labeled(match, replacement), result)
+    result = _redact_labeled_values(result, replacement)
     for pattern in _AFFIXED_PATTERNS:
         result = pattern.sub(lambda match: _affixed(match, replacement), result)
     for pattern in _TOKEN_PATTERNS:

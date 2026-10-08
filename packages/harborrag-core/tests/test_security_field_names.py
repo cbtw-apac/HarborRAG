@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 
 import pytest
@@ -11,6 +12,7 @@ from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.validation import validate_secret_free_config
 from harborrag_core.models.embed import HarborEmbedRequest
 from harborrag_core.models.errors import HarborModelError
+from harborrag_core.security import redaction
 from harborrag_core.security.field_names import (
     SENSITIVE_FIELD_TOKENS,
     is_sensitive_field_name,
@@ -265,3 +267,85 @@ def test_redaction_is_linear_on_a_long_whitespace_run() -> None:
     redacted = redact_secrets(line)
     assert time.perf_counter() - started < 0.5
     assert "x" not in redacted
+
+
+@pytest.mark.parametrize(
+    ("text", "secret", "label"),
+    [
+        ("token_count: {password: hunter2}", "hunter2", "token_count"),
+        ('token_usage: {"api_key": "abc123xyz"}', "abc123xyz", "token_usage"),
+        ("token_budget={'password': 'hunter2'}", "hunter2", "token_budget"),
+        ("token_budget=password=hunter2", "hunter2", "token_budget"),
+        ("note: {password: hunter2}", "hunter2", "note"),
+        ('config={"api_key": "abc123xyz"}', "abc123xyz", "config"),
+    ],
+)
+def test_a_credential_nested_under_a_plain_label_is_redacted(
+    text: str, secret: str, label: str
+) -> None:
+    """A label that is not a credential must not shield the value it introduces."""
+
+    redacted = redact_secrets(text)
+    assert secret not in redacted
+    assert label in redacted
+
+
+@pytest.mark.parametrize(
+    "label",
+    [
+        "apikey",
+        "accesskey",
+        "privatekey",
+        "tokenvalue",
+        "bearertoken",
+        "credentialsfile",
+        "passwd",
+        "dbpassword",
+        "client_secret",
+        "clientSecret",
+        "x-goog-api-key",
+        "ocp-apim-subscription-key",
+        "spring.datasource.password",
+        "--password",
+    ],
+)
+def test_every_labeled_spelling_is_redacted_in_free_text(label: str) -> None:
+    redacted = redact_secrets(f"{label}=raw-value")
+    assert "raw-value" not in redacted
+
+
+_REPEATED_STEMS = [stem * 20000 for stem in ("secret", "token", "password", "bearer", "cookie")]
+_STEM_IDS = ["secret", "token", "password", "bearer", "cookie"]
+
+
+def _every_redaction_pattern() -> list[re.Pattern[str]]:
+    module_patterns = [value for value in vars(redaction).values() if isinstance(value, re.Pattern)]
+    return [
+        *redaction._LABELED_PATTERNS,
+        *redaction._AFFIXED_PATTERNS,
+        *redaction._TOKEN_PATTERNS,
+        *module_patterns,
+    ]
+
+
+@pytest.mark.parametrize("pattern", _every_redaction_pattern(), ids=lambda p: p.pattern[:40])
+@pytest.mark.parametrize("line", _REPEATED_STEMS, ids=_STEM_IDS)
+def test_every_redaction_pattern_is_linear_on_a_repeated_stem(
+    pattern: re.Pattern[str], line: str
+) -> None:
+    """A stem repeated inside one long word used to be rescanned from every occurrence."""
+
+    started = time.perf_counter()
+    pattern.sub("", line)
+    assert time.perf_counter() - started < 0.5
+
+
+@pytest.mark.parametrize(
+    "line",
+    [*_REPEATED_STEMS, "token_count=" * 5000, "a=" * 50000, "note: " * 20000],
+    ids=[*_STEM_IDS, "chained-quantities", "chained-short-labels", "chained-spaced-labels"],
+)
+def test_redaction_is_linear_on_repeated_labels(line: str) -> None:
+    started = time.perf_counter()
+    redact_secrets(line)
+    assert time.perf_counter() - started < 0.5
