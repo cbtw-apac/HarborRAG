@@ -7,7 +7,11 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from harborrag_adapters.models.runtime.litellm_backend import build_provider_params
-from harborrag_adapters.models.runtime.security import reveal_secret
+from harborrag_adapters.models.runtime.security import (
+    PrivacyConfig,
+    provider_user_identifier,
+    reveal_secret,
+)
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import (
     HarborChatConfigurationError,
@@ -180,6 +184,7 @@ def build_litellm_parameters(
     stream: bool = False,
     model_override: str | None = None,
     litellm_provider: str | None = None,
+    privacy: PrivacyConfig | None = None,
 ) -> dict[str, Any]:
     """Translate one Harbor request into LiteLLM completion parameters."""
 
@@ -218,7 +223,7 @@ def build_litellm_parameters(
         "max_completion_tokens": request.max_completion_tokens,
         "stop": list(request.stop) if isinstance(request.stop, tuple) else request.stop,
         "seed": request.seed,
-        "user": request.metadata.user_id,
+        "user": provider_user_identifier(request.metadata.user_id, privacy or PrivacyConfig()),
         "reasoning_effort": (
             request.reasoning_effort
             if request.reasoning_effort != "none" or deployment.capabilities.reasoning_effort

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 import pytest
@@ -15,6 +16,7 @@ from harborrag_adapters.models.embed.parameters import (
     normalize_embedding_inputs,
     prepare_embed_request,
 )
+from harborrag_adapters.models.runtime.security import PrivacyConfig
 from harborrag_core.models.embed import (
     EmbeddingEncodingFormat,
     EmbeddingPurpose,
@@ -173,7 +175,7 @@ def test_litellm_parameters_merge_headers_identity_and_azure_model() -> None:
     assert parameters["model"] == "azure/embed-production"
     assert parameters["dimensions"] == 2
     assert parameters["encoding_format"] == "float"
-    assert parameters["user"] == "metadata-user"
+    assert "user" not in parameters
     assert parameters["extra_headers"] == {"X-Deployment": "one", "X-Request": "two"}
 
     override = build_litellm_parameters(
@@ -229,3 +231,25 @@ def test_effective_batch_size_honors_all_limits_and_batch_capability() -> None:
         update={"capabilities": deployment.capabilities.model_copy(update={"batch": False})}
     )
     assert effective_batch_size(config, single, request) == 1
+
+
+def test_embed_user_parameter_applies_privacy_policy_to_metadata_only() -> None:
+    config = _config("openai")
+    deployment = config.models["primary"].deployments[0]
+    from_metadata = HarborEmbedRequest(
+        inputs=("one",), metadata=HarborEmbedMetadata(user_id="metadata-user")
+    )
+    policy = PrivacyConfig(propagate_user_identifiers=True)
+
+    hashed = build_litellm_parameters(
+        deployment, from_metadata, inputs=["one"], timeout=4, privacy=policy
+    )
+    explicit = build_litellm_parameters(
+        deployment,
+        from_metadata.model_copy(update={"user": "explicit-user"}),
+        inputs=["one"],
+        timeout=4,
+    )
+
+    assert hashed["user"] == hashlib.sha256(b"metadata-user").hexdigest()
+    assert explicit["user"] == "explicit-user"

@@ -168,6 +168,19 @@ class PrivacySanitizer:
         return sanitized if len(encoded) <= limit else encoded[:limit]
 
 
+def provider_user_identifier(user_id: str | None, privacy: PrivacyConfig) -> str | None:
+    """Return the end-user identifier a provider may receive under the privacy policy.
+
+    Applies the same rules as LiteLLM telemetry metadata: nothing leaves the
+    process unless ``propagate_user_identifiers`` is enabled, and the value is
+    hashed when ``hash_user_identifiers`` is enabled.
+    """
+
+    if not privacy.propagate_user_identifiers:
+        return None
+    return PrivacySanitizer(privacy).identifier(user_id)
+
+
 def resolve_secret_references(value: Any, resolver: SecretResolver | None) -> Any:
     """Materialize secret URIs and optionally resolve them before validation."""
 

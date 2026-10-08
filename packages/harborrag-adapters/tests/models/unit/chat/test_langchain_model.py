@@ -36,7 +36,7 @@ def test_invoke_returns_ai_message_with_usage_and_metadata(config) -> None:
         {"role": "system", "content": "Be brief"},
         {"role": "user", "content": "hi"},
     ]
-    assert call["user"] == "user-1"
+    assert "user" not in call
 
 
 @pytest.mark.asyncio

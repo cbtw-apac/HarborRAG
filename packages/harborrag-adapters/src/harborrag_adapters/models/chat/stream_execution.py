@@ -270,6 +270,7 @@ class ChatStreamExecution:
             stream=True,
             model_override=override,
             litellm_provider=descriptor.litellm_provider,
+            privacy=self.config.observability.privacy,
         )
         parameters["caching"] = False
         parameters["metadata"] = litellm_telemetry_metadata(

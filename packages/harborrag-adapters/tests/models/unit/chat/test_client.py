@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from harborrag_adapters.models.chat import (
@@ -8,6 +10,7 @@ from harborrag_adapters.models.chat import (
 )
 from harborrag_adapters.models.chat.backend_config import ChatBackendConfig
 from harborrag_adapters.models.runtime.config import RoutingEngine
+from harborrag_adapters.models.runtime.security import PrivacyConfig
 from harborrag_core.models.chat import (
     FinishReason,
     HarborChatMessage,
@@ -30,8 +33,10 @@ from harborrag_core.ports.model_clients import (
 
 from .chat_client_support import (
     FakeInvocation,
+    FakeSyncStream,
     async_client,
     response_dict,
+    stream_chunk,
     sync_client,
 )
 
@@ -96,7 +101,52 @@ def test_request_object_preserves_identity_metadata(base_config) -> None:
     response = sync_client(base_config, backend=invocation).chat(request=request)
 
     assert response.request_id == "req-123"
-    assert invocation.calls[0]["user"] == "user-1"
+    assert "user" not in invocation.calls[0]
+
+
+def _with_privacy(config: HarborChatClientConfig, **privacy: bool) -> HarborChatClientConfig:
+    observability = config.observability.model_copy(update={"privacy": PrivacyConfig(**privacy)})
+    return config.model_copy(update={"observability": observability})
+
+
+@pytest.mark.parametrize(
+    ("privacy", "expected"),
+    [
+        ({"propagate_user_identifiers": True}, hashlib.sha256(b"user-1").hexdigest()),
+        ({"propagate_user_identifiers": True, "hash_user_identifiers": False}, "user-1"),
+    ],
+)
+def test_user_identifier_reaches_provider_only_under_privacy_policy(
+    base_config, privacy: dict[str, bool], expected: str
+) -> None:
+    invocation = FakeInvocation([response_dict()])
+    request = HarborChatRequest(
+        messages=(HarborChatMessage.user("hello"),),
+        logical_model="primary",
+        metadata={"request_id": "req-123", "user_id": "user-1"},
+    )
+
+    sync_client(_with_privacy(base_config, **privacy), backend=invocation).chat(request=request)
+
+    assert invocation.calls[0]["user"] == expected
+
+
+def test_stream_user_identifier_follows_privacy_policy(base_config) -> None:
+    invocation = FakeInvocation(
+        streams=[FakeSyncStream([stream_chunk("hi"), stream_chunk(finish_reason="stop")])]
+    )
+    request = HarborChatRequest(
+        messages=(HarborChatMessage.user("hello"),),
+        logical_model="primary",
+        metadata={"user_id": "user-1"},
+    )
+    client = sync_client(
+        _with_privacy(base_config, propagate_user_identifiers=True), backend=invocation
+    )
+
+    list(client.stream(request=request))
+
+    assert invocation.stream_calls[0]["user"] == hashlib.sha256(b"user-1").hexdigest()
 
 
 @pytest.mark.parametrize(
