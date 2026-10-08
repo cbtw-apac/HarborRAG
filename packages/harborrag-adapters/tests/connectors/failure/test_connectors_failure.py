@@ -37,28 +37,31 @@ def _no_sleep(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "response, expected",
+    "response, detail, expected",
     [
-        (FakeResponse(status_code=429), True),
+        (FakeResponse(status_code=429), "", True),
         (
             FakeResponse(status_code=403, headers={"X-RateLimit-Remaining": "0"}),
+            "",
             True,
         ),
-        (FakeResponse(status_code=403, headers={"Retry-After": "5"}), True),
+        (FakeResponse(status_code=403, headers={"Retry-After": "5"}), "", True),
         (
             FakeResponse(status_code=403, text="You have hit a secondary rate limit."),
+            "You have hit a secondary rate limit.",
             True,
         ),
         (
             FakeResponse(status_code=403, text="Abuse detection triggered"),
+            "Abuse detection triggered",
             True,
         ),
-        (FakeResponse(status_code=403, text="Bad credentials"), False),
-        (FakeResponse(status_code=200), False),
+        (FakeResponse(status_code=403, text="Bad credentials"), "Bad credentials", False),
+        (FakeResponse(status_code=200), "", False),
     ],
 )
-def test_github_rate_limited_classification(response, expected):
-    assert _RequestsGitHubClient._rate_limited(response) is expected
+def test_github_rate_limited_classification(response, detail, expected):
+    assert _RequestsGitHubClient._rate_limited(response, detail) is expected
 
 
 def _github_config(**overrides) -> GitHubRepositoryConfig:
