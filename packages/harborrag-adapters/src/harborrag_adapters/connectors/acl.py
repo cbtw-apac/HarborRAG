@@ -177,5 +177,6 @@ class RestrictedContentGate:
         return (
             SKIP_REASON_ACCESS_RESTRICTED,
             f"source restricts read access ({acl.reason}); restricted_content=include "
-            "is only safe with source_acl corpus mode and imported snapshots",
+            "needs source_acl corpus mode and imported snapshots, and even then graph "
+            "source-scope nodes expose its title and attributes to every scope reader",
         )

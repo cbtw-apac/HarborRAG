@@ -128,6 +128,13 @@ document snapshot for every restricted document (see `harborrag topology indexin
 permissions-import`). `tenant_shared` serves every active document in the tenant
 and ignores snapshots.
 
+Even then, `include` does not fully hide a restricted document. Graph source-scope
+entity nodes (each item's title and attributes) are gated only by the source-scope
+snapshot, never by the document snapshot. A reader of the scope who is not in a
+restricted document's snapshot can still see that document's title and attributes
+through the graph tools. Use `skip` when titles or attributes are themselves
+sensitive.
+
 Restriction changes usually do not change an item's version, so incremental syncs
 do not notice them. Run a full scan after tightening access at the source.
 

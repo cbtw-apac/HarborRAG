@@ -73,6 +73,8 @@ def test_skip_policy_withholds_restricted_and_unknown_items_with_reasons():
         ("c", SKIP_REASON_ACCESS_UNRESOLVED),
     ]
     assert "issue_security_level" in gate.skipped[0].detail
+    assert "graph" in gate.skipped[0].detail
+    assert "title and attributes" in gate.skipped[0].detail
     gate.reset()
     assert gate.skipped == ()
 
