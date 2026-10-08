@@ -255,22 +255,25 @@ async def test_a_same_tick_done_is_not_repeated_by_the_next_tick() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_changed_terminal_outcome_rearms_the_done_marker() -> None:
-    """finalize() may move a retryable FAILED to COMPLETED; that is new news."""
+async def test_a_task_whose_counts_change_then_vanishes_terminal_emits_progress_then_one_done() -> (
+    None
+):
     task = _FakeTask("t1", IngestionTaskState.RUNNING)
-    store = FakeTaskStore([task], {"t1": {"succeeded": 1}})
+    counts = {"t1": {"succeeded": 1}}
+    store = FakeTaskStore([task], counts)
     bus = InProcessEventBus()
     tracker = ActiveTaskTracker()
     await sync_ingestion_progress(store, bus, tracker=tracker)
-    task.status = IngestionTaskState.FAILED
+
+    counts["t1"] = {"succeeded": 3}
+    task.status = IngestionTaskState.COMPLETED  # finished during the sleep
+    await sync_ingestion_progress(store, bus, tracker=tracker)
     await sync_ingestion_progress(store, bus, tracker=tracker)
 
-    task.status = IngestionTaskState.RUNNING  # retried finalization re-enters RUNNING
-    await sync_ingestion_progress(store, bus, tracker=tracker)
-    task.status = IngestionTaskState.COMPLETED
-    await sync_ingestion_progress(store, bus, tracker=tracker)
-
-    assert _done_count(store, "t1") == 2
+    names = [event.name for owner, event in store.appended if owner == "t1"]
+    assert names == ["task.t1.progress", "task.t1.progress", "task.t1.done"]
+    assert store.appended[1][1].payload["counts"] == {"succeeded": 3}
+    assert _done_count(store, "t1") == 1
 
 
 @pytest.mark.asyncio

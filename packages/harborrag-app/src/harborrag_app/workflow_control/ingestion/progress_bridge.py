@@ -32,10 +32,10 @@ _TERMINAL_STATES = frozenset(
     }
 )
 _SNAPSHOT_KEY = "_last_progress_snapshot"
-# Durable exactly-once marker for the terminal ".done" event. It holds the
-# terminal status it was published for, not a bool: finalize() may move a
-# retryable FAILED task to COMPLETED (and replaces the summary wholesale), and
-# that changed outcome is news a subscriber must still receive.
+# Durable marker that this task's terminal ".done" was already published; it
+# stores the terminal status for information only (nothing depends on it
+# changing). It deduplicates .done across the same-tick path, the vanished
+# path and lease handoffs.
 DONE_MARKER_KEY = "_done_published"
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 _LIST_ACTIVE_PAGE_LIMIT = 500
@@ -115,7 +115,7 @@ async def _finish_vanished(
     for task_id in sorted(task_ids):
         task = await store.get(task_id)
         if task is None or task.status not in _TERMINAL_STATES:
-            continue  # vanished (deleted) or merely PAUSED; resuming re-lists it
+            continue  # deleted, or not terminal (e.g. finalize moved it back to a listed status)
         counts = await _publish_progress(store, event_bus, task)
         await _publish_done_once(store, event_bus, task, counts)
 
@@ -149,12 +149,15 @@ async def sync_ingestion_progress(
     """One poll tick: diff every active task's progress snapshot.
 
     For each task whose counts changed since the last tick, append + publish
-    a "task.<id>.progress" event. Every task that reaches a terminal status
-    gets exactly one "task.<id>.done" event -- the stream route's stop
+    a "task.<id>.progress" event. Every task this process observes reaching
+    a terminal status gets one "task.<id>.done" event -- the stream route's stop
     signal -- whether it turned terminal within this tick (re-fetched after
     its progress read) or during the sleep before it (``tracker`` remembers
-    it was active). ``DONE_MARKER_KEY`` in the task summary makes that
-    exactly-once across both paths and across lease handoffs. Returns the
+    it was active). ``DONE_MARKER_KEY`` in the task summary deduplicates it per task across
+    both paths and lease handoffs. Delivery is at-least-once, not strictly
+    once: a crash between the event append and the marker write, or two
+    overlapping leaders, can repeat it. A task no tick ever saw active
+    relies on the SSE stream's terminal backstop. Returns the
     number of active tasks examined.
 
     list_active() is a bounded, keyset-paginated read, so this walks every
