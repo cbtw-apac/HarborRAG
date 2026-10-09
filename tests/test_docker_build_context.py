@@ -44,22 +44,26 @@ def _patterns() -> list[str]:
 
 
 def _excluded(path: str) -> bool:
-    """Approximate Docker's matcher: a path is excluded when any run of its
-    components matches a ``**/``-anchored pattern, so an excluded directory
-    also excludes everything beneath it.
+    """Approximate Docker's matcher: an excluded directory also excludes
+    everything beneath it. A ``**/``-anchored pattern may match any run of path
+    components; any other pattern is anchored at the build-context root.
 
     ``fnmatch``'s ``*`` also crosses ``/``, which is looser than Docker; the
     manual build-context listing in the plan's checklist is the exact check.
     """
 
     parts = path.split("/")
+    prefixes = ["/".join(parts[: end + 1]) for end in range(len(parts))]
     runs = [
         "/".join(parts[start : end + 1]) for end in range(len(parts)) for start in range(end + 1)
     ]
     for pattern in _patterns():
         bare = pattern.rstrip("/")
-        candidate = bare[3:] if bare.startswith("**/") else bare
-        if any(fnmatchcase(run, candidate) for run in runs):
+        if bare.startswith("**/"):
+            matched = any(fnmatchcase(run, bare[3:]) for run in runs)
+        else:
+            matched = any(fnmatchcase(prefix, bare) for prefix in prefixes)
+        if matched:
             return True
     return False
 
