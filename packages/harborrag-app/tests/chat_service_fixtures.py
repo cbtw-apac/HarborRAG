@@ -61,6 +61,20 @@ class FakeUsageRepository:
             estimated_cost_usd=sum(record.estimated_cost_usd or 0.0 for record in matching),
         )
 
+    async def pseudonymize_user(self, *, tenant_id: str, user_id: str, pseudonym: str) -> int:
+        if not pseudonym.strip() or pseudonym == user_id:
+            raise ValueError("a usage pseudonym must be non-blank and differ from the user id")
+        changed = 0
+        for index, record in enumerate(self.records):
+            if (record.tenant_id, record.user_id) != (tenant_id, user_id):
+                continue
+            principal = pseudonym if record.principal_id == user_id else record.principal_id
+            self.records[index] = replace(
+                record, user_id=pseudonym, principal_id=principal, session_id=None, run_id=None
+            )
+            changed += 1
+        return changed
+
 
 class FakeChatFacade:
     def __init__(

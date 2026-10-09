@@ -9,12 +9,15 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+import sqlalchemy as sa
 
 from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
     create_session_factory,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_adapters.repositories.database.control_plane.schemas_usage import ModelUsageRow
+from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_adapters.repositories.database.control_plane.usage import SqlModelUsageRepository
 from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageTotals
 
@@ -143,3 +146,54 @@ async def test_recording_usage_never_raises_into_the_caller(
     assert "user_id=user-1" in caplog.text
     assert "error_type=RuntimeError" in caplog.text
     assert "gpt-4.1-mini" not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.blackbox
+async def test_pseudonymizing_a_user_keeps_tenant_totals_and_unlinks_the_user(
+    sessions: SessionFactory,
+) -> None:
+    repo = SqlModelUsageRepository(sessions)
+    await repo.record(
+        _usage("user-1", principal_id="user-1", session_id="session-1", run_id="run-1")
+    )
+    await repo.record(_usage("user-1"))
+    await repo.record(_usage("user-2"))
+    before = await repo.totals(tenant_id="ACME")
+
+    changed = await repo.pseudonymize_user(tenant_id="ACME", user_id="user-1", pseudonym="erased-1")
+
+    assert changed == 2
+    assert await repo.totals(tenant_id="ACME") == before
+    assert (await repo.totals(tenant_id="ACME", user_id="user-1")).requests == 0
+    assert (await repo.totals(tenant_id="ACME", user_id="erased-1")).requests == 2
+    assert (await repo.totals(tenant_id="ACME", user_id="user-2")).requests == 1
+    async with sessions() as session:
+        rows = list(await session.scalars(sa.select(ModelUsageRow)))
+    for row in rows:
+        assert "user-1" not in (row.user_id, row.principal_id)
+        assert row.session_id is None or row.user_id == "user-2"
+        assert row.run_id is None
+
+
+@pytest.mark.asyncio
+async def test_a_pseudonym_must_be_non_blank_and_differ_from_the_user(
+    sessions: SessionFactory,
+) -> None:
+    repo = SqlModelUsageRepository(sessions)
+    for pseudonym in ("", "   ", "user-1"):
+        with pytest.raises(ValueError, match="pseudonym"):
+            await repo.pseudonymize_user(tenant_id="ACME", user_id="user-1", pseudonym=pseudonym)
+
+
+@pytest.mark.asyncio
+async def test_pseudonymizing_ignores_the_same_user_id_in_another_tenant(
+    sessions: SessionFactory,
+) -> None:
+    repo = SqlModelUsageRepository(sessions)
+    await repo.record(_usage("user-1", tenant_id="OTHER", session_id="session-9"))
+
+    changed = await repo.pseudonymize_user(tenant_id="ACME", user_id="user-1", pseudonym="erased-1")
+
+    assert changed == 0
+    assert (await repo.totals(tenant_id="OTHER", user_id="user-1")).requests == 1

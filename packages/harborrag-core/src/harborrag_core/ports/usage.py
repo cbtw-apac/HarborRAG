@@ -100,6 +100,17 @@ class ModelUsageRepository(Protocol):
         """Aggregate recorded usage for a tenant, one user, and/or a window."""
         ...
 
+    async def pseudonymize_user(self, *, tenant_id: str, user_id: str, pseudonym: str) -> int:
+        """Re-attribute one human's usage rows to ``pseudonym`` (right-to-erasure).
+
+        Tenant totals, which billing reads, are unchanged; per-user totals for
+        ``user_id`` become zero. ``session_id`` and ``run_id`` are cleared, and
+        ``principal_id`` is replaced as well where it names the same human.
+        Returns how many rows changed. ``pseudonym`` must be non-blank and
+        differ from ``user_id`` (``ValueError`` otherwise).
+        """
+        ...
+
 
 __all__ = [
     "ModelUsageRecord",

@@ -11,8 +11,10 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.sql.elements import ColumnElement
 
 from harborrag_adapters.repositories.database.control_plane.schemas_usage import ModelUsageRow
@@ -98,6 +100,26 @@ class SqlModelUsageRepository:
             estimated_cost_usd=float(row.cost),
             unpriced_requests=int(row.unpriced or 0),
         )
+
+    async def pseudonymize_user(self, *, tenant_id: str, user_id: str, pseudonym: str) -> int:
+        if not pseudonym.strip() or pseudonym == user_id:
+            raise ValueError("a usage pseudonym must be non-blank and differ from the user id")
+        owned = (ModelUsageRow.tenant_id == tenant_id, ModelUsageRow.user_id == user_id)
+        async with self.sessions.begin() as session:
+            await session.execute(
+                sa.update(ModelUsageRow)
+                .where(*owned, ModelUsageRow.principal_id == user_id)
+                .values(principal_id=pseudonym)
+            )
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    sa.update(ModelUsageRow)
+                    .where(*owned)
+                    .values(user_id=pseudonym, session_id=None, run_id=None)
+                ),
+            )
+        return int(result.rowcount or 0)
 
 
 __all__ = ["SqlModelUsageRepository"]
