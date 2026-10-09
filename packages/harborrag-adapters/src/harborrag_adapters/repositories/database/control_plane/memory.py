@@ -9,6 +9,7 @@ The validity filter likewise mirrors ``Memory.is_valid_at``.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -152,6 +153,14 @@ def _validity_filter(query: MemoryQuery, now: datetime) -> sa.ColumnElement[bool
     )
 
 
+def _retention_filter(query: MemoryQuery, now: datetime) -> sa.ColumnElement[bool]:
+    """Reads never see expired rows; erasure (``stored_by_owner``) must reach them."""
+
+    if query.stored_by_owner:
+        return sa.true()
+    return sa.or_(MemoryRow.expires_at.is_(None), MemoryRow.expires_at > now)
+
+
 @dataclass(slots=True)
 class SqlMemoryRepository:
     """Persist canonical long-term memories through async SQLAlchemy."""
@@ -188,13 +197,15 @@ class SqlMemoryRepository:
         now = utc_now()
         statement = sa.select(MemoryRow).where(
             _visibility_filter(query),
-            sa.or_(MemoryRow.expires_at.is_(None), MemoryRow.expires_at > now),
+            _retention_filter(query, now),
             _validity_filter(query, now),
         )
         if query.memory_types:
             statement = statement.where(
                 MemoryRow.memory_type.in_(mtype.value for mtype in query.memory_types)
             )
+        if query.source_session_id is not None:
+            statement = statement.where(MemoryRow.source_session_id == query.source_session_id)
         if query.text:
             statement = statement.where(MemoryRow.content.icontains(query.text))
         # Deterministic total order: memory_id breaks importance/created_at
@@ -217,6 +228,31 @@ class SqlMemoryRepository:
             if not modifiable_by(MemoryScope(row.scope), _row_to_memory(row).owner, caller):
                 return
             await session.delete(row)
+
+    async def list_expired(
+        self, *, cutoffs: Mapping[MemoryScope, datetime], now: datetime, limit: int
+    ) -> tuple[Memory, ...]:
+        """Cross-tenant by design: retention purge loop only, never a user-facing route.
+
+        Retention is opt-in, so empty ``cutoffs`` (unset or disabled) lists nothing.
+        """
+        if limit < 1:
+            raise ValueError("expired memory listing limit must be positive")
+        if not cutoffs:
+            return ()
+        aged = [
+            sa.and_(MemoryRow.scope == scope.value, MemoryRow.updated_at < cutoff)
+            for scope, cutoff in cutoffs.items()
+        ]
+        statement = (
+            sa.select(MemoryRow)
+            .where(sa.or_(MemoryRow.expires_at <= now, *aged))
+            .order_by(MemoryRow.updated_at.asc(), MemoryRow.memory_id.asc())
+            .limit(limit)
+        )
+        async with self.sessions() as session:
+            rows = list(await session.scalars(statement))
+        return tuple(_row_to_memory(row) for row in rows)
 
 
 __all__ = ["SqlMemoryRepository"]

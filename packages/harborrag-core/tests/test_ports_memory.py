@@ -281,3 +281,11 @@ def test_personal_scopes_are_modifiable_by_whoever_can_see_them() -> None:
     assert modifiable_by(MemoryScope.USER, owner, other_credential) is True
     assert modifiable_by(MemoryScope.SESSION, owner, other_credential) is True
     assert modifiable_by(MemoryScope.USER, owner, replace(owner, user_id="bob")) is False
+
+
+def test_a_query_may_narrow_to_one_source_session_but_never_a_blank_one() -> None:
+    owner = MemoryOwner(tenant_id="ACME", user_id="user-1")
+
+    assert MemoryQuery(owner=owner, source_session_id="session-1").source_session_id == "session-1"
+    with pytest.raises(ValueError, match="source_session_id must be non-empty"):
+        MemoryQuery(owner=owner, source_session_id="  ")

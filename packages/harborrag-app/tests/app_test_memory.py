@@ -7,6 +7,9 @@ same reason production would: the row is simply not visible to that owner.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from datetime import datetime
+
 from harborrag_core.base import utc_now
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
@@ -39,6 +42,11 @@ class FakeMemoryStore:
         scopes = query.scopes or tuple(MemoryScope)
 
         def matches(memory: Memory) -> bool:
+            if (
+                query.source_session_id is not None
+                and memory.source_session_id != query.source_session_id
+            ):
+                return False
             # Mirrors SqlMemoryRepository: erasure matches the row's stored
             # tenant/user, reads match caller visibility.
             if query.stored_by_owner:
@@ -59,6 +67,24 @@ class FakeMemoryStore:
         memory = self.rows.get(memory_id)
         if memory is not None and modifiable_by(memory.scope, memory.owner, caller):
             del self.rows[memory_id]
+
+    async def list_expired(
+        self, *, cutoffs: Mapping[MemoryScope, datetime], now: datetime, limit: int
+    ) -> tuple[Memory, ...]:
+        if not cutoffs:
+            return ()
+
+        def expired(memory: Memory) -> bool:
+            if memory.expires_at is not None and memory.expires_at <= now:
+                return True
+            cutoff = cutoffs.get(memory.scope)
+            return cutoff is not None and memory.updated_at < cutoff
+
+        found = sorted(
+            (memory for memory in self.rows.values() if expired(memory)),
+            key=lambda memory: (memory.updated_at, memory.memory_id),
+        )
+        return tuple(found[:limit])
 
 
 class FakeMemoryIndex:
@@ -97,9 +123,11 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
     importance: float = 0.5,
     source_session_id: str | None = None,
     source_message_ids: tuple[str, ...] = (),
+    updated_at: datetime | None = None,
 ) -> Memory:
     """One stored memory for a route or erasure test."""
 
+    stamp = updated_at or utc_now()
     return Memory(
         memory_id=memory_id,
         scope=scope,
@@ -113,9 +141,9 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
         ),
         content=content,
         importance=importance,
-        created_at=utc_now(),
-        updated_at=utc_now(),
-        valid_from=utc_now(),
+        created_at=stamp,
+        updated_at=stamp,
+        valid_from=stamp,
         source_session_id=source_session_id,
         source_message_ids=source_message_ids,
     )

@@ -10,7 +10,7 @@ what makes that filter's correctness testable without any storage at all.
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
@@ -237,7 +237,11 @@ class MemoryQuery:
     By default only memories valid now (``Memory.is_valid_at``) are returned;
     ``as_of`` evaluates validity at that instant instead, and
     ``include_invalid`` disables the validity filter altogether. Expired
-    (``expires_at``) memories are never returned.
+    (``expires_at``) memories are never returned to a read; an
+    erasure query (``stored_by_owner``) returns them too, because a row that
+    retention has not purged yet still has to be erasable.
+    ``source_session_id`` narrows the query to rows extracted from that
+    conversation.
     """
 
     owner: MemoryOwner
@@ -253,6 +257,7 @@ class MemoryQuery:
     # so scope visibility alone can never find the rows one user authored
     # there, and erasing by project would take everybody else's with them.
     stored_by_owner: bool = False
+    source_session_id: str | None = None
 
     def __post_init__(self) -> None:
         if not 1 <= self.limit <= 1000:
@@ -264,6 +269,8 @@ class MemoryQuery:
             raise ValueError("memory query scopes must be unique")
         if len(set(self.memory_types)) != len(self.memory_types):
             raise ValueError("memory query types must be unique")
+        if self.source_session_id is not None and not self.source_session_id.strip():
+            raise ValueError("memory query source_session_id must be non-empty when supplied")
 
 
 class MemoryRepository(Protocol):
@@ -276,6 +283,21 @@ class MemoryRepository(Protocol):
     async def search(self, query: MemoryQuery) -> tuple[Memory, ...]: ...
 
     async def delete(self, caller: MemoryOwner, memory_id: str) -> None: ...
+
+    async def list_expired(
+        self, *, cutoffs: Mapping[MemoryScope, datetime], now: datetime, limit: int
+    ) -> tuple[Memory, ...]:
+        """Memories past retention across every tenant, oldest ``updated_at`` first.
+
+        A row is past retention when its ``expires_at`` is at or before
+        ``now``, or when ``cutoffs`` names its scope and it was last updated
+        before that instant. Retention is opt-in: empty ``cutoffs`` (retention
+        unset or disabled) lists nothing.
+
+        Cross-tenant by design, for the retention purge loop only. It takes no
+        caller, so it must never back a user-facing route or tool.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)
