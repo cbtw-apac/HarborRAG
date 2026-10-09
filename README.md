@@ -21,9 +21,11 @@
 
 ---
 
-> **Release Note** `2.0.0a1` is the new public release. It is built for local
-> development, integration testing, and controlled single-host staging. A hardened
-> multi-tenant production topology is not supplied yet - see
+> **Release Note** HarborRAG 2.0 is supported for single-organisation and other
+> controlled deployments that use HMAC authentication; the
+> [Security Policy](SECURITY.md#threat-model-and-deployment-scope) lists the
+> supported versions and the threat model. A hardened public multi-tenant
+> production topology is not supplied - see
 > [Where HarborRAG is production-ready](#where-harborrag-is-production-ready).
 
 ## Why HarborRAG
@@ -631,7 +633,7 @@ implemented/scaffolded boundary.
 | --- | --- |
 | Local development | Supported - host uv workflow and containerized worker |
 | Integration testing | Supported |
-| Controlled single-host staging | Supported once the manual ingestion release gate passes against the deployed candidate |
+| Controlled single-organisation deployment | Supported once the manual ingestion release gate passes against the deployed candidate; see the [threat model](SECURITY.md#threat-model-and-deployment-scope) |
 | Public or multi-tenant production | **Not yet supplied as a complete topology** |
 
 Before a public launch you still own: Temporal Cloud or a hardened self-hosted Temporal,

@@ -1,11 +1,14 @@
 # Security Policy
 
-## Supported releases
+## Supported versions
 
-HarborRAG 2.x is the current release line. The project is in Alpha: maintainers review security
-reports on a best-effort basis, and the repository does not yet promise a response or remediation
-service-level agreement. Users are responsible for assessing each release and hardening their own
-deployment.
+| Version | Supported |
+| --- | --- |
+| 2.0.x | Yes - security fixes ship as 2.0.x patch releases |
+| < 2.0 (the 1.x `qdrant-loader` packages and every 2.0.0 pre-release) | No |
+
+Security fixes are made on the latest 2.0.x patch release. Upgrade to it before
+reporting, and expect fixes there rather than as backports.
 
 ## Report a vulnerability privately
 
@@ -21,12 +24,72 @@ hostnames, and production logs.
 Maintainers will use the private advisory to validate the report, coordinate a fix, and publish an
 advisory when appropriate. Please allow that process to complete before public disclosure.
 
-## Deployment boundary
+## Threat model and deployment scope
 
-The repository provides application components, local development compositions, and security
-contracts such as tenant-aware access context. It does not provide a complete production security
-perimeter. Operators must supply and validate internet-facing identity, authorization, TLS, network
-policy, secret delivery, backups, monitoring, resource controls, and incident response.
+HarborRAG 2.0 is supported for single-organisation and otherwise controlled
+deployments: one operator runs the stack for the users and tenants it
+administers, inside a network perimeter it controls.
+
+- **Authentication.** The API authenticates callers with HMAC-signed (HS256)
+  bearer tokens that carry a role and a tenant list, and the development stack
+  ships with `HARBORRAG_AUTH_MODE=hmac`. OIDC/JWKS verification is not available
+  in 2.0 (`auth_mode=oidc` is rejected at startup); to use an identity provider,
+  mint HMAC tokens from a gateway or service you operate.
+- **Unauthenticated mode is loopback-only.** `HARBORRAG_AUTH_MODE=none` treats
+  every request as an owner of every tenant. The API then answers only requests
+  whose Host header names `localhost`, `127.0.0.1` or `[::1]`, and whose peer and
+  local socket are loopback, unless `HARBORRAG_ALLOW_INSECURE_DEV=true`
+  acknowledges a container whose published port is itself bound to loopback
+  (the Host-header check still applies). It is refused with `HARBORRAG_ENV=prod`.
+- **Tenant isolation is enforced.** API requests are scoped to the tenants the
+  credential grants, and retrieval applies the tenant scope and the source
+  access-control lists of the indexed content to the reader. Connections may
+  carry a tenant allowlist, and a tenant outside it cannot use that connection.
+  Any way to read or change another tenant's data, or to retrieve content the
+  reader's source ACLs do not permit, is a vulnerability; report it.
+- **Datastore authentication in Compose.** The development Compose files require
+  passwords for Postgres, Redis, FalkorDB, and MinIO, and publish datastore and
+  Temporal ports on `127.0.0.1` by default.
+- **Plaintext is a development acknowledgement.** The `*_ALLOW_INSECURE_REMOTE`
+  switches let the stack talk to plaintext service names on the private Compose
+  network. They are honoured only with `HARBORRAG_ENV=dev`; with
+  `HARBORRAG_ENV=prod` plaintext remote endpoints are refused.
+- **Operators own TLS and the network perimeter.** TLS termination, network
+  policy and firewalling of the datastores and Temporal, secret delivery,
+  backups, monitoring, resource limits, and incident response are the
+  operator's. The Compose files under `deploy/compose` are a development
+  topology, not a production perimeter.
+
+Known limits:
+
+- Temporal is unauthenticated unless mutual TLS is configured in code (client
+  certificate material can only be supplied programmatically, not through
+  configuration files). The Compose topology does not configure it. Keep the
+  Temporal frontend off every network you do not trust.
+- There is no OIDC and no built-in TLS. HMAC tokens are not individually
+  revocable; they are valid until they expire, and rotating the shared secret
+  invalidates all of them.
+
+In scope:
+
+- authentication or authorization bypass, including any cross-tenant access;
+- credentials or secrets disclosed through API, MCP, or CLI responses, logs, or
+  error messages;
+- injection, server-side request forgery, path traversal, or parser input that
+  executes code or reads outside its configured source;
+- input that makes a worker or the API unavailable out of proportion to its
+  size.
+
+Out of scope:
+
+- deployments exposed to untrusted networks without the operator controls
+  listed above;
+- findings that need `HARBORRAG_ALLOW_INSECURE_DEV=true` or an insecure-remote
+  acknowledgement; a way around the loopback and Host-header checks of
+  `HARBORRAG_AUTH_MODE=none` without them is in scope;
+- a compromised operator account, host, or datastore credential;
+- load generated by an authenticated owner or admin within the configured
+  capacity limits.
 
 General bugs and feature requests belong in the public
 [issue tracker](https://github.com/cbtw-apac/HarborRAG/issues).
