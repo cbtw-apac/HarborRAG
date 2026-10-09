@@ -239,6 +239,15 @@ class AgentRunRepository(Protocol):
 
     async def get(self, identity: AgentRunIdentity) -> AgentCheckpoint | None: ...
 
+    async def delete_for_owner(self, *, tenant_id: str, user_id: str) -> int:
+        """Delete every checkpoint the human ``user_id`` owns in ``tenant_id``.
+
+        Right-to-erasure's checkpoint step: ``state_json`` holds the run's
+        whole transcript. Keyed on the human, never on ``principal_id``, like
+        every other predicate here. Returns how many runs were removed.
+        """
+        ...
+
 
 __all__ = [
     "AgentCheckpoint",

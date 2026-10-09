@@ -190,6 +190,16 @@ class Runs:
             return None
         return checkpoint
 
+    async def delete_for_owner(self, *, tenant_id: str, user_id: str) -> int:
+        doomed = [
+            run_id
+            for run_id, checkpoint in self.checkpoints.items()
+            if (checkpoint.identity.tenant_id, checkpoint.identity.user_id) == (tenant_id, user_id)
+        ]
+        for run_id in doomed:
+            del self.checkpoints[run_id]
+        return len(doomed)
+
 
 def checkpoint(  # noqa: PLR0913 - test builder exposes every field a scenario may pin
     identity: AgentRunIdentity,

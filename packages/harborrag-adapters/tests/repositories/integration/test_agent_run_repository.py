@@ -322,3 +322,33 @@ async def test_agent_run_lease_and_failure_class_round_trip(tmp_path: Path) -> N
         assert failed.resumable(datetime.now(UTC)) is True
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_delete_for_owner_removes_only_that_humans_runs(tmp_path: Path) -> None:
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    try:
+        sessions = create_session_factory(engine)
+        conversations = SqlConversationMemoryRepository(sessions)
+        runs = SqlAgentRunRepository(sessions)
+        mine = AgentRunIdentity("tenant", "svc", "session-a", "run-a", "user-a")
+        theirs = AgentRunIdentity("tenant", "svc", "session-b", "run-b", "user-b")
+        for identity in (mine, theirs):
+            await conversations.create(
+                ConversationIdentity(
+                    identity.tenant_id, identity.principal_id, identity.session_id, identity.user_id
+                ),
+                kind="agent",
+            )
+            await runs.create(_checkpoint(identity, version=1, step=0))
+
+        assert await runs.delete_for_owner(tenant_id="tenant", user_id="user-a") == 1
+
+        assert await runs.get(mine) is None
+        assert await runs.get(theirs) is not None
+        assert await runs.delete_for_owner(tenant_id="other-tenant", user_id="user-b") == 0
+    finally:
+        await engine.dispose()

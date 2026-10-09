@@ -238,5 +238,18 @@ class SqlAgentRunRepository:
             row = await session.scalar(statement)
         return None if row is None else _row_to_checkpoint(row)
 
+    async def delete_for_owner(self, *, tenant_id: str, user_id: str) -> int:
+        async with self.sessions.begin() as session:
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    sa.delete(AgentRunRow).where(
+                        AgentRunRow.tenant_id == tenant_id,
+                        AgentRunRow.user_id == user_id,
+                    )
+                ),
+            )
+        return int(result.rowcount or 0)
+
 
 __all__ = ["SqlAgentRunRepository"]

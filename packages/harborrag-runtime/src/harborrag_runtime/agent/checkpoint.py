@@ -59,6 +59,18 @@ class InMemoryAgentRunRepository:
                 return None
             return checkpoint
 
+    async def delete_for_owner(self, *, tenant_id: str, user_id: str) -> int:
+        async with self._lock:
+            doomed = [
+                run_id
+                for run_id, checkpoint in self._checkpoints.items()
+                if (checkpoint.identity.tenant_id, checkpoint.identity.user_id)
+                == (tenant_id, user_id)
+            ]
+            for run_id in doomed:
+                del self._checkpoints[run_id]
+            return len(doomed)
+
 
 @dataclass(slots=True)
 class DatabaseAgentRunRepository:
@@ -106,6 +118,9 @@ class DatabaseAgentRunRepository:
 
     async def get(self, identity: AgentRunIdentity) -> AgentCheckpoint | None:
         return await self.repository.get(identity)
+
+    async def delete_for_owner(self, *, tenant_id: str, user_id: str) -> int:
+        return await self.repository.delete_for_owner(tenant_id=tenant_id, user_id=user_id)
 
     async def aclose(self) -> None:
         await self.engine.dispose()

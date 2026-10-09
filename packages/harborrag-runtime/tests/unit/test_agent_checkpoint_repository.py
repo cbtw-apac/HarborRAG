@@ -118,3 +118,33 @@ async def test_database_checkpoint_composition_and_delegation(monkeypatch) -> No
     repository.save_step.assert_awaited_once_with(checkpoint)
     repository.get.assert_awaited_once_with(checkpoint.identity)
     database_engine.dispose.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_in_memory_delete_for_owner_removes_only_that_humans_runs() -> None:
+    repository = InMemoryAgentRunRepository()
+    mine = _checkpoint("mine")
+    other_user = replace(
+        mine, identity=AgentRunIdentity("tenant", "reader", "session", "theirs", "someone-else")
+    )
+    other_tenant = replace(
+        mine, identity=AgentRunIdentity("elsewhere", "reader", "session", "far", "reader")
+    )
+    for checkpoint in (mine, other_user, other_tenant):
+        await repository.create(checkpoint)
+
+    assert await repository.delete_for_owner(tenant_id="tenant", user_id="reader") == 1
+
+    assert await repository.get(mine.identity) is None
+    assert await repository.get(other_user.identity) is other_user
+    assert await repository.get(other_tenant.identity) is other_tenant
+    assert await repository.delete_for_owner(tenant_id="tenant", user_id="reader") == 0
+
+
+@pytest.mark.asyncio
+async def test_database_repository_delegates_delete_for_owner() -> None:
+    inner = SimpleNamespace(delete_for_owner=AsyncMock(return_value=3))
+    repository = DatabaseAgentRunRepository(repository=inner, engine=Mock())
+
+    assert await repository.delete_for_owner(tenant_id="tenant", user_id="reader") == 3
+    inner.delete_for_owner.assert_awaited_once_with(tenant_id="tenant", user_id="reader")
