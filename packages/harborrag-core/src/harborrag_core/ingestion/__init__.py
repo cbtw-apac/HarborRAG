@@ -14,6 +14,8 @@ from .canonical_codec import (
 from .comments import CanonicalComment, CanonicalCommentSet
 from .errors import (
     ChunkValidationError,
+    DocumentParseCrashError,
+    DocumentParseTimeoutError,
     ExecutionCapabilityError,
     IngestionDomainError,
     ParserRejectedDocumentError,
@@ -129,6 +131,8 @@ __all__ = [
     "DocumentRetirementResult",
     "DocumentIdentityBuilder",
     "DocumentIngestionOutcome",
+    "DocumentParseCrashError",
+    "DocumentParseTimeoutError",
     "DocumentVersionCandidate",
     "DocumentVersionSnapshot",
     "DocumentVersionState",

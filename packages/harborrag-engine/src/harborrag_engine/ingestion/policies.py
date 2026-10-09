@@ -11,6 +11,8 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.ingestion import (
     ChunkValidationError,
+    DocumentParseCrashError,
+    DocumentParseTimeoutError,
     DocumentVersionState,
     FailureCategory,
     ParserRejectedDocumentError,
@@ -76,6 +78,8 @@ _SIMPLE_FAILURES: tuple[
     ),
     (SourceUnavailableError, FailureCategory.TRANSIENT, True, "source_unavailable"),
     (UnsupportedDocumentError, FailureCategory.UNSUPPORTED, False, "document_unsupported"),
+    (DocumentParseTimeoutError, FailureCategory.CANONICAL_VALIDATION, False, "parse_timeout"),
+    (DocumentParseCrashError, FailureCategory.CANONICAL_VALIDATION, False, "parse_crashed"),
     (
         ParserRejectedDocumentError,
         FailureCategory.CANONICAL_VALIDATION,

@@ -3,6 +3,8 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.ingestion import (
+    DocumentParseCrashError,
+    DocumentParseTimeoutError,
     DocumentVersionState,
     FailureCategory,
     ProjectionWriteError,
@@ -170,3 +172,27 @@ def test_a_deleted_source_item_is_not_retried_as_an_outage() -> None:
     assert failure.retryable is False
     assert not is_retryable_failure_code("document_release_source_item_not_found")
     assert is_explicitly_retryable_failure_code("document_release_source_item_not_found")
+
+
+@pytest.mark.parametrize(
+    ("error", "code"),
+    [
+        (
+            DocumentParseTimeoutError("document parse exceeded 600s and was stopped"),
+            "parse_timeout",
+        ),
+        (DocumentParseCrashError("parse process exited with code -9"), "parse_crashed"),
+    ],
+)
+def test_a_killed_or_crashed_parse_is_not_retried(error: Exception, code: str) -> None:
+    failure = IngestionFailureClassifier().classify("ParseAndNormalize", error)
+
+    assert (failure.category, failure.retryable, failure.code) == (
+        FailureCategory.CANONICAL_VALIDATION,
+        False,
+        code,
+    )
+
+
+def test_a_parse_timeout_is_not_a_transient_timeout() -> None:
+    assert not isinstance(DocumentParseTimeoutError("stopped"), TimeoutError)

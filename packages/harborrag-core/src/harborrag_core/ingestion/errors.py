@@ -42,6 +42,18 @@ class UnsupportedDocumentError(ParserRejectedDocumentError):
     pass
 
 
+class DocumentParseTimeoutError(ParserRejectedDocumentError):
+    """A parse ran past its wall-clock budget and its process was killed.
+
+    Deliberately not a ``TimeoutError``: those are transient and retried, and
+    the same document would hang the same way on every attempt.
+    """
+
+
+class DocumentParseCrashError(ParserRejectedDocumentError):
+    """The isolated parse process died without returning a result (signal, OOM kill)."""
+
+
 class ChunkValidationError(IngestionDomainError):
     pass
 
