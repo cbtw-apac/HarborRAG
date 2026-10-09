@@ -107,5 +107,14 @@ memories are shared: a `reader` may delete only the ones they wrote (matched
 on the signed end-user claim, not the credential); `editor` and above may
 delete any shared memory in a tenant they can access. Anyone else gets `403`.
 
+## Automatic extraction scope
+
+Automatic long-term extraction and the agent `manage_memory` tool store a
+fact proposed at project scope as the user's own memory unless
+`HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE=true`. Project memory is shared
+with every project member, so writing it from model-proposed text is opt-in.
+Existing project memories are still recalled. Tool results (retrieved
+documents and tool output) are never used as extraction input.
+
 See [Chat](README.md#migration) for the `0033`/`0034` database migration
 requirement and endpoint replacements.

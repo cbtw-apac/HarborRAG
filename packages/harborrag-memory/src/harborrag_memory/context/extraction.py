@@ -50,6 +50,13 @@ EXTRACTION_SCOPE_ORDER: tuple[MemoryScope, ...] = (
 )
 """Scopes extraction reads for context and may write to, narrowest first."""
 
+UNTRUSTED_TRANSCRIPT_ROLES = frozenset({"tool"})
+"""Transcript rows extraction never reads.
+
+Tool results carry retrieved documents and third-party output -- the
+prompt-injection channel -- so nothing in them may become a durable memory.
+"""
+
 EXISTING_LIMIT = 50
 """How many stored memories per scope are shown to the model and deduped against."""
 
@@ -116,20 +123,27 @@ class MemoryExtractor:
         *,
         messages: Sequence[ConversationMessage],
     ) -> tuple[Memory, ...]:
-        """Store and return the durable facts stated in ``messages``."""
+        """Store and return the durable facts stated in ``messages``.
 
-        if not self._policy.enabled or not messages:
+        Tool-result rows are dropped first (``UNTRUSTED_TRANSCRIPT_ROLES``):
+        they are neither shown to the model nor recorded as provenance.
+        """
+
+        conversation = tuple(
+            message for message in messages if message.role not in UNTRUSTED_TRANSCRIPT_ROLES
+        )
+        if not self._policy.enabled or not conversation:
             return ()
         try:
             existing = await self._existing(owner)
-            facts = await self._propose(existing, messages)
+            facts = await self._propose(existing, conversation)
         except Exception:
             logger.warning("extracting long-term memories failed", exc_info=True)
             return ()
         plan = _WritePlan(
             existing=existing,
             hashes={memory.content_hash for memory in existing.values() if memory.content_hash},
-            messages=tuple(messages),
+            messages=conversation,
         )
         return await self._write(owner, facts, plan)
 
@@ -187,11 +201,15 @@ class MemoryExtractor:
     def _scope(self, owner: MemoryOwner, requested: MemoryScope) -> MemoryScope | None:
         """Return the scope this owner can actually be written at, never wider.
 
-        A project fact proposed by an owner with no ``project_id`` degrades to
-        the session rather than being stored where a whole project would read
-        it; an owner that cannot even address its session stores nothing.
+        PROJECT is only honoured with ``policy.extraction_project_scope``;
+        otherwise the fact stays the user's own. A project fact proposed by an
+        owner with no ``project_id`` degrades to the session rather than being
+        stored where a whole project would read it; an owner that cannot even
+        address its session stores nothing.
         """
 
+        if requested is MemoryScope.PROJECT and not self._policy.extraction_project_scope:
+            requested = MemoryScope.USER
         for candidate in (requested, MemoryScope.SESSION):
             if scope_query_owner(owner, candidate) is not None:
                 return candidate
@@ -359,6 +377,7 @@ __all__ = [
     "EXISTING_LIMIT",
     "EXTRACTION_SCOPE_ORDER",
     "ExtractedFact",
+    "UNTRUSTED_TRANSCRIPT_ROLES",
     "MemoryExtractor",
     "reference_token",
     "render_existing",

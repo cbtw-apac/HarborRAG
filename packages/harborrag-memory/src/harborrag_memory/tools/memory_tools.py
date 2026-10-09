@@ -140,7 +140,7 @@ class AgentMemoryTools:
         return {"ok": True, "memories": [memory_view(memory) for memory in recalled]}
 
     async def manage(self, values: dict[str, object]) -> dict[str, object]:
-        """Record one durable fact for the bound owner, add-only.
+        """Record one durable fact for the bound owner, add-only; PROJECT needs the policy opt-in.
 
         The requested scope degrades to the narrowest one this owner can
         address rather than widening, and an identical memory already stored in
@@ -151,10 +151,12 @@ class AgentMemoryTools:
 
         reject_owner_fields(values)
         content = _text(values, "content")
-        scope = _resolved_scope(
-            self.owner,
-            _scope(values, default=MemoryScope.USER, allowed=WRITABLE_SCOPES),
-        )
+        requested = _scope(values, default=MemoryScope.USER, allowed=WRITABLE_SCOPES)
+        if requested is MemoryScope.PROJECT and not self.policy.extraction_project_scope:
+            # Same opt-in as automatic extraction: an agent's run sees tool
+            # output, so it never widens a fact to the whole project by default.
+            requested = MemoryScope.USER
+        scope = _resolved_scope(self.owner, requested)
         if scope is None:
             return {"ok": False, "error": "this caller cannot address any memory scope"}
         existing = await self._existing(scope, content)

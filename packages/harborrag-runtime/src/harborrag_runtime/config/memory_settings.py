@@ -75,6 +75,11 @@ class MemorySettingsMixin(BaseSettings):
     memory_extraction_enabled: bool = True
     memory_extraction_min_importance: float = Field(default=0.3, ge=0.0, le=1.0)
     memory_dedup_threshold: float = Field(default=0.92, ge=0.5, le=1.0)
+    # Off by default: automatic extraction and the agent's manage_memory tool
+    # then store a proposed project fact at user scope. Project memory is read
+    # by every project member, and the text it is extracted from includes
+    # model output, so writing it is an explicit operator decision.
+    memory_extraction_project_scope: bool = False
 
     # Model selection for rewrite, extraction, and summarization.
     memory_model_profile: str = Field(default="memory", min_length=1)

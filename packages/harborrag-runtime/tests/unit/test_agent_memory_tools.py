@@ -247,7 +247,7 @@ async def test_search_memory_cannot_see_another_callers_memories() -> None:
 @pytest.mark.asyncio
 async def test_manage_memory_records_for_the_bound_owner_and_is_add_only() -> None:
     memories = _Memories()
-    provider = _provider(memories)
+    provider = _provider(memories, settings=RuntimeSettings(memory_extraction_project_scope=True))
 
     first = await provider.call_tool(
         "manage_memory",
@@ -411,3 +411,15 @@ async def test_recalled_memories_are_counted_against_the_result_budget() -> None
     response = await provider.call_tool("search_memory", {"query": "metric", "limit": 4})
 
     assert response == {"ok": False, "error": "Agent result budget exceeded."}
+
+
+@pytest.mark.asyncio
+async def test_manage_memory_keeps_a_project_fact_personal_by_default() -> None:
+    memories = _Memories()
+
+    response = await _provider(memories).call_tool(
+        "manage_memory",
+        {"content": "ships on Fridays", "scope": "project"},
+    )
+
+    assert memories.rows[str(response["memory_id"])].scope is MemoryScope.USER

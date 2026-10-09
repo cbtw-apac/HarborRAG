@@ -37,6 +37,7 @@ def memory_policy_from_settings(settings: RuntimeSettings) -> MemoryPolicy:
         block_budget_fraction=settings.memory_block_budget_fraction,
         type_affinity_weight=settings.memory_type_affinity_weight,
         query_rewrite=settings.memory_query_rewrite,
+        extraction_project_scope=settings.memory_extraction_project_scope,
     )
 
 

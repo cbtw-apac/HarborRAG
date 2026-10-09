@@ -171,3 +171,16 @@ def test_type_affinity_weight_accepts_the_whole_range(value: float) -> None:
     assert RuntimeSettings(memory_type_affinity_weight=value).memory_type_affinity_weight == (
         pytest.approx(value)
     )
+
+
+def test_project_scope_extraction_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    from harborrag_runtime.memory.policy import memory_policy_from_settings
+
+    assert RuntimeSettings().memory_extraction_project_scope is False
+    assert memory_policy_from_settings(RuntimeSettings()).extraction_project_scope is False
+
+    monkeypatch.setenv("HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE", "true")
+    enabled = RuntimeSettings()
+
+    assert enabled.memory_extraction_project_scope is True
+    assert memory_policy_from_settings(enabled).extraction_project_scope is True

@@ -58,6 +58,12 @@ class MemoryPolicy:
     the per-turn query rewrite reported the question wants -- 0 disables the
     type hint. It only ever re-ranks: recall still searches every recallable
     type, and retention stays keyed on scope.
+
+    ``extraction_project_scope`` lets automatic extraction and the agent's
+    ``manage_memory`` tool write PROJECT memory. Off by default: project
+    memory is read by every project member, while the text it would be
+    extracted from includes model output, so a proposed project fact is
+    stored at USER scope (then SESSION) instead unless an operator opts in.
     """
 
     enabled: bool = True
@@ -75,6 +81,7 @@ class MemoryPolicy:
     entity_confidence_floor: float = 0.5
     entity_overlap_weight: float = 0.5
     type_affinity_weight: float = 0.5
+    extraction_project_scope: bool = False
 
     def __post_init__(self) -> None:
         _require_positive("recent_max_messages", self.recent_max_messages)
