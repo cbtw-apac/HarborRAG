@@ -141,10 +141,17 @@ services:
         mc admin policy create harbor harborrag-app /etc/harborrag/minio-app-policy.json
         # printf is a bash builtin: the secret reaches mc on stdin, never argv.
         printf '%s\n' "$${MINIO_APP_SECRET_KEY}" | mc admin user add harbor "$${MINIO_APP_ACCESS_KEY}"
-        user_info="$$(mc admin user info harbor "$${MINIO_APP_ACCESS_KEY}" --json)"
-        if [[ "$${user_info}" != *'"harborrag-app"'* ]]; then
+        # Match the policyName field only: the access key defaults to the policy name.
+        policy_attached() {
+          local info
+          info="$$(mc admin user info harbor "$${MINIO_APP_ACCESS_KEY}" --json)"
+          [[ "$${info}" =~ \"policyName\":\"([^\"]*)\" ]] &&
+            [[ ",$${BASH_REMATCH[1]}," == *,harborrag-app,* ]]
+        }
+        if ! policy_attached; then
           mc admin policy attach harbor harborrag-app --user "$${MINIO_APP_ACCESS_KEY}"
         fi
+        policy_attached || { echo "harborrag-app policy is not attached to the application key." >&2; exit 1; }
         echo "MinIO buckets and the HarborRAG application key are ready."
     volumes:
       - ../minio/harborrag-app-policy.json:/etc/harborrag/minio-app-policy.json:ro

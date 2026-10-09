@@ -55,16 +55,19 @@ scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 060
 checkout environment files and mints the local MCP bearer token. It also fills
 every empty datastore secret in `env/.env.database` with
 `openssl rand -hex 32`: `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`,
-`MINIO_APP_SECRET_KEY`, `QDRANT_API_KEY`, `REDIS_PASSWORD` and `FALKORDB_PASSWORD`. It never replaces a
-value that is already set, so it is safe to re-run. MCP reads the database and
+`MINIO_APP_SECRET_KEY`, `QDRANT_API_KEY`, `REDIS_PASSWORD` and
+`FALKORDB_PASSWORD`. It never replaces a value that is already set, so it is
+safe to re-run. MCP reads the database and
 model files, plus the MCP file when present; it does not load `env/.env.api`.
 
 `dev.sh data`, `temporal`, `worker`, `api` and `up` refuse to start in two
 cases:
-- any of those five secrets is empty or still a `change-me`/`REPLACE`
+- any of those six secrets is empty or still a `change-me`/`REPLACE`
   placeholder;
-- `POSTGRES_PASSWORD` or `REDIS_PASSWORD` contains `@ / : # ? %` or whitespace,
-  which would corrupt the connection URLs Compose builds from them.
+- `POSTGRES_PASSWORD`, `REDIS_PASSWORD`, `MINIO_ROOT_PASSWORD` or
+  `MINIO_ROOT_USER` contains anything but letters, digits, `-`, `_`, `.` or
+  `~`, which would corrupt the connection URLs Compose builds from them;
+- `MINIO_APP_ACCESS_KEY` equals `MINIO_ROOT_USER`.
 
 **`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
 startup.** It encrypts stored connector credentials in the control database, and both the

@@ -326,6 +326,16 @@ def test_minio_init_provisions_a_least_privilege_application_key() -> None:
         'mc admin user add harbor "$${MINIO_APP_ACCESS_KEY}"'
     ) in script
     assert "MINIO_ROOT_PASSWORD" not in script
+    # `-e` makes every failed mc call abort the one-shot.
+    assert init["entrypoint"] == ["/usr/bin/bash", "-ec"]
+    # The access key defaults to the policy name, so a bare substring match on
+    # the user info would always look attached: inspect policyName only.
+    assert '\\"policyName\\":\\"([^\\"]*)\\"' in script
+    assert '*"harborrag-app"*' not in script
+    # After attaching, the script re-reads the policy and fails loudly.
+    attach = script.index("mc admin policy attach")
+    assert "policy_attached ||" in script[attach:]
+    assert "|| true" not in script
 
 
 def test_minio_application_policy_is_limited_to_the_harborrag_buckets() -> None:

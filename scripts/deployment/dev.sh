@@ -192,6 +192,18 @@ require_database_secrets() {
             fail "${name} in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it. Use letters, digits, '-', '_', '.', or '~' (for example 'openssl rand -hex 32')."
         fi
     done
+    # MINIO_ROOT_USER is not secret but is embedded in the same MC_HOST_harbor URL.
+    local root_user app_key
+    root_user="$(configured_secret "${DATABASE_ENV_FILE}" MINIO_ROOT_USER)"
+    root_user="${root_user:-harborrag}"
+    app_key="$(configured_secret "${DATABASE_ENV_FILE}" MINIO_APP_ACCESS_KEY)"
+    app_key="${app_key:-harborrag-app}"
+    if ! [[ "${root_user}" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+        fail "MINIO_ROOT_USER in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it. Use letters, digits, '-', '_', '.', or '~'."
+    fi
+    if [[ "${app_key}" == "${root_user}" ]]; then
+        fail "MINIO_APP_ACCESS_KEY in ${DATABASE_ENV_FILE} must differ from MINIO_ROOT_USER: the application key is a separate least-privilege user."
+    fi
 }
 
 # True when a Redis URL carries a password: ":password@" userinfo or a

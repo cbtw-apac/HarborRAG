@@ -668,3 +668,37 @@ def test_no_development_guard_warning_when_prod_is_exported(tmp_path: Path) -> N
     result = _run(script, env, "worker")
 
     assert DEV_GUARD_WARNING not in result.stderr
+
+
+@requires_openssl
+@pytest.mark.parametrize("user", ["root@user", "root:user", "root user", "root/user"])
+def test_launchers_refuse_a_url_unsafe_minio_root_user(tmp_path: Path, user: str) -> None:
+    script, _, env = _ready_project(tmp_path)
+    database = script.parents[2] / "env/.env.database"
+    database.write_text(
+        database.read_text(encoding="utf-8") + f"MINIO_ROOT_USER={user}\n", encoding="utf-8"
+    )
+
+    result = _run(script, env, "data")
+
+    assert result.returncode == 2
+    assert "MINIO_ROOT_USER" in result.stderr
+    assert "URL" in result.stderr
+
+
+@requires_openssl
+@pytest.mark.parametrize("root_user", ["", "ops-root"])
+def test_launchers_refuse_an_application_key_equal_to_the_root_user(
+    tmp_path: Path, root_user: str
+) -> None:
+    script, _, env = _ready_project(tmp_path)
+    database = script.parents[2] / "env/.env.database"
+    name = root_user or "harborrag"
+    lines = f"MINIO_ROOT_USER={root_user}\nMINIO_APP_ACCESS_KEY={name}\n"
+    database.write_text(database.read_text(encoding="utf-8") + lines, encoding="utf-8")
+
+    result = _run(script, env, "data")
+
+    assert result.returncode == 2
+    assert "MINIO_APP_ACCESS_KEY" in result.stderr
+    assert "must differ from MINIO_ROOT_USER" in result.stderr
