@@ -54,6 +54,9 @@ def test_checkout_environment_maps_qdrant_and_falkordb_credentials(tmp_path: Pat
 
     assert environment["HARBORRAG_QDRANT_API_KEY"] == "qdrant-synthetic"
     assert environment["HARBORRAG_FALKORDB_PASSWORD"] == "falkor-synthetic"
+    # Only the mapped names reach the process; the raw checkout names are dropped.
+    assert "QDRANT_API_KEY" not in environment
+    assert "FALKORDB_PASSWORD" not in environment
 
 
 def test_explicit_qdrant_and_falkordb_credentials_win_over_checkout(tmp_path: Path) -> None:

@@ -17,7 +17,6 @@ from harborrag_runtime.config.checkout import (
     read_compose_env_file,
 )
 
-
 # Checkout-only secrets the adapter reads to build mapped HARBORRAG_* values. The MCP
 # process must never inherit them raw (MinIO root, Postgres owner, Redis, encryption key).
 _CHECKOUT_ONLY_SECRETS = (
@@ -27,6 +26,9 @@ _CHECKOUT_ONLY_SECRETS = (
     "POSTGRES_PASSWORD",
     "REDIS_PASSWORD",
     "HARBORRAG_SECRETS_ENCRYPTION_KEY",
+    # Mapped to HARBORRAG_QDRANT_API_KEY / HARBORRAG_FALKORDB_PASSWORD before the drop.
+    "QDRANT_API_KEY",
+    "FALKORDB_PASSWORD",
 )
 
 

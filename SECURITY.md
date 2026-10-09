@@ -55,8 +55,9 @@ administers, inside a network perimeter it controls.
 - **MCP server authentication.** Over HTTP the MCP server binds only to loopback
   and runs in one of two modes, set by `HARBORRAG_MCP_AUTH_MODE`. `local` (the
   default) accepts one static owner bearer token of at least 32 bytes. `api_key`
-  checks per-reader keys, stored in PostgreSQL by default or in a file, and keeps
-  the owner token valid beside them when `HARBORRAG_MCP_BEARER_TOKEN` is set.
+  checks per-reader keys, stored in PostgreSQL by default or in a file. With the
+  PostgreSQL store the owner token stays valid beside them when
+  `HARBORRAG_MCP_BEARER_TOKEN` is set; the file store accepts reader keys only.
   Remote access needs a TLS reverse proxy you operate. The stdio transport has
   no authentication and relies on the local process boundary.
 - **Plaintext is a development acknowledgement.** The `*_ALLOW_INSECURE_REMOTE`
