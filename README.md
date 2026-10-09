@@ -295,10 +295,11 @@ Then open the files it created and replace the placeholders:
 | `env/.env.api` | API bind address, port, and JWT settings | API, MCP |
 | `env/.env.mcp` | Local MCP bearer token and transport overrides | MCP HTTP transport |
 
-### Three values you must fill in
+### Two values you must fill in
 
-`bootstrap` leaves working local defaults everywhere except these. The first one is
-mandatory for the API and worker; their launchers refuse to start without it:
+`bootstrap` generates every datastore secret (PostgreSQL, MinIO, Qdrant, Redis, and
+FalkorDB) and leaves working local defaults everywhere else except these two. The first
+one is mandatory for the API and worker; their launchers refuse to start without it:
 
 ```bash
 # 1. env/.env.database - ships EMPTY and blocks API/worker startup.
@@ -310,7 +311,6 @@ openssl rand -hex 32
 ```dotenv
 # env/.env.database
 HARBORRAG_SECRETS_ENCRYPTION_KEY=<paste the value above>
-POSTGRES_PASSWORD=<a strong password, replacing change-me>
 ```
 
 ```dotenv
@@ -353,7 +353,7 @@ MODEL_ENV_FILE=/etc/harborrag/models.env \
 wrapper accepts `DATABASE_ENV_FILE`, `MODEL_ENV_FILE`, and `MCP_ENV_FILE`; the installed
 `harborrag-mcp` command accepts `--env-file` and direct `HARBORRAG_*` settings.
 
-**Doing it by hand.** `bootstrap` is `cp` plus `chmod` plus token generation. The manual
+**Doing it by hand.** `bootstrap` is `cp` plus `chmod` plus secret generation. The manual
 equivalent:
 
 ```bash
@@ -362,8 +362,9 @@ for name in database temporal connector parser models api mcp; do
   test -f "env/.env.${name}" || cp "env-example/.env.${name}.example" "env/.env.${name}"
 done
 chmod 600 env/.env.*
-# HARBORRAG_SECRETS_ENCRYPTION_KEY in env/.env.database, and
-# HARBORRAG_MCP_BEARER_TOKEN in env/.env.mcp (at least 32 bytes), both want:
+# HARBORRAG_SECRETS_ENCRYPTION_KEY, POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD,
+# QDRANT_API_KEY, REDIS_PASSWORD, and FALKORDB_PASSWORD in env/.env.database, and
+# HARBORRAG_MCP_BEARER_TOKEN in env/.env.mcp (at least 32 bytes), each want:
 openssl rand -hex 32
 ```
 

@@ -13,6 +13,19 @@ API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
 WORKER_DEVICE="cpu"
+# Secrets the data stack requires. bootstrap fills any that are empty or absent
+# with `openssl rand -hex 32` and never replaces a value that is set; the
+# launchers refuse empty or placeholder values. Hex keeps every generated value
+# safe inside connection URLs, sed, and Compose interpolation.
+DATABASE_GENERATED_SECRETS=(
+    POSTGRES_PASSWORD
+    MINIO_ROOT_PASSWORD
+    QDRANT_API_KEY
+    REDIS_PASSWORD
+    FALKORDB_PASSWORD
+)
+# Compose embeds these in connection URLs without escaping.
+URL_EMBEDDED_SECRETS=(POSTGRES_PASSWORD REDIS_PASSWORD)
 
 usage() {
     cat <<'EOF'
@@ -74,6 +87,81 @@ require_control_plane_encryption_key() {
     fi
 }
 
+# The last NAME=value of an env file without evaluating it. Carriage returns,
+# surrounding whitespace, and one pair of matching quotes are removed.
+env_file_value() {
+    local path="$1"
+    local name="$2"
+    local value
+    value="$(sed -n "s/^${name}=//p" "${ROOT_DIR}/${path}" | tail -n 1)"
+    value="${value//$'\r'/}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    if [[ "${value}" == \"*\" || "${value}" == \'*\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+    printf '%s' "${value}"
+}
+
+# Compose lets an exported variable override the --env-file value; match it.
+configured_secret() {
+    local path="$1"
+    local name="$2"
+    if [[ -v "${name}" ]]; then
+        printf '%s' "${!name}"
+    else
+        env_file_value "${path}" "${name}"
+    fi
+}
+
+is_placeholder_secret() {
+    local value="$1"
+    [[ -z "${value}" || "${value}" == change-me* || "${value}" == REPLACE* ]]
+}
+
+generate_missing_secrets() {
+    local path="$1"
+    shift
+    local target_path="${ROOT_DIR}/${path}"
+    local name value
+    local -a generated=()
+    for name in "$@"; do
+        [[ -z "$(env_file_value "${path}" "${name}")" ]] || continue
+        command -v openssl >/dev/null ||
+            fail "OpenSSL is required to generate ${name} in ${path}."
+        value="$(openssl rand -hex 32)"
+        if grep -Eq "^${name}=" "${target_path}"; then
+            sed -i "s/^${name}=.*/${name}=${value}/" "${target_path}"
+        else
+            if [[ -s "${target_path}" && -n "$(tail -c 1 "${target_path}")" ]]; then
+                printf '\n' >>"${target_path}"
+            fi
+            printf '%s=%s\n' "${name}" "${value}" >>"${target_path}"
+        fi
+        generated+=("${name}")
+    done
+    chmod 600 "${target_path}"
+    if ((${#generated[@]} > 0)); then
+        echo "Generated ${generated[*]} in ${path}."
+    fi
+}
+
+require_database_secrets() {
+    require_file "${DATABASE_ENV_FILE}" "database environment"
+    local name
+    local unsafe='[@/:#?%[:space:]]'
+    for name in "${DATABASE_GENERATED_SECRETS[@]}"; do
+        if is_placeholder_secret "$(configured_secret "${DATABASE_ENV_FILE}" "${name}")"; then
+            fail "${name} in ${DATABASE_ENV_FILE} is empty or a placeholder. Run '$0 bootstrap' to generate missing secrets, or replace the placeholder with a strong value. PostgreSQL keeps the password its volume was created with: change it there with ALTER USER, or discard the data with '$0 down --volumes'."
+        fi
+    done
+    for name in "${URL_EMBEDDED_SECRETS[@]}"; do
+        if [[ "$(configured_secret "${DATABASE_ENV_FILE}" "${name}")" =~ ${unsafe} ]]; then
+            fail "${name} in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it (@ / : # ? % or whitespace). Use letters, digits, '-', '_', '.', or '~' (for example 'openssl rand -hex 32')."
+        fi
+    done
+}
+
 ensure_environment_file() {
     local target="$1"
     local template="$2"
@@ -117,6 +205,7 @@ bootstrap_environment() {
     ensure_environment_file "${MODEL_ENV_FILE}" "env-example/.env.models.example"
     ensure_environment_file "${API_ENV_FILE}" "env-example/.env.api.example"
     ensure_mcp_environment_file "${MCP_ENV_FILE}" "env-example/.env.mcp.example"
+    generate_missing_secrets "${DATABASE_ENV_FILE}" "${DATABASE_GENERATED_SECRETS[@]}"
 }
 
 require_data_network() {
@@ -219,12 +308,14 @@ worker_replicas() {
 }
 
 start_data() {
+    require_database_secrets
     echo "Starting HarborRAG data services..."
     data_compose config --quiet
     data_compose up --detach
 }
 
 start_temporal() {
+    require_database_secrets
     require_data_network
     echo "Starting Temporal server services (without worker)..."
     temporal_compose config --quiet
@@ -236,6 +327,7 @@ start_temporal() {
 start_worker() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
+    require_database_secrets
     require_data_network
     require_temporal_server
     prepare_worker_mount
@@ -266,6 +358,7 @@ start_worker() {
 start_api() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
+    require_database_secrets
     require_data_network
     require_temporal_server
     [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
@@ -355,7 +448,7 @@ case "${command}" in
         [[ "$#" -eq 0 ]] || fail "bootstrap accepts no options."
         bootstrap_environment
         if ((created_environment)); then
-            echo "Review the new environment files and replace placeholder credentials."
+            echo "Review the new environment files: set HARBORRAG_SECRETS_ENCRYPTION_KEY and the model credentials; datastore secrets were generated."
         else
             echo "Development environment files already exist."
         fi

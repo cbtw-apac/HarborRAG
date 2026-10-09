@@ -102,7 +102,7 @@ HarborRAG at your own sources.
 ### 5. Create the `env/` folder
 
 Every credential lives in an ignored `env/` folder that you create once. One command
-creates all seven files from their templates, generates a random MCP bearer token, and sets
+creates all seven files from their templates, generates a random MCP bearer token and every datastore secret, and sets
 mode `0600`:
 
 ```bash
@@ -119,7 +119,6 @@ openssl rand -hex 32     # use the output as HARBORRAG_SECRETS_ENCRYPTION_KEY
 ```dotenv
 # env/.env.database
 HARBORRAG_SECRETS_ENCRYPTION_KEY=<the value above>
-POSTGRES_PASSWORD=<a strong password, replacing change-me>
 ```
 
 ```dotenv

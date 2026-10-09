@@ -33,16 +33,26 @@ constraint from a snapshot, but crashes when Redis replays the asynchronous
 `GRAPH.CONSTRAINT` command from AOF. The separate Redis service continues to use
 AOF persistence.
 
-Prepare a protected environment file:
+Prepare protected environment files:
 
 ```bash
 scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 0600
 ```
 
-`bootstrap` is preferred over copying templates by hand: it creates the
-checkout environment files and mints the local MCP bearer token. MCP reads the
-database and model files, plus the MCP file when present; it does not load
-`env/.env.api`.
+`bootstrap` is preferred over copying templates by hand. It creates the
+checkout environment files and mints the local MCP bearer token. It also fills
+every empty datastore secret in `env/.env.database` with
+`openssl rand -hex 32`: `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`,
+`QDRANT_API_KEY`, `REDIS_PASSWORD` and `FALKORDB_PASSWORD`. It never replaces a
+value that is already set, so it is safe to re-run. MCP reads the database and
+model files, plus the MCP file when present; it does not load `env/.env.api`.
+
+`dev.sh data`, `temporal`, `worker`, `api` and `up` refuse to start in two
+cases:
+- any of those five secrets is empty or still a `change-me`/`REPLACE`
+  placeholder;
+- `POSTGRES_PASSWORD` or `REDIS_PASSWORD` contains `@ / : # ? %` or whitespace,
+  which would corrupt the connection URLs Compose builds from them.
 
 **`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
 startup.** It encrypts stored connector credentials in the control database, and both the
@@ -55,16 +65,34 @@ openssl rand -hex 32     # paste into HARBORRAG_SECRETS_ENCRYPTION_KEY
 
 Rotating it after secrets have been stored requires re-encrypting or re-entering them.
 
-When upgrading an existing checkout, add `HARBORRAG_SECRETS_ENCRYPTION_KEY`,
-`POSTGRES_PASSWORD`, and `MINIO_ROOT_PASSWORD` to the existing protected
-`env/.env.database` before the next start. Monitoring now uses a separate `env/.env.monitoring`; create it
-from `env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`.
-Compose intentionally refuses to start an affected service when one of these
-required passwords is absent.
+When upgrading an existing checkout, run `scripts/deployment/dev.sh bootstrap`
+once. It appends the missing datastore secrets to the existing
+`env/.env.database` without touching values that are already set.
+
+A file that still holds the old `change-me` PostgreSQL password is refused
+rather than rotated, because PostgreSQL keeps the password its volume was
+initialised with. You have two options:
+- change the password inside PostgreSQL, then put the same value in the file:
+
+  ```bash
+  docker compose --env-file env/.env.database \
+    --file deploy/compose/docker-compose.database.yml \
+    exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD '<openssl rand -hex 32 output>'"
+  ```
+
+- discard the local data with `scripts/deployment/dev.sh down --volumes`, then
+  empty the `POSTGRES_PASSWORD=` line so `bootstrap` generates a fresh value.
+
+A `change-me-minio` MinIO password can simply be replaced: MinIO reads its root
+credentials on every start.
+
+Monitoring now uses a separate `env/.env.monitoring`; create it from
+`env-example/.env.monitoring.example` and set `GRAFANA_ADMIN_PASSWORD`. Compose
+intentionally refuses to start an affected service when a required password is
+absent.
 
 The unified deployment helper accepts `DATABASE_ENV_FILE` overrides and passes
-the selected file to Docker Compose. Change the example password before using
-the stack outside an isolated developer machine.
+the selected file to Docker Compose.
 
 The stack owns the stable `harborrag-data-network`, and it is the only compose file that
 creates it - every other stack declares it `external: true`. Application containers and the

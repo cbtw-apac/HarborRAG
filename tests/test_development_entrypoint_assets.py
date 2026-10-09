@@ -76,7 +76,12 @@ def test_development_entrypoint_supports_documented_argument_forms(
     ):
         (environment / filename).write_text("", encoding="utf-8")
     (environment / ".env.database").write_text(
-        "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n",
+        "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n"
+        "POSTGRES_PASSWORD=test-postgres-password\n"
+        "MINIO_ROOT_PASSWORD=test-minio-password\n"
+        "QDRANT_API_KEY=test-qdrant-api-key\n"
+        "REDIS_PASSWORD=test-redis-password\n"
+        "FALKORDB_PASSWORD=test-falkordb-password\n",
         encoding="utf-8",
     )
     (environment / ".env.mcp").write_text(
@@ -372,3 +377,17 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
 
     assert result.returncode == 0, result.stderr
     assert "HARBORRAG_ENV=prod" in docker_log.read_text(encoding="utf-8")
+
+
+def test_database_example_leaves_generated_secrets_empty() -> None:
+    example = (ROOT / "env-example/.env.database.example").read_text(encoding="utf-8")
+
+    for name in (
+        "POSTGRES_PASSWORD",
+        "MINIO_ROOT_PASSWORD",
+        "QDRANT_API_KEY",
+        "REDIS_PASSWORD",
+        "FALKORDB_PASSWORD",
+    ):
+        assert f"\n{name}=\n" in example, name
+    assert "change-me" not in example
