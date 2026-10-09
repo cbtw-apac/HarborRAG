@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
-_MARKDOWN_LINK = re.compile(r"!?\[[^\]]*]\(([^)\s]+)(?:\s+['\"][^'\"]*['\"])?\)")
+# Label and target classes exclude the brackets (and the target also excludes
+# parentheses), so a scan stops at the next "[" -- the next possible match start
+# -- and every character is examined a bounded number of times. The previous
+# pattern let both run across "[", which made unclosed "[](" openers quadratic.
+_MARKDOWN_LINK = re.compile(r"""!?\[[^\[\]]*\]\(([^()\s\[\]]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)""")
 _HTML_LINK = re.compile(
     r"""(?:href|src)\s*=\s*["']([^"']+)["']""",
     flags=re.IGNORECASE,
