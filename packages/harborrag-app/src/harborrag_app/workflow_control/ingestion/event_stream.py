@@ -49,9 +49,20 @@ async def replay_backlog(
         cursor = page[-1].seq
 
 
-async def _next_live(live: AsyncIterator[HarborEvent]) -> HarborEvent | None:
+async def _next_live(live: AsyncIterator[HarborEvent], task_id: str) -> HarborEvent | None:
+    """The next live event that belongs to ``task_id``, or ``None`` when the feed ends.
+
+    The subscription is prefix-based, so a legacy run id such as ``<id>.x``
+    would otherwise leak its ``task.<id>.x.done`` into this task's stream.
+    Only the bridge's exact progress and done names are accepted.
+    """
+
+    accepted = {f"task.{task_id}.progress", f"task.{task_id}.done"}
     try:
-        return await anext(live)
+        while True:
+            event = await anext(live)
+            if event.name in accepted:
+                return event
     except StopAsyncIteration:
         return None
 
@@ -102,7 +113,7 @@ async def tail_until_terminal(
     try:
         while True:
             if pending is None:
-                pending = asyncio.ensure_future(_next_live(live))
+                pending = asyncio.ensure_future(_next_live(live, task_id))
             finished, _ = await asyncio.wait({pending}, timeout=STATUS_POLL_SECONDS)
             if pending in finished:
                 event = pending.result()

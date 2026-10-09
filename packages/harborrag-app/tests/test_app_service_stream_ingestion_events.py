@@ -295,3 +295,28 @@ async def test_terminal_task_whose_backlog_has_done_gets_no_second_done() -> Non
     received = [event async for event in service.stream_ingestion_events("t1")]
 
     assert [event.name for event in received] == ["task.t1.progress", "task.t1.done"]
+
+
+@pytest.mark.asyncio
+async def test_another_tasks_prefixed_done_neither_ends_nor_reaches_the_stream(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(event_stream, "STATUS_POLL_SECONDS", 30.0)
+    bus = InProcessEventBus()
+    store = _MutableTaskStore(_task(IngestionTaskState.RUNNING))
+    events = _service_over(bus, store).stream_ingestion_events("t1")
+
+    first = asyncio.ensure_future(events.__anext__())
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    await bus.publish(HarborEvent(name="task.t1.x.done", trace_id="t1.x", seq=4))
+    await bus.publish(HarborEvent(name="task.t1.progress", trace_id="t1", seq=5))
+
+    got = await asyncio.wait_for(first, timeout=2)
+    assert (got.name, got.seq) == ("task.t1.progress", 5)
+    second = asyncio.ensure_future(events.__anext__())
+    await asyncio.sleep(0.05)
+    assert not second.done()
+    await bus.publish(HarborEvent(name="task.t1.done", trace_id="t1", seq=6))
+    assert (await asyncio.wait_for(second, timeout=2)).name == "task.t1.done"
+    await events.aclose()
