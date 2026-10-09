@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from logging import Logger
 
+from pydantic import ValidationError
+
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborNotFoundError,
@@ -71,7 +73,10 @@ class IngestionStatusFilterError(HarborValidationError):
 # as public.
 #
 # ``ValueError`` is included to preserve the original behaviour for local
-# argument validation raised by the application services themselves.
+# argument validation raised by the application services themselves. Its
+# pydantic subclass ``ValidationError`` is NOT forwarded verbatim: its text
+# embeds every submitted value (``input_value=...``), so it is rendered as
+# field paths only (``_validation_message``).
 
 
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
@@ -87,6 +92,28 @@ _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
 )
 
 
+_MAX_REPORTED_FIELDS = 10
+_MAX_FIELD_PATH_LENGTH = 80
+
+
+def _validation_message(exc: ValidationError) -> str:
+    """Name the invalid fields without echoing any submitted value.
+
+    Only ``loc`` is used: ``msg`` can embed a value (custom validators often
+    interpolate it), and ``input``/``ctx`` are values by definition.
+    """
+
+    paths: list[str] = []
+    for error in exc.errors(include_url=False, include_context=False, include_input=False):
+        path = ".".join(str(part) for part in error["loc"])[:_MAX_FIELD_PATH_LENGTH] or "<root>"
+        if path not in paths:
+            paths.append(path)
+    shown = ", ".join(paths[:_MAX_REPORTED_FIELDS])
+    hidden = len(paths) - _MAX_REPORTED_FIELDS
+    suffix = f" (+{hidden} more)" if hidden > 0 else ""
+    return f"Invalid input for field(s): {shown}{suffix}"
+
+
 def public_error_message(exc: Exception) -> str:
     """Expose reviewed local messages, never arbitrary provider messages.
 
@@ -97,6 +124,8 @@ def public_error_message(exc: Exception) -> str:
     full detail stays available to whoever operates the process.
     """
 
+    if isinstance(exc, ValidationError):
+        return _validation_message(exc)
     if isinstance(exc, _PUBLIC_MESSAGE_TYPES):
         return str(exc) or type(exc).__name__
     return type(exc).__name__
@@ -114,6 +143,11 @@ def failure_response(
     if public == type(exc).__name__:
         logger.error(message, *args, exc_info=exc)
     else:
+        # A reviewed public message is still a failed operation: WARNING keeps
+        # it visible at production log levels. The record carries only the
+        # sanitized public text (a pydantic error's own text embeds submitted
+        # values); the full traceback stays at DEBUG.
+        logger.warning(message + ": %s", *args, public)
         logger.debug(message, *args, exc_info=exc)
     return AppResponse(
         False,
