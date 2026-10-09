@@ -52,7 +52,9 @@ def is_blank_secret(value: SecretStr | None) -> bool:
 class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
-    model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
+    )
 
     env: Literal["dev", "prod"] = "dev"
     ingestion_tenant_id: str = Field(
