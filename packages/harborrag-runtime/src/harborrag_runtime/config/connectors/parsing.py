@@ -84,7 +84,7 @@ def _parse_definition(
 
     provider = _parse_provider(name, definition.get("provider"))
     enabled = _parse_enabled(name, definition.get("enabled", True))
-    tenants = _parse_tenants(name, definition.get("tenants"))
+    tenants = _parse_tenants(name, definition["tenants"]) if "tenants" in definition else None
     settings = dict(
         require_string_mapping(
             definition.get("settings", {}),
@@ -135,10 +135,12 @@ def _parse_definition(
 
 
 def _parse_tenants(name: str, raw: object) -> frozenset[str] | None:
-    """Read the optional tenant allowlist; absent means every tenant."""
+    """Validate a present tenant allowlist; the caller skips an absent key.
 
-    if raw is None:
-        return None
+    A present-but-empty key (YAML null) is rejected rather than read as "every
+    tenant", so a half-edited allowlist fails closed.
+    """
+
     if not isinstance(raw, list) or not raw:
         raise ConnectorConfigurationError(
             f"Connector {name!r} tenants must be a non-empty list of tenant ids"

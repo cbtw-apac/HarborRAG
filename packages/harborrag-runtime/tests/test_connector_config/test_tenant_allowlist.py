@@ -86,7 +86,7 @@ def test_unbound_connections_are_reported_once_any_allowlist_exists(tmp_path: Pa
 
 @pytest.mark.parametrize(
     "tenants",
-    ["acme", "[]", "['*']", "[' acme']", "['']", "[1]"],
+    ["acme", "[]", "['*']", "[' acme']", "['']", "[1]", '""', "~"],
 )
 def test_an_invalid_allowlist_fails_that_connection_only(tmp_path: Path, tenants: str) -> None:
     catalog = load_connector_catalog(

@@ -217,6 +217,18 @@ def public_ingestion_source_input(
     )
 
 
+def write_workspace_connectors(directory: Path, *, tenants: str) -> Path:
+    """Write a synthetic catalog holding the connection the fake builder submits."""
+
+    path = directory / "connectors.yaml"
+    path.write_text(
+        "version: 1\nconnectors:\n  harborrag-workspace:\n    provider: local\n"
+        f"    tenants: {tenants}\n    settings:\n      source_path: docs\n",
+        encoding="utf-8",
+    )
+    return path
+
+
 def public_ingestion_command(*, marker: str = "one") -> IngestionCreateCommand:
     return IngestionCreateCommand(
         tenant_id="ACME",
@@ -264,7 +276,10 @@ async def service_resources(
         return registry
 
     service = IngestionApplicationService(
-        RuntimeSettings(ingestion_tenant_id="default"),
+        RuntimeSettings(
+            ingestion_tenant_id="default",
+            connector_config_path=write_workspace_connectors(tmp_path, tenants="[ACME]"),
+        ),
         client_provider=runtime_client,
         task_store_provider=task_store,
         source_input_builder=public_ingestion_source_input,

@@ -206,14 +206,14 @@ class ConnectorCatalog:
         is the tenant-facing lookup: an unknown name, a name outside the
         tenant's allowlist, and an unparseable definition all raise the same
         ``ConnectorNotFoundError`` so a caller learns nothing about other
-        tenants' connections. A broken definition's own error was already
-        logged when the catalog loaded.
+        tenants' connections. A broken definition's own error is logged at
+        DEBUG here; the loader already reported it when the catalog loaded.
         """
 
         definition = self.connectors.get(name)
         if definition is None or not definition.allows_tenant(tenant_id):
             if name in self.errors:
-                logger.warning(
+                logger.debug(
                     "Connector %r is invalid and was requested for submission: %s",
                     name,
                     self.errors[name],

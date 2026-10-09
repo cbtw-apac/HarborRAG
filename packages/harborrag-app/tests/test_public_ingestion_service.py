@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from uuid import UUID
 
 import pytest
 from workflow_control_fixtures import (
     FakeTemporalClient,
+    write_workspace_connectors,
 )
 from workflow_control_fixtures import (
     public_ingestion_command as _command,
@@ -26,6 +28,7 @@ from harborrag_app.workflow_control.ingestion.presenters import task_id as gener
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
+from harborrag_runtime.config.errors import ConnectorNotFoundError
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
@@ -250,6 +253,42 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
         await service.pause(task_id)
     with pytest.raises(IngestionAlreadyCompletedError):
         await service.resume(task_id)
+
+
+@pytest.mark.asyncio
+async def test_retry_is_refused_once_the_tenant_leaves_the_connection_allowlist(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+    tmp_path: Path,
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    await control.tasks.record_document_result(
+        TaskDocumentResult(
+            task_id=task_id,
+            document_id="document:retryable",
+            status="failed",
+            result={
+                "safe_error_code": "vector_write_failed",
+                "failure_stage": "WriteVectorProjection",
+                "retryable": True,
+            },
+        )
+    )
+    await control.tasks.finalize(
+        task_id, IngestionTaskState.FAILED, summary={"stage": "COMPLETED", "failed": 1}
+    )
+    write_workspace_connectors(tmp_path, tenants="[globex]")
+
+    with pytest.raises(ConnectorNotFoundError, match="Unknown configured connector"):
+        await service.retry_failures(task_id=task_id, document_ids=[])
+
+    assert temporal.retries == []
 
 
 @pytest.mark.asyncio

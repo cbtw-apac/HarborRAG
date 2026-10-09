@@ -14,6 +14,7 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
+from harborrag_runtime.config import load_connector_catalog
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
@@ -314,6 +315,10 @@ class IngestionApplicationService(TaskListingMixin):
             raise IngestionRetryConflictError(
                 "The ingestion task has no matching retryable document failures."
             )
+        tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
+        # Access can be withdrawn after submission: a tenant removed from the
+        # connection's allowlist may not re-fetch through a retry either.
+        self._require_connection_access(str(original.request.get("connector_name")), tenant_id)
         retry_task_id = self._task_id_factory()
         registration = await store.register_retry(
             retry_task_id=retry_task_id,
@@ -321,7 +326,6 @@ class IngestionApplicationService(TaskListingMixin):
             document_ids=selected,
         )
         try:
-            tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
             retry = IngestionRetryRequest(
                 retry_task_id=retry_task_id,
                 original_task_id=task_id,
@@ -343,6 +347,10 @@ class IngestionApplicationService(TaskListingMixin):
             "accepted_document_count": len(selected),
             "message": "Failed documents accepted for retry",
         }
+
+    def _require_connection_access(self, connector_name: str, tenant_id: str) -> None:
+        catalog = load_connector_catalog(self._settings.connector_config_path)
+        catalog.get_for_tenant(connector_name, tenant_id)
 
     def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         try:
