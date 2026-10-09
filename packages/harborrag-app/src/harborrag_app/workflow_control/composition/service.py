@@ -26,7 +26,7 @@ from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
-from ..ingestion.event_stream import replay_backlog, tail_until_terminal
+from ..ingestion.event_stream import closing_events, replay_backlog, tail_until_terminal
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import (
     LEASE_NAME,
@@ -298,6 +298,11 @@ class AppService(
                     if event.name.endswith(".done"):
                         return
             if live is None:
+                # Terminal at connect with no ".done" in the backlog (missed
+                # at a lease handoff, or Last-Event-ID past every event):
+                # synthesize one so EventSource does not reconnect forever.
+                for event in await closing_events(store, task_id, last_seq=last_seq) or ():
+                    yield event
                 return
             async with contextlib.aclosing(
                 tail_until_terminal(store, task_id, live, last_seq=last_seq)

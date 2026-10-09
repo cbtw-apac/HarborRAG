@@ -248,3 +248,50 @@ async def test_a_live_done_event_still_ends_the_stream_before_any_poll(
     with pytest.raises(StopAsyncIteration):
         await events.__anext__()
     assert bus._subscribers == []
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_with_only_progress_backlog_still_ends_with_done() -> None:
+    backlog = [
+        HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": n}, seq=n) for n in (1, 2)
+    ]
+    store = _MutableTaskStore(_task(IngestionTaskState.COMPLETED), backlog=backlog)
+    service = _service_over(InProcessEventBus(), store)
+
+    received = [event async for event in service.stream_ingestion_events("t1")]
+
+    assert [event.name for event in received] == [
+        "task.t1.progress",
+        "task.t1.progress",
+        "task.t1.done",
+    ]
+    assert received[-1].seq is None
+    assert received[-1].payload == {
+        "status": IngestionTaskState.COMPLETED.value,
+        "counts": {"succeeded": 3},
+    }
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_resumed_past_every_event_gets_a_synthesized_done() -> None:
+    backlog = [HarborEvent(name="task.t1.progress", trace_id="t1", seq=1)]
+    store = _MutableTaskStore(_task(IngestionTaskState.FAILED), backlog=backlog)
+    service = _service_over(InProcessEventBus(), store)
+
+    received = [event async for event in service.stream_ingestion_events("t1", after_seq=1)]
+
+    assert [event.name for event in received] == ["task.t1.done"]
+
+
+@pytest.mark.asyncio
+async def test_terminal_task_whose_backlog_has_done_gets_no_second_done() -> None:
+    backlog = [
+        HarborEvent(name="task.t1.progress", trace_id="t1", seq=1),
+        HarborEvent(name="task.t1.done", trace_id="t1", seq=2),
+    ]
+    store = _MutableTaskStore(_task(IngestionTaskState.COMPLETED), backlog=backlog)
+    service = _service_over(InProcessEventBus(), store)
+
+    received = [event async for event in service.stream_ingestion_events("t1")]
+
+    assert [event.name for event in received] == ["task.t1.progress", "task.t1.done"]

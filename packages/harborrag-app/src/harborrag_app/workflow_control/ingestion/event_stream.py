@@ -56,7 +56,7 @@ async def _next_live(live: AsyncIterator[HarborEvent]) -> HarborEvent | None:
         return None
 
 
-async def _closing_events(
+async def closing_events(
     store: PublicTaskStore, task_id: str, *, last_seq: int | None
 ) -> list[HarborEvent] | None:
     """The events that close a terminal task's stream, or ``None`` while it runs.
@@ -114,7 +114,7 @@ async def tail_until_terminal(
                 if _is_done(event):
                     return
                 continue
-            closing = await _closing_events(store, task_id, last_seq=last_seq)
+            closing = await closing_events(store, task_id, last_seq=last_seq)
             if closing is None:
                 continue
             for event in closing:
@@ -130,6 +130,7 @@ async def tail_until_terminal(
 __all__ = [
     "BACKLOG_PAGE_LIMIT",
     "STATUS_POLL_SECONDS",
+    "closing_events",
     "replay_backlog",
     "tail_until_terminal",
 ]
