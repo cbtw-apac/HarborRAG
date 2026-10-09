@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborUnavailableError
@@ -14,6 +14,14 @@ from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryOwner, Memory
 logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
 MEMORY_ERASURE = "erase_memory"
 SESSION_ERASURE = "erase_memory_session"
+
+
+@dataclass(frozen=True, slots=True)
+class ErasedMemory:
+    """One memory's erasure: vector points removed, and whether that delete is queued."""
+
+    points: int = 0
+    deferred: bool = False
 
 
 class MemoryErasureJournal:
@@ -41,7 +49,7 @@ class MemoryErasureJournal:
         if effect_id is not None and self.pending is not None:
             await self.pending.complete(effect_id)
 
-    async def erase_memory(self, memory: Memory) -> int:
+    async def erase_memory(self, memory: Memory) -> ErasedMemory:
         effect_id = await self.begin(
             MEMORY_ERASURE,
             memory.owner,
@@ -53,7 +61,7 @@ class MemoryErasureJournal:
             count = await self._unindex(memory.owner, memory.memory_id)
             if self.memories is not None:
                 await self.memories.delete(memory.owner, memory.memory_id)
-            return count
+            return ErasedMemory(points=count)
         if self.memories is not None:
             await self.memories.delete(memory.owner, memory.memory_id)
         try:
@@ -64,9 +72,9 @@ class MemoryErasureJournal:
                 memory.owner.tenant_id,
                 memory.memory_id,
             )
-            return 0
+            return ErasedMemory(deferred=True)
         await self.complete(effect_id)
-        return count
+        return ErasedMemory(points=count)
 
     async def replay(self, effect: PendingControlPlaneEffect) -> bool:
         if effect.kind != MEMORY_ERASURE:

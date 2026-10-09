@@ -18,7 +18,7 @@ enumerates sessions, because no port does.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import (
@@ -26,14 +26,23 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
     HarborUnavailableError,
 )
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
-from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope, modifiable_by
+from harborrag_core.ports.memory import (
+    MemoryOwner,
+    MemoryQuery,
+    MemoryScope,
+    authored_by,
+    modifiable_by,
+)
 
-from .erasure import SESSION_ERASURE, MemoryErasureJournal
+from .erasure import SESSION_ERASURE, ErasedMemory, MemoryErasureJournal
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from harborrag_core.ports.agent_runs import AgentRunRepository
     from harborrag_core.ports.conversation import ConversationHistoryRepository
     from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryRepository
@@ -54,12 +63,23 @@ _NO_STORE = "long-term memory is not configured for this deployment"
 
 
 @dataclass(frozen=True, slots=True)
-class _Purged:
-    """One purge pass's totals, plus the conversations its rows pointed at."""
+class PurgeTotals:
+    """One purge's totals. ``complete`` is False when the pass limit stopped it early."""
 
     memories: int = 0
     index_points: int = 0
+    deferred: int = 0
+    complete: bool = True
     conversations: frozenset[tuple[str, str]] = frozenset()
+
+    def __add__(self, other: PurgeTotals) -> PurgeTotals:
+        return PurgeTotals(
+            memories=self.memories + other.memories,
+            index_points=self.index_points + other.index_points,
+            deferred=self.deferred + other.deferred,
+            complete=self.complete and other.complete,
+            conversations=self.conversations | other.conversations,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -178,7 +198,7 @@ class MemoryAdministrationService:
             memories_required=self._memories is not None,
             index_required=self._index is not None,
         )
-        purged = await self._purge(owner, _SESSION_SCOPES)
+        purged = await self._purge_session(owner, identity)
         await self._conversations.delete(identity)
         await self._erasure.complete(effect_id)
         report = ErasureReport(
@@ -204,15 +224,14 @@ class MemoryAdministrationService:
             raise HarborUnavailableError("session erasure index is not configured")
         if owner.principal_id is None or owner.session_id is None:
             raise ValueError("session erasure intent lacks its ownership key")
-        await self._purge(owner, _SESSION_SCOPES)
-        await self._conversations.delete(
-            ConversationIdentity(
-                owner.tenant_id,
-                owner.principal_id,
-                owner.session_id,
-                owner.user_id or owner.principal_id,
-            )
+        identity = ConversationIdentity(
+            owner.tenant_id,
+            owner.principal_id,
+            owner.session_id,
+            owner.user_id or owner.principal_id,
         )
+        await self._purge_session(owner, identity)
+        await self._conversations.delete(identity)
         return True
 
     async def erase_user(self, owner: MemoryOwner, *, actor: str) -> ErasureReport:
@@ -260,60 +279,90 @@ class MemoryAdministrationService:
         _log_erasure("user", owner.tenant_id, actor, target, report)
         return report
 
+    async def _purge_session(
+        self, owner: MemoryOwner, identity: ConversationIdentity
+    ) -> PurgeTotals:
+        """The session's own memories, then every fact its human wrote from it.
+
+        USER and RUN facts extracted from a conversation (and PROJECT and
+        TENANT facts) cite it as ``source_session_id``. Deleting the
+        conversation must not leave them behind. Only rows this human authored
+        are removed, never what another user wrote, even into a shared scope
+        under the same session id.
+        """
+
+        own = await self._purge(owner, _SESSION_SCOPES)
+        author = MemoryOwner(
+            tenant_id=identity.tenant_id,
+            user_id=identity.user_id,
+            principal_id=identity.principal_id,
+        )
+        extracted = await self._purge(
+            author,
+            (),
+            stored_by_owner=True,
+            source_session_id=identity.session_id,
+            authorized=lambda row: _written_by(row, author),
+        )
+        return own + extracted
+
     async def _purge(
         self,
         owner: MemoryOwner,
         scopes: tuple[MemoryScope, ...],
         *,
         stored_by_owner: bool = False,
-    ) -> _Purged:
-        """Delete every memory visible to ``owner`` at ``scopes``, plus vectors.
+        source_session_id: str | None = None,
+        authorized: Callable[[Memory], bool] | None = None,
+    ) -> PurgeTotals:
+        """Delete every memory ``owner`` reaches at ``scopes`` (all when empty), plus vectors.
 
-        Each deleted row's owner and ``source_session_id`` are collected on
-        the way out, so a user erasure learns which conversations produced the
-        facts it just removed without a second query -- and without missing
-        the pages beyond the first.
+        ``authorized`` is a last guard on each row the query returned: a row it
+        rejects is left alone, and a pass that erases nothing ends the purge.
         """
 
         if self._memories is None:
-            return _Purged()
-        deleted = 0
-        unindexed = 0
-        conversations: set[tuple[str, str]] = set()
+            return PurgeTotals()
+        query = MemoryQuery(
+            owner=owner,
+            scopes=scopes,
+            limit=_PAGE,
+            include_invalid=True,
+            stored_by_owner=stored_by_owner,
+            source_session_id=source_session_id,
+        )
+        totals = PurgeTotals()
         for _ in range(_MAX_PASSES):
-            rows = await self._memories.search(
-                MemoryQuery(
-                    owner=owner,
-                    scopes=scopes,
-                    limit=_PAGE,
-                    include_invalid=True,
-                    stored_by_owner=stored_by_owner,
-                )
-            )
-            if not rows:
-                return _Purged(deleted, unindexed, frozenset(conversations))
-            for row in rows:
-                # ``delete`` re-checks visibility, and a PROJECT-scoped row is
-                # not visible to an eraser holding no project_id -- the same
-                # asymmetry that hides it from the query. The row's own owner
-                # always satisfies that check, and the search above already
-                # pinned the row to this tenant and user, so authorization is
-                # established before we get here rather than by this argument.
-                # Search established authorization; the journal retains the row's
-                # full owner so replay remains possible after canonical deletion.
-                unindexed += await self._erasure.erase_memory(row)
-                deleted += 1
-                principal_id = row.owner.principal_id
-                session_id = row.source_session_id or row.owner.session_id
-                if principal_id is not None and session_id is not None:
-                    conversations.add((principal_id, session_id))
+            rows = await self._memories.search(query)
+            erasable = [row for row in rows if authorized is None or authorized(row)]
+            if not erasable:
+                return totals
+            for row in erasable:
+                totals = totals + await self._erase_row(row)
         logger.warning(
             "Memory purge stopped after %d passes for tenant=%s scopes=%s; rows may remain",
             _MAX_PASSES,
             owner.tenant_id,
-            ",".join(scope.value for scope in scopes),
+            ",".join(scope.value for scope in scopes) or "all",
         )
-        return _Purged(deleted, unindexed, frozenset(conversations))
+        return replace(totals, complete=False)
+
+    async def _erase_row(self, row: Memory) -> PurgeTotals:
+        """Erase one row found by a purge query, which already established authorization.
+
+        ``delete`` re-checks visibility, and a PROJECT-scoped row is not
+        visible to an eraser that holds no project_id. The row's own owner
+        always satisfies that check, and the journal keeps that owner, so
+        replay stays possible after the canonical row is gone.
+        """
+
+        erased: ErasedMemory = await self._erasure.erase_memory(row)
+        principal_id = row.owner.principal_id
+        session_id = row.source_session_id or row.owner.session_id
+        conversations: frozenset[tuple[str, str]] = frozenset()
+        if principal_id is not None and session_id is not None:
+            conversations = frozenset({(principal_id, session_id)})
+        return PurgeTotals(1, erased.points, int(erased.deferred), True, conversations)
 
     async def _erase_checkpoints(self, owner: MemoryOwner) -> int:
         """Delete the user's agent-run checkpoints where the store supports it.
@@ -334,6 +383,22 @@ class MemoryAdministrationService:
                 owner.user_id,
             )
             return 0
+
+
+def _written_by(row: Memory, author: MemoryOwner) -> bool:
+    """Whether ``author`` wrote ``row``: same signed human, or same caller for DEFAULT_USER.
+
+    ``DEFAULT_USER`` is no user, so it identifies nobody; those rows are
+    attributed by the credential that stored them instead.
+    """
+
+    if author.user_id == DEFAULT_USER:
+        return (
+            row.owner.tenant_id == author.tenant_id
+            and row.owner.user_id == DEFAULT_USER
+            and row.owner.principal_id == author.principal_id
+        )
+    return authored_by(row.owner, author)
 
 
 def _log_erasure(

@@ -12,6 +12,7 @@ from harborrag_app.workflow_control.control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from harborrag_app.workflow_control.memory.administration import MemoryAdministrationService
+from harborrag_app.workflow_control.memory.erasure import ErasedMemory, MemoryErasureJournal
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryScope
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
@@ -152,3 +153,38 @@ async def test_session_recovery_remains_authorized_when_session_was_already_dele
     assert await recover(stores) == 1
     assert not stores.memories.rows
     assert stores.index.deleted == [row.memory_id]
+
+
+@pytest.mark.asyncio
+async def test_session_recovery_also_removes_facts_extracted_from_the_session(stores, monkeypatch):
+    row = memory("memory-1", scope=MemoryScope.SESSION, session_id="session-1")
+    sourced = memory("memory-sourced", source_session_id="session-1")
+    identity = ConversationIdentity(
+        row.owner.tenant_id, row.owner.principal_id, "session-1", row.owner.user_id
+    )
+    await stores.conversations.create(identity, kind="chat")
+    for item in (row, sourced):
+        await stores.memories.save(item)
+    search = stores.memories.search
+    monkeypatch.setattr(stores.memories, "search", AsyncMock(side_effect=RuntimeError("offline")))
+    with pytest.raises(RuntimeError, match="offline"):
+        await administration(stores).erase_session(row.owner, actor="test")
+    monkeypatch.setattr(stores.memories, "search", search)
+
+    assert await recover(stores) == 1
+
+    assert not stores.memories.rows
+    assert sorted(stores.index.deleted) == ["memory-1", "memory-sourced"]
+
+
+@pytest.mark.asyncio
+async def test_a_failed_index_delete_is_reported_as_deferred(stores):
+    first, second = memory("memory-1"), memory("memory-2")
+    for item in (first, second):
+        await stores.memories.save(item)
+    journal = MemoryErasureJournal(stores.memories, stores.index, stores.pending_effects)
+
+    stores.index.failure = RuntimeError("index unavailable")
+    assert await journal.erase_memory(first) == ErasedMemory(points=0, deferred=True)
+    stores.index.failure = None
+    assert await journal.erase_memory(second) == ErasedMemory(points=1, deferred=False)

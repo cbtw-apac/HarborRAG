@@ -92,10 +92,11 @@ Message lists are oldest first, default to 50 rows, and accept
 Messages include citations, timestamps, run IDs, and partial status.
 
 Delete with `DELETE /v1/chat/sessions/{session_id}?tenant=DEFAULT`.
-The operation removes the session and its history, associated stored
-checkpoints through the repository, and session-scoped memory/index entries.
-The response reports deletion counts; it is not a claim that unrelated
-user/project memories were removed.
+The operation removes the session, its title and history, its agent-run
+checkpoints, its session-scoped memories, and every memory you wrote that was
+extracted from that conversation (any scope), together with their index
+entries. Facts other users wrote are untouched. The response reports deletion
+counts.
 
 Existing long-term memory can still be inspected or erased through
 `/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance

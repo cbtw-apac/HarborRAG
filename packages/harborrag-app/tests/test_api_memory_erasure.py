@@ -194,3 +194,79 @@ async def test_an_index_failure_still_erases_the_canonical_row(
     assert response.json()["index_points"] == 0
     assert service.memory_store.rows == {}
     assert "Memory index delete failed" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_session_removes_the_users_facts_extracted_from_it(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    await _seed_session(service, "session-1")
+    await service.memory_store.save(memory("mem-from-1", source_session_id="session-1"))
+    await service.memory_store.save(memory("mem-from-2", source_session_id="session-2"))
+    await service.memory_store.save(
+        memory("mem-other-user", user_id="someone-else", source_session_id="session-1")
+    )
+
+    response = client.delete("/v1/memory/sessions/session-1")
+
+    assert response.status_code == 200
+    assert response.json()["memories"] == 1
+    assert sorted(service.memory_store.rows) == ["mem-from-2", "mem-other-user"]
+    assert service.memory_index.deleted == ["mem-from-1"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_session_removes_the_users_shared_scope_facts_from_it(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    await _seed_session(service, "session-1")
+    await service.memory_store.save(
+        memory(
+            "mem-project",
+            scope=MemoryScope.PROJECT,
+            project_id="project-a",
+            source_session_id="session-1",
+        )
+    )
+    await service.memory_store.save(
+        memory("mem-tenant", scope=MemoryScope.TENANT, source_session_id="session-1")
+    )
+
+    response = client.delete("/v1/memory/sessions/session-1")
+
+    assert response.status_code == 200
+    assert response.json()["memories"] == 2
+    assert not service.memory_store.rows
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_session_never_removes_another_users_shared_facts(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    await _seed_session(service, "session-1")
+    await service.memory_store.save(
+        memory(
+            "mem-other-project",
+            user_id="someone-else",
+            scope=MemoryScope.PROJECT,
+            project_id="project-a",
+            source_session_id="session-1",
+        )
+    )
+    await service.memory_store.save(
+        memory(
+            "mem-other-principal",
+            principal_id="another-caller",
+            source_session_id="session-1",
+        )
+    )
+
+    response = client.delete("/v1/memory/sessions/session-1")
+
+    assert response.status_code == 200
+    assert response.json()["memories"] == 0
+    assert sorted(service.memory_store.rows) == ["mem-other-principal", "mem-other-project"]
+    assert service.memory_index.deleted == []
