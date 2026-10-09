@@ -83,6 +83,16 @@ Rotating it after secrets have been stored requires re-encrypting or re-entering
 When upgrading an existing checkout, run `scripts/deployment/dev.sh bootstrap`
 once. It appends the missing datastore secrets to the existing
 `env/.env.database` without touching values that are already set.
+`bootstrap` also prints a `NOTICE` naming any of `POSTGRES_PASSWORD`,
+`REDIS_PASSWORD` or `MINIO_ROOT_PASSWORD` whose value would break the connection
+URLs, so you find out before `up` refuses to start. Changing
+`MINIO_ROOT_PASSWORD` on an existing volume should be supported, because MinIO
+re-reads its root credentials from the environment at start (verify this
+manually on your MinIO version before relying on it). After upgrading, run
+`scripts/deployment/dev.sh data` (which runs `minio-init`) at least once before
+`scripts/deployment/mcp.sh` or `mcp-ui.sh`, and before starting the API or
+worker without the data stack: until then the application user does not exist
+and every object-store call is refused.
 
 A file that still holds the old `change-me` PostgreSQL password is refused
 rather than rotated, because PostgreSQL keeps the password its volume was
@@ -260,7 +270,8 @@ the application key cannot create buckets, a store whose buckets are missing
 fails at startup instead of creating them. After upgrading a checkout whose data
 stack is already running, run `dev.sh data` once before `dev.sh worker` or
 `dev.sh api`: until `minio-init` has run, the application user does not exist
-and every object-store call is refused.
+and every object-store call is refused. Renaming `MINIO_APP_ACCESS_KEY` leaves
+the old MinIO user active; remove it with `mc admin user remove`.
 
 ### Development posture and Temporal exposure
 

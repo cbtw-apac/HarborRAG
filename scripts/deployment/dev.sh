@@ -295,6 +295,13 @@ report_environment_issues() {
             echo "NOTICE: ${name} still holds a placeholder in ${DATABASE_ENV_FILE}; see ${doc}."
         fi
     done
+    local value
+    for name in "${URL_EMBEDDED_SECRETS[@]}"; do
+        value="$(env_file_value "${DATABASE_ENV_FILE}" "${name}")"
+        if [[ -n "${value}" ]] && ! [[ "${value}" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+            echo "NOTICE: ${name} in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it, so '$0 up' will fail; see ${doc}."
+        fi
+    done
     if [[ "$(env_file_value "${API_ENV_FILE}" HARBORRAG_AUTH_MODE)" == "none" ]]; then
         echo "NOTICE: HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE} leaves the API unauthenticated; set HARBORRAG_AUTH_MODE=hmac, see ${doc}."
     fi

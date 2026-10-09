@@ -530,6 +530,28 @@ def test_bootstrap_on_an_existing_checkout_names_each_remaining_problem(tmp_path
 
 
 @requires_openssl
+def test_bootstrap_warns_about_a_url_unsafe_secret_without_printing_it(tmp_path: Path) -> None:
+    script, _, env = _project(tmp_path)
+    assert _run(script, env, "bootstrap").returncode == 0
+    database = script.parents[2] / "env/.env.database"
+    database.write_text(
+        database.read_text(encoding="utf-8").replace(
+            f"MINIO_ROOT_PASSWORD={_values(database)['MINIO_ROOT_PASSWORD']}",
+            "MINIO_ROOT_PASSWORD=unsafe/pass@word",
+        ),
+        encoding="utf-8",
+    )
+
+    result = _run(script, env, "bootstrap")
+
+    assert result.returncode == 0, result.stderr
+    notices = [line for line in result.stdout.splitlines() if line.startswith("NOTICE:")]
+    assert len(notices) == 1, result.stdout
+    assert "MINIO_ROOT_PASSWORD" in notices[0]
+    assert "unsafe/pass@word" not in result.stdout + result.stderr
+
+
+@requires_openssl
 def test_bootstrap_prints_no_notice_for_a_healthy_checkout(tmp_path: Path) -> None:
     script, _, env = _project(tmp_path)
 

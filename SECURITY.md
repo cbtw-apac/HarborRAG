@@ -49,7 +49,16 @@ administers, inside a network perimeter it controls.
   reader's source ACLs do not permit, is a vulnerability; report it.
 - **Datastore authentication in Compose.** The development Compose files require
   passwords for Postgres, Redis, FalkorDB, and MinIO, and publish datastore and
-  Temporal ports on `127.0.0.1` by default.
+  Temporal ports on `127.0.0.1` by default. The API, worker and MCP server use
+  a least-privilege MinIO application key (limited to the two HarborRAG
+  buckets), never the MinIO root credentials.
+- **MCP server authentication.** Over HTTP the MCP server binds only to loopback
+  and runs in one of two modes, set by `HARBORRAG_MCP_AUTH_MODE`. `local` (the
+  default) accepts one static owner bearer token of at least 32 bytes. `api_key`
+  checks per-reader keys, stored in PostgreSQL by default or in a file, and keeps
+  the owner token valid beside them when `HARBORRAG_MCP_BEARER_TOKEN` is set.
+  Remote access needs a TLS reverse proxy you operate. The stdio transport has
+  no authentication and relies on the local process boundary.
 - **Plaintext is a development acknowledgement.** The `*_ALLOW_INSECURE_REMOTE`
   switches let the stack talk to plaintext service names on the private Compose
   network. They are honoured only with `HARBORRAG_ENV=dev`; with
@@ -62,6 +71,8 @@ administers, inside a network perimeter it controls.
 
 Known limits:
 
+- The Temporal Web UI (port 8080, bound to loopback by default) has no
+  authentication, like the frontend.
 - Temporal is unauthenticated unless mutual TLS is configured in code (client
   certificate material can only be supplied programmatically, not through
   configuration files). The Compose topology does not configure it. Keep the

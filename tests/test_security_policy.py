@@ -36,6 +36,12 @@ def test_security_policy_states_the_threat_model_and_deployment_scope() -> None:
         assert phrase in section, phrase
 
 
+def test_security_policy_names_shipped_minio_and_mcp_controls_and_the_temporal_ui_limit() -> None:
+    assert "least-privilege MinIO application key" in SECURITY
+    assert "HARBORRAG_MCP_AUTH_MODE" in SECURITY
+    assert "Temporal Web UI" in SECURITY.split("Known limits:", 1)[1]
+
+
 def test_readme_release_note_names_no_pre_release() -> None:
     note = re.search(r"^> \*\*Release Note\*\*.*?(?=^[^>]|\Z)", README, re.MULTILINE | re.DOTALL)
 
