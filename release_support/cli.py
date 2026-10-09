@@ -227,7 +227,10 @@ def _publish_release(*, dry_run: bool) -> None:
 @click.option(
     "--development-status",
     type=click.Choice(("alpha", "beta", "stable"), case_sensitive=False),
-    help="Explicitly change PyPI maturity; otherwise preserve it for final versions.",
+    help=(
+        "Override PyPI maturity; otherwise aN is Alpha, bN/rcN Beta, "
+        "and a final version Production/Stable."
+    ),
 )
 def release(  # noqa: PLR0913 - Click exposes each option as a callback argument.
     dry_run: bool = False,

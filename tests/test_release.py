@@ -270,12 +270,9 @@ def test_internal_dependency_update_preserves_extras_and_markers(
     ]
 
 
-def test_final_version_preserves_explicit_alpha_maturity(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def _sample_package(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, classifier: str) -> Path:
     project = (
-        '[project]\nname = "sample"\nversion = "2.0.0"\nclassifiers = [\n'
-        '  "Development Status :: 3 - Alpha",\n]\n'
+        f'[project]\nname = "sample"\nversion = "2.0.0a1"\nclassifiers = [\n  "{classifier}",\n]\n'
     )
     (tmp_path / "sample.toml").write_text(project, encoding="utf-8")
     (tmp_path / "workspace.toml").write_text(project, encoding="utf-8")
@@ -290,16 +287,51 @@ def test_final_version_preserves_explicit_alpha_maturity(
         {"path": ".", "pyproject": "workspace.toml", "create_release": False},
     )
     monkeypatch.setattr(versioning, "repository_path", lambda relative: tmp_path / relative)
+    return tmp_path / "sample.toml"
 
-    versioning.update_development_status_classifier("sample", "2.1.0")
-    assert "Development Status :: 3 - Alpha" in (tmp_path / "sample.toml").read_text(
-        encoding="utf-8"
+
+@pytest.mark.parametrize("prerelease", ["2.0.0a1", "2.0.0b2", "2.0.0rc1"])
+def test_final_release_after_a_prerelease_is_production_stable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, prerelease: str
+) -> None:
+    pyproject = _sample_package(tmp_path, monkeypatch, classifier="Development Status :: 3 - Alpha")
+
+    versioning.update_development_status_classifier("sample", prerelease)
+    versioning.update_development_status_classifier("sample", "2.0.0")
+
+    text = pyproject.read_text(encoding="utf-8")
+    assert "Development Status :: 5 - Production/Stable" in text
+    assert "Alpha" not in text and "Beta" not in text
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("2.1.0a1", "Development Status :: 3 - Alpha"),
+        ("2.1.0b1", "Development Status :: 4 - Beta"),
+        ("2.1.0rc1", "Development Status :: 4 - Beta"),
+    ],
+)
+def test_prerelease_versions_set_their_maturity(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str, expected: str
+) -> None:
+    pyproject = _sample_package(
+        tmp_path, monkeypatch, classifier="Development Status :: 5 - Production/Stable"
     )
 
-    versioning.update_development_status_classifier("sample", "2.1.0b1")
-    assert "Development Status :: 4 - Beta" in (tmp_path / "sample.toml").read_text(
-        encoding="utf-8"
-    )
+    versioning.update_development_status_classifier("sample", version)
+
+    assert expected in pyproject.read_text(encoding="utf-8")
+
+
+def test_explicit_maturity_still_wins_for_a_final_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pyproject = _sample_package(tmp_path, monkeypatch, classifier="Development Status :: 3 - Alpha")
+
+    versioning.update_development_status_classifier("sample", "2.1.0", development_status="beta")
+
+    assert "Development Status :: 4 - Beta" in pyproject.read_text(encoding="utf-8")
 
 
 def test_explicit_maturity_adds_a_missing_classifier(

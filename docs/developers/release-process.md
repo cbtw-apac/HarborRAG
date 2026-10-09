@@ -22,7 +22,7 @@ uv run make coverage
 
 Add the new version section to [`CHANGELOG.md`](../../CHANGELOG.md) first, then run the
 preparation command. It changes package versions, internal dependency pins, the TypeScript
-client version, classifiers when requested, and `uv.lock`. It never commits, pushes, tags,
+client version, the PyPI Development Status classifier (inferred from the version: `aN` Alpha, `bN`/`rcN` Beta, a final release Production/Stable; pass `--development-status` to override), and `uv.lock`. It never commits, pushes, tags,
 or publishes:
 
 ```bash

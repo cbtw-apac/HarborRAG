@@ -107,24 +107,17 @@ def _existing_development_status(path: Path) -> str | None:
     return None
 
 
-def _target_classifier(package_name: str, version: str, development_status: str | None) -> str:
+def _target_classifier(version: str, development_status: str | None) -> str:
     if development_status is not None:
         try:
             return _CLASSIFIERS[development_status]
         except KeyError as exc:
             raise ValueError("development_status must be alpha, beta, or stable") from exc
-
-    inferred = get_development_status_classifier(version)
-    if Version(version).is_prerelease:
-        return inferred
-
-    # A stable-looking semantic version does not automatically mean the project
-    # has left Alpha/Beta. Preserve the repository's explicit maturity policy.
-    current = _existing_development_status(_package_path(package_name))
-    if current:
-        return current
-    workspace = _existing_development_status(_package_path(WORKSPACE_PACKAGE))
-    return workspace or inferred
+    # The version decides unless the operator says otherwise: aN is Alpha, bN and
+    # rcN are Beta, and a final release is Production/Stable. Preserving the
+    # file's classifier for final versions made a pre-release bump's Alpha or
+    # Beta stick to the final release that followed it.
+    return get_development_status_classifier(version)
 
 
 def update_development_status_classifier(
@@ -136,8 +129,8 @@ def update_development_status_classifier(
     """Update an existing package classifier without reformatting TOML.
 
     Packages that omit classifiers remain unchanged unless the caller provides
-    an explicit status. For final versions, the existing workspace maturity is
-    preserved unless ``development_status`` is supplied.
+    an explicit status. The classifier follows the version (aN Alpha, bN/rcN Beta, final
+    Production/Stable) unless ``development_status`` is supplied.
     """
 
     path = _package_path(package_name)
@@ -145,7 +138,7 @@ def update_development_status_classifier(
     current = _existing_development_status(path)
     if current is None:
         if development_status is not None:
-            target = _target_classifier(package_name, version, development_status)
+            target = _target_classifier(version, development_status)
             if dry_run:
                 logging.getLogger("release").info(
                     "[DRY RUN] Would add %s classifier: %s",
@@ -171,7 +164,7 @@ def update_development_status_classifier(
             "%s has no Development Status classifier; leaving it unchanged.", package_name
         )
         return
-    target = _target_classifier(package_name, version, development_status)
+    target = _target_classifier(version, development_status)
     if current == target:
         return
     if dry_run:
