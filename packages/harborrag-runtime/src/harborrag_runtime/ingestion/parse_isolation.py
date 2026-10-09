@@ -56,8 +56,9 @@ StartMethod = Literal["forkserver", "spawn"]
 ParseTarget = Callable[[RawDocument], ParsedDocument]
 
 _JOIN_SECONDS = 5.0
-# Larger than any parse the ingestion limits admit; checked against the message
-# header before the payload is read, so an oversized result is never allocated.
+# Caps what one parse may allocate in the parent (per concurrent slot). Checked
+# against the message length header before the payload is read, so an
+# oversized result is never allocated.
 _MAX_OUTCOME_BYTES = 256 * 1024 * 1024
 # Imported once by the fork server, so each forked parse skips the parser
 # imports and catalog load (~0.5s measured) instead of paying them per document.
@@ -143,8 +144,8 @@ def _receive_outcome(receiver: Any) -> bytes:
         return cast(bytes, receiver.recv_bytes(_MAX_OUTCOME_BYTES))
     except EOFError:
         raise DocumentParseCrashError("parse process exited without a result") from None
-    except OSError:  # the length header exceeded the bound; the payload was not read
-        raise DocumentParseCrashError("parse process result was too large") from None
+    except OSError:  # chiefly a length header over the bound; the payload is never read
+        raise DocumentParseCrashError("parse process result was too large or unreadable") from None
 
 
 def _kill_group(process: Any) -> None:
