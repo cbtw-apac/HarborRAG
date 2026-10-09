@@ -274,7 +274,7 @@ settings are:
 | Variable | Requirement or default | Purpose |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev`; set `prod` for production | Enables production fail-closed checks. |
-| `HARBORRAG_AUTH_MODE` | `none`; use `hmac` for an exposed service | Selects the token verifier. `oidc` is reserved but not implemented. |
+| `HARBORRAG_AUTH_MODE` | Process default `none`; the checked-in `env-example/.env.api.example` and Compose stack use `hmac` | Selects the token verifier. `oidc` is reserved but not implemented. |
 | `HARBORRAG_AUTH_SECRET` | Required for HMAC; at least 32 UTF-8 bytes | Verifies HS256 signatures. Load it from protected deployment configuration. |
 | `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat, agent, and user-scoped memory. Required in every token. |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required `iss` claim. |

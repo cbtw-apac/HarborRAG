@@ -50,6 +50,7 @@ submitted; processing continues asynchronously:
 
 ```bash
 curl --fail-with-body \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   http://127.0.0.1:8000/v1/ingestions/INGESTION_TASK_ID
 ```
 

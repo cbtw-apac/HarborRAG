@@ -382,3 +382,90 @@ def test_worker_requires_a_password_in_the_redis_url(
     result, _ = _worker_with_redis_url(tmp_path, file_url=url, exported=None)
 
     assert (result.returncode == 0) is accepted, result.stderr
+
+
+API_SECRET_LINE = re.compile(r"^HARBORRAG_AUTH_SECRET=([0-9a-f]{64})$", re.MULTILINE)
+
+
+@requires_openssl
+def test_bootstrap_ships_the_api_with_hmac_and_a_generated_secret(tmp_path: Path) -> None:
+    script, _, env = _project(tmp_path)
+
+    assert _run(script, env, "bootstrap").returncode == 0
+
+    api = (script.parents[2] / "env/.env.api").read_text(encoding="utf-8")
+    assert _values(script.parents[2] / "env/.env.api")["HARBORRAG_AUTH_MODE"] == "hmac"
+    assert API_SECRET_LINE.search(api)
+
+
+def _write_api_env(script: Path, content: str) -> None:
+    (script.parents[2] / "env/.env.api").write_text(content, encoding="utf-8")
+
+
+@requires_openssl
+@pytest.mark.parametrize(
+    "content",
+    [
+        "HARBORRAG_AUTH_MODE=hmac\nHARBORRAG_AUTH_SECRET=\n",
+        "HARBORRAG_AUTH_MODE=hmac\nHARBORRAG_AUTH_SECRET=too-short\n",
+        "HARBORRAG_AUTH_MODE=hmac\nHARBORRAG_AUTH_SECRET=REPLACE_WITH_A_LONG_RANDOM_VALUE_000\n",
+    ],
+)
+def test_api_refuses_hmac_without_a_strong_secret(tmp_path: Path, content: str) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    _write_api_env(script, content)
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_AUTH_SECRET" in result.stderr
+    assert "docker-compose.yml up" not in (
+        docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+    )
+
+
+@requires_openssl
+def test_api_allows_the_documented_no_auth_opt_in(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    _write_api_env(script, "HARBORRAG_AUTH_MODE=none\nHARBORRAG_ALLOW_INSECURE_DEV=true\n")
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 0, result.stderr
+    assert "API authentication is disabled" in result.stderr
+    assert "docker-compose.yml up" in docker_log.read_text(encoding="utf-8")
+
+
+@requires_openssl
+def test_api_requires_an_explicit_auth_mode(tmp_path: Path) -> None:
+    script, _, env = _ready_project(tmp_path)
+    _write_api_env(script, "HARBORRAG_API_PORT=8000\n")
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_AUTH_MODE" in result.stderr
+
+
+@requires_openssl
+def test_api_starts_with_the_bootstrapped_hmac_configuration(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 0, result.stderr
+    assert "authentication is disabled" not in result.stderr
+    assert "docker-compose.yml up" in docker_log.read_text(encoding="utf-8")
+
+
+@requires_openssl
+def test_token_subcommand_mints_inside_the_running_api_container(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+
+    result = _run(script, env, "token")
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "docker-compose.yml exec -T api python -m harborrag_app.api.auth.dev_token"
+        in docker_log.read_text(encoding="utf-8")
+    )

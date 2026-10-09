@@ -298,7 +298,7 @@ Then open the files it created and replace the placeholders:
 ### Two values you must fill in
 
 `bootstrap` generates every datastore secret (PostgreSQL, MinIO, Qdrant, Redis, and
-FalkorDB) and leaves working local defaults everywhere else except these two. The first
+FalkorDB) and the API's HMAC signing secret, and leaves working local defaults everywhere else except these two. The first
 one is mandatory for the API and worker; their launchers refuse to start without it:
 
 ```bash
@@ -364,6 +364,7 @@ done
 chmod 600 env/.env.*
 # HARBORRAG_SECRETS_ENCRYPTION_KEY, POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD,
 # QDRANT_API_KEY, REDIS_PASSWORD, and FALKORDB_PASSWORD in env/.env.database, and
+# HARBORRAG_AUTH_SECRET in env/.env.api,
 # HARBORRAG_MCP_BEARER_TOKEN in env/.env.mcp (at least 32 bytes), each want:
 openssl rand -hex 32
 ```
@@ -448,6 +449,10 @@ HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALK
 `harborrag doctor` talks to a live Temporal frontend, so run it only after
 `dev.sh temporal` succeeds. The Temporal UI is at <http://localhost:8080>, and the API
 health endpoint is printed by `dev.sh api`.
+
+The API requires a bearer token. Mint a one-hour development owner token with
+`scripts/deployment/dev.sh token`, or opt out explicitly as described in
+[Deployment](docs/developers/deployment/README.md#application-compose-files).
 
 <details markdown="1">
 <summary><strong>Details: container inspection and log following</strong></summary>

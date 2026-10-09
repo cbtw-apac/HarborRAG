@@ -72,9 +72,13 @@ def test_development_entrypoint_supports_documented_argument_forms(
         ".env.connector",
         ".env.parser",
         ".env.models",
-        ".env.api",
     ):
         (environment / filename).write_text("", encoding="utf-8")
+    (environment / ".env.api").write_text(
+        "HARBORRAG_AUTH_MODE=hmac\n"
+        "HARBORRAG_AUTH_SECRET=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef\n",
+        encoding="utf-8",
+    )
     (environment / ".env.database").write_text(
         "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n"
         "POSTGRES_PASSWORD=test-postgres-password\n"
@@ -335,17 +339,31 @@ def test_api_restarts_and_mounts_graph_build_policy() -> None:
     assert "../../config:/app/config:ro" in compose
 
 
+def _active_settings(text: str) -> dict[str, str]:
+    settings: dict[str, str] = {}
+    for line in text.splitlines():
+        if line and not line.startswith("#") and "=" in line:
+            name, _, value = line.partition("=")
+            settings[name] = value
+    return settings
+
+
 def test_api_secret_configuration_stays_in_an_ignored_environment_file() -> None:
     compose = API_COMPOSE.read_text(encoding="utf-8")
     example = (ROOT / "env-example/.env.api.example").read_text(encoding="utf-8")
+    active = _active_settings(example)
 
     assert "path: ${HARBORRAG_API_ENV_FILE:-../../env/.env.api}" in compose
     assert "CONFLUENCE_TOKEN" not in compose
     assert "JIRA_TOKEN" not in compose
-    assert "HARBORRAG_AUTH_MODE=none" in example
-    assert "HARBORRAG_ALLOW_INSECURE_DEV=true" in example
-    assert "HARBORRAG_API_BIND_ADDRESS=127.0.0.1" in example
-    assert "# HARBORRAG_AUTH_SECRET=" in example
+    # Secure by default: HMAC with a secret bootstrap generates; no-auth is an
+    # explicit, commented opt-in.
+    assert active["HARBORRAG_AUTH_MODE"] == "hmac"
+    assert active["HARBORRAG_AUTH_SECRET"] == ""
+    assert "HARBORRAG_ALLOW_INSECURE_DEV" not in active
+    assert "# HARBORRAG_AUTH_MODE=none\n" in example
+    assert "# HARBORRAG_ALLOW_INSECURE_DEV=true\n" in example
+    assert active["HARBORRAG_API_BIND_ADDRESS"] == "127.0.0.1"
     assert "HARBORRAG_AUTH_SECRET=REPLACE" not in example
 
 

@@ -13,6 +13,9 @@ services:
         required: false
     environment:
       HARBORRAG_ENV: ${HARBORRAG_ENV:-dev}
+      # The container-internal listener must be the wildcard for port
+      # publishing; host exposure is the loopback-bound port below plus the
+      # HMAC authentication configured in env/.env.api.
       HARBORRAG_HOST: 0.0.0.0
       HARBORRAG_PORT: "8000"
       HARBORRAG_TEMPORAL_TARGET: "${HARBORRAG_TEMPORAL_TARGET:-temporal:7233}"

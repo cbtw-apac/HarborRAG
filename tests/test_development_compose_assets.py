@@ -278,3 +278,14 @@ def test_temporal_example_does_not_override_the_authenticated_redis_default() ->
     example = (ROOT / "env-example/.env.temporal.example").read_text(encoding="utf-8")
 
     assert not [line for line in example.splitlines() if line.startswith("HARBORRAG_REDIS_URL=")]
+
+
+def test_api_compose_leaves_authentication_to_the_environment_file() -> None:
+    # The container listener is 0.0.0.0 by necessity; exposure is bounded by the
+    # loopback-published port and by HMAC from env/.env.api.
+    compose = API_COMPOSE.read_text(encoding="utf-8")
+
+    assert "HARBORRAG_HOST: 0.0.0.0" in compose
+    assert '"${HARBORRAG_API_BIND_ADDRESS:-127.0.0.1}:${HARBORRAG_API_PORT:-8000}:8000"' in compose
+    assert "HARBORRAG_AUTH_MODE" not in compose
+    assert "HARBORRAG_ALLOW_INSECURE_DEV" not in compose

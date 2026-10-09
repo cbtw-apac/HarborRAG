@@ -41,6 +41,7 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
+  token              Print a one-hour owner token for the running development API
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
@@ -200,6 +201,30 @@ require_authenticated_worker_redis() {
     fi
 }
 
+# The API's env file decides authentication; Compose never overrides it. The
+# container reads these values from the file only (an exported shell value does
+# not reach it), so the file is the single source checked here.
+require_api_authentication() {
+    require_file "${API_ENV_FILE}" "API environment"
+    local mode
+    local secret
+    mode="$(env_file_value "${API_ENV_FILE}" HARBORRAG_AUTH_MODE)"
+    case "${mode}" in
+        hmac)
+            secret="$(env_file_value "${API_ENV_FILE}" HARBORRAG_AUTH_SECRET)"
+            if is_placeholder_secret "${secret}" || ((${#secret} < 32)); then
+                fail "HARBORRAG_AUTH_MODE=hmac needs HARBORRAG_AUTH_SECRET of at least 32 characters in ${API_ENV_FILE}. Run '$0 bootstrap' to generate one."
+            fi
+            ;;
+        none)
+            echo "WARNING: API authentication is disabled (HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE}). Every request acts as an unrestricted owner; keep HARBORRAG_API_BIND_ADDRESS on loopback." >&2
+            ;;
+        *)
+            fail "Set HARBORRAG_AUTH_MODE=hmac (recommended) or the explicit development opt-in HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE}; got '${mode}'."
+            ;;
+    esac
+}
+
 ensure_environment_file() {
     local target="$1"
     local template="$2"
@@ -244,6 +269,7 @@ bootstrap_environment() {
     ensure_environment_file "${API_ENV_FILE}" "env-example/.env.api.example"
     ensure_mcp_environment_file "${MCP_ENV_FILE}" "env-example/.env.mcp.example"
     generate_missing_secrets "${DATABASE_ENV_FILE}" "${DATABASE_GENERATED_SECRETS[@]}"
+    generate_missing_secrets "${API_ENV_FILE}" HARBORRAG_AUTH_SECRET
 }
 
 require_data_network() {
@@ -398,6 +424,7 @@ start_api() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
     require_database_secrets
+    require_api_authentication
     require_data_network
     require_temporal_server
     [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
@@ -431,6 +458,7 @@ start_api() {
     )"
     api_port="${api_port:-8000}"
     echo "HarborRAG API is healthy at http://127.0.0.1:${api_port}/api/v1/health"
+    echo "Get a bearer token for it with: $0 token"
     echo "Prometheus metrics: http://127.0.0.1:${api_port}/api/v1/metrics (admin token required)"
     echo "Swagger UI: http://127.0.0.1:${api_port}/api/v1/docs (when HARBORRAG_DOCS_ENABLED)"
 }
@@ -565,6 +593,11 @@ case "${command}" in
         fi
         [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
         start_api "${rebuild_image}"
+        ;;
+    token)
+        [[ "$#" -eq 0 ]] || fail "token accepts no options."
+        require_api_authentication
+        api_compose exec -T api python -m harborrag_app.api.auth.dev_token
         ;;
     -h|--help|help)
         usage

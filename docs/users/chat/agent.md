@@ -6,6 +6,7 @@ cost contract as RAG chat.
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/v1/agent/completions \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{
     "tenant": "DEFAULT",
@@ -76,6 +77,7 @@ See the complete [SSE contract](README.md#streaming).
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/v1/agent/runs/run-.../resume \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   --header 'Content-Type: application/json' \
   --data '{"tenant":"DEFAULT","session_id":"session-...","max_steps":4}'
 ```

@@ -22,6 +22,8 @@ chooses *how* a run executes rather than *what* it admits.
 
 ## Incremental mode
 
+The API requires a bearer token; for local development use `export HARBORRAG_API_TOKEN="$(scripts/deployment/dev.sh token)"`.
+
 Submit an incremental ingestion with:
 
 ```bash
@@ -29,6 +31,7 @@ curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: confluence-main-2026-08-02' \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   --data '{
     "connection_id": "confluence-main",
     "tenant": "DEFAULT",
@@ -71,6 +74,7 @@ curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: confluence-main-force-2026-08-02' \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   --data '{
     "connection_id": "confluence-main",
     "tenant": "DEFAULT",

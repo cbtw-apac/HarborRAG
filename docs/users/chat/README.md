@@ -21,14 +21,17 @@ but do not go through HTTP admission.
 Start the development API with `scripts/deployment/dev.sh api`, then:
 
 ```bash
+export HARBORRAG_API_TOKEN="$(scripts/deployment/dev.sh token)"
 curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
   --header 'Content-Type: application/json' \
+  --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
   --data '{"tenant":"DEFAULT","prompt":"Explain HarborRAG in one paragraph."}'
 ```
 
-With authentication enabled, add `Authorization: Bearer <token>`; the route
-requires the `reader` role and access to the requested tenant. Development
-with `HARBORRAG_AUTH_MODE=none` needs no authorization header.
+The route requires the `reader` role and access to the requested tenant; the
+development token is an owner for every tenant. Only the explicit
+`HARBORRAG_AUTH_MODE=none` development opt-in accepts requests without an
+authorization header.
 
 With HMAC authentication, session scope is `(tenant, signed user claim, session_id)`.
 The claim is `sub` by default. If one service credential represents several

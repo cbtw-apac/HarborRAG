@@ -183,10 +183,26 @@ rebuilds do not reinstall libraries.
 
 The API binds to `127.0.0.1:8000` by default. Override
 `HARBORRAG_API_BIND_ADDRESS` or `HARBORRAG_API_PORT` when another local binding
-is required. The local container's internal wildcard listener is explicitly
-acknowledged by `HARBORRAG_ALLOW_INSECURE_DEV=true`; this is safe only while the
-published address remains loopback. Configure HMAC authentication before using
-a non-loopback published address. Authentication and CORS values belong in the ignored
+is required. `env/.env.api` ships with `HARBORRAG_AUTH_MODE=hmac`, and
+`bootstrap` generates its `HARBORRAG_AUTH_SECRET`. `dev.sh api` refuses to start
+while the secret is empty, a placeholder or shorter than 32 characters. Mint a
+one-hour owner token (all tenants) for the running API and send it as a bearer
+token:
+
+```bash
+export HARBORRAG_API_TOKEN="$(scripts/deployment/dev.sh token)"
+curl --fail-with-body --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
+  http://127.0.0.1:8000/v1/connections
+```
+
+The token minter runs inside the API container (rebuild with `dev.sh api --build`
+the first time). It refuses outside `HARBORRAG_ENV=dev`. Unauthenticated
+development is an explicit opt-in: uncomment `HARBORRAG_AUTH_MODE=none` and
+`HARBORRAG_ALLOW_INSECURE_DEV=true` in `env/.env.api`. The container's internal
+wildcard listener needs that acknowledgement, which is safe only while the
+published address remains loopback, and `dev.sh` prints a warning on every start.
+
+Authentication and CORS values belong in the ignored
 `env/.env.api`. The API receives chat and embedding credentials from
 `env/.env.models` for chat completions and synchronous vector retrieval, while
 connector credentials remain isolated in ingestion workers. Use

@@ -193,6 +193,12 @@ above is read but never used, and the `temporal` check reports `skip`.
 The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL
 (`http://127.0.0.1:8000/api/v1/health` by default).
 
+Every other API route requires a bearer token. For local development:
+
+```bash
+export HARBORRAG_API_TOKEN="$(scripts/deployment/dev.sh token)"
+```
+
 ### 8. Ingest something
 
 ```bash
