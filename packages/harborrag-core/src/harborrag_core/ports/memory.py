@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from harborrag_core.base import utc_now
 from harborrag_core.chunking.metadata import FrozenMetadata
+from harborrag_core.domain.identity import DEFAULT_USER
 
 
 def new_memory_id() -> str:
@@ -127,7 +128,9 @@ def authored_by(memory_owner: MemoryOwner, caller: MemoryOwner) -> bool:
     make every one of them an author of the others' memories. An owner that
     equals ``caller`` exactly is always its own author, which is how an
     erasure that acts *as* the stored owner keeps working for rows that carry
-    no ``user_id`` (a genuinely tenant-wide fact).
+    no ``user_id`` (a genuinely tenant-wide fact). ``DEFAULT_USER`` is the
+    sentinel for user-less callers, so it is treated like ``None``: two
+    different principals that both carry it are not co-authors.
     """
 
     if memory_owner == caller:
@@ -135,6 +138,7 @@ def authored_by(memory_owner: MemoryOwner, caller: MemoryOwner) -> bool:
     return (
         memory_owner.tenant_id == caller.tenant_id
         and memory_owner.user_id is not None
+        and memory_owner.user_id != DEFAULT_USER
         and memory_owner.user_id == caller.user_id
     )
 

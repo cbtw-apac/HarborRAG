@@ -12,6 +12,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
     SHARED_SCOPES,
     Memory,
@@ -255,6 +256,15 @@ def test_an_owner_without_a_user_is_authored_only_by_its_exact_self() -> None:
     tenant_wide = MemoryOwner(tenant_id="tenant-a")
     assert authored_by(tenant_wide, tenant_wide) is True
     assert authored_by(tenant_wide, MemoryOwner(tenant_id="tenant-a", user_id="alice")) is False
+
+
+@pytest.mark.whitebox
+def test_the_default_user_sentinel_is_not_a_shared_author_identity() -> None:
+    first = MemoryOwner(tenant_id="tenant-a", user_id=DEFAULT_USER, principal_id="principal-a")
+    second = MemoryOwner(tenant_id="tenant-a", user_id=DEFAULT_USER, principal_id="principal-b")
+    assert authored_by(first, second) is False  # two user-less callers are not co-authors
+    assert authored_by(first, first) is True  # exact owner still matches
+    assert modifiable_by(MemoryScope.PROJECT, first, second) is False
 
 
 @pytest.mark.whitebox
