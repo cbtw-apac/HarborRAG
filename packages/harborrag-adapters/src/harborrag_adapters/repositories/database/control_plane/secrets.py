@@ -50,7 +50,7 @@ class SqlSecretsRepository:
     """SecretsPort over the secrets table; ciphertext only ever leaves this class decrypted."""
 
     sessions: SessionFactory
-    encryption_key: str
+    encryption_key: str = field(repr=False)
     created_by: str = "harborrag-adapters"
     _fernet: Fernet = field(init=False, repr=False, compare=False)
 
