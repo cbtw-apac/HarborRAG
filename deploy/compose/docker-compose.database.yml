@@ -43,14 +43,12 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    # The password is read from the environment so only its variable name lands
+    # in the container's Cmd (docker inspect, ps, compose config).
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
-      - --appendfsync
-      - everysec
-      - --requirepass
-      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in the database environment file}
+      - sh
+      - -c
+      - exec redis-server --appendonly yes --appendfsync everysec --requirepass "$$REDISCLI_AUTH"
     environment:
       REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the database environment file}
     ports:

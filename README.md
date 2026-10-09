@@ -441,7 +441,7 @@ worker configuration. A missing image is built automatically on first start.
 
 ```bash
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-HARBORRAG_FALKORDB_PASSWORD="$(sed -n 's/^FALKORDB_PASSWORD=//p' env/.env.database | tr -d '\r')" \
+HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALKORDB_PASSWORD=//p' env/.env.database | tail -n 1 | tr -d '\r')" \
   uv run harborrag doctor --json
 ```
 

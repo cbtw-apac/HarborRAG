@@ -325,3 +325,60 @@ def test_worker_accepts_a_credentialed_redis_override(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "--profile worker up" in docker_log.read_text(encoding="utf-8")
+
+
+def _worker_with_redis_url(
+    tmp_path: Path, *, file_url: str | None, exported: str | None
+) -> tuple[subprocess.CompletedProcess[str], Path]:
+    script, docker_log, env = _ready_project(tmp_path)
+    if file_url is not None:
+        temporal = script.parents[2] / "env/.env.temporal"
+        temporal.write_text(
+            temporal.read_text(encoding="utf-8") + f"HARBORRAG_REDIS_URL={file_url}\n",
+            encoding="utf-8",
+        )
+    if exported is not None:
+        env["HARBORRAG_REDIS_URL"] = exported
+    return _run(script, env, "worker"), docker_log
+
+
+@requires_openssl
+def test_worker_refuses_an_exported_passwordless_redis_url(tmp_path: Path) -> None:
+    result, docker_log = _worker_with_redis_url(
+        tmp_path, file_url=None, exported="redis://redis:6379/0"
+    )
+
+    assert result.returncode == 2
+    assert "HARBORRAG_REDIS_URL" in result.stderr
+    assert not docker_log.exists()
+
+
+@requires_openssl
+def test_exported_redis_url_wins_over_a_stale_file_line(tmp_path: Path) -> None:
+    result, docker_log = _worker_with_redis_url(
+        tmp_path,
+        file_url="redis://redis:6379/0",
+        exported="rediss://:secret@cache.example.com:6380/0",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "--profile worker up" in docker_log.read_text(encoding="utf-8")
+
+
+@requires_openssl
+@pytest.mark.parametrize(
+    ("url", "accepted"),
+    [
+        ("redis://user@cache.example.com:6379/0", False),
+        ("redis://user:@cache.example.com:6379/0", False),
+        ("redis://cache.example.com:6379/0", False),
+        ("redis://user:secret@cache.example.com:6379/0", True),
+        ("redis://cache.example.com:6379/0?password=secret", True),
+    ],
+)
+def test_worker_requires_a_password_in_the_redis_url(
+    tmp_path: Path, url: str, accepted: bool
+) -> None:
+    result, _ = _worker_with_redis_url(tmp_path, file_url=url, exported=None)
+
+    assert (result.returncode == 0) is accepted, result.stderr

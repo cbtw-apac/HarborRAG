@@ -182,14 +182,21 @@ require_database_secrets() {
     done
 }
 
-# An HARBORRAG_REDIS_URL in the Temporal env file overrides the Compose default,
-# which carries REDIS_PASSWORD; one without credentials fails later with NOAUTH.
+# True when a Redis URL carries a password: ":password@" userinfo or a
+# password= query parameter.
+redis_url_has_password() {
+    [[ "$1" =~ ^[A-Za-z][A-Za-z0-9+.-]*://[^/@?]*:[^/@?]+@ || "$1" =~ [?\&]password=[^\&] ]]
+}
+
+# An HARBORRAG_REDIS_URL (exported, or in the Temporal env file) overrides the
+# Compose default, which carries REDIS_PASSWORD; one without a password fails
+# later with NOAUTH.
 require_authenticated_worker_redis() {
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
     local url
-    url="$(env_file_value "${TEMPORAL_ENV_FILE}" HARBORRAG_REDIS_URL)"
-    if [[ -n "${url}" && "${url}" != *@* ]]; then
-        fail "HARBORRAG_REDIS_URL in ${TEMPORAL_ENV_FILE} has no credentials, but Redis requires REDIS_PASSWORD. Delete the line to use the Compose default, or use redis://:PASSWORD@HOST:PORT/DB."
+    url="$(configured_secret "${TEMPORAL_ENV_FILE}" HARBORRAG_REDIS_URL)"
+    if [[ -n "${url}" ]] && ! redis_url_has_password "${url}"; then
+        fail "HARBORRAG_REDIS_URL (exported or in ${TEMPORAL_ENV_FILE}) has no password, but Redis requires REDIS_PASSWORD. Unset it or delete the line to use the Compose default, or use redis://:PASSWORD@HOST:PORT/DB."
     fi
 }
 

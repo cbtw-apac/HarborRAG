@@ -240,7 +240,10 @@ def test_datastores_require_operator_supplied_credentials() -> None:
     assert "QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?" in qdrant
     assert "--requirepass ${FALKORDB_PASSWORD:?" in falkordb
     assert "REDISCLI_AUTH: ${FALKORDB_PASSWORD:?" in falkordb
-    assert "- --requirepass\n      - ${REDIS_PASSWORD:?" in redis
+    assert '--requirepass "$$REDISCLI_AUTH"' in redis
+    # The secret must not be interpolated into the command line (docker inspect).
+    command = redis.split("    command:\n", 1)[1].split("    environment:", 1)[0]
+    assert "${REDIS_PASSWORD" not in command
     assert "REDISCLI_AUTH: ${REDIS_PASSWORD:?" in redis
 
 

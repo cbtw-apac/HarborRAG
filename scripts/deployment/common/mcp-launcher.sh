@@ -44,6 +44,16 @@ compose_command() {
         --file "${ROOT_DIR}/deploy/compose/$1"
 }
 
+# Compose interpolates every required variable even for `down`, and an env file
+# from before bootstrap may lack these. Teardown needs none of their values, so
+# give unset ones an inert placeholder for this process only.
+allow_teardown_without_secrets() {
+    local secret
+    for secret in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD QDRANT_API_KEY FALKORDB_PASSWORD; do
+        export "${secret}=${!secret:-unused-during-down}"
+    done
+}
+
 prepare_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${MCP_ENV_FILE}" "MCP environment"
@@ -88,6 +98,7 @@ mcp_launcher_main() {
             [[ "$#" -eq 0 ]] || fail "down accepts no options."
             ((rebuild_image == 0)) || fail "--build is not supported with down."
             prepare_compose
+            allow_teardown_without_secrets
             "${service_compose[@]}" down
             ;;
         logs)

@@ -42,6 +42,16 @@ def _ui_project(tmp_path: Path) -> tuple[Path, Path, dict[str, str]]:
     fake_docker.write_text(
         """#!/usr/bin/env sh
 printf '%s\\n' "$*" >> "$MCP_DOCKER_LOG"
+# Compose interpolates required variables on `down` too.
+case " $* " in
+  *" down "*)
+    for name in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD QDRANT_API_KEY FALKORDB_PASSWORD; do
+      eval "value=\\${$name:-}"
+      [ -n "$value" ] || printf 'MISSING %s\\n' "$name" >> "$MCP_DOCKER_LOG.down-env"
+    done
+    printf 'checked\\n' >> "$MCP_DOCKER_LOG.down-env"
+    ;;
+esac
 case " $* " in
   *" image inspect "*) [ -n "$MCP_IMAGE_PRESENT" ] ;;
 esac
@@ -129,6 +139,16 @@ def test_ui_entrypoint_drives_its_own_compose_service(
     else:
         # Stdio and check mode must keep stdout free for the MCP protocol.
         assert result.stdout == ""
+
+
+def test_down_survives_required_variables_missing_from_an_old_env_file(tmp_path: Path) -> None:
+    script, docker_log, env = _ui_project(tmp_path)
+
+    result = _run(script, env, "down")
+
+    assert result.returncode == 0, result.stderr
+    seen = docker_log.with_name("docker.log.down-env").read_text(encoding="utf-8")
+    assert seen == "checked\n"
 
 
 def test_ui_entrypoint_requires_bootstrapped_environment(tmp_path: Path) -> None:
