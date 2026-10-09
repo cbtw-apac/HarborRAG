@@ -60,6 +60,9 @@ jobs:
     needs: [check-release]
     if: |
       !cancelled() &&
+      (github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository)) &&
       ((github.event_name != 'release') ||
       (github.event_name == 'release' && needs.check-release.outputs.should-deploy == 'true'))
     permissions:
@@ -87,14 +90,17 @@ jobs:
       - name: Get latest test workflow run ID
         if: github.event_name == 'release'
         id: get-workflow-run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          HEAD_SHA: ${{ github.sha }}
         run: |
-          echo "🔍 Finding latest successful test workflow run on main branch..."
+          echo "🔍 Finding the successful push test run for ${HEAD_SHA} on main..."
 
-          # Get the latest successful workflow run for "Test and Coverage" on main branch
           WORKFLOW_RUN=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows" \
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows" \
             | jq -r '.workflows[] | select(.name == "Test and Coverage") | .id')
 
           if [ "$WORKFLOW_RUN" = "null" ] || [ -z "$WORKFLOW_RUN" ]; then
@@ -102,18 +108,22 @@ jobs:
             exit 1
           fi
 
+          # branch=main alone also matches a fork pull request whose head branch
+          # is named main. Only a push to main in this repository, at the
+          # tagged commit, may supply the published coverage.
           LATEST_RUN=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_RUN/runs?branch=main&status=completed&conclusion=success&per_page=1" \
-            | jq -r '.workflow_runs[0].id')
+            "https://api.github.com/repos/${REPOSITORY}/actions/workflows/${WORKFLOW_RUN}/runs?branch=main&event=push&head_sha=${HEAD_SHA}&status=completed&conclusion=success&per_page=20" \
+            | jq -r --arg repo "${REPOSITORY}" --arg sha "${HEAD_SHA}" \
+              '[.workflow_runs[] | select(.event == "push" and .head_branch == "main" and .head_repository.full_name == $repo and .head_sha == $sha)][0].id // empty')
 
-          if [ "$LATEST_RUN" = "null" ] || [ -z "$LATEST_RUN" ]; then
-            echo "❌ No successful test runs found on main branch"
+          if [ -z "$LATEST_RUN" ]; then
+            echo "❌ No successful push test run found for ${HEAD_SHA} on main"
             echo "⚠️  Continuing without test artifacts for release"
             echo "workflow_run_id=" >> $GITHUB_OUTPUT
           else
-            echo "✅ Found latest successful test run: $LATEST_RUN"
+            echo "✅ Found successful test run: $LATEST_RUN"
             echo "workflow_run_id=$LATEST_RUN" >> $GITHUB_OUTPUT
           fi
 

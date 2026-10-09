@@ -90,3 +90,41 @@ def test_documentation_builds_pass_an_explicit_public_origin() -> None:
         content = (WORKFLOWS / name).read_text(encoding="utf-8")
         assert "website/build.py" in content, name
         assert "--site-url" in content, f"{name} builds the site without an explicit origin"
+
+
+def _build_step(workflow: dict[str, object], step_id: str) -> dict[str, object]:
+    steps = workflow["jobs"]["build-docs"]["steps"]  # type: ignore[index]
+    return next(step for step in steps if step.get("id") == step_id)
+
+
+@pytest.mark.parametrize("name", ["docs-auto.yml", "docs-manual.yml"])
+def test_docs_take_coverage_only_from_a_push_to_main_in_this_repository(name: str) -> None:
+    step = _build_step(_workflow(name), "get-workflow-run")
+    script = str(step["run"])
+
+    assert "branch=main&event=push" in script
+    assert "per_page=20" in script
+    assert "per_page=1&" not in script
+    assert '.event == "push"' in script
+    assert '.head_branch == "main"' in script
+    assert ".head_repository.full_name == $repo" in script
+    assert step["env"]["REPOSITORY"] == "${{ github.repository }}"
+    assert step["env"]["GH_TOKEN"] == "${{ secrets.GITHUB_TOKEN }}"
+    assert "${{" not in script.replace("${{ inputs.force_deploy }}", "")
+
+
+def test_release_docs_take_coverage_from_the_tagged_commit() -> None:
+    step = _build_step(_workflow("docs-auto.yml"), "get-workflow-run")
+    script = str(step["run"])
+
+    assert step["env"]["HEAD_SHA"] == "${{ github.sha }}"
+    assert "head_sha=${HEAD_SHA}" in script
+    assert ".head_sha == $sha" in script
+
+
+def test_workflow_run_docs_build_skips_fork_and_pull_request_runs() -> None:
+    condition = _workflow("docs-auto.yml")["jobs"]["build-docs"]["if"]
+
+    assert "github.event.workflow_run.event == 'push'" in condition
+    assert "github.event.workflow_run.head_repository.full_name == github.repository" in condition
+    assert "!cancelled()" in condition
