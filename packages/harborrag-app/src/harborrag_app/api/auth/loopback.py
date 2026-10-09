@@ -25,7 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from harborrag_app.api.settings import ApiSettings
 
 _LOOPBACK_HOST_HEADER = re.compile(
-    r"(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?", re.IGNORECASE
+    r"(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]{1,5})?", re.IGNORECASE | re.ASCII
 )
 _MISDIRECTED = (
     421,

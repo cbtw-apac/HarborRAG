@@ -136,6 +136,7 @@ def test_a_request_on_a_non_loopback_socket_is_refused() -> None:
     )
 
     assert response.status_code == 403
+    assert response.json()["error"]["code"] == "loopback_required"
 
 
 def test_insecure_dev_opt_in_waives_only_the_socket_check() -> None:
