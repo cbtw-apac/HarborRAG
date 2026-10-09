@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -423,3 +424,28 @@ async def test_manage_memory_keeps_a_project_fact_personal_by_default() -> None:
     )
 
     assert memories.rows[str(response["memory_id"])].scope is MemoryScope.USER
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_id", "expected"),
+    [(DEFAULT_USER, MemoryScope.SESSION), ("dev", MemoryScope.USER)],
+)
+async def test_manage_memory_downgrades_a_project_fact_to_the_session_for_a_userless_caller(
+    user_id: str, expected: MemoryScope
+) -> None:
+    memories = _Memories()
+    owner = MemoryOwner(
+        tenant_id="ACME",
+        project_id="atlas",
+        principal_id="svc-1",
+        user_id=user_id,
+        session_id="session-1",
+    )
+
+    response = await _provider(memories, owner=owner).call_tool(
+        "manage_memory",
+        {"content": "ships on Fridays", "scope": "project"},
+    )
+
+    assert memories.rows[str(response["memory_id"])].scope is expected

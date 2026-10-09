@@ -39,7 +39,7 @@ from .prompting import render_transcript
 from .prompts import EXTRACTION_USER_TEMPLATE, NO_MEMORIES_PLACEHOLDER
 from .proposing import propose_facts
 from .recall import RECALL_MEMORY_TYPES
-from .scoping import scope_query_owner
+from .scoping import personal_scope, scope_query_owner
 from .summarizer import recall_owner
 
 logger = logging.getLogger(__name__)
@@ -203,14 +203,15 @@ class MemoryExtractor:
         """Return the scope this owner can actually be written at, never wider.
 
         PROJECT is only honoured with ``policy.extraction_project_scope``;
-        otherwise the fact stays the user's own. A project fact proposed by an
+        otherwise the fact stays the user's own (the session's, for a user-less
+        caller). A project fact proposed by an
         owner with no ``project_id`` degrades to the session rather than being
         stored where a whole project would read it; an owner that cannot even
         address its session stores nothing.
         """
 
         if requested is MemoryScope.PROJECT and not self._policy.extraction_project_scope:
-            requested = MemoryScope.USER
+            requested = personal_scope(owner)
         for candidate in (requested, MemoryScope.SESSION):
             if scope_query_owner(owner, candidate) is not None:
                 return candidate

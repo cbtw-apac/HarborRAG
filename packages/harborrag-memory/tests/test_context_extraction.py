@@ -14,6 +14,7 @@ from context_test_fakes import (
     structured_model,
 )
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import MemoryOwner, MemoryScope, MemoryType
 from harborrag_memory import MemoryExtractor, MemoryPolicy
@@ -261,6 +262,29 @@ async def test_extract_degrades_a_project_fact_when_the_owner_has_no_project(
 
     assert saved.scope is MemoryScope.SESSION
     assert saved.owner.user_id == "principal-1"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("user_id", "expected"),
+    [(DEFAULT_USER, MemoryScope.SESSION), ("user-a", MemoryScope.USER)],
+)
+async def test_extract_downgrades_an_unopted_project_fact_without_sharing_a_userless_scope(
+    memories: MemoryRepositoryFake, user_id: str, expected: MemoryScope
+) -> None:
+    caller = MemoryOwner(
+        tenant_id="tenant-1",
+        project_id="project-1",
+        principal_id="principal-1",
+        user_id=user_id,
+        session_id="s-1",
+    )
+
+    (saved,) = await extractor(
+        memories, payload(fact("Ingest runs nightly.", scope="project"))
+    ).extract(caller, messages=MESSAGES)
+
+    assert saved.scope is expected
 
 
 @pytest.mark.asyncio

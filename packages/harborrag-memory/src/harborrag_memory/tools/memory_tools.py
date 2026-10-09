@@ -25,6 +25,7 @@ from harborrag_core.ports.memory import (
     scope_owner_fields,
 )
 from harborrag_memory.context import MemoryPolicy, MemoryRecall
+from harborrag_memory.context.scoping import personal_scope
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryEmbedder, MemoryIndex, MemoryRepository
@@ -155,7 +156,7 @@ class AgentMemoryTools:
         if requested is MemoryScope.PROJECT and not self.policy.extraction_project_scope:
             # Same opt-in as automatic extraction: an agent's run sees tool
             # output, so it never widens a fact to the whole project by default.
-            requested = MemoryScope.USER
+            requested = personal_scope(self.owner)
         scope = _resolved_scope(self.owner, requested)
         if scope is None:
             return {"ok": False, "error": "this caller cannot address any memory scope"}

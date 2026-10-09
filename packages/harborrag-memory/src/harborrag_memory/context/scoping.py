@@ -10,6 +10,7 @@ depends on.
 
 from __future__ import annotations
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import MemoryOwner, MemoryScope, scope_owner_fields
 
 from .summarizer import recall_owner
@@ -38,4 +39,17 @@ def scope_query_owner(owner: MemoryOwner, scope: MemoryScope) -> MemoryOwner | N
     )
 
 
-__all__ = ["scope_query_owner"]
+def personal_scope(owner: MemoryOwner) -> MemoryScope:
+    """The scope a PROJECT fact narrows to when the project opt-in is off.
+
+    A real user keeps it as their own USER fact. ``DEFAULT_USER`` is the
+    user-less sentinel shared by every such caller in the tenant, across
+    projects, so USER scope there would leak the fact; it stays in the session.
+    """
+
+    if recall_owner(owner).user_id == DEFAULT_USER:
+        return MemoryScope.SESSION
+    return MemoryScope.USER
+
+
+__all__ = ["personal_scope", "scope_query_owner"]
