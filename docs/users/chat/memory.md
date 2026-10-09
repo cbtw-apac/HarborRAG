@@ -105,7 +105,8 @@ Deleting one memory follows ownership, not visibility. Your own user and
 session memories are always yours to delete. Project, tenant, and global
 memories are shared: a `reader` may delete only the ones they wrote (matched
 on the signed end-user claim, not the credential); `editor` and above may
-delete any shared memory in a tenant they can access. Anyone else gets `403`.
+delete any shared memory in their own tenant, but not a global memory, which
+only its author may delete. Anyone else gets `403`.
 
 ## Automatic extraction scope
 

@@ -317,3 +317,45 @@ async def test_a_reader_still_deletes_their_own_user_memory(
 
     assert response.status_code == 200
     assert "mem-mine" not in service.memory_store.rows
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["editor", "admin"])
+async def test_an_editor_in_another_tenant_cannot_delete_a_global_memory(
+    hmac_client: TestClient,
+    service: MockAppService,
+    role: str,
+) -> None:
+    """GLOBAL rows are visible to every tenant, so the editor override must not reach them."""
+    await service.memory_store.save(
+        memory("mem-global", scope=MemoryScope.GLOBAL, tenant_id="DEFAULT", user_id="bob")
+    )
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-global",
+        params={"tenant": "TENANT-B"},
+        headers={"Authorization": f"Bearer {_token(role, tenants=('TENANT-B',))}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert "mem-global" in service.memory_store.rows
+    assert service.memory_index.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_an_editor_still_deletes_a_tenant_memory_in_their_own_tenant(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    await service.memory_store.save(
+        memory("mem-tenant", scope=MemoryScope.TENANT, tenant_id="DEFAULT", user_id="bob")
+    )
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-tenant",
+        headers={"Authorization": f"Bearer {_token('editor')}"},
+    )
+
+    assert response.status_code == 200
+    assert "mem-tenant" not in service.memory_store.rows

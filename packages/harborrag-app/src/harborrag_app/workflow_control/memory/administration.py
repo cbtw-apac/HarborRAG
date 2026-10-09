@@ -132,14 +132,17 @@ class MemoryAdministrationService:
         PROJECT/TENANT/GLOBAL row is visible to everyone it is shared with,
         so deleting it takes ``may_delete_shared`` (the editor role) or
         having written it -- otherwise a 403, which discloses nothing the
-        caller could not already list.
+        caller could not already list. The editor role is tenant-scoped, and
+        GLOBAL rows are visible to every tenant, so it never reaches them:
+        a GLOBAL memory is deletable only by its author.
         """
 
         store = self._store()
         memory = await store.get(owner, memory_id)
         if memory is None:
             raise HarborNotFoundError("Memory was not found")
-        if not may_delete_shared and not modifiable_by(memory.scope, memory.owner, owner):
+        elevated = may_delete_shared and memory.scope is not MemoryScope.GLOBAL
+        if not elevated and not modifiable_by(memory.scope, memory.owner, owner):
             raise HarborAuthError(
                 "deleting a shared memory requires the editor role or authorship",
                 forbidden=True,

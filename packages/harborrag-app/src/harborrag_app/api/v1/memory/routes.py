@@ -128,8 +128,9 @@ async def delete_memory(  # noqa: PLR0913 - one parameter per documented query f
 ) -> MemoryDeletionResponse:
     """Forget one memory; ``404`` when it is not visible to this caller.
 
-    Shared (project, tenant, global) memories are deletable by their author
-    or by an ``editor`` and above; a reader gets ``403`` for anyone else's.
+    Shared project and tenant memories are deletable by their author or by an
+    ``editor`` and above; a reader gets ``403`` for anyone else's. A global
+    memory belongs to no single tenant, so only its author may delete it.
     """
 
     authorize_tenant(principal, tenant)
