@@ -369,7 +369,7 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional Temporal namespace override |
 | `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
-| `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Explicit opt-in for trusted plaintext remote targets |
+| `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Development-only (`HARBORRAG_ENV=dev`) acknowledgement for trusted plaintext remote targets; ignored in prod |
 | `HARBORRAG_TEMPORAL_INGESTION_BATCH_SIZE` | `200` | Default documents per `SourceBatchWorkflow` child; a CLI/API caller may override it per submission |
 | `HARBORRAG_TEMPORAL_INGESTION_DOCUMENT_CONCURRENCY` | `8` | Default concurrent `DocumentIngestionWorkflow` children per wave; a CLI/API caller may override it per submission |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |

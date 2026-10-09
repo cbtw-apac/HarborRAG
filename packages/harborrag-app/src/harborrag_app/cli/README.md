@@ -341,7 +341,8 @@ Relevant `HARBORRAG_` variables include:
 
 Plaintext connections to non-loopback services fail closed unless their
 explicit `HARBORRAG_*_ALLOW_INSECURE_REMOTE` development-network option is
-enabled. Do not use those opt-outs on an untrusted network.
+enabled and `HARBORRAG_ENV=dev`; production ignores them. Do not use those
+opt-outs on an untrusted network.
 
 ### The CLI and the worker must share one object store
 
