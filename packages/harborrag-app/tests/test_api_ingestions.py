@@ -411,3 +411,48 @@ def test_legacy_start_hides_connector_configuration_text(
     assert error["code"] == code
     assert error["message"] == message
     assert "sentinel-detail" not in response.text
+
+
+@pytest.mark.parametrize("error_type", ["ParserConfigurationError", "GraphBuildConfigurationError"])
+def test_legacy_start_hides_every_other_configuration_error_text(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: str,
+) -> None:
+    async def refuse(**_kwargs: object) -> AppResponse:
+        return AppResponse(
+            False,
+            {"error_type": error_type},
+            "Parser catalog /srv/harborrag/sentinel-detail.yaml is invalid",
+        )
+
+    monkeypatch.setattr(service, "start_ingestion", refuse)
+    response = client.post(
+        "/api/v1/ingestions",
+        json={"tenant_id": "DEFAULT", "connector_name": "x"},
+    )
+
+    assert response.status_code == 500
+    error = response.json()["error"]
+    assert error["code"] == "configuration_unavailable"
+    assert error["message"] == "Configuration is unavailable"
+    assert "sentinel-detail" not in response.text
+
+
+def test_v1_submit_never_echoes_a_parser_configuration_error(
+    service: MockAppService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from harborrag_runtime.config.errors import ParserConfigurationError
+
+    async def refuse(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise ParserConfigurationError("Parser catalog /srv/harborrag/sentinel-detail.yaml")
+
+    monkeypatch.setattr(service, "submit", refuse)
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    with TestClient(create_fastapi_app(ApiSettings()), raise_server_exceptions=False) as client:
+        response = client.post("/v1/ingestions", json={"connection_id": "harborrag-workspace"})
+
+    assert response.status_code == 500
+    assert response.json()["error"]["message"] == "Internal server error"
+    assert "sentinel-detail" not in response.text

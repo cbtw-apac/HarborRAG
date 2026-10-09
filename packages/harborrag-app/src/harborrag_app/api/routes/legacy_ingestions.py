@@ -22,6 +22,7 @@ from harborrag_app.api.v1.ingestion.dependencies import IngestionService
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_runtime.config.errors import (
+    ConfigurationError,
     ConnectorConfigurationError,
     ConnectorDisabledError,
     ConnectorNotFoundError,
@@ -158,6 +159,16 @@ async def _authorize_run(service: BaseAppService, principal: Principal, run_id: 
 _UNAVAILABLE_CONNECTION_ERRORS = frozenset(
     {ConnectorNotFoundError.__name__, ConnectorDisabledError.__name__}
 )
+
+
+def _configuration_error_names(base: type[Exception] = ConfigurationError) -> frozenset[str]:
+    """Names of ``base`` and every subclass: the runtime reports failures by class name."""
+    names = {base.__name__}
+    for subclass in base.__subclasses__():
+        names |= _configuration_error_names(subclass)
+    return frozenset(names)
+
+
 _CLIENT_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     WorkflowNotFoundError.__name__: (404, "ingestion_run_not_found"),
     ConnectorNotFoundError.__name__: (404, "connection_not_found"),
@@ -189,12 +200,19 @@ def _render(
         (502, "ingestion_operation_failed"),
     )
     message = response.error or "Ingestion operation failed"
+    opaque_configuration = (
+        error_type not in _CLIENT_ERROR_RESPONSES and error_type in _configuration_error_names()
+    )
+    if opaque_configuration:
+        status_code, code = 500, "configuration_unavailable"
     if error_type in _UNAVAILABLE_CONNECTION_ERRORS:
         # Same text whether the connection is unknown, tenant-disallowed or disabled.
         message = "Connection was not found"
     elif error_type == ConnectorConfigurationError.__name__:
         # The runtime's text can name secrets and catalog paths.
         message = "Connector configuration is unavailable"
+    elif opaque_configuration:
+        message = "Configuration is unavailable"
     logger.warning(
         "Legacy ingestion operation failed",
         extra={"operation": operation, "error_type": error_type, "status_code": status_code},
