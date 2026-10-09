@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.connections import connection_catalog
+from harborrag_app.workflow_control.ingestion.connections import (
+    connection_catalog,
+    warn_unbound_connections,
+)
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -87,3 +91,51 @@ def test_an_unreadable_catalog_fails_the_request(tmp_path: Path) -> None:
 
     with pytest.raises(HarborConfigurationError):
         connection_catalog(settings)
+
+
+_BOUND = """
+version: 1
+connectors:
+  acme-local:
+    provider: local
+    enabled: true
+    tenants: [ACME]
+  shared-local:
+    provider: local
+    enabled: true
+"""
+
+
+def test_listing_is_limited_to_the_callers_tenants(tmp_path: Path) -> None:
+    settings = _settings(tmp_path, _BOUND)
+
+    assert connection_catalog(settings, tenant_ids=frozenset({"GLOBEX"})) == {
+        "items": [{"connection_id": "shared-local", "source_type": "local"}]
+    }
+    assert [item["connection_id"] for item in connection_catalog(settings)["items"]] == [  # type: ignore[index]
+        "acme-local",
+        "shared-local",
+    ]
+
+
+def test_startup_warns_about_connections_open_to_every_tenant(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    namespace_logger = logging.getLogger("harborrag")
+    namespace_logger.addHandler(caplog.handler)
+    try:
+        with caplog.at_level(
+            "WARNING", logger="harborrag.app.workflow_control.ingestion.connections"
+        ):
+            unbound = warn_unbound_connections(_settings(tmp_path, _BOUND))
+    finally:
+        namespace_logger.removeHandler(caplog.handler)
+
+    assert unbound == ["shared-local"]
+    assert any("shared-local" in record.getMessage() for record in caplog.records)
+
+
+def test_an_unreadable_catalog_does_not_break_startup(tmp_path: Path) -> None:
+    settings = RuntimeSettings(connector_config_path=tmp_path / "missing.yaml")
+
+    assert warn_unbound_connections(settings) == []

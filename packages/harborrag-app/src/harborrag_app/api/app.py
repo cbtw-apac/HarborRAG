@@ -103,6 +103,11 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_service = service
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)
+    # Tenant-binding audit of the connector catalog: logged once per process,
+    # not per request (the catalog itself is re-read on every listing).
+    warn_unbound = getattr(service, "warn_unbound_connections", None)
+    if warn_unbound is not None:
+        await asyncio.to_thread(warn_unbound)
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
     # cancelled -- on shutdown, letting queued exchanges finish.

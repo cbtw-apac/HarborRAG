@@ -145,7 +145,10 @@ class IngestionServiceFixture:
             "next_cursor": "eyJzdWJtaXR0ZWRfYXQiOiIyMDI2LTA4LTAxVDA5OjI0OjAwKzAwOjAwIn0",
         }
 
-    async def list_connections(self) -> dict[str, object]:
+    async def list_connections(
+        self, *, tenant_ids: frozenset[str] | None = None
+    ) -> dict[str, object]:
+        self.connection_listing_scopes.append(tenant_ids)
         return {
             "items": [
                 {"connection_id": "confluence-main", "source_type": "confluence"},

@@ -102,3 +102,18 @@ def test_reader_role_clears_the_catalog_minimum(
         )
 
     assert response.status_code == 200
+
+
+def test_listing_is_scoped_to_the_tokens_tenants(
+    monkeypatch: pytest.MonkeyPatch,
+    service: MockAppService,
+) -> None:
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+    settings = ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET)
+    with TestClient(create_fastapi_app(settings)) as client:
+        response = client.get(
+            "/v1/connections", headers={"Authorization": f"Bearer {_token('reader')}"}
+        )
+
+    assert response.status_code == 200
+    assert service.connection_listing_scopes == [frozenset({"ACME"})]

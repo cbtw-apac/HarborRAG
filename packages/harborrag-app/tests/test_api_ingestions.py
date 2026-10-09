@@ -297,3 +297,29 @@ def test_legacy_status_maps_runtime_failures(
     assert response.status_code == expected_status
     assert response.headers["deprecation"] == "true"
     assert response.json()["error"]["code"] == expected_code
+
+
+def test_legacy_start_maps_an_unavailable_connection_to_a_uniform_404(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The legacy path must not reveal whether a refused connection exists."""
+
+    async def refuse(**_kwargs: object) -> AppResponse:
+        # public_error_message collapses the runtime error to its class name.
+        return AppResponse(
+            False, {"error_type": "ConnectorNotFoundError"}, "ConnectorNotFoundError"
+        )
+
+    monkeypatch.setattr(service, "start_ingestion", refuse)
+    response = client.post(
+        "/api/v1/ingestions",
+        json={"tenant_id": "DEFAULT", "connector_name": "another-tenants-connection"},
+    )
+
+    assert response.status_code == 404
+    assert response.headers["deprecation"] == "true"
+    error = response.json()["error"]
+    assert error["code"] == "connection_not_found"
+    assert error["message"] == "Connection was not found"

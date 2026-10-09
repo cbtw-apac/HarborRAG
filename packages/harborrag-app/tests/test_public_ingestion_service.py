@@ -423,3 +423,39 @@ async def test_failed_pause_and_resume_do_not_change_durable_state(
     with pytest.raises(HarborConnectionError):
         await service.resume(task_id)
     assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED
+
+
+@pytest.mark.asyncio
+async def test_unknown_and_disallowed_connections_are_indistinguishable() -> None:
+    """Review focus: a tenant must not learn which other connections exist."""
+    from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+    from harborrag_core.contracts.errors import HarborNotFoundError
+    from harborrag_runtime.config.errors import ConnectorNotFoundError
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    async def _never():
+        raise AssertionError("submission must fail before any store or workflow call")
+
+    def _refuse(_settings, submission):
+        raise ConnectorNotFoundError(f"Unknown configured connector: {submission.connector_name!r}")
+
+    service = IngestionApplicationService(
+        RuntimeSettings(),
+        client_provider=_never,
+        task_store_provider=_never,
+        source_input_builder=_refuse,
+    )
+
+    outcomes = []
+    for connection_id in ("another-tenants-connection", "does-not-exist"):
+        command = IngestionCreateCommand(
+            tenant_id="ACME",
+            connection_id=connection_id,
+            force_reprocess=False,
+            public_request={"connection_id": connection_id},
+        )
+        with pytest.raises(HarborNotFoundError) as caught:
+            await service.submit(command, idempotency_key=None)
+        outcomes.append(str(caught.value))
+
+    assert outcomes == ["Connection was not found", "Connection was not found"]

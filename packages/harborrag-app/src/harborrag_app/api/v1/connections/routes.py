@@ -5,15 +5,19 @@
 those identities so a caller can offer or validate the same choices the worker
 will accept, without exposing any connector settings or credential references.
 
-The catalog is process-wide configuration rather than tenant data, so the route
-enforces the reader role and does not scope by tenant.
+Connections may be bound to tenants (a ``tenants`` allowlist in the YAML), so the
+listing is filtered to the caller's tenant scope; unbound connections are listed
+to everyone.
 """
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from fastapi import APIRouter, Depends
 
 from harborrag_app.api.auth.dependencies import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 
@@ -36,7 +40,12 @@ ERROR_RESPONSES = documented_error_responses(
     response_model=ConnectionPage,
     responses=ERROR_RESPONSES,
 )
-async def list_connections(service: ConnectionCatalogDependency) -> ConnectionPage:
-    """Enabled connections, alphabetically by ``connection_id``."""
+async def list_connections(
+    service: ConnectionCatalogDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+) -> ConnectionPage:
+    """Enabled connections this caller's tenants may use, by ``connection_id``."""
 
-    return ConnectionPage.model_validate(await service.list_connections())
+    return ConnectionPage.model_validate(
+        await service.list_connections(tenant_ids=principal.tenant_scope)
+    )

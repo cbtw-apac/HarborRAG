@@ -9,13 +9,14 @@ from datetime import datetime
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborConnectionError,
+    HarborNotFoundError,
     HarborValidationError,
 )
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
 from harborrag_runtime.config import load_connector_catalog
-from harborrag_runtime.config.errors import ConnectorConfigurationError
+from harborrag_runtime.config.errors import ConnectorConfigurationError, ConnectorNotFoundError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.execution.source_submission import prepare_source_submission
@@ -365,6 +366,10 @@ class IngestionApplicationService(TaskListingMixin):
                     force_reprocess=command.force_reprocess,
                 ),
             )
+        except ConnectorNotFoundError as error:
+            # One message for unknown and tenant-disallowed connections: the
+            # runtime's text would otherwise be the only difference.
+            raise HarborNotFoundError("Connection was not found") from error
         except ConnectorConfigurationError as error:
             raise HarborValidationError(str(error)) from error
         return source

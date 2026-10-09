@@ -49,6 +49,7 @@ class MockAppService(
         self.submissions: list[IngestionCreateCommand] = []
         self.idempotency: dict[str, str] = {}
         self.task_list_calls: list[dict[str, object]] = []
+        self.connection_listing_scopes: list[frozenset[str] | None] = []
         self.direct_runs: list[dict[str, object]] = []
         self.retrieval_calls: list[dict[str, object]] = []
         self.graph_retrieval_calls: list[dict[str, object]] = []

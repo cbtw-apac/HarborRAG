@@ -10,7 +10,9 @@ from fastapi import Depends, Request
 class ConnectionCatalogService(Protocol):
     """Narrow application facade required by the connection transport."""
 
-    async def list_connections(self) -> dict[str, object]: ...
+    async def list_connections(
+        self, *, tenant_ids: frozenset[str] | None = None
+    ) -> dict[str, object]: ...
 
 
 def connection_catalog_service(request: Request) -> ConnectionCatalogService:

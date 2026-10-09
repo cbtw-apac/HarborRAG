@@ -20,6 +20,7 @@ from harborrag_app.api.errors import error_envelope
 from harborrag_app.api.schemas import IngestionControlInput, IngestionWorkflowInput
 from harborrag_app.api.v1.ingestion.dependencies import IngestionService
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_runtime.config.errors import ConnectorNotFoundError
 from harborrag_runtime.errors import (
     WorkflowNotFoundError,
     WorkflowNotRetryableError,
@@ -145,6 +146,7 @@ async def _authorize_run(service: BaseAppService, principal: Principal, run_id: 
 
 _CLIENT_ERROR_RESPONSES: dict[str, tuple[int, str]] = {
     WorkflowNotFoundError.__name__: (404, "ingestion_run_not_found"),
+    ConnectorNotFoundError.__name__: (404, "connection_not_found"),
     WorkflowNotRunningError.__name__: (409, "ingestion_run_not_running"),
     WorkflowNotRetryableError.__name__: (409, "ingestion_artifacts_not_retryable"),
     WorkflowRunAlreadyStartedError.__name__: (409, "ingestion_run_already_started"),
@@ -170,6 +172,10 @@ def _render(
         error_type,
         (502, "ingestion_operation_failed"),
     )
+    message = response.error or "Ingestion operation failed"
+    if error_type == ConnectorNotFoundError.__name__:
+        # Same text whether the connection is unknown or tenant-disallowed.
+        message = "Connection was not found"
     logger.warning(
         "Legacy ingestion operation failed",
         extra={"operation": operation, "error_type": error_type, "status_code": status_code},
@@ -179,7 +185,7 @@ def _render(
         content=error_envelope(
             request,
             code,
-            response.error or "Ingestion operation failed",
+            message,
             {"operation": operation, "error_type": error_type},
         ),
         headers=_DEPRECATION_HEADERS,
