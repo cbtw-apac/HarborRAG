@@ -425,3 +425,33 @@ def test_ui_check_lists_only_the_explorer_tools(tmp_path, monkeypatch, capsys) -
     monkeypatch.chdir(tmp_path)
     assert ui_main(["--check"]) == 0
     assert json.loads(capsys.readouterr().out) == EXPLORER_TOOLS
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("raised", "shown"),
+    [
+        (
+            PermissionError("MCP tool vector_search is disabled"),
+            "MCP tool vector_search is disabled",
+        ),
+        (
+            PermissionError(13, "Permission denied", "/srv/harborrag/sentinel-secret-path"),
+            "permission denied",
+        ),
+    ],
+)
+async def test_opening_with_a_query_shows_only_reviewed_permission_text(
+    monkeypatch, raised: PermissionError, shown: str
+) -> None:
+    async def refuse(self, *_args, **_kwargs):
+        raise raised
+
+    monkeypatch.setattr(McpServer, "call_tool", refuse)
+    async with fastmcp.Client(_explorer(_registry())) as client:
+        result = await client.call_tool(
+            EXPLORER_ENTRY_TOOL, {"query": "failover", "tenant_id": "tenant-1"}
+        )
+
+    assert "sentinel-secret-path" not in json.dumps(result.structured_content)
+    assert shown in json.dumps(result.structured_content)

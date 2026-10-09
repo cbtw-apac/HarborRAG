@@ -51,3 +51,18 @@ def public_tool_error(exc: BaseException) -> tuple[str, int]:
     if isinstance(exc, (TypeError, ValueError)):
         return f"invalid tool request ({type(exc).__name__})", 422
     return f"tool execution failed ({type(exc).__name__})", 500
+
+
+def public_configuration_error(exc: BaseException) -> str:
+    """Return a reviewed message for a rejected configuration request.
+
+    Configuration validators interpolate submitted tool names, field names and
+    filesystem paths into their ``ValueError`` text, so only transport-authored
+    text and field paths are shown; any other failure is reported by class name.
+    """
+
+    if isinstance(exc, ValidationError):
+        return _validation_message(exc)
+    if isinstance(exc, (ToolRequestError, json.JSONDecodeError, UnicodeDecodeError)):
+        return public_tool_error(exc)[0]
+    return f"invalid configuration ({type(exc).__name__})"

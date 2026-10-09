@@ -24,6 +24,7 @@ from typing import TYPE_CHECKING, Any, Literal
 from harborrag_mcp_server.server.explorer import views
 from harborrag_mcp_server.server.explorer.ui import ExplorerLayout, explorer_view
 from harborrag_mcp_server.server.http_auth import allowed_tenants
+from harborrag_mcp_server.server.tool_errors import public_tool_error
 
 if TYPE_CHECKING:
     from fastmcp import FastMCPApp
@@ -321,8 +322,10 @@ def build_explorer(  # noqa: C901 - one closure per backend shares the registry 
         if query.strip() and search is not None:
             try:
                 initial = await search(query, tenant_id=tenant, mode=start_mode)
-            except (ToolError, PermissionError) as exc:
+            except ToolError as exc:
                 error = str(exc)
+            except PermissionError as exc:
+                error = public_tool_error(exc)[0]
         empty_page = {"rows": [], "next_cursor": "", "summary": "Not loaded yet."}
         return PrefabApp(
             title="HarborRAG Explorer",

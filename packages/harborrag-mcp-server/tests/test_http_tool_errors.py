@@ -147,3 +147,53 @@ async def test_an_unknown_tool_name_is_not_echoed(tmp_path: Path) -> None:
 
     assert response.status_code == 422
     assert SENTINEL not in response.text
+
+
+async def _config_request(
+    app: Starlette, method: str, path: str, body: dict[str, object] | None = None
+) -> httpx.Response:
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            return await client.request(
+                method, path, headers={"Authorization": f"Bearer {TOKEN}"}, json=body
+            )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "configuration",
+    [
+        {"tools": {SENTINEL: {}}},
+        {"tenants": {"demo": {"tools": {"vector_search": {"defaults": {SENTINEL: 1}}}}}},
+        {"tools": {"vector_search": {"enabled": SENTINEL}}},
+        {"unexpected_field": SENTINEL},
+    ],
+)
+async def test_rejected_configuration_never_echoes_submitted_values(
+    tmp_path: Path, configuration: dict[str, object]
+) -> None:
+    response = await _config_request(
+        _app(tmp_path), "PUT", "/api/config", {"configuration": configuration}
+    )
+
+    assert response.status_code == 422
+    assert SENTINEL not in response.text
+
+
+@pytest.mark.asyncio
+async def test_configuration_request_shape_errors_keep_their_message(tmp_path: Path) -> None:
+    response = await _config_request(_app(tmp_path), "PUT", "/api/config", {"configuration": 1})
+
+    assert response.status_code == 422
+    assert response.json()["error"] == "request must contain a configuration object"
+
+
+@pytest.mark.asyncio
+async def test_a_failed_reload_does_not_name_the_configuration_path(tmp_path: Path) -> None:
+    response = await _config_request(_app(tmp_path), "POST", "/api/config/reload")
+
+    assert response.status_code == 422
+    assert str(tmp_path) not in response.text
+    assert response.json()["error"] == "invalid configuration (ValueError)"

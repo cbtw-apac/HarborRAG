@@ -33,7 +33,11 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
-from harborrag_mcp_server.server.tool_errors import ToolRequestError, public_tool_error
+from harborrag_mcp_server.server.tool_errors import (
+    ToolRequestError,
+    public_configuration_error,
+    public_tool_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +223,10 @@ def _replace_configuration_handler(
             authorize_administration(request)
             payload = await _bounded_json(request, maximum=_MAX_CONFIGURATION_REQUEST_BYTES)
             if not isinstance(payload, dict) or not isinstance(payload.get("configuration"), dict):
-                raise ValueError("request must contain a configuration object")
+                raise ToolRequestError("request must contain a configuration object")
             expected_revision = payload.get("expected_revision")
             if expected_revision is not None and not isinstance(expected_revision, str):
-                raise ValueError("expected_revision must be a string")
+                raise ToolRequestError("expected_revision must be a string")
             updated = McpConfiguration.model_validate(payload["configuration"])
             description = configuration.replace(
                 updated,
@@ -232,7 +236,7 @@ def _replace_configuration_handler(
         except ConfigurationRevisionError as exc:
             return error_response(str(exc), status_code=409)
         except (ValidationError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return error_response(str(exc), status_code=422)
+            return error_response(public_configuration_error(exc), status_code=422)
         return configuration_response(description)
 
     return replace_configuration
@@ -248,7 +252,7 @@ def _reload_configuration_handler(
             authorize_administration(request)
             description = configuration.reload(principal_id=principal_id)
         except (ValidationError, ValueError) as exc:
-            return error_response(str(exc), status_code=422)
+            return error_response(public_configuration_error(exc), status_code=422)
         return configuration_response(description)
 
     return reload_configuration
