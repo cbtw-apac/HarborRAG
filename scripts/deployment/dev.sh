@@ -93,7 +93,7 @@ env_file_value() {
     local path="$1"
     local name="$2"
     local value
-    value="$(sed -n "s/^${name}=//p" "${ROOT_DIR}/${path}" | tail -n 1)"
+    value="$(sed -En "s/^[[:space:]]*(export[[:space:]]+)?${name}=//p" "${ROOT_DIR}/${path}" | tail -n 1)"
     value="${value//$'\r'/}"
     value="${value#"${value%%[![:space:]]*}"}"
     value="${value%"${value##*[![:space:]]}"}"
@@ -119,6 +119,27 @@ is_placeholder_secret() {
     [[ -z "${value}" || "${value}" == change-me* || "${value}" == REPLACE* ]]
 }
 
+# Rewrite NAME=... in place without putting the value in any process argument
+# (ps would show it): awk reads it from the environment, the copy is created
+# under umask 077, and mv keeps the file at mode 600.
+replace_env_value() {
+    local target_path="$1"
+    local name="$2"
+    local value="$3"
+    local temporary
+    temporary="$(umask 077 && mktemp "${target_path}.XXXXXX")"
+    if ! ENV_NAME="${name}" ENV_VALUE="${value}" awk '
+        BEGIN { pattern = "^[ \t]*(export[ \t]+)?" ENVIRON["ENV_NAME"] "=" }
+        $0 ~ pattern { print ENVIRON["ENV_NAME"] "=" ENVIRON["ENV_VALUE"]; next }
+        { print }
+    ' "${target_path}" >"${temporary}"; then
+        rm -f "${temporary}"
+        fail "Could not update ${name} in ${target_path}."
+    fi
+    mv "${temporary}" "${target_path}"
+    chmod 600 "${target_path}"
+}
+
 generate_missing_secrets() {
     local path="$1"
     shift
@@ -130,8 +151,8 @@ generate_missing_secrets() {
         command -v openssl >/dev/null ||
             fail "OpenSSL is required to generate ${name} in ${path}."
         value="$(openssl rand -hex 32)"
-        if grep -Eq "^${name}=" "${target_path}"; then
-            sed -i "s/^${name}=.*/${name}=${value}/" "${target_path}"
+        if grep -Eq "^[[:space:]]*(export[[:space:]]+)?${name}=" "${target_path}"; then
+            replace_env_value "${target_path}" "${name}" "${value}"
         else
             if [[ -s "${target_path}" && -n "$(tail -c 1 "${target_path}")" ]]; then
                 printf '\n' >>"${target_path}"
@@ -149,15 +170,14 @@ generate_missing_secrets() {
 require_database_secrets() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     local name
-    local unsafe='[@/:#?%[:space:]]'
     for name in "${DATABASE_GENERATED_SECRETS[@]}"; do
         if is_placeholder_secret "$(configured_secret "${DATABASE_ENV_FILE}" "${name}")"; then
             fail "${name} in ${DATABASE_ENV_FILE} is empty or a placeholder. Run '$0 bootstrap' to generate missing secrets, or replace the placeholder with a strong value. PostgreSQL keeps the password its volume was created with: change it there with ALTER USER, or discard the data with '$0 down --volumes'."
         fi
     done
     for name in "${URL_EMBEDDED_SECRETS[@]}"; do
-        if [[ "$(configured_secret "${DATABASE_ENV_FILE}" "${name}")" =~ ${unsafe} ]]; then
-            fail "${name} in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it (@ / : # ? % or whitespace). Use letters, digits, '-', '_', '.', or '~' (for example 'openssl rand -hex 32')."
+        if ! [[ "$(configured_secret "${DATABASE_ENV_FILE}" "${name}")" =~ ^[A-Za-z0-9._~-]+$ ]]; then
+            fail "${name} in ${DATABASE_ENV_FILE} contains a character that breaks the connection URL Compose builds from it. Use letters, digits, '-', '_', '.', or '~' (for example 'openssl rand -hex 32')."
         fi
     done
 }
@@ -191,7 +211,7 @@ ensure_mcp_environment_file() {
     command -v openssl >/dev/null ||
         fail "OpenSSL is required to generate the local MCP bearer token."
     bearer_token="$(openssl rand -hex 32)"
-    sed -i "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
+    replace_env_value "${target_path}" HARBORRAG_MCP_BEARER_TOKEN "${bearer_token}"
     chmod 600 "${target_path}"
     echo "Generated a protected MCP bearer token in ${target}."
 }

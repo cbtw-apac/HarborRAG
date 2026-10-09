@@ -111,6 +111,8 @@ def test_bootstrap_generates_every_database_secret(tmp_path: Path) -> None:
     assert "change-me" not in database.read_text(encoding="utf-8")
     assert stat.S_IMODE(database.stat().st_mode) == 0o600
     assert "Generated" in result.stdout
+    for name in DATABASE_SECRETS:
+        assert values[name] not in result.stdout + result.stderr, name
 
 
 @requires_openssl
@@ -196,7 +198,10 @@ def test_launchers_refuse_placeholder_secrets_without_calling_docker(
 
 @requires_openssl
 @pytest.mark.parametrize("name", ["POSTGRES_PASSWORD", "REDIS_PASSWORD"])
-@pytest.mark.parametrize("value", ["p@ss", "p/ss", "p:ss", "p#ss", "p%ss", "p ss"])
+@pytest.mark.parametrize(
+    "value",
+    ["p@ss", "p/ss", "p:ss", "p#ss", "p%ss", "p ss", "p$ss", "p'ss", "p\\ss", "p&ss", "p+ss"],
+)
 def test_launchers_refuse_url_unsafe_secrets(tmp_path: Path, name: str, value: str) -> None:
     script, docker_log, env = _ready_project(tmp_path)
     database = script.parents[2] / "env/.env.database"
@@ -235,3 +240,23 @@ def test_down_never_requires_secrets(tmp_path: Path) -> None:
 
     assert result.returncode == 0, result.stderr
     assert "docker-compose.database.yml down" in docker_log.read_text(encoding="utf-8")
+
+
+@requires_openssl
+def test_bootstrap_keeps_exported_values_and_appends_nothing_for_them(tmp_path: Path) -> None:
+    script, _, env = _project(tmp_path)
+    environment = script.parents[2] / "env"
+    environment.mkdir()
+    database = environment / ".env.database"
+    original = "export POSTGRES_PASSWORD=keepme\n  export MINIO_ROOT_PASSWORD=keepme-too\n"
+    database.write_text(original, encoding="utf-8")
+
+    result = _run(script, env, "bootstrap")
+
+    assert result.returncode == 0, result.stderr
+    text = database.read_text(encoding="utf-8")
+    assert text.startswith(original)
+    assert "\nPOSTGRES_PASSWORD=" not in text
+    assert "\nMINIO_ROOT_PASSWORD=" not in text
+    assert HEX_SECRET.match(_values(database)["QDRANT_API_KEY"])
+    assert stat.S_IMODE(database.stat().st_mode) == 0o600
