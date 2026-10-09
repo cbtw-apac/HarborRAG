@@ -7,7 +7,9 @@ from harborrag_adapters.parsers.common.utils import get_parser_logger
 
 parser_logger = get_parser_logger("text_extraction")
 
-_CODE_FENCE_LINE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})[ \t]*[\w+#.-]*[ \t]*$", re.MULTILINE)
+# The language tag is one optional token: adjacent optional whitespace runs would
+# backtrack quadratically on a long run of spaces after a fence.
+_CODE_FENCE_LINE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})[ \t]*(?:[\w+#.-]+[ \t]*)?$", re.MULTILINE)
 
 
 def strip_code_fences(text: str) -> str:
