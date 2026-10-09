@@ -20,6 +20,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 )
 from harborrag_adapters.repositories.database.control_plane.memory import SqlMemoryRepository
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -254,5 +255,43 @@ async def test_content_hash_survives_search_and_is_indexed(tmp_path: Path) -> No
                 )
             )
             assert "ix_memories_content_hash" in {row[0] for row in indexes}
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_erasure_query_pins_the_storing_principal_only_for_default_user(
+    tmp_path: Path,
+) -> None:
+    """DEFAULT_USER identifies nobody, so the credential that stored the row is the author."""
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    engine = create_control_plane_engine(dsn)
+    sessions = create_session_factory(engine)
+    try:
+        repo = SqlMemoryRepository(sessions)
+
+        def stored(user_id: str, principal_id: str, content: str) -> Memory:
+            owner = MemoryOwner(tenant_id="T", user_id=user_id, principal_id=principal_id)
+            return replace(_memory(owner, MemoryScope.USER, content), source_session_id="S")
+
+        for content, principal in (("other-1", "other"), ("other-2", "other"), ("dev", "dev")):
+            await repo.save(stored(DEFAULT_USER, principal, content))
+        await repo.save(stored("user-a", "svc-1", "alice-1"))
+        await repo.save(stored("user-a", "svc-2", "alice-2"))
+
+        def erasure(owner: MemoryOwner) -> MemoryQuery:
+            return MemoryQuery(
+                owner=owner, stored_by_owner=True, include_invalid=True, source_session_id="S"
+            )
+
+        anonymous = MemoryOwner(tenant_id="T", user_id=DEFAULT_USER, principal_id="dev")
+        assert [m.content for m in await repo.search(erasure(anonymous))] == ["dev"]
+
+        person = MemoryOwner(tenant_id="T", user_id="user-a", principal_id="svc-1")
+        found = await repo.search(erasure(person))
+        assert sorted(m.content for m in found) == ["alice-1", "alice-2"]
     finally:
         await engine.dispose()
