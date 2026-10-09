@@ -55,6 +55,17 @@ generates; `scripts/deployment/dev.sh token` mints a short-lived owner token
 (`HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS`, 1 hour by default).
 `HARBORRAG_AUTH_MODE=none` with `HARBORRAG_ALLOW_INSECURE_DEV=true` remains an
 explicit, commented opt-in that is safe only on a loopback-published port.
+With `HARBORRAG_AUTH_MODE=none` the API also checks every request, including
+`/docs`, `/openapi.json` and `/api/v1/health`. A Host header other than
+`localhost`, `127.0.0.1` or `[::1]` (port optional, case-insensitive; a trailing
+dot such as `localhost.` is refused) is answered `421`, which blocks DNS
+rebinding; a missing, empty or repeated Host header is refused the same way. A
+request whose peer or local socket address is not loopback is answered `403`.
+`HARBORRAG_ALLOW_INSECURE_DEV=true` waives only the socket check, for a container
+whose published port is bound to loopback; the Host check always applies. Reach
+the API as `http://127.0.0.1:8000` or `http://localhost:8000`, not by a machine
+name. The container healthcheck calls `http://127.0.0.1:$HARBORRAG_PORT`, so it
+passes.
 
 ## Composition modes
 
@@ -351,7 +362,7 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_PORT` | `8000` | Uvicorn bind port used by the container command |
 | `HARBORRAG_ENV` | `dev` | `dev` or `prod` process policy |
 | `HARBORRAG_AUTH_MODE` | `none` | `none`, `hmac`, or `oidc` |
-| `HARBORRAG_ALLOW_INSECURE_DEV` | `false` | Explicitly acknowledge disabled auth on a non-loopback development listener |
+| `HARBORRAG_ALLOW_INSECURE_DEV` | `false` | With auth disabled, waive the per-request loopback peer/socket check for a non-loopback development listener (the loopback Host-header check still applies) |
 | `HARBORRAG_AUTH_SECRET` | unset | Shared HS256 secret |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required JWT issuer |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required JWT audience |

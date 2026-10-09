@@ -336,6 +336,7 @@ Authorization failures are deliberately distinguishable where safe:
 With authentication disabled, the listener is restricted to loopback unless an
 operator explicitly sets `HARBORRAG_ALLOW_INSECURE_DEV=true`. That flag is an
 acknowledgement for development, not a production authentication mechanism.
+Each request must also name `localhost`, `127.0.0.1` or `[::1]` in its Host header (`421` otherwise). Without the acknowledgement, it must arrive from and on a loopback address (`403` otherwise).
 
 ### MCP
 

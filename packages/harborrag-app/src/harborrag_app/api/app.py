@@ -21,6 +21,7 @@ from starlette.routing import compile_path
 
 from harborrag_app import __version__
 from harborrag_app.api.auth.dependencies import build_token_verifier
+from harborrag_app.api.auth.loopback import install_loopback_guard
 from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
@@ -202,6 +203,9 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
                 "Link",
             ],
         )
+    # Last-added middleware runs first: refuse non-loopback traffic before any
+    # other layer reads the body or the route runs.
+    install_loopback_guard(app, settings)
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)
     if settings.docs_enabled:

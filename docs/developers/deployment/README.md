@@ -206,6 +206,7 @@ development is an explicit opt-in: uncomment `HARBORRAG_AUTH_MODE=none` and
 `HARBORRAG_ALLOW_INSECURE_DEV=true` in `env/.env.api`. The container's internal
 wildcard listener needs that acknowledgement, which is safe only while the
 published address remains loopback, and `dev.sh` prints a warning on every start.
+Even with that acknowledgement, the API answers `421` to any request whose Host header is not `localhost`, `127.0.0.1` or `[::1]`, so use those names in the browser.
 
 Upgrading an existing checkout: an `env/.env.api` copied from an older template
 still has `HARBORRAG_AUTH_MODE=none`, and `bootstrap` only adds the missing

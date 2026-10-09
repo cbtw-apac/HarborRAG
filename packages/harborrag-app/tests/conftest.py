@@ -5,8 +5,10 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
+from starlette.testclient import TestClient
 
 from harborrag_app.cli import project as project_module
 
@@ -106,3 +108,27 @@ def _hermetic_connector_host_resolution(monkeypatch: pytest.MonkeyPatch) -> None
         "harborrag_adapters.connectors.policies.validation._resolve_host",
         lambda _hostname, _port: ("1.1.1.1",),
     )
+
+
+@pytest.fixture(autouse=True)
+def _loopback_test_client(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Default TestClient to a loopback peer, server and Host header.
+
+    ApiSettings defaults to auth_mode=none, whose guard refuses Starlette's
+    defaults (client "testclient", server/Host "testserver"). Tests that pass
+    base_url or client explicitly keep their values.
+    """
+
+    original = TestClient.__init__
+
+    def loopback_init(
+        self: TestClient,
+        app: Any,
+        base_url: str = "http://127.0.0.1:8000",
+        *args: Any,
+        client: tuple[str, int] = ("127.0.0.1", 50000),
+        **kwargs: Any,
+    ) -> None:
+        original(self, app, base_url, *args, client=client, **kwargs)
+
+    monkeypatch.setattr(TestClient, "__init__", loopback_init)

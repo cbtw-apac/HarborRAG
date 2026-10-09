@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
-from ipaddress import ip_address
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -12,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
+from harborrag_app.api.auth.loopback import is_loopback_address
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import (
@@ -38,7 +38,7 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     if settings.auth_mode == "none":
         if settings.env == "prod":
             raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
-        if not _is_loopback_host(settings.host) and not settings.allow_insecure_dev:
+        if not is_loopback_address(settings.host) and not settings.allow_insecure_dev:
             raise HarborConfigurationError(
                 "auth_mode=none may bind only to a loopback host; set "
                 "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
@@ -76,18 +76,6 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
             user_id_claim=settings.auth_user_id_claim,
         )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
-
-
-def _is_loopback_host(host: str) -> bool:
-    """Accept explicit loopback names and addresses, never unresolved hostnames."""
-
-    normalized = host.strip().lower().removeprefix("[").removesuffix("]")
-    if normalized == "localhost":
-        return True
-    try:
-        return ip_address(normalized).is_loopback
-    except ValueError:
-        return False
 
 
 def get_principal(
