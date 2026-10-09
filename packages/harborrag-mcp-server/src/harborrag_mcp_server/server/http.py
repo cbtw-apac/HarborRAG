@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 from collections.abc import Awaitable, Callable
@@ -32,6 +33,9 @@ from harborrag_mcp_server.server.http_responses import (
     configuration_response,
     error_response,
 )
+from harborrag_mcp_server.server.tool_errors import ToolRequestError, public_tool_error
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from fastmcp import FastMCP
@@ -301,13 +305,15 @@ def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP ou
         try:
             payload = await _bounded_json(request, maximum=_MAX_TOOL_REQUEST_BYTES)
             if not isinstance(payload, dict):
-                raise ValueError("request body must be an object")
+                raise ToolRequestError("request body must be an object")
             name = payload.get("name")
             arguments = payload.get("arguments")
             if not isinstance(name, str) or not name.strip():
-                raise ValueError("name must be a non-empty string")
+                raise ToolRequestError("name must be a non-empty string")
             if not isinstance(arguments, dict):
-                raise ValueError("arguments must be an object")
+                raise ToolRequestError("arguments must be an object")
+            if not any(item.spec.name == name.strip() for item in registry.tools or ()):
+                raise ToolRequestError("unknown tool")
             tenant_id = _bind_tenant(request, registry, name.strip(), arguments)
             if isinstance(tenant_id, str):
                 authorize_request_tenant(request, tenant_id)
@@ -322,17 +328,13 @@ def _call_tool_handler(  # noqa: C901 - transport errors map to distinct HTTP ou
             # (Unauthorized)" -- an authorization decision reported as a server
             # fault, which is both wrong and unactionable for the caller.
             return error_response(exc.message, status_code=exc.status_code)
-        except PermissionError as exc:
-            return error_response(str(exc), status_code=403)
         except HarborAuthorizationUnavailableError:
             return error_response("AUTHORIZATION_UNAVAILABLE", status_code=503)
-        except (TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-            return error_response(str(exc), status_code=422)
         except Exception as exc:
-            return error_response(
-                f"tool execution failed ({type(exc).__name__})",
-                status_code=500,
-            )
+            message, status_code = public_tool_error(exc)
+            if status_code >= 500:
+                logger.error("MCP HTTP tool call failed", exc_info=exc)
+            return error_response(message, status_code=status_code)
         return configuration_response({"name": name.strip(), "result": result})
 
     return call_tool
@@ -377,13 +379,13 @@ async def _bounded_json(request: Request, *, maximum: int) -> object:
         try:
             declared = int(content_length)
         except ValueError as exc:
-            raise ValueError("Content-Length must be an integer") from exc
+            raise ToolRequestError("Content-Length must be an integer") from exc
         if declared < 0 or declared > maximum:
-            raise ValueError("request body budget exceeded")
+            raise ToolRequestError("request body budget exceeded")
     body = bytearray()
     async for chunk in request.stream():
         if len(body) + len(chunk) > maximum:
-            raise ValueError("request body budget exceeded")
+            raise ToolRequestError("request body budget exceeded")
         body.extend(chunk)
     return json.loads(body)
 
