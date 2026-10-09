@@ -26,6 +26,7 @@ from harborrag_core.ports.memory import (
     MemoryQuery,
     MemoryRepository,
     MemoryScope,
+    modifiable_by,
     new_memory_id,
 )
 
@@ -355,14 +356,19 @@ class MemoryExtractor:
 
         The prior row is amended, never deleted: its content stays readable
         with ``invalid_at`` set and ``superseded_by`` pointing at the new row.
-        An unrecognised reference, a cross-scope reference, or a row already
-        superseded is ignored.
+        An unrecognised reference, a cross-scope reference, a row already
+        superseded, or a shared row another user wrote is ignored.
         """
 
         if fact.replaces is None:
             return
         prior = existing.get(fact.replaces)
         if prior is None or prior.scope is not memory.scope or prior.invalid_at is not None:
+            return
+        if not modifiable_by(prior.scope, prior.owner, memory.owner):
+            # A shared (project) memory is visible to everyone in the project;
+            # only the user who wrote it may retire it.
+            logger.info("skipping supersession of a shared memory another user wrote")
             return
         now = self._clock()
         if prior.valid_from is not None and now <= prior.valid_from:

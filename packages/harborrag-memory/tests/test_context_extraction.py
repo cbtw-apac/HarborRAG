@@ -389,3 +389,50 @@ async def test_a_turn_of_only_tool_results_calls_no_model(
 
     assert saved == ()
     assert subject._model.calls == []  # noqa: SLF001
+
+
+def _project_prior(user_id: str) -> Any:
+    return memory_row(
+        "Ravi owns ingest.",
+        scope=MemoryScope.PROJECT,
+        owner=MemoryOwner(
+            tenant_id="tenant-1", project_id="handbook", user_id=user_id, principal_id="principal-1"
+        ),
+        updated_at=NOW - timedelta(hours=48),
+        valid_from=NOW - timedelta(hours=48),
+        content_hash=content_hash("Ravi owns ingest.", MemoryScope.PROJECT),
+    )
+
+
+@pytest.mark.asyncio
+async def test_extract_never_supersedes_a_project_memory_another_user_wrote(
+    memories: MemoryRepositoryFake, owner: MemoryOwner
+) -> None:
+    prior = _project_prior("user-2")  # same credential as the owner fixture, different human
+    memories.rows[prior.memory_id] = prior
+
+    (saved,) = await extractor(
+        memories,
+        payload(fact("Dana owns ingest.", scope="project", replaces=reference_token(prior))),
+        policy=MemoryPolicy(extraction_project_scope=True),
+    ).extract(owner, messages=MESSAGES)
+
+    assert saved.scope is MemoryScope.PROJECT
+    assert memories.rows[prior.memory_id].invalid_at is None
+    assert memories.rows[prior.memory_id].superseded_by is None
+
+
+@pytest.mark.asyncio
+async def test_extract_still_supersedes_the_users_own_project_memory(
+    memories: MemoryRepositoryFake, owner: MemoryOwner
+) -> None:
+    prior = _project_prior("user-1")
+    memories.rows[prior.memory_id] = prior
+
+    (saved,) = await extractor(
+        memories,
+        payload(fact("Dana owns ingest.", scope="project", replaces=reference_token(prior))),
+        policy=MemoryPolicy(extraction_project_scope=True),
+    ).extract(owner, messages=MESSAGES)
+
+    assert memories.rows[prior.memory_id].superseded_by == saved.memory_id
