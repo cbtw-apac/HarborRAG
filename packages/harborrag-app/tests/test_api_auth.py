@@ -244,3 +244,12 @@ def test_mock_verifier_is_deterministic() -> None:
         verifier.verify("mock-santa")
     with pytest.raises(HarborAuthError):
         verifier.verify("real-admin")
+
+
+def test_the_hmac_verifier_never_shows_its_secret() -> None:
+    from harborrag_app.api.auth.hmac import HmacTokenVerifier
+
+    verifier = HmacTokenVerifier(secret="super-secret-signing-key-0123456789abcdef")
+
+    assert "super-secret-signing-key" not in repr(verifier)
+    assert "HmacTokenVerifier(" in repr(verifier)
