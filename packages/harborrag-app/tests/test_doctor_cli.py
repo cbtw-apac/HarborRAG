@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import socket
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 from app_test_fixtures import MockAppService
@@ -241,6 +243,7 @@ def test_unrequested_temporal_stays_non_blocking(tmp_path: Path, monkeypatch, ca
     monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
     monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
     monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "qdrant_authorized", lambda *a, **k: None)
     monkeypatch.setenv("LOCAL_SOURCE_PATH", str(tmp_path / "docs"))
 
     assert cli.main(["doctor", "--json"]) == 0
@@ -300,3 +303,60 @@ def test_doctor_inside_an_unsafe_directory_fails_cleanly(
 
     captured = capsys.readouterr()
     assert "world-writable" in captured.err and "Traceback" not in captured.err
+
+
+class _QdrantStub(BaseHTTPRequestHandler):
+    expected_key = "synthetic-qdrant-key"
+
+    def do_GET(self) -> None:  # noqa: N802
+        authorised = self.headers.get("api-key") == self.expected_key
+        ready = self.path == "/readyz"
+        self.send_response(200 if ready or authorised else 401)
+        self.end_headers()
+
+    def log_message(self, *args: object) -> None:
+        return
+
+
+def _serve_qdrant_stub():
+    server = HTTPServer(("127.0.0.1", 0), _QdrantStub)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    return server, f"http://127.0.0.1:{server.server_port}"
+
+
+def test_qdrant_probe_accepts_the_right_key_and_never_echoes_a_wrong_one() -> None:
+    server, url = _serve_qdrant_stub()
+    try:
+        assert probes.qdrant_authorized(url, _QdrantStub.expected_key) is None
+        wrong = probes.qdrant_authorized(url, "synthetic-wrong-key")
+        missing = probes.qdrant_authorized(url, None)
+    finally:
+        server.shutdown()
+    assert wrong is not None and "rejected the API key" in wrong
+    assert "synthetic-wrong-key" not in wrong
+    assert missing is not None
+    assert "HARBORRAG_QDRANT_API_KEY" in missing and "none is configured" in missing
+
+
+def test_doctor_fails_qdrant_when_the_server_requires_a_key_that_is_not_configured(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    server, url = _serve_qdrant_stub()
+    try:
+        monkeypatch.setenv("HARBORRAG_QDRANT_URL", url)
+        monkeypatch.delenv("HARBORRAG_QDRANT_API_KEY", raising=False)
+        monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+        cli.main(["doctor", "--json"])
+        missing = json.loads(capsys.readouterr().out)["data"]["checks"]
+        monkeypatch.setenv("HARBORRAG_QDRANT_API_KEY", "synthetic-wrong-key")
+        cli.main(["doctor", "--json"])
+        raw = capsys.readouterr().out
+    finally:
+        server.shutdown()
+    qdrant = {c["name"]: c for c in missing}["qdrant"]
+    assert qdrant["status"] == "fail"
+    assert "HARBORRAG_QDRANT_API_KEY" in qdrant["detail"]
+    rejected = {c["name"]: c for c in json.loads(raw)["data"]["checks"]}["qdrant"]
+    assert "rejected the API key" in rejected["detail"]
+    assert "synthetic-wrong-key" not in raw

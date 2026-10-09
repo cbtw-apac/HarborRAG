@@ -126,13 +126,19 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
     return checks
 
 
+def _qdrant_error(settings: RuntimeSettings) -> str | None:
+    error = probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz")
+    if error is not None:
+        return error
+    key = settings.qdrant_api_key
+    return probes.qdrant_authorized(
+        settings.qdrant_url, key.get_secret_value() if key is not None else None
+    )
+
+
 def _service_checks(settings: RuntimeSettings) -> list[Check]:
     checks = [
-        _service_check(
-            "qdrant",
-            probes.safe_url(settings.qdrant_url),
-            probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz"),
-        ),
+        _service_check("qdrant", probes.safe_url(settings.qdrant_url), _qdrant_error(settings)),
         _service_check(
             "falkordb",
             f"{settings.falkordb_host}:{settings.falkordb_port}",

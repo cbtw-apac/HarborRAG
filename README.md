@@ -441,10 +441,18 @@ worker configuration. A missing image is built automatically on first start.
 ### Verify it came up
 
 ```bash
+# Host commands (doctor, retrieve, chat) reach Qdrant and FalkorDB with these credentials.
+# Export them once for this shell session; the values are never echoed.
+export HARBORRAG_QDRANT_API_KEY="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?QDRANT_API_KEY=//p' env/.env.database | tail -n 1 | tr -d '\r')"
+export HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALKORDB_PASSWORD=//p' env/.env.database | tail -n 1 | tr -d '\r')"
+
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALKORDB_PASSWORD=//p' env/.env.database | tail -n 1 | tr -d '\r')" \
   uv run harborrag doctor --json
 ```
+
+The two exports stay in effect for the rest of the shell session, so `retrieve` and `chat`
+below need no extra setup. `doctor` reports a missing or rejected
+`HARBORRAG_QDRANT_API_KEY` on its `qdrant` check.
 
 `harborrag doctor` talks to a live Temporal frontend, so run it only after
 `dev.sh temporal` succeeds. The Temporal UI is at <http://localhost:8080>, and the API
@@ -537,6 +545,9 @@ as `unchanged` - that is the expected admission fast path, and it skips parsing,
 and encoding entirely.
 
 ### Query it
+
+Use the same shell as "Verify it came up" so `HARBORRAG_QDRANT_API_KEY` and
+`HARBORRAG_FALKORDB_PASSWORD` are still exported.
 
 ```bash
 uv run harborrag retrieve "deployment requirements" \

@@ -182,10 +182,18 @@ value`**, go back to step 5 - Compose treats an empty value as unset.
 ### 7. Verify
 
 ```bash
+# Host commands (doctor, retrieve, chat) reach Qdrant and FalkorDB with these credentials.
+# Export them once for this shell session; the values are never echoed.
+export HARBORRAG_QDRANT_API_KEY="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?QDRANT_API_KEY=//p' env/.env.database | tail -n 1 | tr -d '\r')"
+export HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALKORDB_PASSWORD=//p' env/.env.database | tail -n 1 | tr -d '\r')"
+
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALKORDB_PASSWORD=//p' env/.env.database | tail -n 1 | tr -d '\r')" \
   uv run harborrag doctor --json --temporal
 ```
+
+The two exports stay in effect for the rest of the shell session, so `retrieve` and `chat`
+below need no extra setup. `doctor` reports a missing or rejected
+`HARBORRAG_QDRANT_API_KEY` on its `qdrant` check.
 
 `doctor` only contacts Temporal when `--temporal` is passed; without the flag the target
 above is read but never used, and the `temporal` check reports `skip`.
@@ -231,6 +239,9 @@ path, not an error - it skips parsing, chunking, and encoding. Use `--force-repr
 override it; see [Ingestion modes](../users/ingestion-modes.md).
 
 ### 9. Query it
+
+Run these in the same shell as step 7 so `HARBORRAG_QDRANT_API_KEY` and
+`HARBORRAG_FALKORDB_PASSWORD` are still exported.
 
 ```bash
 uv run harborrag retrieve "deployment requirements" \

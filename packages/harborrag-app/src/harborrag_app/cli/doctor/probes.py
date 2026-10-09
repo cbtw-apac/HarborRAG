@@ -55,6 +55,38 @@ def http_ok(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
     return f"{shown} returned HTTP {status}"
 
 
+_UNAUTHORIZED = (401, 403)
+QDRANT_KEY_VARIABLE = "HARBORRAG_QDRANT_API_KEY"
+
+
+def qdrant_authorized(
+    base_url: str, api_key: str | None, *, timeout: float = DEFAULT_TIMEOUT
+) -> str | None:
+    """Probe an authenticated Qdrant route; ``/readyz`` answers without a key.
+
+    The key is sent as an ``api-key`` header only and never appears in a result.
+    """
+
+    url = base_url.rstrip("/") + "/collections"
+    headers = {"api-key": api_key} if api_key else {}
+    request = urllib.request.Request(url, headers=headers, method="GET")  # noqa: S310
+    shown = safe_url(url)
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:  # noqa: S310
+            status = int(response.status)
+    except urllib.error.HTTPError as exc:
+        if exc.code in _UNAUTHORIZED:
+            if api_key:
+                return f"Qdrant rejected the API key (HTTP {exc.code}); check {QDRANT_KEY_VARIABLE}"
+            return f"Qdrant requires an API key and none is configured; set {QDRANT_KEY_VARIABLE}"
+        return f"{shown} returned HTTP {exc.code}"
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        return f"{shown} unreachable ({getattr(exc, 'reason', exc)})"
+    if status < _HTTP_OK_UPPER_BOUND:
+        return None
+    return f"{shown} returned HTTP {status}"
+
+
 def _resp(*parts: bytes) -> bytes:
     frame = b"*%d\r\n" % len(parts)
     for part in parts:
@@ -109,4 +141,12 @@ def host_port(url: str, *, default_port: int) -> tuple[str, int]:
     return parsed.hostname or "localhost", parsed.port or default_port
 
 
-__all__ = ["DEFAULT_TIMEOUT", "host_port", "http_ok", "redis_ping", "safe_url", "tcp_reachable"]
+__all__ = [
+    "DEFAULT_TIMEOUT",
+    "host_port",
+    "http_ok",
+    "qdrant_authorized",
+    "redis_ping",
+    "safe_url",
+    "tcp_reachable",
+]
