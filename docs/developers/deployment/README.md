@@ -186,8 +186,8 @@ The API binds to `127.0.0.1:8000` by default. Override
 is required. `env/.env.api` ships with `HARBORRAG_AUTH_MODE=hmac`, and
 `bootstrap` generates its `HARBORRAG_AUTH_SECRET`. `dev.sh api` refuses to start
 while the secret is empty, a placeholder or shorter than 32 characters. Mint a
-one-hour owner token (all tenants) for the running API and send it as a bearer
-token:
+short-lived owner token (all tenants; `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS`,
+1 hour by default) for the running API and send it as a bearer token:
 
 ```bash
 export HARBORRAG_API_TOKEN="$(scripts/deployment/dev.sh token)"
@@ -201,6 +201,12 @@ development is an explicit opt-in: uncomment `HARBORRAG_AUTH_MODE=none` and
 `HARBORRAG_ALLOW_INSECURE_DEV=true` in `env/.env.api`. The container's internal
 wildcard listener needs that acknowledgement, which is safe only while the
 published address remains loopback, and `dev.sh` prints a warning on every start.
+
+Upgrading an existing checkout: an `env/.env.api` copied from an older template
+still has `HARBORRAG_AUTH_MODE=none`, and `bootstrap` only adds the missing
+secret. Set `HARBORRAG_AUTH_MODE=hmac` in it, then rebuild the API image with
+`dev.sh api --build` so `dev.sh token` is available. `dev.sh api` refuses `none`
+without `HARBORRAG_ALLOW_INSECURE_DEV=true` or on a non-loopback bind address.
 
 Authentication and CORS values belong in the ignored
 `env/.env.api`. The API receives chat and embedding credentials from

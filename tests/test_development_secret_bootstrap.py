@@ -469,3 +469,44 @@ def test_token_subcommand_mints_inside_the_running_api_container(tmp_path: Path)
         "docker-compose.yml exec -T api python -m harborrag_app.api.auth.dev_token"
         in docker_log.read_text(encoding="utf-8")
     )
+
+
+@requires_openssl
+def test_api_refuses_no_auth_without_the_insecure_acknowledgement(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    _write_api_env(script, "HARBORRAG_AUTH_MODE=none\n")
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_ALLOW_INSECURE_DEV=true" in result.stderr
+    assert "docker-compose.yml up" not in (
+        docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+    )
+
+
+@requires_openssl
+def test_api_no_auth_warning_names_the_migration(tmp_path: Path) -> None:
+    script, _, env = _ready_project(tmp_path)
+    _write_api_env(script, "HARBORRAG_AUTH_MODE=none\nHARBORRAG_ALLOW_INSECURE_DEV=true\n")
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 0, result.stderr
+    assert "set HARBORRAG_AUTH_MODE=hmac" in result.stderr
+
+
+@requires_openssl
+@pytest.mark.parametrize("bind", ["0.0.0.0", "192.0.2.10"])
+def test_api_refuses_no_auth_on_a_non_loopback_bind(tmp_path: Path, bind: str) -> None:
+    script, _, env = _ready_project(tmp_path)
+    _write_api_env(
+        script,
+        "HARBORRAG_AUTH_MODE=none\nHARBORRAG_ALLOW_INSECURE_DEV=true\n"
+        f"HARBORRAG_API_BIND_ADDRESS={bind}\n",
+    )
+
+    result = _run(script, env, "api")
+
+    assert result.returncode == 2
+    assert "loopback" in result.stderr

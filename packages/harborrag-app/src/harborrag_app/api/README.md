@@ -51,7 +51,8 @@ environment preparation and shutdown.
 The local API container listens on `0.0.0.0` inside Docker but Compose publishes
 port 8000 only on host loopback. The development environment file ships
 `HARBORRAG_AUTH_MODE=hmac` with a secret `scripts/deployment/dev.sh bootstrap`
-generates; `scripts/deployment/dev.sh token` mints a one-hour owner token.
+generates; `scripts/deployment/dev.sh token` mints a short-lived owner token
+(`HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS`, 1 hour by default).
 `HARBORRAG_AUTH_MODE=none` with `HARBORRAG_ALLOW_INSECURE_DEV=true` remains an
 explicit, commented opt-in that is safe only on a loopback-published port.
 

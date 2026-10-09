@@ -44,7 +44,9 @@ class TenantCapacityOverride(BaseModel):
 class ApiSettings(BaseSettings):
     """Environment-driven settings for the Control Plane API process."""
 
-    model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
+    )
 
     # Safe local default. Container deployments explicitly override this to
     # 0.0.0.0 and must acknowledge disabled authentication in development.

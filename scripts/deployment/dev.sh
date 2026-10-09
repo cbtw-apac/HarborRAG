@@ -41,7 +41,7 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
-  token              Print a one-hour owner token for the running development API
+  token              Print a short-lived owner token (1 hour by default) for the running API
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
@@ -217,7 +217,19 @@ require_api_authentication() {
             fi
             ;;
         none)
-            echo "WARNING: API authentication is disabled (HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE}). Every request acts as an unrestricted owner; keep HARBORRAG_API_BIND_ADDRESS on loopback." >&2
+            local bind
+            bind="$(configured_secret "${API_ENV_FILE}" HARBORRAG_API_BIND_ADDRESS)"
+            bind="${bind:-127.0.0.1}"
+            bind="${bind#[}"
+            bind="${bind%]}"
+            if [[ "$(env_file_value "${API_ENV_FILE}" HARBORRAG_ALLOW_INSECURE_DEV)" != "true" ]]; then
+                fail "HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE} also needs HARBORRAG_ALLOW_INSECURE_DEV=true, or the API refuses to boot. To enable authentication instead, set HARBORRAG_AUTH_MODE=hmac (bootstrap generates HARBORRAG_AUTH_SECRET)."
+            fi
+            case "${bind}" in
+                127.0.0.1 | localhost | ::1) ;;
+                *) fail "HARBORRAG_AUTH_MODE=none is allowed only with a loopback HARBORRAG_API_BIND_ADDRESS (127.0.0.1, localhost or ::1); got '${bind}'." ;;
+            esac
+            echo "WARNING: API authentication is disabled (HARBORRAG_AUTH_MODE=none). To enable it, set HARBORRAG_AUTH_MODE=hmac in ${API_ENV_FILE}; bootstrap has generated HARBORRAG_AUTH_SECRET." >&2
             ;;
         *)
             fail "Set HARBORRAG_AUTH_MODE=hmac (recommended) or the explicit development opt-in HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE}; got '${mode}'."

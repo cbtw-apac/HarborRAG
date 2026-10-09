@@ -12,11 +12,14 @@ import sys
 import time
 
 import jwt
+from pydantic import ValidationError
 
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborConfigurationError
 
 DEV_TOKEN_SUBJECT = "local-developer"
+# Same floor build_token_verifier enforces for HMAC secrets.
+MIN_SECRET_BYTES = 32
 
 
 def mint_dev_token(settings: ApiSettings, *, now: int | None = None) -> str:
@@ -30,6 +33,11 @@ def mint_dev_token(settings: ApiSettings, *, now: int | None = None) -> str:
         raise HarborConfigurationError(
             "development tokens require HARBORRAG_AUTH_MODE=hmac and HARBORRAG_AUTH_SECRET"
         )
+    secret = settings.auth_secret.get_secret_value()
+    if len(secret.encode("utf-8")) < MIN_SECRET_BYTES:
+        raise HarborConfigurationError(
+            f"HARBORRAG_AUTH_SECRET must contain at least {MIN_SECRET_BYTES} UTF-8 bytes"
+        )
     issued_at = int(time.time()) if now is None else now
     claims: dict[str, object] = {
         "sub": DEV_TOKEN_SUBJECT,
@@ -41,12 +49,17 @@ def mint_dev_token(settings: ApiSettings, *, now: int | None = None) -> str:
         "aud": settings.auth_audience,
     }
     claims.setdefault(settings.auth_user_id_claim, DEV_TOKEN_SUBJECT)
-    return jwt.encode(claims, settings.auth_secret.get_secret_value(), algorithm="HS256")
+    return jwt.encode(claims, secret, algorithm="HS256")
 
 
 def main() -> int:
     try:
         token = mint_dev_token(ApiSettings())
+    except ValidationError as exc:
+        # Never echo input values: a malformed secret would appear in them.
+        fields = ", ".join(sorted({".".join(map(str, e["loc"])) for e in exc.errors()}))
+        print(f"error: invalid API settings: {fields}", file=sys.stderr)
+        return 1
     except HarborConfigurationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

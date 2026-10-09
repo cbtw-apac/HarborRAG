@@ -450,7 +450,7 @@ HARBORRAG_FALKORDB_PASSWORD="$(sed -En 's/^[[:space:]]*(export[[:space:]]+)?FALK
 `dev.sh temporal` succeeds. The Temporal UI is at <http://localhost:8080>, and the API
 health endpoint is printed by `dev.sh api`.
 
-The API requires a bearer token. Mint a one-hour development owner token with
+The API requires a bearer token. Mint a short-lived development owner token (`HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS`, 1 hour by default) with
 `scripts/deployment/dev.sh token`, or opt out explicitly as described in
 [Deployment](docs/developers/deployment/README.md#application-compose-files).
 

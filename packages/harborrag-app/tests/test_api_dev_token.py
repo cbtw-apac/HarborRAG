@@ -96,3 +96,23 @@ def test_dev_identity_is_distinct_from_the_user_less_sentinel() -> None:
 
     assert DEV_TOKEN_SUBJECT != DEFAULT_USER
     assert principal.user_id != DEFAULT_USER
+
+
+@pytest.mark.parametrize("secret", ["", "too-short"])
+def test_dev_token_refuses_a_weak_secret(secret: str) -> None:
+    with pytest.raises(HarborConfigurationError):
+        mint_dev_token(_settings(auth_secret=SecretStr(secret)))
+
+
+def test_main_never_echoes_input_values_on_invalid_settings(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("HARBORRAG_ENV", "dev")
+    monkeypatch.setenv("HARBORRAG_AUTH_MODE", "hmac")
+    monkeypatch.setenv("HARBORRAG_AUTH_SECRET", SECRET)
+    monkeypatch.setenv("HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS", f"bad-{SECRET}")
+
+    assert main() == 1
+    captured = capsys.readouterr()
+    assert SECRET not in captured.err + captured.out
+    assert "auth_max_token_lifetime_seconds" in captured.err
