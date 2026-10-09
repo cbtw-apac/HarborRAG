@@ -20,6 +20,24 @@ DATABASE_SECRETS = (
     "REDIS_PASSWORD",
     "FALKORDB_PASSWORD",
 )
+COMPOSE_DIR = ROOT / "deploy/compose"
+REQUIRED_VARIABLE = re.compile(r"\$\{([A-Z][A-Z0-9_]*):\?")
+
+
+def _required_variables(*filenames: str) -> list[str]:
+    """Every `${VAR:?}` the named Compose files interpolate."""
+
+    found: set[str] = set()
+    for filename in filenames:
+        found.update(REQUIRED_VARIABLE.findall((COMPOSE_DIR / filename).read_text("utf-8")))
+    return sorted(found)
+
+
+DOWN_COMPOSE_FILES = (
+    "docker-compose.database.yml",
+    "docker-compose.temporal.yml",
+    "docker-compose.yml",
+)
 HEX_SECRET = re.compile(r"^[0-9a-f]{64}$")
 
 requires_openssl = pytest.mark.skipif(
@@ -47,8 +65,7 @@ esac
 # Compose interpolates required variables on `down` too; record what it would see.
 case " $* " in
   *" down "*)
-    for name in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD QDRANT_API_KEY REDIS_PASSWORD \\
-        FALKORDB_PASSWORD; do
+    for name in $DEV_DOWN_REQUIRED; do
       eval "value=\\${$name:-}"
       [ -n "$value" ] || printf 'MISSING %s\\n' "$name" >> "$DEV_DOCKER_LOG.down-env"
     done
@@ -62,10 +79,11 @@ esac
     env = {
         **os.environ,
         "DEV_DOCKER_LOG": str(docker_log),
+        "DEV_DOWN_REQUIRED": " ".join(_required_variables(*DOWN_COMPOSE_FILES)),
         "PATH": f"{fake_bin}:{os.environ['PATH']}",
     }
     # dev.sh lets an exported value win over the file, exactly as Compose does.
-    for name in (*DATABASE_SECRETS, "HARBORRAG_SECRETS_ENCRYPTION_KEY"):
+    for name in (*DATABASE_SECRETS, *_required_variables(*DOWN_COMPOSE_FILES)):
         env.pop(name, None)
     return script, docker_log, env
 
@@ -262,7 +280,9 @@ def test_down_survives_required_variable_interpolation_on_an_old_env_file(
     # An older checkout: none of the datastore secrets exist, and Compose now
     # aborts `down` on any unset `${VAR:?...}`.
     for filename in (".env.database", ".env.temporal", ".env.connector", ".env.models", ".env.api"):
-        (environment / filename).write_text("POSTGRES_USER=harbor\n", encoding="utf-8")
+        (environment / filename).write_text(
+            "POSTGRES_USER=harbor\nHARBORRAG_SECRETS_ENCRYPTION_KEY=\n", encoding="utf-8"
+        )
 
     result = _run(script, env, "down")
 
@@ -456,6 +476,65 @@ def test_api_starts_with_the_bootstrapped_hmac_configuration(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     assert "authentication is disabled" not in result.stderr
     assert "docker-compose.yml up" in docker_log.read_text(encoding="utf-8")
+
+
+@requires_openssl
+@pytest.mark.parametrize("content", ["HARBORRAG_AUTH_MODE=none\n", "HARBORRAG_API_PORT=8000\n"])
+def test_token_refuses_up_front_unless_auth_mode_is_hmac(tmp_path: Path, content: str) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    _write_api_env(script, content)
+
+    result = _run(script, env, "token")
+
+    assert result.returncode == 2
+    assert "set HARBORRAG_AUTH_MODE=hmac" in result.stderr
+    assert not docker_log.exists() or "dev_token" not in docker_log.read_text(encoding="utf-8")
+
+
+def test_mcp_teardown_placeholders_cover_every_required_compose_variable() -> None:
+    launcher = (ROOT / "scripts/deployment/common/mcp-launcher.sh").read_text(encoding="utf-8")
+    function = launcher.split("allow_teardown_without_secrets() {", 1)[1].split("\n}", 1)[0]
+    for name in _required_variables("docker-compose.mcp.yml"):
+        assert name in function, name
+
+
+@requires_openssl
+def test_bootstrap_on_an_existing_checkout_names_each_remaining_problem(tmp_path: Path) -> None:
+    script, _, env = _project(tmp_path)
+    assert _run(script, env, "bootstrap").returncode == 0
+    root = script.parents[2]
+    database = root / "env/.env.database"
+    database.write_text(
+        database.read_text(encoding="utf-8").replace(
+            f"POSTGRES_PASSWORD={_values(database)['POSTGRES_PASSWORD']}",
+            "POSTGRES_PASSWORD=change-me-placeholder",
+        ),
+        encoding="utf-8",
+    )
+    _write_api_env(script, "HARBORRAG_AUTH_MODE=none\n")
+    (root / "env/.env.temporal").write_text(
+        "HARBORRAG_REDIS_URL=redis://redis.example.com:6379/0\n", encoding="utf-8"
+    )
+
+    result = _run(script, env, "bootstrap")
+
+    assert result.returncode == 0, result.stderr
+    notices = [line for line in result.stdout.splitlines() if line.startswith("NOTICE:")]
+    assert len(notices) == 3, result.stdout
+    assert "POSTGRES_PASSWORD still holds a placeholder" in notices[0]
+    assert "HARBORRAG_AUTH_MODE=none" in notices[1]
+    assert "HARBORRAG_REDIS_URL" in notices[2]
+    assert "change-me-placeholder" not in result.stdout + result.stderr
+    assert "redis.example.com" not in result.stdout + result.stderr
+
+
+@requires_openssl
+def test_bootstrap_prints_no_notice_for_a_healthy_checkout(tmp_path: Path) -> None:
+    script, _, env = _project(tmp_path)
+
+    result = _run(script, env, "bootstrap")
+
+    assert "NOTICE:" not in result.stdout
 
 
 @requires_openssl

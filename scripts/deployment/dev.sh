@@ -24,6 +24,16 @@ DATABASE_GENERATED_SECRETS=(
     REDIS_PASSWORD
     FALKORDB_PASSWORD
 )
+# Every `${VAR:?}` the Compose files that `down` loads (database, Temporal, API)
+# interpolate. Compose resolves them even for teardown, so `down` gives unset
+# ones an inert placeholder; a test derives this list from the Compose files.
+DOWN_REQUIRED_VARIABLES=(
+    "${DATABASE_GENERATED_SECRETS[@]}"
+    POSTGRES_USER
+    POSTGRES_DB
+    MINIO_ROOT_USER
+    HARBORRAG_SECRETS_ENCRYPTION_KEY
+)
 # Compose embeds these in connection URLs without escaping.
 URL_EMBEDDED_SECRETS=(POSTGRES_PASSWORD REDIS_PASSWORD)
 
@@ -235,6 +245,26 @@ require_api_authentication() {
             fail "Set HARBORRAG_AUTH_MODE=hmac (recommended) or the explicit development opt-in HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE}; got '${mode}'."
             ;;
     esac
+}
+
+# One line per problem an existing checkout still has after bootstrap, naming
+# keys only: bootstrap never rewrites a value that is set, so older files can
+# keep placeholders, disabled authentication, or a passwordless Redis URL.
+report_environment_issues() {
+    local doc="docs/developers/deployment/README.md"
+    local name url
+    for name in "${DATABASE_GENERATED_SECRETS[@]}"; do
+        if is_placeholder_secret "$(env_file_value "${DATABASE_ENV_FILE}" "${name}")"; then
+            echo "NOTICE: ${name} still holds a placeholder in ${DATABASE_ENV_FILE}; see ${doc}."
+        fi
+    done
+    if [[ "$(env_file_value "${API_ENV_FILE}" HARBORRAG_AUTH_MODE)" == "none" ]]; then
+        echo "NOTICE: HARBORRAG_AUTH_MODE=none in ${API_ENV_FILE} leaves the API unauthenticated; set HARBORRAG_AUTH_MODE=hmac, see ${doc}."
+    fi
+    url="$(env_file_value "${TEMPORAL_ENV_FILE}" HARBORRAG_REDIS_URL)"
+    if [[ -n "${url}" ]] && ! redis_url_has_password "${url}"; then
+        echo "NOTICE: HARBORRAG_REDIS_URL in ${TEMPORAL_ENV_FILE} has no password, so the worker will fail with NOAUTH; remove it or add one, see ${doc}."
+    fi
 }
 
 ensure_environment_file() {
@@ -487,7 +517,7 @@ stop_stack() {
     # env file may lack the generated secrets. Teardown needs none of their
     # values, so give unset ones an inert placeholder for this process only.
     local secret
-    for secret in "${DATABASE_GENERATED_SECRETS[@]}"; do
+    for secret in "${DOWN_REQUIRED_VARIABLES[@]}"; do
         export "${secret}=${!secret:-unused-during-down}"
     done
 
@@ -539,6 +569,7 @@ case "${command}" in
         else
             echo "Development environment files already exist."
         fi
+        report_environment_issues
         ;;
     up)
         start_worker_flag=1
@@ -608,6 +639,10 @@ case "${command}" in
         ;;
     token)
         [[ "$#" -eq 0 ]] || fail "token accepts no options."
+        require_file "${API_ENV_FILE}" "API environment"
+        if [[ "$(env_file_value "${API_ENV_FILE}" HARBORRAG_AUTH_MODE)" != "hmac" ]]; then
+            fail "token needs bearer authentication, which is off in ${API_ENV_FILE}: set HARBORRAG_AUTH_MODE=hmac and restart the API with '$0 api'."
+        fi
         require_api_authentication
         api_compose exec -T api python -m harborrag_app.api.auth.dev_token
         ;;
