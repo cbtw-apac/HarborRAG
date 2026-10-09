@@ -126,6 +126,20 @@ def test_submission_refuses_a_connection_outside_the_tenants_allowlist(tmp_path:
         submit("globex")
 
 
+def test_submitting_to_a_disabled_connection_raises_the_disabled_error(tmp_path: Path) -> None:
+    connectors = write_config(tmp_path, _CATALOG)
+    parsers = tmp_path / "parsers.yaml"
+    parsers.write_text("version: 1\n", encoding="utf-8")
+    settings = RuntimeSettings(connector_config_path=connectors, parser_config_path=parsers)
+
+    with pytest.raises(ConnectorDisabledError, match="is disabled"):
+        prepare_source_submission(
+            settings,
+            SourceSubmission(task_id="task-1", tenant_id="globex", connector_name="retired-local"),
+            environment={},
+        )
+
+
 def test_building_a_disabled_connection_raises_the_disabled_error(tmp_path: Path) -> None:
     catalog = load_connector_catalog(write_config(tmp_path, _CATALOG))
     definition = catalog.get_for_tenant("retired-local", "globex")
