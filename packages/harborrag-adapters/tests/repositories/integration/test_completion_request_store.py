@@ -128,3 +128,24 @@ async def test_abandoned_claim_is_taken_over_instead_of_wedging_the_key(
 
     monkeypatch.setattr(module, "STALE_CLAIM_SECONDS", -1)
     assert (await store.claim_completion(**request)).status == "claimed"
+
+
+@pytest.mark.asyncio
+async def test_deleting_a_users_completions_ends_every_replay(sessions: SessionFactory) -> None:
+    store = SqlCompletionRequestStore(sessions)
+    mine = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    theirs = {**mine, "user_id": "other-user"}
+    for request in (mine, theirs):
+        await store.claim_completion(**request)
+        await store.finish_completion(**request, response_json='{"text":"private answer"}')
+
+    assert await store.delete_completions_for_user(tenant_id="tenant", user_id="user") == 1
+
+    replay = await store.claim_completion(**mine)
+    assert replay.status == "claimed"
+    assert replay.result_json is None
+    assert (await store.claim_completion(**theirs)).status == "completed"
+    repository = SqlConversationMemoryRepository(sessions)
+    assert (
+        await repository.delete_completions_for_user(tenant_id="tenant", user_id="other-user") == 1
+    )

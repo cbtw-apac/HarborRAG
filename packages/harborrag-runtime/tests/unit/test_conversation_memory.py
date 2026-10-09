@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
@@ -256,3 +256,29 @@ async def test_database_memory_forwards_message_methods() -> None:
     repository.recent_messages.assert_awaited_once_with(identity, limit=3)
     repository.messages_after.assert_awaited_once_with(identity, after_message_id="m-0", limit=3)
     repository.clear_messages.assert_awaited_once_with(identity)
+
+
+@pytest.mark.asyncio
+async def test_in_memory_delete_completions_for_user_ends_replay_for_that_user_only() -> None:
+    memory = InMemoryConversationMemory()
+    mine = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    theirs = {**mine, "user_id": "other-user"}
+    for request in (mine, theirs):
+        await memory.claim_completion(**request)
+        await memory.finish_completion(**request, response_json='{"text":"private answer"}')
+
+    assert await memory.delete_completions_for_user(tenant_id="tenant", user_id="user") == 1
+
+    replay = await memory.claim_completion(**mine)
+    assert replay.status == "claimed"
+    assert replay.result_json is None
+    assert (await memory.claim_completion(**theirs)).status == "completed"
+
+
+@pytest.mark.asyncio
+async def test_database_memory_delegates_delete_completions_for_user() -> None:
+    inner = SimpleNamespace(delete_completions_for_user=AsyncMock(return_value=2))
+    memory = DatabaseConversationMemory(repository=cast(Any, inner), engine=Mock())
+
+    assert await memory.delete_completions_for_user(tenant_id="tenant", user_id="user") == 2
+    inner.delete_completions_for_user.assert_awaited_once_with(tenant_id="tenant", user_id="user")

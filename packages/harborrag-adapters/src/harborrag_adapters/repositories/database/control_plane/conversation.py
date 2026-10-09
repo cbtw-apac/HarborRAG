@@ -168,6 +168,11 @@ class SqlConversationMemoryRepository:
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
 
+    async def delete_completions_for_user(self, *, tenant_id: str, user_id: str) -> int:
+        return await SqlCompletionRequestStore(self.sessions).delete_completions_for_user(
+            tenant_id=tenant_id, user_id=user_id
+        )
+
     async def create(
         self,
         identity: ConversationIdentity,

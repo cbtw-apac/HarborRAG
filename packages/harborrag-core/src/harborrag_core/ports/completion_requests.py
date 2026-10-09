@@ -63,3 +63,14 @@ class CompletionRequestStore(Protocol):
         instead of recording a failure the caller can never retry past.
         """
         ...
+
+    async def delete_completions_for_user(self, *, tenant_id: str, user_id: str) -> int:
+        """Delete every claim and stored reply of one human in one tenant.
+
+        Right-to-erasure only. Afterwards no key of this user replays an
+        answer, and the stored keys and request hashes are gone too. The
+        duplicate-spend guard is deliberately given up for an erased user;
+        their credentials are revoked as part of the erasure procedure.
+        Returns how many claims were removed.
+        """
+        ...

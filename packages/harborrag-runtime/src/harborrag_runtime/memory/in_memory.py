@@ -147,6 +147,15 @@ class InMemoryConversationMemory:
             self._completion_claimed_at.pop(identity, None)
             self._completion_sessions.pop(identity, None)
 
+    async def delete_completions_for_user(self, *, tenant_id: str, user_id: str) -> int:
+        async with self._lock:
+            doomed = [key for key in self._completion_claims if key[:2] == (tenant_id, user_id)]
+            for key in doomed:
+                del self._completion_claims[key]
+                self._completion_claimed_at.pop(key, None)
+                self._completion_sessions.pop(key, None)
+            return len(doomed)
+
     # -- sessions ------------------------------------------------------------
 
     async def create(

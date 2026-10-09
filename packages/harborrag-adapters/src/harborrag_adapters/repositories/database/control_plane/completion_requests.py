@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import cast
+from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
@@ -149,3 +150,18 @@ class SqlCompletionRequestStore:
                     CompletionRequestRow.status == "in_progress",
                 )
             )
+
+    async def delete_completions_for_user(self, *, tenant_id: str, user_id: str) -> int:
+        """Delete every claim of one human; an in-flight finish then updates nothing."""
+
+        async with self.sessions.begin() as session:
+            result = cast(
+                "CursorResult[Any]",
+                await session.execute(
+                    sa.delete(CompletionRequestRow).where(
+                        CompletionRequestRow.tenant_id == tenant_id,
+                        CompletionRequestRow.user_id == user_id,
+                    )
+                ),
+            )
+        return int(result.rowcount or 0)
