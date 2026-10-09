@@ -12,6 +12,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.schemas import AppResponse
+from harborrag_core.contracts.errors import HarborNotFoundError
 
 
 @pytest.fixture
@@ -307,9 +308,12 @@ def test_legacy_start_maps_an_unavailable_connection_to_a_uniform_404(
     """The legacy path must not reveal whether a refused connection exists."""
 
     async def refuse(**_kwargs: object) -> AppResponse:
-        # public_error_message collapses the runtime error to its class name.
+        # ConnectorNotFoundError is a ValueError, so public_error_message
+        # forwards its full (uniform) message.
         return AppResponse(
-            False, {"error_type": "ConnectorNotFoundError"}, "ConnectorNotFoundError"
+            False,
+            {"error_type": "ConnectorNotFoundError"},
+            "Unknown configured connector: 'another-tenants-connection'",
         )
 
     monkeypatch.setattr(service, "start_ingestion", refuse)
@@ -323,3 +327,46 @@ def test_legacy_start_maps_an_unavailable_connection_to_a_uniform_404(
     error = response.json()["error"]
     assert error["code"] == "connection_not_found"
     assert error["message"] == "Connection was not found"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        ("/v1/ingestions/ing_1/retry-failures", None, "harbor_not_found_error"),
+        (
+            "/api/v1/ingestions/ing_1/actions",
+            {"action": "retry", "artifact_ids": ["document:1"]},
+            "connection_not_found",
+        ),
+    ],
+)
+def test_retry_with_withdrawn_connection_access_is_a_404(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+    case: tuple[str, dict[str, str] | None, str],
+) -> None:
+    url, body, expected_code = case
+
+    async def refuse(**_kwargs: object) -> dict[str, object]:
+        raise HarborNotFoundError("Connection was not found")
+
+    monkeypatch.setattr(service, "retry_failures", refuse)
+    response = client.post(url, json=body)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == expected_code
+    assert response.json()["error"]["message"] == "Connection was not found"
+
+
+def test_lifespan_runs_the_unbound_connection_check_once(
+    monkeypatch: pytest.MonkeyPatch, service: MockAppService
+) -> None:
+    calls: list[int] = []
+    service.warn_unbound_connections = lambda: calls.append(1)  # type: ignore[attr-defined]
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
+
+    with TestClient(create_fastapi_app(ApiSettings())):
+        pass
+
+    assert calls == [1]

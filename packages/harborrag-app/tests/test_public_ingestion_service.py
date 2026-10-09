@@ -26,7 +26,11 @@ from harborrag_app.workflow_control.errors import (
 )
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
+from harborrag_core.contracts.errors import (
+    HarborConflictError,
+    HarborConnectionError,
+    HarborNotFoundError,
+)
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_runtime.config.errors import ConnectorNotFoundError
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
@@ -285,7 +289,7 @@ async def test_retry_is_refused_once_the_tenant_leaves_the_connection_allowlist(
     )
     write_workspace_connectors(tmp_path, tenants="[globex]")
 
-    with pytest.raises(ConnectorNotFoundError, match="Unknown configured connector"):
+    with pytest.raises(HarborNotFoundError, match="Connection was not found"):
         await service.retry_failures(task_id=task_id, document_ids=[])
 
     assert temporal.retries == []
@@ -430,7 +434,6 @@ async def test_unknown_and_disallowed_connections_are_indistinguishable() -> Non
     """Review focus: a tenant must not learn which other connections exist."""
     from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
     from harborrag_core.contracts.errors import HarborNotFoundError
-    from harborrag_runtime.config.errors import ConnectorNotFoundError
     from harborrag_runtime.config.settings import RuntimeSettings
 
     async def _never():

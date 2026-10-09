@@ -20,6 +20,7 @@ from harborrag_app.api.errors import error_envelope
 from harborrag_app.api.schemas import IngestionControlInput, IngestionWorkflowInput
 from harborrag_app.api.v1.ingestion.dependencies import IngestionService
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_runtime.config.errors import ConnectorNotFoundError
 from harborrag_runtime.errors import (
     WorkflowNotFoundError,
@@ -114,10 +115,16 @@ async def control_ingestion(
     service = _service(request)
     await _authorize_run(service, principal, run_id)
     if payload.action == "retry":
-        result = await cast(IngestionService, service).retry_failures(
-            task_id=run_id,
-            document_ids=payload.artifact_ids,
-        )
+        try:
+            result = await cast(IngestionService, service).retry_failures(
+                task_id=run_id,
+                document_ids=payload.artifact_ids,
+            )
+        except HarborNotFoundError:
+            # Access to the run's connection was withdrawn after submission
+            # (the run itself was already authorized above).
+            refused = AppResponse(False, {"error_type": ConnectorNotFoundError.__name__})
+            return _render(request, refused, operation="retry")
         return JSONResponse(
             content=jsonable_encoder(result),
             headers=_DEPRECATION_HEADERS,

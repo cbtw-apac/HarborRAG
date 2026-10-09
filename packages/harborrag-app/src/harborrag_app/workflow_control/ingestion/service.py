@@ -351,7 +351,10 @@ class IngestionApplicationService(TaskListingMixin):
 
     def _require_connection_access(self, connector_name: str, tenant_id: str) -> None:
         catalog = load_connector_catalog(self._settings.connector_config_path)
-        catalog.get_for_tenant(connector_name, tenant_id)
+        try:
+            catalog.get_for_tenant(connector_name, tenant_id)
+        except ConnectorNotFoundError as error:
+            raise HarborNotFoundError("Connection was not found") from error
 
     def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         try:
