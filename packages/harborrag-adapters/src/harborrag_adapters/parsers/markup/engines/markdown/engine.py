@@ -19,6 +19,16 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("markdown")
 
+# Labels exclude brackets and targets exclude parentheses, so each scan stops at
+# the next possible match start; list-marker whitespace is [ \t], never a
+# newline, so a marker cannot span lines. The previous patterns let "[^\]]*",
+# "[^)]+" and "^\s*" run across those boundaries, which made unclosed links and
+# runs of blank lines quadratic.
+_IMAGE = re.compile(r"!\[([^\[\]]*)\]\([^()]+\)")
+_LINK = re.compile(r"\[([^\[\]]+)\]\([^()]+\)")
+_UNORDERED_MARKER = re.compile(r"^[ \t]*[-*+][ \t]+", re.MULTILINE)
+_ORDERED_MARKER = re.compile(r"^[ \t]*\d+[.)][ \t]+", re.MULTILINE)
+
 
 class MarkdownMarkupEngine(HarborMarkupEngine):
     """Parse Markdown sources into normalized text and lightweight block elements."""
@@ -226,13 +236,12 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
     def _to_text(markdown: str) -> str:
         """Remove common Markdown markup while preserving human-readable content."""
 
-        text = markdown
-        text = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
-        text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)
+        text = _IMAGE.sub(r"\1", markdown)
+        text = _LINK.sub(r"\1", text)
         text = re.sub(r"^\s{0,3}#{1,6}\s+", "", text, flags=re.MULTILINE)
         text = re.sub(r"^\s{0,3}>\s?", "", text, flags=re.MULTILINE)
-        text = re.sub(r"^\s*[-*+]\s+", "", text, flags=re.MULTILINE)
-        text = re.sub(r"^\s*\d+[.)]\s+", "", text, flags=re.MULTILINE)
+        text = _UNORDERED_MARKER.sub("", text)
+        text = _ORDERED_MARKER.sub("", text)
         text = re.sub(r"[*_`~]", "", text)
         return "\n".join(line.strip() for line in text.splitlines()).strip()
 
