@@ -3,6 +3,7 @@ from harborrag_runtime.config.connectors import (
     ConnectorCatalog,
     ConnectorConfigurationError,
     ConnectorDefinition,
+    ConnectorNotFoundError,
     connector_fingerprint,
     load_connector_catalog,
 )
@@ -52,6 +53,7 @@ __all__ = [
     "ConnectorCatalog",
     "ConnectorConfigurationError",
     "ConnectorDefinition",
+    "ConnectorNotFoundError",
     "GraphBuildBudgetConfig",
     "GraphBuildConfig",
     "GraphBuildConfigurationError",

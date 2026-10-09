@@ -44,6 +44,7 @@ configuration; see [Ingestion modes](../ingestion-modes.md).
 | `settings` | Literal fields for the provider configuration dataclass |
 | `environment` | Config-field to environment-variable mapping for non-secret values |
 | `secrets` | `<config_field>_env: VARIABLE_NAME` references for secret values |
+| `tenants` | Optional list of tenant IDs allowed to submit ingestion through this connection and to see it in `GET /v1/connections`. Omit it to allow every tenant (single-tenant default). `'*'` is rejected. See [Tenant allowlist](#tenant-allowlist). |
 
 Unknown providers, fields, aliases, versions, and malformed mappings fail during loading. Provider-specific values are validated when a connector is built.
 
@@ -106,6 +107,33 @@ connectors:
 and `exclude_globs` remove candidates from that set. Filters affect future
 discovery; removing an already published document still follows the normal
 source reconciliation and cleanup lifecycle.
+
+## Tenant allowlist
+
+By default every tenant may submit ingestion through every connection, which
+keeps single-tenant setups unchanged. In a multi-tenant deployment, bind each
+connection to the tenants that may use it:
+
+```yaml
+connectors:
+  acme-jira:
+    provider: jira
+    tenants: [acme]
+```
+
+The rule is enforced when a submission is prepared, so it covers the v1
+`POST /v1/ingestions` route, the legacy `POST /api/v1/ingestions` route, and the
+CLI. A tenant submitting a connection it is not allowed to use gets the same
+"unknown connector" outcome as for a connection that does not exist (and for one
+whose definition is invalid), so a response never reveals other tenants'
+connections. Submission errors name only the requested connection; the
+operator-facing catalog lookup still lists the configured connection IDs.
+
+`tenants` must be a non-empty list of tenant IDs without surrounding
+whitespace; `'*'` is rejected (omit the field to allow every tenant). It is an
+access rule, not connector configuration, so it does not change the source
+fingerprint. Once any enabled connection declares `tenants`, the API logs a
+startup warning naming each enabled connection that does not.
 
 ## Source access control
 

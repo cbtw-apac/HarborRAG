@@ -6,6 +6,15 @@ class ConnectorConfigurationError(ConfigurationError):
     """Raised when a connector catalog or connector definition is invalid."""
 
 
+class ConnectorNotFoundError(ConnectorConfigurationError):
+    """No connector by that name is available to the requesting tenant.
+
+    Raised with one message for a name that is not configured, a name whose
+    ``tenants`` allowlist excludes the caller, and a definition that failed
+    to parse, so it is never an oracle for another tenant's connections.
+    """
+
+
 class ParserConfigurationError(ConfigurationError):
     """Raised when a parser catalog or parser definition is invalid."""
 

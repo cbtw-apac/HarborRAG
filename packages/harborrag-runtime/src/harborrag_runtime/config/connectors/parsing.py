@@ -24,7 +24,9 @@ from harborrag_runtime.config.loading import (
     require_string_mapping,
 )
 
-_CONNECTOR_KEYS = frozenset({"enabled", "environment", "provider", "secrets", "settings"})
+_CONNECTOR_KEYS = frozenset(
+    {"enabled", "environment", "provider", "secrets", "settings", "tenants"}
+)
 
 
 def parse_connector_definitions(
@@ -82,6 +84,7 @@ def _parse_definition(
 
     provider = _parse_provider(name, definition.get("provider"))
     enabled = _parse_enabled(name, definition.get("enabled", True))
+    tenants = _parse_tenants(name, definition.get("tenants"))
     settings = dict(
         require_string_mapping(
             definition.get("settings", {}),
@@ -127,7 +130,30 @@ def _parse_definition(
         setting_environment=setting_environment,
         secret_environment=secret_environment,
         base_directory=base_directory,
+        tenants=tenants,
     )
+
+
+def _parse_tenants(name: str, raw: object) -> frozenset[str] | None:
+    """Read the optional tenant allowlist; absent means every tenant."""
+
+    if raw is None:
+        return None
+    if not isinstance(raw, list) or not raw:
+        raise ConnectorConfigurationError(
+            f"Connector {name!r} tenants must be a non-empty list of tenant ids"
+        )
+    invalid = [
+        value
+        for value in raw
+        if not isinstance(value, str) or not value.strip() or value != value.strip() or value == "*"
+    ]
+    if invalid:
+        raise ConnectorConfigurationError(
+            f"Connector {name!r} tenants must be tenant ids without surrounding "
+            "whitespace; '*' is not allowed (omit tenants to allow every tenant)"
+        )
+    return frozenset(raw)
 
 
 def _parse_provider(name: str, raw_provider: object) -> str:

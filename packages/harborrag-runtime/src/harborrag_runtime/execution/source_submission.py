@@ -42,7 +42,10 @@ def prepare_source_submission(
     """Resolve a configured connector into a deterministic provider-neutral input."""
 
     catalog = load_connector_catalog(settings.connector_config_path)
-    definition = catalog.get(submission.connector_name)
+    # Tenant-facing lookup: unknown, disallowed, and broken names are one
+    # uniform ConnectorNotFoundError, so submission is never an oracle for
+    # another tenant's connections.
+    definition = catalog.get_for_tenant(submission.connector_name, submission.tenant_id)
     if not definition.enabled:
         raise ConnectorConfigurationError(
             f"Configured connector {submission.connector_name!r} is disabled"
