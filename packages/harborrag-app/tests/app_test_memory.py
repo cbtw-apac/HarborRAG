@@ -54,6 +54,11 @@ class FakeMemoryStore:
                     query.owner.user_id is not None
                     and memory.owner.tenant_id == query.owner.tenant_id
                     and memory.owner.user_id == query.owner.user_id
+                    and (
+                        query.owner.user_id != DEFAULT_USER
+                        or query.owner.principal_id is None
+                        or memory.owner.principal_id == query.owner.principal_id
+                    )
                 )
             return visible_to(memory.scope, memory.owner, query.owner)
 

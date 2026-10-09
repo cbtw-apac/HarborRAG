@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -11,8 +13,14 @@ from app_test_memory import FakeMemoryIndex, FakeMemoryStore, memory
 from harborrag_app.workflow_control.control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
-from harborrag_app.workflow_control.memory.administration import MemoryAdministrationService
+from harborrag_app.workflow_control.memory import administration as administration_module
+from harborrag_app.workflow_control.memory.administration import (
+    MemoryAdministrationService,
+    PurgeTotals,
+)
 from harborrag_app.workflow_control.memory.erasure import ErasedMemory, MemoryErasureJournal
+from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryScope
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
@@ -188,3 +196,80 @@ async def test_a_failed_index_delete_is_reported_as_deferred(stores):
     assert await journal.erase_memory(first) == ErasedMemory(points=0, deferred=True)
     stores.index.failure = None
     assert await journal.erase_memory(second) == ErasedMemory(points=1, deferred=False)
+
+
+async def _seed_session(stores, row):
+    identity = ConversationIdentity(
+        row.owner.tenant_id, row.owner.principal_id, "session-1", row.owner.user_id
+    )
+    await stores.conversations.create(identity, kind="chat")
+    return identity
+
+
+@pytest.mark.asyncio
+async def test_other_principals_rows_never_crowd_out_the_callers_row(stores, monkeypatch):
+    monkeypatch.setattr(administration_module, "_PAGE", 2)
+    mine = memory("mine", source_session_id="session-1", importance=0.1)
+    await _seed_session(stores, mine)
+    await stores.memories.save(mine)
+    for index in range(5):
+        await stores.memories.save(
+            memory(
+                f"theirs-{index}",
+                principal_id="another-caller",
+                source_session_id="session-1",
+                importance=0.9,
+            )
+        )
+
+    await administration(stores).erase_session(
+        replace(mine.owner, session_id="session-1"), actor="test"
+    )
+
+    assert "mine" not in stores.memories.rows
+    assert len(stores.memories.rows) == 5
+
+
+@pytest.mark.asyncio
+async def test_an_incomplete_session_purge_stays_pending_and_is_not_a_success(stores, monkeypatch):
+    row = memory("memory-1", source_session_id="session-1")
+    identity = await _seed_session(stores, row)
+    await stores.memories.save(row)
+    service = administration(stores)
+    monkeypatch.setattr(
+        service, "_purge_session", AsyncMock(return_value=PurgeTotals(complete=False))
+    )
+
+    with pytest.raises(HarborUnavailableError):
+        await service.erase_session(replace(row.owner, session_id="session-1"), actor="test")
+
+    assert await stores.conversations.exists(identity)
+    assert len(stores.pending_effects.effects) == 1
+
+
+@pytest.mark.asyncio
+async def test_an_expired_sourced_fact_is_removed_by_a_conversation_delete(stores):
+    past = utc_now() - timedelta(days=2)
+    row = memory("expired", source_session_id="session-1", updated_at=past)
+    row = replace(row, expires_at=past + timedelta(days=1))
+    await _seed_session(stores, row)
+    await stores.memories.save(row)
+
+    await administration(stores).erase_session(
+        replace(row.owner, session_id="session-1"), actor="test"
+    )
+
+    assert not stores.memories.rows
+
+
+@pytest.mark.asyncio
+async def test_purge_totals_count_deferred_vector_deletes(stores):
+    row = memory("memory-1", source_session_id="session-1")
+    await stores.memories.save(row)
+    stores.index.failure = RuntimeError("index unavailable")
+
+    totals = await administration(stores)._purge(
+        row.owner, (), stored_by_owner=True, source_session_id="session-1"
+    )
+
+    assert (totals.memories, totals.index_points, totals.deferred) == (1, 0, 1)

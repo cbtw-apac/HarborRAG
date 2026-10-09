@@ -199,6 +199,9 @@ class MemoryAdministrationService:
             index_required=self._index is not None,
         )
         purged = await self._purge_session(owner, identity)
+        if not purged.complete:
+            # Leave the effect open so replay retries the whole erasure.
+            raise HarborUnavailableError("session erasure is incomplete; it will be retried")
         await self._conversations.delete(identity)
         await self._erasure.complete(effect_id)
         report = ErasureReport(
@@ -230,7 +233,8 @@ class MemoryAdministrationService:
             owner.session_id,
             owner.user_id or owner.principal_id,
         )
-        await self._purge_session(owner, identity)
+        if not (await self._purge_session(owner, identity)).complete:
+            raise HarborUnavailableError("session erasure is incomplete; it will be retried")
         await self._conversations.delete(identity)
         return True
 
@@ -317,8 +321,8 @@ class MemoryAdministrationService:
     ) -> PurgeTotals:
         """Delete every memory ``owner`` reaches at ``scopes`` (all when empty), plus vectors.
 
-        ``authorized`` is a last guard on each row the query returned: a row it
-        rejects is left alone, and a pass that erases nothing ends the purge.
+        ``authorized`` is a defensive guard on each returned row: a rejection
+        leaves the pass unerased and the totals ``complete=False``.
         """
 
         if self._memories is None:
@@ -334,9 +338,18 @@ class MemoryAdministrationService:
         totals = PurgeTotals()
         for _ in range(_MAX_PASSES):
             rows = await self._memories.search(query)
-            erasable = [row for row in rows if authorized is None or authorized(row)]
-            if not erasable:
+            if not rows:
                 return totals
+            erasable = [row for row in rows if authorized is None or authorized(row)]
+            if len(erasable) != len(rows):
+                # The query already pins the author, so a rejection is a
+                # contract breach: never report it as a clean success.
+                logger.warning(
+                    "Memory purge guard rejected %d rows for tenant=%s; purge incomplete",
+                    len(rows) - len(erasable),
+                    owner.tenant_id,
+                )
+                return replace(totals, complete=False)
             for row in erasable:
                 totals = totals + await self._erase_row(row)
         logger.warning(

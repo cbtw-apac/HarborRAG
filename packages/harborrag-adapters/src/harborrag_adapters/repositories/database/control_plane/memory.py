@@ -20,6 +20,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -128,11 +129,17 @@ def _ownership_condition(scope: MemoryScope, caller: MemoryOwner) -> sa.ColumnEl
 
     if caller.user_id is None:
         return sa.false()
-    return sa.and_(
+    conditions = [
         MemoryRow.scope == scope.value,
         MemoryRow.tenant_id == caller.tenant_id,
         MemoryRow.user_id == caller.user_id,
-    )
+    ]
+    if caller.user_id == DEFAULT_USER and caller.principal_id is not None:
+        # DEFAULT_USER identifies nobody (see ``authored_by``): the credential
+        # that stored the row is the only author evidence, so pin it here and
+        # keep another caller's rows out of the page.
+        conditions.append(MemoryRow.principal_id == caller.principal_id)
+    return sa.and_(*conditions)
 
 
 def _visibility_filter(query: MemoryQuery) -> sa.ColumnElement[bool]:
