@@ -55,6 +55,7 @@ EXPECTED_TABLES = {
     "projection_cleanup_jobs",
     "reindex_jobs",
     "mcp_api_keys",
+    "user_erasures",
 }
 
 
@@ -292,3 +293,13 @@ def test_consolidated_baseline_downgrades_cleanly(tmp_path: Path) -> None:
         assert set(sa.inspect(sync_engine).get_table_names()) <= {"alembic_version"}
     finally:
         sync_engine.dispose()
+
+
+@pytest.mark.whitebox
+def test_the_migration_chain_has_a_single_head() -> None:
+    """Two plans adding revisions in parallel must not fork the chain."""
+
+    from alembic.script import ScriptDirectory
+
+    script = ScriptDirectory.from_config(_build_config("sqlite+aiosqlite:///:memory:"))
+    assert len(script.get_heads()) == 1

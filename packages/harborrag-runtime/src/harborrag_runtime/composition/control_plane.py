@@ -22,6 +22,7 @@ from harborrag_core.ports.control_plane import (
     SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
+from harborrag_core.ports.erasure import UserErasureJournal
 from harborrag_core.ports.memory import MemoryRepository
 from harborrag_core.ports.model_catalog import TenantModelCatalogPort
 from harborrag_core.ports.secrets import SecretsPort
@@ -61,6 +62,8 @@ class ControlPlaneRepositories:
     graph_conflicts: GraphConflictRepositoryPort
     memories: MemoryRepository | None = None
     model_usage: ModelUsageRepository | None = None
+    # Right-to-erasure journal; None only for hand-built test compositions.
+    erasure_journal: UserErasureJournal | None = None
     # Read side of a tenant's own chat models; None when this deployment does
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
@@ -101,6 +104,9 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.engine import (
             create_control_plane_engine,
             create_session_factory,
+        )
+        from harborrag_adapters.repositories.database.control_plane.erasure_journal import (
+            SqlUserErasureJournal,
         )
         from harborrag_adapters.repositories.database.control_plane.graph_conflicts import (
             SqlGraphConflictRepository,
@@ -218,6 +224,7 @@ class CompositionRoot:
             graph_conflicts=SqlGraphConflictRepository(sessions),
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
+            erasure_journal=SqlUserErasureJournal(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
         )
         composition = cls(
