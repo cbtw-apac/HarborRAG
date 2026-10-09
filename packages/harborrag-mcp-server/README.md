@@ -165,7 +165,7 @@ persisted back into it:
 - `HARBORRAG_MCP_MAX_RESULTS`
 - `HARBORRAG_MCP_MAX_ARGUMENT_BYTES`
 - `HARBORRAG_MCP_MAX_OUTPUT_BYTES`
-- `HARBORRAG_MCP_DISABLED_TOOLS` (comma-separated tool names)
+- `HARBORRAG_MCP_DISABLED_TOOLS` (comma-separated tool names; disables them everywhere, including tenants whose file entry says `enabled: true`)
 
 In HTTP mode, enter the bearer token in the status page and use **Load**,
 **Save**, or **Reload YAML**. The owner-only API is `GET/PUT /api/config` and

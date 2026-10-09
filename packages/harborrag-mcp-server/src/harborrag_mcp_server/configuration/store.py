@@ -281,6 +281,29 @@ def _write_configuration(path: Path, configuration: McpConfiguration) -> None:
         raise
 
 
+def _disabled_tool_names(environment: Mapping[str, str]) -> set[str]:
+    return {
+        name.strip()
+        for name in environment.get("HARBORRAG_MCP_DISABLED_TOOLS", "").split(",")
+        if name.strip()
+    }
+
+
+def _force_disabled(raw: dict[str, Any], disabled: set[str]) -> None:
+    """Disable each tool globally *and* in every tenant that overrides it.
+
+    The environment is the operator's kill switch: a tenant's
+    ``enabled: true`` must never re-enable a tool it names, and resolve()
+    lets a tenant override win over the global one.
+    """
+
+    for tool_name in disabled:
+        raw["tools"].setdefault(tool_name, {})["enabled"] = False
+        for tenant in raw["tenants"].values():
+            if tool_name in tenant["tools"]:
+                tenant["tools"][tool_name]["enabled"] = False
+
+
 def _apply_environment(
     configuration: McpConfiguration,
     environment: Mapping[str, str],
@@ -293,15 +316,7 @@ def _apply_environment(
                 policy[field_name] = int(environment[variable])
             except ValueError as exc:
                 raise ValueError(f"{variable} must be an integer") from exc
-    disabled = {
-        name.strip()
-        for name in environment.get("HARBORRAG_MCP_DISABLED_TOOLS", "").split(",")
-        if name.strip()
-    }
-    tools = raw["tools"]
-    for tool_name in disabled:
-        override = tools.setdefault(tool_name, {})
-        override["enabled"] = False
+    _force_disabled(raw, _disabled_tool_names(environment))
     return McpConfiguration.model_validate(raw)
 
 

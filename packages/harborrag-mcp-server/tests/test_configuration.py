@@ -227,3 +227,21 @@ def test_reload_holds_the_update_lock_while_reading(tmp_path, monkeypatch) -> No
     assert thread_errors == []
     assert replace_completed.is_set()
     assert store.snapshot().tools["search"].enabled is False
+
+
+@pytest.mark.asyncio
+async def test_the_environment_kill_switch_beats_a_tenant_enable(tmp_path) -> None:
+    store = _store(
+        tmp_path,
+        {"tenants": {"acme": {"tools": {"search": {"enabled": True}}}}},
+        environment={"HARBORRAG_MCP_DISABLED_TOOLS": "search"},
+    )
+    server = McpServer(tools=[ConfigurableTool()], audit=store.audit, configuration=store)
+
+    assert store.resolve("search", "acme").enabled is False
+    with pytest.raises(PermissionError, match="disabled"):
+        await server.call_tool("search", {"query": "q", "tenant_id": "acme"}, principal_id="owner")
+    assert server.list_tools("acme") == []
+    description = store.describe()
+    assert description["effective"]["tenants"]["acme"]["tools"]["search"]["enabled"] is False
+    assert description["configuration"]["tenants"]["acme"]["tools"]["search"]["enabled"] is True
