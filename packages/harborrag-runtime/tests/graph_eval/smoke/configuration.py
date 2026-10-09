@@ -22,8 +22,9 @@ def _env_flag(name: str) -> bool:
 def build_config(graph_name: str = "harborrag") -> FalkorDBGraphConfig:
     """Load the ignored database env file into a transport-validated config.
 
-    ``FalkorDBGraphConfig.validate_transport`` rejects a password over plaintext and
-    insecure non-loopback hosts, exactly as the runtime would.
+    ``FalkorDBGraphConfig.validate_transport`` rejects plaintext non-loopback hosts,
+    with or without a password, unless FALKORDB_ALLOW_INSECURE_REMOTE acknowledges a
+    trusted network -- exactly as the runtime would.
     """
 
     load_dotenv(ROOT / "env/.env.database", override=False)

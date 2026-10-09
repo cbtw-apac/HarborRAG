@@ -27,14 +27,10 @@ class FalkorDBGraphConfig(RepositoryConfig):
 
     @model_validator(mode="after")
     def validate_transport(self) -> FalkorDBGraphConfig:
-        loopback = _is_loopback(self.host)
-        if (
-            (self.password is not None or self.read_password is not None)
-            and not self.ssl
-            and not loopback
-        ):
-            raise ValueError("FalkorDB password cannot be sent over plaintext transport")
-        if not self.ssl and not loopback and not self.allow_insecure_remote:
+        # Passwords ride the same acknowledgement as the connection itself: on
+        # an explicitly trusted plaintext network an authenticated link is
+        # strictly safer than the unauthenticated one refusing it would force.
+        if not self.ssl and not _is_loopback(self.host) and not self.allow_insecure_remote:
             raise ValueError(
                 "remote FalkorDB requires SSL; set allow_insecure_remote only "
                 "for an explicitly trusted development network"

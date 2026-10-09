@@ -10,8 +10,10 @@ from harborrag_adapters.repositories.cache.redis.config import RedisCacheConfig
 from harborrag_adapters.repositories.database.postgresql.config import (
     PostgreSQLDatabaseConfig,
 )
+from harborrag_adapters.repositories.graph.falkordb.config import FalkorDBGraphConfig
 from harborrag_adapters.repositories.object_store.s3.config import S3ObjectStoreConfig
 from harborrag_adapters.repositories.state.redis.config import RedisStateConfig
+from harborrag_adapters.repositories.vector.qdrant.config import QdrantVectorConfig
 from harborrag_core.security import is_loopback_host
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -84,3 +86,26 @@ def test_s3_requires_https_for_remote_custom_endpoints() -> None:
 def test_s3_rejects_malformed_or_secret_bearing_endpoints(endpoint: str) -> None:
     with pytest.raises(ValidationError, match="S3"):
         S3ObjectStoreConfig(endpoint_url=endpoint)
+
+
+def test_qdrant_api_key_rides_the_explicit_plaintext_acknowledgement() -> None:
+    key = SecretStr("q" * 64)
+    with pytest.raises(ValidationError, match="remote Qdrant requires HTTPS"):
+        QdrantVectorConfig(url="http://qdrant:6333", api_key=key)
+
+    # Compose's in-network service name: authenticated beats unauthenticated.
+    assert QdrantVectorConfig(url="http://qdrant:6333", api_key=key, allow_insecure_remote=True)
+    assert QdrantVectorConfig(url="https://qdrant.example.com", api_key=key)
+    assert QdrantVectorConfig(url="http://127.0.0.1:6333", api_key=key)
+
+
+def test_falkordb_password_rides_the_explicit_plaintext_acknowledgement() -> None:
+    password = SecretStr("f" * 64)
+    with pytest.raises(ValidationError, match="remote FalkorDB requires SSL"):
+        FalkorDBGraphConfig(host="falkordb", password=password)
+    with pytest.raises(ValidationError, match="remote FalkorDB requires SSL"):
+        FalkorDBGraphConfig(host="falkordb", read_password=password)
+
+    assert FalkorDBGraphConfig(host="falkordb", password=password, allow_insecure_remote=True)
+    assert FalkorDBGraphConfig(host="falkordb.example.com", password=password, ssl=True)
+    assert FalkorDBGraphConfig(host="127.0.0.1", password=password)

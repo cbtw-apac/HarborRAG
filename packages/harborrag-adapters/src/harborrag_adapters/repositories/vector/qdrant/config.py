@@ -47,12 +47,10 @@ class QdrantVectorConfig(RepositoryConfig):
                     "remote Qdrant requires HTTPS; set allow_insecure_remote only "
                     "for an explicitly trusted development network"
                 )
-            if (
-                self.api_key is not None
-                and parsed.scheme != "https"
-                and not _is_loopback(parsed.hostname)
-            ):
-                raise ValueError("Qdrant api_key cannot be sent over plaintext transport")
+            # An api_key to a plaintext remote URL needs the same explicit
+            # allow_insecure_remote acknowledgement checked above; on such a
+            # trusted network an authenticated link is strictly safer than the
+            # unauthenticated one refusing the key would force.
             return self
         if self.url is not None:
             raise ValueError("embedded Qdrant does not accept url")

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
+from pydantic import SecretStr
 
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_adapters.repositories.object_store.ingestion_artifacts import (
@@ -92,6 +93,33 @@ def test_default_factories_keep_existing_provider_configuration(
     assert vectors.create_from_config.call_args.args[0].url == settings.qdrant_url
     assert graph.call_args.args[0].tenant_isolation is True
     assert topology.call_args.args[0] == graph.call_args.args[0]
+
+
+def test_compose_network_credentials_build_valid_store_configurations(
+    registry: StorageProviderRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """deploy/compose passes exactly these shapes to the API and worker."""
+
+    vectors = Mock()
+    monkeypatch.setattr(resources.HarborVectorDBClient, "default", lambda: vectors)
+    settings = RuntimeSettings(
+        qdrant_url="http://qdrant:6333",
+        qdrant_api_key=SecretStr("q" * 64),
+        qdrant_allow_insecure_remote=True,
+        falkordb_host="falkordb",
+        falkordb_password=SecretStr("f" * 64),
+        falkordb_allow_insecure_remote=True,
+    )
+
+    resources.build_vector_repository(settings)
+    graph = resources.build_graph_config(settings)
+
+    vector_config = vectors.create_from_config.call_args.args[0]
+    assert vector_config.api_key is not None
+    assert vector_config.api_key.get_secret_value() == "q" * 64
+    assert graph.password is not None
+    assert graph.password.get_secret_value() == "f" * 64
 
 
 @pytest.mark.parametrize("family", ["object", "vector", "graph"])
