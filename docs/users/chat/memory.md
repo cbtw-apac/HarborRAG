@@ -101,5 +101,11 @@ Existing long-term memory can still be inspected or erased through
 `/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance
 operations are separate from completion context.
 
+Deleting one memory follows ownership, not visibility. Your own user and
+session memories are always yours to delete. Project, tenant, and global
+memories are shared: a `reader` may delete only the ones they wrote (matched
+on the signed end-user claim, not the credential); `editor` and above may
+delete any shared memory in a tenant they can access. Anyone else gets `403`.
+
 See [Chat](README.md#migration) for the `0033`/`0034` database migration
 requirement and endpoint replacements.

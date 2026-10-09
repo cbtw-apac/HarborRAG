@@ -23,6 +23,10 @@ class MemoryAccess:
     user_id: str
     project_id: str | None = None
     session_id: str | None = None
+    # Whether this caller's role lets it delete *shared* (PROJECT/TENANT/
+    # GLOBAL) memories it did not write. Decided by the transport from the
+    # verified role; defaults closed so a forgotten wiring denies.
+    may_delete_shared_memory: bool = False
 
     def owner(self) -> MemoryOwner:
         """The long-term memory isolation key for this caller."""

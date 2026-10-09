@@ -11,12 +11,13 @@ service credential must carry a distinct end-user claim for each person.
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
-from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.memory import MemoryAccess
@@ -38,7 +39,7 @@ router = APIRouter(
 
 ERROR_RESPONSES = documented_error_responses(
     {
-        403: "Tenant access is not permitted, or the role is insufficient",
+        403: "Tenant access is not permitted, the role is insufficient, or a shared memory belongs to someone else",
         404: "Memory, session, or user was not found for this caller",
         422: "Invalid tenant, scope, or identifier",
         503: "Long-term memory is not configured",
@@ -125,10 +126,17 @@ async def delete_memory(  # noqa: PLR0913 - one parameter per documented query f
     project_id: ProjectQuery = None,
     session_id: SessionQuery = None,
 ) -> MemoryDeletionResponse:
-    """Forget one memory; ``404`` when it is not visible to this caller."""
+    """Forget one memory; ``404`` when it is not visible to this caller.
+
+    Shared (project, tenant, global) memories are deletable by their author
+    or by an ``editor`` and above; a reader gets ``403`` for anyone else's.
+    """
 
     authorize_tenant(principal, tenant)
-    access = _access(principal, tenant, project_id=project_id, session_id=session_id)
+    access = replace(
+        _access(principal, tenant, project_id=project_id, session_id=session_id),
+        may_delete_shared_memory=ROLE_ORDER[principal.role] >= ROLE_ORDER["editor"],
+    )
     result = await service.delete_memory(access, memory_id)
     return MemoryDeletionResponse.model_validate(result.data)
 

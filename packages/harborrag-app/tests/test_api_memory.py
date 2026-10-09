@@ -214,3 +214,106 @@ def test_a_foreign_tenant_is_refused(hmac_client: TestClient) -> None:
         response = method(path, params={"tenant": "OTHER"}, headers=headers)
         assert response.status_code == 403, path
         assert response.json()["error"]["message"] == "tenant access is not permitted"
+
+
+def _project_memory(memory_id: str, *, user_id: str, principal_id: str = "p2"):
+    return memory(
+        memory_id,
+        scope=MemoryScope.PROJECT,
+        project_id="proj-1",
+        user_id=user_id,
+        principal_id=principal_id,
+        content="the atlas project ships on fridays",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_reader_cannot_delete_a_shared_memory_someone_else_wrote(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    await service.memory_store.save(_project_memory("mem-proj", user_id="bob"))
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-proj",
+        params={"project_id": "proj-1"},
+        headers={"Authorization": f"Bearer {_token('reader')}"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert "mem-proj" in service.memory_store.rows
+    assert service.memory_index.deleted == []
+
+
+@pytest.mark.asyncio
+async def test_a_shared_credential_does_not_make_a_colleague_the_author(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    """Review focus: same principal (p1), different signed end user."""
+    await service.memory_store.save(_project_memory("mem-proj", user_id="bob", principal_id="p1"))
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-proj",
+        params={"project_id": "proj-1"},
+        headers={"Authorization": f"Bearer {_token('reader', subject='p1')}"},
+    )
+
+    assert response.status_code == 403
+    assert "mem-proj" in service.memory_store.rows
+
+
+@pytest.mark.asyncio
+async def test_the_author_of_a_shared_memory_may_delete_it_as_a_reader(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    # _token's "oid" claim is "alice", and the hmac client maps it to user_id.
+    await service.memory_store.save(
+        _project_memory("mem-own-proj", user_id="alice", principal_id="p1")
+    )
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-own-proj",
+        params={"project_id": "proj-1"},
+        headers={"Authorization": f"Bearer {_token('reader')}"},
+    )
+
+    assert response.status_code == 200
+    assert "mem-own-proj" not in service.memory_store.rows
+    assert service.memory_index.deleted == ["mem-own-proj"]
+
+
+@pytest.mark.asyncio
+async def test_an_admin_may_delete_a_shared_memory_someone_else_wrote(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    await service.memory_store.save(_project_memory("mem-proj", user_id="bob"))
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-proj",
+        params={"project_id": "proj-1"},
+        headers={"Authorization": f"Bearer {_token('admin')}"},
+    )
+
+    assert response.status_code == 200
+    assert "mem-proj" not in service.memory_store.rows
+    assert service.memory_index.deleted == ["mem-proj"]
+
+
+@pytest.mark.asyncio
+async def test_a_reader_still_deletes_their_own_user_memory(
+    hmac_client: TestClient,
+    service: MockAppService,
+) -> None:
+    await service.memory_store.save(memory("mem-mine", user_id="alice", principal_id="p1"))
+
+    response = hmac_client.delete(
+        "/v1/memory/memories/mem-mine",
+        headers={"Authorization": f"Bearer {_token('reader')}"},
+    )
+
+    assert response.status_code == 200
+    assert "mem-mine" not in service.memory_store.rows

@@ -21,11 +21,15 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from harborrag_core.contracts.errors import HarborNotFoundError, HarborUnavailableError
+from harborrag_core.contracts.errors import (
+    HarborAuthError,
+    HarborNotFoundError,
+    HarborUnavailableError,
+)
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
-from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope
+from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope, modifiable_by
 
 from .erasure import SESSION_ERASURE, MemoryErasureJournal
 
@@ -118,13 +122,28 @@ class MemoryAdministrationService:
             MemoryQuery(owner=owner, scopes=scopes, limit=limit, include_invalid=True)
         )
 
-    async def delete_memory(self, owner: MemoryOwner, memory_id: str) -> None:
-        """Delete one memory the caller can see; 404 when they cannot see it."""
+    async def delete_memory(
+        self, owner: MemoryOwner, memory_id: str, *, may_delete_shared: bool = False
+    ) -> None:
+        """Delete one memory the caller may change; 404 when they cannot see it.
+
+        Seeing a memory is not owning it. USER/SESSION/RUN rows are visible
+        only to their own end user, so visibility settles those. A shared
+        PROJECT/TENANT/GLOBAL row is visible to everyone it is shared with,
+        so deleting it takes ``may_delete_shared`` (the editor role) or
+        having written it -- otherwise a 403, which discloses nothing the
+        caller could not already list.
+        """
 
         store = self._store()
         memory = await store.get(owner, memory_id)
         if memory is None:
             raise HarborNotFoundError("Memory was not found")
+        if not may_delete_shared and not modifiable_by(memory.scope, memory.owner, owner):
+            raise HarborAuthError(
+                "deleting a shared memory requires the editor role or authorship",
+                forbidden=True,
+            )
         await self._erasure.erase_memory(memory)
         logger.info(
             "Memory deleted tenant=%s actor=%s memory_id=%s scope=%s",
