@@ -145,7 +145,7 @@ services:
         policy_attached() {
           local info
           info="$$(mc admin user info harbor "$${MINIO_APP_ACCESS_KEY}" --json)"
-          [[ "$${info}" =~ \"policyName\":\"([^\"]*)\" ]] &&
+          [[ "$${info}" =~ \"policyName\":[[:space:]]*\"([^\"]*)\" ]] &&
             [[ ",$${BASH_REMATCH[1]}," == *,harborrag-app,* ]]
         }
         if ! policy_attached; then

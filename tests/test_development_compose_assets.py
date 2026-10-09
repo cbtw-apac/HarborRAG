@@ -330,7 +330,8 @@ def test_minio_init_provisions_a_least_privilege_application_key() -> None:
     assert init["entrypoint"] == ["/usr/bin/bash", "-ec"]
     # The access key defaults to the policy name, so a bare substring match on
     # the user info would always look attached: inspect policyName only.
-    assert '\\"policyName\\":\\"([^\\"]*)\\"' in script
+    # mc may indent its JSON, so allow whitespace after the colon.
+    assert '\\"policyName\\":[[:space:]]*\\"([^\\"]*)\\"' in script
     assert '*"harborrag-app"*' not in script
     # After attaching, the script re-reads the policy and fails loudly.
     attach = script.index("mc admin policy attach")
