@@ -84,12 +84,17 @@ once. It appends the missing datastore secrets to the existing
 A file that still holds the old `change-me` PostgreSQL password is refused
 rather than rotated, because PostgreSQL keeps the password its volume was
 initialised with. You have two options:
-- change the password inside PostgreSQL, then put the same value in the file:
+- change the password inside PostgreSQL, then put the same value in the file. Use the
+  interactive `\password` command so the value never appears in a process argument or
+  in shell history. Generate it first with `openssl rand -hex 32` and paste it at the
+  prompt:
 
   ```bash
   docker compose --env-file env/.env.database \
     --file deploy/compose/docker-compose.database.yml \
-    exec postgres psql -U postgres -c "ALTER USER postgres PASSWORD '<openssl rand -hex 32 output>'"
+    exec postgres psql -U postgres
+  # at the postgres=# prompt:
+  #   \password postgres
   ```
 
 - discard the local data with `scripts/deployment/dev.sh down --volumes`, then
