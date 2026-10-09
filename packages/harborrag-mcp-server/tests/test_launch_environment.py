@@ -153,9 +153,58 @@ def test_checkout_environment_never_hands_mcp_the_minio_root_credentials(
 
     assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "harborrag-app"
     assert environment["HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"] == "object-app-secret"
-    mapped = {key: value for key, value in environment.items() if key.startswith("HARBORRAG_")}
-    assert "object-root" not in mapped.values()
-    assert "object-root-secret" not in mapped.values()
+    assert "object-root" not in environment.values()
+    assert "object-root-secret" not in environment.values()
+
+
+def test_checkout_environment_drops_every_raw_checkout_only_secret(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    database = tmp_path / "env/.env.database"
+    database.write_text(
+        database.read_text(encoding="utf-8")
+        + "REDIS_PASSWORD=sentinel-redis\nHARBORRAG_SECRETS_ENCRYPTION_KEY=sentinel-fernet\n",
+        encoding="utf-8",
+    )
+    environment: dict[str, str] = {}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    for name in (
+        "MINIO_ROOT_USER",
+        "MINIO_ROOT_PASSWORD",
+        "MINIO_APP_SECRET_KEY",
+        "POSTGRES_PASSWORD",
+        "REDIS_PASSWORD",
+        "HARBORRAG_SECRETS_ENCRYPTION_KEY",
+    ):
+        assert name not in environment
+    for sentinel in ("object-root-secret", "sentinel-redis", "sentinel-fernet", "p@ss:/word"):
+        assert sentinel not in environment.values()
+    assert environment["HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"] == "object-app-secret"
+
+
+def test_explicitly_set_checkout_secret_names_are_kept(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    environment = {"REDIS_PASSWORD": "caller-set"}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["REDIS_PASSWORD"] == "caller-set"
+
+
+@pytest.mark.parametrize("check", [True, False])
+def test_missing_application_secret_key_is_reported_by_name(tmp_path: Path, check: bool) -> None:
+    _checkout(tmp_path)
+    database = tmp_path / "env/.env.database"
+    database.write_text(
+        database.read_text(encoding="utf-8").replace(
+            "MINIO_APP_SECRET_KEY=object-app-secret\n", ""
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="MINIO_APP_SECRET_KEY"):
+        load_launch_environment(checkout_root=tmp_path, environ={}, check=check)
 
 
 def test_checkout_environment_honours_a_custom_application_access_key(tmp_path: Path) -> None:

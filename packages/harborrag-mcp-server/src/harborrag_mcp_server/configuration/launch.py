@@ -18,6 +18,18 @@ from harborrag_runtime.config.checkout import (
 )
 
 
+# Checkout-only secrets the adapter reads to build mapped HARBORRAG_* values. The MCP
+# process must never inherit them raw (MinIO root, Postgres owner, Redis, encryption key).
+_CHECKOUT_ONLY_SECRETS = (
+    "MINIO_ROOT_USER",
+    "MINIO_ROOT_PASSWORD",
+    "MINIO_APP_SECRET_KEY",
+    "POSTGRES_PASSWORD",
+    "REDIS_PASSWORD",
+    "HARBORRAG_SECRETS_ENCRYPTION_KEY",
+)
+
+
 def _from_root(root: Path, value: str) -> Path:
     path = Path(value).expanduser()
     return path if path.is_absolute() else root / path
@@ -54,6 +66,13 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
     _set_default(
         environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get("MINIO_APP_SECRET_KEY")
     )
+    # A bare checkout may still run the catalog-only --check; a configured one must be complete.
+    configured = not check or not missing_control_db_values(environ)
+    if configured and not environ.get("HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"):
+        raise ValueError(
+            "Checkout object storage key is missing: MINIO_APP_SECRET_KEY "
+            "(run scripts/deployment/dev.sh bootstrap, then dev.sh data)"
+        )
     _set_default(
         environ,
         "HARBORRAG_QDRANT_URL",
@@ -77,6 +96,13 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
     ):
         if value := environ.get(name):
             environ[name] = str(_from_root(root, value))
+
+
+def _drop_checkout_only_secrets(pending: MutableMapping[str, str], protected: set[str]) -> None:
+    """Remove raw checkout secrets unless the caller set them explicitly."""
+    for name in _CHECKOUT_ONLY_SECRETS:
+        if name not in protected:
+            pending.pop(name, None)
 
 
 def load_launch_environment(
@@ -110,4 +136,5 @@ def load_launch_environment(
                 pending[name] = value
     if root is not None:
         _checkout_defaults(root, pending, check=check)
+        _drop_checkout_only_secrets(pending, protected)
     target.update(pending)
