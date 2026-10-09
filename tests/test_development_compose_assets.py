@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -184,3 +187,38 @@ def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
 
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${" not in mcp
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?" in api
+
+
+INSECURE_REMOTE_FLAG = re.compile(
+    r"^\s+(HARBORRAG_\w+_ALLOW_INSECURE_REMOTE):\s*(.+)$", re.MULTILINE
+)
+
+
+@pytest.mark.parametrize(
+    ("compose_name", "expected"),
+    [
+        (
+            "docker-compose.yml",
+            {"TEMPORAL", "API_CAPACITY", "OBJECT_STORE", "QDRANT", "FALKORDB"},
+        ),
+        (
+            "docker-compose.temporal.yml",
+            {"TEMPORAL", "OBJECT_STORE", "QDRANT", "REDIS", "FALKORDB"},
+        ),
+    ],
+)
+def test_insecure_remote_acknowledgements_are_operator_overridable(
+    compose_name: str, expected: set[str]
+) -> None:
+    # The in-network Compose hostnames are plaintext, so the default stays
+    # true; an operator pointing a URL at a TLS endpoint must be able to turn
+    # the acknowledgement off without editing the Compose file.
+    compose = (ROOT / "deploy/compose" / compose_name).read_text(encoding="utf-8")
+    flags = INSECURE_REMOTE_FLAG.findall(compose)
+    services = {
+        name.removeprefix("HARBORRAG_").removesuffix("_ALLOW_INSECURE_REMOTE") for name, _ in flags
+    }
+
+    assert services == expected
+    for name, value in flags:
+        assert value == f'"${{{name}:-true}}"', name

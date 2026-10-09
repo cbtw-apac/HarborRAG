@@ -167,6 +167,14 @@ policy, rather than duplicated development and production Compose files,
 controls the API mode. Production deployments must supply authentication and
 their own secret/TLS/network policy.
 
+Every `HARBORRAG_*_ALLOW_INSECURE_REMOTE` acknowledgement in the API and worker
+Compose files defaults to `true`, because the defaults address plaintext Compose
+service names (`temporal`, `redis`, `minio`, `qdrant`, `falkordb`) on the
+private `harborrag-data-network`. Each one is an ordinary interpolation. When
+you point a URL or host at a TLS endpoint, set the matching variable to `false`
+in the environment file passed to Compose, and the adapter then refuses
+plaintext instead of silently accepting it.
+
 ## CLI and MCP images
 
 Build the standalone operator images from the repository root:
