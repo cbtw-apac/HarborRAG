@@ -13,6 +13,7 @@ from harborrag_core.ports.memory import (
     visible_to,
 )
 
+from ..context.summarizer import delete_session_summaries
 from ..errors import MemoryScopeError
 
 
@@ -43,6 +44,11 @@ class LongTermMemory:
 
     async def forget(self, caller: MemoryOwner, memory_id: str) -> None:
         await self.delete(caller, memory_id)
+
+    async def forget_session_summaries(self, caller: MemoryOwner) -> int:
+        """Delete the rolling summaries of ``caller``'s session (legacy ids included)."""
+
+        return await delete_session_summaries(self._repository, caller)
 
 
 def _authorize_write(caller: MemoryOwner, memory: Memory) -> None:

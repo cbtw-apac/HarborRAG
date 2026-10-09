@@ -291,11 +291,14 @@ class MemoryContextBuilder:
                 return unchanged
             record = SummaryRecord(
                 # Session ownership excludes credential/project context. Keep
-                # the original provenance when refreshing the existing row.
+                # the original provenance -- and the original row id, so a
+                # legacy ``summary:{session}`` row is refreshed in place --
+                # when refreshing the existing row.
                 owner=stored.owner if stored is not None else recall_owner(owner),
                 summary=summary,
                 covered=covered,
                 now=self._clock(),
+                memory_id=stored.memory_id if stored is not None else None,
             ).to_memory()
             await self._memories.save(record)
         except Exception:

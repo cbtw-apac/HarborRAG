@@ -8,7 +8,9 @@ from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import BaseMessage
 
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessageStore
+from harborrag_core.ports.memory import MemoryOwner, MemoryRepository
 
+from ..context.summarizer import delete_session_summaries
 from .converters import Clock, from_langchain_messages, to_langchain_messages, utc_now
 
 _SYNC_UNSUPPORTED = (
@@ -23,9 +25,10 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
     The history is scoped by an authenticated ``ConversationIdentity``; build it
     from request context, never from user-supplied fields. Reads return the last
     ``recent_limit`` messages oldest-first, and writes append in call order.
+    Pass ``memories`` so ``aclear`` also deletes the session's rolling summary.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - one keyword-only collaborator per optional port
         self,
         store: ConversationMessageStore,
         identity: ConversationIdentity,
@@ -33,6 +36,7 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         recent_limit: int = 50,
         run_id: str | None = None,
         clock: Clock = utc_now,
+        memories: MemoryRepository | None = None,
     ) -> None:
         if recent_limit < 1:
             raise ValueError("recent_limit must be at least 1")
@@ -41,6 +45,7 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         self._recent_limit = recent_limit
         self._run_id = run_id
         self._clock = clock
+        self._memories = memories
 
     @property
     def identity(self) -> ConversationIdentity:
@@ -73,9 +78,19 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         raise NotImplementedError(_SYNC_UNSUPPORTED)
 
     async def aclear(self) -> None:
-        """Delete every message of the session."""
+        """Delete every message of the session, and its rolling summaries when wired."""
 
         await self._store.clear_messages(self._identity)
+        if self._memories is not None:
+            await delete_session_summaries(
+                self._memories,
+                MemoryOwner(
+                    tenant_id=self._identity.tenant_id,
+                    user_id=self._identity.user_id,
+                    principal_id=self._identity.principal_id or None,
+                    session_id=self._identity.session_id,
+                ),
+            )
 
 
 __all__ = ["HarborChatMessageHistory"]

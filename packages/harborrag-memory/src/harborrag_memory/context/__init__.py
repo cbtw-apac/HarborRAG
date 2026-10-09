@@ -48,7 +48,7 @@ from .ranking import (
 from .recall import RECALL_MEMORY_TYPES, MemoryRecall
 from .result import MemoryContext
 from .scoping import scope_query_owner
-from .summarizer import LAST_COVERED_KEY, summary_memory_id
+from .summarizer import LAST_COVERED_KEY, delete_session_summaries, summary_memory_id
 from .tokens import approximate_tokens
 from .trimming import TokenCounter, total_tokens, trim_window
 

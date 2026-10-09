@@ -14,7 +14,7 @@ from context_test_fakes import (
 
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_memory import MemoryContextBuilder, MemoryOwner, MemoryPolicy
-from harborrag_memory.context.summarizer import LAST_COVERED_KEY, SummaryRecord
+from harborrag_memory.context.summarizer import LAST_COVERED_KEY, SummaryRecord, summary_memory_id
 
 pytestmark = [pytest.mark.unit]
 
@@ -128,9 +128,9 @@ async def test_summary_triggers_past_the_threshold_and_shrinks_the_window(
     assert context.messages == (rows[4], rows[5])
 
     assert len(memories.saved) == 1
-    assert list(memories.rows) == ["summary:s-1"]
+    assert list(memories.rows) == [summary_memory_id(owner)]
     saved = memories.saved[0]
-    assert saved.memory_id == "summary:s-1"
+    assert saved.memory_id == summary_memory_id(owner)
     assert saved.scope.value == "session"
     assert saved.memory_type.value == "summary"
     assert saved.source_session_id == "s-1"
@@ -168,9 +168,9 @@ async def test_second_trigger_folds_the_prior_summary_into_a_replacement(
     assert second.summary_written is True
     assert "first summary text" in model.prompts[1]
     assert len(memories.saved) == 2
-    assert list(memories.rows) == ["summary:s-1"]
-    assert memories.rows["summary:s-1"].content == "second summary text"
-    assert memories.rows["summary:s-1"].source_message_ids == tuple(
+    assert list(memories.rows) == [summary_memory_id(owner)]
+    assert memories.rows[summary_memory_id(owner)].content == "second summary text"
+    assert memories.rows[summary_memory_id(owner)].source_message_ids == tuple(
         message.message_id for message in rows[4:]
     )
 
@@ -311,4 +311,71 @@ async def test_a_summary_round_trips_for_an_owner_without_a_user_id(
     assert len(model.prompts) == 1
     assert second.summary == "first summary"
     assert second.summary_written is False
-    assert await memories.get(memories.saved[-1].owner, "summary:s-1") is not None
+    assert (
+        await memories.get(memories.saved[-1].owner, summary_memory_id(memories.saved[-1].owner))
+        is not None
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_legacy_summary_row_is_refreshed_in_place(
+    store: MessageStoreFake,
+    memories: MemoryRepositoryFake,
+    owner: MemoryOwner,
+    identity: ConversationIdentity,
+) -> None:
+    """Review focus: an owner's pre-existing ``summary:{session}`` row is reused, not duplicated."""
+    from datetime import timedelta
+
+    from context_test_fakes import memory_row
+
+    from harborrag_core.ports.memory import MemoryScope, MemoryType
+
+    rows = conversation(6, tokens=20)
+    await store.append_messages(identity, rows)
+    legacy = memory_row(
+        "old summary",
+        scope=MemoryScope.SESSION,
+        owner=owner,
+        memory_type=MemoryType.SUMMARY,
+        memory_id="summary:s-1",
+        updated_at=NOW - timedelta(hours=1),
+        metadata={LAST_COVERED_KEY: rows[1].message_id},
+    )
+    memories.rows[legacy.memory_id] = legacy
+    policy = MemoryPolicy(
+        recent_max_messages=10, recent_max_tokens=100, summary_keep_messages=2, query_rewrite=False
+    )
+
+    context = await builder(
+        policy=policy, store=store, memories=memories, model=chat_model("refreshed summary")
+    ).build(owner, "what now?")
+
+    assert context.summary_written is True
+    assert list(memories.rows) == ["summary:s-1"]
+    assert memories.rows["summary:s-1"].content == "refreshed summary"
+
+
+@pytest.mark.asyncio
+async def test_two_tenants_sharing_a_session_id_keep_separate_summaries(
+    store: MessageStoreFake,
+    memories: MemoryRepositoryFake,
+    owner: MemoryOwner,
+    identity: ConversationIdentity,
+) -> None:
+    other = replace(owner, tenant_id="tenant-2")
+    other_identity = replace(identity, tenant_id="tenant-2")
+    await store.append_messages(identity, conversation(6, tokens=20))
+    await store.append_messages(other_identity, conversation(6, tokens=20))
+    policy = MemoryPolicy(
+        recent_max_messages=10, recent_max_tokens=100, summary_keep_messages=2, query_rewrite=False
+    )
+
+    await builder(policy=policy, store=store, memories=memories, model=chat_model("a")).build(
+        owner, "q"
+    )
+    await builder(policy=policy, store=store, memories=memories, model=chat_model("b")).build(
+        other, "q"
+    )
+
+    assert set(memories.rows) == {summary_memory_id(owner), summary_memory_id(other)}

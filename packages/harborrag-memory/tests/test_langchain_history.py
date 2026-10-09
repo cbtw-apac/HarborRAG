@@ -197,3 +197,49 @@ def test_unsupported_message_types_are_rejected() -> None:
     with pytest.raises(TypeError, match="unsupported LangChain message type"):
         from_langchain_message(FunctionMessage(content="x", name="f"))
     assert to_langchain_messages([row("system", "s")])[0].text == "s"
+
+
+@pytest.mark.asyncio
+async def test_aclear_also_deletes_the_sessions_summary_memory(store, identity) -> None:
+    from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope, MemoryType
+    from harborrag_memory.context.summarizer import summary_memory_id
+
+    class _Memories:
+        def __init__(self) -> None:
+            self.rows: dict[str, Memory] = {}
+
+        async def search(self, query):
+            return tuple(
+                row
+                for row in self.rows.values()
+                if row.scope in query.scopes
+                and row.memory_type in query.memory_types
+                and row.owner.session_id == query.owner.session_id
+                and row.owner.user_id == query.owner.user_id
+            )
+
+        async def delete(self, caller, memory_id):
+            del caller
+            self.rows.pop(memory_id, None)
+
+    owner = MemoryOwner(
+        tenant_id=identity.tenant_id,
+        user_id=identity.user_id,
+        principal_id=identity.principal_id,
+        session_id=identity.session_id,
+    )
+    memories = _Memories()
+    memories.rows[summary_memory_id(owner)] = Memory(
+        memory_id=summary_memory_id(owner),
+        scope=MemoryScope.SESSION,
+        memory_type=MemoryType.SUMMARY,
+        owner=owner,
+        content="summary",
+    )
+    history = HarborChatMessageHistory(store, identity, memories=memories)
+    await history.aadd_messages([HumanMessage(content="hello")])
+
+    await history.aclear()
+
+    assert await history.aget_messages() == []
+    assert memories.rows == {}

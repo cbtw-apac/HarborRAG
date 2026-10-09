@@ -59,7 +59,15 @@ class MemoryManager:
         await self._require_short_term().append(owner, turn)
 
     async def clear(self, owner: MemoryOwner) -> None:
+        """Clear the session's messages and, when configured, its rolling summaries.
+
+        A session summary is derived from the messages being cleared, so
+        leaving it behind would keep the "forgotten" conversation readable.
+        """
+
         await self._require_short_term().clear(owner)
+        if self._long_term is not None:
+            await self._long_term.forget_session_summaries(owner)
 
     async def scratch(self, owner: MemoryOwner) -> dict[str, Any]:
         return await self._require_working().scratch(owner)

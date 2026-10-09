@@ -68,6 +68,8 @@ class MemoryRepositoryFake:
             memory
             for memory in self.values.values()
             if visible_to(memory.scope, memory.owner, query.owner)
+            and (not query.scopes or memory.scope in query.scopes)
+            and (not query.memory_types or memory.memory_type in query.memory_types)
         )[: query.limit]
 
     async def delete(self, caller: MemoryOwner, memory_id: str) -> None:
@@ -275,3 +277,39 @@ async def test_manager_rejects_missing_tiers_and_mismatched_snapshot_owner(
     other = MemoryOwner(tenant_id="tenant-b", principal_id="other")
     with pytest.raises(MemoryScopeError, match="snapshot query owner"):
         await manager.snapshot(owner, query=MemoryQuery(owner=other))
+
+
+@pytest.mark.asyncio
+async def test_clearing_a_session_also_deletes_its_rolling_summaries(owner: MemoryOwner) -> None:
+    from harborrag_memory.context.summarizer import summary_memory_id
+
+    repository = MemoryRepositoryFake()
+    session_owner = MemoryOwner(
+        tenant_id=owner.tenant_id,
+        user_id=owner.user_id,
+        principal_id=owner.principal_id,
+        session_id=owner.session_id,
+    )
+    for memory_id in (summary_memory_id(session_owner), "summary:session-1"):  # current + legacy id
+        repository.values[memory_id] = Memory(
+            memory_id=memory_id,
+            scope=MemoryScope.SESSION,
+            memory_type=MemoryType.SUMMARY,
+            owner=session_owner,
+            content="rolling summary",
+        )
+    fact = Memory(
+        memory_id="fact-1",
+        scope=MemoryScope.SESSION,
+        memory_type=MemoryType.FACT,
+        owner=session_owner,
+        content="a session fact",
+    )
+    repository.values[fact.memory_id] = fact
+    manager = MemoryManager(
+        ShortTermMemory(ConversationRepositoryFake()), long_term=LongTermMemory(repository)
+    )
+
+    await manager.clear(session_owner)
+
+    assert list(repository.values) == ["fact-1"]

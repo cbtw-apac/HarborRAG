@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from harborrag_core.ports.memory import MemoryOwner
 from harborrag_memory import MemoryPolicy, approximate_tokens
 from harborrag_memory.context import DEFAULT_RECALL_SCOPES, summary_memory_id
 from harborrag_memory.context.condenser import sanitize_query
@@ -77,9 +80,21 @@ def test_approximate_tokens_matches_the_runtime_estimator() -> None:
     assert approximate_tokens("abcd漢") == 2
 
 
-def test_summary_memory_id_is_deterministic_per_session() -> None:
-    assert summary_memory_id("s-1") == summary_memory_id("s-1") == "summary:s-1"
-    assert summary_memory_id("s-2") != summary_memory_id("s-1")
+def test_summary_memory_id_is_scoped_by_tenant_user_and_session() -> None:
+    owner = MemoryOwner(tenant_id="t-1", user_id="u-1", session_id="s-1")
+    identifier = summary_memory_id(owner)
+
+    assert identifier == summary_memory_id(owner)
+    assert identifier.startswith("summary:")
+    assert len(identifier) == len("summary:") + 64
+    assert identifier != summary_memory_id(replace(owner, tenant_id="t-2"))
+    assert identifier != summary_memory_id(replace(owner, user_id="u-2"))
+    assert identifier != summary_memory_id(replace(owner, session_id="s-2"))
+    # A principal-only owner resolves user_id from the principal, as recall does.
+    assert (
+        summary_memory_id(MemoryOwner(tenant_id="t-1", principal_id="u-1", session_id="s-1"))
+        == identifier
+    )
 
 
 @pytest.mark.parametrize(
