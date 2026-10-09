@@ -19,7 +19,7 @@ services:
       # Each *_ALLOW_INSECURE_REMOTE below defaults to true only because the
       # defaults point at plaintext Compose service names on the private
       # harborrag-data-network. Set the variable to false when you point the
-      # matching URL or host at a TLS endpoint. The Redis and object-store
+      # matching URL or host at a TLS endpoint. All of these
       # acknowledgements are honoured only when HARBORRAG_ENV=dev.
       HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE: "${HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE:-true}"
       HARBORRAG_TEMPORAL_NAMESPACE: ${HARBORRAG_TEMPORAL_NAMESPACE:-harborrag}

@@ -109,3 +109,21 @@ def test_falkordb_password_rides_the_explicit_plaintext_acknowledgement() -> Non
     assert FalkorDBGraphConfig(host="falkordb", password=password, allow_insecure_remote=True)
     assert FalkorDBGraphConfig(host="falkordb.example.com", password=password, ssl=True)
     assert FalkorDBGraphConfig(host="127.0.0.1", password=password)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://evil.example.com\\@127.0.0.1:6333",
+        "https://user:secret@qdrant.example.com",
+        "https://user@qdrant.example.com",
+        "https://qdrant.example.com?token=secret",
+        "https://qdrant.example.com#fragment",
+    ],
+)
+def test_qdrant_rejects_ambiguous_or_secret_bearing_urls(url: str) -> None:
+    with pytest.raises(ValidationError, match="Qdrant url must not contain") as raised:
+        QdrantVectorConfig(url=url)
+    message = raised.value.errors()[0]["msg"]
+    assert "secret" not in message
+    assert "evil" not in message

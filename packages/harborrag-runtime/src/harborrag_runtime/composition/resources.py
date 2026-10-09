@@ -110,7 +110,9 @@ def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
             access_key_id=settings.object_store_access_key_id,
             secret_access_key=settings.object_store_secret_access_key,
             session_token=settings.object_store_session_token,
-            allow_insecure_remote=settings.object_store_allow_insecure_remote,
+            allow_insecure_remote=settings.insecure_remote_allowed(
+                settings.object_store_allow_insecure_remote
+            ),
             namespace_prefix=settings.storage_namespace_prefix,
         )
     )
@@ -130,7 +132,9 @@ def build_vector_repository(
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
             namespace_prefix=settings.storage_namespace_prefix,
-            allow_insecure_remote=settings.qdrant_allow_insecure_remote,
+            allow_insecure_remote=settings.insecure_remote_allowed(
+                settings.qdrant_allow_insecure_remote
+            ),
         )
     )
 
@@ -164,7 +168,9 @@ def build_graph_config(settings: RuntimeSettings) -> FalkorDBGraphConfig:
         graph_name=settings.falkordb_graph,
         ssl=settings.falkordb_ssl,
         max_connections=settings.falkordb_max_connections,
-        allow_insecure_remote=settings.falkordb_allow_insecure_remote,
+        allow_insecure_remote=settings.insecure_remote_allowed(
+            settings.falkordb_allow_insecure_remote
+        ),
         tenant_isolation=True,
         namespace_prefix=settings.storage_namespace_prefix,
         max_cached_tenants=settings.falkordb_max_cached_tenants,

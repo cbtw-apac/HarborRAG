@@ -240,12 +240,13 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         # for any non-SQLite database). Reader-only processes such as the MCP
         # server share these settings but never decrypt a stored secret, and
         # demanding the key here handed it to a container that has no use for it.
-        development = self.env == "dev"
         if self.redis_url is not None:
             try:
                 _REDIS_TRANSPORT.validate(
                     self.redis_url.get_secret_value(),
-                    allow_insecure_remote=(development and self.redis_allow_insecure_remote),
+                    allow_insecure_remote=self.insecure_remote_allowed(
+                        self.redis_allow_insecure_remote
+                    ),
                 )
             except ValueError as exc:
                 raise ValueError(f"HARBORRAG_REDIS_URL: {exc}") from exc
@@ -253,11 +254,18 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             try:
                 _OBJECT_STORE_TRANSPORT.validate(
                     self.object_store_endpoint_url,
-                    allow_insecure_remote=(development and self.object_store_allow_insecure_remote),
+                    allow_insecure_remote=self.insecure_remote_allowed(
+                        self.object_store_allow_insecure_remote
+                    ),
                 )
             except ValueError as exc:
                 raise ValueError(f"HARBORRAG_OBJECT_STORE_ENDPOINT_URL: {exc}") from exc
         return self
+
+    def insecure_remote_allowed(self, acknowledged: bool) -> bool:
+        """Honour a plaintext-remote acknowledgement only when ``env`` is ``dev``."""
+
+        return self.env == "dev" and acknowledged
 
 
 _DEFAULT_CONTROL_DB_SECRET = RuntimeSettings.model_fields["control_db_url"].default

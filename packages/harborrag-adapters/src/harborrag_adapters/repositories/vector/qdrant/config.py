@@ -38,6 +38,19 @@ class QdrantVectorConfig(RepositoryConfig):
             parsed = urlsplit(self.url)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
                 raise ValueError("remote Qdrant url must be an absolute HTTP(S) URL")
+            # urlsplit and qdrant-client's urllib3 parser disagree on these, so
+            # refuse them rather than validate a different host than is dialled.
+            if (
+                parsed.username
+                or parsed.password
+                or "@" in parsed.netloc
+                or "\\" in self.url
+                or parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError(
+                    "Qdrant url must not contain credentials, backslashes, query, or fragment data"
+                )
             if (
                 parsed.scheme != "https"
                 and not _is_loopback(parsed.hostname)

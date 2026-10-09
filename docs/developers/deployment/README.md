@@ -201,7 +201,9 @@ service names (`temporal`, `redis`, `minio`, `qdrant`, `falkordb`) on the
 private `harborrag-data-network`. Each one is an ordinary interpolation. When
 you point a URL or host at a TLS endpoint, set the matching variable to `false`
 in the environment file passed to Compose, and the adapter then refuses
-plaintext instead of silently accepting it.
+plaintext instead of silently accepting it. The runtime honours every one of
+these acknowledgements only when `HARBORRAG_ENV=dev`; with `HARBORRAG_ENV=prod`
+plaintext non-loopback endpoints are refused regardless of the flag.
 
 ## CLI and MCP images
 

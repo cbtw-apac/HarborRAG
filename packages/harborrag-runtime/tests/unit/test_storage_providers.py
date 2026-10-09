@@ -122,6 +122,35 @@ def test_compose_network_credentials_build_valid_store_configurations(
     assert graph.password.get_secret_value() == "f" * 64
 
 
+@pytest.mark.parametrize("env", ["prod"])
+def test_insecure_remote_acknowledgements_are_ignored_outside_development(
+    registry: StorageProviderRegistry,
+    monkeypatch: pytest.MonkeyPatch,
+    env: str,
+) -> None:
+    monkeypatch.setattr(resources.HarborVectorDBClient, "default", lambda: Mock())
+    settings = RuntimeSettings.model_construct(
+        env=env,
+        object_store_provider="s3",
+        object_store_endpoint_url="http://minio:9000",
+        object_store_allow_insecure_remote=True,
+        vector_provider="qdrant",
+        qdrant_url="http://qdrant:6333",
+        qdrant_api_key=SecretStr("q" * 64),
+        qdrant_allow_insecure_remote=True,
+        falkordb_host="falkordb",
+        falkordb_password=SecretStr("f" * 64),
+        falkordb_allow_insecure_remote=True,
+    )
+
+    with pytest.raises(ValueError, match="requires an encrypted transport"):
+        resources.build_object_store(settings)
+    with pytest.raises(ValueError, match="remote Qdrant requires HTTPS"):
+        resources.build_vector_repository(settings)
+    with pytest.raises(ValueError, match="remote FalkorDB requires SSL"):
+        resources.build_graph_config(settings)
+
+
 @pytest.mark.parametrize("family", ["object", "vector", "graph"])
 def test_ambiguous_registration_is_rejected_and_same_factory_is_idempotent(
     registry: StorageProviderRegistry,

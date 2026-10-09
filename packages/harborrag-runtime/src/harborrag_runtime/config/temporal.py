@@ -283,9 +283,11 @@ class TemporalRuntimeConfig:
             )
             if "temporal_tls" in explicit_fields
             else connection.tls,
-            allow_insecure_remote=settings.temporal_allow_insecure_remote
-            if "temporal_allow_insecure_remote" in explicit_fields
-            else connection.allow_insecure_remote,
+            allow_insecure_remote=settings.insecure_remote_allowed(
+                settings.temporal_allow_insecure_remote
+                if "temporal_allow_insecure_remote" in explicit_fields
+                else connection.allow_insecure_remote
+            ),
         )
         selected_worker = replace(
             worker,

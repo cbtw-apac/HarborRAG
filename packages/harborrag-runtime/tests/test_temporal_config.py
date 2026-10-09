@@ -355,3 +355,23 @@ def test_temporal_timeouts_section_rejects_unknown_keys(tmp_path: Path) -> None:
 
     with pytest.raises(TemporalConfigurationError, match="unknown field"):
         load_temporal_config(config_path)
+
+
+@pytest.mark.parametrize("env", ["dev", "prod"])
+def test_temporal_insecure_remote_acknowledgement_is_honoured_only_in_development(
+    env: str,
+) -> None:
+    settings = RuntimeSettings.model_validate(
+        {
+            "env": env,
+            "control_db_url": "postgresql+asyncpg://user-a:pw@db.example.com/harborrag",
+            "temporal_target": "temporal:7233",
+            "temporal_allow_insecure_remote": True,
+        }
+    )
+
+    if env == "dev":
+        assert TemporalRuntimeConfig.from_settings(settings).connection.allow_insecure_remote
+    else:
+        with pytest.raises(ValueError, match="remote Temporal requires TLS"):
+            TemporalRuntimeConfig.from_settings(settings)
