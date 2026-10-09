@@ -83,6 +83,7 @@ def test_development_entrypoint_supports_documented_argument_forms(
         "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n"
         "POSTGRES_PASSWORD=test-postgres-password\n"
         "MINIO_ROOT_PASSWORD=test-minio-password\n"
+        "MINIO_APP_SECRET_KEY=test-minio-app-secret\n"
         "QDRANT_API_KEY=test-qdrant-api-key\n"
         "REDIS_PASSWORD=test-redis-password\n"
         "FALKORDB_PASSWORD=test-falkordb-password\n",
@@ -403,6 +404,7 @@ def test_database_example_leaves_generated_secrets_empty() -> None:
     for name in (
         "POSTGRES_PASSWORD",
         "MINIO_ROOT_PASSWORD",
+        "MINIO_APP_SECRET_KEY",
         "QDRANT_API_KEY",
         "REDIS_PASSWORD",
         "FALKORDB_PASSWORD",

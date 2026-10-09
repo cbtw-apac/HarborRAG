@@ -365,8 +365,8 @@ for name in database temporal connector parser models api mcp; do
 done
 chmod 600 env/.env.*
 # HARBORRAG_SECRETS_ENCRYPTION_KEY, POSTGRES_PASSWORD, MINIO_ROOT_PASSWORD,
-# QDRANT_API_KEY, REDIS_PASSWORD, and FALKORDB_PASSWORD in env/.env.database, and
-# HARBORRAG_AUTH_SECRET in env/.env.api,
+# MINIO_APP_SECRET_KEY, QDRANT_API_KEY, REDIS_PASSWORD, and FALKORDB_PASSWORD in
+# env/.env.database, and HARBORRAG_AUTH_SECRET in env/.env.api,
 # HARBORRAG_MCP_BEARER_TOKEN in env/.env.mcp (at least 32 bytes), each want:
 openssl rand -hex 32
 ```

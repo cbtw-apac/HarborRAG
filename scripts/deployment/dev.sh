@@ -20,6 +20,7 @@ WORKER_DEVICE="cpu"
 DATABASE_GENERATED_SECRETS=(
     POSTGRES_PASSWORD
     MINIO_ROOT_PASSWORD
+    MINIO_APP_SECRET_KEY
     QDRANT_API_KEY
     REDIS_PASSWORD
     FALKORDB_PASSWORD
@@ -34,8 +35,8 @@ DOWN_REQUIRED_VARIABLES=(
     MINIO_ROOT_USER
     HARBORRAG_SECRETS_ENCRYPTION_KEY
 )
-# Compose embeds these in connection URLs without escaping.
-URL_EMBEDDED_SECRETS=(POSTGRES_PASSWORD REDIS_PASSWORD)
+# Compose embeds these in connection URLs without escaping (MINIO_ROOT_PASSWORD in minio-init's MC_HOST_harbor).
+URL_EMBEDDED_SECRETS=(POSTGRES_PASSWORD REDIS_PASSWORD MINIO_ROOT_PASSWORD)
 
 usage() {
     cat <<'EOF'
@@ -417,7 +418,11 @@ start_data() {
     require_database_secrets
     echo "Starting HarborRAG data services..."
     data_compose config --quiet
-    data_compose up --detach
+    data_compose up --detach --scale minio-init=0
+    # Compose cannot order services across projects, so the API and worker
+    # cannot wait for this one-shot themselves: run it to completion here.
+    echo "Provisioning the MinIO buckets and least-privilege application key..."
+    data_compose run --rm minio-init
 }
 
 start_temporal() {

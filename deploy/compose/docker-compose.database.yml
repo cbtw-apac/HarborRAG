@@ -117,6 +117,41 @@ services:
     networks:
       - harborrag-data-network
 
+  # One-shot: create the HarborRAG buckets and a least-privilege application key
+  # (policy deploy/minio/harborrag-app-policy.json), so the API, worker and MCP
+  # server never hold the MinIO root credentials. scripts/deployment/dev.sh runs
+  # it to completion after the data stack starts; rerunning it is safe.
+  minio-init:
+    image: cgr.dev/chainguard/minio:latest@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/usr/bin/bash", "-ec"]
+    environment:
+      # mc keeps its configuration under HOME; the image runs as uid 65532.
+      HOME: /tmp
+      # mc reads the admin alias from MC_HOST_<alias>, which keeps the root
+      # password out of every process argument list.
+      MC_HOST_harbor: http://${MINIO_ROOT_USER:-harborrag}:${MINIO_ROOT_PASSWORD:?set MINIO_ROOT_PASSWORD in the database environment file}@minio:9000
+      MINIO_APP_ACCESS_KEY: ${MINIO_APP_ACCESS_KEY:-harborrag-app}
+      MINIO_APP_SECRET_KEY: ${MINIO_APP_SECRET_KEY:?set MINIO_APP_SECRET_KEY in the database environment file}
+    command:
+      - |
+        mc mb --ignore-existing harbor/harborrag-raw harbor/harborrag-artifacts
+        mc admin policy create harbor harborrag-app /etc/harborrag/minio-app-policy.json
+        # printf is a bash builtin: the secret reaches mc on stdin, never argv.
+        printf '%s\n' "$${MINIO_APP_SECRET_KEY}" | mc admin user add harbor "$${MINIO_APP_ACCESS_KEY}"
+        user_info="$$(mc admin user info harbor "$${MINIO_APP_ACCESS_KEY}" --json)"
+        if [[ "$${user_info}" != *'"harborrag-app"'* ]]; then
+          mc admin policy attach harbor harborrag-app --user "$${MINIO_APP_ACCESS_KEY}"
+        fi
+        echo "MinIO buckets and the HarborRAG application key are ready."
+    volumes:
+      - ../minio/harborrag-app-policy.json:/etc/harborrag/minio-app-policy.json:ro
+    networks:
+      - harborrag-data-network
+    restart: "no"
+
 networks:
   harborrag-data-network:
     name: harborrag-data-network

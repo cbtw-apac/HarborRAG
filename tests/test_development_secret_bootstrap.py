@@ -16,6 +16,7 @@ DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 DATABASE_SECRETS = (
     "POSTGRES_PASSWORD",
     "MINIO_ROOT_PASSWORD",
+    "MINIO_APP_SECRET_KEY",
     "QDRANT_API_KEY",
     "REDIS_PASSWORD",
     "FALKORDB_PASSWORD",
@@ -226,7 +227,7 @@ def test_launchers_refuse_placeholder_secrets_without_calling_docker(
 
 
 @requires_openssl
-@pytest.mark.parametrize("name", ["POSTGRES_PASSWORD", "REDIS_PASSWORD"])
+@pytest.mark.parametrize("name", ["POSTGRES_PASSWORD", "REDIS_PASSWORD", "MINIO_ROOT_PASSWORD"])
 @pytest.mark.parametrize(
     "value",
     ["p@ss", "p/ss", "p:ss", "p#ss", "p%ss", "p ss", "p$ss", "p'ss", "p\\ss", "p&ss", "p+ss"],
@@ -589,3 +590,45 @@ def test_api_refuses_no_auth_on_a_non_loopback_bind(tmp_path: Path, bind: str) -
 
     assert result.returncode == 2
     assert "loopback" in result.stderr
+
+
+@requires_openssl
+def test_data_provisions_the_minio_application_key_after_the_stack_starts(
+    tmp_path: Path,
+) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+
+    result = _run(script, env, "data")
+
+    assert result.returncode == 0, result.stderr
+    calls = docker_log.read_text(encoding="utf-8").splitlines()
+    started = next(
+        index
+        for index, call in enumerate(calls)
+        if "docker-compose.database.yml up --detach --scale minio-init=0" in call
+    )
+    provisioned = next(
+        index
+        for index, call in enumerate(calls)
+        if "docker-compose.database.yml run --rm minio-init" in call
+    )
+    assert started < provisioned
+
+
+@requires_openssl
+def test_bootstrap_appends_the_minio_application_secret_to_an_older_file(
+    tmp_path: Path,
+) -> None:
+    script, _, env = _project(tmp_path)
+    environment = script.parents[2] / "env"
+    environment.mkdir()
+    database = environment / ".env.database"
+    # Written before this key existed, with no trailing newline.
+    database.write_text("MINIO_ROOT_PASSWORD=kept-minio-value", encoding="utf-8")
+
+    result = _run(script, env, "bootstrap")
+
+    assert result.returncode == 0, result.stderr
+    values = _values(database)
+    assert values["MINIO_ROOT_PASSWORD"] == "kept-minio-value"
+    assert HEX_SECRET.match(values["MINIO_APP_SECRET_KEY"])

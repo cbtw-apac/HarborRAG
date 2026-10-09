@@ -55,7 +55,7 @@ scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 060
 checkout environment files and mints the local MCP bearer token. It also fills
 every empty datastore secret in `env/.env.database` with
 `openssl rand -hex 32`: `POSTGRES_PASSWORD`, `MINIO_ROOT_PASSWORD`,
-`QDRANT_API_KEY`, `REDIS_PASSWORD` and `FALKORDB_PASSWORD`. It never replaces a
+`MINIO_APP_SECRET_KEY`, `QDRANT_API_KEY`, `REDIS_PASSWORD` and `FALKORDB_PASSWORD`. It never replaces a
 value that is already set, so it is safe to re-run. MCP reads the database and
 model files, plus the MCP file when present; it does not load `env/.env.api`.
 
@@ -244,6 +244,20 @@ in the environment file passed to Compose, and the adapter then refuses
 plaintext instead of silently accepting it. The runtime honours every one of
 these acknowledgements only when `HARBORRAG_ENV=dev`; with `HARBORRAG_ENV=prod`
 plaintext non-loopback endpoints are refused regardless of the flag.
+
+The API, worker and MCP server never receive the MinIO root credentials. The
+`minio-init` one-shot in `docker-compose.database.yml` creates the
+`harborrag-raw` and `harborrag-artifacts` buckets and an application user
+(`MINIO_APP_ACCESS_KEY`, default `harborrag-app`, with the generated
+`MINIO_APP_SECRET_KEY`) whose policy, `deploy/minio/harborrag-app-policy.json`,
+allows only listing those two buckets and reading, writing and deleting their
+objects (plus listing bucket names, which the health check uses). `dev.sh data`
+(and `up`) runs it after the data services start; it is safe to rerun. Because
+the application key cannot create buckets, a store whose buckets are missing
+fails at startup instead of creating them. After upgrading a checkout whose data
+stack is already running, run `dev.sh data` once before `dev.sh worker` or
+`dev.sh api`: until `minio-init` has run, the application user does not exist
+and every object-store call is refused.
 
 ## CLI and MCP images
 

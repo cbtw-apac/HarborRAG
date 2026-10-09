@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 import re
 import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -289,3 +291,79 @@ def test_api_compose_leaves_authentication_to_the_environment_file() -> None:
     assert '"${HARBORRAG_API_BIND_ADDRESS:-127.0.0.1}:${HARBORRAG_API_PORT:-8000}:8000"' in compose
     assert "HARBORRAG_AUTH_MODE" not in compose
     assert "HARBORRAG_ALLOW_INSECURE_DEV" not in compose
+
+
+DATABASE_COMPOSE = ROOT / "deploy/compose/docker-compose.database.yml"
+MINIO_POLICY = ROOT / "deploy/minio/harborrag-app-policy.json"
+HARBORRAG_BUCKETS = {"arn:aws:s3:::harborrag-raw", "arn:aws:s3:::harborrag-artifacts"}
+
+
+def test_minio_init_provisions_a_least_privilege_application_key() -> None:
+    services = yaml.safe_load(DATABASE_COMPOSE.read_text(encoding="utf-8"))["services"]
+    init = services["minio-init"]
+
+    assert init["image"] == services["minio"]["image"]
+    assert init["depends_on"] == {"minio": {"condition": "service_healthy"}}
+    assert init["restart"] == "no"
+    assert "ports" not in init
+    assert init["volumes"] == [
+        "../minio/harborrag-app-policy.json:/etc/harborrag/minio-app-policy.json:ro"
+    ]
+    environment = init["environment"]
+    assert environment["MC_HOST_harbor"].startswith(
+        "http://${MINIO_ROOT_USER:-harborrag}:${MINIO_ROOT_PASSWORD:?"
+    )
+    assert environment["MINIO_APP_ACCESS_KEY"] == "${MINIO_APP_ACCESS_KEY:-harborrag-app}"
+    assert environment["MINIO_APP_SECRET_KEY"].startswith("${MINIO_APP_SECRET_KEY:?")
+    script = init["command"][0]
+    assert "mc mb --ignore-existing harbor/harborrag-raw harbor/harborrag-artifacts" in script
+    assert (
+        "mc admin policy create harbor harborrag-app /etc/harborrag/minio-app-policy.json" in script
+    )
+    # The secret reaches mc on stdin; neither secret is ever an argument.
+    assert (
+        "printf '%s\\n' \"$${MINIO_APP_SECRET_KEY}\" | "
+        'mc admin user add harbor "$${MINIO_APP_ACCESS_KEY}"'
+    ) in script
+    assert "MINIO_ROOT_PASSWORD" not in script
+
+
+def test_minio_application_policy_is_limited_to_the_harborrag_buckets() -> None:
+    policy = json.loads(MINIO_POLICY.read_text(encoding="utf-8"))
+    statements = {statement["Sid"]: statement for statement in policy["Statement"]}
+    assert all(statement["Effect"] == "Allow" for statement in statements.values())
+    # S3ObjectStoreClient.ping calls ListBuckets, which S3 authorizes only on
+    # "arn:aws:s3:::*"; it reveals bucket names, never objects.
+    assert statements.pop("HarborRAGHealthPing") == {
+        "Sid": "HarborRAGHealthPing",
+        "Effect": "Allow",
+        "Action": ["s3:ListAllMyBuckets"],
+        "Resource": ["arn:aws:s3:::*"],
+    }
+    resources: set[str] = set()
+    actions: set[str] = set()
+    for statement in statements.values():
+        resources.update(statement["Resource"])
+        actions.update(statement["Action"])
+
+    assert resources == HARBORRAG_BUCKETS | {f"{arn}/*" for arn in HARBORRAG_BUCKETS}
+    assert actions == {
+        "s3:GetBucketLocation",
+        "s3:ListBucket",
+        "s3:GetObject",
+        "s3:GetObjectVersion",
+        "s3:PutObject",
+        "s3:DeleteObject",
+    }
+
+
+@pytest.mark.parametrize("name", ["docker-compose.yml", "docker-compose.temporal.yml"])
+def test_application_services_use_the_minio_application_key(name: str) -> None:
+    compose = (ROOT / "deploy/compose" / name).read_text(encoding="utf-8")
+
+    assert "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID: ${MINIO_APP_ACCESS_KEY:-harborrag-app}" in compose
+    assert (
+        "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY: "
+        "${MINIO_APP_SECRET_KEY:?set MINIO_APP_SECRET_KEY in the database environment file}"
+    ) in compose
+    assert "MINIO_ROOT" not in compose
