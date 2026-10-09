@@ -105,6 +105,11 @@ class MemoryManager:
     ) -> MemorySnapshot:
         if query is not None and query.owner != owner:
             raise MemoryScopeError("snapshot query owner must match the authenticated caller")
+        if query is not None and self._long_term is None:
+            # Returning () here made "nothing stored" and "no long-term tier
+            # configured" indistinguishable, while search() raised for the
+            # second. One question, one answer.
+            raise MemoryConfigurationError("long-term memory is not configured")
         selected_limit = self._config.recent_turn_limit if recent_limit is None else recent_limit
         recent_call = (
             self._short_term.recent(owner, limit=selected_limit)
@@ -114,11 +119,6 @@ class MemoryManager:
         working_call = (
             self._working.scratch(owner) if self._working is not None else _empty_working_state()
         )
-        if query is not None and self._long_term is None:
-            # Returning () here made "nothing stored" and "no long-term tier
-            # configured" indistinguishable, while search() raised for the
-            # second. One question, one answer.
-            raise MemoryConfigurationError("long-term memory is not configured")
         memory_call = (
             self._long_term.search(owner, query)
             if query is not None and self._long_term is not None

@@ -94,3 +94,30 @@ def test_one_rule_decides_who_owns_a_conversation() -> None:
 
     with pytest.raises(MemoryScopeError, match="requires principal_id and session_id"):
         conversation_identity(MemoryOwner(tenant_id="T"), subject="x")
+
+
+@pytest.mark.asyncio
+async def test_a_snapshot_that_cannot_answer_touches_no_tier() -> None:
+    """The configuration error must come before any tier call is even created."""
+
+    class _CountingShortTerm:
+        calls = 0
+
+        def recent(self, owner, *, limit):
+            del owner, limit
+            _CountingShortTerm.calls += 1
+
+            async def _turns():
+                return ()
+
+            return _turns()
+
+    owner = MemoryOwner(tenant_id="T", principal_id="P", user_id="U", session_id="S")
+    manager = MemoryManager(short_term=_CountingShortTerm())  # type: ignore[arg-type]
+
+    from harborrag_core.ports.memory import MemoryQuery
+
+    with pytest.raises(MemoryConfigurationError, match="long-term memory is not configured"):
+        await manager.snapshot(owner, query=MemoryQuery(owner=owner))
+
+    assert _CountingShortTerm.calls == 0
