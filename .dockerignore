@@ -36,8 +36,24 @@
 # Logging - Every level
 **/*.log
 
+# Local state - Every level
+# Dockerfiles copy whole package directories, so anything left inside one is
+# baked into the image: SQLite control databases (tenants, ACLs, encrypted
+# secrets), .local/ workspaces, .harborrag/ object stores and MCP audit logs,
+# and tool caches. tests/test_docker_build_context.py pins this list.
+**/*.db
+**/*.db-journal
+**/*.sqlite
+**/*.sqlite3
+**/.local/
+**/.harborrag/
+**/.mypy_cache/
+**/.hypothesis/
+
 # Environment - Every level
+# env/ (the ignored secrets folder) is already excluded by **/env/ above.
 **/.env
+**/.env.*
 **/.env.example
 
 # Git
