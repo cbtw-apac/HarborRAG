@@ -632,3 +632,39 @@ def test_bootstrap_appends_the_minio_application_secret_to_an_older_file(
     values = _values(database)
     assert values["MINIO_ROOT_PASSWORD"] == "kept-minio-value"
     assert HEX_SECRET.match(values["MINIO_APP_SECRET_KEY"])
+
+
+DEV_GUARD_WARNING = "HARBORRAG_ENV=dev"
+
+
+@requires_openssl
+def test_up_warns_once_that_the_stack_runs_development_guards(tmp_path: Path) -> None:
+    script, _, env = _ready_project(tmp_path)
+    env.pop("HARBORRAG_ENV", None)
+
+    result = _run(script, env, "up")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stderr.count(DEV_GUARD_WARNING) == 1
+
+
+@requires_openssl
+@pytest.mark.parametrize("command", ["worker", "api"])
+def test_each_launcher_warns_about_development_guards(tmp_path: Path, command: str) -> None:
+    script, _, env = _ready_project(tmp_path)
+    env.pop("HARBORRAG_ENV", None)
+
+    result = _run(script, env, command)
+
+    assert result.returncode == 0, result.stderr
+    assert DEV_GUARD_WARNING in result.stderr
+
+
+@requires_openssl
+def test_no_development_guard_warning_when_prod_is_exported(tmp_path: Path) -> None:
+    script, _, env = _ready_project(tmp_path)
+    env["HARBORRAG_ENV"] = "prod"
+
+    result = _run(script, env, "worker")
+
+    assert DEV_GUARD_WARNING not in result.stderr

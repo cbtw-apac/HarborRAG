@@ -212,6 +212,30 @@ require_authenticated_worker_redis() {
     fi
 }
 
+# The Compose files default HARBORRAG_ENV to dev: insecure-remote
+# acknowledgements are honoured and HARBORRAG_AUTH_MODE=none is allowed, so the
+# production guards are off. Say so once per invocation. The effective value
+# follows Compose: an exported value wins, otherwise the last env file that
+# sets it, otherwise dev.
+development_guard_warned=0
+warn_development_guards() {
+    ((development_guard_warned)) && return 0
+    local value="" path candidate
+    if [[ -v HARBORRAG_ENV ]]; then
+        value="${HARBORRAG_ENV}"
+    else
+        for path in "$@"; do
+            [[ -f "${ROOT_DIR}/${path}" ]] || continue
+            candidate="$(env_file_value "${path}" HARBORRAG_ENV)"
+            [[ -z "${candidate}" ]] || value="${candidate}"
+        done
+    fi
+    if [[ "${value:-dev}" == "dev" ]]; then
+        development_guard_warned=1
+        echo "Warning: this Compose stack runs with HARBORRAG_ENV=dev, so development guards apply; do not expose it beyond this machine." >&2
+    fi
+}
+
 # The API's env file decides authentication; Compose never overrides it. The
 # container reads these values from the file only (an exported shell value does
 # not reach it), so the file is the single source checked here.
@@ -437,6 +461,7 @@ start_temporal() {
 
 start_worker() {
     local rebuild="${1:-0}"
+    warn_development_guards "${DATABASE_ENV_FILE}" "${TEMPORAL_ENV_FILE}"
     require_control_plane_encryption_key
     require_database_secrets
     require_authenticated_worker_redis
@@ -469,6 +494,8 @@ start_worker() {
 
 start_api() {
     local rebuild="${1:-0}"
+    warn_development_guards "${DATABASE_ENV_FILE}" "${TEMPORAL_ENV_FILE}" \
+        "${CONNECTOR_ENV_FILE}" "${MODEL_ENV_FILE}" "${API_ENV_FILE}"
     require_control_plane_encryption_key
     require_database_secrets
     require_api_authentication

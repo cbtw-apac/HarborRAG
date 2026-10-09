@@ -259,6 +259,44 @@ stack is already running, run `dev.sh data` once before `dev.sh worker` or
 `dev.sh api`: until `minio-init` has run, the application user does not exist
 and every object-store call is refused.
 
+### Development posture and Temporal exposure
+
+The Compose files default `HARBORRAG_ENV` to `dev`, and `dev.sh` keeps that
+default because this is a development stack. In `dev` the
+`*_ALLOW_INSECURE_REMOTE` acknowledgements are honoured and
+`HARBORRAG_AUTH_MODE=none` is permitted, so the production guards are off.
+`dev.sh up`, `worker` and `api` print a one-line warning while the effective
+value is `dev`. Do not expose this stack beyond the local machine.
+
+A production deployment must meet each of these, all enforced in code:
+
+- `HARBORRAG_ENV=prod`. This stops the `*_ALLOW_INSECURE_REMOTE`
+  acknowledgements from being honoured, so plaintext connections to a remote
+  datastore or object store are refused, and it refuses `auth_mode=none`.
+- `HARBORRAG_AUTH_MODE=hmac` with a `HARBORRAG_AUTH_SECRET` of at least 32
+  bytes. The unauthenticated mode exists only for development: it serves
+  loopback only (the Host header, peer and socket must all be loopback), and the
+  `HARBORRAG_ALLOW_INSECURE_DEV=true` acknowledgement that relaxes the socket
+  check for a container is likewise dev-only.
+- Authentication on every datastore (PostgreSQL, Redis, FalkorDB and the
+  others), with a password in each connection.
+- The least-privilege MinIO application key (`MINIO_APP_SECRET_KEY`) for the API
+  and worker, never the MinIO root credentials.
+- TLS endpoints for every remote service, and your own network policy.
+
+Temporal's frontend (`7233`) and Web UI (`8080`) have no authentication in this
+stack. Anyone who reaches either port can read workflow history and start,
+signal or terminate workflows, so both are published only on
+`HARBORRAG_TEMPORAL_BIND_ADDRESS` (default `127.0.0.1`); keep it on loopback.
+In production use Temporal Cloud, with TLS and an API key (`tls.enabled: true`
+in `config/temporal.yaml` plus `HARBORRAG_TEMPORAL_API_KEY`), or a self-hosted
+cluster whose frontend requires mutual TLS and an authorizer, with the Web UI
+behind your identity provider. HarborRAG's file and environment configuration
+sets only `tls.enabled` and `tls.domain`. A client certificate and private key
+for mutual TLS, or a private root CA, can currently be supplied only
+programmatically through `TemporalTLSConfig` (`client_cert`,
+`client_private_key`, `server_root_ca_cert`).
+
 ## CLI and MCP images
 
 Build the standalone operator images from the repository root:
