@@ -27,6 +27,7 @@ from harborrag_app.workflow_control.errors import (
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import (
+    HarborConfigurationError,
     HarborConflictError,
     HarborConnectionError,
     HarborNotFoundError,
@@ -292,6 +293,49 @@ async def test_retry_is_refused_once_the_tenant_leaves_the_connection_allowlist(
     with pytest.raises(HarborNotFoundError, match="Connection was not found"):
         await service.retry_failures(task_id=task_id, document_ids=[])
 
+    assert temporal.retries == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "catalog_text",
+    ["connectors: [unclosed\n  - sentinel-detail", "version: 99\nconnectors: {}\n"],
+)
+async def test_retry_with_an_unreadable_connector_catalog_is_an_opaque_configuration_error(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+    tmp_path: Path,
+    catalog_text: str,
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    await control.tasks.record_document_result(
+        TaskDocumentResult(
+            task_id=task_id,
+            document_id="document:retryable",
+            status="failed",
+            result={
+                "safe_error_code": "vector_write_failed",
+                "failure_stage": "WriteVectorProjection",
+                "retryable": True,
+            },
+        )
+    )
+    await control.tasks.finalize(
+        task_id, IngestionTaskState.FAILED, summary={"stage": "COMPLETED", "failed": 1}
+    )
+    (tmp_path / "connectors.yaml").write_text(catalog_text, encoding="utf-8")
+
+    with pytest.raises(HarborConfigurationError) as raised:
+        await service.retry_failures(task_id=task_id, document_ids=[])
+
+    assert str(raised.value) == "Connector configuration is unavailable"
+    assert "sentinel-detail" not in str(raised.value)
     assert temporal.retries == []
 
 

@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from datetime import datetime
 
 from harborrag_core.contracts.errors import (
+    HarborConfigurationError,
     HarborConflictError,
     HarborConnectionError,
     HarborNotFoundError,
@@ -350,11 +351,15 @@ class IngestionApplicationService(TaskListingMixin):
         }
 
     def _require_connection_access(self, connector_name: str, tenant_id: str) -> None:
-        catalog = load_connector_catalog(self._settings.connector_config_path)
         try:
+            catalog = load_connector_catalog(self._settings.connector_config_path)
             catalog.get_for_tenant(connector_name, tenant_id)
         except ConnectorNotFoundError as error:
             raise HarborNotFoundError("Connection was not found") from error
+        except ConnectorConfigurationError as error:
+            # The runtime's text can name the catalog path or file content, so
+            # it stays in the cause and out of the public message.
+            raise HarborConfigurationError("Connector configuration is unavailable") from error
 
     def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         try:
