@@ -2,6 +2,10 @@ services:
   qdrant:
     image: qdrant/qdrant:v1.18.3
     restart: unless-stopped
+    environment:
+      # Every HTTP and gRPC request must carry this key. Qdrant leaves only its
+      # /healthz, /livez and /readyz probes unauthenticated.
+      QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?set QDRANT_API_KEY in the database environment file}
     ports:
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_HTTP_PORT:-6333}:6333"
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${QDRANT_GRPC_PORT:-6334}:6334"
@@ -17,14 +21,18 @@ services:
       # GRAPH.CONSTRAINT is asynchronous and cannot be replayed safely from
       # AOF by this FalkorDB release. Persist snapshots in the named volume so
       # constraints and graph data both survive container restarts.
-      REDIS_ARGS: "--appendonly no --save 60 1"
+      REDIS_ARGS: "--appendonly no --save 60 1 --requirepass ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in the database environment file}"
+      # redis-cli reads REDISCLI_AUTH, so the healthcheck authenticates without
+      # the password on its command line.
+      REDISCLI_AUTH: ${FALKORDB_PASSWORD:?set FALKORDB_PASSWORD in the database environment file}
     ports:
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_PORT:-6379}:6379"
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${FALKORDB_BROWSER_PORT:-3000}:3000"
     volumes:
       - falkordb_data:/var/lib/falkordb/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # NOAUTH and WRONGPASS replies exit 0; require the PONG itself.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -41,12 +49,17 @@ services:
       - "yes"
       - --appendfsync
       - everysec
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in the database environment file}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the database environment file}
     ports:
       - "${HARBORRAG_DATA_BIND_ADDRESS:-127.0.0.1}:${REDIS_PORT:-6380}:6379"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      # NOAUTH and WRONGPASS replies exit 0; require the PONG itself.
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 20

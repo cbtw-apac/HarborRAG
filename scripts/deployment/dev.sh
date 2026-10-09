@@ -182,6 +182,17 @@ require_database_secrets() {
     done
 }
 
+# An HARBORRAG_REDIS_URL in the Temporal env file overrides the Compose default,
+# which carries REDIS_PASSWORD; one without credentials fails later with NOAUTH.
+require_authenticated_worker_redis() {
+    require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
+    local url
+    url="$(env_file_value "${TEMPORAL_ENV_FILE}" HARBORRAG_REDIS_URL)"
+    if [[ -n "${url}" && "${url}" != *@* ]]; then
+        fail "HARBORRAG_REDIS_URL in ${TEMPORAL_ENV_FILE} has no credentials, but Redis requires REDIS_PASSWORD. Delete the line to use the Compose default, or use redis://:PASSWORD@HOST:PORT/DB."
+    fi
+}
+
 ensure_environment_file() {
     local target="$1"
     local template="$2"
@@ -348,6 +359,7 @@ start_worker() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
     require_database_secrets
+    require_authenticated_worker_redis
     require_data_network
     require_temporal_server
     prepare_worker_mount
@@ -423,6 +435,14 @@ stop_stack() {
         shift
     fi
     [[ "$#" -eq 0 ]] || fail "Unknown down option: $1"
+
+    # Compose interpolates every required variable even for `down`, and an older
+    # env file may lack the generated secrets. Teardown needs none of their
+    # values, so give unset ones an inert placeholder for this process only.
+    local secret
+    for secret in "${DATABASE_GENERATED_SECRETS[@]}"; do
+        export "${secret}=${!secret:-unused-during-down}"
+    done
 
     echo "Stopping HarborRAG API..."
     if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" && -f "${ROOT_DIR}/${CONNECTOR_ENV_FILE}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then

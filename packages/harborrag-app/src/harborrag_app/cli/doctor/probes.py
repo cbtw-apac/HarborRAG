@@ -55,18 +55,53 @@ def http_ok(url: str, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
     return f"{shown} returned HTTP {status}"
 
 
-def redis_ping(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
-    """RESP ``PING`` without a Redis client; FalkorDB speaks the same protocol."""
+def _resp(*parts: bytes) -> bytes:
+    frame = b"*%d\r\n" % len(parts)
+    for part in parts:
+        frame += b"$%d\r\n%s\r\n" % (len(part), part)
+    return frame
 
+
+def redis_ping(
+    host: str,
+    port: int,
+    *,
+    username: str | None = None,
+    password: str | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+) -> str | None:
+    """RESP ``PING`` without a Redis client; FalkorDB speaks the same protocol.
+
+    With a password the probe pipelines ``AUTH`` first, so a ``requirepass``
+    server answers ``+OK`` then ``+PONG``. Replies never contain the password.
+    """
+
+    command = _resp(b"PING")
+    expected = b"+PONG"
+    if password:
+        credentials = [password.encode("utf-8")]
+        if username:
+            credentials.insert(0, username.encode("utf-8"))
+        command = _resp(b"AUTH", *credentials) + command
+        expected = b"+OK\r\n+PONG"
     try:
         with socket.create_connection((host, port), timeout=timeout) as connection:
-            connection.sendall(b"*1\r\n$4\r\nPING\r\n")
-            reply = connection.recv(64)
+            connection.sendall(command)
+            reply = b""
+            while (
+                not reply.startswith(expected)
+                and b"\r\n-" not in b"\r\n" + reply
+                and len(reply) < 256
+            ):
+                chunk = connection.recv(64)
+                if not chunk:
+                    break
+                reply += chunk
     except OSError as exc:
         return f"{host}:{port} unreachable ({exc.strerror or exc})"
-    if reply.startswith(b"+PONG"):
+    if reply.startswith(expected):
         return None
-    return f"{host}:{port} answered {reply[:32]!r} instead of PONG"
+    return f"{host}:{port} answered {reply[:48]!r} instead of PONG"
 
 
 def host_port(url: str, *, default_port: int) -> tuple[str, int]:

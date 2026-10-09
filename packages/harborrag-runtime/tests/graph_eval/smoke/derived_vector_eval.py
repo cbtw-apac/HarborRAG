@@ -17,6 +17,7 @@ from pathlib import Path
 from uuid import UUID
 
 from dotenv import load_dotenv
+from pydantic import SecretStr
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
@@ -116,6 +117,7 @@ async def run() -> int:
             deployment=QdrantDeployment.REMOTE,
             url=f"http://127.0.0.1:{port}",
             prefer_grpc=False,
+            api_key=SecretStr(key) if (key := os.getenv("QDRANT_API_KEY", "").strip()) else None,
             namespace_prefix=COLLECTION_PREFIX,
         )
     )

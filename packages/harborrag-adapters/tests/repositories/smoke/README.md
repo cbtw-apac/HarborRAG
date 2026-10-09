@@ -14,11 +14,11 @@ uv pip install -e \
   "packages/harborrag-adapters[redis,qdrant,falkordb,postgres]"
 ```
 
-Create the local database environment from the tracked template, review its
-credentials and ports, then start the Compose stack:
+Create the protected local environment (it generates the datastore credentials),
+then start the Compose stack:
 
 ```bash
-cp env-example/.env.database.example env/.env.database
+scripts/deployment/dev.sh bootstrap
 scripts/deployment/dev.sh data
 ```
 
@@ -50,7 +50,9 @@ The default endpoints match `deploy/compose/docker-compose.database.yml`:
 Override endpoints with `HARBOR_SMOKE_POSTGRES_URL`,
 `HARBOR_SMOKE_REDIS_URL`, `HARBOR_SMOKE_QDRANT_URL`, `FALKORDB_HOST`, and
 `FALKORDB_PORT`. The standard `POSTGRES_*`, `REDIS_PORT`, and Qdrant port
-variables from `env/.env.database` are also recognized.
+variables from `env/.env.database` are also recognized. The checks authenticate
+with `QDRANT_API_KEY`, `REDIS_PASSWORD`, and `FALKORDB_PASSWORD` from
+`env/.env.database`.
 
 Only use a disposable database. PostgreSQL creates the HarborRAG tables when
 they are absent, and FalkorDB uses a separate `harborrag_smoke` graph by

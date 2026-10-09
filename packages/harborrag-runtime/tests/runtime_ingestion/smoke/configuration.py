@@ -78,7 +78,10 @@ def load_smoke_configuration() -> SmokeConfiguration:
         ),
         temporal_identity="harborrag-ingestion-smoke",
         temporal_config_path=ROOT / "config/temporal.yaml",
-        redis_url=SecretStr(f"redis://127.0.0.1:{_env('REDIS_PORT', '6380')}/0"),
+        redis_url=SecretStr(
+            f"redis://:{quote(_required('REDIS_PASSWORD'), safe='')}"
+            f"@127.0.0.1:{_env('REDIS_PORT', '6380')}/0"
+        ),
         connector_config_path=ROOT / "config/connectors.yaml",
         parser_config_path=ROOT / "config/parsers.yaml",
         model_config_path=ROOT / "config/models.yaml",
@@ -87,8 +90,10 @@ def load_smoke_configuration() -> SmokeConfiguration:
         object_store_secret_access_key=_required("MINIO_ROOT_PASSWORD"),
         qdrant_url=(f"http://127.0.0.1:{_env('QDRANT_HTTP_PORT', '6333')}"),
         qdrant_prefer_grpc=False,
+        qdrant_api_key=SecretStr(_required("QDRANT_API_KEY")),
         falkordb_host="127.0.0.1",
         falkordb_port=int(_env("FALKORDB_PORT", "6379")),
+        falkordb_password=SecretStr(_required("FALKORDB_PASSWORD")),
     )
     catalog = load_connector_catalog(settings.connector_config_path)
     return SmokeConfiguration(

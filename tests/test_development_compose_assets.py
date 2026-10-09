@@ -93,7 +93,9 @@ def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:
     # FalkorDB 4.20.1 records asynchronous GRAPH.CONSTRAINT commands in AOF,
     # then crashes while replaying them on restart. RDB preserves both the
     # graph and operational constraints without replaying the command.
-    assert 'REDIS_ARGS: "--appendonly no --save 60 1"' in falkordb_service
+    assert 'REDIS_ARGS: "--appendonly no --save 60 1 --requirepass ${FALKORDB_PASSWORD:?' in (
+        falkordb_service
+    )
     assert "--appendonly yes" not in falkordb_service
 
 
@@ -222,3 +224,54 @@ def test_insecure_remote_acknowledgements_are_operator_overridable(
     assert services == expected
     for name, value in flags:
         assert value == f'"${{{name}:-true}}"', name
+
+
+def _service(compose: str, name: str, following: str | None) -> str:
+    block = compose.split(f"\n  {name}:\n", 1)[1]
+    return block.split(f"\n  {following}:\n", 1)[0] if following else block
+
+
+def test_datastores_require_operator_supplied_credentials() -> None:
+    database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
+    qdrant = _service(database, "qdrant", "falkordb")
+    falkordb = _service(database, "falkordb", "redis")
+    redis = _service(database, "redis", "postgres")
+
+    assert "QDRANT__SERVICE__API_KEY: ${QDRANT_API_KEY:?" in qdrant
+    assert "--requirepass ${FALKORDB_PASSWORD:?" in falkordb
+    assert "REDISCLI_AUTH: ${FALKORDB_PASSWORD:?" in falkordb
+    assert "- --requirepass\n      - ${REDIS_PASSWORD:?" in redis
+    assert "REDISCLI_AUTH: ${REDIS_PASSWORD:?" in redis
+
+
+def test_datastore_healthchecks_require_an_authenticated_pong() -> None:
+    # A NOAUTH/WRONGPASS reply exits 0, so the probe must demand PONG itself.
+    database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
+    for name, following in (("falkordb", "redis"), ("redis", "postgres")):
+        service = _service(database, name, following)
+        assert 'test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]' in service, name
+        assert '["CMD", "redis-cli", "ping"]' not in service, name
+
+
+def test_application_services_receive_datastore_credentials() -> None:
+    api = API_COMPOSE.read_text(encoding="utf-8")
+    temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    mcp = (ROOT / "deploy/compose/docker-compose.mcp.yml").read_text(encoding="utf-8")
+
+    for compose in (api, temporal, mcp):
+        assert "HARBORRAG_QDRANT_API_KEY: ${QDRANT_API_KEY:?" in compose
+        assert "HARBORRAG_FALKORDB_PASSWORD: ${FALKORDB_PASSWORD:?" in compose
+    assert (
+        "HARBORRAG_API_CAPACITY_REDIS_URL: "
+        "${HARBORRAG_API_CAPACITY_REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/1}"
+    ) in api
+    assert (
+        "HARBORRAG_REDIS_URL: ${HARBORRAG_REDIS_URL:-redis://:${REDIS_PASSWORD:-}@redis:6379/0}"
+    ) in temporal
+    assert "REDIS_PASSWORD" not in mcp
+
+
+def test_temporal_example_does_not_override_the_authenticated_redis_default() -> None:
+    example = (ROOT / "env-example/.env.temporal.example").read_text(encoding="utf-8")
+
+    assert not [line for line in example.splitlines() if line.startswith("HARBORRAG_REDIS_URL=")]

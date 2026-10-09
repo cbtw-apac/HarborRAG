@@ -44,6 +44,17 @@ printf '%s\\n' "$*" >> "$DEV_DOCKER_LOG"
 case " $* " in
   *" config --services "*) printf 'api\\n' ;;
 esac
+# Compose interpolates required variables on `down` too; record what it would see.
+case " $* " in
+  *" down "*)
+    for name in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD QDRANT_API_KEY REDIS_PASSWORD \\
+        FALKORDB_PASSWORD; do
+      eval "value=\\${$name:-}"
+      [ -n "$value" ] || printf 'MISSING %s\\n' "$name" >> "$DEV_DOCKER_LOG.down-env"
+    done
+    printf 'checked\\n' >> "$DEV_DOCKER_LOG.down-env"
+    ;;
+esac
 """,
         encoding="utf-8",
     )
@@ -242,6 +253,27 @@ def test_down_never_requires_secrets(tmp_path: Path) -> None:
     assert "docker-compose.database.yml down" in docker_log.read_text(encoding="utf-8")
 
 
+def test_down_survives_required_variable_interpolation_on_an_old_env_file(
+    tmp_path: Path,
+) -> None:
+    script, docker_log, env = _project(tmp_path)
+    environment = script.parents[2] / "env"
+    environment.mkdir()
+    # An older checkout: none of the datastore secrets exist, and Compose now
+    # aborts `down` on any unset `${VAR:?...}`.
+    for filename in (".env.database", ".env.temporal", ".env.connector", ".env.models", ".env.api"):
+        (environment / filename).write_text("POSTGRES_USER=harbor\n", encoding="utf-8")
+
+    result = _run(script, env, "down")
+
+    assert result.returncode == 0, result.stderr
+    seen = docker_log.with_name("docker.log.down-env").read_text(encoding="utf-8")
+    assert seen.count("checked") == 3
+    assert "MISSING" not in seen
+    # The placeholders exist only for the teardown process and are never written.
+    assert "POSTGRES_PASSWORD" not in (environment / ".env.database").read_text(encoding="utf-8")
+
+
 @requires_openssl
 def test_bootstrap_keeps_exported_values_and_appends_nothing_for_them(tmp_path: Path) -> None:
     script, _, env = _project(tmp_path)
@@ -260,3 +292,36 @@ def test_bootstrap_keeps_exported_values_and_appends_nothing_for_them(tmp_path: 
     assert "\nMINIO_ROOT_PASSWORD=" not in text
     assert HEX_SECRET.match(_values(database)["QDRANT_API_KEY"])
     assert stat.S_IMODE(database.stat().st_mode) == 0o600
+
+
+@requires_openssl
+def test_worker_refuses_a_passwordless_redis_override(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    temporal = script.parents[2] / "env/.env.temporal"
+    temporal.write_text(
+        temporal.read_text(encoding="utf-8") + "HARBORRAG_REDIS_URL=redis://redis:6379/0\n",
+        encoding="utf-8",
+    )
+
+    result = _run(script, env, "worker")
+
+    assert result.returncode == 2
+    assert "HARBORRAG_REDIS_URL" in result.stderr
+    assert "env/.env.temporal" in result.stderr
+    assert not docker_log.exists()
+
+
+@requires_openssl
+def test_worker_accepts_a_credentialed_redis_override(tmp_path: Path) -> None:
+    script, docker_log, env = _ready_project(tmp_path)
+    temporal = script.parents[2] / "env/.env.temporal"
+    temporal.write_text(
+        temporal.read_text(encoding="utf-8")
+        + "HARBORRAG_REDIS_URL=rediss://:secret@cache.example.com:6380/0\n",
+        encoding="utf-8",
+    )
+
+    result = _run(script, env, "worker")
+
+    assert result.returncode == 0, result.stderr
+    assert "--profile worker up" in docker_log.read_text(encoding="utf-8")

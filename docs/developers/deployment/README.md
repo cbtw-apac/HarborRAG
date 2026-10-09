@@ -19,9 +19,21 @@ composition and security policy.
 - MinIO on ports 9000 (S3 API) and 9001 (console).
 
 Note that host port 6379 is **FalkorDB**, not Redis - Redis is published on 6380 to avoid
-the collision. `HARBORRAG_REDIS_URL=redis://redis:6379/0` is still correct, because that
-URL is resolved inside the Docker network rather than on the host. FalkorDB's browser also
-defaults to host port 3000, which collides with Grafana in the monitoring stack.
+the collision. Compose builds the worker's `HARBORRAG_REDIS_URL` as
+`redis://:${REDIS_PASSWORD}@redis:6379/0`, resolved inside the Docker network rather than
+on the host. FalkorDB's browser also defaults to host port 3000, which collides with Grafana
+in the monitoring stack; log in to it with `FALKORDB_PASSWORD`.
+
+Every datastore requires a credential from `env/.env.database`:
+- Qdrant requires `QDRANT_API_KEY` on every HTTP and gRPC request.
+- Redis and FalkorDB require `REDIS_PASSWORD` and `FALKORDB_PASSWORD` (Redis `requirepass`).
+- Their healthchecks authenticate through `REDISCLI_AUTH`.
+
+The API, worker and MCP receive these as `HARBORRAG_QDRANT_API_KEY`,
+`HARBORRAG_FALKORDB_PASSWORD` and a password-bearing Redis URL. Host-side tools that talk
+to the published ports must export the same values. Existing checkouts must delete any
+`HARBORRAG_REDIS_URL=redis://redis:6379/0` line from `env/.env.temporal`; `dev.sh worker`
+refuses a Redis URL without credentials.
 
 The service image tags are pinned directly in the Compose file. The environment template
 controls ports and credentials. Its `DATABASE_PULL`, `DATABASE_STARTUP_TIMEOUT`, and

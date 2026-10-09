@@ -13,6 +13,7 @@ from bootstrap import (
     require_healthy,
     safe_error,
 )
+from pydantic import SecretStr
 
 from harborrag_adapters.repositories.vector.qdrant import (
     QdrantVectorConfig,
@@ -33,6 +34,11 @@ def _qdrant_url() -> str:
     return f"http://127.0.0.1:{env_int('QDRANT_HTTP_PORT', 6333)}"
 
 
+def _qdrant_api_key() -> SecretStr | None:
+    configured = os.getenv("QDRANT_API_KEY", "").strip()
+    return SecretStr(configured) if configured else None
+
+
 async def _run() -> tuple[str, str]:
     suffix = probe_suffix()
     collection = env("HARBOR_SMOKE_QDRANT_COLLECTION", "repository_probe")
@@ -42,6 +48,7 @@ async def _run() -> tuple[str, str]:
         QdrantVectorConfig(
             instance_name="smoke",
             url=_qdrant_url(),
+            api_key=_qdrant_api_key(),
             prefer_grpc=env_bool("HARBOR_SMOKE_QDRANT_PREFER_GRPC", False),
             namespace_prefix=env("HARBOR_SMOKE_QDRANT_PREFIX", "harborrag_smoke"),
         )

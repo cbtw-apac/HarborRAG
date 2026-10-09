@@ -52,8 +52,12 @@ settings through `HARBORRAG_*` variables.
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback object storage; ignored in production |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` |
+| `HARBORRAG_QDRANT_API_KEY` | Unset; required by the checked-in Compose stack (from `QDRANT_API_KEY`) |
+| `HARBORRAG_QDRANT_ALLOW_INSECURE_REMOTE` | Acknowledgement for plaintext non-loopback Qdrant, with or without an API key |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` |
 | `HARBORRAG_FALKORDB_PORT` | `6379` |
+| `HARBORRAG_FALKORDB_PASSWORD` | Unset; required by the checked-in Compose stack (from `FALKORDB_PASSWORD`) |
+| `HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE` | Acknowledgement for plaintext non-loopback FalkorDB, with or without a password |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` |
 | `HARBORRAG_FALKORDB_MAX_CONNECTIONS` | `32` |
 | `HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY` | `8` |

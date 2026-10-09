@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from datetime import timedelta
+from urllib.parse import quote
 
 from bootstrap import (
     dependency_available,
@@ -24,7 +25,9 @@ def _redis_url() -> str:
     configured = os.getenv("HARBOR_SMOKE_REDIS_URL")
     if configured and configured.strip():
         return configured.strip()
-    return f"redis://127.0.0.1:{env_int('REDIS_PORT', 6380)}/15"
+    password = os.getenv("REDIS_PASSWORD", "").strip()
+    credentials = f":{quote(password, safe='')}@" if password else ""
+    return f"redis://{credentials}127.0.0.1:{env_int('REDIS_PORT', 6380)}/15"
 
 
 async def _run() -> str:

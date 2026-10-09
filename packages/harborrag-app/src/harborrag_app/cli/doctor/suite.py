@@ -136,7 +136,16 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
         _service_check(
             "falkordb",
             f"{settings.falkordb_host}:{settings.falkordb_port}",
-            probes.redis_ping(settings.falkordb_host, settings.falkordb_port),
+            probes.redis_ping(
+                settings.falkordb_host,
+                settings.falkordb_port,
+                username=settings.falkordb_username,
+                password=(
+                    settings.falkordb_password.get_secret_value()
+                    if settings.falkordb_password is not None
+                    else None
+                ),
+            ),
         ),
     ]
     endpoint = settings.object_store_endpoint_url

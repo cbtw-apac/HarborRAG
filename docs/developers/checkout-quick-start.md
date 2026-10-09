@@ -183,6 +183,7 @@ value`**, go back to step 5 - Compose treats an empty value as unset.
 
 ```bash
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
+HARBORRAG_FALKORDB_PASSWORD="$(sed -n 's/^FALKORDB_PASSWORD=//p' env/.env.database | tr -d '\r')" \
   uv run harborrag doctor --json --temporal
 ```
 
