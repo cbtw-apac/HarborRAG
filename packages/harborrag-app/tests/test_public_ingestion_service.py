@@ -33,7 +33,11 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
 )
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
-from harborrag_runtime.config.errors import ConnectorNotFoundError
+from harborrag_runtime.config.errors import (
+    ConnectorConfigurationError,
+    ConnectorDisabledError,
+    ConnectorNotFoundError,
+)
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
@@ -506,3 +510,91 @@ async def test_unknown_and_disallowed_connections_are_indistinguishable() -> Non
         outcomes.append(str(caught.value))
 
     assert outcomes == ["Connection was not found", "Connection was not found"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_type", "expected_message"),
+    [
+        (
+            ConnectorDisabledError(
+                "Connector 'harborrag-workspace' is disabled (enabled: false) and cannot be built"
+            ),
+            HarborNotFoundError,
+            "Connection was not found",
+        ),
+        (
+            ConnectorConfigurationError(
+                "Missing secret JIRA_TOKEN for /srv/harborrag/sentinel-detail.yaml"
+            ),
+            HarborConfigurationError,
+            "Connector configuration is unavailable",
+        ),
+    ],
+)
+async def test_submit_never_echoes_connector_configuration_text(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+    monkeypatch: pytest.MonkeyPatch,
+    error: Exception,
+    expected_type: type[Exception],
+    expected_message: str,
+) -> None:
+    service, _control, temporal = service_resources
+
+    def refuse(_settings: object, _submission: object) -> object:
+        raise error
+
+    monkeypatch.setattr(service, "_source_input_builder", refuse)
+
+    with pytest.raises(expected_type) as raised:
+        await service.submit(_command(), idempotency_key=None)
+
+    assert str(raised.value) == expected_message
+    assert "sentinel-detail" not in str(raised.value)
+    assert "disabled" not in str(raised.value)
+    assert temporal.started == []
+
+
+@pytest.mark.asyncio
+async def test_retry_of_a_disabled_connection_reads_as_not_found(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+    tmp_path: Path,
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    await control.tasks.record_document_result(
+        TaskDocumentResult(
+            task_id=task_id,
+            document_id="document:retryable",
+            status="failed",
+            result={
+                "safe_error_code": "vector_write_failed",
+                "failure_stage": "WriteVectorProjection",
+                "retryable": True,
+            },
+        )
+    )
+    await control.tasks.finalize(
+        task_id, IngestionTaskState.FAILED, summary={"stage": "COMPLETED", "failed": 1}
+    )
+    (tmp_path / "connectors.yaml").write_text(
+        "version: 1\nconnectors:\n  harborrag-workspace:\n    provider: local\n"
+        "    enabled: false\n    settings:\n      source_path: docs\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(HarborNotFoundError) as raised:
+        await service.retry_failures(task_id=task_id, document_ids=[])
+
+    assert str(raised.value) == "Connection was not found"
+    assert temporal.retries == []

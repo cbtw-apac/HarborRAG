@@ -16,7 +16,7 @@ from harborrag_runtime.config.connectors.providers import (
     coerce_config_values,
     config_factory,
 )
-from harborrag_runtime.config.errors import ConnectorConfigurationError
+from harborrag_runtime.config.errors import ConnectorDisabledError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.profiles import build_processing_profile
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
@@ -47,7 +47,7 @@ def prepare_source_submission(
     # another tenant's connections.
     definition = catalog.get_for_tenant(submission.connector_name, submission.tenant_id)
     if not definition.enabled:
-        raise ConnectorConfigurationError(
+        raise ConnectorDisabledError(
             f"Configured connector {submission.connector_name!r} is disabled"
         )
     source_environment = os.environ if environment is None else environment

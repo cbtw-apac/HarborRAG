@@ -7,13 +7,18 @@ from harborrag_runtime.config.connectors.schemas import (
     ConnectorCatalog,
     ConnectorDefinition,
 )
-from harborrag_runtime.config.errors import ConnectorConfigurationError, ConnectorNotFoundError
+from harborrag_runtime.config.errors import (
+    ConnectorConfigurationError,
+    ConnectorDisabledError,
+    ConnectorNotFoundError,
+)
 
 __all__ = [
     "CONNECTOR_CONFIG_VERSION",
     "ConnectorCatalog",
     "ConnectorConfigurationError",
     "ConnectorDefinition",
+    "ConnectorDisabledError",
     "ConnectorNotFoundError",
     "connector_fingerprint",
     "load_connector_catalog",

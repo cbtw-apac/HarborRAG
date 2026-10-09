@@ -11,13 +11,16 @@ from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborConnectionError,
     HarborNotFoundError,
-    HarborValidationError,
 )
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
 from harborrag_runtime.config import load_connector_catalog
-from harborrag_runtime.config.errors import ConnectorConfigurationError, ConnectorNotFoundError
+from harborrag_runtime.config.errors import (
+    ConnectorConfigurationError,
+    ConnectorDisabledError,
+    ConnectorNotFoundError,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
 from harborrag_runtime.execution.source_submission import prepare_source_submission
@@ -353,8 +356,10 @@ class IngestionApplicationService(TaskListingMixin):
     def _require_connection_access(self, connector_name: str, tenant_id: str) -> None:
         try:
             catalog = load_connector_catalog(self._settings.connector_config_path)
-            catalog.get_for_tenant(connector_name, tenant_id)
-        except ConnectorNotFoundError as error:
+            definition = catalog.get_for_tenant(connector_name, tenant_id)
+            if not definition.enabled:
+                raise ConnectorDisabledError(f"Connector {connector_name!r} is disabled")
+        except (ConnectorNotFoundError, ConnectorDisabledError) as error:
             raise HarborNotFoundError("Connection was not found") from error
         except ConnectorConfigurationError as error:
             # The runtime's text can name the catalog path or file content, so
@@ -374,12 +379,15 @@ class IngestionApplicationService(TaskListingMixin):
                     force_reprocess=command.force_reprocess,
                 ),
             )
-        except ConnectorNotFoundError as error:
-            # One message for unknown and tenant-disallowed connections: the
-            # runtime's text would otherwise be the only difference.
+        except (ConnectorNotFoundError, ConnectorDisabledError) as error:
+            # One message for unknown, tenant-disallowed and disabled
+            # connections: the runtime's text would otherwise be the only
+            # difference.
             raise HarborNotFoundError("Connection was not found") from error
         except ConnectorConfigurationError as error:
-            raise HarborValidationError(str(error)) from error
+            # The runtime's text can name secrets, catalog paths or file
+            # content, so it stays in the cause and out of the public message.
+            raise HarborConfigurationError("Connector configuration is unavailable") from error
         return source
 
     @staticmethod

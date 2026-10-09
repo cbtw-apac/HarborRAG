@@ -15,7 +15,11 @@ from harborrag_runtime.config.connectors.providers import (
     coerce_config_values,
     config_factory,
 )
-from harborrag_runtime.config.errors import ConnectorConfigurationError, ConnectorNotFoundError
+from harborrag_runtime.config.errors import (
+    ConnectorConfigurationError,
+    ConnectorDisabledError,
+    ConnectorNotFoundError,
+)
 
 logger = logging.getLogger("harborrag.runtime.config.connectors")
 
@@ -106,7 +110,7 @@ class ConnectorDefinition:
                 config dataclass validation.
         """
         if not self.enabled:
-            raise ConnectorConfigurationError(
+            raise ConnectorDisabledError(
                 f"Connector {self.name!r} is disabled (enabled: false) and cannot be built"
             )
         factory = config_factory(self.provider)

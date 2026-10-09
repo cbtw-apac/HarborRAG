@@ -129,6 +129,20 @@ whose definition is invalid), so a response never reveals other tenants'
 connections. Submission errors name only the requested connection; the
 operator-facing catalog lookup still lists the configured connection IDs.
 
+A disabled connection (`enabled: false`) is reported exactly like an unknown
+one: `404` with `Connection was not found` on both submission routes and on
+retry. Any other problem building the connection - a missing secret, invalid
+provider settings, an unreadable catalog - returns the opaque configuration
+error (`500`, `Connector configuration is unavailable`); the detail is written
+only to the API log.
+
+The allowlist is checked when a submission or retry is accepted. A submission
+that was accepted but not yet started (for example while Temporal was
+unavailable) is started later by the API's recovery loop without checking the
+allowlist again, so removing a tenant from `tenants` does not withdraw work that
+tenant already queued. Check that tenant's pending tasks with
+`GET /v1/ingestions` before narrowing the allowlist.
+
 `tenants` must be a non-empty list of tenant IDs without surrounding
 whitespace; `'*'` is rejected (omit the field to allow every tenant). It is an
 access rule, not connector configuration, so it does not change the source

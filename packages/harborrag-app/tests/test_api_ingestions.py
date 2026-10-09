@@ -370,3 +370,44 @@ def test_lifespan_runs_the_unbound_connection_check_once(
         pass
 
     assert calls == [1]
+
+
+@pytest.mark.parametrize(
+    ("error_type", "expected"),
+    [
+        ("ConnectorDisabledError", (404, "connection_not_found", "Connection was not found")),
+        (
+            "ConnectorConfigurationError",
+            (500, "connector_configuration_unavailable", "Connector configuration is unavailable"),
+        ),
+    ],
+)
+def test_legacy_start_hides_connector_configuration_text(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+    error_type: str,
+    expected: tuple[int, str, str],
+) -> None:
+    status, code, message = expected
+
+    async def refuse(**_kwargs: object) -> AppResponse:
+        # Connector errors are ValueErrors, so public_error_message forwards
+        # their full text, which can name secrets and catalog paths.
+        return AppResponse(
+            False,
+            {"error_type": error_type},
+            "Connector 'x' failed: /srv/harborrag/sentinel-detail.yaml",
+        )
+
+    monkeypatch.setattr(service, "start_ingestion", refuse)
+    response = client.post(
+        "/api/v1/ingestions",
+        json={"tenant_id": "DEFAULT", "connector_name": "x"},
+    )
+
+    assert response.status_code == status
+    error = response.json()["error"]
+    assert error["code"] == code
+    assert error["message"] == message
+    assert "sentinel-detail" not in response.text

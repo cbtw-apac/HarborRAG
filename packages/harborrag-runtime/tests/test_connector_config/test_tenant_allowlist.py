@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_runtime.config import ConnectorConfigurationError, load_connector_catalog
-from harborrag_runtime.config.errors import ConnectorNotFoundError
+from harborrag_runtime.config.errors import ConnectorDisabledError, ConnectorNotFoundError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.source_submission import prepare_source_submission
 from harborrag_runtime.ingestion_contracts import SourceSubmission
@@ -124,3 +124,11 @@ def test_submission_refuses_a_connection_outside_the_tenants_allowlist(tmp_path:
     assert submit("acme").connector_type == "jira"
     with pytest.raises(ConnectorNotFoundError, match="Unknown configured connector: 'acme-jira'"):
         submit("globex")
+
+
+def test_building_a_disabled_connection_raises_the_disabled_error(tmp_path: Path) -> None:
+    catalog = load_connector_catalog(write_config(tmp_path, _CATALOG))
+    definition = catalog.get_for_tenant("retired-local", "globex")
+
+    with pytest.raises(ConnectorDisabledError, match="is disabled"):
+        definition.build(environment={})
