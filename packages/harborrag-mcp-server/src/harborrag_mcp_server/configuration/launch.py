@@ -54,8 +54,10 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
         "HARBORRAG_QDRANT_URL",
         f"http://localhost:{environ.get('QDRANT_HTTP_PORT', '6333')}",
     )
+    _set_default(environ, "HARBORRAG_QDRANT_API_KEY", environ.get("QDRANT_API_KEY"))
     _set_default(environ, "HARBORRAG_FALKORDB_HOST", "localhost")
     _set_default(environ, "HARBORRAG_FALKORDB_PORT", environ.get("FALKORDB_PORT", "6379"))
+    _set_default(environ, "HARBORRAG_FALKORDB_PASSWORD", environ.get("FALKORDB_PASSWORD"))
     _set_default(environ, "HARBORRAG_MODEL_CONFIG_PATH", str(root / "config/models.yaml"))
     _set_default(environ, "HARBORRAG_MCP_CONFIG_PATH", str(root / "config/mcp.yaml"))
     _set_default(environ, "HARBORRAG_MCP_KEYS_PATH", str(root / "config/mcp_keys.yaml"))

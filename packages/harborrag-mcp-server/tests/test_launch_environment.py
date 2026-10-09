@@ -18,7 +18,8 @@ def _checkout(root: Path) -> None:
     (root / "env/.env.database").write_text(
         "POSTGRES_USER=reader\nPOSTGRES_PASSWORD=p@ss:/word\nPOSTGRES_DB=harbor\n"
         "MINIO_ROOT_USER=object-reader\nMINIO_ROOT_PASSWORD=object-secret\n"
-        "QDRANT_HTTP_PORT=7333\n",
+        "QDRANT_HTTP_PORT=7333\nQDRANT_API_KEY=qdrant-synthetic\n"
+        "FALKORDB_PASSWORD=falkor-synthetic\n",
         encoding="utf-8",
     )
     (root / "env/.env.models").write_text("HARBOR_EMBED_API_KEY=secret\n", encoding="utf-8")
@@ -42,6 +43,29 @@ def test_checkout_environment_maps_local_backends_and_respects_process_overrides
     assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "object-reader"
     assert environment["HARBORRAG_MCP_CONFIG_PATH"] == str(tmp_path / "config/custom-mcp.yaml")
     assert environment["HARBORRAG_MODEL_CONFIG_PATH"] == str(tmp_path / "config/models.yaml")
+
+
+def test_checkout_environment_maps_qdrant_and_falkordb_credentials(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    environment: dict[str, str] = {}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_QDRANT_API_KEY"] == "qdrant-synthetic"
+    assert environment["HARBORRAG_FALKORDB_PASSWORD"] == "falkor-synthetic"
+
+
+def test_explicit_qdrant_and_falkordb_credentials_win_over_checkout(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    environment = {
+        "HARBORRAG_QDRANT_API_KEY": "explicit-q",
+        "HARBORRAG_FALKORDB_PASSWORD": "explicit-f",
+    }
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_QDRANT_API_KEY"] == "explicit-q"
+    assert environment["HARBORRAG_FALKORDB_PASSWORD"] == "explicit-f"
 
 
 def test_explicit_environment_file_overrides_checkout_file_but_not_process_env(
