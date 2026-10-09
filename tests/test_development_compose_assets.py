@@ -357,7 +357,9 @@ def test_minio_application_policy_is_limited_to_the_harborrag_buckets() -> None:
     }
 
 
-@pytest.mark.parametrize("name", ["docker-compose.yml", "docker-compose.temporal.yml"])
+@pytest.mark.parametrize(
+    "name", ["docker-compose.yml", "docker-compose.temporal.yml", "docker-compose.mcp.yml"]
+)
 def test_application_services_use_the_minio_application_key(name: str) -> None:
     compose = (ROOT / "deploy/compose" / name).read_text(encoding="utf-8")
 

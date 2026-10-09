@@ -17,7 +17,8 @@ def _checkout(root: Path) -> None:
     (root / "env").mkdir()
     (root / "env/.env.database").write_text(
         "POSTGRES_USER=reader\nPOSTGRES_PASSWORD=p@ss:/word\nPOSTGRES_DB=harbor\n"
-        "MINIO_ROOT_USER=object-reader\nMINIO_ROOT_PASSWORD=object-secret\n"
+        "MINIO_ROOT_USER=object-root\nMINIO_ROOT_PASSWORD=object-root-secret\n"
+        "MINIO_APP_SECRET_KEY=object-app-secret\n"
         "QDRANT_HTTP_PORT=7333\nQDRANT_API_KEY=qdrant-synthetic\n"
         "FALKORDB_PASSWORD=falkor-synthetic\n",
         encoding="utf-8",
@@ -40,7 +41,7 @@ def test_checkout_environment_maps_local_backends_and_respects_process_overrides
         "postgresql+asyncpg://reader:p%40ss%3A%2Fword@localhost:5432/harbor"
     )
     assert environment["HARBORRAG_QDRANT_URL"] == "https://remote.example/qdrant"
-    assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "object-reader"
+    assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "harborrag-app"
     assert environment["HARBORRAG_MCP_CONFIG_PATH"] == str(tmp_path / "config/custom-mcp.yaml")
     assert environment["HARBORRAG_MODEL_CONFIG_PATH"] == str(tmp_path / "config/models.yaml")
 
@@ -140,3 +141,40 @@ def test_audit_path_from_env_file_reaches_the_shared_audit_log(
     load_launch_environment(checkout_root=None, env_files=[env_file])
 
     assert server_module.McpServer().audit.path == audit_path
+
+
+def test_checkout_environment_never_hands_mcp_the_minio_root_credentials(
+    tmp_path: Path,
+) -> None:
+    _checkout(tmp_path)
+    environment: dict[str, str] = {}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "harborrag-app"
+    assert environment["HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"] == "object-app-secret"
+    mapped = {key: value for key, value in environment.items() if key.startswith("HARBORRAG_")}
+    assert "object-root" not in mapped.values()
+    assert "object-root-secret" not in mapped.values()
+
+
+def test_checkout_environment_honours_a_custom_application_access_key(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    environment = {"MINIO_APP_ACCESS_KEY": "custom-app"}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "custom-app"
+
+
+def test_explicit_object_store_settings_win_over_the_application_key(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    environment = {
+        "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID": "explicit-id",
+        "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY": "explicit-secret",
+    }
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"] == "explicit-id"
+    assert environment["HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"] == "explicit-secret"

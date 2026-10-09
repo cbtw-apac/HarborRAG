@@ -50,7 +50,7 @@ compose_command() {
 allow_teardown_without_secrets() {
     local secret
     for secret in POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB MINIO_ROOT_USER MINIO_ROOT_PASSWORD \
-        QDRANT_API_KEY FALKORDB_PASSWORD; do
+        MINIO_APP_SECRET_KEY QDRANT_API_KEY FALKORDB_PASSWORD; do
         export "${secret}=${!secret:-unused-during-down}"
     done
 }

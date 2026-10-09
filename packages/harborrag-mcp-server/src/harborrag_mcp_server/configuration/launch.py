@@ -45,9 +45,14 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
         "HARBORRAG_OBJECT_STORE_ENDPOINT_URL",
         f"http://localhost:{environ.get('MINIO_API_PORT', '9000')}",
     )
-    _set_default(environ, "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID", environ.get("MINIO_ROOT_USER"))
+    # The least-privilege key minio-init creates; never the MinIO root user.
     _set_default(
-        environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get("MINIO_ROOT_PASSWORD")
+        environ,
+        "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID",
+        environ.get("MINIO_APP_ACCESS_KEY", "harborrag-app"),
+    )
+    _set_default(
+        environ, "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY", environ.get("MINIO_APP_SECRET_KEY")
     )
     _set_default(
         environ,

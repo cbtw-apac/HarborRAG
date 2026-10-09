@@ -31,7 +31,8 @@ scripts/deployment/dev.sh bootstrap
 This creates the ignored checkout `env/` files at mode `0600` and generates the
 local MCP bearer token. The MCP checkout wrapper reads the database, model, and
 optional MCP files; it does not load the API configuration. The server connects
-with the `POSTGRES_*` and `MINIO_ROOT_*` accounts from `env/.env.database`.
+with the `POSTGRES_*` account and the least-privilege `MINIO_APP_*` key from
+`env/.env.database`, never the MinIO root credentials.
 
 > **Review the placeholders before making real tool calls.** The MCP server
 > itself does not need `HARBORRAG_SECRETS_ENCRYPTION_KEY` (it never decrypts

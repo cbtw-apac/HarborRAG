@@ -45,7 +45,7 @@ printf '%s\\n' "$*" >> "$MCP_DOCKER_LOG"
 # Compose interpolates required variables on `down` too.
 case " $* " in
   *" down "*)
-    for name in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD QDRANT_API_KEY FALKORDB_PASSWORD; do
+    for name in POSTGRES_PASSWORD MINIO_ROOT_PASSWORD MINIO_APP_SECRET_KEY QDRANT_API_KEY FALKORDB_PASSWORD; do
       eval "value=\\${$name:-}"
       [ -n "$value" ] || printf 'MISSING %s\\n' "$name" >> "$MCP_DOCKER_LOG.down-env"
     done
