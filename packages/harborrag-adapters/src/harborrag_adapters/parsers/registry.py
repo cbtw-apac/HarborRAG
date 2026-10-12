@@ -229,11 +229,15 @@ class HarborParserRegistry:
         return route.builder() if route is not None else None
 
     def supports_extension(self, extension: str) -> bool:
-        """Return whether a parser family owns ``extension`` (dot optional)."""
+        """Return whether every file with ``extension`` routes (dot optional).
+
+        Suffixes routed only by content type (``.dot``, ``.pot``) are excluded:
+        a file of that suffix without a content type has no parser.
+        """
 
         normalized = extension.lower().strip()
         normalized = normalized if normalized.startswith(".") else f".{normalized}"
-        return normalized in self._extensions or normalized in _CONTENT_TYPE_ROUTED_SUFFIXES
+        return normalized in self._extensions
 
     def families(self) -> tuple[HarborParser, ...]:
         return tuple(builder() for builder in self._families.values())

@@ -33,15 +33,20 @@ def _header_dialect(lines: list[str], *, tsv: bool) -> type[csv.Dialect]:
     The sniffer needs every sampled row to agree, so a single short row defeats
     it. Defaulting to a comma then read a ``;`` or ``|`` file as one column:
     every row had the same width and the short row was never noticed. The
-    header is the row the others are measured against, so its most frequent
-    candidate delimiter is the file's delimiter.
+    header is the row the others are measured against, so the candidate that
+    splits it into the most fields is the file's delimiter. Splitting with the
+    csv reader, not counting characters, ignores delimiters inside quotes such
+    as the comma in ``"First, Name";Amount``.
     """
 
     header = next((line for line in lines if line.strip()), "")
-    counts = {delimiter: header.count(delimiter) for delimiter in _DELIMITERS}
+    widths = {
+        delimiter: len(next(csv.reader([header], delimiter=delimiter), []))
+        for delimiter in _DELIMITERS
+    }
     preferred = "\t" if tsv else ","
-    delimiter = max(counts, key=lambda candidate: (counts[candidate], candidate == preferred))
-    if not counts[delimiter]:
+    delimiter = max(widths, key=lambda candidate: (widths[candidate], candidate == preferred))
+    if widths[delimiter] < 2:
         return csv.excel_tab if tsv else csv.excel
 
     class HeaderDialect(csv.excel):
@@ -104,6 +109,7 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                 warning = f"skipped malformed CSV row at line {reader.line_num}: {exc}"
                 self._warn(parse_input, warning)
                 warnings.append(warning)
+                malformed_rows.append({"line": reader.line_num, "error": str(exc)})
                 continue
 
             budget.consume_row(len(row))
@@ -123,7 +129,9 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                         "line": reader.line_num,
                         "expected_fields": expected_fields,
                         "found_fields": len(row),
-                        "row": dialect.delimiter.join(row),
+                        # Parsed cells, not a re-joined line: joining drops the
+                        # quoting a cell containing the delimiter needs.
+                        "cells": row,
                     }
                 )
                 continue

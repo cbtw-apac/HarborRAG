@@ -263,9 +263,36 @@ def test_csv_parser_records_malformed_rows_for_quarantine():
     document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
 
     assert document.metadata["malformed_rows"] == [
-        {"line": 4, "expected_fields": 4, "found_fields": 2, "row": "8003,Le Van C"}
+        {"line": 4, "expected_fields": 4, "found_fields": 2, "cells": ["8003", "Le Van C"]}
     ]
     assert document.metadata["rows"] == 5
+
+
+def test_csv_parser_quarantines_parsed_cells_so_quoted_delimiters_survive():
+    # Re-joining cells would turn `8003,"Le, Van C"` into three fields.
+    content = 'OrderID,Name,Amount\n8001,An,1\n8003,"Le, Van C"\n8004,Binh,4\n'
+
+    document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
+
+    assert document.metadata["malformed_rows"][0]["cells"] == ["8003", "Le, Van C"]
+
+
+def test_csv_parser_records_rows_rejected_by_the_csv_reader_for_quarantine():
+    # An unterminated quote has no field count to report, only the error.
+    content = 'OrderID,Name\n8001,An\n8002,"Binh\n'
+
+    document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
+
+    assert document.metadata["malformed_rows"] == [{"line": 3, "error": "unexpected end of data"}]
+    assert "8001\tAn" in document.content
+
+
+def test_csv_header_fallback_ignores_delimiters_inside_quoted_fields():
+    from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import _header_dialect
+
+    dialect = _header_dialect(['"First, Name";Amount\n', "An;1\n"], tsv=False)
+
+    assert dialect.delimiter == ";"
 
 
 def test_csv_parser_omits_malformed_rows_when_every_row_is_well_formed():

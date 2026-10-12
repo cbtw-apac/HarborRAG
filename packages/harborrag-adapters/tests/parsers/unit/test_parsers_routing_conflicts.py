@@ -109,8 +109,23 @@ def test_names_without_a_file_suffix_still_route_by_content_type(filename):
 
 @pytest.mark.parametrize(
     ("extension", "supported"),
-    [("md", True), (".PDF", True), ("dot", True), (".pot", True), ("xyz", False), (".srt", False)],
+    [
+        ("md", True),
+        (".PDF", True),
+        ("dot", False),
+        (".pot", False),
+        ("xyz", False),
+        (".srt", False),
+    ],
 )
-def test_supports_extension_includes_content_type_routed_suffixes(extension, supported):
+def test_supports_extension_only_reports_suffixes_that_always_route(extension, supported):
+    # .dot/.pot route only by content type (Word vs Graphviz, PowerPoint vs
+    # gettext), so a file of that suffix without one cannot be parsed and
+    # allowing the suffix on a connector must not pass validation.
     registry = HarborParserFactory().create_registry()
     assert registry.supports_extension(extension) is supported
+
+
+def test_content_type_routed_suffix_without_a_content_type_is_unsupported():
+    registry = HarborParserFactory().create_registry()
+    assert registry.parser_for(ParseInput(content="digraph {}", filename="graph.dot")) is None

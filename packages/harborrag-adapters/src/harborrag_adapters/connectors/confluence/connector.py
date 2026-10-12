@@ -265,7 +265,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             attachments = self._attachments.process(self._content.list_attachments(content_id))
 
         metadata = build_document_metadata(
-            content,
+            self._content.complete_children(content),
             comments=comments,
             attachments=attachments,
         )

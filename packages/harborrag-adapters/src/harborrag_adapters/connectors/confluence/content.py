@@ -247,33 +247,54 @@ class ConfluenceContentAPI:
         stack = [root_id]
         while stack:
             current_id = stack.pop()
-            start = 0
-            while True:
-                response = self.client.get_json(
-                    f"content/{current_id}/child/page",
-                    params={"limit": self.config.page_size, "start": start},
-                )
-                results = response.get("results", [])
-                logger.debug(
-                    "Confluence child page fetched parent_id=%s start=%d records=%d",
-                    current_id,
-                    start,
-                    len(results),
-                )
-                for child in results:
-                    child_id = str(child.get("id") or "")
-                    if not child_id:
-                        continue
-                    child_id = validate_content_id(child_id)
-                    if child_id in seen:
-                        continue
-                    seen.add(child_id)
-                    yield child_id
-                    if recursive:
-                        stack.append(child_id)
-                if not _has_next_page(response, results, self.config.page_size):
-                    break
-                start += len(results)
+            for child in self._child_pages(current_id):
+                child_id = str(child.get("id") or "")
+                if not child_id:
+                    continue
+                child_id = validate_content_id(child_id)
+                if child_id in seen:
+                    continue
+                seen.add(child_id)
+                yield child_id
+                if recursive:
+                    stack.append(child_id)
+
+    def complete_children(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Extend the expanded ``children.page`` list with its remaining pages.
+
+        The expansion carries only the provider's first page of child pages,
+        so a page with more children would otherwise report a partial list.
+        """
+        page = content.get("children", {}).get("page")
+        if not isinstance(page, dict):
+            return content
+        results = list(page.get("results", []))
+        # The expansion's page size is the server's, not ``page_size``: with
+        # no limit reported, trust only its next link or total.
+        if not _has_next_page(page, results, 0):
+            return content
+        content_id = validate_content_id(str(content.get("id") or ""))
+        results.extend(self._child_pages(content_id, start=len(results)))
+        return {**content, "children": {**content["children"], "page": {"results": results}}}
+
+    def _child_pages(self, parent_id: str, *, start: int = 0) -> Iterator[dict[str, Any]]:
+        """Yield one parent's direct child pages, following pagination lazily."""
+        while True:
+            response = self.client.get_json(
+                f"content/{parent_id}/child/page",
+                params={"limit": self.config.page_size, "start": start},
+            )
+            results = response.get("results", [])
+            logger.debug(
+                "Confluence child page fetched parent_id=%s start=%d records=%d",
+                parent_id,
+                start,
+                len(results),
+            )
+            yield from results
+            if not _has_next_page(response, results, self.config.page_size):
+                return
+            start += len(results)
 
 
 def _has_next_page(
