@@ -224,6 +224,44 @@ The connectors include source-level safeguards: same-origin download checks,
 provider-aware retry delays, file-size gates, nested collection caps, scoped local
 path handling, and structured logging.
 
+### Source connectors v2 (`harborrag_adapters.sources`)
+
+The v2 connectors are being built next to the package above and will replace it
+connector by connector. Contracts live in `harborrag_core.sources`:
+
+- `SourceConnector.fetch(window, checkpoint)` yields `SourceRecord`, `Tombstone`,
+  `ItemFailure`, and `CheckpointMark` events.
+- `fetch_keys`, `list_keys`, and `open_blob` handle targeted re-reads, reconcile
+  listings, and lazy file downloads.
+
+A connector reads its window and reports checkpoints. Only the runtime moves the
+watermark.
+
+Every connector is a thin mapping of its vendor's API over the shared `_kit`:
+
+| Module | Responsibility |
+| --- | --- |
+| `_kit/http.py` | `HttpxSourceClient` provides the following: <br>• one refresh on 401 <br>• retries of idempotent requests only <br>• `Retry-After` honoured up to a cap, and `RateLimited(retry_at)` beyond it <br>• SSRF guard <br>• same-origin redirects with credentials; allowed cross-origin hops without them <br>• response size cap |
+| `_kit/retry.py`, `_kit/rate_limit.py` | One full-jitter retry policy; a token bucket shared by all requests of a connection |
+| `_kit/auth.py` | Static token, basic auth, and OAuth refresh. Rotating refresh tokens are swapped through `CredentialStore.compare_and_swap` |
+| `_kit/pagination.py`, `_kit/bisect.py`, `_kit/blobs.py` | Resumable paginators with loop guards; batch bisection that isolates a bad item; file admission and capped, hashed streams |
+| `_kit/render/` | Deterministic HTML-to-Markdown with handler hooks for vendor markup |
+| `registry.py` | `@connector(...)` declarations and a lazy registry that validates connectors at startup |
+
+Connectors must pass `harborrag_core.sources.testing.CONTRACT_CHECKS`. The checks cover:
+
+- idempotence
+- resume equivalence
+- window bounds
+- failure isolation
+- listing coverage
+- targeted fetch
+- complete children
+- deterministic bodies
+- foreign checkpoints
+
+`harborrag_adapters.sources` never imports the legacy `harborrag_adapters.connectors`. An import-linter contract enforces this.
+
 ## Parsers
 
 `HarborParserFactory().create_registry()` builds the registry. It routes by filename

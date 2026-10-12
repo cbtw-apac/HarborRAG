@@ -1936,6 +1936,7 @@ source = { editable = "packages/harborrag-adapters" }
 dependencies = [
     { name = "aiosqlite" },
     { name = "harborrag-core" },
+    { name = "httpx" },
     { name = "requests" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
@@ -2155,6 +2156,7 @@ requires-dist = [
     { name = "falkordb", marker = "extra == 'falkordb'", specifier = ">=1.0,<2" },
     { name = "greenlet", marker = "extra == 'control-plane'", specifier = ">=3" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=1.5,<2" },
     { name = "langchain-text-splitters", marker = "extra == 'chunking'", specifier = ">=1.1,<2" },
     { name = "langfuse", marker = "extra == 'langfuse'", specifier = ">=4,<5" },

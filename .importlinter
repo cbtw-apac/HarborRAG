@@ -174,3 +174,11 @@ forbidden_modules =
     harborrag_runtime.sdk
     harborrag_runtime.execution
     harborrag_runtime.config.temporal
+
+[importlinter:contract:15]
+name = Source connectors v2 never depend on the legacy connectors package
+type = forbidden
+source_modules =
+    harborrag_adapters.sources
+forbidden_modules =
+    harborrag_adapters.connectors

@@ -8,6 +8,7 @@ license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
     "harborrag-core==2.0.0a1",
+    "httpx>=0.28,<1",
     "requests>=2.28.0",
     "sqlalchemy[asyncio]>=2.0,<3",
     "aiosqlite>=0.20,<1",
