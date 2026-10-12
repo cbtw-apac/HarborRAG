@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from harborrag_adapters.parsers.compat import ImageParser
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import MaxPixelsExceededError, ParseError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -181,6 +181,39 @@ def test_image_parser_rejects_image_over_configured_max_pixels_with_clear_error(
         parser.parse(
             ParseInput(content=buffer.getvalue(), filename="dashboard_export_over_limit.png")
         )
+
+
+def test_image_past_pillows_bomb_ceiling_reports_the_configured_max_pixels(monkeypatch) -> None:
+    """Above twice Pillow's `MAX_IMAGE_PIXELS` (~179M pixels by default),
+    `Image.open()` raises before our own dimension check runs. When the
+    configured `max_pixels` sits below that ceiling the image certainly
+    breaks it, so the error must name the configured limit, not Pillow's."""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)  # ceiling: 20 pixels
+
+    with pytest.raises(MaxPixelsExceededError, match=r"exceeds max_pixels 15\b") as exc_info:
+        ImageParser(max_pixels=15).parse(
+            ParseInput(content=_png_bytes(), filename="dashboard_export_over_limit.png")
+        )
+
+    assert exc_info.value.max_pixels == 15
+    assert "dashboard_export_over_limit.png" in str(exc_info.value)
+
+
+def test_image_past_pillows_bomb_ceiling_names_the_ceiling_capping_max_pixels(
+    monkeypatch,
+) -> None:
+    """A configured `max_pixels` above Pillow's ceiling cannot be honored, and
+    the image may still be within it, so the error must not claim a
+    `max_pixels` breach but must say the ceiling is what rejected it."""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)  # ceiling: 20 pixels
+
+    with pytest.raises(ParseError) as exc_info:
+        ImageParser(max_pixels=1_000).parse(ParseInput(content=_png_bytes(), filename="huge.png"))
+
+    assert not isinstance(exc_info.value, MaxPixelsExceededError)
+    assert "decompression-bomb ceiling (20 pixels) is below the configured max_pixels 1000" in str(
+        exc_info.value
+    )
 
 
 def test_liteparse_sends_image_bytes_to_the_ocr_server_and_reuses_the_parser(monkeypatch) -> None:

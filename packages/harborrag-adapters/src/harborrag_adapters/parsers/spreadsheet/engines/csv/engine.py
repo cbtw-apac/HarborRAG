@@ -24,6 +24,32 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("csv")
 
+_DELIMITERS = ",;\t|"
+
+
+def _header_dialect(lines: list[str], *, tsv: bool) -> type[csv.Dialect]:
+    """Pick the delimiter from the header when sniffing the whole sample fails.
+
+    The sniffer needs every sampled row to agree, so a single short row defeats
+    it. Defaulting to a comma then read a ``;`` or ``|`` file as one column:
+    every row had the same width and the short row was never noticed. The
+    header is the row the others are measured against, so its most frequent
+    candidate delimiter is the file's delimiter.
+    """
+
+    header = next((line for line in lines if line.strip()), "")
+    counts = {delimiter: header.count(delimiter) for delimiter in _DELIMITERS}
+    preferred = "\t" if tsv else ","
+    delimiter = max(counts, key=lambda candidate: (counts[candidate], candidate == preferred))
+    if not counts[delimiter]:
+        return csv.excel_tab if tsv else csv.excel
+
+    class HeaderDialect(csv.excel):
+        pass
+
+    HeaderDialect.delimiter = delimiter
+    return HeaderDialect
+
 
 class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
     """Render CSV and TSV inputs as tab-separated table text."""
@@ -58,12 +84,13 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
         lines, warnings = self._decode_lines(parse_input, data)
         sample = "".join(lines)[:4096]
         try:
-            dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+            dialect = csv.Sniffer().sniff(sample, delimiters=_DELIMITERS)
         except csv.Error:
-            dialect = csv.excel_tab if parse_input_suffix(parse_input) == ".tsv" else csv.excel
+            dialect = _header_dialect(lines, tsv=parse_input_suffix(parse_input) == ".tsv")
 
         reader = csv.reader(lines, dialect=dialect, strict=True)
         rendered_rows: list[str] = []
+        malformed_rows: list[dict[str, object]] = []
         expected_fields: int | None = None
         budget = ParseResourceBudget()
         while True:
@@ -91,6 +118,14 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
                 )
                 self._warn(parse_input, warning)
                 warnings.append(warning)
+                malformed_rows.append(
+                    {
+                        "line": reader.line_num,
+                        "expected_fields": expected_fields,
+                        "found_fields": len(row),
+                        "row": dialect.delimiter.join(row),
+                    }
+                )
                 continue
             rendered = "\t".join(cell.strip() for cell in row).rstrip()
             budget.consume_output(len(rendered) + 1)
@@ -129,7 +164,11 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
             elements=elements,
             parser_name=self.parser_name,
             parser_version=self.parser_version,
-            metadata=self.metadata_for(parse_input, rows=len(rendered_rows)),
+            metadata=self.metadata_for(
+                parse_input,
+                rows=len(rendered_rows),
+                malformed_rows=malformed_rows or None,
+            ),
             warnings=warnings or None,
         )
 

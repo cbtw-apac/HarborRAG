@@ -165,14 +165,40 @@ class OcrImageEngine(HarborImageEngine):
                 ),
             )
             raise UnreadableImageError(filename=parse_input.filename, size_bytes=len(data)) from exc
-        except (RuntimeError, OSError, ValueError, Image.DecompressionBombError) as exc:
-            # `Image.open()` runs its own pixel-count guard against Pillow's
-            # global `MAX_IMAGE_PIXELS` *before* our `max_pixels` check gets a
-            # chance to run (headers alone can push a file more than 2x over
-            # Pillow's default threshold). `DecompressionBombError` subclasses
-            # `Exception` directly, not `OSError`, so it must be listed
-            # explicitly or it escapes as an uncaught crash instead of the
-            # typed `ParseError` below.
+        except Image.DecompressionBombError as exc:
+            # Past twice Pillow's `MAX_IMAGE_PIXELS` (~179M pixels by default)
+            # `Image.open()` raises before the dimension check above runs.
+            # `DecompressionBombError` subclasses `Exception`, not `OSError`,
+            # so it needs its own clause or it escapes untyped. Read the
+            # ceiling now, not at import: deployments may tune it.
+            parser_logger.warning(
+                "Image OCR failed for %s: %s",
+                input_label(parse_input),
+                exc,
+                extra=parser_log_extra(
+                    input=parse_input,
+                    parser_name=self.parser_name,
+                    parser_engine=self.ocr_engine,
+                    ocr_lang=self.lang,
+                ),
+            )
+            ceiling = 2 * (Image.MAX_IMAGE_PIXELS or 0)
+            if self.max_pixels is not None and self.max_pixels <= ceiling:
+                raise MaxPixelsExceededError(
+                    more_than=ceiling,
+                    max_pixels=self.max_pixels,
+                    filename=parse_input.filename,
+                ) from exc
+            # The image may still be within a `max_pixels` set above the
+            # ceiling, so name the ceiling as what rejected it.
+            capped = (
+                f" Pillow's decompression-bomb ceiling ({ceiling} pixels) is below "
+                f"the configured max_pixels {self.max_pixels}."
+                if self.max_pixels is not None
+                else ""
+            )
+            raise ParseError(f"Image OCR failed: {exc}{capped}") from exc
+        except (RuntimeError, OSError, ValueError) as exc:
             parser_logger.warning(
                 "Image OCR failed for %s: %s",
                 input_label(parse_input),
