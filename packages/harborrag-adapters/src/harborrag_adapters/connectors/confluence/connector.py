@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from itertools import islice
 
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
@@ -141,13 +140,19 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         )
         try:
             if content_ids:
-                ids: Iterator[str] = self._content.with_children(content_ids, query)
-                if query.limit is not None:
-                    ids = islice(ids, query.limit)
-                for content_id in ids:
+                if query.limit is not None and query.limit <= 0:
+                    return
+                for content_id in self._content.with_children(content_ids, query):
                     record = self._record_for_id(content_id, query)
+                    # Same label and live-doc filters as search. Skipping a
+                    # page still walks its children, which are judged alone.
+                    if not self._should_process_content(record.metadata[DISCOVERY_DESCRIPTOR_KEY]):
+                        logger.debug("Confluence content filtered out content_id=%s", content_id)
+                        continue
                     yielded += 1
                     yield record
+                    if query.limit is not None and yielded >= query.limit:
+                        return
                 return
 
             cql = self._cql_from_query(query)
@@ -263,7 +268,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             content,
             comments=comments,
             attachments=attachments,
-            max_child_pages=self.config.max_child_pages,
         )
         body_html = body_html_from_content(content)
         source_url = display_url(

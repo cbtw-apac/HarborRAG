@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import logging
 from collections.abc import Iterator
 from typing import Any
@@ -209,8 +208,12 @@ class ConfluenceContentAPI:
         content_ids: list[str],
         query: ConnectorQuery,
     ) -> Iterator[str]:
-        """Yield requested content IDs and optionally traverse child pages."""
-        include_children = bool(query.filters.get("include_children"))
+        """Yield requested content IDs followed by their child pages.
+
+        Requesting a parent page brings its children along;
+        ``include_children: false`` requests the listed pages alone.
+        """
+        include_children = bool(query.filters.get("include_children", True))
         seen: set[str] = set()
         for raw_content_id in content_ids:
             content_id = validate_content_id(raw_content_id)
@@ -232,29 +235,11 @@ class ConfluenceContentAPI:
         recursive: bool,
         seen: set[str],
     ) -> Iterator[str]:
-        """Traverse child page IDs, truncated at max_child_pages.
+        """Traverse child page IDs iteratively.
 
-        ``islice`` stops pulling from the underlying generator as soon as the
-        cap is reached, so traversal never fetches pages beyond what's needed
-        -- ``max_child_pages`` caps the discovery count by stopping, not by
-        failing the whole traversal once exceeded.
-        """
-        ids = self._child_page_ids_unbounded(content_id, recursive=recursive, seen=seen)
-        if self.config.max_child_pages is None:
-            yield from ids
-            return
-        yield from itertools.islice(ids, self.config.max_child_pages)
-
-    def _child_page_ids_unbounded(
-        self,
-        content_id: str,
-        *,
-        recursive: bool,
-        seen: set[str],
-    ) -> Iterator[str]:
-        """Traverse child page IDs iteratively, with no count limit applied.
-
-        An explicit stack replaces recursive generator delegation so a deep or
+        A page tree never leaves its space, so the configured space bounds the
+        walk; callers cap the total through ``ConnectorQuery.limit``. An
+        explicit stack replaces recursive generator delegation so a deep or
         broad page hierarchy cannot grow the Python call stack or raise
         RecursionError.
         """

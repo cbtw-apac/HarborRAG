@@ -165,21 +165,21 @@ def test_load_truncates_attachments_over_configured_limit():
     assert len(document.metadata["attachments"]) == 1
 
 
-def test_load_truncates_children_metadata_over_configured_limit():
+def test_load_keeps_every_child_in_children_metadata():
     client = FakeConfluenceClient()
     content = full_content()
     content["children"] = {
         "page": {"results": [{"id": "9", "title": "Child"}, {"id": "10", "title": "Child 2"}]}
     }
     client.add("content/1", content)
-    connector = ConfluenceConnector(
-        cloud_config(max_child_pages=1),
-        client=client,
-    )
+    connector = ConfluenceConnector(cloud_config(), client=client)
 
     document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
-    assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
+    assert document.metadata["children"] == [
+        {"id": "9", "title": "Child", "type": "page"},
+        {"id": "10", "title": "Child 2", "type": "page"},
+    ]
 
 
 def test_load_respects_record_comment_and_attachment_flags():
