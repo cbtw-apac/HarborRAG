@@ -71,6 +71,14 @@ class UserErasureResponse(ApiModel):
     erasure_id: str
     status: Literal["completed", "deferred"]
     sessions: int = Field(ge=0)
+    conversation_messages_cleared: int = Field(
+        ge=0,
+        description=(
+            "Deprecated: use `sessions`. Conversations whose messages were removed "
+            "with the user's sessions; always equal to `sessions`."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
     memories: int = Field(ge=0)
     index_points: int = Field(ge=0)
     deferred_index_points: int = Field(ge=0)

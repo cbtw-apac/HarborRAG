@@ -131,7 +131,15 @@ reports `status: deferred` -- everything is erased and some vector deletes are
 queued for automatic retry. If any step fails (for example a conversation is
 mid-answer), the response is `409` naming the erasure id and the failed steps;
 nothing is reported as erased that was not, and re-running the same request
-finishes the job. The same user id in another tenant is never touched.
+finishes the job. A conversation that is mid-answer is kept while the user's
+other conversations are still deleted. The same user id in another tenant is
+never touched. The response's `conversation_messages_cleared` is deprecated and
+always equals `sessions`.
+
+The `user_erasures` row keeps the erased person's `user_id` on purpose: it is
+the accountability record and the handle for re-running an erasure.
+Administrative and audit identities (`activity.actor`, tenant members,
+`resolved_by`, `created_by`) record who operated the system and are not erased.
 
 `DEFAULT_USER` is refused with `422`: it is the shared identity of every caller
 that sends no end-user claim, so it names no single person, and erasing it

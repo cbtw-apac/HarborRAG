@@ -316,6 +316,9 @@ class MemoryAdministrationService:
                 return replace(totals, complete=False)
             for row in erasable:
                 totals = totals + await self._erase_row(row)
+        if not await self._memories.search(query):
+            # The last pass erased the final rows: complete, not cut short.
+            return totals
         logger.warning(
             "Memory purge stopped after %d passes for tenant=%s scopes=%s; rows may remain",
             _MAX_PASSES,

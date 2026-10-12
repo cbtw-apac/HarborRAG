@@ -21,23 +21,31 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
-from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import MAX_CONVERSATION_PAGE_LIMIT, ConversationIdentity
 from harborrag_core.ports.erasure import UserErasureRecord, UserErasureStatus
 
 if TYPE_CHECKING:
     from harborrag_core.ports.agent_runs import AgentRunRepository
-    from harborrag_core.ports.conversation import ConversationHistoryRepository
+    from harborrag_core.ports.conversation import (
+        ConversationHistoryRepository,
+        ConversationSummaryRow,
+    )
     from harborrag_core.ports.erasure import UserErasureJournal
     from harborrag_core.ports.usage import ModelUsageRepository
 
     from .administration import MemoryAdministrationService
 
+# Deliberately the administration logger: every erasure line (session, user,
+# single memory) lands under one name that operators already filter and audit.
 logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
 
 # Each pass deletes up to one full page, so one run reaches 50 * 100 sessions;
 # beyond that the step fails and a re-run continues where this one stopped.
+# A busy session (a turn mid-answer) is kept and the step fails; more than one
+# page of busy sessions hides the rest until a re-run, which still fails until
+# every session is gone.
 _MAX_SESSION_PASSES = 50
 _COUNT_NAMES = (
     "sessions",
@@ -129,7 +137,20 @@ class UserErasureService:
             finished_at=utc_now(),
         )
         if self._journal is not None:
-            await self._journal.finish(finished)
+            try:
+                await self._journal.finish(finished)
+            except Exception as error:
+                # The deletions already happened; leave a trace of what they
+                # were before the 500, since the journal row says "running".
+                logger.warning(
+                    "User erasure finished but could not be journaled erasure_id=%s "
+                    "tenant=%s status=%s error_type=%s",
+                    finished.erasure_id,
+                    finished.tenant_id,
+                    finished.status,
+                    type(error).__name__,
+                )
+                raise
         _log_erasure(finished)
         return UserErasureReport(finished)
 
@@ -151,21 +172,43 @@ class UserErasureService:
 
         Following ``next_cursor`` would name a session this loop just deleted,
         which the directory rejects; the first page is always what is left.
+        A session with a live turn lease is skipped so the others still go,
+        and the step then fails naming how many were kept; a re-run finishes.
         """
 
-        for _ in range(_MAX_SESSION_PASSES):
+        skipped: set[str] = set()
+        for attempt in range(_MAX_SESSION_PASSES + 1):
             page = await self._conversations.list_conversations(
                 tenant_id=tenant_id, user_id=user_id, limit=MAX_CONVERSATION_PAGE_LIMIT
             )
-            if not page.conversations:
-                return
-            for row in page.conversations:
-                # principal_id is provenance only (compare=False): every
-                # predicate keys on tenant, user and session.
-                identity = ConversationIdentity(tenant_id, "", row.session_id, user_id)
-                if await self._conversations.delete(identity):
-                    run.add("sessions", 1)
-        raise RuntimeError("conversation sessions remained after the pass limit")
+            pending = [row for row in page.conversations if row.session_id not in skipped]
+            if not pending:
+                break
+            if attempt == _MAX_SESSION_PASSES:
+                raise RuntimeError("conversation sessions remained after the pass limit")
+            await self._delete_sessions(run, tenant_id, user_id, pending, skipped)
+        if skipped:
+            raise HarborConflictError(f"{len(skipped)} conversation(s) were busy and were kept")
+
+    async def _delete_sessions(
+        self,
+        run: _Run,
+        tenant_id: str,
+        user_id: str,
+        rows: list[ConversationSummaryRow],
+        skipped: set[str],
+    ) -> None:
+        for row in rows:
+            # principal_id is provenance only (compare=False): every
+            # predicate keys on tenant, user and session.
+            identity = ConversationIdentity(tenant_id, "", row.session_id, user_id)
+            try:
+                deleted = await self._conversations.delete(identity)
+            except HarborConflictError:
+                skipped.add(row.session_id)
+                continue
+            if deleted:
+                run.add("sessions", 1)
 
     async def _erase_memories(self, run: _Run, tenant_id: str, user_id: str) -> None:
         totals = await self._administration.purge_user_memories(

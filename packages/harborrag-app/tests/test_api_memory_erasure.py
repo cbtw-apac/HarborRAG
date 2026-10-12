@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Iterator
+from unittest.mock import AsyncMock
 
 import pytest
 from app_test_fixtures import MockAppService
@@ -116,6 +117,7 @@ async def test_user_erasure_deletes_every_session_and_memory_of_the_user(
         "erasure_id": body["erasure_id"],
         "status": "completed",
         "sessions": 2,
+        "conversation_messages_cleared": 2,
         "memories": 2,
         "index_points": 2,
         "deferred_index_points": 0,
@@ -151,6 +153,7 @@ async def test_a_busy_session_fails_the_erasure_but_the_rest_is_erased(
     response = client.delete(f"/v1/memory/users/{_SUBJECT}")
 
     assert response.status_code == 409
+    assert response.json()["error"]["code"] == "harbor_conflict_error"
     assert "sessions" in response.json()["error"]["message"]
     assert service.memory_store.rows == {}
     [record] = service.erasure_journal.records.values()
@@ -161,6 +164,26 @@ async def test_a_busy_session_fails_the_erasure_but_the_rest_is_erased(
     retry = client.delete(f"/v1/memory/users/{_SUBJECT}")
     assert retry.status_code == 200
     assert retry.json()["sessions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failed_step_names_the_step_but_never_the_underlying_error(
+    client: TestClient,
+    service: MockAppService,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        service.agent_runs,
+        "delete_for_owner",
+        AsyncMock(side_effect=RuntimeError("sentinel-internal-detail")),
+    )
+
+    response = client.delete(f"/v1/memory/users/{_SUBJECT}")
+
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "harbor_conflict_error"
+    assert "agent_runs" in response.json()["error"]["message"]
+    assert "sentinel-internal-detail" not in response.text
 
 
 @pytest.mark.asyncio

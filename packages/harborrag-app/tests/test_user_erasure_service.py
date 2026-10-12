@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
@@ -16,6 +17,8 @@ from harborrag_app.workflow_control.memory import (
     MemoryAdministrationService,
     UserErasureService,
 )
+from harborrag_app.workflow_control.memory import administration as administration_module
+from harborrag_app.workflow_control.memory import user_erasure as user_erasure_module
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.identity import DEFAULT_USER
@@ -276,3 +279,98 @@ async def test_usage_is_reattributed_to_a_fresh_random_pseudonym(
     assert len(tokens) == 2
     assert all(_PSEUDONYM.match(token) for token in tokens)
     assert not any("user-" in token for token in tokens)
+
+
+@pytest.mark.asyncio
+async def test_a_busy_session_is_kept_while_the_users_other_sessions_go(
+    stores: SimpleNamespace,
+) -> None:
+    busy = ConversationIdentity("ACME", "svc", "session-busy", "user-1")
+    for identity in (_MINE, busy):
+        await stores.conversations.create(identity, kind="chat")
+    # A child task holds the lease, so the erasure meets it as a stranger would.
+    assert await asyncio.create_task(
+        stores.conversations.acquire_turn_lease(busy, token="turn-1", lease_seconds=60)
+    )
+
+    report = await _service(stores).erase(tenant_id="ACME", user_id="user-1", actor="admin-1")
+
+    assert report.record.status == "failed"
+    assert report.record.failed_steps == ("sessions",)
+    assert report.record.counts["sessions"] == 1
+    assert not await stores.conversations.exists(_MINE)
+    assert await stores.conversations.exists(busy)
+
+
+@pytest.mark.asyncio
+async def test_sessions_beyond_one_page_are_all_deleted_by_re_listing(
+    stores: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two passes of two delete all four; the last pass must not read as a failure."""
+
+    monkeypatch.setattr(user_erasure_module, "MAX_CONVERSATION_PAGE_LIMIT", 2)
+    monkeypatch.setattr(user_erasure_module, "_MAX_SESSION_PASSES", 2)
+    identities = [
+        ConversationIdentity("ACME", "svc", f"session-{index}", "user-1") for index in range(4)
+    ]
+    for identity in identities:
+        await stores.conversations.create(identity, kind="chat")
+
+    report = await _service(stores).erase(tenant_id="ACME", user_id="user-1", actor="admin-1")
+
+    assert report.record.status == "completed"
+    assert report.record.counts["sessions"] == 4
+    for identity in identities:
+        assert not await stores.conversations.exists(identity)
+
+
+@pytest.mark.asyncio
+async def test_sessions_left_after_the_pass_limit_fail_the_step(
+    stores: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(user_erasure_module, "MAX_CONVERSATION_PAGE_LIMIT", 1)
+    monkeypatch.setattr(user_erasure_module, "_MAX_SESSION_PASSES", 1)
+    for index in range(2):
+        identity = ConversationIdentity("ACME", "svc", f"session-{index}", "user-1")
+        await stores.conversations.create(identity, kind="chat")
+
+    report = await _service(stores).erase(tenant_id="ACME", user_id="user-1", actor="admin-1")
+
+    assert report.record.failed_steps == ("sessions",)
+    assert report.record.counts["sessions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_memory_purge_that_finishes_on_its_last_pass_is_complete(
+    stores: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(administration_module, "_PAGE", 2)
+    monkeypatch.setattr(administration_module, "_MAX_PASSES", 1)
+    for memory_id in ("mem-1", "mem-2"):
+        await stores.memories.save(memory(memory_id, tenant_id="ACME", user_id="user-1"))
+
+    report = await _service(stores).erase(tenant_id="ACME", user_id="user-1", actor="admin-1")
+
+    assert report.record.status == "completed"
+    assert report.record.counts["memories"] == 2
+
+
+@pytest.mark.asyncio
+async def test_a_journal_finish_failure_is_logged_and_raised(
+    stores: SimpleNamespace,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    await _seed(stores)
+    # The fake is a slotted dataclass, so the method is patched on its type.
+    monkeypatch.setattr(
+        type(stores.journal), "finish", AsyncMock(side_effect=RuntimeError("journal offline"))
+    )
+
+    with pytest.raises(RuntimeError, match="journal offline"):
+        await _service(stores).erase(tenant_id="ACME", user_id="user-1", actor="admin-1")
+
+    [started] = stores.journal.records.values()
+    warning = next(r for r in caplog.records if "could not be journaled" in r.getMessage())
+    assert started.erasure_id in warning.getMessage()
+    assert "status=completed" in warning.getMessage()

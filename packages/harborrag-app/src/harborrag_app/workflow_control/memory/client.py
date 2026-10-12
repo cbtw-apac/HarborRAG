@@ -93,7 +93,11 @@ class MemoryAdminClientMixin:
                 f"user erasure {record.erasure_id} did not complete "
                 f"(failed: {', '.join(record.failed_steps)}); re-run it to finish"
             )
-        return AppResponse(True, {"user_id": user_id, **report.as_dict()})
+        data = report.as_dict()
+        # Kept for API compatibility: every deleted conversation took its
+        # messages with it, so this is the session count.
+        data["conversation_messages_cleared"] = data["sessions"]
+        return AppResponse(True, {"user_id": user_id, **data})
 
     async def list_conversations(
         self,
