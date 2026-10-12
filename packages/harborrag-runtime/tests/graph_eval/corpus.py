@@ -81,6 +81,9 @@ def _chunking_service() -> ChunkingService:
         ),
         token_counter=CharacterCounter(),
         refiner=CharacterRefiner(),
+        # At a 60-character limit the context-header reserve would take a third
+        # of every chunk; this corpus measures graph projection, not header budgets.
+        reserve_context_tokens=False,
     )
 
 

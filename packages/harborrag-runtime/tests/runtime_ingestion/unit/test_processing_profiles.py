@@ -100,3 +100,46 @@ def test_processing_profile_uses_custom_config_and_changes_admission_fingerprint
     assert builder.processing_fingerprint(profile=default) != builder.processing_fingerprint(
         profile=custom
     )
+
+
+def test_chunking_tokenizer_setting_changes_processing_identity() -> None:
+    config = default_chunking_config()
+
+    approximate = chunk_strategy_fingerprint(config)
+    tiktoken = chunk_strategy_fingerprint(config, tokenizer="tiktoken:cl100k_base")
+
+    assert approximate == chunk_strategy_fingerprint(config, tokenizer="approximate")
+    assert approximate != tiktoken
+    assert tiktoken != chunk_strategy_fingerprint(config, tokenizer="tiktoken:o200k_base")
+
+
+def test_refiner_and_header_identity_feed_the_fingerprint(monkeypatch: pytest.MonkeyPatch) -> None:
+    import harborrag_runtime.ingestion.chunking_profile as chunking_profile
+
+    config = default_chunking_config()
+    original = chunk_strategy_fingerprint(config)
+
+    monkeypatch.setattr(chunking_profile, "text_refiner_fingerprint", lambda: "changed")
+    assert chunk_strategy_fingerprint(config) != original
+    monkeypatch.undo()
+
+    monkeypatch.setattr(chunking_profile.DefaultChunkContextualizer, "format_version", "changed")
+    assert chunk_strategy_fingerprint(config) != original
+
+
+def test_processing_identity_does_not_depend_on_installed_chunking_extras(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import sys
+
+    config = default_chunking_config()
+    original = chunk_strategy_fingerprint(config)
+    monkeypatch.setitem(sys.modules, "tree_sitter", None)
+    monkeypatch.setitem(sys.modules, "tiktoken", None)
+
+    assert chunk_strategy_fingerprint(config) == original
+
+
+def test_unknown_chunking_tokenizer_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        RuntimeSettings(chunking_tokenizer="sentencepiece")

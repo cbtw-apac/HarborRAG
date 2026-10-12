@@ -6,10 +6,16 @@ import json
 from dataclasses import asdict
 from hashlib import sha256
 
-from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy, ChunkStrategyRegistry
+from harborrag_adapters.chunking import text_refiner_fingerprint
+from harborrag_engine.ingestion.chunking import (
+    ChunkingConfig,
+    ChunkStrategy,
+    ChunkStrategyRegistry,
+    DefaultChunkContextualizer,
+)
 from harborrag_engine.ingestion.chunking.pipeline.composition import builtin_chunking_strategies
 from harborrag_engine.ingestion.chunking.table.rendering import TableRenderer
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_runtime.tokenization import ApproximateTokenCounter, chunking_tokenizer_identity
 
 
 def default_chunking_config() -> ChunkingConfig:
@@ -21,8 +27,15 @@ def default_chunking_config() -> ChunkingConfig:
 def chunk_strategy_fingerprint(
     config: ChunkingConfig,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    *,
+    tokenizer: str = "approximate",
 ) -> str:
-    """Hash normalized policies and explicit versions, independent of mapping order."""
+    """Hash normalized policies and explicit versions, independent of mapping order.
+
+    The refiner fingerprint (including installed tree-sitter grammars), the
+    context-header format and the token counter are part of the identity, so
+    changing any of them re-chunks deliberately.
+    """
 
     counter = ApproximateTokenCounter()
     strategies = (*builtin_chunking_strategies(counter), *additional_strategies)
@@ -39,9 +52,11 @@ def chunk_strategy_fingerprint(
         "profiles": {key: asdict(profile) for key, profile in config.profiles.items()},
         "source_profiles": dict(config.source_profiles),
         "strategies": versions,
-        "tokenizer": {"name": counter.name, "version": counter.version},
+        "tokenizer": chunking_tokenizer_identity(tokenizer),
+        "refiner": text_refiner_fingerprint(),
+        "context_header": DefaultChunkContextualizer.format_version,
         "table_renderer": TableRenderer.version,
-        "pipeline_version": "canonical-route-evidence-v4-stable-section-anchors",
+        "pipeline_version": "canonical-route-evidence-v5-contextual-headers",
     }
     serialized = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "chunking-v3-" + sha256(serialized.encode()).hexdigest()

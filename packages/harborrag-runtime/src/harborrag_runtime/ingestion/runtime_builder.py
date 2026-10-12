@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import os
 
-from harborrag_adapters.chunking import RecursiveTextRefiner
+from harborrag_adapters.chunking import build_text_refiner
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
@@ -24,6 +24,7 @@ from harborrag_adapters.repositories.object_store import (
     ProjectionArtifactRepository,
     RawDocumentArtifactRepository,
 )
+from harborrag_core.contracts.chunking import TokenCounter
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import (
     BaseChunker,
@@ -55,7 +56,7 @@ from harborrag_runtime.config.connectors.corpus_access import require_corpus_acc
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_runtime.tokenization import ApproximateTokenCounter, chunking_token_counter
 
 from .chunking_profile import default_chunking_config
 from .composition import IngestionRuntime
@@ -139,6 +140,7 @@ class IngestionRuntimeBuilder:
             chunker=build_default_chunker(
                 config=self._chunking_config,
                 additional_strategies=self._chunking_strategies,
+                token_counter=chunking_token_counter(settings.chunking_tokenizer),
             ),
             representations=RepresentationReuseService(
                 ChunkRepresentationEncoder(
@@ -328,14 +330,15 @@ def build_default_chunker(
     *,
     config: ChunkingConfig | None = None,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    token_counter: TokenCounter | None = None,
 ) -> BaseChunker:
-    """Build canonical chunking with optional source-owned extensions."""
+    """Build canonical chunking with structure-aware refiners and context headers."""
 
-    token_counter = ApproximateTokenCounter()
+    counter = token_counter or ApproximateTokenCounter()
     return build_chunking_service(
         config=config or default_chunking_config(),
-        token_counter=token_counter,
-        refiner=RecursiveTextRefiner(token_counter),
+        token_counter=counter,
+        refiner=build_text_refiner(counter),
         additional_strategies=additional_strategies,
     )
 

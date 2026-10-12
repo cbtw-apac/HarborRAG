@@ -152,6 +152,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     falkordb_allow_insecure_remote: bool = False
     embedding_model: str | None = None
     embedding_dimensions: int | None = None
+    # Token counter for chunk limits: "approximate" (no dependency) or
+    # "tiktoken:<encoding>" (harborrag-adapters[chunking-tokens]; warm the
+    # encoding cache at image build, tiktoken downloads it on first use).
+    # Changing it changes the processing identity, so documents re-chunk.
+    chunking_tokenizer: str = Field(
+        default="approximate",
+        pattern=r"^(approximate|tiktoken:[A-Za-z0-9_.-]+)$",
+    )
     dense_encoder_profile: str = "dense-default-v1"
     sparse_encoder_profile: str = "bm25-hashed-v1"
     sparse_k: float = Field(default=1.2, gt=0)

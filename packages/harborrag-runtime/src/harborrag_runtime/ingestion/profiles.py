@@ -31,7 +31,9 @@ def build_processing_profile(
         ),
         normalizer_version=CANONICAL_NORMALIZER_VERSION,
         chunk_strategy=chunk_strategy_fingerprint(
-            chunking_config or default_chunking_config(), chunking_strategies
+            chunking_config or default_chunking_config(),
+            chunking_strategies,
+            tokenizer=settings.chunking_tokenizer,
         ),
         dense_encoder_profile=settings.dense_encoder_profile,
         sparse_encoder_profile=settings.sparse_encoder_profile,
