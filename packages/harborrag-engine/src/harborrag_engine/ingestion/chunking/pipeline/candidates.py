@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 
 from ..config import ChunkingConfig, ChunkingLimits, ChunkingPlan, ChunkingProfile
+from ..records.contextualizer import ContextHeaderBudget, budgeted_profile
 from ..schemas import ChunkCandidate, ChunkingRequest
 from ..sources import ChunkStrategyRegistry
 from ..transforms import (
@@ -52,10 +53,12 @@ class ChunkCandidatePipeline:
         config: ChunkingConfig,
         strategies: ChunkStrategyRegistry,
         transforms: ChunkTransforms,
+        header_budget: ContextHeaderBudget | None = None,
     ) -> None:
         self._config = config
         self._strategies = strategies
         self._transforms = transforms
+        self._header_budget = header_budget
 
     def run(
         self,
@@ -73,9 +76,17 @@ class ChunkCandidatePipeline:
         strategy_version = plan.strategy_version if plan is not None else strategy.version
 
         source_units = strategy.create_units(request, profile)
-        refined_units = self._transforms.refiner.refine(source_units, profile)
-        packed = self._transforms.packer.pack(refined_units, profile)
-        evidence_candidates = self._transforms.peer_merger.merge(packed, profile)
+        contextualize = plan.contextualize_embeddings if plan is not None else True
+        # Embedded text carries a context header, so its tokens are reserved
+        # out of the packing limits; identity and validation keep ``profile``.
+        transform_profile = profile
+        if contextualize and self._header_budget is not None:
+            transform_profile = budgeted_profile(
+                profile, self._header_budget.reserve(request, source_units, profile)
+            )
+        refined_units = self._transforms.refiner.refine(source_units, transform_profile)
+        packed = self._transforms.packer.pack(refined_units, transform_profile)
+        evidence_candidates = self._transforms.peer_merger.merge(packed, transform_profile)
 
         include_evidence = plan.create_evidence_chunks if plan is not None else True
         route_enabled = self._config.create_route_chunks and (
@@ -96,10 +107,10 @@ class ChunkCandidatePipeline:
             profile=profile,
             candidates=self._assign_local_parts(candidates),
             route_enabled=route_enabled,
-            contextualize_embeddings=(plan.contextualize_embeddings if plan is not None else True),
+            contextualize_embeddings=contextualize,
             source_unit_count=len(source_units),
             oversized_unit_count=sum(
-                unit.token_count > profile.maximum_tokens for unit in source_units
+                unit.token_count > transform_profile.maximum_tokens for unit in source_units
             ),
             refined_unit_count=len(refined_units),
             forced_split_count=sum(unit.forced_split for unit in refined_units),

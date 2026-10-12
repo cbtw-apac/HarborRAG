@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.contracts.chunking import TokenCounter
+from harborrag_core.contracts.chunking import ChunkContextualizer, TokenCounter
 
 from ..anchors import section_anchors
 from ..errors import ChunkValidationError
@@ -35,11 +35,16 @@ class ChunkResultBuilder:
         configuration_version: str,
         strategies: ChunkStrategyRegistry,
         identity_builder: ChunkIdentityBuilder | None = None,
+        contextualizer: ChunkContextualizer | None = None,
     ) -> None:
         self._configuration_version = configuration_version
         self._strategies = strategies
         self._identity = identity_builder or ChunkIdentityBuilder()
-        self._record_factory = CanonicalChunkFactory(token_counter, self._identity)
+        self._record_factory = CanonicalChunkFactory(
+            token_counter,
+            self._identity,
+            contextualizer,
+        )
         self._hierarchy_validator = ChunkHierarchyValidator()
         self._validator = ChunkValidator(token_counter)
 

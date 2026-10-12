@@ -259,6 +259,8 @@ class OversizedUnitRefiner:
             return splits
 
         line_preserving = unit.role in self._LINE_PRESERVING_ROLES
+        is_code = unit.role == "code"
+        language = unit.metadata.get("language")
         text_splits = self._refiner.split(
             TextRefinementRequest(
                 content=unit.content,
@@ -268,7 +270,12 @@ class OversizedUnitRefiner:
                 boundary_kind=unit.boundary_kind,
                 structural_path=unit.structural_path,
                 preserve_whitespace=line_preserving,
-                separators=("\n", "") if line_preserving else None,
+                # Code keeps its own syntax-aware boundaries; other
+                # line-preserving roles must split only at line breaks.
+                separators=("\n", "") if line_preserving and not is_code else None,
+                language=language
+                if is_code and isinstance(language, str) and language.strip()
+                else None,
             )
         )
         retained = tuple(split for split in text_splits if split.content.strip())
@@ -283,7 +290,13 @@ class OversizedUnitRefiner:
                 hard_boundary_before=True,
                 hard_boundary_after=True,
                 forced_split=True,
-                metadata={**unit.metadata, "local_part_index": index},
+                metadata={
+                    **unit.metadata,
+                    "local_part_index": index,
+                    "part_index": index + 1,
+                    "part_count": len(retained),
+                    **({"code_scope": split.prefix} if split.prefix else {}),
+                },
             )
             for index, split in enumerate(retained)
         )

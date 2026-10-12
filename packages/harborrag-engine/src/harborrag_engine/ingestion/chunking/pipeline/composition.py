@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from harborrag_core.contracts.chunking import TextRefiner, TokenCounter
+from harborrag_core.contracts.chunking import ChunkContextualizer, TextRefiner, TokenCounter
 
 from ..config import ChunkingConfig
+from ..records.contextualizer import ContextHeaderBudget, DefaultChunkContextualizer
 from ..sources import (
     CanonicalDocumentChunkingStrategy,
     ChunkStrategy,
@@ -34,14 +35,24 @@ def builtin_chunking_strategies(token_counter: TokenCounter) -> tuple[ChunkStrat
     )
 
 
-def build_chunking_service(
+def build_chunking_service(  # noqa: PLR0913 - keyword-only composition options
     *,
     config: ChunkingConfig,
     token_counter: TokenCounter,
     refiner: TextRefiner,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    contextualizer: ChunkContextualizer | None = None,
+    reserve_context_tokens: bool = True,
 ) -> ChunkingService:
-    """Compose maintained strategies and shared transformation stages."""
+    """Compose maintained strategies and shared transformation stages.
+
+    ``contextualizer`` renders the context header of embedded evidence text
+    (default: :class:`DefaultChunkContextualizer`); its header tokens are
+    reserved from the packing budget so embedded text stays within limits,
+    unless ``reserve_context_tokens`` is false.
+    """
+
+    header_renderer = contextualizer or DefaultChunkContextualizer(token_counter)
 
     strategies = ChunkStrategyRegistry(
         (*builtin_chunking_strategies(token_counter), *additional_strategies)
@@ -58,6 +69,9 @@ def build_chunking_service(
             peer_merger=CompatiblePeerMerger(token_counter, packer),
             route_planner=RouteChunkPlanner(token_counter),
         ),
+        header_budget=(
+            ContextHeaderBudget(header_renderer, token_counter) if reserve_context_tokens else None
+        ),
     )
     return ChunkingService(
         candidate_pipeline,
@@ -65,5 +79,6 @@ def build_chunking_service(
             token_counter,
             configuration_version=config.configuration_version,
             strategies=strategies,
+            contextualizer=header_renderer,
         ),
     )

@@ -66,3 +66,35 @@ Put reusable segmentation, refinement, packing, identity, and validation
 behavior in `transforms/`, `identity/`, or `records/` rather than copying it
 into a source strategy.
 Raw-format fallbacks belong in parser or normalizer adapters.
+
+## Context headers
+
+Evidence `embedding_text` is the chunk content behind a deterministic context
+header rendered by a `ChunkContextualizer` (core port; default
+`records/contextualizer.py`), in the style of Docling's `contextualize`:
+
+```text
+Document: <title>
+Section: <h1> > <h2> > ...
+Caption: <caption>
+File: <path> (<language>)
+Scope: <enclosing definitions of a code split>
+Part: <i>/<n>
+```
+
+Only present lines are rendered. `content` stays raw for citations, and
+`search_text` keeps its compact lexical form. Header tokens are reserved out of
+the packing limits per document (capped at a third of the hard maximum), so
+content plus header fits the hard limit; when a header still does not fit it
+is trimmed outermost-first, and dropped with `metadata["context_truncated"]`
+as a last resort. Pass `reserve_context_tokens=False` to
+`build_chunking_service` to pack without the reserve.
+
+Oversized code units reach the refiner with their `language` metadata and no
+forced separators; the refiner's `TextSplit.prefix` (enclosing definition
+signatures) is kept as `metadata["code_scope"]`, and every forced split records
+one-based `part_index` / `part_count`.
+
+The header `format_version`, the refiner fingerprint and the token counter
+feed runtime's processing identity, so changing any of them re-chunks
+deliberately.

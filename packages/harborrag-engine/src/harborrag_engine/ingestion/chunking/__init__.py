@@ -17,6 +17,7 @@ from .errors import (
 from .identity import ChunkIdentityBuilder, ChunkIdentityInput
 from .pipeline import ChunkingService, build_chunking_service
 from .records import ChunkHierarchyValidator, ChunkValidator, ChunkVersionRebinder
+from .records.contextualizer import DefaultChunkContextualizer
 from .schemas import (
     ChunkCandidate,
     ChunkingDiagnostics,
@@ -45,6 +46,7 @@ from .table.service import CanonicalTableChunker
 from .transforms.segmentation import produces_evidence
 
 __all__ = [
+    "DefaultChunkContextualizer",
     "CanonicalTableChunker",
     "produces_evidence",
     "ChunkCandidate",

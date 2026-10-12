@@ -109,7 +109,10 @@ def make_service(
     refiner: TextRefiner | None = None,
     create_route_chunks: bool = False,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    reserve_context_tokens: bool = False,
 ) -> ChunkingService:
+    # Packing tests pin exact sizes at tiny limits; the context-header reserve
+    # is exercised separately in test_chunk_contextualizer.py.
     selected_refiner = CharacterRefiner() if refiner is None else refiner
     return build_chunking_service(
         config=make_config(
@@ -120,4 +123,5 @@ def make_service(
         token_counter=CharacterCounter(),
         refiner=selected_refiner,
         additional_strategies=additional_strategies,
+        reserve_context_tokens=reserve_context_tokens,
     )

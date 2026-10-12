@@ -16,7 +16,7 @@ from harborrag_core.chunking import (
     RecordKind,
     RelationType,
 )
-from harborrag_core.contracts.chunking import TokenCounter
+from harborrag_core.contracts.chunking import ChunkContextualizer, TokenCounter
 from harborrag_core.schemas.ids import ChunkId, DocumentId, DocumentVersionId, TenantId
 
 from ..config import ChunkingProfile
@@ -24,6 +24,7 @@ from ..errors import ChunkValidationError
 from ..identity import ChunkIdentity, ChunkIdentityBuilder
 from ..schemas import ChunkCandidate, ChunkingRequest
 from .context import ChunkContextBuilder
+from .contextualizer import HEADER_SEPARATOR, DefaultChunkContextualizer, header_context
 
 _ROLE_TOKEN_PATTERN = compile(r"[._-]+")
 _CHUNK_KIND_RULES = (
@@ -65,10 +66,12 @@ class CanonicalChunkFactory:
         self,
         token_counter: TokenCounter,
         identity_builder: ChunkIdentityBuilder,
+        contextualizer: ChunkContextualizer | None = None,
     ) -> None:
         self._token_counter = token_counter
         self._identity = identity_builder
         self._context = ChunkContextBuilder(identity_builder)
+        self._contextualizer = contextualizer or DefaultChunkContextualizer(token_counter)
 
     def build(self, values: CanonicalChunkInput) -> ChunkRecord:
         """Build one complete immutable chunk without mutating its candidate."""
@@ -94,6 +97,10 @@ class CanonicalChunkFactory:
         )
         record_kind = self.record_kind_for_role(candidate.role)
         search_text = self._search_text(candidate)
+        embedding_text = candidate.content
+        context_truncated = False
+        if values.contextualize_embeddings and record_kind == RecordKind.EVIDENCE:
+            embedding_text, context_truncated = self._embedding_text(values)
         return ChunkRecord(
             strategy_version=values.strategy_version,
             chunk_id=ChunkId(identity.chunk_id),
@@ -128,11 +135,7 @@ class CanonicalChunkFactory:
             document_version_id=DocumentVersionId(request.document_version_id),
             ordinal=values.ordinal,
             content=candidate.content,
-            embedding_text=(
-                search_text
-                if values.contextualize_embeddings and record_kind == RecordKind.EVIDENCE
-                else candidate.content
-            ),
+            embedding_text=embedding_text,
             search_text=search_text,
             token_count=self._token_counter.count(candidate.content),
             citation_locator=citation_locator,
@@ -151,7 +154,7 @@ class CanonicalChunkFactory:
                 content_hash=values.content_hash,
                 is_table=self.kind_for_role(candidate.role) == ChunkKind.TABLE,
             ),
-            metadata=self._metadata(values),
+            metadata=self._metadata(values, context_truncated=context_truncated),
         )
 
     @staticmethod
@@ -227,7 +230,13 @@ class CanonicalChunkFactory:
         local_context = candidate.structural_path[-1:] or ()
         symbol = candidate.metadata.get("symbol")
         symbols = (symbol,) if isinstance(symbol, str) and symbol.strip() else ()
-        return "\n".join((*local_context, *symbols, candidate.content))
+        scope = candidate.metadata.get("code_scope")
+        scopes = tuple(
+            line.strip()
+            for line in (scope.splitlines() if isinstance(scope, str) else ())
+            if line.strip()
+        )
+        return "\n".join((*local_context, *symbols, *scopes, candidate.content))
 
     @staticmethod
     def _relations(request: ChunkingRequest) -> tuple[ChunkRelation, ...]:
@@ -245,8 +254,40 @@ class CanonicalChunkFactory:
                 )
         return tuple(unique.values())
 
+    def _embedding_text(self, values: CanonicalChunkInput) -> tuple[str, bool]:
+        """Render content behind its context header within the hard token limit.
+
+        Returns the text and whether any context had to be left out to fit.
+        """
+
+        candidate = values.candidate
+        context = header_context(
+            values.request,
+            role=candidate.role,
+            structural_path=candidate.structural_path,
+            metadata=candidate.metadata,
+        )
+        full = self._contextualizer.header(context)
+        if not full:
+            return candidate.content, False
+        budget = (
+            values.profile.maximum_tokens
+            - self._token_counter.count(candidate.content)
+            - self._token_counter.count(HEADER_SEPARATOR)
+        )
+        header = self._contextualizer.header(context, maximum_tokens=budget) if budget > 0 else ""
+        text = self._contextualizer.render(header, candidate.content)
+        if header and self._token_counter.count(text) > values.profile.maximum_tokens:
+            header, text = "", candidate.content
+        return text, header != full
+
     @classmethod
-    def _metadata(cls, values: CanonicalChunkInput) -> dict[str, object]:
+    def _metadata(
+        cls,
+        values: CanonicalChunkInput,
+        *,
+        context_truncated: bool = False,
+    ) -> dict[str, object]:
         # An attachment is its own document, and most strategies copy nothing from
         # provenance onto its chunks. Its parent's item id is what links a CV back
         # to the issue whose fields describe it, so every chunk carries it.
@@ -267,4 +308,5 @@ class CanonicalChunkFactory:
             "chunker_version": values.strategy_version,
             "profile_name": values.profile.name,
             "configuration_hash": values.configuration_hash,
+            **({"context_truncated": True} if context_truncated else {}),
         }
