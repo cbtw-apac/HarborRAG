@@ -95,8 +95,14 @@ class TextRefinementRequest:
     structural_path: tuple[str, ...] = ()
     preserve_whitespace: bool = True
     separators: tuple[str, ...] | None = None
+    language: str | None = None
 
     def __post_init__(self) -> None:
+        if self.language is not None:
+            language = self.language.strip().lower()
+            if not language:
+                raise ValueError("language must be non-empty when provided")
+            object.__setattr__(self, "language", language)
         if self.maximum_tokens < 1:
             raise ValueError("maximum_tokens must be positive")
         if not 0 <= self.overlap_tokens < self.maximum_tokens:
@@ -124,3 +130,49 @@ class TextRefiner(Protocol):
 
     def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
         """Return ordered splits that do not exceed the requested hard limit."""
+
+
+@dataclass(frozen=True, slots=True)
+class ChunkHeaderContext:
+    """The facts a contextual header may describe for one evidence chunk.
+
+    Every field is optional; a contextualizer renders only what is present.
+    ``part_index`` is one-based and travels with ``part_count``.
+    """
+
+    document_title: str | None = None
+    structural_path: tuple[str, ...] = ()
+    caption: str | None = None
+    code_location: str | None = None
+    language: str | None = None
+    scope: tuple[str, ...] = ()
+    part_index: int | None = None
+    part_count: int | None = None
+
+    def __post_init__(self) -> None:
+        if any(not part.strip() for part in self.structural_path):
+            raise ValueError("header structural_path parts must be non-empty")
+        if any(not line.strip() for line in self.scope):
+            raise ValueError("header scope lines must be non-empty")
+        if (self.part_index is None) != (self.part_count is None):
+            raise ValueError("part_index and part_count must be provided together")
+        if self.part_index is not None and self.part_count is not None:
+            if not 1 <= self.part_index <= self.part_count:
+                raise ValueError("part_index must satisfy 1 <= part_index <= part_count")
+
+
+@runtime_checkable
+class ChunkContextualizer(Protocol):
+    """Render a deterministic context header in front of chunk content.
+
+    ``format_version`` identifies the header format; changing the format must
+    change it so embeddings are rebuilt deliberately rather than silently mixed.
+    """
+
+    format_version: str
+
+    def header(self, context: ChunkHeaderContext, *, maximum_tokens: int | None = None) -> str:
+        """Return the header, trimmed to ``maximum_tokens`` when a budget is given."""
+
+    def render(self, header: str, content: str) -> str:
+        """Join a header and chunk content into the text that gets embedded."""

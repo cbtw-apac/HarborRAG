@@ -1,4 +1,6 @@
 from .chunking import (
+    ChunkContextualizer,
+    ChunkHeaderContext,
     SourceSpan,
     SplitBoundaryKind,
     TextRefinementRequest,
@@ -25,6 +27,8 @@ from .errors import (
 from .events import HarborEvent
 
 __all__ = [
+    "ChunkContextualizer",
+    "ChunkHeaderContext",
     "HarborAuthError",
     "HarborCapabilityError",
     "HarborConfigurationError",
