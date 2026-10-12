@@ -82,20 +82,21 @@ def test_parse_many_rejects_unknown_policy():
 
 
 @pytest.mark.parametrize("content_type", ["text/plain", "application/octet-stream", None])
-def test_unsupported_suffix_is_not_routed_by_a_generic_content_type(content_type):
+@pytest.mark.parametrize("suffix", [".srt", ".foo-bar", ".foo_bar"])
+def test_unsupported_suffix_is_not_routed_by_a_generic_content_type(content_type, suffix):
     # A .srt or .rtf upload reported as text/plain must not reach the text
     # parser: the unregistered suffix is the stronger signal, not the guess.
     registry = HarborParserFactory().create_registry()
-    unsupported = ParseInput(content="hello", filename="notes.srt", content_type=content_type)
+    unsupported = ParseInput(content="hello", filename=f"notes{suffix}", content_type=content_type)
 
     assert registry.parser_for(unsupported) is None
-    with pytest.raises(UnsupportedFormatError, match="suffix='.srt'"):
+    with pytest.raises(UnsupportedFormatError, match=f"suffix='{suffix}'"):
         registry.parse(unsupported)
 
 
 @pytest.mark.parametrize(
     "filename",
-    ["README", "Release v2.0 Notes", "Version 2.0", None],
+    ["README", "Release v2.0 Notes", "Version 2.0", "Release v2.0-beta", "Build 1.2_rc", None],
 )
 def test_names_without_a_file_suffix_still_route_by_content_type(filename):
     # Page titles and extensionless files carry no real suffix, so their

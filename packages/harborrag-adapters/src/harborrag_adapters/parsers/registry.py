@@ -31,10 +31,12 @@ parser_logger = get_parser_logger("registry")
 _GENERIC_MIME_TYPES = frozenset(
     {"", "text/plain", "application/octet-stream", "binary/octet-stream"}
 )
-# A suffix that names a file format: no spaces and at least one letter. Page
-# titles such as "Release v2.0 Notes" or "Version 2.0" yield ".0 notes" or
-# ".0", which name nothing and must leave routing to the content type.
-_FILE_SUFFIX = re.compile(r"\.(?=[a-z0-9]*[a-z])[a-z0-9]+")
+# A suffix that names a file format: no spaces and at least one letter, with
+# "-" or "_" allowed only after a leading letter (".foo-bar"). Page titles such
+# as "Release v2.0 Notes", "Version 2.0" or "Release v2.0-beta" yield
+# ".0 notes", ".0" or ".0-beta", which name nothing and must leave routing to
+# the content type.
+_FILE_SUFFIX = re.compile(r"\.(?:(?=[a-z0-9]*[a-z])[a-z0-9]+|[a-z][a-z0-9_-]*)")
 # Suffixes deliberately left out of the extension index because two formats
 # share them (Word template or Graphviz graph, PowerPoint template or gettext
 # catalog); the content type picks the family, so they stay routable by it.
