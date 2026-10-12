@@ -8,6 +8,7 @@ import logging
 import uuid
 from collections.abc import AsyncGenerator, Mapping
 
+from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
@@ -59,6 +60,12 @@ from .factories import AppServiceFactories
 from .resources import AppResources
 
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
+
+MEMORY_RETENTION_LEASE_NAME = "memory_retention"
+MEMORY_RETENTION_LEASE_TTL_SECONDS = 300.0
+# A full batch means more may be waiting; bound one pass so a large backlog
+# drains over several hourly passes instead of holding the lease indefinitely.
+_RETENTION_BATCHES_PER_PASS = 20
 
 
 class AppService(
@@ -230,6 +237,35 @@ class AppService(
         return await recover_pending_control_plane_effects(
             self._control_plane(), limit=limit, erasure_handler=self._memory_admin.recover_erasure
         )
+
+    async def purge_expired_memories(self, *, limit: int = 500) -> int:
+        """One retention pass, run by whichever API process holds the lease.
+
+        Retention is opt-in: with no scope enabled the pass returns at once,
+        before the lease or any database access. Each batch re-acquires (and
+        so renews) the lease first, so a pass that overruns the ttl stops
+        instead of racing a new holder.
+        """
+
+        if self._composition.control_plane is None:
+            return 0
+        purged = 0
+        for _ in range(_RETENTION_BATCHES_PER_PASS):
+            now = utc_now()
+            cutoffs = self._settings.memory_retention_cutoffs(now)
+            if not cutoffs:
+                return purged
+            if not await self._control_plane().leases.try_acquire(
+                MEMORY_RETENTION_LEASE_NAME,
+                self._instance_id,
+                ttl_seconds=MEMORY_RETENTION_LEASE_TTL_SECONDS,
+            ):
+                return purged
+            batch = await self._memory_admin.purge_expired(cutoffs, now=now, limit=limit)
+            purged += batch
+            if batch < limit:
+                return purged
+        return purged
 
     async def sync_ingestion_progress(self) -> int:
         """One poll tick fanning active tasks' progress out via the event bus.

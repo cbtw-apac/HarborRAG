@@ -34,7 +34,8 @@ from harborrag_core.ports.memory import (
 from .erasure import SESSION_ERASURE, ErasedMemory, MemoryErasureJournal
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
+    from datetime import datetime
 
     from harborrag_core.ports.conversation import ConversationHistoryRepository
     from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryRepository
@@ -246,6 +247,30 @@ class MemoryAdministrationService:
         if not totals.complete:
             raise RuntimeError("memories remained after the purge pass limit")
         return totals
+
+    async def purge_expired(
+        self,
+        cutoffs: Mapping[MemoryScope, datetime],
+        *,
+        now: datetime,
+        limit: int = 500,
+    ) -> int:
+        """Erase one batch of memories past retention, oldest first, row and vector.
+
+        Retention is opt-in: empty ``cutoffs`` erase nothing. Each row goes
+        through the erasure journal under its own owner, so a failed vector
+        delete is retried by the effect-recovery drain like any other erasure.
+        Returns how many rows this batch erased.
+        """
+
+        if self._memories is None or not cutoffs:
+            return 0
+        expired = await self._memories.list_expired(cutoffs=cutoffs, now=now, limit=limit)
+        for row in expired:
+            await self._erasure.erase_memory(row)
+        if expired:
+            logger.info("Memory retention erased count=%d", len(expired))
+        return len(expired)
 
     async def _purge_session(
         self, owner: MemoryOwner, identity: ConversationIdentity

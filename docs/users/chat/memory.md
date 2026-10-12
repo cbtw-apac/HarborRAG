@@ -149,6 +149,34 @@ Procedure: revoke the user's credentials first, then erase. An answer still
 being generated for that user when the erasure runs can otherwise write new
 history after it.
 
+## Retention and redaction
+
+Automatic expiry of long-term memories is **off by default**: nothing is
+deleted by age unless an operator turns it on. Enable it per scope, in days
+counted from the last time a memory was updated:
+
+| Setting | Scope |
+| --- | --- |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION` | session memories, and run memories |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_USER` | user memories |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` | project memories |
+
+`0` (the default) disables expiry for that scope. Tenant and global memories
+never expire by age. A memory with an explicit expiry time that has passed is
+also erased, but only while at least one scope above is enabled.
+
+Once a scope is enabled, the API erases that scope's memories, with their
+vector-index entries, once an hour (one API process at a time, up to 10,000
+memories per pass). Existing rows are not exempt: on the next pass after you
+set a value, every row of that scope last updated longer ago than the cutoff
+is deleted, including rows that predate the setting. Lowering a value deletes
+more on the next pass; raising it or setting `0` stops further deletion but
+does not restore what was erased. These settings govern long-term memories
+only, not conversation history.
+
+Back up the control database before enabling retention for the first time,
+because the first pass can delete a large backlog and erasure is permanent.
+
 ## Automatic extraction scope
 
 Automatic long-term extraction and the agent `manage_memory` tool store a

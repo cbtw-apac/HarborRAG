@@ -81,6 +81,8 @@ class FakeMemoryStore:
     async def list_expired(
         self, *, cutoffs: Mapping[MemoryScope, datetime], now: datetime, limit: int
     ) -> tuple[Memory, ...]:
+        if limit < 1:
+            raise ValueError("expired memory listing limit must be positive")
         if not cutoffs:
             return ()
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from pydantic import ValidationError
@@ -184,3 +185,35 @@ def test_project_scope_extraction_is_opt_in(monkeypatch: pytest.MonkeyPatch) -> 
 
     assert enabled.memory_extraction_project_scope is True
     assert memory_policy_from_settings(enabled).extraction_project_scope is True
+
+
+def test_retention_is_off_by_default() -> None:
+    settings = RuntimeSettings()
+
+    assert settings.memory_retention_days_session == 0
+    assert settings.memory_retention_days_user == 0
+    assert settings.memory_retention_days_project == 0
+    assert settings.memory_retention_cutoffs(datetime(2026, 10, 1, tzinfo=UTC)) == {}
+
+
+def test_retention_cutoffs_cover_only_scopes_that_expire() -> None:
+    settings = RuntimeSettings(
+        memory_retention_days_session=30,
+        memory_retention_days_user=365,
+        memory_retention_days_project=0,
+    )
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+
+    assert settings.memory_retention_cutoffs(now) == {
+        MemoryScope.RUN: now - timedelta(days=30),
+        MemoryScope.SESSION: now - timedelta(days=30),
+        MemoryScope.USER: now - timedelta(days=365),
+    }
+
+
+def test_retention_cutoffs_enable_one_scope_at_a_time() -> None:
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+
+    assert RuntimeSettings(memory_retention_days_project=7).memory_retention_cutoffs(now) == {
+        MemoryScope.PROJECT: now - timedelta(days=7)
+    }

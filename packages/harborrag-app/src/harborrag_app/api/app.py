@@ -36,6 +36,7 @@ logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
 _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
+_MEMORY_RETENTION_INTERVAL_SECONDS = 3600.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -93,6 +94,24 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _purge_expired_memories(app: FastAPI) -> None:
+    """Hourly: erase long-term memories past their configured retention.
+
+    A no-op pass unless an operator enabled a retention scope. Logs counts only.
+    """
+
+    while True:
+        try:
+            purged = await app.state.app_service.purge_expired_memories()
+            if purged:
+                logger.info("Erased %d memories past retention", purged)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Memory retention pass failed")
+        await asyncio.sleep(_MEMORY_RETENTION_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -120,16 +139,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     control_plane_effect_recovery_task = asyncio.create_task(
         _recover_pending_control_plane_effects(app)
     )
+    retention_task = asyncio.create_task(_purge_expired_memories(app))
     try:
         yield
     finally:
         recovery_task.cancel()
         progress_task.cancel()
         control_plane_effect_recovery_task.cancel()
+        retention_task.cancel()
         await asyncio.gather(
             recovery_task,
             progress_task,
             control_plane_effect_recovery_task,
+            retention_task,
             return_exceptions=True,
         )
         logger.info("Closing the application service")

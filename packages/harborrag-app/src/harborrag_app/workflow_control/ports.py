@@ -51,6 +51,12 @@ class BaseAppService(ABC):
 
         return 0
 
+    async def purge_expired_memories(self, *, limit: int = 500) -> int:
+        """Erase memories past retention where the concrete service supports it."""
+
+        del limit
+        return 0
+
     async def start_memory_extraction(self) -> None:
         """Start background memory extraction where the service supports it."""
 

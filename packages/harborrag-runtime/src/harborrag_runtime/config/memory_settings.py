@@ -7,6 +7,8 @@ carries the ``HARBORRAG_`` prefix its host settings class declares.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
@@ -85,9 +87,12 @@ class MemorySettingsMixin(BaseSettings):
     memory_model_profile: str = Field(default="memory", min_length=1)
     memory_embed_profile: str | None = None
 
-    # Retention per scope; 0 means no automatic expiry.
-    memory_retention_days_session: int = Field(default=90, ge=0)
-    memory_retention_days_user: int = Field(default=365, ge=0)
+    # Retention per scope, by days since a memory was last updated. Opt-in:
+    # 0 (the default) means never, so nothing is deleted until an operator
+    # sets a value. Enforced by the API's hourly purge (canonical row and
+    # vector). RUN memories follow the session value; TENANT/GLOBAL never expire.
+    memory_retention_days_session: int = Field(default=0, ge=0)
+    memory_retention_days_user: int = Field(default=0, ge=0)
     memory_retention_days_project: int = Field(default=0, ge=0)
 
     memory_pii_redaction: bool = False
@@ -142,6 +147,21 @@ class MemorySettingsMixin(BaseSettings):
         if scope is MemoryScope.PROJECT:
             return self.memory_retention_days_project
         return 0
+
+    def memory_retention_cutoffs(self, now: datetime) -> dict[MemoryScope, datetime]:
+        """Last-update instant before which a memory at each scope is expired.
+
+        Scopes with retention 0 (the default) never expire and are left out, so
+        the mapping is empty until an operator enables retention. TENANT and
+        GLOBAL memories are shared reference facts and never expire by age.
+        """
+
+        cutoffs: dict[MemoryScope, datetime] = {}
+        for scope in (MemoryScope.RUN, MemoryScope.SESSION, MemoryScope.USER, MemoryScope.PROJECT):
+            days = self.memory_retention_days(scope)
+            if days > 0:
+                cutoffs[scope] = now - timedelta(days=days)
+        return cutoffs
 
 
 __all__ = ["MemorySettingsMixin"]

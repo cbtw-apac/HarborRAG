@@ -216,6 +216,9 @@ class MemoryRow(Base):
         ),
         sa.Index("ix_memories_tenant_user", "tenant_id", "user_id"),
         sa.Index("ix_memories_content_hash", "content_hash"),
+        # Migration 0041: the retention purge's oldest-first scan and expiry filter.
+        sa.Index("ix_memories_updated_at_id", "updated_at", "memory_id"),
+        sa.Index("ix_memories_expires_at", "expires_at"),
     )
 
     memory_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
