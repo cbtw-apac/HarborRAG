@@ -78,6 +78,15 @@ def test_markdown_parser_element_types_and_levels():
     assert document.raw == {"markdown": markdown}
 
 
+def test_markdown_code_fence_records_its_language():
+    markdown = "```Python title=demo.py\nprint(1)\n```\n\n~~~\nplain\n~~~\n\n```ts\nlet x = 1\n"
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [element for element in document.elements if element.type == "code"]
+    assert [element.metadata.get("language") for element in code] == ["python", None, "typescript"]
+    assert "language" not in code[1].metadata
+
+
 def test_markdown_strips_links_and_emphasis_in_content():
     document = MarkdownParser().parse(
         ParseInput(content="See [Harbor](https://x) and *bold*", filename="d.md")

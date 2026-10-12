@@ -4,19 +4,24 @@ from collections.abc import Callable, Mapping, Sequence
 from typing import Any, cast
 
 from harborrag_core.contracts.chunking import (
-    SourceSpan,
     SplitBoundaryKind,
     TextRefinementRequest,
     TextSplit,
     TokenCounter,
 )
+from harborrag_core.ingestion import ChunkValidationError
 
-_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "? ", "! ", " ", "")
+from ._spans import source_span, validate_coverage
+
+_PROSE_SEPARATORS = ("\n\n", "\n", ". ", "? ", "! ", "。", "？", "！", " ", "")
 _STRUCTURED_SEPARATORS = ("\n", "")
 
 
 class RecursiveTextRefiner:
     """Use recursive character splitting only to refine oversized text units."""
+
+    name = "recursive"
+    version = "2"
 
     def __init__(
         self,
@@ -73,17 +78,17 @@ class RecursiveTextRefiner:
 
         positioned = self._positioned_chunks(splitter, request.content)
         if not positioned:
-            raise ValueError("recursive text refiner returned no content")
-        self._validate_coverage(positioned, len(request.content))
+            raise ChunkValidationError("recursive text refiner returned no content")
+        validate_coverage([(start, end) for _, start, end in positioned], len(request.content))
 
         forced = len(positioned) > 1
         results: list[TextSplit] = []
         for content, start, end in positioned:
             token_count = self._token_counter.count(content)
             if token_count < 1:
-                raise ValueError("recursive text refiner returned a zero-token split")
+                raise ChunkValidationError("recursive text refiner returned a zero-token split")
             if token_count > request.maximum_tokens:
-                raise ValueError(
+                raise ChunkValidationError(
                     "recursive text refiner returned content above maximum_tokens; "
                     "use a tokenizer-compatible length function"
                 )
@@ -91,7 +96,7 @@ class RecursiveTextRefiner:
                 TextSplit(
                     content=content,
                     token_count=token_count,
-                    source_span=self._source_span(request, start, end),
+                    source_span=source_span(request, start, end),
                     boundary_kind=(SplitBoundaryKind.FORCED if forced else request.boundary_kind),
                     structural_path=request.structural_path,
                     forced_split=forced,
@@ -143,62 +148,14 @@ class RecursiveTextRefiner:
             if start < 0 and previous_end:
                 start = text.find(value, 0, previous_end)
             if start < 0:
-                raise ValueError("could not map recursive split back to source content")
+                raise ChunkValidationError("could not map recursive split back to source content")
             end = start + len(value)
             positioned.append((value, start, end))
             previous_start = start + 1
             previous_end = end
         return positioned
 
-    @staticmethod
-    def _validate_coverage(chunks: Sequence[tuple[str, int, int]], source_size: int) -> None:
-        coverage_end = 0
-        last_start = -1
-        for _, start, end in chunks:
-            if start < 0 or end < start or end > source_size:
-                raise ValueError(
-                    "recursive split contains invalid source offsets: "
-                    f"start={start}, end={end}, source_size={source_size}"
-                )
-            if start < last_start:
-                raise ValueError(
-                    "recursive split source offsets are not ordered: "
-                    f"start={start} precedes previous start={last_start}"
-                )
-            if start > coverage_end:
-                raise ValueError(
-                    f"recursive split lost source content between offset {coverage_end} and {start}"
-                )
-            last_start = start
-            coverage_end = max(coverage_end, end)
-        if coverage_end != source_size:
-            raise ValueError(
-                "recursive split lost trailing source content: "
-                f"covered {coverage_end} of {source_size}"
-            )
+    def fingerprint(self) -> str:
+        """Identify the boundary behaviour for processing-identity hashes."""
 
-    @staticmethod
-    def _source_span(
-        request: TextRefinementRequest,
-        start: int,
-        end: int,
-    ) -> SourceSpan:
-        base = request.source_span
-        base_offset = base.start_offset if base and base.start_offset is not None else 0
-
-        start_line: int | None = None
-        end_line: int | None = None
-        if base and base.start_line is not None:
-            before = request.content[:start]
-            start_line = base.start_line + before.count("\n")
-            end_line = base.start_line + request.content[: end - 1].count("\n")
-
-        return SourceSpan(
-            start_offset=base_offset + start,
-            end_offset=base_offset + end,
-            start_line=start_line,
-            end_line=end_line,
-            page_start=base.page_start if base else None,
-            page_end=base.page_end if base else None,
-            element_ids=base.element_ids if base else (),
-        )
+        return f"{self.name}:{self.version}"

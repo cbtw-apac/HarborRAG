@@ -60,18 +60,45 @@ PDFs through the default parser stack:
 pip install -e "packages/harborrag-adapters[parsers]"
 ```
 
-Install the optional third-party chunking provider used for oversized text
-refinement:
+Engine segments canonical documents itself and calls a `TextRefiner` only for
+a unit that is still above its hard token limit. `build_text_refiner(counter)`
+returns the routing refiner for that job; it needs no optional dependency:
+
+```text
+chunking/
+  _base.py               BaseTextRefiner: strategies propose cuts; the base splits
+                         strongest-first, merges siblings, force-windows, checks
+                         coverage, and maps source spans
+  text_structure.py      paragraphs > sentences (CJK, abbreviation-safe) > lines >
+                         clauses > whitespace
+  document_structure.py  Markdown headings, fences, quotes, lists inside one unit
+  code_structure.py      cAST split-then-merge over tree-sitter; separator fallback
+  separators.py          caller-chosen separators (tables, JSON, logs)
+  router.py              RoutingTextRefiner: dispatch on boundary kind + content
+  tokenizers.py          TiktokenTokenCounter (exact counts, special tokens allowed)
+  languages.py           language names, guessing, bundled grammars
+  recursive.py           RecursiveTextRefiner (LangChain), kept for direct use
+```
+
+Every refiner returns HarborRAG-owned `TextSplit` values that tile the unit
+exactly and fit the limit under the injected `TokenCounter`. Code splits carry
+the signatures of their enclosing definitions in `TextSplit.prefix`, which
+engine shows in the chunk's context header. Raw Markdown, HTML, JSON, PDF, and
+Office structure is still owned by parsers and canonical normalizers.
+
+Optional extras:
 
 ```bash
+# syntax-aware code splitting (grammars ship in the wheels; no downloads)
+pip install -e "packages/harborrag-adapters[chunking-code]"
+# exact tiktoken counts (warm TIKTOKEN_CACHE_DIR at image build)
+pip install -e "packages/harborrag-adapters[chunking-tokens]"
+# LangChain recursive splitter, only for RecursiveTextRefiner
 pip install -e "packages/harborrag-adapters[chunking]"
 ```
 
-The implementation is `chunking/recursive.py`. Inject `RecursiveTextRefiner`
-into the engine chunking service. It returns HarborRAG-owned `TextSplit`
-values, so engine policy never depends on framework-owned types. Raw Markdown,
-HTML, JSON, PDF, and Office structure is owned by parsers and canonical
-normalizers, not by the chunk refinement adapter.
+The grammar pins are part of the chunking identity (`languages.GRAMMAR_SET`);
+change both together.
 
 Install advanced PDF backends separately when needed. This extra also includes
 RapidOCR with its default ONNX Runtime CPU engine:

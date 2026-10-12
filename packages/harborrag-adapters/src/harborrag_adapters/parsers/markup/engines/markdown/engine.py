@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import ClassVar, Literal
 
+from harborrag_adapters.chunking.languages import guess_language
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,
@@ -85,6 +86,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         block: list[str] = []
         in_code = False
         code_fence = ""
+        code_language: str | None = None
         lines = markdown.splitlines()
 
         index = 0
@@ -94,13 +96,15 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
             if stripped.startswith(("```", "~~~")):
                 fence = stripped[:3]
                 if in_code and fence == code_fence:
-                    cls._flush(elements, block, source_id, "code")
+                    cls._flush(elements, block, source_id, "code", language=code_language)
                     in_code = False
                     code_fence = ""
+                    code_language = None
                 elif not in_code:
                     cls._flush(elements, block, source_id)
                     in_code = True
                     code_fence = fence
+                    code_language = guess_language(fence_info=stripped.lstrip("`~"))
                 else:
                     block.append(line)
                 index += 1
@@ -146,6 +150,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
             block,
             source_id,
             "code" if in_code else "paragraph",
+            language=code_language,
         )
         return elements
 
@@ -182,6 +187,8 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         block: list[str],
         source_id: str,
         kind: Literal["paragraph", "code"] = "paragraph",
+        *,
+        language: str | None = None,
     ) -> None:
         content = "\n".join(block).strip()
         if content:
@@ -190,6 +197,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
                     id=f"{source_id}:{len(elements)}",
                     type=kind,
                     content=(cls._to_text(content) if kind == "paragraph" else content),
+                    metadata=({"language": language} if kind == "code" and language else {}),
                 )
             )
         block.clear()
