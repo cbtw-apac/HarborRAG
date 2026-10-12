@@ -1,12 +1,31 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from harborrag_core.ingestion import ParserRejectedDocumentError, UnsupportedDocumentError
 
 
+def _rebuild_parse_error(
+    cls: type[ParseError], args: tuple[Any, ...], state: dict[str, Any]
+) -> ParseError:
+    """Unpickle without calling ``__init__``, whose signature varies per subclass."""
+
+    error = cls.__new__(cls)
+    error.args = args
+    error.__dict__.update(state)
+    return error
+
+
 class ParseError(ParserRejectedDocumentError, RuntimeError):
     """Raised when a parser cannot extract text from an input it owns."""
+
+    def __reduce__(self) -> tuple[Any, ...]:
+        # The default reduction calls ``cls(*args)``, which fails for every
+        # subclass with keyword-only ``__init__`` arguments; an isolated parse
+        # sends these errors across a process boundary, so rebuild them from
+        # their message and attributes instead.
+        return (_rebuild_parse_error, (type(self), self.args, dict(self.__dict__)))
 
 
 class PasswordProtectedError(ParseError):

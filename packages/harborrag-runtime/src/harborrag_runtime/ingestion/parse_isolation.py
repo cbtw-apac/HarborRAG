@@ -48,7 +48,12 @@ from typing import Any, Literal, cast
 
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.ingestion import DocumentParseCrashError, DocumentParseTimeoutError
+from harborrag_core.ingestion import (
+    DocumentParseCrashError,
+    DocumentParseTimeoutError,
+    ParserRejectedDocumentError,
+    UnsupportedDocumentError,
+)
 
 logger = logging.getLogger("harborrag.runtime.ingestion.parse_isolation")
 
@@ -61,7 +66,9 @@ _JOIN_SECONDS = 5.0
 # oversized result is never allocated.
 _MAX_OUTCOME_BYTES = 256 * 1024 * 1024
 # Imported once by the fork server, so each forked parse skips the parser
-# imports and catalog load (~0.5s measured) instead of paying them per document.
+# imports instead of paying them per document. The catalog itself is still
+# loaded per parse, in the child. Note that a forkserver child also re-imports
+# the parent's ``__main__`` (as ``__mp_main__``) on every parse.
 _FORKSERVER_PRELOAD = ["harborrag_runtime.config.parsers", "harborrag_adapters.parsers"]
 
 
@@ -82,13 +89,38 @@ def _child_main(target: Callable[..., Any], args: tuple[Any, ...], sender: Any) 
         outcome: tuple[str, Any] = ("done", target(*args))
     except BaseException as error:  # noqa: BLE001 - every failure crosses back to the parent
         outcome = ("error", error)
+    sender.send_bytes(_encode_outcome(outcome))
+    sender.close()
+
+
+def _encode_outcome(outcome: tuple[str, Any]) -> bytes:
+    """Pickle ``outcome``, or a stand-in if it would not survive the trip back.
+
+    An exception can pickle yet fail to unpickle (a keyword-only ``__init__``),
+    which would reach the parent as a bare ``TypeError``. So the round trip is
+    checked here, and a failing outcome is replaced by one that keeps the
+    original's classification but carries only its class name.
+    """
+
     try:
         payload = pickle.dumps(outcome)
-    except Exception as error:  # noqa: BLE001 - an unpicklable result or exception
-        fallback = RuntimeError(f"parse outcome could not be returned: {type(error).__name__}")
-        payload = pickle.dumps(("error", fallback))
-    sender.send_bytes(payload)
-    sender.close()
+        pickle.loads(payload)
+    except Exception:  # noqa: BLE001 - an unpicklable or unrebuildable result or exception
+        return pickle.dumps(("error", _stand_in(outcome)))
+    return payload
+
+
+def _stand_in(outcome: tuple[str, Any]) -> BaseException:
+    kind, value = outcome
+    if kind == "error" and isinstance(value, ParserRejectedDocumentError):
+        rejected = (
+            UnsupportedDocumentError
+            if isinstance(value, UnsupportedDocumentError)
+            else ParserRejectedDocumentError
+        )
+        return rejected(f"parser rejected the document with {type(value).__name__}")
+    returned = type(value).__name__
+    return DocumentParseCrashError(f"parse outcome could not be returned: {returned}")
 
 
 def run_with_deadline(
@@ -125,7 +157,7 @@ def run_with_deadline(
 def _await_outcome(process: Any, receiver: Any, deadline_seconds: float) -> Any:
     if not receiver.poll(deadline_seconds):
         logger.warning(
-            "Document parse exceeded %.0fs; killing parse process pid=%s",
+            "Document parse exceeded %gs; killing parse process pid=%s",
             deadline_seconds,
             process.pid,
         )
@@ -133,7 +165,7 @@ def _await_outcome(process: Any, receiver: Any, deadline_seconds: float) -> Any:
         raise DocumentParseTimeoutError(
             f"document parse exceeded {deadline_seconds:g}s and was stopped"
         )
-    kind, value = pickle.loads(_receive_outcome(receiver))
+    kind, value = _decode_outcome(_receive_outcome(receiver))
     if kind == "error":
         raise cast(BaseException, value)
     return value
@@ -148,12 +180,26 @@ def _receive_outcome(receiver: Any) -> bytes:
         raise DocumentParseCrashError("parse process result was too large or unreadable") from None
 
 
+def _decode_outcome(payload: bytes) -> tuple[str, Any]:
+    try:
+        kind, value = pickle.loads(payload)
+    except Exception:  # noqa: BLE001 - a corrupt or unrebuildable outcome
+        raise DocumentParseCrashError("parse process result could not be decoded") from None
+    return cast(str, kind), value
+
+
 def _kill_group(process: Any) -> None:
     """SIGKILL the child and everything it started.
 
-    Called only while the child has not been reaped, so it still owns its
-    pid and process group; signalling a group after the child was reaped
-    could hit an unrelated, reused pid.
+    The group id is the child's pid. Under ``spawn`` the parent has not
+    reaped the child yet, so the pid is still the child's. Under
+    ``forkserver`` the server may already have reaped it; the group then
+    lives on only while something the parse started is still in it, and
+    Linux does not reuse a pid that is still a process group id. If the
+    group is empty, the signal fails with ``ProcessLookupError``, which is
+    ignored. Reuse is possible only in the narrow case where the group has
+    emptied and an unrelated process has since taken the pid as its own
+    group leader.
     """
 
     with contextlib.suppress(ProcessLookupError, PermissionError):
@@ -163,10 +209,12 @@ def _kill_group(process: Any) -> None:
 def _reap(process: Any) -> None:
     """Make sure the child is gone, then reap it; runs exactly once per child."""
 
+    _kill_group(process)  # also when the child crashed: what it started may live on
     if process.is_alive():  # an exception in the parent, or a child stuck exiting
-        _kill_group(process)
         process.kill()  # in case it had not yet moved into its own group
     process.join(_JOIN_SECONDS)
+    if process.exitcode is None:
+        logger.warning("Parse process pid=%s was not reaped within %gs", process.pid, _JOIN_SECONDS)
 
 
 def _context(start_method: StartMethod) -> Any:
