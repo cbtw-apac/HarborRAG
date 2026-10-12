@@ -143,6 +143,83 @@ def test_discover_can_expand_child_pages_for_direct_ids():
     assert [record.locator for record in records] == ["1", "2"]
 
 
+def test_discover_includes_every_child_page_of_direct_ids():
+    # Pointing a sync at a parent page brings all of its child pages along
+    # without an extra opt-in filter; the configured space bounds the walk.
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Parent"))
+    client.add("content/2", light_content("2", "First child"))
+    client.add("content/3", light_content("3", "Second child"))
+    client.add(
+        "content/1/child/page",
+        {"results": [light_content("2", "First child"), light_content("3", "Second child")]},
+    )
+    client.add("content/2/child/page", {"results": []})
+    client.add("content/3/child/page", {"results": []})
+    connector = ConfluenceConnector(cloud_config(page_size=10), client=client)
+
+    records = list(connector.discover(ConnectorQuery(filters={"content_ids": ["1"]})))
+
+    assert [record.locator for record in records] == ["1", "2", "3"]
+
+
+def test_discover_skips_child_pages_of_direct_ids_when_opted_out():
+    client = FakeConfluenceClient()
+    client.add("content/1", light_content("1", "Parent"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    records = list(
+        connector.discover(
+            ConnectorQuery(filters={"content_ids": ["1"], "include_children": False})
+        )
+    )
+
+    assert [record.locator for record in records] == ["1"]
+    assert [endpoint for endpoint, _params in client.calls if endpoint != "user/current"] == [
+        "content/1"
+    ]
+
+
+def _parent_with_filtered_children(client: FakeConfluenceClient) -> None:
+    """Parent 1 -> archived 2 -> grandchild 3, and live doc 4 under 1."""
+    live_doc = light_content("4", "Live doc")
+    live_doc["subtype"] = "live"
+    client.add("content/1", light_content("1", "Parent"))
+    client.add("content/2", light_content("2", "Archived child", labels=["archived"]))
+    client.add("content/3", light_content("3", "Grandchild"))
+    client.add("content/4", live_doc)
+    client.add("content/1/child/page", {"results": [{"id": "2"}, {"id": "4"}]})
+    client.add("content/2/child/page", {"results": [{"id": "3"}]})
+    client.add("content/3/child/page", {"results": []})
+    client.add("content/4/child/page", {"results": []})
+
+
+def test_discover_applies_label_and_live_doc_filters_to_direct_ids_and_children():
+    # Pages reached by ID must pass the same filters as space search, but a
+    # skipped page's own children are still walked and judged on their own.
+    client = FakeConfluenceClient()
+    _parent_with_filtered_children(client)
+    connector = ConfluenceConnector(
+        cloud_config(exclude_labels=["archived"], page_size=10), client=client
+    )
+
+    records = list(connector.discover(ConnectorQuery(filters={"content_ids": ["1"]})))
+
+    assert [record.locator for record in records] == ["1", "3"]
+
+
+def test_discover_limit_counts_only_direct_id_records_that_pass_filters():
+    client = FakeConfluenceClient()
+    _parent_with_filtered_children(client)
+    connector = ConfluenceConnector(
+        cloud_config(exclude_labels=["archived"], page_size=10), client=client
+    )
+
+    records = list(connector.discover(ConnectorQuery(filters={"content_ids": ["1"]}, limit=2)))
+
+    assert [record.locator for record in records] == ["1", "3"]
+
+
 def test_direct_id_discovery_stops_before_child_traversal_at_limit():
     client = FakeConfluenceClient()
     client.add("content/1", light_content("1", "Parent"))
@@ -341,6 +418,8 @@ def test_content_ids_from_query_accepts_bare_string():
     client.add("content/1", light_content("1", "Direct"))
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    records = list(connector.discover(ConnectorQuery(filters={"content_ids": "1"})))
+    records = list(
+        connector.discover(ConnectorQuery(filters={"content_ids": "1", "include_children": False}))
+    )
 
     assert [r.locator for r in records] == ["1"]

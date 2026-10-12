@@ -79,3 +79,54 @@ def test_parse_many_raise_propagates_first_failure():
 def test_parse_many_rejects_unknown_policy():
     with pytest.raises(ValueError, match="Unknown on_error policy"):
         HarborParserFactory().create_registry().parse_many([], on_error="bogus")
+
+
+@pytest.mark.parametrize("content_type", ["text/plain", "application/octet-stream", None])
+@pytest.mark.parametrize("suffix", [".srt", ".foo-bar", ".foo_bar"])
+def test_unsupported_suffix_is_not_routed_by_a_generic_content_type(content_type, suffix):
+    # A .srt or .rtf upload reported as text/plain must not reach the text
+    # parser: the unregistered suffix is the stronger signal, not the guess.
+    registry = HarborParserFactory().create_registry()
+    unsupported = ParseInput(content="hello", filename=f"notes{suffix}", content_type=content_type)
+
+    assert registry.parser_for(unsupported) is None
+    with pytest.raises(UnsupportedFormatError, match=f"suffix='{suffix}'"):
+        registry.parse(unsupported)
+
+
+@pytest.mark.parametrize(
+    "filename",
+    ["README", "Release v2.0 Notes", "Version 2.0", "Release v2.0-beta", "Build 1.2_rc", None],
+)
+def test_names_without_a_file_suffix_still_route_by_content_type(filename):
+    # Page titles and extensionless files carry no real suffix, so their
+    # content type remains the only routing signal.
+    registry = HarborParserFactory().create_registry()
+    parser = registry.parser_for(
+        ParseInput(content="hello", filename=filename, content_type="text/plain")
+    )
+    assert parser is not None and parser.parser_name == "text"
+
+
+@pytest.mark.parametrize(
+    ("extension", "supported"),
+    [
+        ("md", True),
+        (".PDF", True),
+        ("dot", False),
+        (".pot", False),
+        ("xyz", False),
+        (".srt", False),
+    ],
+)
+def test_supports_extension_only_reports_suffixes_that_always_route(extension, supported):
+    # .dot/.pot route only by content type (Word vs Graphviz, PowerPoint vs
+    # gettext), so a file of that suffix without one cannot be parsed and
+    # allowing the suffix on a connector must not pass validation.
+    registry = HarborParserFactory().create_registry()
+    assert registry.supports_extension(extension) is supported
+
+
+def test_content_type_routed_suffix_without_a_content_type_is_unsupported():
+    registry = HarborParserFactory().create_registry()
+    assert registry.parser_for(ParseInput(content="digraph {}", filename="graph.dot")) is None
