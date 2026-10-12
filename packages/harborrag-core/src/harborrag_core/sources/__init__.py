@@ -1,5 +1,13 @@
 """Source connector contracts: events, the connector port, config, and errors."""
 
+from harborrag_core.sources.codec import (
+    decode_event,
+    decode_mark,
+    decode_window,
+    encode_event,
+    encode_mark,
+    encode_window,
+)
 from harborrag_core.sources.config import (
     ConfigDiff,
     ConnectorConfig,
@@ -79,6 +87,12 @@ __all__ = [
     "Tombstone",
     "Transient",
     "classify",
+    "decode_event",
+    "decode_mark",
+    "decode_window",
     "diff_configs",
+    "encode_event",
+    "encode_mark",
+    "encode_window",
     "field_classes",
 ]

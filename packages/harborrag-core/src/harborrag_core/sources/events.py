@@ -11,7 +11,6 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from types import MappingProxyType
 from typing import Any
 from urllib.parse import quote, unquote
 
@@ -22,7 +21,12 @@ from harborrag_core.base import FrozenDict, _deep_freeze
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 """Start of the first window for a connection that has never synced."""
 
-_EMPTY: Mapping[str, str] = MappingProxyType({})
+
+def _frozen_state(state: Mapping[str, str]) -> FrozenDict:
+    for name, value in state.items():
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise ValueError("cursor state maps strings to strings")
+    return FrozenDict(state)
 
 
 def _require_aware(value: datetime, name: str) -> None:
@@ -101,20 +105,20 @@ class SyncWindow:
 
     start: datetime
     end: datetime
-    state: Mapping[str, str] = field(default=_EMPTY)
+    state: Mapping[str, str] = field(default_factory=FrozenDict)
 
     def __post_init__(self) -> None:
         _require_aware(self.start, "window start")
         _require_aware(self.end, "window end")
         if self.start > self.end:
             raise ValueError("window start must not be after its end")
-        object.__setattr__(self, "state", MappingProxyType(dict(self.state)))
+        object.__setattr__(self, "state", _frozen_state(self.state))
 
     @classmethod
     def initial(cls, end: datetime, state: Mapping[str, str] | None = None) -> SyncWindow:
         """Window for a connection that has never committed a cursor."""
 
-        return cls(EPOCH, end, state or _EMPTY)
+        return cls(EPOCH, end, state or {})
 
     def contains(self, moment: datetime) -> bool:
         """Whether ``moment`` falls inside ``[start, end)``."""
@@ -231,10 +235,10 @@ class CheckpointMark[CT: BaseModel]:
     """
 
     checkpoint: CT
-    state: Mapping[str, str] = field(default=_EMPTY)
+    state: Mapping[str, str] = field(default_factory=FrozenDict)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "state", MappingProxyType(dict(self.state)))
+        object.__setattr__(self, "state", _frozen_state(self.state))
 
 
 type ConnectorEvent[CT: BaseModel] = SourceRecord | Tombstone | ItemFailure | CheckpointMark[CT]

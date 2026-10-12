@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import Protocol
+
+from harborrag_core.base import FrozenDict
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,7 +28,7 @@ class Credential:
     def __post_init__(self) -> None:
         if self.version < 0:
             raise ValueError("credential version must not be negative")
-        object.__setattr__(self, "values", MappingProxyType(dict(self.values)))
+        object.__setattr__(self, "values", FrozenDict(self.values))
 
     def require(self, name: str) -> str:
         """Return one value, raising ``KeyError`` naming only the missing field."""

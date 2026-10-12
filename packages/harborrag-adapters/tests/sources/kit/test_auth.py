@@ -12,7 +12,7 @@ from harborrag_adapters.sources._kit.auth import (
     OAuthRefreshProvider,
     StaticTokenProvider,
 )
-from harborrag_core.sources import AuthError, Transient
+from harborrag_core.sources import AuthError, Credential, Transient
 from harborrag_core.sources.testing import InMemoryCredentialStore
 
 from .kit_helpers import NOW
@@ -148,3 +148,51 @@ async def test_token_endpoint_outage_is_transient() -> None:
 async def test_missing_credential_is_an_auth_error() -> None:
     with pytest.raises(AuthError, match="no oauth credential"):
         await _provider(InMemoryCredentialStore(), TokenServer()).headers()
+
+
+class _LosesTheSwap(InMemoryCredentialStore):
+    """Another worker stores its rotation between our POST and our swap."""
+
+    async def compare_and_swap(self, connection_id, name, *, expected_version, values):  # type: ignore[no-untyped-def, override]
+        await super().compare_and_swap(
+            connection_id,
+            name,
+            expected_version=expected_version,
+            values={"access_token": "winner", "refresh_token": "winner-refresh"},
+        )
+        return None
+
+
+@pytest.mark.asyncio
+async def test_lost_swap_adopts_the_stored_winner_after_one_post() -> None:
+    store = _LosesTheSwap({KEY: {"access_token": "access-0", "refresh_token": "refresh-0"}})
+    server = TokenServer()
+    provider = _provider(store, server)
+    assert await provider.refresh()
+    assert server.posts == 1
+    assert await provider.headers() == {"Authorization": "Bearer winner"}
+
+
+class _RotatedElsewhere(TokenServer):
+    """Answers invalid_grant because another worker used the token and stored first."""
+
+    def __init__(self, store: InMemoryCredentialStore) -> None:
+        super().__init__()
+        self.store = store
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        self.posts += 1
+        winner = {"access_token": "access-other", "refresh_token": "refresh-other"}
+        self.store._items[KEY] = Credential(winner, 1)  # noqa: SLF001 - simulate the winner
+        return httpx.Response(400, json={"error": "invalid_grant"})
+
+
+@pytest.mark.asyncio
+async def test_invalid_grant_after_a_rotation_elsewhere_adopts_instead_of_failing() -> None:
+    store = _store()
+    server = _RotatedElsewhere(store)
+    provider = _provider(store, server)
+    await provider.headers()  # caches version 0; the store moves only during the POST
+    assert await provider.refresh()
+    assert server.posts == 1
+    assert await provider.headers() == {"Authorization": "Bearer access-other"}
