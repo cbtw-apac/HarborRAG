@@ -80,6 +80,8 @@ async def run_workers(
             runtime,
             temporal_client=client,
             telemetry=runtime.telemetry,
+            settings=settings,
+            temporal_config=config,
         )
         maintenance = MaintenanceActivities(
             runtime,
@@ -109,14 +111,22 @@ async def run_workers(
             *((summary_run,) if summary_run is not None else ()),
             *((retention_run,) if retention_run is not None else ()),
         )
-        schedule_metrics = asyncio.create_task(
-            _schedule_metrics_loop(runtime.telemetry, client, config, stop_event)
+        metrics_interval = getattr(settings, "schedule_metrics_interval_seconds", 0.0)
+        schedule_metrics = (
+            asyncio.create_task(
+                _schedule_metrics_loop(
+                    runtime.telemetry, client, config, stop_event, interval=metrics_interval
+                )
+            )
+            if metrics_interval
+            else None
         )
         try:
             await _wait_for_shutdown(workers, runs, stop_event=stop_event)
         finally:
-            schedule_metrics.cancel()
-            await asyncio.gather(schedule_metrics, return_exceptions=True)
+            if schedule_metrics is not None:
+                schedule_metrics.cancel()
+                await asyncio.gather(schedule_metrics, return_exceptions=True)
     finally:
         await runtime.close()
 
@@ -255,6 +265,8 @@ async def _schedule_metrics_loop(
     client: Client,
     config: TemporalRuntimeConfig,
     stop_event: asyncio.Event | None,
+    *,
+    interval: float = SCHEDULE_METRICS_INTERVAL_SECONDS,
 ) -> None:
     while True:
         try:
@@ -274,13 +286,10 @@ async def _schedule_metrics_loop(
         except Exception:
             logger.exception("Temporal schedule metrics collection failed")
         if stop_event is None:
-            await asyncio.sleep(SCHEDULE_METRICS_INTERVAL_SECONDS)
+            await asyncio.sleep(interval)
         else:
             try:
-                await asyncio.wait_for(
-                    stop_event.wait(),
-                    timeout=SCHEDULE_METRICS_INTERVAL_SECONDS,
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
             except TimeoutError:
                 continue
             return

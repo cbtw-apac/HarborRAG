@@ -12,6 +12,7 @@ from temporalio.client import (
     ScheduleActionStartWorkflow,
     SchedulePolicy,
     ScheduleSpec,
+    ScheduleState,
 )
 from temporalio.service import RPCError, RPCStatusCode
 
@@ -26,7 +27,7 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
-from harborrag_runtime.scheduling.errors import ScheduleNotFoundError
+from harborrag_runtime.scheduling.errors import ScheduleNotFoundError, ScheduleValidationError
 from harborrag_runtime.scheduling.models import (
     ScheduleDefinition,
     ScheduledWorkflow,
@@ -44,6 +45,7 @@ from harborrag_runtime.temporal.maintenance_schemas import (
 )
 from harborrag_runtime.temporal.schemas import (
     ProcessingProfileInput,
+    ScheduledSourceIngestionInput,
     SourceIngestionInput,
     SourceIngestionResult,
     SourceIngestionStatus,
@@ -291,39 +293,27 @@ async def test_client_submits_source_and_reindex_with_bounded_options() -> None:
     assert reindex_call.kwargs["task_timeout"].total_seconds() == 7
 
 
-@pytest.mark.asyncio
-async def test_client_creates_and_controls_source_ingestion_schedule() -> None:
-    sdk = _SdkClient()
-    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
-
-    await client.upsert_ingestion_schedule("source-sync-1", "0 */6 * * *", _source())
-
-    schedule = sdk.create_schedule.await_args.args[1]
-    assert schedule.spec.cron_expressions == ["0 */6 * * *"]
-    assert schedule.policy.overlap.name == "SKIP"
-    assert schedule.action.workflow == "harborrag.scheduled_source_ingestion"
-    assert schedule.action.args[0].schedule_id == "source-sync-1"
-    assert schedule.action.task_queue == "harborrag-discovery"
-
-    await client.pause_ingestion_schedule("source-sync-1", note="maintenance")
-    await client.unpause_ingestion_schedule("source-sync-1", note="maintenance complete")
-    await client.trigger_ingestion_schedule("source-sync-1")
-    await client.delete_ingestion_schedule("source-sync-1")
-
-    sdk.schedule_handle.pause.assert_awaited_once_with(note="maintenance")
-    sdk.schedule_handle.unpause.assert_awaited_once_with(note="maintenance complete")
-    sdk.schedule_handle.trigger.assert_awaited_once()
-    sdk.schedule_handle.delete.assert_awaited_once()
+def _schedule_definition(**overrides: object) -> ScheduleDefinition:
+    values: dict[str, object] = {
+        "schedule_id": "source-sync-1",
+        "workflow": ScheduledWorkflow.SOURCE_INGESTION,
+        "cron": "0 1 * * *",
+        "target": SourceScheduleTarget(
+            tenant_id="tenant-1",
+            connection_id="local-docs",
+            source_scope_id="docs",
+            force_reprocess=True,
+        ),
+    }
+    values.update(overrides)
+    return ScheduleDefinition(**values)  # type: ignore[arg-type]
 
 
 def test_schedule_backend_maps_interval_and_policy_fields() -> None:
     backend = schedules_module.TemporalScheduleBackend(_SdkClient(), TemporalRuntimeConfig())
-    definition = ScheduleDefinition(
-        schedule_id="source-sync-1",
-        workflow=ScheduledWorkflow.SOURCE_INGESTION,
+    definition = _schedule_definition(
         cron=None,
         interval_seconds=3600,
-        target=SourceScheduleTarget(tenant_id="tenant-1", connection_id="local-docs"),
         overlap=ScheduleOverlap.BUFFER_ONE,
         catchup_window_seconds=1800,
         jitter_seconds=60,
@@ -331,7 +321,7 @@ def test_schedule_backend_maps_interval_and_policy_fields() -> None:
         owner=ScheduleOwner.API,
     )
 
-    schedule = backend._schedule(definition, _source())
+    schedule = backend._schedule(definition, desired_paused=False)
 
     assert schedule.spec.cron_expressions == []
     assert schedule.spec.intervals[0].every.total_seconds() == 3600
@@ -344,47 +334,109 @@ def test_schedule_backend_maps_interval_and_policy_fields() -> None:
 
 def test_schedule_backend_defaults_to_one_hour_catchup_and_skip() -> None:
     backend = schedules_module.TemporalScheduleBackend(_SdkClient(), TemporalRuntimeConfig())
-    definition = ScheduleDefinition(
-        schedule_id="source-sync-1",
-        workflow=ScheduledWorkflow.SOURCE_INGESTION,
-        cron="0 1 * * *",
-        target=SourceScheduleTarget(tenant_id="tenant-1", connection_id="local-docs"),
-    )
 
-    schedule = backend._schedule(definition, _source())
+    schedule = backend._schedule(_schedule_definition(), desired_paused=False)
 
     assert schedule.policy.overlap.name == "SKIP"
     assert schedule.policy.catchup_window.total_seconds() == 3600
 
 
-@pytest.mark.asyncio
-async def test_client_upserts_existing_schedule_without_changing_pause_state(monkeypatch) -> None:
-    class AlreadyExistsError(Exception):
-        pass
+def test_schedule_action_carries_only_the_target() -> None:
+    backend = schedules_module.TemporalScheduleBackend(_SdkClient(), TemporalRuntimeConfig())
 
-    monkeypatch.setattr(schedules_module, "ScheduleAlreadyRunningError", AlreadyExistsError)
+    schedule = backend._schedule(_schedule_definition(), desired_paused=True)
+
+    assert schedule.action.workflow == "harborrag.scheduled_source_ingestion"
+    assert schedule.action.task_queue == "harborrag-discovery"
+    assert schedule.action.args[0] == ScheduledSourceIngestionInput(
+        schedule_id="source-sync-1",
+        tenant_id="tenant-1",
+        connection_id="local-docs",
+        source_scope_id="docs",
+        force_reprocess=True,
+    )
+    assert schedule.action.memo["harborrag_schedule"]["desired_paused"] is True
+
+
+@pytest.mark.asyncio
+async def test_schedule_backend_update_keeps_live_pause_state() -> None:
     sdk = _SdkClient()
-    sdk.create_schedule.side_effect = AlreadyExistsError()
     sdk.schedule_handle.update = AsyncMock()
-    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
     existing = Schedule(
-        action=ScheduleActionStartWorkflow(
-            "old.workflow",
-            id="old-workflow-id",
-            task_queue="old-queue",
-        ),
+        action=ScheduleActionStartWorkflow("old.workflow", id="old-id", task_queue="old-queue"),
         spec=ScheduleSpec(cron_expressions=["0 1 * * *"]),
         policy=SchedulePolicy(),
+        state=ScheduleState(paused=True, note="incident"),
     )
 
-    await client.upsert_ingestion_schedule("source-sync-1", "0 2 * * *", _source())
+    await backend.update(_schedule_definition(cron="0 2 * * *"), desired_paused=True)
 
     update = sdk.schedule_handle.update.await_args.args[0](
         SimpleNamespace(description=SimpleNamespace(schedule=existing))
     )
     assert update.schedule.spec.cron_expressions == ["0 2 * * *"]
     assert update.schedule.action.workflow == "harborrag.scheduled_source_ingestion"
-    assert update.schedule.state == existing.state
+    assert update.schedule.state.paused is True
+    assert update.schedule.state.note == "incident"
+
+
+@pytest.mark.asyncio
+async def test_schedule_backend_pause_records_intent_before_pausing() -> None:
+    sdk = _SdkClient()
+    order: list[str] = []
+    updaters = []
+
+    async def update(updater):
+        order.append("update")
+        updaters.append(updater)
+
+    async def pause(*, note):
+        order.append("pause")
+
+    sdk.schedule_handle.update = update
+    sdk.schedule_handle.pause = pause
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+    memo = _schedule_definition().to_memo()
+    existing = Schedule(
+        action=ScheduleActionStartWorkflow(
+            "harborrag.scheduled_source_ingestion",
+            id="harborrag-scheduled-source:source-sync-1",
+            task_queue="harborrag-discovery",
+            memo={"harborrag_schedule": memo},
+        ),
+        spec=ScheduleSpec(cron_expressions=["0 1 * * *"]),
+    )
+
+    await backend.pause("source-sync-1", note="incident")
+
+    result = await updaters[0](SimpleNamespace(description=SimpleNamespace(schedule=existing)))
+    assert order == ["update", "pause"]
+    assert result.schedule.action.memo["harborrag_schedule"]["desired_paused"] is True
+    assert result.schedule.action.memo["harborrag_schedule"]["cron"] == "0 1 * * *"
+
+
+@pytest.mark.asyncio
+async def test_schedule_backend_maps_rejected_definitions_to_validation_errors() -> None:
+    sdk = _SdkClient()
+    sdk.create_schedule.side_effect = RPCError("invalid cron", RPCStatusCode.INVALID_ARGUMENT, b"")
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(ScheduleValidationError, match="invalid cron"):
+        await backend.create(_schedule_definition())
+
+
+@pytest.mark.asyncio
+async def test_schedule_view_skips_unreadable_definitions() -> None:
+    description = SimpleNamespace(
+        id="broken",
+        schedule=SimpleNamespace(
+            action=SimpleNamespace(memo={"harborrag_schedule": {"owner": "api"}}),
+            state=ScheduleState(),
+        ),
+    )
+
+    assert await schedules_module._view(description) is None
 
 
 @pytest.mark.asyncio
@@ -562,3 +614,27 @@ async def test_client_operations_use_stable_workflow_id_for_source_controls() ->
         "harborrag-source:task-1",
         "harborrag-source:task-1",
     ]
+
+
+@pytest.mark.asyncio
+async def test_schedule_backend_retries_an_update_that_lost_a_race() -> None:
+    sdk = _SdkClient()
+    conflict = RPCError("conflict token mismatch", RPCStatusCode.FAILED_PRECONDITION, b"")
+    sdk.schedule_handle.update = AsyncMock(side_effect=[conflict, None])
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+
+    await backend.update(_schedule_definition(), desired_paused=False)
+
+    assert sdk.schedule_handle.update.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_schedule_backend_gives_up_after_repeated_conflicts() -> None:
+    sdk = _SdkClient()
+    conflict = RPCError("conflict token mismatch", RPCStatusCode.FAILED_PRECONDITION, b"")
+    sdk.schedule_handle.update = AsyncMock(side_effect=conflict)
+    backend = schedules_module.TemporalScheduleBackend(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError):
+        await backend.update(_schedule_definition(), desired_paused=False)
+    assert sdk.schedule_handle.update.await_count == 3

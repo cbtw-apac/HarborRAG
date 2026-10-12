@@ -9,6 +9,10 @@ from pydantic import Field, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 
+# A source scope runs one authoritative scan at a time, so only non-concurrent
+# overlap policies are offered.
+ScheduleOverlapValue = Literal["skip", "buffer_one", "buffer_all"]
+
 
 class ScheduleSourceRequest(ApiModel):
     tenant: str = Field(default="DEFAULT", min_length=1, max_length=128)
@@ -23,14 +27,7 @@ class ScheduleUpsertRequest(ApiModel):
     cron: str | None = Field(default=None, min_length=1, max_length=255)
     interval_seconds: int | None = Field(default=None, ge=1)
     timezone: str = Field(default="UTC", min_length=1, max_length=128)
-    overlap: Literal[
-        "skip",
-        "buffer_one",
-        "buffer_all",
-        "cancel_other",
-        "terminate_other",
-        "allow_all",
-    ] = "skip"
+    overlap: ScheduleOverlapValue = "skip"
     catchup_window_seconds: int = Field(default=3600, ge=10)
     jitter_seconds: int | None = Field(default=None, ge=1)
     pause_on_failure: bool = False
@@ -44,6 +41,29 @@ class ScheduleUpsertRequest(ApiModel):
         if self.cron is None and self.interval_seconds is None:
             raise ValueError("provide cron, interval_seconds, or both")
         return self
+
+
+class ScheduleSourcePatch(ApiModel):
+    tenant: str | None = Field(default=None, min_length=1, max_length=128)
+    connection_id: str | None = Field(default=None, min_length=1, max_length=255)
+    source_scope_id: str | None = Field(default=None, min_length=1, max_length=128)
+    mode: Literal["incremental", "force"] | None = None
+
+
+class SchedulePatchRequest(ApiModel):
+    """Partial update: omitted fields keep their value, an explicit null clears it."""
+
+    cron: str | None = Field(default=None, min_length=1, max_length=255)
+    interval_seconds: int | None = Field(default=None, ge=1)
+    timezone: str | None = Field(default=None, min_length=1, max_length=128)
+    overlap: ScheduleOverlapValue | None = None
+    catchup_window_seconds: int | None = Field(default=None, ge=10)
+    jitter_seconds: int | None = Field(default=None, ge=1)
+    pause_on_failure: bool | None = None
+    source: ScheduleSourcePatch | None = None
+    # Omit to keep the current pause state.
+    paused: bool | None = None
+    note: str | None = Field(default=None, max_length=1000)
 
 
 class ScheduleActionRequest(ApiModel):

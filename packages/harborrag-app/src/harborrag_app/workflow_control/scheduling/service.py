@@ -5,13 +5,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import replace
 from datetime import datetime
 from functools import partial
 
 from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_runtime.config.errors import TemporalConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
+    RuntimeConfigurationError,
     RuntimeConnectionError,
     WorkflowOperationError,
     WorkflowSubmissionError,
@@ -63,6 +64,11 @@ class ScheduleApplicationService:
     async def create(self, command: ScheduleCommand) -> dict[str, object]:
         with _translated():
             definition = _definition(command)
+            if command.schedule_id in self._declared_ids():
+                # Reported like any taken ID, so config contents stay private.
+                raise DuplicateScheduleError(
+                    f"schedule ID {command.schedule_id!r} is unavailable; choose another ID"
+                )
             view = await (await self._service()).create_schedule(definition)
         logger.info(
             "Schedule created schedule_id=%s tenant=%s connection_id=%s cron=%r timezone=%s",
@@ -77,12 +83,11 @@ class ScheduleApplicationService:
     async def update(self, command: ScheduleCommand) -> dict[str, object]:
         with _translated():
             service = await self._service()
-            definition = _definition(command)
-            if command.paused is None:
-                # Keep the recorded desired pause state the alerting compares against.
-                current = await service.describe_schedule(command.schedule_id)
-                definition = replace(definition, paused=current.desired_paused)
-            view = await service.update_schedule(definition, apply_pause=command.paused is not None)
+            # Without ``paused`` the runtime keeps the live pause state and the
+            # recorded desired state the alerting compares against.
+            view = await service.update_schedule(
+                _definition(command), apply_pause=command.paused is not None
+            )
         logger.info("Schedule updated schedule_id=%s", command.schedule_id)
         return schedule_response(view)
 
@@ -154,6 +159,18 @@ class ScheduleApplicationService:
             "failed": len(report.failed),
         }
 
+    def _declared_ids(self) -> frozenset[str]:
+        path = self._settings.schedule_config_path
+        if not path.is_file():
+            return frozenset()
+        try:
+            catalog = load_schedule_catalog(path)
+        except ValueError:
+            # Startup sync reports an invalid file; it must not block API schedules.
+            logger.warning("Schedule file %s is invalid; skipping declared-ID check", path)
+            return frozenset()
+        return frozenset(definition.schedule_id for definition in catalog.schedules)
+
     async def _service(self) -> ScheduleService:
         return ScheduleService(
             await self._backend_provider(),
@@ -203,6 +220,11 @@ def _translated() -> Iterator[None]:
     except (RuntimeConnectionError, WorkflowOperationError, WorkflowSubmissionError) as error:
         logger.error("Schedule engine call failed", exc_info=error)
         raise HarborConnectionError("Schedule service is temporarily unavailable.") from error
+    except (RuntimeConfigurationError, TemporalConfigurationError) as error:
+        # Missing Temporal SDK or deployment config: schedules are unavailable
+        # here, not a server fault. Validation errors are matched above.
+        logger.error("Schedule engine is not configured", exc_info=error)
+        raise HarborConnectionError("Schedule service is not available.") from error
 
 
 def _action(schedule_id: str, message: str) -> dict[str, object]:

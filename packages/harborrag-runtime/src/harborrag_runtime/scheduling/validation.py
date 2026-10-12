@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .errors import (
@@ -19,6 +19,9 @@ from .models import ScheduleDefinition, ScheduledWorkflow, ScheduleOverlap
 SCHEDULE_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 TENANT_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 MAX_NOTE_LENGTH = 1000
+# Bounds keep durations inside what Temporal accepts and backfills reviewable.
+MAX_DURATION_SECONDS = 366 * 24 * 60 * 60
+MAX_BACKFILL_RANGE = timedelta(days=31)
 
 _CRON_MACROS = frozenset(
     {"@yearly", "@annually", "@monthly", "@weekly", "@daily", "@midnight", "@hourly"}
@@ -63,7 +66,11 @@ class WorkflowPolicy:
 WORKFLOW_POLICIES: Mapping[ScheduledWorkflow, WorkflowPolicy] = {
     ScheduledWorkflow.SOURCE_INGESTION: WorkflowPolicy(
         temporal_workflow="harborrag.scheduled_source_ingestion",
-        allowed_overlaps=frozenset(ScheduleOverlap),
+        # A source scope runs one authoritative scan at a time, so overlapping
+        # runs would fail; cancelling one mid-discovery would strand its scan.
+        allowed_overlaps=frozenset(
+            {ScheduleOverlap.SKIP, ScheduleOverlap.BUFFER_ONE, ScheduleOverlap.BUFFER_ALL}
+        ),
     ),
 }
 
@@ -97,7 +104,7 @@ def validate_cron(expression: str) -> None:
     if expression != expression.strip() or not expression:
         raise InvalidCronError("cron must be non-empty and have no outer whitespace")
     if expression.startswith("@"):
-        if expression.lower() not in _CRON_MACROS:
+        if expression not in _CRON_MACROS:
             raise InvalidCronError(f"unsupported cron macro {expression!r}")
         return
     parts = expression.split()
@@ -155,8 +162,12 @@ def validate_definition(definition: ScheduleDefinition) -> None:
     policy = workflow_policy(definition.workflow)
     if definition.cron is not None:
         validate_cron(definition.cron)
-    if definition.interval_seconds is not None and definition.interval_seconds < 1:
-        raise ScheduleValidationError("interval_seconds must be at least 1")
+    if definition.interval_seconds is not None and not (
+        1 <= definition.interval_seconds <= MAX_DURATION_SECONDS
+    ):
+        raise ScheduleValidationError(
+            f"interval_seconds must be between 1 and {MAX_DURATION_SECONDS}"
+        )
     if definition.cron is None and definition.interval_seconds is None:
         raise ScheduleValidationError("provide cron, interval_seconds, or both")
     validate_timezone(definition.timezone)
@@ -166,10 +177,16 @@ def validate_definition(definition: ScheduleDefinition) -> None:
             "for a local-time schedule"
         )
     validate_note(definition.note)
-    if definition.catchup_window_seconds < 10:
-        raise ScheduleValidationError("catchup_window_seconds must be at least 10 seconds")
-    if definition.jitter_seconds is not None and definition.jitter_seconds < 1:
-        raise ScheduleValidationError("jitter_seconds must be at least 1 when provided")
+    if not 10 <= definition.catchup_window_seconds <= MAX_DURATION_SECONDS:
+        raise ScheduleValidationError(
+            f"catchup_window_seconds must be between 10 and {MAX_DURATION_SECONDS}"
+        )
+    if definition.jitter_seconds is not None and not (
+        1 <= definition.jitter_seconds <= MAX_DURATION_SECONDS
+    ):
+        raise ScheduleValidationError(
+            f"jitter_seconds must be between 1 and {MAX_DURATION_SECONDS} when provided"
+        )
     if definition.overlap not in policy.allowed_overlaps:
         allowed = ", ".join(sorted(item.value for item in policy.allowed_overlaps))
         raise ScheduleValidationError(
@@ -190,3 +207,7 @@ def validate_backfill(start_at: datetime, end_at: datetime, *, now: datetime) ->
         raise ScheduleValidationError("backfill start_at must be before end_at")
     if end_at > now:
         raise ScheduleValidationError("backfill end_at cannot be in the future")
+    if end_at - start_at > MAX_BACKFILL_RANGE:
+        raise ScheduleValidationError(
+            f"backfill range must be at most {MAX_BACKFILL_RANGE.days} days"
+        )

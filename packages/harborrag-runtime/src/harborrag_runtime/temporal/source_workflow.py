@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey
-from temporalio.exceptions import ActivityError, ChildWorkflowError
+from temporalio.exceptions import ActivityError, ChildWorkflowError, is_cancelled_exception
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_runtime.temporal.failure_handling import durable_failure
@@ -22,6 +22,9 @@ from .schemas import (
     DocumentDispatchSummary,
     ScheduledRunMetricInput,
     ScheduledSourceIngestionInput,
+    ScheduledSourceIngestionResult,
+    ScheduledSourcePreparation,
+    ScheduledSourcePreparationInput,
     SourceBatchInput,
     SourceCancellationInput,
     SourceContinuation,
@@ -45,7 +48,7 @@ class ScheduledSourceIngestionWorkflow:
     async def run(
         self,
         request: ScheduledSourceIngestionInput,
-    ) -> SourceIngestionResult:
+    ) -> ScheduledSourceIngestionResult:
         info = workflow.info()
         scheduled_at = info.typed_search_attributes.get(
             SearchAttributeKey.for_datetime("TemporalScheduledStartTime")
@@ -66,14 +69,42 @@ class ScheduledSourceIngestionWorkflow:
             "started",
             schedule_to_start_seconds=schedule_to_start_seconds,
         )
-        task_id = _scheduled_task_id(request.schedule_id, info.workflow_id)
-        source = replace(request.source, task_id=task_id)
+        # Backfills reuse a past firing's workflow ID; the run ID keeps each
+        # execution its own task and scan instead of replaying the old plan.
+        task_id = _scheduled_task_id(request.schedule_id, info.workflow_id, info.run_id)
         try:
+            preparation = await workflow.execute_activity(
+                "harborrag.prepare_scheduled_source",
+                ScheduledSourcePreparationInput(
+                    task_id=task_id,
+                    tenant_id=request.tenant_id,
+                    connection_id=request.connection_id,
+                    source_scope_id=request.source_scope_id,
+                    force_reprocess=request.force_reprocess,
+                ),
+                result_type=ScheduledSourcePreparation,
+                start_to_close_timeout=timedelta(seconds=60),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+            if preparation.source is None:
+                # Another ingestion holds the scope; its scan covers this firing.
+                # Warn: repeated skips mean a long-running or stranded scan.
+                workflow.logger.warning(
+                    "Scheduled ingestion skipped; source scope busy schedule_id=%s "
+                    "workflow_id=%s source_scope_id=%s",
+                    request.schedule_id,
+                    info.workflow_id,
+                    preparation.source_scope_id,
+                )
+                await _record_scheduled_run_metric(request.schedule_id, "skipped")
+                return ScheduledSourceIngestionResult(
+                    schedule_id=request.schedule_id, outcome="skipped"
+                )
             handle = await workflow.start_child_workflow(
                 "harborrag.source_ingestion",
-                source,
+                preparation.source,
                 id=f"harborrag-source:{task_id}",
-                task_queue=source.workflow_options.task_queues.discovery,
+                task_queue=preparation.source.workflow_options.task_queues.discovery,
                 result_type=SourceIngestionResult,
                 parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
             )
@@ -86,24 +117,43 @@ class ScheduledSourceIngestionWorkflow:
                 handle.id,
             )
             result = cast(SourceIngestionResult, await handle)
-        except Exception as error:
+        except (Exception, asyncio.CancelledError) as error:
+            outcome = "cancelled" if is_cancelled_exception(error) else "failed"
             workflow.logger.error(
-                "Scheduled ingestion failed schedule_id=%s workflow_id=%s run_id=%s error_type=%s",
+                "Scheduled ingestion %s schedule_id=%s workflow_id=%s run_id=%s error_type=%s",
+                outcome,
                 request.schedule_id,
                 info.workflow_id,
                 info.run_id,
                 type(error).__name__,
             )
-            await _record_scheduled_run_metric(request.schedule_id, "failed")
+            await _record_scheduled_run_metric(request.schedule_id, outcome)
             raise
+        outcome = _RESULT_OUTCOMES.get(result.status, "failed")
         workflow.logger.info(
-            "Scheduled ingestion completed schedule_id=%s workflow_id=%s run_id=%s",
+            "Scheduled ingestion finished outcome=%s schedule_id=%s workflow_id=%s run_id=%s",
+            outcome,
             request.schedule_id,
             info.workflow_id,
             info.run_id,
         )
-        await _record_scheduled_run_metric(request.schedule_id, "completed")
-        return result
+        await _record_scheduled_run_metric(request.schedule_id, outcome)
+        return ScheduledSourceIngestionResult(
+            schedule_id=request.schedule_id,
+            outcome=outcome,
+            task_id=task_id,
+            result=result,
+        )
+
+
+# Termination and execution timeouts end the run without running workflow code,
+# so they are never recorded here.
+_RESULT_OUTCOMES = {
+    "COMPLETED": "completed",
+    "PARTIAL": "partial",
+    "CANCELLED": "cancelled",
+    "FAILED": "failed",
+}
 
 
 async def _record_scheduled_run_metric(
@@ -132,8 +182,8 @@ async def _record_scheduled_run_metric(
         )
 
 
-def _scheduled_task_id(schedule_id: str, workflow_id: str) -> str:
-    digest = hashlib.sha256(f"{schedule_id}:{workflow_id}".encode()).hexdigest()[:32]
+def _scheduled_task_id(schedule_id: str, workflow_id: str, run_id: str) -> str:
+    digest = hashlib.sha256(f"{schedule_id}:{workflow_id}:{run_id}".encode()).hexdigest()[:32]
     return f"scheduled-{digest}"
 
 

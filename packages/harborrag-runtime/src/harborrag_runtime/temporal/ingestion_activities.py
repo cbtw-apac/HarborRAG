@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
+
 from temporalio import activity
 from temporalio.client import Client
+from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
+from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .activity_observability import ActivityObservability
 from .conversion import (
@@ -14,6 +22,7 @@ from .conversion import (
     to_prepared_stage,
     to_raw_capture_result,
 )
+from .gateway import to_temporal_source
 from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
 from .retry_activities import RetryActivitiesMixin
@@ -23,6 +32,8 @@ from .schemas import (
     PreparedDocument,
     RawCaptureResult,
     ScheduledRunMetricInput,
+    ScheduledSourcePreparation,
+    ScheduledSourcePreparationInput,
 )
 from .source_activities import SourceActivitiesMixin
 
@@ -36,11 +47,55 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         *,
         temporal_client: Client | None = None,
         telemetry: IngestionTelemetry | None = None,
+        settings: RuntimeSettings | None = None,
+        temporal_config: TemporalRuntimeConfig | None = None,
     ) -> None:
         self._runtime = runtime
+        self._settings = settings
+        # The config this worker polls with, so children go to queues it serves.
+        self._temporal_config = temporal_config
         self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
         self._documents = PlanDocumentResolver(runtime.source_plans)
+
+    @activity.defn(name="harborrag.prepare_scheduled_source")
+    async def prepare_scheduled_source(
+        self,
+        request: ScheduledSourcePreparationInput,
+    ) -> ScheduledSourcePreparation:
+        """Prepare a scheduled firing from this worker's current configuration."""
+
+        settings = self._settings
+        temporal_config = self._temporal_config
+        if settings is None or temporal_config is None:
+            raise ApplicationError(
+                "worker was started without runtime settings", non_retryable=True
+            )
+        try:
+            prepared = await asyncio.to_thread(
+                prepare_configured_source_submission,
+                settings,
+                SourceSubmission(
+                    task_id=request.task_id,
+                    tenant_id=request.tenant_id,
+                    connector_name=request.connection_id,
+                    connection_id=request.connection_id,
+                    source_scope_id=request.source_scope_id,
+                    force_reprocess=request.force_reprocess,
+                ),
+            )
+        except ValueError as error:
+            # Removed, disabled or invalid connector configuration cannot heal on retry.
+            raise ApplicationError(
+                str(error), type=type(error).__name__, non_retryable=True
+            ) from error
+        if await self._runtime.control.source_scans.has_running_scan(prepared.source_scope_id):
+            return ScheduledSourcePreparation(source=None, source_scope_id=prepared.source_scope_id)
+        source = replace(
+            to_temporal_source(prepared),
+            workflow_options=temporal_config.workflow_options(),
+        )
+        return ScheduledSourcePreparation(source=source, source_scope_id=prepared.source_scope_id)
 
     @activity.defn(name="harborrag.record_scheduled_run_metrics")
     async def record_scheduled_run_metrics(self, request: ScheduledRunMetricInput) -> None:

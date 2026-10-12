@@ -31,11 +31,20 @@ WORKFLOWS = (
 
 
 def test_scheduled_ingestion_task_ids_are_unique_per_firing() -> None:
-    first = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-28T00:00Z")
-    second = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-29T00:00Z")
+    first = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-28T00:00Z", "r1")
+    second = _scheduled_task_id("schedule-source-1", "harborrag-scheduled:2026-09-29T00:00Z", "r2")
 
     assert first != second
     assert len(first) <= 128
+
+
+def test_backfilled_firing_of_a_past_time_gets_a_new_task_id() -> None:
+    workflow_id = "harborrag-scheduled:2026-09-28T00:00Z"
+
+    original = _scheduled_task_id("schedule-source-1", workflow_id, "run-1")
+    backfill = _scheduled_task_id("schedule-source-1", workflow_id, "run-2")
+
+    assert original != backfill
 
 
 @pytest.mark.parametrize("workflow_type", WORKFLOWS)
@@ -94,6 +103,7 @@ def test_worker_registration_inventory_is_complete() -> None:
         "pause_workflow_execution",
         "persist_canonical",
         "prepare_retry_failures",
+        "prepare_scheduled_source",
         "publish_version",
         "record_document_failure",
         "record_retry_document_failure",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -15,10 +16,15 @@ from harborrag_app.api.auth.dependencies import get_principal
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.errors import (
+    ScheduleAlreadyExistsError,
+    ScheduleInvalidError,
     ScheduleManagedByConfigError,
     ScheduleNotFoundAppError,
 )
+from harborrag_app.workflow_control.scheduling.models import ScheduleCommand
 from harborrag_app.workflow_control.scheduling.service import ScheduleApplicationService
+from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_runtime.config.errors import TemporalConfigurationError
 
 
 class _ScheduleService:
@@ -27,8 +33,12 @@ class _ScheduleService:
             "schedule_id": "artifact-update",
             "workflow": "source_ingestion",
             "cron": "0 1 * * *",
-            "timezone": "UTC",
-            "overlap": "skip",
+            "interval_seconds": None,
+            "timezone": "Asia/Ho_Chi_Minh",
+            "overlap": "buffer_one",
+            "catchup_window_seconds": 1800,
+            "jitter_seconds": 30,
+            "pause_on_failure": True,
             "paused": False,
             "note": None,
             "managed_by": "api",
@@ -50,6 +60,7 @@ class _ScheduleService:
         self.get_error: Exception | None = None
 
     async def create_schedule(self, command):
+        self.commands.append(command)
         return self.schedule
 
     async def update_schedule(self, command):
@@ -99,7 +110,15 @@ def client(monkeypatch: pytest.MonkeyPatch, service: _ScheduleService) -> TestCl
         yield test_client
 
 
-def test_create_schedule_is_tenant_scoped(client: TestClient) -> None:
+def _editor(client: TestClient, tenants: frozenset[str] = frozenset({"DEFAULT"})) -> None:
+    client.app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="editor", role="editor", tenant_ids=tenants
+    )
+
+
+def test_create_schedule_defaults_to_the_default_tenant(
+    client: TestClient, service: _ScheduleService
+) -> None:
     response = client.post(
         "/v1/schedules",
         json={
@@ -112,6 +131,7 @@ def test_create_schedule_is_tenant_scoped(client: TestClient) -> None:
 
     assert response.status_code == 201
     assert response.json()["schedule_id"] == "artifact-update"
+    assert service.commands[0].tenant_id == "DEFAULT"
 
 
 def test_schedule_controls_are_exposed(client: TestClient, service: _ScheduleService) -> None:
@@ -121,30 +141,108 @@ def test_schedule_controls_are_exposed(client: TestClient, service: _ScheduleSer
     assert service.actions == [("artifact-update", "pause")]
 
 
-@pytest.mark.parametrize("operation", ["create", "pause", "patch"])
-def test_schedule_rejects_cross_tenant_access(
-    client: TestClient, service: _ScheduleService, operation: str
+def test_schedule_create_rejects_another_tenant(
+    client: TestClient, service: _ScheduleService
 ) -> None:
-    client.app.dependency_overrides[get_principal] = lambda: Principal(
-        subject="restricted", role="editor", tenant_ids=frozenset({"ACME"})
+    _editor(client, frozenset({"ACME"}))
+
+    response = client.post(
+        "/v1/schedules",
+        json={
+            "schedule_id": "artifact-update",
+            "workflow": "source_ingestion",
+            "cron": "0 1 * * *",
+            "source": {"connection_id": "workspace"},
+        },
     )
-    body = {
-        "schedule_id": "artifact-update",
-        "workflow": "source_ingestion",
-        "cron": "0 1 * * *",
-        "source": {"connection_id": "workspace"},
-    }
-    if operation == "create":
-        response = client.post("/v1/schedules", json=body)
-    elif operation == "pause":
-        response = client.post("/v1/schedules/artifact-update/pause", json={})
-    else:
-        body["source"]["tenant"] = "ACME"
-        response = client.patch("/v1/schedules/artifact-update", json=body)
 
     assert response.status_code == 403
     assert service.commands == []
+
+
+@pytest.mark.parametrize("operation", ["get", "pause", "patch", "delete"])
+def test_another_tenants_schedule_looks_missing(
+    client: TestClient, service: _ScheduleService, operation: str
+) -> None:
+    _editor(client, frozenset({"ACME"}))
+
+    if operation == "get":
+        response = client.get("/v1/schedules/artifact-update")
+    elif operation == "pause":
+        response = client.post("/v1/schedules/artifact-update/pause", json={})
+    elif operation == "patch":
+        response = client.patch("/v1/schedules/artifact-update", json={"cron": "0 2 * * *"})
+    else:
+        response = client.delete("/v1/schedules/artifact-update")
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "SCHEDULE_NOT_FOUND"
+    assert service.commands == []
     assert service.actions == []
+
+
+def test_editor_cannot_choose_a_source_scope(client: TestClient, service: _ScheduleService) -> None:
+    _editor(client)
+
+    response = client.post(
+        "/v1/schedules",
+        json={
+            "schedule_id": "artifact-update",
+            "workflow": "source_ingestion",
+            "cron": "0 1 * * *",
+            "source": {"connection_id": "workspace", "source_scope_id": "finance"},
+        },
+    )
+
+    assert response.status_code == 403
+    assert service.commands == []
+
+
+def test_admin_can_choose_a_source_scope(client: TestClient, service: _ScheduleService) -> None:
+    client.app.dependency_overrides[get_principal] = lambda: Principal(
+        subject="admin", role="admin", tenant_ids=frozenset({"DEFAULT"})
+    )
+
+    response = client.post(
+        "/v1/schedules",
+        json={
+            "schedule_id": "artifact-update",
+            "workflow": "source_ingestion",
+            "cron": "0 1 * * *",
+            "source": {"connection_id": "workspace", "source_scope_id": "finance"},
+        },
+    )
+
+    assert response.status_code == 201
+    assert service.commands[0].source_scope_id == "finance"
+
+
+def test_editor_cannot_patch_a_scoped_schedule(
+    client: TestClient, service: _ScheduleService
+) -> None:
+    _editor(client)
+    service.schedule["source"]["source_scope_id"] = "finance"
+
+    response = client.patch("/v1/schedules/artifact-update", json={"cron": "0 2 * * *"})
+
+    assert response.status_code == 403
+    assert service.commands == []
+
+
+def test_unsupported_overlap_is_rejected(client: TestClient, service: _ScheduleService) -> None:
+    response = client.post(
+        "/v1/schedules",
+        json={
+            "schedule_id": "artifact-update",
+            "workflow": "source_ingestion",
+            "cron": "0 1 * * *",
+            "overlap": "cancel_other",
+            "source": {"connection_id": "workspace"},
+        },
+    )
+
+    assert response.status_code == 422
+    assert service.commands == []
 
 
 def test_schedule_reader_cannot_pause(client: TestClient, service: _ScheduleService) -> None:
@@ -163,15 +261,7 @@ def test_config_owned_schedule_update_returns_conflict(
 ) -> None:
     service.update_error = ScheduleManagedByConfigError("Change the YAML configuration instead")
 
-    response = client.patch(
-        "/v1/schedules/artifact-update",
-        json={
-            "schedule_id": "artifact-update",
-            "workflow": "source_ingestion",
-            "cron": "0 2 * * *",
-            "source": {"connection_id": "workspace"},
-        },
-    )
+    response = client.patch("/v1/schedules/artifact-update", json={"cron": "0 2 * * *"})
 
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "SCHEDULE_MANAGED_BY_CONFIG"
@@ -209,21 +299,58 @@ def test_schedule_id_is_required(client: TestClient) -> None:
     assert response.json()["error"]["code"] == "harbor_validation_error"
 
 
-def test_patch_without_paused_keeps_pause_state(
+def test_patch_changes_only_the_fields_sent(client: TestClient, service: _ScheduleService) -> None:
+    response = client.patch("/v1/schedules/artifact-update", json={"cron": "0 2 * * *"})
+
+    assert response.status_code == 200
+    command = service.commands[0]
+    assert command == ScheduleCommand(
+        schedule_id="artifact-update",
+        workflow="source_ingestion",
+        cron="0 2 * * *",
+        interval_seconds=None,
+        timezone="Asia/Ho_Chi_Minh",
+        overlap="buffer_one",
+        catchup_window_seconds=1800,
+        jitter_seconds=30,
+        pause_on_failure=True,
+        tenant_id="DEFAULT",
+        connection_id="workspace",
+        source_scope_id=None,
+        force_reprocess=False,
+        paused=None,
+        note=None,
+    )
+
+
+def test_patch_merges_nested_source_fields_and_clears_with_null(
     client: TestClient, service: _ScheduleService
 ) -> None:
     response = client.patch(
         "/v1/schedules/artifact-update",
-        json={
-            "schedule_id": "artifact-update",
-            "workflow": "source_ingestion",
-            "cron": "0 2 * * *",
-            "source": {"connection_id": "workspace"},
-        },
+        json={"jitter_seconds": None, "source": {"mode": "force"}, "paused": True},
     )
 
     assert response.status_code == 200
-    assert service.commands[0].paused is None
+    command = service.commands[0]
+    assert command.jitter_seconds is None
+    assert command.force_reprocess is True
+    assert command.connection_id == "workspace"
+    assert command.cron == "0 1 * * *"
+    assert command.paused is True
+
+
+@pytest.mark.parametrize(
+    "body",
+    [{"cron": None}, {"schedule_id": "renamed"}, {"workflow": "source_ingestion"}],
+)
+def test_patch_rejects_invalid_results_and_immutable_fields(
+    client: TestClient, service: _ScheduleService, body: dict[str, object]
+) -> None:
+    response = client.patch("/v1/schedules/artifact-update", json=body)
+
+    assert response.status_code == 422
+    assert service.commands == []
 
 
 class _FailingSyncService(_ScheduleService):
@@ -280,3 +407,59 @@ def test_declared_sync_ignores_singular_schedule_file(tmp_path: Path) -> None:
     )
 
     assert asyncio.run(schedules.sync_declared()) is None
+
+
+def _schedules(tmp_path: Path, backend_provider) -> ScheduleApplicationService:
+    return ScheduleApplicationService(
+        SimpleNamespace(schedule_config_path=tmp_path / "schedules.yaml"),
+        backend_provider=backend_provider,
+        source_input_builder=lambda settings, submission: submission,
+    )
+
+
+def _command(schedule_id: str) -> ScheduleCommand:
+    return ScheduleCommand(
+        schedule_id=schedule_id,
+        workflow="source_ingestion",
+        cron="0 1 * * *",
+        timezone="UTC",
+        overlap="skip",
+        tenant_id="DEFAULT",
+        connection_id="workspace",
+    )
+
+
+def test_api_cannot_take_an_id_declared_in_config(tmp_path: Path) -> None:
+    (tmp_path / "schedules.yaml").write_text(
+        "version: 1\n"
+        "schedules:\n"
+        "  - id: nightly\n"
+        "    workflow: source_ingestion\n"
+        "    cron: '0 1 * * *'\n"
+        "    source:\n"
+        "      connection_id: workspace\n"
+    )
+
+    async def backend_provider():
+        raise AssertionError("a reserved ID is rejected before the engine is contacted")
+
+    with pytest.raises(ScheduleAlreadyExistsError, match="unavailable"):
+        asyncio.run(_schedules(tmp_path, backend_provider).create(_command("nightly")))
+
+
+def test_unconfigured_schedule_engine_is_unavailable_not_a_server_error(tmp_path: Path) -> None:
+    async def backend_provider():
+        raise TemporalConfigurationError("Temporal configuration is missing")
+
+    with pytest.raises(HarborConnectionError):
+        asyncio.run(_schedules(tmp_path, backend_provider).get("nightly"))
+
+
+def test_invalid_schedule_stays_a_validation_error(tmp_path: Path) -> None:
+    async def backend_provider():
+        raise AssertionError("an invalid definition is rejected before the engine is contacted")
+
+    invalid = replace(_command("nightly"), overlap="sometimes")
+
+    with pytest.raises(ScheduleInvalidError):
+        asyncio.run(_schedules(tmp_path, backend_provider).create(invalid))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -18,6 +19,8 @@ from harborrag_runtime.scheduling.models import (
     SourceScheduleTarget,
 )
 from harborrag_runtime.scheduling.validation import (
+    MAX_DURATION_SECONDS,
+    validate_backfill,
     validate_cron,
     validate_definition,
     validate_timezone,
@@ -38,7 +41,7 @@ def test_supported_cron_forms_are_accepted(expression: str) -> None:
     validate_cron(expression)
 
 
-@pytest.mark.parametrize("expression", ["0 1 * *", "60 1 * * *", "0 1 * * FUNDAY"])
+@pytest.mark.parametrize("expression", ["0 1 * *", "60 1 * * *", "0 1 * * FUNDAY", "@DAILY"])
 def test_invalid_cron_is_rejected(expression: str) -> None:
     with pytest.raises(InvalidCronError):
         validate_cron(expression)
@@ -99,3 +102,24 @@ def test_interval_only_schedule_rejects_non_utc_timezone() -> None:
 
     with pytest.raises(ScheduleValidationError, match="use a cron expression"):
         validate_definition(definition)
+
+
+def test_interval_beyond_the_duration_cap_is_rejected() -> None:
+    definition = ScheduleDefinition(
+        schedule_id="interval-sync",
+        workflow=ScheduledWorkflow.SOURCE_INGESTION,
+        cron=None,
+        interval_seconds=MAX_DURATION_SECONDS + 1,
+        target=SourceScheduleTarget(tenant_id="DEFAULT", connection_id="workspace"),
+    )
+
+    with pytest.raises(ScheduleValidationError, match="interval_seconds"):
+        validate_definition(definition)
+
+
+def test_backfill_range_is_capped() -> None:
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+
+    validate_backfill(now - timedelta(days=31), now, now=now)
+    with pytest.raises(ScheduleValidationError, match="at most 31 days"):
+        validate_backfill(now - timedelta(days=32), now, now=now)

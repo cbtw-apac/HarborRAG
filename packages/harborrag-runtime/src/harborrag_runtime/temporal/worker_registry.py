@@ -48,6 +48,7 @@ def worker_registrations(
                 activities.unpause_workflow_execution,
                 activities.record_source_failure,
                 activities.finalize_source_ingestion,
+                activities.prepare_scheduled_source,
                 activities.record_scheduled_run_metrics,
                 activities.prepare_retry_failures,
                 activities.record_retry_failures_task_failure,

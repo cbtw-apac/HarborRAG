@@ -17,5 +17,5 @@ schedules:
     source:
       tenant: DEFAULT
       connection_id: harborrag-workspace
-      source_scope_id: workspace
+      source_scope_id: null
       mode: incremental

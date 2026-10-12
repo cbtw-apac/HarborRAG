@@ -52,8 +52,16 @@ class ScheduleDefinition:
     paused: bool = False
     owner: ScheduleOwner = ScheduleOwner.API
 
-    def to_memo(self) -> dict[str, Any]:
-        return {
+    def to_memo(self, *, desired_paused: bool | None = None) -> dict[str, Any]:
+        """Serialize the definition for the schedule action memo.
+
+        ``desired_paused`` is the operator's intended pause state (alerting
+        compares the live state against it) and defaults to ``paused``.
+        Config-owned schedules also record ``declared_paused`` so a sync only
+        applies a pause change when the YAML value itself changes.
+        """
+
+        memo: dict[str, Any] = {
             "schedule_id": self.schedule_id,
             "workflow": self.workflow.value,
             "cron": self.cron,
@@ -63,7 +71,7 @@ class ScheduleDefinition:
             "catchup_window_seconds": self.catchup_window_seconds,
             "jitter_seconds": self.jitter_seconds,
             "pause_on_failure": self.pause_on_failure,
-            "desired_paused": self.paused,
+            "desired_paused": self.paused if desired_paused is None else desired_paused,
             "owner": self.owner.value,
             "target": {
                 "tenant_id": self.target.tenant_id,
@@ -72,6 +80,9 @@ class ScheduleDefinition:
                 "force_reprocess": self.target.force_reprocess,
             },
         }
+        if self.owner is ScheduleOwner.CONFIG:
+            memo["declared_paused"] = self.paused
+        return memo
 
     @classmethod
     def from_memo(
@@ -121,6 +132,8 @@ class ScheduleView:
     num_actions: int | None = None
     num_actions_skipped_overlap: int = 0
     desired_paused: bool = False
+    # Last pause state declared in config; None for API schedules and old memos.
+    declared_paused: bool | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
 

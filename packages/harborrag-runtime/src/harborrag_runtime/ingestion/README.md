@@ -50,20 +50,18 @@ runtime and white-box test implementation details.
 Temporal recurring ingestion is managed through `harborrag_runtime.scheduling`.
 `ScheduleService` validates definitions and manages creation, updates, pause/unpause,
 manual triggers, deletion, inspection, and backfill through `TemporalScheduleBackend`.
-Each firing starts the existing source-ingestion workflow with a fresh task ID.
-Overlap behavior is configurable and defaults to `skip`.
+Each firing prepares the source on the worker from the connector,
+processing and Temporal configuration it loaded, then starts the source-ingestion
+workflow with a fresh task ID. A firing is skipped, not failed, while another
+ingestion holds the same source scope. Overlap is limited to `skip` (default),
+`buffer_one` and `buffer_all`.
 
 The application syncs version-controlled `config/schedules.yaml` at startup,
 creating missing config-owned schedules and updating existing ones without
-resetting an operator's pause state or note. API-owned schedules can be managed
-independently. The control-plane `SourceConfig.schedule` field is not the source
-for this reconciliation.
-
-`IngestionScheduleClient` and
-`IngestionTemporalClient.upsert_ingestion_schedule(schedule_id, cron_expression,
-prepared_source_input)` are legacy entry points. Prefer the scheduling service
-for policy controls and config reconciliation; the legacy path requires a
-prepared connector input and uses overlap skipping.
+resetting an operator's pause state or note; a changed `paused` value in the
+file is applied. API-owned schedules can be managed independently. The
+control-plane `SourceConfig.schedule` field is not the source for this
+reconciliation.
 
 Tests mirror the same boundaries under `packages/harborrag-runtime/tests/runtime_ingestion/`: shared fakes are in
 `fixtures/`, fast behavior tests are grouped under `unit/document`,

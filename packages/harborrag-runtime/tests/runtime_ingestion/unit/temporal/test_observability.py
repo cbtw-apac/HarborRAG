@@ -341,3 +341,27 @@ def test_application_error_is_preserved_and_verification_failure_is_counted() ->
     assert raised.value is error
     output = generate_latest(telemetry.registry).decode()
     assert "harborrag_ingestion_projection_verification_failures_total 1.0" in output
+
+
+def test_schedule_states_seed_outcome_series_so_the_first_failure_alerts() -> None:
+    telemetry = IngestionTelemetry(registry=CollectorRegistry())
+    telemetry.record_schedule_states({"daily-sync": (False, False, 0)})
+
+    output = generate_latest(telemetry.registry).decode()
+
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 0.0'
+        in output
+    )
+
+
+def test_first_recorded_run_seeds_every_outcome_series() -> None:
+    telemetry = IngestionTelemetry(registry=CollectorRegistry())
+    telemetry.record_scheduled_run("daily-sync", "started")
+
+    output = generate_latest(telemetry.registry).decode()
+
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 0.0'
+        in output
+    )

@@ -5,11 +5,14 @@ from __future__ import annotations
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Path, Query, status
+from fastapi.exceptions import RequestValidationError
+from pydantic import ValidationError
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.dependencies import authorize_role, authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.workflow_control.errors import ScheduleNotFoundAppError
 from harborrag_app.workflow_control.scheduling.models import ScheduleCommand
 
 from .dependencies import ScheduleServiceDependency
@@ -18,6 +21,7 @@ from .schemas import (
     ScheduleActionResponse,
     ScheduleBackfillRequest,
     ScheduleListResponse,
+    SchedulePatchRequest,
     ScheduleResponse,
     ScheduleSourceRequest,
     ScheduleUpsertRequest,
@@ -57,6 +61,9 @@ async def create_schedule(
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> ScheduleResponse:
     authorize_tenant(principal, request.source.tenant)
+    if request.source.source_scope_id is not None:
+        # Choosing a scope chooses which permission pile the documents join.
+        authorize_role(principal, "admin")
     result = await service.create_schedule(_command(request, request.source))
     return ScheduleResponse.model_validate(result)
 
@@ -87,8 +94,7 @@ async def get_schedule(
     service: ScheduleServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader"))],
 ) -> ScheduleResponse:
-    result = await service.get_schedule(schedule_id)
-    authorize_tenant(principal, _tenant(result))
+    result = await _authorize_existing(service, schedule_id, principal)
     return ScheduleResponse.model_validate(result)
 
 
@@ -99,17 +105,16 @@ async def get_schedule(
 )
 async def update_schedule(
     schedule_id: ScheduleIdPath,
-    request: ScheduleUpsertRequest,
+    request: SchedulePatchRequest,
     service: ScheduleServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor"))],
 ) -> ScheduleResponse:
-    await _authorize_existing(service, schedule_id, principal)
-    authorize_tenant(principal, request.source.tenant)
-    if request.schedule_id != schedule_id:
-        request = request.model_copy(update={"schedule_id": schedule_id})
-    result = await service.update_schedule(
-        _command(request, request.source, schedule_id=schedule_id)
-    )
+    existing = await _authorize_existing(service, schedule_id, principal)
+    merged = _merged(schedule_id, existing, request)
+    authorize_tenant(principal, merged.source.tenant)
+    if merged.source.source_scope_id is not None or _scope(existing) is not None:
+        authorize_role(principal, "admin")
+    result = await service.update_schedule(_command(merged, merged.source))
     return ScheduleResponse.model_validate(result)
 
 
@@ -225,6 +230,50 @@ def _command(
     )
 
 
+_PATCHABLE = (
+    "cron",
+    "interval_seconds",
+    "timezone",
+    "overlap",
+    "catchup_window_seconds",
+    "jitter_seconds",
+    "pause_on_failure",
+)
+
+
+def _merged(
+    schedule_id: str,
+    existing: dict[str, object],
+    request: SchedulePatchRequest,
+) -> ScheduleUpsertRequest:
+    """Apply a partial update onto the current definition and revalidate it whole."""
+
+    source = cast(dict[str, object], existing["source"])
+    values: dict[str, object] = {
+        "schedule_id": schedule_id,
+        "workflow": existing["workflow"],
+        **{name: existing[name] for name in _PATCHABLE},
+        "source": {
+            name: source[name] for name in ("tenant", "connection_id", "source_scope_id", "mode")
+        },
+    }
+    changes = request.model_dump(exclude_unset=True)
+    source_changes = changes.pop("source", None) or {}
+    values.update(changes)
+    cast(dict[str, object], values["source"]).update(source_changes)
+    try:
+        return ScheduleUpsertRequest.model_validate(values)
+    except ValidationError as error:
+        raise RequestValidationError(
+            error.errors(include_url=False, include_context=False)
+        ) from error
+
+
+def _scope(result: dict[str, object]) -> str | None:
+    source = result.get("source")
+    return cast(str | None, source.get("source_scope_id")) if isinstance(source, dict) else None
+
+
 def _tenant(result: dict[str, object]) -> str:
     source = result.get("source")
     if not isinstance(source, dict) or not isinstance(source.get("tenant"), str):
@@ -238,5 +287,7 @@ async def _authorize_existing(
     principal: Principal,
 ) -> dict[str, object]:
     result = await service.get_schedule(schedule_id)
-    authorize_tenant(principal, _tenant(result))
+    if not principal.can_access_tenant(_tenant(result)):
+        # Hide schedules outside the caller's tenants, as ingestion tasks do.
+        raise ScheduleNotFoundAppError("Schedule was not found.")
     return result

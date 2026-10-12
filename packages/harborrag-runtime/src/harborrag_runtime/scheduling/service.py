@@ -39,13 +39,9 @@ type SourcePreparer = Callable[[SourceSubmission], PreparedSourceSubmission]
 class ScheduleBackend(Protocol):
     """Engine that runs schedules; the Temporal implementation uses the Schedules API."""
 
-    async def create(
-        self, definition: ScheduleDefinition, source: PreparedSourceSubmission
-    ) -> None: ...
+    async def create(self, definition: ScheduleDefinition) -> None: ...
 
-    async def update(
-        self, definition: ScheduleDefinition, source: PreparedSourceSubmission
-    ) -> None: ...
+    async def update(self, definition: ScheduleDefinition, *, desired_paused: bool) -> None: ...
 
     async def describe(self, schedule_id: str) -> ScheduleView: ...
 
@@ -78,7 +74,8 @@ class ScheduleService:
 
     async def create_schedule(self, definition: ScheduleDefinition) -> ScheduleView:
         validate_definition(definition)
-        await self._backend.create(definition, self._source(definition))
+        self._validate_source(definition)
+        await self._backend.create(definition)
         return await self._backend.describe(definition.schedule_id)
 
     async def update_schedule(
@@ -95,14 +92,19 @@ class ScheduleService:
         """
 
         validate_definition(definition)
-        existing = (await self._backend.describe(definition.schedule_id)).definition
+        current = await self._backend.describe(definition.schedule_id)
+        existing = current.definition
         self._require_owner(existing, definition.owner)
         if existing.target.tenant_id != definition.target.tenant_id:
             raise ScheduleValidationError("a schedule's tenant cannot change")
         if existing.workflow is not definition.workflow:
             raise ScheduleValidationError("a schedule's workflow cannot change")
         schedule_id = definition.schedule_id
-        await self._backend.update(definition, self._source(definition))
+        self._validate_source(definition)
+        await self._backend.update(
+            definition,
+            desired_paused=definition.paused if apply_pause else current.desired_paused,
+        )
         if apply_pause and (
             definition.paused != existing.paused
             or (definition.note is not None and definition.note != existing.note)
@@ -114,17 +116,17 @@ class ScheduleService:
         return await self._backend.describe(schedule_id)
 
     async def pause_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
-        validate_schedule_id(schedule_id)
         validate_note(note)
+        await self.describe_schedule(schedule_id)
         await self._backend.pause(schedule_id, note=note)
 
     async def unpause_schedule(self, schedule_id: str, *, note: str | None = None) -> None:
-        validate_schedule_id(schedule_id)
         validate_note(note)
+        await self.describe_schedule(schedule_id)
         await self._backend.unpause(schedule_id, note=note)
 
     async def trigger_now(self, schedule_id: str) -> None:
-        validate_schedule_id(schedule_id)
+        await self.describe_schedule(schedule_id)
         await self._backend.trigger(schedule_id)
 
     async def delete_schedule(
@@ -158,15 +160,18 @@ class ScheduleService:
         start_at: datetime,
         end_at: datetime,
     ) -> None:
-        validate_schedule_id(schedule_id)
         validate_backfill(start_at, end_at, now=self._clock())
+        await self.describe_schedule(schedule_id)
         await self._backend.backfill(schedule_id, start_at=start_at, end_at=end_at)
 
     async def sync(self, catalog: ScheduleCatalog) -> ScheduleSyncReport:
-        """Reconcile config-owned schedules; pause state is only applied on creation.
+        """Reconcile config-owned schedules.
 
-        Per-schedule rule violations are reported and skipped; backend outages
-        propagate so the caller can retry the whole pass.
+        A declared ``paused`` value is applied on creation and whenever it
+        changes in config; otherwise the live pause state (an operator's
+        incident pause) is kept. Per-schedule rule violations, rejections and
+        ownership conflicts are reported and skipped; backend outages propagate
+        so the caller can retry the whole pass.
         """
 
         created: list[str] = []
@@ -214,23 +219,35 @@ class ScheduleService:
     async def _sync_one(self, definition: ScheduleDefinition) -> bool:
         """Create or update one declared schedule; return whether it was created."""
 
+        validate_definition(definition)
+        self._validate_source(definition)
         try:
-            await self._backend.create(definition, self._source(definition))
+            await self._backend.create(definition)
             return True
         except DuplicateScheduleError:
-            existing = (await self._backend.describe(definition.schedule_id)).definition
-            if existing.owner is not ScheduleOwner.CONFIG:
-                raise ScheduleOwnershipError(
-                    f"schedule {definition.schedule_id!r} already exists and is not "
-                    "managed by configuration; delete it or rename the declared schedule"
-                ) from None
-            await self.update_schedule(definition, apply_pause=False)
-            return False
+            pass
+        try:
+            current = await self._backend.describe(definition.schedule_id)
+        except ScheduleNotFoundError:
+            # Exists in Temporal but is not a HarborRAG schedule.
+            current = None
+        if current is None or current.definition.owner is not ScheduleOwner.CONFIG:
+            raise ScheduleOwnershipError(
+                f"schedule {definition.schedule_id!r} already exists and is not "
+                "managed by configuration; delete it or rename the declared schedule"
+            ) from None
+        declared_changed = (
+            current.declared_paused is not None and current.declared_paused != definition.paused
+        )
+        await self.update_schedule(definition, apply_pause=declared_changed)
+        return False
 
-    def _source(self, definition: ScheduleDefinition) -> PreparedSourceSubmission:
+    def _validate_source(self, definition: ScheduleDefinition) -> None:
+        """Check the target resolves now; each firing prepares its own input."""
+
         target: SourceScheduleTarget = definition.target
         try:
-            return self._prepare_source(
+            self._prepare_source(
                 SourceSubmission(
                     # Placeholder; each scheduled run derives its own task ID.
                     task_id=definition.schedule_id,

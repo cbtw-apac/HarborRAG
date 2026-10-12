@@ -26,6 +26,7 @@ from .observability_types import (
 from .stage_observation import StageObservation
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
+SCHEDULED_RUN_OUTCOMES = ("started", "completed", "partial", "skipped", "cancelled", "failed")
 
 SubprocessOutcomeLabel = Literal[
     "success", "serialization_fail", "result_serialization_fail", "crash"
@@ -168,6 +169,7 @@ class IngestionTelemetry:
             registry=self.registry,
         )
         self._schedule_ids: set[str] = set()
+        self._seeded_schedule_ids: set[str] = set()
         self._subprocess_executions = Counter(
             "harborrag_ingestion_subprocess_executions_total",
             "Subprocess execution outcomes for CPU-intensive activities.",
@@ -279,11 +281,22 @@ class IngestionTelemetry:
         *,
         schedule_to_start_seconds: float | None = None,
     ) -> None:
+        self._seed_scheduled_runs(schedule_id)
         self._scheduled_runs.labels(schedule_id=schedule_id, outcome=outcome).inc()
         if schedule_to_start_seconds is not None and schedule_to_start_seconds >= 0:
             self._schedule_to_start.labels(schedule_id=schedule_id).observe(
                 schedule_to_start_seconds
             )
+
+    def _seed_scheduled_runs(self, schedule_id: str) -> None:
+        # increase() ignores a series' first sample, so outcome series must exist
+        # at 0 before a run's outcome lands or its first failure never alerts.
+        # Every run records "started" first, which seeds the rest in time.
+        if schedule_id in self._seeded_schedule_ids:
+            return
+        for outcome in SCHEDULED_RUN_OUTCOMES:
+            self._scheduled_runs.labels(schedule_id=schedule_id, outcome=outcome)
+        self._seeded_schedule_ids.add(schedule_id)
 
     def record_schedule_states(
         self,
@@ -295,6 +308,7 @@ class IngestionTelemetry:
             self._schedule_expected_paused.remove(schedule_id)
             self._schedule_skipped_overlap.remove(schedule_id)
         for schedule_id, (paused, expected_paused, skipped_overlap) in states.items():
+            self._seed_scheduled_runs(schedule_id)
             self._schedule_paused.labels(schedule_id=schedule_id).set(int(paused))
             self._schedule_expected_paused.labels(schedule_id=schedule_id).set(int(expected_paused))
             self._schedule_skipped_overlap.labels(schedule_id=schedule_id).set(
