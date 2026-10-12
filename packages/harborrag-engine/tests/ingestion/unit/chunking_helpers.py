@@ -102,7 +102,7 @@ def make_config(
     )
 
 
-def make_service(
+def make_service(  # noqa: PLR0913 - keyword-only test knobs
     profile: ChunkingProfile,
     *,
     configuration_version: str = "1",
