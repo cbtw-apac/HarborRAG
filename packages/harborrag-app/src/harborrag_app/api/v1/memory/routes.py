@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
@@ -41,7 +41,8 @@ ERROR_RESPONSES = documented_error_responses(
     {
         403: "Tenant access is not permitted, the role is insufficient, or a shared memory belongs to someone else",
         404: "Memory, session, or user was not found for this caller",
-        422: "Invalid tenant, scope, or identifier",
+        409: "A user erasure did not complete; the message names the erasure and its failed steps",
+        422: "Invalid tenant, scope, or identifier, or an erasure of the shared DEFAULT_USER",
         503: "Long-term memory is not configured",
     }
 )
@@ -164,20 +165,30 @@ async def erase_session(
 @router.delete(
     "/users/{user_id}",
     response_model=UserErasureResponse,
-    responses=ERROR_RESPONSES,
+    responses={
+        **ERROR_RESPONSES,
+        202: {"model": UserErasureResponse, "description": "Erased; vector deletes queued"},
+    },
 )
 async def erase_user(
     user_id: IdentifierPath,
     service: MemoryAdminServiceDependency,
     principal: Annotated[Principal, Depends(require_role("admin"))],
+    response: Response,
     tenant: TenantQuery = "DEFAULT",
 ) -> UserErasureResponse:
-    """Right to erasure: remove everything remembered about one end user.
+    """Right to erasure: remove everything stored about one end user in a tenant.
 
-    Sessions are reached through the memories they produced, so the response
-    reports exactly what was removed rather than claiming completeness.
+    Every conversation the user owns is deleted (messages, titles, agent-run
+    checkpoints), with every memory they wrote and its vectors, their
+    completion replies, and their usage is re-attributed to an opaque
+    pseudonym. Each run is journaled. A step that fails turns the answer into
+    a 409; re-running the same request finishes the job. The shared
+    ``DEFAULT_USER`` names no one person and is refused with a 422.
     """
 
     authorize_tenant(principal, tenant)
     result = await service.erase_memory_user(_access(principal, tenant), user_id)
+    if result.data["status"] == "deferred":
+        response.status_code = 202
     return UserErasureResponse.model_validate(result.data)

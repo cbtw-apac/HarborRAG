@@ -39,18 +39,5 @@ class MemoryAccess:
             session_id=self.session_id,
         )
 
-    def target(self, user_id: str) -> MemoryOwner:
-        """The isolation key of another end user in the caller's tenant.
-
-        Used only by the administrative erasure path, where the actor and the
-        subject of the erasure are different people.
-        """
-
-        return MemoryOwner(
-            tenant_id=self.tenant_id,
-            principal_id=self.principal_id,
-            user_id=user_id,
-        )
-
 
 __all__ = ["MemoryAccess"]

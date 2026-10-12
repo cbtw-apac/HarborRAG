@@ -163,6 +163,8 @@ async def test_deleting_removes_the_messages_memories_and_vector_points(
         "sessions": 1,
         "conversation_messages_cleared": 1,
         "agent_run_checkpoints": 0,
+        "deferred_index_points": 0,
+        "status": "completed",
     }
     assert await service.conversations.recent_messages(identity("session-1"), limit=10) == ()
     assert service.memory_index.deleted == ["mem-session"]

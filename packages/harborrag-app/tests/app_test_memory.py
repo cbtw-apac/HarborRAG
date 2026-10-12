@@ -23,6 +23,10 @@ from harborrag_core.ports.memory import (
 )
 
 
+def _expired(memory: Memory) -> bool:
+    return memory.expires_at is not None and memory.expires_at <= utc_now()
+
+
 class FakeMemoryStore:
     """An in-memory ``MemoryRepository`` with production visibility semantics."""
 
@@ -34,7 +38,7 @@ class FakeMemoryStore:
 
     async def get(self, caller: MemoryOwner, memory_id: str) -> Memory | None:
         memory = self.rows.get(memory_id)
-        if memory is None or not visible_to(memory.scope, memory.owner, caller):
+        if memory is None or _expired(memory) or not visible_to(memory.scope, memory.owner, caller):
             return None
         return memory
 
@@ -60,7 +64,8 @@ class FakeMemoryStore:
                         or memory.owner.principal_id == query.owner.principal_id
                     )
                 )
-            return visible_to(memory.scope, memory.owner, query.owner)
+            # Reads never see expired rows; erasure must reach them.
+            return not _expired(memory) and visible_to(memory.scope, memory.owner, query.owner)
 
         found = [
             memory for memory in self.rows.values() if memory.scope in scopes and matches(memory)

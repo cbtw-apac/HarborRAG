@@ -41,12 +41,14 @@ from ..memory import (
     MemoryAdminClientMixin,
     MemoryAdministrationService,
     MemoryExtractionQueue,
+    UserErasureService,
     agent_run_checkpoints,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
     model_usage_records,
     project_lookup,
+    user_erasure_journal,
 )
 from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
@@ -124,10 +126,16 @@ class AppService(
             conversations=memory,
             memories=memories,
             index=index,
-            runs=runs,
             pending_effects=getattr(
                 getattr(composition, "control_plane", None), "pending_effects", None
             ),
+        )
+        self._user_erasure = UserErasureService(
+            conversations=memory,
+            administration=self._memory_admin,
+            runs=runs,
+            usage=usage,
+            journal=user_erasure_journal(self._composition),
         )
         self._conversation_directory = ConversationDirectoryService(memory, self._memory_admin)
         self._chat = ChatApplicationService(

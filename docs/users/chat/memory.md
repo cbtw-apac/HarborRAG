@@ -96,7 +96,8 @@ The operation removes the session, its title and history, its agent-run
 checkpoints, its session-scoped memories, and every memory you wrote that was
 extracted from that conversation (any scope), together with their index
 entries. Facts other users wrote are untouched. The response reports deletion
-counts.
+counts and a `status`: `completed`, or `deferred` when some index deletes are
+queued for automatic retry (`deferred_index_points` says how many).
 
 Existing long-term memory can still be inspected or erased through
 `/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance
@@ -108,6 +109,37 @@ memories are shared: a `reader` may delete only the ones they wrote (matched
 on the signed end-user claim, not the credential); `editor` and above may
 delete any shared memory in their own tenant, but not a global memory, which
 only its author may delete. Anyone else gets `403`.
+
+## Right to erasure
+
+`DELETE /v1/memory/users/{user_id}?tenant=DEFAULT` (role `admin`) erases one
+end user within one tenant:
+
+- every conversation they own, with its title, messages, legacy turns, and
+  agent-run checkpoints (the control database is authoritative, so
+  conversations that never produced a memory are included);
+- every long-term memory stored under them, at any scope and including
+  expired rows, together with its vector-index entry;
+- their idempotent completion claims and stored replies, so no request key
+  replays an answer;
+- their model-usage rows are re-attributed to an opaque `erased-…` token, so
+  tenant totals stay correct while the rows no longer name them.
+
+Each run is recorded in the `user_erasures` table (who, when, which tenant,
+counts per store, status). A `200` reports `status: completed`; a `202`
+reports `status: deferred` -- everything is erased and some vector deletes are
+queued for automatic retry. If any step fails (for example a conversation is
+mid-answer), the response is `409` naming the erasure id and the failed steps;
+nothing is reported as erased that was not, and re-running the same request
+finishes the job. The same user id in another tenant is never touched.
+
+`DEFAULT_USER` is refused with `422`: it is the shared identity of every caller
+that sends no end-user claim, so it names no single person, and erasing it
+would wipe all of those callers' history at once.
+
+Procedure: revoke the user's credentials first, then erase. An answer still
+being generated for that user when the erasure runs can otherwise write new
+history after it.
 
 ## Automatic extraction scope
 

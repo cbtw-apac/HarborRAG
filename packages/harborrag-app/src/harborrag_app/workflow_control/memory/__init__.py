@@ -9,6 +9,7 @@ from .composition import (
     long_term_memories,
     long_term_memory_index,
     model_usage_records,
+    user_erasure_journal,
 )
 from .context import empty_memory_context, memory_context_request
 from .directory import ConversationDirectoryService
@@ -25,6 +26,7 @@ from .presenters import conversation_message_data, conversation_summary_data, me
 from .projects import project_lookup, require_project
 from .sessions import ConversationSessionService
 from .usage import ModelCall, record_model_usage
+from .user_erasure import UserErasureReport, UserErasureService
 
 __all__ = [
     "ConversationDirectoryService",
@@ -37,6 +39,8 @@ __all__ = [
     "MemoryIdentity",
     "ModelCall",
     "SessionLocks",
+    "UserErasureReport",
+    "UserErasureService",
     "agent_run_checkpoints",
     "answer_message",
     "conversation_memory",
@@ -55,4 +59,5 @@ __all__ = [
     "record_model_usage",
     "require_project",
     "submit_exchange",
+    "user_erasure_journal",
 ]

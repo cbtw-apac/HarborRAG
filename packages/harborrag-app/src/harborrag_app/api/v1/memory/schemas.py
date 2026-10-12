@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from harborrag_app.api.schemas import ApiModel
@@ -37,11 +39,11 @@ class MemoryDeletionResponse(ApiModel):
 
 
 class ErasureCounts(ApiModel):
-    """What an erasure removed, per category.
+    """What a session erasure removed, per category.
 
-    ``agent_run_checkpoints`` is ``0`` when the configured checkpoint store
-    offers no owner-scoped delete -- the endpoint reports what it removed and
-    never implies more.
+    ``status`` is ``completed``, or ``deferred`` when the session and its
+    memories are gone but ``deferred_index_points`` vector deletes are queued
+    for automatic retry.
     """
 
     memories: int = Field(ge=0)
@@ -49,11 +51,29 @@ class ErasureCounts(ApiModel):
     sessions: int = Field(ge=0)
     conversation_messages_cleared: int = Field(ge=0)
     agent_run_checkpoints: int = Field(ge=0)
+    deferred_index_points: int = Field(ge=0)
+    status: Literal["completed", "deferred"]
 
 
 class SessionErasureResponse(ErasureCounts):
     session_id: str
 
 
-class UserErasureResponse(ErasureCounts):
+class UserErasureResponse(ApiModel):
+    """What one right-to-erasure run removed.
+
+    ``status`` is ``completed``, or ``deferred`` (HTTP 202) when every store
+    was erased but some vector deletes are queued for automatic retry. A run
+    with a failed step is a 409 error naming ``erasure_id``, never this body.
+    """
+
     user_id: str
+    erasure_id: str
+    status: Literal["completed", "deferred"]
+    sessions: int = Field(ge=0)
+    memories: int = Field(ge=0)
+    index_points: int = Field(ge=0)
+    deferred_index_points: int = Field(ge=0)
+    agent_run_checkpoints: int = Field(ge=0)
+    completion_requests: int = Field(ge=0)
+    model_usage_pseudonymized: int = Field(ge=0)

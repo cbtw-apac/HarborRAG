@@ -1,18 +1,11 @@
-"""Introspection and right-to-erasure over one caller's remembered data.
+"""Introspection and erasure of one caller's long-term memory and sessions.
 
-Erasure spans three stores that are keyed differently: conversation history by
-``(tenant, principal, session)``, canonical memories by the scope's owner
-fields (``user_id`` for USER, plus ``session_id`` for SESSION), and the vector
-index by ``(owner, memory_id)``. ``MemoryOwner`` is the only place the
-principal and the end-user identity coexist, so it is the bridge: memories are
-found by ``user_id`` and each row's owner then names the principal and session
-whose messages must go.
-
-That has one honest consequence, surfaced in the erasure report: sessions are
-discovered *through* the memories they produced. A conversation that never
-produced a user-scoped memory is not reachable from a ``user_id`` alone, and
-its messages are erased through the session endpoint instead. Nothing here
-enumerates sessions, because no port does.
+Erasure spans stores keyed differently: conversation history by
+``(tenant, user, session)``, canonical memories by the scope's owner fields,
+and the vector index by ``(owner, memory_id)``. Session erasure deletes the
+conversation, its session-scope memories, and every fact the same human wrote
+from it. Whole-user erasure lives in ``user_erasure.py``; this service lends
+it ``purge_user_memories``, one ownership query that reaches every scope.
 """
 
 from __future__ import annotations
@@ -43,7 +36,6 @@ from .erasure import SESSION_ERASURE, ErasedMemory, MemoryErasureJournal
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from harborrag_core.ports.agent_runs import AgentRunRepository
     from harborrag_core.ports.conversation import ConversationHistoryRepository
     from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryRepository
 
@@ -53,12 +45,7 @@ _PAGE = 1_000
 # Bounds a pathological purge (a store growing while it is erased) instead of
 # spinning forever; 50 pages is 50k memories for one user.
 _MAX_PASSES = 50
-_USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
-# Scopes a user's own rows can carry that no caller-visibility query can reach
-# for them: PROJECT keys on (tenant_id, project_id) and RUN needs a run_id the
-# eraser does not have. Matched on the row's stored user instead.
-_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.RUN, MemoryScope.TENANT)
 _NO_STORE = "long-term memory is not configured for this deployment"
 
 
@@ -70,7 +57,6 @@ class PurgeTotals:
     index_points: int = 0
     deferred: int = 0
     complete: bool = True
-    conversations: frozenset[tuple[str, str]] = frozenset()
 
     def __add__(self, other: PurgeTotals) -> PurgeTotals:
         return PurgeTotals(
@@ -78,7 +64,6 @@ class PurgeTotals:
             index_points=self.index_points + other.index_points,
             deferred=self.deferred + other.deferred,
             complete=self.complete and other.complete,
-            conversations=self.conversations | other.conversations,
         )
 
 
@@ -91,14 +76,23 @@ class ErasureReport:
     sessions: int = 0
     conversation_messages_cleared: int = 0
     agent_run_checkpoints: int = 0
+    deferred_index_points: int = 0
 
-    def as_dict(self) -> dict[str, int]:
+    @property
+    def status(self) -> str:
+        """``deferred`` when some vector deletes are queued for retry, else ``completed``."""
+
+        return "deferred" if self.deferred_index_points else "completed"
+
+    def as_dict(self) -> dict[str, int | str]:
         return {
             "memories": self.memories,
             "index_points": self.index_points,
             "sessions": self.sessions,
             "conversation_messages_cleared": self.conversation_messages_cleared,
             "agent_run_checkpoints": self.agent_run_checkpoints,
+            "deferred_index_points": self.deferred_index_points,
+            "status": self.status,
         }
 
 
@@ -111,13 +105,11 @@ class MemoryAdministrationService:
         conversations: ConversationHistoryRepository,
         memories: MemoryRepository | None = None,
         index: MemoryIndex | None = None,
-        runs: AgentRunRepository | None = None,
         pending_effects: PendingEffectRepositoryPort | None = None,
     ) -> None:
         self._conversations = conversations
         self._memories = memories
         self._index = index
-        self._runs = runs
         self._erasure = MemoryErasureJournal(memories, index, pending_effects)
 
     def _store(self) -> MemoryRepository:
@@ -209,6 +201,7 @@ class MemoryAdministrationService:
             index_points=purged.index_points,
             sessions=1,
             conversation_messages_cleared=1,
+            deferred_index_points=purged.deferred,
         )
         _log_erasure("session", owner.tenant_id, actor, owner.session_id, report)
         return report
@@ -238,50 +231,21 @@ class MemoryAdministrationService:
         await self._conversations.delete(identity)
         return True
 
-    async def erase_user(self, owner: MemoryOwner, *, actor: str) -> ErasureReport:
-        """Erase everything reachable for one end user within the tenant.
+    async def purge_user_memories(self, *, tenant_id: str, user_id: str) -> PurgeTotals:
+        """Every memory stored under this human in this tenant, expired ones included.
 
-        Runs in two passes because scope visibility is asymmetric: user-scoped
-        memories are reachable from ``user_id`` alone and name the sessions
-        they came from, and only then can the session-scoped rows (and the
-        conversations themselves) be addressed.
+        One ownership query over all scopes replaces discovering sessions
+        through memories: a USER, SESSION, RUN, PROJECT, TENANT or GLOBAL row
+        the user wrote carries their ``user_id`` whatever its visibility key,
+        and ``stored_by_owner`` also reaches rows past their retention.
         """
 
-        target = owner.user_id
-        if target is None:
-            raise HarborNotFoundError("User was not found")
-        user_owner = MemoryOwner(tenant_id=owner.tenant_id, user_id=target)
-        purged = await self._purge(user_owner, _USER_SCOPES)
-        memories = purged.memories
-        points = purged.index_points
-        for principal_id, session_id in sorted(purged.conversations):
-            session_owner = MemoryOwner(
-                tenant_id=owner.tenant_id,
-                user_id=target,
-                principal_id=principal_id,
-                session_id=session_id,
-            )
-            session_purge = await self._purge(session_owner, _SESSION_SCOPES)
-            memories += session_purge.memories
-            points += session_purge.index_points
-            await self._conversations.clear_messages(
-                ConversationIdentity(owner.tenant_id, principal_id, session_id, target)
-            )
-        # Anything the user authored outside their own visibility key. Without
-        # this pass a project-scoped fact about the erased user survives and
-        # stays recallable to everyone else in that project.
-        authored = await self._purge(user_owner, _AUTHORED_SCOPES, stored_by_owner=True)
-        memories += authored.memories
-        points += authored.index_points
-        report = ErasureReport(
-            memories=memories,
-            index_points=points,
-            sessions=len(purged.conversations),
-            conversation_messages_cleared=len(purged.conversations),
-            agent_run_checkpoints=await self._erase_checkpoints(user_owner),
+        totals = await self._purge(
+            MemoryOwner(tenant_id=tenant_id, user_id=user_id), (), stored_by_owner=True
         )
-        _log_erasure("user", owner.tenant_id, actor, target, report)
-        return report
+        if not totals.complete:
+            raise RuntimeError("memories remained after the purge pass limit")
+        return totals
 
     async def _purge_session(
         self, owner: MemoryOwner, identity: ConversationIdentity
@@ -370,32 +334,7 @@ class MemoryAdministrationService:
         """
 
         erased: ErasedMemory = await self._erasure.erase_memory(row)
-        principal_id = row.owner.principal_id
-        session_id = row.source_session_id or row.owner.session_id
-        conversations: frozenset[tuple[str, str]] = frozenset()
-        if principal_id is not None and session_id is not None:
-            conversations = frozenset({(principal_id, session_id)})
-        return PurgeTotals(1, erased.points, int(erased.deferred), True, conversations)
-
-    async def _erase_checkpoints(self, owner: MemoryOwner) -> int:
-        """Delete the user's agent-run checkpoints where the store supports it.
-
-        ``AgentRunRepository`` is create/save/get only, so a store without an
-        owner-scoped delete reports zero rather than pretending.
-        """
-
-        delete = getattr(self._runs, "delete_for_owner", None)
-        if delete is None:
-            return 0
-        try:
-            return int(await delete(owner))
-        except Exception:  # noqa: BLE001 - erasure must report, never fail
-            logger.warning(
-                "Agent-run checkpoint erasure failed for tenant=%s user=%s",
-                owner.tenant_id,
-                owner.user_id,
-            )
-            return 0
+        return PurgeTotals(1, erased.points, int(erased.deferred))
 
 
 def _written_by(row: Memory, author: MemoryOwner) -> bool:

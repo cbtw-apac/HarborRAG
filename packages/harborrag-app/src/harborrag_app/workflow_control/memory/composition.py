@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.ports.erasure import UserErasureJournal
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_runtime.agent import AgentRunRepository, InMemoryAgentRunRepository
@@ -94,6 +95,24 @@ def model_usage_records(composition: Any) -> ModelUsageRepository | None:
     return repository
 
 
+def user_erasure_journal(composition: Any) -> UserErasureJournal | None:
+    """The durable user-erasure journal, or None when none is wired.
+
+    Production always wires one. Without it an erasure still runs and still
+    reports honestly, but leaves no durable record, so outside development
+    that is warned about.
+    """
+
+    control_plane = getattr(composition, "control_plane", None)
+    journal: UserErasureJournal | None = getattr(control_plane, "erasure_journal", None)
+    if journal is None and getattr(composition, "mode", None) not in _IN_MEMORY_MODES:
+        logger.warning(
+            "No user-erasure journal wired on the control plane; erasures run but are "
+            "not recorded for this process."
+        )
+    return journal
+
+
 def agent_run_checkpoints(composition: Any) -> AgentRunRepository:
     """Use persistent composition agent-run checkpoints, with a test-double fallback."""
 
@@ -116,4 +135,5 @@ __all__ = [
     "long_term_memories",
     "long_term_memory_index",
     "model_usage_records",
+    "user_erasure_journal",
 ]

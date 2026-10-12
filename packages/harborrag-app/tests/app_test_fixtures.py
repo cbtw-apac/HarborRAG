@@ -14,6 +14,7 @@ from app_test_graph_records import (
 )
 from app_test_ingestion import IngestionServiceFixture
 from app_test_memory import FakeMemoryIndex, FakeMemoryStore
+from chat_service_fixtures import FakeUsageRepository
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
@@ -21,6 +22,7 @@ from harborrag_app.workflow_control.memory import (
     ConversationDirectoryService,
     MemoryAdminClientMixin,
     MemoryAdministrationService,
+    UserErasureService,
 )
 from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
@@ -30,6 +32,8 @@ from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import ConversationKind
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
+from harborrag_core.testing.erasure_fakes import FakeUserErasureJournal
+from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.memory import (
     ConversationIdentity,
     InMemoryConversationMemory,
@@ -77,6 +81,16 @@ class MockAppService(
             memories=self.memory_store,  # type: ignore[arg-type]
             index=self.memory_index,  # type: ignore[arg-type]
             pending_effects=self.pending_effects,
+        )
+        self.agent_runs = InMemoryAgentRunRepository()
+        self.usage_records = FakeUsageRepository()
+        self.erasure_journal = FakeUserErasureJournal()
+        self._user_erasure = UserErasureService(
+            conversations=self.conversations,
+            administration=self._memory_admin,
+            runs=self.agent_runs,
+            usage=self.usage_records,
+            journal=self.erasure_journal,
         )
         self._conversation_directory = ConversationDirectoryService(
             self.conversations, self._memory_admin

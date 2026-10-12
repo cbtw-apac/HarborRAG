@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from harborrag_core.contracts.errors import HarborConflictError
+
 from ..schemas import AppResponse
 from .extraction import drain_extraction_queue
 from .presenters import memory_data
@@ -24,12 +26,14 @@ if TYPE_CHECKING:
     from .administration import MemoryAdministrationService
     from .directory import ConversationDirectoryService
     from .extraction import MemoryExtractionQueue
+    from .user_erasure import UserErasureService
 
 
 class MemoryAdminClientMixin:
     """Forward conversation, memory, erasure, and extraction use cases."""
 
     _memory_admin: MemoryAdministrationService
+    _user_erasure: UserErasureService
     _conversation_directory: ConversationDirectoryService
     _extraction: MemoryExtractionQueue | None
 
@@ -78,10 +82,17 @@ class MemoryAdminClientMixin:
         return AppResponse(True, {"session_id": access.session_id, **report.as_dict()})
 
     async def erase_memory_user(self, access: MemoryAccess, user_id: str) -> AppResponse:
-        report = await self._memory_admin.erase_user(
-            access.target(user_id),
-            actor=access.principal_id,
+        """Erase one end user; a failed step is an error, never a partial success."""
+
+        report = await self._user_erasure.erase(
+            tenant_id=access.tenant_id, user_id=user_id, actor=access.principal_id
         )
+        record = report.record
+        if record.status == "failed":
+            raise HarborConflictError(
+                f"user erasure {record.erasure_id} did not complete "
+                f"(failed: {', '.join(record.failed_steps)}); re-run it to finish"
+            )
         return AppResponse(True, {"user_id": user_id, **report.as_dict()})
 
     async def list_conversations(
