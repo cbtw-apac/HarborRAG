@@ -72,6 +72,7 @@ from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
+from .parse_isolation import IsolatedDocumentParser
 from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
@@ -129,7 +130,11 @@ class IngestionRuntimeBuilder:
         )
         chunk_reader = ChunkArtifactReader(artifact_reader)
         dependencies = DocumentReleaseDependencies(
-            parser=parser,
+            parser=IsolatedDocumentParser.from_catalog(
+                settings.parser_config_path,
+                deadline_seconds=settings.parse_timeout_seconds,
+                max_concurrency=settings.parse_max_concurrency,
+            ),
             normalizer=self.build_document_normalizer(),
             chunker=build_default_chunker(
                 config=self._chunking_config,
@@ -177,6 +182,7 @@ class IngestionRuntimeBuilder:
             max_concurrency=settings.graph_relation_repair_concurrency,
         )
         return IngestionRuntime(
+            parse_timeout_seconds=settings.parse_timeout_seconds,
             connectors=connectors,
             connector_fingerprints=connector_fingerprints,
             connector_errors=connector_errors,

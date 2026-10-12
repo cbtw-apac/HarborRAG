@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from pydantic import ValidationError
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion import runtime_builder
@@ -225,3 +226,43 @@ def test_connector_kwargs_map_registry_dependencies_to_runtime_objects() -> None
 def test_connector_kwargs_reject_a_provider_whose_dependencies_are_unavailable() -> None:
     with pytest.raises(ValueError, match=r"'jira' requires .*attachment_parser, rate_limiter"):
         IngestionRuntimeBuilder._connector_kwargs("jira", {})
+
+
+def test_documents_parse_in_isolation_while_connectors_keep_the_in_process_parser(
+    wired: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    built: list[tuple[Path, float, int]] = []
+
+    def from_catalog(path: Path, *, deadline_seconds: float, max_concurrency: int) -> _Sentinel:
+        built.append((path, deadline_seconds, max_concurrency))
+        return _Sentinel("isolated-parser")
+
+    monkeypatch.setattr(
+        runtime_builder, "IsolatedDocumentParser", SimpleNamespace(from_catalog=from_catalog)
+    )
+    settings = RuntimeSettings(
+        connector_config_path=wired.connector_config,
+        parse_timeout_seconds=90,
+        parse_max_concurrency=3,
+        **_REPOSITORY_CONFIGS,
+    )
+
+    runtime = IngestionRuntimeBuilder(settings, normalizer_builder=_FakeNormalizerBuilder()).build()
+
+    assert built == [(settings.parser_config_path, 90, 3)]
+    assert runtime.documents._dependencies.parser == _Sentinel("isolated-parser")
+    assert runtime.parse_timeout_seconds == 90
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"parse_timeout_seconds": 0},
+        {"parse_timeout_seconds": -1},
+        {"parse_timeout_seconds": 1501},
+        {"parse_max_concurrency": 0},
+    ],
+)
+def test_parse_budget_and_concurrency_are_validated(overrides: dict[str, float]) -> None:
+    with pytest.raises(ValidationError):
+        RuntimeSettings(**overrides)  # type: ignore[arg-type]

@@ -61,6 +61,8 @@ settings through `HARBORRAG_*` variables.
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` |
 | `HARBORRAG_FALKORDB_MAX_CONNECTIONS` | `32` |
 | `HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY` | `8` |
+| `HARBORRAG_PARSE_TIMEOUT_SECONDS` | `600`; wall-clock budget for parsing one document in its isolated process (max `1500`). At the deadline the process and anything it started are killed and the document fails without retry |
+| `HARBORRAG_PARSE_MAX_CONCURRENCY` | `4`; parse processes one worker runs at once (match the parser queue's `max_concurrent_activities` in `config/temporal.yaml`) |
 | `HARBORRAG_RETIRED_VERSION_RETENTION_DAYS` | `30`; days a retired document version keeps its object-store artifacts after projection cleanup (`0` purges at once, `off` keeps them) |
 | `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` | `24`; how often each ingestion worker sweeps every scope for expired retired versions (`0` disables the sweep; the purge after each source run still applies) |
 | `HARBORRAG_REDIS_URL` | Optional disposable cache/rate limiter |

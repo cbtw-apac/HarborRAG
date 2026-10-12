@@ -404,3 +404,32 @@ async def test_graph_projection_retry_does_not_replay_the_vector_write(
         "write_graph_projection",
     ]
     assert projections.calls[1][1] == projections.calls[2][1]
+
+
+@pytest.mark.asyncio
+async def test_the_parse_heartbeat_stops_after_twice_the_parse_budget_plus_grace(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def heartbeat(operation: Any, **kwargs: object) -> object:
+        calls.append(kwargs)
+        return await operation
+
+    monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
+    monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
+    monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
+    monkeypatch.setattr(
+        activity_module,
+        "to_prepared_document",
+        lambda request, result: ("prepared-result", request, result),
+    )
+    activities, *_ = _build_activities()
+    activities._runtime.parse_timeout_seconds = 600.0
+    document = DocumentIngestionInput("task-1", "tenant-1", "jira-main", _artifact(), 0)
+
+    await activities.parse_and_normalize(RawCaptureResult(document, "doc-1", "version-1", "NEW"))
+
+    [call] = calls
+    assert call["stop_after_seconds"] == 1320.0
+    assert call["detail"]["mode"] == "isolated-process"  # type: ignore[index]

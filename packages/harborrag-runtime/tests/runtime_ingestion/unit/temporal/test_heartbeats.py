@@ -187,3 +187,51 @@ def test_last_heartbeat_detail_returns_none_on_first_attempt(
         lambda: type("Info", (), {"heartbeat_details": []})(),
     )
     assert heartbeats.last_heartbeat_detail() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_heartbeats_stop_once_the_budget_has_passed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recorded: list[object] = []
+    monkeypatch.setattr(heartbeats.activity, "in_activity", lambda: True)
+    monkeypatch.setattr(heartbeats.activity, "heartbeat", recorded.append)
+    monkeypatch.setattr(
+        heartbeats.activity,
+        "info",
+        lambda: type(
+            "Info",
+            (),
+            {"start_to_close_timeout": None, "heartbeat_timeout": None, "heartbeat_details": []},
+        )(),
+    )
+
+    async def operation() -> str:
+        await asyncio.sleep(0.3)
+        return "complete"
+
+    result = await heartbeats.heartbeat_while(
+        operation(), detail="parse", interval_seconds=0.01, stop_after_seconds=0.03
+    )
+
+    assert result == "complete"
+    # One initial beat, then at most the pulses that fit before the budget ran
+    # out; a 0.3s operation at 0.01s pulses would otherwise beat ~30 times.
+    assert 1 <= len(recorded) <= 5
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_a_non_positive_heartbeat_budget_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(heartbeats.activity, "in_activity", lambda: True)
+
+    async def operation() -> None:
+        return None
+
+    coroutine = operation()
+    with pytest.raises(ValueError, match="heartbeat budget"):
+        await heartbeats.heartbeat_while(coroutine, detail="x", stop_after_seconds=0)
+    coroutine.close()

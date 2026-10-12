@@ -101,6 +101,13 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     )
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
+    # Wall-clock budget for parsing one document in its isolated process; the
+    # process and anything it started are killed at the deadline and the
+    # document fails without retry. Stays under the 30-minute parse activity.
+    parse_timeout_seconds: float = Field(default=600.0, gt=0, le=1500)
+    # Parse processes one worker runs at once, across every parsing path; the
+    # default matches the 4 parser-queue activity slots in config/temporal.yaml.
+    parse_max_concurrency: int = Field(default=4, ge=1, le=64)
     model_config_path: Path = Path("config/models.yaml")
     graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
     object_store_provider: str = Field(default="s3", min_length=1)

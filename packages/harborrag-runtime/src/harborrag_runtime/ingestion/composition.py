@@ -62,6 +62,9 @@ class IngestionRuntime:
     connector_errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
     # None keeps hand-built runtimes (tests, embedders) free of the purge.
     retention: RetiredVersionPurgeService | None = None
+    # The isolated parse's wall-clock budget; None for hand-built runtimes
+    # that parse in-process (tests, embedders).
+    parse_timeout_seconds: float | None = None
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:

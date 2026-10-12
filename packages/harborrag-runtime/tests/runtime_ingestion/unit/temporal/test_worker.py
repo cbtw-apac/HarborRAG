@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import runpy
 import signal
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+import harborrag_core.observability.process_logging as process_logging
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
@@ -337,3 +339,24 @@ async def test_worker_installs_the_sized_thread_pool_on_its_loop() -> None:
     executor = asyncio.get_running_loop()._default_executor
     assert executor is not None
     assert executor._max_workers == worker_module.thread_pool_size(config)
+
+
+@pytest.mark.whitebox
+@pytest.mark.filterwarnings("ignore:.*found in sys.modules:RuntimeWarning")
+def test_the_worker_entry_module_does_nothing_when_a_parse_child_re_imports_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A forkserver parse child re-runs ``__main__`` as ``__mp_main__`` on every parse.
+
+    The worker is launched as ``python -m harborrag_runtime.temporal.worker``, so
+    importing it that way must not configure logging, read settings or start a
+    worker; only ``__name__ == "__main__"`` may.
+    """
+
+    def forbidden(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the worker entry module acted on import")
+
+    monkeypatch.setattr(process_logging, "configure_logging", forbidden)
+    monkeypatch.setattr(RuntimeSettings, "__init__", forbidden)
+
+    runpy.run_module("harborrag_runtime.temporal.worker", run_name="__mp_main__")

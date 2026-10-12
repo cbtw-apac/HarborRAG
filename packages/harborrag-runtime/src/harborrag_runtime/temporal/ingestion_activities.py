@@ -25,6 +25,8 @@ from .schemas import (
 )
 from .source_activities import SourceActivitiesMixin
 
+_PARSE_HEARTBEAT_GRACE_SECONDS = 120.0
+
 
 class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     """Thin Temporal boundaries around durable ingestion application services."""
@@ -72,34 +74,20 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         with self._observability.boundary("ParseAndNormalize"):
             planned = await self._documents.get(request.document)
             capture_stage = to_capture_stage(request)
-            prior = last_heartbeat_detail()
-            prior_attempt_count = 0
-            if prior is not None:
-                prior_attempt_count = 1
-                if isinstance(prior, dict):
-                    candidate = prior.get("prior_attempt_count")
-                    if isinstance(candidate, int) and candidate >= 0:
-                        prior_attempt_count = candidate + 1
-            heartbeat_detail = {
-                "stage": "parse-and-normalize",
-                "task_id": request.document.task_id,
-                "document_id": request.document_id,
-                "document_index": request.document.document_index,
-                "mode": "in-process",
-                "resumed": prior is not None,
-                "prior_attempt_count": prior_attempt_count,
-            }
-            # Parsing runs in-process. The isolated-subprocess attempt that used to
-            # precede this could never succeed -- the preparation stages hold the
-            # parser registry's local closures, the database engine and the S3
-            # client, none of which pickle -- so every parse paid for a failed spawn
-            # attempt and then ran here anyway.
+            budget = getattr(self._runtime, "parse_timeout_seconds", None)
+            # The parse runs in a killable child bounded by ``budget`` (see
+            # ingestion/parse_isolation.py). Heartbeats stop after one possible
+            # slot wait plus the parse plus grace, as a backstop, so Temporal's
+            # heartbeat timeout catches anything that outlives the kill.
             prepared_stage = await heartbeat_while(
                 self._runtime.stages.preparation.parse_and_normalize(
                     planned.request,
                     capture_stage,
                 ),
-                detail=heartbeat_detail,
+                detail=_parse_heartbeat_detail(request, budget),
+                stop_after_seconds=(
+                    None if budget is None else 2 * budget + _PARSE_HEARTBEAT_GRACE_SECONDS
+                ),
             )
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
@@ -292,3 +280,25 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,
             )
+
+
+def _parse_heartbeat_detail(request: RawCaptureResult, budget: float | None) -> dict[str, object]:
+    """Identifiers and resume state for the parse heartbeat; never document content."""
+
+    prior = last_heartbeat_detail()
+    prior_attempt_count = 0
+    if prior is not None:
+        prior_attempt_count = 1
+        if isinstance(prior, dict):
+            candidate = prior.get("prior_attempt_count")
+            if isinstance(candidate, int) and candidate >= 0:
+                prior_attempt_count = candidate + 1
+    return {
+        "stage": "parse-and-normalize",
+        "task_id": request.document.task_id,
+        "document_id": request.document_id,
+        "document_index": request.document.document_index,
+        "mode": "in-process" if budget is None else "isolated-process",
+        "resumed": prior is not None,
+        "prior_attempt_count": prior_attempt_count,
+    }
