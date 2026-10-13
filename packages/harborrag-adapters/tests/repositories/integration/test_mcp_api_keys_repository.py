@@ -138,9 +138,18 @@ async def test_constraints_reject_bad_rows(sessions: SessionFactory) -> None:
     with pytest.raises(IntegrityError):
         await insert(expires_at=NOW - timedelta(days=1))
     with pytest.raises(IntegrityError):
-        await insert(environment="staging")
+        await insert(environment="qa")
     with pytest.raises(IntegrityError):
         await insert(key_id="short")
+    # Right length, wrong alphabet: only lowercase hex is a valid key id or hash.
+    with pytest.raises(IntegrityError):
+        await insert(key_id="z" * 24)
+    with pytest.raises(IntegrityError):
+        await insert(key_id="0123456789ABCDEF01234567")
+    with pytest.raises(IntegrityError):
+        await insert(secret_hash="z" * 64)
+
+    await insert(environment="staging")  # accepted alongside dev and prod
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,7 @@ Format::
      |    |    |     |        `-- secrets.token_urlsafe(32): 43 URL-safe characters
      |    |    |     `-- secrets.token_hex(12): 24 hex characters, public
      |    |    `-- format version
-     |    `-- dev | prod (RuntimeSettings.env)
+     |    `-- dev | staging | prod (RuntimeSettings.env)
      `-- "HarborRAG key": a fixed prefix secret scanners can match
 
 Only the SHA-256 of the whole key is ever stored. That is sufficient because
@@ -21,11 +21,11 @@ import secrets
 from dataclasses import dataclass, field
 from typing import Literal, get_args
 
-KeyEnvironment = Literal["dev", "prod"]
+KeyEnvironment = Literal["dev", "staging", "prod"]
 KEY_ENVIRONMENTS: tuple[str, ...] = get_args(KeyEnvironment)
 KEY_ID_LENGTH = 24
 _MAX_KEY_LENGTH = 120
-_KEY_RE = re.compile(r"^hrk_(dev|prod)_v1_([0-9a-f]{24})\.([A-Za-z0-9_-]{43})$")
+_KEY_RE = re.compile(r"^hrk_(dev|staging|prod)_v1_([0-9a-f]{24})\.([A-Za-z0-9_-]{43})$")
 
 
 @dataclass(frozen=True, slots=True)
