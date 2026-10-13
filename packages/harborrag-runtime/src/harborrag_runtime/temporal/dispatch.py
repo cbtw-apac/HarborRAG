@@ -36,6 +36,3 @@ class DocumentDispatchSummary:
             unchanged=self.unchanged + other.unchanged,
             failed=self.failed + other.failed,
         )
-
-
-__all__ = ["DocumentDispatchSummary"]

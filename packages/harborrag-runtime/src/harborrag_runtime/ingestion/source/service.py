@@ -118,6 +118,10 @@ class SourceIngestionService(SourceDocumentOperations):
     async def cancel(self, task_id: str) -> None:
         """Converge a graceful workflow cancellation on durable task state."""
 
+        # A cancel during discovery would otherwise leave the scan STARTED and
+        # block every later scan of the scope.
+        if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
+            logger.info("Open source scan cancelled task_id=%s", task_id)
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.CANCELLED:
             logger.debug(

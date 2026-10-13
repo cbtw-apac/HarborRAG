@@ -87,6 +87,45 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(("interval", "expected"), [(0.0, []), (45.0, [45.0])])
+async def test_schedule_metrics_loop_follows_its_interval_setting(
+    monkeypatch, interval: float, expected: list[float]
+) -> None:
+    runtime = SimpleNamespace(
+        start=AsyncMock(),
+        close=AsyncMock(),
+        telemetry=IngestionTelemetry(),
+        source_plans=object(),
+    )
+    started: list[float] = []
+
+    async def metrics_loop(_telemetry, _client, _config, _stop, *, interval):
+        started.append(interval)
+
+    async def wait_for_shutdown(*_args, **_kwargs):
+        # Yield once so a started metrics task gets to run.
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(
+        worker_module.TemporalRuntimeConfig,
+        "from_settings",
+        lambda _settings: TemporalRuntimeConfig(),
+    )
+    monkeypatch.setattr(worker_module, "build_ingestion_runtime", lambda _settings: runtime)
+    monkeypatch.setattr(worker_module, "connect_temporal_client", AsyncMock())
+    monkeypatch.setattr(worker_module, "_build_worker", lambda *_args, **_kwargs: _Worker())
+    monkeypatch.setattr(worker_module, "_wait_for_shutdown", wait_for_shutdown)
+    monkeypatch.setattr(worker_module, "_schedule_metrics_loop", metrics_loop)
+
+    await worker_module.run_workers(
+        SimpleNamespace(schedule_metrics_interval_seconds=interval),
+        stop_event=asyncio.Event(),
+    )
+
+    assert started == expected
+
+
+@pytest.mark.asyncio
 async def test_deployed_worker_attaches_enabled_summary_queue(monkeypatch, tmp_path) -> None:
     policy = tmp_path / "graph-build.yaml"
     policy.write_text(

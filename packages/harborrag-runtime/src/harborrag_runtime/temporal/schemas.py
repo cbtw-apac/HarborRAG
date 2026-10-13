@@ -81,6 +81,57 @@ class SourceIngestionInput(PreparedSourceSubmission):
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionInput:
+    """Schedule action payload: only the target, prepared afresh on each firing.
+
+    A prepared source frozen at schedule creation would carry a stale connector
+    fingerprint, processing profile and task queues once the worker config moves.
+    """
+
+    schedule_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.schedule_id.strip():
+            raise ValueError("schedule_id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparationInput:
+    task_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparation:
+    """A source prepared by the worker; ``source`` is None while its scope is busy."""
+
+    source: SourceIngestionInput | None
+    source_scope_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionResult:
+    schedule_id: str
+    outcome: str
+    task_id: str | None = None
+    result: SourceIngestionResult | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledRunMetricInput:
+    schedule_id: str
+    outcome: str
+    schedule_to_start_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SourceDiscoveryResult:
     scan_id: str
     plan_reference: WorkflowArtifactReference
