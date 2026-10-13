@@ -14,6 +14,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import conv
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
@@ -342,22 +343,26 @@ class McpApiKeyRow(Base):
     revoked_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     revocation_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
 
+    # conv() keeps these names verbatim instead of expanding them through the
+    # "ck" naming convention, so they match what migrations 0036/0040 create.
     __table_args__ = (
-        sa.CheckConstraint("key_id ~ '^[0-9a-f]{24}$'", name="ck_mcp_key_id").ddl_if(
+        sa.CheckConstraint("key_id ~ '^[0-9a-f]{24}$'", name=conv("ck_mcp_key_id")).ddl_if(
             dialect="postgresql"
         ),
         sa.CheckConstraint(
-            "length(key_id) = 24 AND key_id NOT GLOB '*[^0-9a-f]*'", name="ck_mcp_key_id"
+            "length(key_id) = 24 AND key_id NOT GLOB '*[^0-9a-f]*'", name=conv("ck_mcp_key_id")
         ).ddl_if(dialect="sqlite"),
-        sa.CheckConstraint("secret_hash ~ '^[0-9a-f]{64}$'", name="ck_mcp_key_hash").ddl_if(
+        sa.CheckConstraint("secret_hash ~ '^[0-9a-f]{64}$'", name=conv("ck_mcp_key_hash")).ddl_if(
             dialect="postgresql"
         ),
         sa.CheckConstraint(
             "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'",
-            name="ck_mcp_key_hash",
+            name=conv("ck_mcp_key_hash"),
         ).ddl_if(dialect="sqlite"),
-        sa.CheckConstraint("environment IN ('dev', 'staging', 'prod')", name="ck_mcp_key_env"),
-        sa.CheckConstraint("expires_at > created_at", name="ck_mcp_key_expiry"),
-        sa.CheckConstraint("tenant_id <> '*'", name="ck_mcp_api_keys_tenant"),
+        sa.CheckConstraint(
+            "environment IN ('dev', 'staging', 'prod')", name=conv("ck_mcp_key_env")
+        ),
+        sa.CheckConstraint("expires_at > created_at", name=conv("ck_mcp_key_expiry")),
+        sa.CheckConstraint("tenant_id <> '*'", name=conv("ck_mcp_api_keys_tenant")),
         sa.Index("ix_mcp_api_keys_tenant_owner", "tenant_id", "owner"),
     )
