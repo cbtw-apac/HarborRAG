@@ -147,6 +147,7 @@ class SqlApiKeyManager:
                     self._revoke_statement(at=at, by=by, reason=reason).where(
                         McpApiKeyRow.tenant_id == tenant_id,
                         McpApiKeyRow.owner == owner,
+                        McpApiKeyRow.expires_at > at,
                     )
                 )
                 # RETURNING has no guaranteed order; keep the oldest-first contract.

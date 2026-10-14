@@ -54,7 +54,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
 
-    env: Literal["dev", "prod"] = "dev"
+    # staging is held to every prod guard: each check below tests env != "dev".
+    env: Literal["dev", "staging", "prod"] = "dev"
     ingestion_tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
@@ -234,10 +235,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")
-        if self.env == "prod" and is_sqlite_control_db:
+        if self.env != "dev" and is_sqlite_control_db:
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
-                "HARBORRAG_ENV=prod; SQLite is development-only"
+                "HARBORRAG_ENV is staging or prod; SQLite is development-only"
             )
         # The secrets encryption key is required only by the process that opens
         # the control-plane secret store (CompositionRoot.production enforces it
