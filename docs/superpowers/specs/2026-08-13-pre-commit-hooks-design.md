@@ -84,13 +84,14 @@ both are now covered.
 The design approved a **full test suite plus the 90% coverage gate on
 pre-push**. What shipped keeps coverage in CI only.
 
-The reason is platform, not runtime: eight tests fail on Windows, so a local
-pytest gate would block every push from a Windows machine. The suite itself runs
-in about 49 seconds with `-n 4`, so the multi-minute cost that motivated the
-original concern does not exist.
+The reason is platform, not runtime: tests fail on Windows (33 on the
+2026-10-15 run, broken down under Known gaps), so a local pytest gate would
+block every push from a Windows machine. The suite itself runs in about four
+minutes with `-n 4` on Windows, still far short of a cost that would rule out a
+pre-push gate by itself.
 
 This is recorded in `CI_ONLY_TARGETS` with its reason so the exemption stays
-deliberate and the drift test keeps it visible. Restore the hook once the eight
+deliberate and the drift test keeps it visible. Restore the hook once the
 failures below are resolved.
 
 ## Pre-existing bugs surfaced
@@ -105,11 +106,14 @@ defects had been latent because CI only ever ran Linux.
 2. **The durable MCP audit log and configuration store crashed on Windows.**
    `_open_audit_file` opened the parent directory as a descriptor, which Windows
    refuses with `EACCES`, and both modules called `os.fchmod`, which does not
-   exist there. A `dir_fd`-gated fallback now mirrors the pattern
-   `connectors/local/secure_read.py` already uses: it narrows rather than closes
-   the TOCTOU window. `_write_configuration` also leaked its `mkstemp`
-   descriptor on any failure before `os.fdopen`, which on Windows made the
-   cleanup `unlink` fail with `WinError 32` and mask the original error.
+   exist there. For the audit log, a `dir_fd`-gated fallback now mirrors the
+   pattern `connectors/local/secure_read.py` already uses: it narrows rather
+   than closes the TOCTOU window, and its remaining `os.fchmod` sits on the
+   POSIX-only `dir_fd` path. **The configuration store is not fixed yet.**
+   `_write_configuration` in `configuration/store.py` still calls `os.fchmod`
+   unguarded and still leaks its `mkstemp` descriptor when that call fails, so
+   on Windows the cleanup `unlink` fails with `WinError 32` and masks the
+   original error.
 3. **mypy reported phantom errors on Windows.** These were briefly suppressed
    with `platform = "linux"`, which also suppressed the genuine `os.fchmod`
    defects in item 2. Replaced with a narrower fix: MinerU's guard now uses
@@ -118,9 +122,25 @@ defects had been latent because CI only ever ran Linux.
 
 ## Known gaps
 
-- Eight tests fail on Windows: five need symlink-creation privileges (Developer
-  Mode), one asserts prometheus process metrics that exist only on POSIX, and two
-  are unrelated platform gaps in `harborrag-app` and the compose asset test.
+- On 2026-10-15, 33 tests failed on Windows (`pytest -n 4`: 6555 passed,
+  21 skipped). Symlink tests now skip without symlink privileges rather than
+  fail. The count depends on the host, mostly through the first group:
+  - 15 shell entrypoint tests (`test_development_entrypoint_assets.py`,
+    `test_mcp_ui_entrypoint_assets.py`) run `bash`, which on that host resolved
+    to the WSL launcher with no distribution installed. A host whose `bash` is
+    Git Bash may pass some of them.
+  - 11 `harborrag-app` tests assume the POSIX permission model: `os.geteuid`
+    (`test_cli_project.py`), world-writable and `0o600` mode checks
+    (`test_cli_project.py`, `test_auth_keys_cli.py`, `test_doctor_cli.py`), and
+    prometheus process metrics that exist only on POSIX
+    (`test_api_app_factory.py`).
+  - 3 `harborrag-mcp-server` tests hit the unguarded `os.fchmod` in the
+    configuration store (item 2 above).
+  - 3 single cases: a POSIX path separator assertion
+    (`test_liteparse_engine_paths.py`), a timestamp that does not advance
+    within Windows clock resolution (`test_conversation_directory.py`), and
+    `test_storage_providers.py`, which passes alone and fails only under
+    xdist, so it is order-dependent.
 - The pre-push stage does not run tests at all. Coverage remains CI-enforced.
 
 ## Files

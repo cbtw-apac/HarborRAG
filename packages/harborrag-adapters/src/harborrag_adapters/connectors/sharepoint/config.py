@@ -108,6 +108,9 @@ class SharePointSiteConfig:
         validate_https_url("graph_api_url", self.graph_api_url)
         self.tenant_id = self.tenant_id or os.getenv("MICROSOFT_TENANT_ID")
         self.client_id = self.client_id or os.getenv("MICROSOFT_CLIENT_ID")
+        if self.auth_mode is not None:
+            # Normalize first so " Device_Code" still takes the delegated guard below.
+            self.auth_mode = self.auth_mode.strip().lower()
         if self.auth_mode != AUTH_DEVICE_CODE:
             # A delegated connection must never fall back to ambient app credentials.
             self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")

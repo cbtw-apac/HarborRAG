@@ -319,6 +319,8 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         context: StorageOperationContext,
     ) -> list[ObjectMetadata]:
         bucket_root = self._tenant_root(bucket, context)
+        # Keys map "\" to a path separator on disk, so compare prefixes the same way.
+        prefix = prefix.replace("\\", "/")
         try:
             if not bucket_root.exists():
                 return []

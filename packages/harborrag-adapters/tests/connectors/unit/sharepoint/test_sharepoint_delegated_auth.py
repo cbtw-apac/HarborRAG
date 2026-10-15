@@ -86,6 +86,21 @@ def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
     assert config.token_cache_path.endswith("token-tid-cid.json")
 
 
+@pytest.mark.parametrize("auth_mode", ["Device_Code", " device_code "])
+def test_config_device_code_guard_normalizes_auth_mode(monkeypatch, auth_mode):
+    monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
+    monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
+    config = SharePointSiteConfig(
+        site_url="https://ex.sharepoint.com/sites/s",
+        auth_mode=auth_mode,
+        tenant_id="tid",
+        client_id="cid",
+    )
+    assert config.auth_mode == "device_code"
+    assert config.access_token is None
+    assert config.client_secret is None
+
+
 def test_config_infers_auth_mode_from_credentials():
     token_config = SharePointSiteConfig(
         site_url="https://ex.sharepoint.com/sites/s", access_token="tok"
