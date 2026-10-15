@@ -11,13 +11,12 @@ from uuid import uuid4
 
 import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
 
 from .schemas import ActivityRow, McpApiKeyRow
-
-SessionFactory = async_sessionmaker[AsyncSession]
+from .session import SessionFactory
 
 
 @contextmanager

@@ -2,17 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+import os
+from collections.abc import AsyncGenerator, AsyncIterator
+from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 import sqlalchemy as sa
+from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from harborrag_adapters.repositories.database.control_plane import mcp_api_keys
 from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
     create_session_factory,
@@ -30,15 +35,43 @@ from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
 
 SessionFactory = async_sessionmaker[AsyncSession]
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+# Server URL (any database the user may CREATE DATABASE from) for the PostgreSQL
+# runs; unset, those runs skip and only SQLite is exercised.
+POSTGRES_URL_ENV = "HARBORRAG_TEST_POSTGRES_URL"
 
 
-@pytest_asyncio.fixture
-async def sessions(tmp_path: Path) -> AsyncIterator[SessionFactory]:
-    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
-    run_migrations(dsn)
-    engine = create_control_plane_engine(dsn)
-    yield create_session_factory(engine)
-    await engine.dispose()
+@asynccontextmanager
+async def _scratch_postgres_dsn() -> AsyncGenerator[str]:
+    """A freshly created database on the server named by POSTGRES_URL_ENV, dropped afterwards."""
+
+    server = os.environ.get(POSTGRES_URL_ENV, "").strip()
+    if not server:
+        pytest.skip(f"set {POSTGRES_URL_ENV} to run against PostgreSQL")
+    name = f"harborrag_test_{uuid4().hex[:12]}"
+    admin = create_async_engine(server, isolation_level="AUTOCOMMIT")
+    try:
+        async with admin.connect() as conn:
+            await conn.execute(sa.text(f'CREATE DATABASE "{name}"'))
+        try:
+            yield make_url(server).set(database=name).render_as_string(hide_password=False)
+        finally:
+            async with admin.connect() as conn:
+                await conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
+    finally:
+        await admin.dispose()
+
+
+@pytest_asyncio.fixture(params=["sqlite", "postgresql"])
+async def sessions(request: pytest.FixtureRequest, tmp_path: Path) -> AsyncIterator[SessionFactory]:
+    async with AsyncExitStack() as stack:
+        if request.param == "postgresql":
+            dsn = await stack.enter_async_context(_scratch_postgres_dsn())
+        else:
+            dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+        run_migrations(dsn)
+        engine = create_control_plane_engine(dsn)
+        stack.push_async_callback(engine.dispose)
+        yield create_session_factory(engine)
 
 
 def _record(key_id: str, **overrides: object) -> ApiKeyRecord:
@@ -114,6 +147,28 @@ async def test_revoke_by_owner_returns_only_the_keys_it_changed(sessions: Sessio
     # Newest first; c and d share created_at, so key_id breaks the tie.
     assert [r.key_id for r in listed] == ["c" * 24, "d" * 24, "b" * 24, "a" * 24]
     assert {r.key_id for r in listed if r.revoked_at is None} == {"d" * 24}
+
+
+@pytest.mark.asyncio
+async def test_a_failed_audit_insert_rolls_back_the_key(
+    sessions: SessionFactory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_audit = mcp_api_keys._audit
+
+    def broken_audit(**fields: str) -> ActivityRow:
+        row = real_audit(**fields)
+        row.summary = None  # type: ignore[assignment]  # activity.summary is NOT NULL
+        return row
+
+    monkeypatch.setattr(mcp_api_keys, "_audit", broken_audit)
+    record = _record("0123456789abcdef01234567")
+
+    with pytest.raises(IntegrityError):
+        await SqlApiKeyManager(sessions).create(record)
+
+    assert await SqlApiKeyReader(sessions).get_by_key_id(record.key_id) is None
+    async with sessions() as session:
+        assert (await session.scalars(sa.select(ActivityRow))).all() == []
 
 
 @pytest.mark.asyncio
