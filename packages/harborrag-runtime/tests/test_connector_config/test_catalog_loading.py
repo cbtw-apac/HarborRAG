@@ -33,11 +33,13 @@ def test_repository_runtime_connections_match_the_public_api_contract() -> None:
         "confluence-main",
         "harborrag-workspace",
         "jira-main",
+        "sharepoint-demo",
     ]
     assert {name: catalog.get(name).provider for name in catalog.names()} == {
         "confluence-main": "confluence",
         "harborrag-workspace": "local",
         "jira-main": "jira",
+        "sharepoint-demo": "sharepoint",
     }
 
 
