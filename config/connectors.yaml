@@ -78,3 +78,27 @@ connectors:
     secrets:
       token_env: JIRA_TOKEN
       email_env: JIRA_EMAIL
+
+  # LOCAL DEMO ONLY, do not commit: test_catalog_loading pins the committed
+  # connection list. Reads one folder of a SharePoint site as the user who
+  # signed in with device code (delegated Sites.Selected).
+  sharepoint-demo:
+    provider: sharepoint
+    enabled: true
+    environment:
+      site_url: SHAREPOINT_SITE_URL
+      allowed_sites: SHAREPOINT_SITE_URL
+      root_path: SHAREPOINT_DEMO_FOLDER
+      tenant_id: MICROSOFT_TENANT_ID
+      client_id: MICROSOFT_CLIENT_ID
+    settings:
+      # Delegated: sign in once with
+      # `python -m harborrag_adapters.connectors.sharepoint.login`.
+      auth_mode: device_code
+      include_pages: false
+      recursive: true
+      allowed_extensions: [docx, pdf, pptx, xlsx, txt, md]
+      max_file_size_bytes: 52428800
+      requests_per_minute: 120
+      page_size: 200
+      max_retries: 3

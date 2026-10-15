@@ -38,3 +38,21 @@ class SharePointMetadata(ConnectorMetadata):
     updated_by: str | None
     parent: SharePointParentReference
     sharepoint_hashes: dict[str, Any]
+
+
+@dataclass(slots=True, kw_only=True)
+class SharePointPageMetadata(ConnectorMetadata):
+    """Structured metadata for one loaded SharePoint modern site page."""
+
+    source_system: ClassVar[str] = "sharepoint"
+
+    record_kind: str = "page"
+    site_id: Any
+    site_name: Any
+    page_id: str
+    item_name: str
+    page_layout: Any
+    etag: Any
+    created_by: str | None
+    updated_by: str | None
+    has_text_content: bool

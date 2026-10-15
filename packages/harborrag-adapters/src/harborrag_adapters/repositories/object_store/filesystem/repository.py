@@ -322,7 +322,7 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
             output: list[ObjectMetadata] = []
             for meta_path in sorted(bucket_root.rglob(f"*{_META_SUFFIX}")):
                 target = Path(str(meta_path)[: -len(_META_SUFFIX)])
-                key = target.relative_to(bucket_root).as_posix()
+                key = self._key_for_path(target, bucket_root)
                 if not key.startswith(prefix):
                     continue
                 metadata = ObjectMetadata.model_validate_json(

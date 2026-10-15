@@ -103,13 +103,27 @@ def test_sharepoint_request_raises_authentication_error_on_401():
         client.get_json("sites/x")
 
 
-def test_sharepoint_request_raises_authentication_error_on_403():
-    from harborrag_adapters.connectors.exceptions import AuthenticationError
+def test_sharepoint_request_raises_authorization_error_on_403():
+    # A 403 is "no access to this resource", not "bad credentials": callers
+    # skip one item as ACCESS_DENIED instead of failing the whole run.
+    from harborrag_adapters.connectors.exceptions import AuthenticationError, AuthorizationError
 
     client = sharepoint_client()
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="forbidden")])
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthorizationError) as excinfo:
         client.get_json("sites/x")
+    assert excinfo.value.status_code == 403
+    assert not isinstance(excinfo.value, AuthenticationError)
+
+
+def test_sharepoint_request_keeps_status_code_on_not_found():
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = sharepoint_client()
+    client.session = FakeSession(responses=[FakeResponse(status_code=404, text="gone")])
+    with pytest.raises(FetchError) as excinfo:
+        client.get_json("drives/d/items/x")
+    assert excinfo.value.status_code == 404
 
 
 def test_sharepoint_request_raises_rate_limit_error_after_exhausting_retries():

@@ -5,12 +5,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from pathlib import Path
 from typing import Any, Protocol
 
 import requests
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
+    AuthorizationError,
     FetchError,
     RateLimitError,
 )
@@ -23,7 +25,9 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
 )
 
-from .config import SharePointSiteConfig
+from .config import AUTH_ACCESS_TOKEN, AUTH_DEVICE_CODE, SharePointSiteConfig
+from .delegated import DELEGATED_SCOPE, LOGIN_HINT, DelegatedTokenCache, identity_url
+from .permissions import reject_broad_delegated_scopes, reject_broad_permissions
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
@@ -115,16 +119,8 @@ class _RequestsGraphClient:
                 self._sleep(attempt, exc)
                 continue
 
-            if response.status_code in (401, 403):
-                raise AuthenticationError(safe_response_error_detail(response))
-            if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_response_error_detail(response))
+            self._raise_for_final_status(response, final_attempt=attempt == self.config.max_retries)
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
-                if response.status_code >= 400:
-                    raise FetchError(
-                        f"Microsoft Graph request failed with HTTP "
-                        f"{response.status_code}: {safe_response_error_detail(response)}"
-                    )
                 return response
 
             last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
@@ -134,14 +130,51 @@ class _RequestsGraphClient:
 
         raise FetchError("Microsoft Graph request failed") from last_error
 
+    @staticmethod
+    def _raise_for_final_status(response: requests.Response, *, final_attempt: bool) -> None:
+        """Raise the typed error for a response that will not be retried.
+
+        A 401 means the credentials are rejected, which is fatal for the run. A
+        403 means the app lacks access to that resource, which callers handle
+        per item (or as fatal when it is the configured site itself).
+        """
+        status = response.status_code
+        if status == 401:
+            raise AuthenticationError(safe_response_error_detail(response), status_code=401)
+        if status == 403:
+            raise AuthorizationError(safe_response_error_detail(response), status_code=403)
+        if status in _RETRYABLE_STATUS and not final_attempt:
+            return
+        if status == 429:
+            raise RateLimitError(safe_response_error_detail(response), status_code=429)
+        if status >= 400:
+            raise FetchError(
+                f"Microsoft Graph request failed with HTTP "
+                f"{status}: {safe_response_error_detail(response)}",
+                status_code=status,
+            )
+
     def _access_token(self) -> str:
-        """Return a configured token or obtain/cache one by client credentials."""
-        if self.config.access_token:
+        """Return a configured token or obtain/cache one for the auth mode.
+
+        Client credentials request an app-only token; device code redeems the
+        signed-in user's cached refresh token and stores the rotated one.
+        """
+        if self.config.auth_mode == AUTH_ACCESS_TOKEN and self.config.access_token:
+            reject_broad_permissions(self.config.access_token)
             return self.config.access_token
         if self._token and time.monotonic() < self._token_expires_at - 60:
             return self._token
 
-        response = self._request_token()
+        cache = self._delegated_cache()
+        form = self._token_form(cache)
+        try:
+            response = self._request_token(form)
+        except AuthenticationError as exc:
+            if cache is None:
+                raise
+            # An expired or revoked refresh token only recovers by signing in again.
+            raise AuthenticationError(f"{exc}; {LOGIN_HINT}", status_code=exc.status_code) from exc
         try:
             payload = read_capped_json(response)
         except (ValueError, ResponseTooLargeError) as exc:
@@ -152,24 +185,51 @@ class _RequestsGraphClient:
         token = payload.get("access_token")
         if not token:
             raise AuthenticationError("Microsoft identity token response missing token")
+        reject_broad_permissions(str(token))
+        if cache is not None:
+            reject_broad_delegated_scopes(str(token))
+            rotated = payload.get("refresh_token")
+            if rotated:
+                cache.save(str(rotated))
         self._token = str(token)
         self._token_expires_at = time.monotonic() + int(payload.get("expires_in") or 3599)
         return self._token
 
-    def _request_token(self) -> requests.Response:
+    def _token_form(self, cache: DelegatedTokenCache | None) -> dict[str, str]:
+        """Return the OAuth token request body for client credentials or a refresh."""
+        if cache is None:
+            return {
+                "client_id": str(self.config.client_id),
+                "client_secret": str(self.config.client_secret),
+                "grant_type": "client_credentials",
+                "scope": "https://graph.microsoft.com/.default",
+            }
+        return {
+            "client_id": str(self.config.client_id),
+            "grant_type": "refresh_token",
+            "refresh_token": cache.load_refresh_token(),
+            "scope": DELEGATED_SCOPE,
+        }
+
+    def _delegated_cache(self) -> DelegatedTokenCache | None:
+        """Return the refresh token cache for device code auth, else ``None``."""
+        if self.config.auth_mode != AUTH_DEVICE_CODE:
+            return None
+        return DelegatedTokenCache(
+            path=Path(str(self.config.token_cache_path)),
+            tenant_id=str(self.config.tenant_id),
+            client_id=str(self.config.client_id),
+        )
+
+    def _request_token(self, form: dict[str, str]) -> requests.Response:
         """POST for an OAuth token, retrying transient failures and 429/5xx."""
-        token_url = f"https://login.microsoftonline.com/{self.config.tenant_id}/oauth2/v2.0/token"
+        token_url = identity_url(str(self.config.tenant_id), "token")
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             try:
                 response = self.session.post(
                     token_url,
-                    data={
-                        "client_id": self.config.client_id,
-                        "client_secret": self.config.client_secret,
-                        "grant_type": "client_credentials",
-                        "scope": "https://graph.microsoft.com/.default",
-                    },
+                    data=form,
                     timeout=self.config.request_timeout_seconds,
                     stream=True,
                 )

@@ -153,6 +153,40 @@ def test_sharepoint_missing_parent_builds_placeholder_folder_hierarchy() -> None
     assert all(node.attributes["placeholder"] is True for node in folders)
 
 
+def test_sharepoint_page_hangs_off_the_site_without_drive_or_folders() -> None:
+    graph = _project(
+        "sharepoint",
+        {
+            "record_kind": "page",
+            "site_id": "site-1",
+            "site_name": "Engineering",
+            "page_id": "page-1",
+            "item_name": "Onboarding.aspx",
+            "page_layout": "article",
+        },
+        source_item_id="sharepoint://site-1/pages/page-1",
+    )
+
+    nodes = {node.node_key: node for node in graph.nodes}
+    entity_types = {node.entity_type for node in graph.nodes}
+    assert GraphEntityType.SHAREPOINT_PAGE in entity_types
+    assert GraphEntityType.SHAREPOINT_DRIVE not in entity_types
+    assert GraphEntityType.SHAREPOINT_FOLDER not in entity_types
+    assert GraphEntityType.SHAREPOINT_FILE not in entity_types
+
+    (page,) = [n for n in graph.nodes if n.entity_type == GraphEntityType.SHAREPOINT_PAGE]
+    assert page.attributes["item_name"] == "Onboarding.aspx"
+    parents = {
+        (relation.relation_type, nodes[relation.source_node_key].entity_type)
+        for relation in graph.relations
+        if relation.target_node_key == page.node_key
+    }
+    assert parents == {
+        (RelationType.CONTAINS, GraphEntityType.SHAREPOINT_SITE),
+        (RelationType.PARENT_OF, GraphEntityType.SHAREPOINT_SITE),
+    }
+
+
 def test_local_topology_uses_only_portable_relative_paths() -> None:
     graph = _project(
         "local",
@@ -213,14 +247,19 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
         "jira": ({"project_key": "ENG", "issue_key": "ENG-1"}, "ENG-1"),
         "github": ({"owner": "acme", "repo": "core", "relative_path": "a/b.md"}, "a/b.md"),
         "sharepoint": ({"site_id": "site-1", "drive_id": "drive-1"}, "file-1"),
+        "sharepoint_page": (
+            {"record_kind": "page", "site_id": "site-1", "page_id": "page-1"},
+            "sharepoint://site-1/pages/page-1",
+        ),
         "local": ({"relative_path": "docs/guide.md"}, "docs/guide.md"),
         "catalog": ({"provider_id": "item-1"}, "item-1"),
     }
-    for connector, (extra, source_item_id) in cases.items():
+    for case, (extra, source_item_id) in cases.items():
+        connector = case.removesuffix("_page")
         graph = _project(connector, extra, source_item_id=source_item_id)
         nodes = {node.node_key: node for node in graph.nodes}
         tenants = [node for node in graph.nodes if node.node_kind is KnowledgeNodeKind.TENANT]
-        assert len(tenants) == 1, connector
+        assert len(tenants) == 1, case
 
         # Undirected, matching how traversals actually run: Chunk points *into* the spine
         # via (:Chunk)-[:SUPPORTS]->(:Structure), so a directed walk from the tenant would
@@ -239,8 +278,8 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             for edge in graph.relations
             if edge.relation_type is RelationType.HAS_DATA_SOURCE
         ]
-        assert len(data_sources) == 1, connector
-        assert nodes[data_sources[0]].node_kind is KnowledgeNodeKind.DATA_SOURCE, connector
+        assert len(data_sources) == 1, case
+        assert nodes[data_sources[0]].node_kind is KnowledgeNodeKind.DATA_SOURCE, case
 
         # Placeholder stubs for cross-document targets are resolved by relation repair and
         # are legitimately unanchored until then; every concrete node must be reachable.
@@ -249,4 +288,4 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             for node in graph.nodes
             if node.node_key not in reachable and not node.attributes.get("placeholder")
         }
-        assert not stranded, (connector, stranded)
+        assert not stranded, (case, stranded)

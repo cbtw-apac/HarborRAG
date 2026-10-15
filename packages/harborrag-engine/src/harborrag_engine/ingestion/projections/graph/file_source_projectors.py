@@ -88,19 +88,22 @@ class SharePointSourceProjector(BaseSourceProjector):
     def project(self, state, document, data_source, document_version):  # type: ignore[no-untyped-def]
         extra = document.provenance.extra
         site_id = text_value(extra, "site_id") or "unknown-site"
-        drive_id = text_value(extra, "drive_id") or "unknown-drive"
         site = state.source_node(
             GraphEntityType.SHAREPOINT_SITE,
             site_id,
             title=text_value(extra, "site_name") or site_id,
         )
+        self.edge(state, RelationType.CONTAINS, data_source, site)
+        if text_value(extra, "record_kind") == "page":
+            return self._project_page(state, document, extra, site, document_version)
+
+        drive_id = text_value(extra, "drive_id") or "unknown-drive"
         drive = state.source_node(
             GraphEntityType.SHAREPOINT_DRIVE,
             drive_id,
             title=text_value(extra, "drive_name") or drive_id,
             attributes=selected_values(extra, "drive_type"),
         )
-        self.edge(state, RelationType.CONTAINS, data_source, site)
         self.edge(state, RelationType.CONTAINS, site, drive)
 
         item_id = text_value(extra, "item_id")
@@ -148,6 +151,21 @@ class SharePointSourceProjector(BaseSourceProjector):
         # Membership from the drive; folders carry position only.
         self.edge(state, RelationType.CONTAINS, drive, item)
         project_structure_chain(self, state, container=drive, item=item, ancestors=folders)
+        self.version(state, item, document_version)
+        return item
+
+    def _project_page(self, state, document, extra, site, document_version):  # type: ignore[no-untyped-def]
+        # A modern page belongs to the site itself, not to a drive: it has no library
+        # and no folder, so both axes run straight from the site to the page.
+        item = self.source_item(
+            state,
+            document,
+            provider_id=text_value(extra, "page_id"),
+            attributes=selected_values(extra, "item_name", "etag"),
+            entity_type=GraphEntityType.SHAREPOINT_PAGE,
+        )
+        self.edge(state, RelationType.CONTAINS, site, item)
+        project_structure_chain(self, state, container=site, item=item, ancestors=())
         self.version(state, item, document_version)
         return item
 

@@ -129,6 +129,7 @@ class GraphEntityType(StrEnum):
     SHAREPOINT_DRIVE = "sharepoint_drive"
     SHAREPOINT_FOLDER = "sharepoint_folder"
     SHAREPOINT_FILE = "sharepoint_file"
+    SHAREPOINT_PAGE = "sharepoint_page"
     LOCAL_ROOT = "local_root"
     LOCAL_DIRECTORY = "local_directory"
     LOCAL_FILE = "local_file"

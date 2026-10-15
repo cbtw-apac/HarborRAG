@@ -2,4 +2,4 @@
 
 from .config import SharePointSiteConfig
 from .connector import SharePointConnector
-from .schemas import SharePointMetadata, SharePointParentReference
+from .schemas import SharePointMetadata, SharePointPageMetadata, SharePointParentReference

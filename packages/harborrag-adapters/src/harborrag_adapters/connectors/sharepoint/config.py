@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.policies.validation import (
@@ -13,19 +14,59 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
+from .config_validation import (
+    normalize_allowlist,
+    normalize_path_prefixes,
+    validate_drive_path,
+    validate_extensions,
+    validate_positive_limit,
+    validate_scope,
+    validate_site_url,
+)
+from .delegated import default_token_cache_path
 from .drive_paths import parse_sharepoint_site_url
+
+AUTH_ACCESS_TOKEN = "access_token"
+AUTH_CLIENT_CREDENTIALS = "client_credentials"
+AUTH_DEVICE_CODE = "device_code"
+AUTH_MODES = frozenset({AUTH_ACCESS_TOKEN, AUTH_CLIENT_CREDENTIALS, AUTH_DEVICE_CODE})
 
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
+DEFAULT_ALLOWED_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".xlsx", ".txt", ".md"})
 
 
 @dataclass(slots=True)
 class SharePointSiteConfig:
-    """Configuration for one SharePoint document-library scope.
+    """Configuration for one SharePoint crawl scope.
 
     A site can be addressed directly by ``site_id`` or parsed from ``site_url``.
-    The connector then resolves a drive and walks drive items through Microsoft
-    Graph.
+    The crawl scope is then one of:
+
+    * the whole site: ``crawl_all_drives`` walks every document library;
+    * one document library: the default drive, ``drive_id``, or ``drive_name``;
+    * one folder: ``root_path`` inside that library, recursive unless
+      ``recursive`` is off;
+    * explicit files: ``item_ids`` inside that library.
+
+    Allowlists (``allowed_tenant_ids``, ``allowed_sites``,
+    ``allowed_path_prefixes``) are optional. When set, an item must pass every
+    one of them before its content is downloaded.
+
+    ``include_pages`` additionally discovers the site's modern pages. It is
+    off by default so existing connections keep ingesting exactly the files
+    they did before, and so a site owner opts in to page content explicitly.
+
+    ``auth_mode`` selects how Graph tokens are obtained:
+
+    * ``access_token``: a pre-issued token, used as-is;
+    * ``client_credentials``: app-only, with ``client_secret``;
+    * ``device_code``: delegated, as the user who signed in with the
+      ``sharepoint.login`` command; its refresh token lives in
+      ``token_cache_path``.
+
+    When unset it is inferred from the credentials present, which never
+    selects ``device_code``: delegated access must be chosen explicitly.
     """
 
     site_url: str | None = None
@@ -35,14 +76,23 @@ class SharePointSiteConfig:
     drive_id: str | None = None
     drive_name: str | None = None
     root_path: str | None = None
+    item_ids: list[str] | None = None
+    crawl_all_drives: bool = False
+    recursive: bool = True
+    allowed_tenant_ids: set[str] | None = None
+    allowed_sites: set[str] | None = None
+    allowed_path_prefixes: list[str] | None = None
     access_token: str | None = field(default=None, repr=False)  # secret
     tenant_id: str | None = None
     client_id: str | None = None
     client_secret: str | None = field(default=None, repr=False)  # secret
+    auth_mode: str | None = None
+    token_cache_path: str | None = None
     graph_api_url: str = DEFAULT_GRAPH_API_URL
-    allowed_extensions: set[str] = field(default_factory=set)
+    allowed_extensions: set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     excluded_extensions: set[str] = field(default_factory=set)
     include_hidden: bool = False
+    include_pages: bool = False
     process_file_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_file_size_bytes: int | None = DEFAULT_MAX_FILE_SIZE_BYTES
     fail_on_error: bool = False
@@ -56,11 +106,15 @@ class SharePointSiteConfig:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
         validate_https_url("graph_api_url", self.graph_api_url)
-        self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
         self.tenant_id = self.tenant_id or os.getenv("MICROSOFT_TENANT_ID")
         self.client_id = self.client_id or os.getenv("MICROSOFT_CLIENT_ID")
-        self.client_secret = self.client_secret or os.getenv("MICROSOFT_CLIENT_SECRET")
+        if self.auth_mode != AUTH_DEVICE_CODE:
+            # A delegated connection must never fall back to ambient app credentials.
+            self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
+            self.client_secret = self.client_secret or os.getenv("MICROSOFT_CLIENT_SECRET")
 
+        if self.site_url:
+            validate_site_url(self.site_url)
         if self.site_url and (not self.hostname or not self.site_path):
             hostname, site_path = parse_sharepoint_site_url(self.site_url)
             self.hostname = self.hostname or hostname
@@ -70,8 +124,7 @@ class SharePointSiteConfig:
             raise ValueError(
                 "SharePoint config requires either site_id or site_url/hostname/site_path"
             )
-        if not self.access_token and not (self.tenant_id and self.client_id and self.client_secret):
-            raise ValueError("SharePoint config requires access_token or client credentials")
+        self._resolve_auth_mode()
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,
@@ -81,8 +134,59 @@ class SharePointSiteConfig:
         if not 1 <= self.page_size <= 999:
             raise ValueError("page_size must be between 1 and 999")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
+        validate_positive_limit("max_file_size_bytes", self.max_file_size_bytes)
+        self.root_path = validate_drive_path("root_path", self.root_path)
 
         self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
         self.excluded_extensions = {
             normalize_extension(value) for value in self.excluded_extensions
         }
+        validate_extensions(self.allowed_extensions)
+        self._normalize_scope_and_allowlists()
+
+    def _resolve_auth_mode(self) -> None:
+        if self.auth_mode is None:
+            if self.access_token:
+                self.auth_mode = AUTH_ACCESS_TOKEN
+            elif self.client_secret:
+                self.auth_mode = AUTH_CLIENT_CREDENTIALS
+            else:
+                raise ValueError("SharePoint config requires access_token or client credentials")
+        self.auth_mode = self.auth_mode.strip().lower()
+        if self.auth_mode not in AUTH_MODES:
+            raise ValueError(f"auth_mode must be one of {', '.join(sorted(AUTH_MODES))}")
+
+        if self.auth_mode == AUTH_ACCESS_TOKEN and not self.access_token:
+            raise ValueError("auth_mode access_token requires access_token")
+        if self.auth_mode == AUTH_CLIENT_CREDENTIALS and not (
+            self.tenant_id and self.client_id and self.client_secret
+        ):
+            raise ValueError("SharePoint config requires access_token or client credentials")
+        if self.auth_mode == AUTH_DEVICE_CODE:
+            if not (self.tenant_id and self.client_id):
+                raise ValueError("auth_mode device_code requires tenant_id and client_id")
+            if self.client_secret or self.access_token:
+                raise ValueError("auth_mode device_code does not use client_secret or access_token")
+            self.token_cache_path = str(
+                Path(self.token_cache_path).expanduser()
+                if self.token_cache_path
+                else default_token_cache_path(self.tenant_id, self.client_id)
+            )
+
+    def _normalize_scope_and_allowlists(self) -> None:
+        if self.item_ids is not None:
+            self.item_ids = [str(value).strip() for value in self.item_ids if str(value).strip()]
+        validate_scope(
+            item_ids=self.item_ids,
+            crawl_all_drives=self.crawl_all_drives,
+            drive_selected=bool(self.drive_id or self.drive_name),
+            root_path=self.root_path,
+        )
+        if self.allowed_tenant_ids is not None:
+            self.allowed_tenant_ids = normalize_allowlist(
+                "allowed_tenant_ids", self.allowed_tenant_ids, allow_urls=False
+            )
+        if self.allowed_sites is not None:
+            self.allowed_sites = normalize_allowlist("allowed_sites", self.allowed_sites)
+        if self.allowed_path_prefixes is not None:
+            self.allowed_path_prefixes = normalize_path_prefixes(self.allowed_path_prefixes)

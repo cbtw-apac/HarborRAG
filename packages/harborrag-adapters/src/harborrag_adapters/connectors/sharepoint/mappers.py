@@ -8,7 +8,9 @@ from typing import Any
 from harborrag_core.domain.source import SourceRecord
 
 from .drive_paths import item_mime_type, item_name, item_path
-from .schemas import SharePointMetadata, SharePointParentReference
+from .schemas import SharePointMetadata, SharePointPageMetadata, SharePointParentReference
+
+PAGE_RECORD_KIND = "page"
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
@@ -27,6 +29,82 @@ def drive_item_id_from_record(record: SourceRecord) -> str:
     if not item_id:
         raise ValueError(f"SourceRecord {record.id!r} does not contain item_id")
     return str(item_id).rstrip("/").rsplit("/", 1)[-1]
+
+
+def is_page_record(record: SourceRecord) -> bool:
+    """Return whether a source record points at a site page rather than a file."""
+    if record.metadata.get("record_kind") == PAGE_RECORD_KIND:
+        return True
+    return record.id.startswith("sharepoint://") and "/pages/" in record.id
+
+
+def page_id_from_record(record: SourceRecord) -> str:
+    """Recover the Graph site page ID from a page source record."""
+    page_id = record.metadata.get("page_id") or record.locator
+    if not page_id:
+        raise ValueError(f"SourceRecord {record.id!r} does not contain page_id")
+    return str(page_id).rstrip("/").rsplit("/", 1)[-1]
+
+
+def build_page_source_record(page: dict[str, Any], *, site_id: str) -> SourceRecord:
+    """Convert a Microsoft Graph site page into a source record.
+
+    Page IDs live under a literal ``pages`` segment where file records carry a
+    drive ID, so the two kinds of record can never share an identity.
+    """
+    page_id = str(page.get("id") or "")
+    publishing = page.get("publishingState")
+    publishing = publishing if isinstance(publishing, dict) else {}
+    return SourceRecord(
+        id=f"sharepoint://{site_id}/pages/{page_id}",
+        source_type="text/html",
+        locator=page_id,
+        updated_at=parse_timestamp(page.get("lastModifiedDateTime")),
+        checksum=page.get("eTag"),
+        metadata={
+            "source_system": "sharepoint",
+            "record_kind": PAGE_RECORD_KIND,
+            "site_id": site_id,
+            "page_id": page_id,
+            "name": str(page.get("name") or ""),
+            "title": str(page.get("title") or page.get("name") or ""),
+            "page_layout": page.get("pageLayout"),
+            "publishing_level": publishing.get("level"),
+            "publishing_version": publishing.get("versionId"),
+            "etag": page.get("eTag"),
+            "created_at": parse_timestamp(page.get("createdDateTime")),
+            "created_by": _identity_name(page.get("createdBy")),
+            "updated_by": _identity_name(page.get("lastModifiedBy")),
+        },
+    )
+
+
+def build_page_document_metadata(
+    page: dict[str, Any],
+    *,
+    site: dict[str, Any],
+    title: str,
+    checksum: str,
+    has_text_content: bool,
+) -> SharePointPageMetadata:
+    """Build parsed provenance metadata for a loaded SharePoint site page."""
+    page_id = str(page.get("id") or "")
+    return SharePointPageMetadata(
+        record_id=page_id,
+        title=title,
+        checksum=checksum,
+        created_at=parse_timestamp(page.get("createdDateTime")),
+        updated_at=parse_timestamp(page.get("lastModifiedDateTime")),
+        site_id=site.get("id"),
+        site_name=site.get("name") or site.get("displayName"),
+        page_id=page_id,
+        item_name=str(page.get("name") or ""),
+        page_layout=page.get("pageLayout"),
+        etag=page.get("eTag"),
+        created_by=_identity_name(page.get("createdBy")),
+        updated_by=_identity_name(page.get("lastModifiedBy")),
+        has_text_content=has_text_content,
+    )
 
 
 def build_source_record(
