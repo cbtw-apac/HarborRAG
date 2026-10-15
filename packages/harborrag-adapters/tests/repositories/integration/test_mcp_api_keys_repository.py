@@ -138,9 +138,18 @@ async def test_constraints_reject_bad_rows(sessions: SessionFactory) -> None:
     with pytest.raises(IntegrityError):
         await insert(expires_at=NOW - timedelta(days=1))
     with pytest.raises(IntegrityError):
-        await insert(environment="staging")
+        await insert(environment="qa")
     with pytest.raises(IntegrityError):
         await insert(key_id="short")
+    # Right length, wrong alphabet: only lowercase hex is a valid key id or hash.
+    with pytest.raises(IntegrityError):
+        await insert(key_id="z" * 24)
+    with pytest.raises(IntegrityError):
+        await insert(key_id="0123456789ABCDEF01234567")
+    with pytest.raises(IntegrityError):
+        await insert(secret_hash="z" * 64)
+
+    await insert(environment="staging")  # accepted alongside dev and prod
 
 
 @pytest.mark.asyncio
@@ -166,6 +175,44 @@ async def test_a_refused_connection_is_reported_as_unavailable() -> None:
             await reader.get_by_key_id("0123456789abcdef01234567")
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manager_reports_an_unreachable_store_as_unavailable(tmp_path: Path) -> None:
+    # Unmigrated SQLite (no key table) and a refused PostgreSQL connection: every
+    # manager operation must surface the outage as AuthStoreUnavailable.
+    for dsn in (
+        f"sqlite+aiosqlite:///{tmp_path}/empty.db",
+        "postgresql+asyncpg://u:p@127.0.0.1:1/db",
+    ):
+        engine = create_control_plane_engine(dsn)
+        manager = SqlApiKeyManager(create_session_factory(engine))
+        try:
+            with pytest.raises(AuthStoreUnavailable):
+                await manager.create(_record("0123456789abcdef01234567"))
+            with pytest.raises(AuthStoreUnavailable):
+                await manager.revoke("0123456789abcdef01234567", at=NOW, by="op", reason="r")
+            with pytest.raises(AuthStoreUnavailable):
+                await manager.revoke_by_owner(
+                    "engineering", "user-huy", at=NOW, by="op", reason="r"
+                )
+            with pytest.raises(AuthStoreUnavailable):
+                await manager.list_for_tenant("engineering")
+        finally:
+            await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_manager_lets_a_rejected_row_raise_integrity_error(sessions: SessionFactory) -> None:
+    # A duplicate key id is a bad write, not an outage: it must not be reported
+    # as AuthStoreUnavailable.
+    manager = SqlApiKeyManager(sessions)
+    await manager.create(_record("0123456789abcdef01234567"))
+
+    with pytest.raises(IntegrityError):
+        await manager.create(_record("0123456789abcdef01234567", name="other"))
+    with pytest.raises(IntegrityError):
+        await manager.create(_record("f" * 24, environment="qa"))
 
 
 @pytest.mark.asyncio

@@ -15,7 +15,11 @@ from harborrag_core.ports.api_keys import ApiKeyManager, ApiKeyReader, ApiKeyRec
 from harborrag_core.security.api_keys import generate_key, hash_matches, parse_key
 
 MIN_LIFETIME = timedelta(hours=1)
-MAX_LIFETIME: dict[str, timedelta] = {"dev": timedelta(days=7), "prod": timedelta(days=90)}
+MAX_LIFETIME: dict[str, timedelta] = {
+    "dev": timedelta(days=7),
+    "staging": timedelta(days=30),
+    "prod": timedelta(days=90),
+}
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 _OWNER_RE = re.compile(r"^(user|svc|team)-[a-z0-9][a-z0-9-]{0,120}$")
 _MAX_REASON = 256
