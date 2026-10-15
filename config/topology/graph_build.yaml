@@ -5,7 +5,7 @@ runtime:
     enabled: true
 
 summarization:
-  enabled: false  
+  enabled: false
   task_queue: harborrag-summaries
   debounce_seconds: 5
   max_wait_seconds: 60

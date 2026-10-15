@@ -117,9 +117,16 @@ connectors:
   #   settings:
   #     drive_name: Documents
   #     root_path: Shared Documents
-  #     allowed_extensions: [md, txt, pdf, docx, pptx, csv, xlsx]
+  #     recursive: true
+  #     # Other scopes: crawl_all_drives: true (whole site) or item_ids: [<id>]
+  #     # Optional allowlists, all must pass:
+  #     # allowed_tenant_ids: [<tenant-guid>]
+  #     # allowed_sites: [https://contoso.sharepoint.com/sites/Engineering]
+  #     # allowed_path_prefixes: [Policies]
+  #     allowed_extensions: [md, txt, pdf, docx, pptx, xlsx]
   #     excluded_extensions: []
   #     include_hidden: false
+  #     include_pages: false  # true also ingests modern site pages as HTML
   #     max_file_size_bytes: 104857600
   #     fail_on_error: false
   #     requests_per_minute: 120
@@ -131,3 +138,9 @@ connectors:
   #     tenant_id_env: MICROSOFT_TENANT_ID
   #     client_id_env: MICROSOFT_CLIENT_ID
   #     client_secret_env: MICROSOFT_CLIENT_SECRET
+  #
+  # Delegated (signed-in user) access instead of an app secret: drop
+  # client_secret_env, add `auth_mode: device_code` to settings, and sign in
+  # once with `python -m harborrag_adapters.connectors.sharepoint.login`.
+  # Optional `token_cache_path` overrides
+  # ~/.harborrag/sharepoint/token-<tenant>-<client>.json.

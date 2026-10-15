@@ -1,0 +1,33 @@
+{
+  "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#sites('site1')/pages/microsoft.graph.sitePage",
+  "value": [
+    {
+      "@odata.type": "#microsoft.graph.sitePage",
+      "id": "page1",
+      "name": "Onboarding.aspx",
+      "title": "Onboarding",
+      "webUrl": "https://contoso.sharepoint.com/sites/Engineering/SitePages/Onboarding.aspx",
+      "pageLayout": "article",
+      "publishingState": {"level": "published", "versionId": "2.0"},
+      "createdDateTime": "2024-01-01T00:00:00Z",
+      "lastModifiedDateTime": "2024-05-24T20:57:56Z",
+      "createdBy": {"user": {"displayName": "Ada"}},
+      "lastModifiedBy": {"user": {"displayName": "Grace"}},
+      "eTag": "\"{PAGE1-ETAG},2\""
+    },
+    {
+      "@odata.type": "#microsoft.graph.sitePage",
+      "id": "page2",
+      "name": "Home.aspx",
+      "title": "Home",
+      "webUrl": "https://contoso.sharepoint.com/sites/Engineering/SitePages/Home.aspx",
+      "pageLayout": "home",
+      "publishingState": {"level": "published", "versionId": "1.0"},
+      "createdDateTime": "2023-06-01T00:00:00Z",
+      "lastModifiedDateTime": "2023-06-02T00:00:00Z",
+      "createdBy": {"user": {"displayName": "Ada"}},
+      "lastModifiedBy": {"user": {"displayName": "Ada"}},
+      "eTag": "\"{PAGE2-ETAG},1\""
+    }
+  ]
+}

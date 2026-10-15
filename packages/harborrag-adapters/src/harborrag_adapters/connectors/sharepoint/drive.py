@@ -6,10 +6,11 @@ import logging
 from collections.abc import Iterator
 from typing import Any
 
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
+from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 
+from .allowlist import SharePointAllowlist
 from .client import SharePointClient
 from .config import SharePointSiteConfig
 from .drive_paths import (
@@ -22,24 +23,43 @@ from .drive_paths import (
     item_hidden,
     item_mime_type,
     item_name,
+    item_path,
     matches_pattern,
     site_path_endpoint,
 )
 from .mappers import build_source_record, parse_timestamp
+from .skips import (
+    EXCEEDS_SIZE_LIMIT,
+    NOT_IN_ALLOWLIST,
+    UNSUPPORTED_EXTENSION,
+    SharePointItemSkippedError,
+    SharePointSkipRecorder,
+    skip_reason_for_error,
+)
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _MAX_PROVIDER_PAGES = 10_000
+PAGE_FILE_EXTENSION = ".aspx"
 
 
 class SharePointDriveAPI:
     """SharePoint site, drive, and drive-item traversal helpers."""
 
-    def __init__(self, client: SharePointClient, config: SharePointSiteConfig) -> None:
-        """Bind drive traversal to a client and validated config."""
+    def __init__(
+        self,
+        client: SharePointClient,
+        config: SharePointSiteConfig,
+        *,
+        skips: SharePointSkipRecorder | None = None,
+    ) -> None:
+        """Bind drive traversal to a client, validated config, and skip recorder."""
         self.client = client
         self.config = config
+        self.skips = skips or SharePointSkipRecorder()
+        self.allowlist = SharePointAllowlist(config)
         self._site: dict[str, Any] | None = None
         self._drive: dict[str, Any] | None = None
+        self._drives: list[dict[str, Any]] | None = None
 
     def records_from_item_id(
         self,
@@ -49,8 +69,19 @@ class SharePointDriveAPI:
         drive: dict[str, Any],
         query: ConnectorQuery,
     ) -> Iterator[SourceRecord]:
-        """Return records for a direct drive item ID, descending into folders."""
-        item = self.get_item(str(drive["id"]), item_id)
+        """Return records for a direct drive item ID, descending into folders.
+
+        A direct item that is gone, forbidden, or still failing after retries
+        is recorded as a skip so the other requested items still load.
+        """
+        try:
+            item = self.get_item(str(drive["id"]), item_id)
+        except (AuthorizationError, FetchError) as exc:
+            reason = skip_reason_for_error(exc)
+            if reason is None:
+                raise
+            self.skips.record(reason, str(exc), item_id=item_id)
+            return
         if is_drive_file(item):
             if self.should_process_file(item, query):
                 yield build_source_record(
@@ -101,17 +132,36 @@ class SharePointDriveAPI:
                         )
                     continue
 
-                if query.recursive and is_drive_folder(item):
-                    child_id = str(item.get("id") or "")
-                    if not child_id:
-                        continue
-                    if child_id in seen_folder_ids:
-                        raise FetchError("SharePoint folder traversal contains a cycle")
-                    seen_folder_ids.add(child_id)
+                child_id = self._folder_to_descend(item, query, seen_folder_ids)
+                if child_id:
                     folder_ids.append(child_id)
 
             for child_id in reversed(folder_ids):
                 pending.append((child_id, None))
+
+    def _folder_to_descend(
+        self,
+        item: dict[str, Any],
+        query: ConnectorQuery,
+        seen_folder_ids: set[str],
+    ) -> str | None:
+        """Return a child folder ID to walk, or ``None`` when it is out of scope.
+
+        A folder that cannot hold anything under an allowed path prefix is not
+        listed at all, so nothing beneath it is fetched.
+        """
+        if not (query.recursive and self.config.recursive and is_drive_folder(item)):
+            return None
+        child_id = str(item.get("id") or "")
+        if not child_id:
+            return None
+        if not self.allowlist.folder_may_contain_allowed(item_path(item)):
+            logger.debug("Skipping SharePoint folder outside allowed paths %s", item_name(item))
+            return None
+        if child_id in seen_folder_ids:
+            raise FetchError("SharePoint folder traversal contains a cycle")
+        seen_folder_ids.add(child_id)
+        return child_id
 
     def iter_children(
         self,
@@ -181,7 +231,16 @@ class SharePointDriveAPI:
             str(self.config.hostname),
             self.config.site_path,
         )
-        site = self.client.get_json(endpoint)
+        try:
+            site = self.client.get_json(endpoint)
+        except AuthorizationError as exc:
+            # The configured site itself is off limits, so nothing in scope is
+            # reachable: this is fatal for the run, not a per-item skip.
+            raise AuthorizationError(
+                f"SharePoint app is not granted access to site {self.config.site_url or endpoint!r}; "
+                "grant it Sites.Selected access to this site",
+                status_code=403,
+            ) from exc
         if not site.get("id"):
             raise FetchError("SharePoint site response did not include id")
         self._site = site
@@ -217,44 +276,82 @@ class SharePointDriveAPI:
         logger.debug("Resolved SharePoint default drive %s", drive.get("id"))
         return drive
 
+    def resolve_drives(self, site: dict[str, Any]) -> list[dict[str, Any]]:
+        """Resolve the drives in crawl scope: every document library, or one drive."""
+        if not self.config.crawl_all_drives:
+            return [self.resolve_drive(site)]
+        if self._drives is None:
+            self._drives = [
+                drive
+                for drive in self.iter_site_drives(str(site["id"]))
+                if drive.get("id")
+                and drive.get("driveType", "documentLibrary") == "documentLibrary"
+            ]
+            logger.debug("Resolved %d SharePoint document libraries", len(self._drives))
+        return self._drives
+
+    def drive_in_scope(self, site: dict[str, Any], drive_id: str) -> dict[str, Any] | None:
+        """Return the in-scope drive with this ID, or ``None`` when it is outside."""
+        for drive in self.resolve_drives(site):
+            if str(drive.get("id")) == drive_id:
+                return drive
+        return None
+
     def should_process_file(self, item: dict[str, Any], query: ConnectorQuery) -> bool:
-        """Apply query/config filters to one Microsoft Graph drive item."""
+        """Apply query/config filters to one Microsoft Graph drive item.
+
+        Query filters (``updated_after``, ``pattern``) and hidden files are
+        intended filtering, not skips. An item declined for an allowlist, size,
+        or extension reason is recorded as a skip with that reason.
+        """
         name = item_name(item)
-        mime_type = item_mime_type(item)
-        size = int(item.get("size") or 0)
-        extension = item_extension(item)
-
-        if not self._matches_file_policy(item, query, name=name, size=size, extension=extension):
+        if not self._matches_query(item, query, name=name):
             return False
-        return self._callback_allows_file(name, size, mime_type)
+        declined = self.declined_reason(item)
+        if declined is not None:
+            reason, detail = declined
+            self.skips.record(
+                reason,
+                detail,
+                item_id=str(item.get("id") or "") or None,
+                url=item.get("webUrl"),
+                path=item_path(item),
+            )
+            return False
+        return self._callback_allows_file(name, int(item.get("size") or 0), item_mime_type(item))
 
-    def _matches_file_policy(
-        self,
-        item: dict[str, Any],
-        query: ConnectorQuery,
-        *,
-        name: str,
-        size: int,
-        extension: str,
-    ) -> bool:
+    def _matches_query(self, item: dict[str, Any], query: ConnectorQuery, *, name: str) -> bool:
+        if self.config.include_pages and item_extension(item) == PAGE_FILE_EXTENSION:
+            # A modern page is also an .aspx file in the Site Pages library. With
+            # pages on, the pages API owns it, so the drive walk must not ingest
+            # the same page a second time under a file identity.
+            logger.debug("Skipping SharePoint page file %s; pages API loads it", name)
+            return False
         if item_hidden(item) and not self.config.include_hidden:
             logger.debug("Skipping hidden SharePoint file %s", name)
-            return False
-        limit = self.config.max_file_size_bytes
-        if limit is not None and size > limit:
-            logger.debug("Skipping oversized SharePoint file %s", name)
-            return False
-        if self.config.allowed_extensions and extension not in self.config.allowed_extensions:
-            logger.debug("Skipping SharePoint file outside allowed extensions %s", name)
-            return False
-        if extension in self.config.excluded_extensions:
-            logger.debug("Skipping SharePoint file with excluded extension %s", name)
             return False
         if query.updated_after:
             updated_at = parse_timestamp(item.get("lastModifiedDateTime"))
             if updated_at and updated_at <= query.updated_after:
                 return False
         return matches_pattern(item, query.pattern)
+
+    def declined_reason(self, item: dict[str, Any]) -> tuple[str, str] | None:
+        """Return the standard skip reason and detail for an out-of-policy file."""
+        path = item_path(item)
+        if not self.allowlist.path_allowed(path):
+            return NOT_IN_ALLOWLIST, f"path {path!r} is outside allowed_path_prefixes"
+        size = int(item.get("size") or 0)
+        limit = self.config.max_file_size_bytes
+        if limit is not None and size > limit:
+            return EXCEEDS_SIZE_LIMIT, f"size {size} exceeds max_file_size_bytes {limit}"
+        extension = item_extension(item)
+        if extension not in self.config.allowed_extensions:
+            shown = extension or "<none>"
+            return UNSUPPORTED_EXTENSION, f"extension {shown!r} is not allowed"
+        if extension in self.config.excluded_extensions:
+            return UNSUPPORTED_EXTENSION, f"extension {extension!r} is excluded"
+        return None
 
     def _callback_allows_file(self, name: str, size: int, mime_type: str) -> bool:
         callback = self.config.process_file_callback
@@ -278,9 +375,12 @@ class SharePointDriveAPI:
         if self.config.max_file_size_bytes is None or not size:
             return
         if size > self.config.max_file_size_bytes:
-            raise DocumentProcessingError(
+            raise SharePointItemSkippedError(
+                EXCEEDS_SIZE_LIMIT,
                 f"SharePoint file {item_name(item)!r} size {size} exceeds "
-                f"max_file_size_bytes {self.config.max_file_size_bytes}"
+                f"max_file_size_bytes {self.config.max_file_size_bytes}",
+                item_id=str(item.get("id") or "") or None,
+                url=item.get("webUrl"),
             )
 
     def record_for_item_id(self, item_id: str) -> SourceRecord:

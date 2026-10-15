@@ -1,0 +1,87 @@
+{
+  "@odata.type": "#microsoft.graph.sitePage",
+  "id": "page1",
+  "name": "Onboarding.aspx",
+  "title": "Onboarding",
+  "webUrl": "https://contoso.sharepoint.com/sites/Engineering/SitePages/Onboarding.aspx",
+  "pageLayout": "article",
+  "publishingState": {"level": "published", "versionId": "2.0"},
+  "createdDateTime": "2024-01-01T00:00:00Z",
+  "lastModifiedDateTime": "2024-05-24T20:57:56Z",
+  "createdBy": {"user": {"displayName": "Ada"}},
+  "lastModifiedBy": {"user": {"displayName": "Grace"}},
+  "eTag": "\"{PAGE1-ETAG},2\"",
+  "canvasLayout": {
+    "horizontalSections": [
+      {
+        "layout": "twoColumns",
+        "id": "1",
+        "emphasis": "none",
+        "columns": [
+          {
+            "id": "1",
+            "width": 6,
+            "webparts": [
+              {
+                "@odata.type": "#microsoft.graph.textWebPart",
+                "id": "wp-1",
+                "innerHtml": "<h2>First week</h2><p>Request laptop access.</p>"
+              },
+              {
+                "@odata.type": "#microsoft.graph.standardWebPart",
+                "id": "wp-2",
+                "webPartType": "d1d91016-032f-456d-98a4-721247c305e8",
+                "data": {"title": "Image", "properties": {"altText": "Team photo"}}
+              }
+            ]
+          },
+          {
+            "id": "2",
+            "width": 6,
+            "webparts": [
+              {
+                "@odata.type": "#microsoft.graph.textWebPart",
+                "id": "wp-3",
+                "innerHtml": "<p>Meet your buddy.</p>"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "layout": "oneColumn",
+        "id": "2",
+        "emphasis": "soft",
+        "columns": [
+          {
+            "id": "1",
+            "width": 12,
+            "webparts": [
+              {
+                "@odata.type": "#microsoft.graph.standardWebPart",
+                "id": "wp-4",
+                "webPartType": "c70391ea-0b10-4ee9-b2b4-006d3fcad0cd",
+                "data": {"title": "Quick links"}
+              },
+              {
+                "@odata.type": "#microsoft.graph.textWebPart",
+                "id": "wp-5",
+                "innerHtml": "<h2>Second week</h2><p>Ship a first change.</p>"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "verticalSection": {
+      "emphasis": "none",
+      "webparts": [
+        {
+          "@odata.type": "#microsoft.graph.textWebPart",
+          "id": "wp-6",
+          "innerHtml": "<p>Contact: the platform team.</p>"
+        }
+      ]
+    }
+  }
+}

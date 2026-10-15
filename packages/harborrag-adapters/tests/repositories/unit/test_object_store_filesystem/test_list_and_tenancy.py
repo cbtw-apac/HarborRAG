@@ -108,3 +108,14 @@ async def test_presign_download_is_not_implemented(tmp_path: Path) -> None:
         context = make_context()
         with pytest.raises(NotImplementedError):
             await store.presign_download("bkt", "k", expires_seconds=60, context=context)
+
+
+@pytest.mark.asyncio
+async def test_list_treats_backslash_prefix_like_the_stored_key(tmp_path: Path) -> None:
+    store = FilesystemObjectStore(root=tmp_path)
+    async with store:
+        context = make_context()
+        await store.put(PutObjectRequest(bucket="bkt", key="a\\b", body=b"1"), context=context)
+
+        results = await store.list("bkt", "a\\", limit=10, context=context)
+        assert len(results) == 1
