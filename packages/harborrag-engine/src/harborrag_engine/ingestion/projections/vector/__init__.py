@@ -6,10 +6,17 @@ from .vector import (
     VectorProjectionBuilder,
     VectorProjectionInput,
 )
-from .vector_store import VectorProjectionPolicy, VectorProjectionStore
+from .vector_store import (
+    EVIDENCE_PAYLOAD_INDEXES,
+    SourceFieldIndex,
+    VectorProjectionPolicy,
+    VectorProjectionStore,
+)
 
 __all__ = [
     "EVIDENCE_INDEX",
+    "EVIDENCE_PAYLOAD_INDEXES",
+    "SourceFieldIndex",
     "VectorProjectionBatch",
     "VectorProjectionBuilder",
     "VectorProjectionInput",

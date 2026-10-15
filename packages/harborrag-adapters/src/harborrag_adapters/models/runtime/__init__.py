@@ -34,7 +34,6 @@ from .lifecycle import (
     close_callbacks,
     close_resources,
 )
-from .litellm_telemetry import LiteLLMTelemetryCallback
 from .loading import load_config_document, prepare_config_section
 from .middleware import (
     AsyncModelMiddleware,
@@ -149,3 +148,14 @@ __all__ = [
     "update_operation_context",
     "validate_base_url",
 ]
+
+
+def __getattr__(name: str) -> object:
+    # litellm_telemetry imports LiteLLM when it is installed; loading it lazily
+    # keeps a plain `import harborrag` (which reaches this package through the
+    # config loaders) from pulling in the optional provider stack.
+    if name == "LiteLLMTelemetryCallback":
+        from .litellm_telemetry import LiteLLMTelemetryCallback
+
+        return LiteLLMTelemetryCallback
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

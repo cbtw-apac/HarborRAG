@@ -6,6 +6,7 @@ from collections.abc import Sequence
 from harborrag_core.contracts.chunking import SplitBoundaryKind, TokenCounter
 from harborrag_core.ingestion import UnsupportedDocumentError
 
+from ..config import ROUTE_MAXIMUM_TOKENS
 from ..schemas import ChunkCandidate, ChunkingRequest, ChunkUnit
 from .segmentation import element_span
 
@@ -138,8 +139,8 @@ class RouteChunkPlanner:
             metadata={**evidence.metadata, "route_level": "section"},
         )
 
-    @staticmethod
     def _content(
+        self,
         request: ChunkingRequest,
         evidence: tuple[ChunkCandidate, ...],
     ) -> str:
@@ -161,20 +162,49 @@ class RouteChunkPlanner:
                 )
             )
         )
-        if labels:
-            values.append(f"Labels: {', '.join(labels)}")
         headings = tuple(
             dict.fromkeys(
                 candidate.structural_path[0] for candidate in evidence if candidate.structural_path
             )
         )
-        if headings:
-            values.append(f"Major headings: {', '.join(headings)}")
+        tail: list[str] = []
         if evidence:
             extract = " ".join(evidence[0].content.split())
             if extract:
-                values.append(f"Extract: {extract[:320]}")
-        return "\n".join(values)
+                tail.append(f"Extract: {extract[:320]}")
+        for name, items in (("Labels", labels), ("Major headings", headings)):
+            kept = self._fitting(name, items, values, tail)
+            if kept:
+                values.append(f"{name}: {', '.join(kept)}")
+        return "\n".join((*values, *tail))
+
+    def _fitting(
+        self,
+        name: str,
+        items: tuple[str, ...],
+        values: list[str],
+        tail: list[str],
+    ) -> tuple[str, ...]:
+        """The leading ``items`` whose line keeps the route within its token cap.
+
+        Labels and headings are unbounded -- an issue with hundreds of labels, a
+        page with dozens of top-level headings -- and a route over the cap failed
+        chunk validation for the whole document, every time it was retried.
+        """
+
+        def fits(selected: tuple[str, ...]) -> bool:
+            line = f"{name}: {', '.join(selected)}"
+            content = "\n".join((*values, line, *tail))
+            return self._token_counter.count(content) <= ROUTE_MAXIMUM_TOKENS
+
+        if not items or fits(items):
+            return items
+        kept: list[str] = []
+        for item in items:
+            if not fits((*kept, item)):
+                break
+            kept.append(item)
+        return tuple(kept)
 
 
 def _string_values(value: object) -> tuple[str, ...]:

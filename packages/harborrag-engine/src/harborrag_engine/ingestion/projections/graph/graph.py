@@ -1,28 +1,16 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from harborrag_core.chunking import ChunkRecord, RelationType
-from harborrag_core.domain.document import Document, DocumentRelation
-from harborrag_core.ingestion import GraphNodeRecord
+from harborrag_core.domain.document import Document
 
-from .graph_models import (
-    GraphDocumentTarget,
-    GraphProjectionBatch,
-    GraphProjectionInput,
-    UnresolvedGraphRelation,
-)
+from .graph_models import GraphProjectionBatch, GraphProjectionInput
 from .graph_state import GraphProjectionContext, GraphProjectionState, GraphRelationSpec
 from .graph_structure import StructuralGraphProjector
-from .source_projector_support import (
-    relation_entity_type,
-    source_provider_id,
-    target_connector_type,
-)
 from .source_projectors import (
     GraphSourceProjectorRegistry,
     default_graph_source_projector_registry,
 )
+from .source_relations import SourceRelationProjector
 
 
 class GraphProjectionBuilder:
@@ -84,6 +72,7 @@ class GraphProjectionBuilder:
             state=state,
             current_source_item=source_item,
             resolved_targets=request.resolved_targets,
+            external_stubs=request.external_stubs,
         ).project(request.document.relations)
         return GraphProjectionBatch(
             nodes=tuple(state.nodes.values()),
@@ -92,135 +81,4 @@ class GraphProjectionBuilder:
         )
 
 
-class SourceRelationProjector:
-    """Project source-native links between stable source entities."""
-
-    def __init__(
-        self,
-        *,
-        state: GraphProjectionState,
-        current_source_item: GraphNodeRecord,
-        resolved_targets: Mapping[str, GraphDocumentTarget],
-    ) -> None:
-        self._state = state
-        self._current = current_source_item
-        self._targets = resolved_targets
-
-    def project(self, relations: list[DocumentRelation]) -> tuple[UnresolvedGraphRelation, ...]:
-        unresolved: list[UnresolvedGraphRelation] = []
-        # A provider projector may already have asserted the same pair in this batch
-        # (a page listing its attachments, and the attachment descriptor resolving to
-        # the same edge). Those differ only by relation_id, and MERGE keys on
-        # relation_id, so both would survive as parallel edges.
-        seen: set[tuple[RelationType, str, str]] = {
-            (record.relation_type, record.source_node_key, record.target_node_key)
-            for record in self._state.relations.values()
-        }
-        for relation in relations:
-            normalized = self._normalize(relation)
-            if normalized is None:
-                continue
-            relation_type, reverse = normalized
-            resolved = self._targets.get(relation.target_id)
-            if resolved is None:
-                unresolved.append(
-                    UnresolvedGraphRelation(
-                        relation_type=relation_type.value,
-                        target_source_item_id=relation.target_id,
-                    )
-                )
-                # A source item ID does not establish its ingestion scope. Known
-                # ancestors are projected by the connector-specific projector;
-                # an unresolved external link must not invent a same-scope target.
-                continue
-            raw_target_id = resolved.source_item_id
-            # The far end's own connector, not the declaring document's: both the
-            # entity type and the provider-id reduction below feed the target's
-            # node key, and keying a Confluence page as a Jira issue puts it
-            # somewhere its own projection will never look.
-            target_connector = target_connector_type(
-                self._state.context.connector_type.value,
-                raw_target_id,
-            )
-            target_id = source_provider_id(target_connector, raw_target_id)
-            target_scope = resolved.source_scope_id
-            # Every node this projector creates stands in for something another document
-            # owns: it carries no provider attributes of its own, so it must never
-            # overwrite the concrete projection (adapter writes placeholders ON CREATE
-            # SET only). The resolved target may also supply a better stub title.
-            target = self._state.source_node(
-                relation_entity_type(
-                    target_connector,
-                    relation_type,
-                    relation.target_type,
-                    reverse=reverse,
-                ),
-                target_id,
-                title=self._target_title(relation, resolved, target_id),
-                source_scope_id=target_scope,
-                attributes={"placeholder": True},
-            )
-            source, destination = (target, self._current) if reverse else (self._current, target)
-            key = (relation_type, source.node_key, destination.node_key)
-            if key in seen:
-                continue
-            seen.add(key)
-            supplied_version = relation.metadata.get("source_relation_version")
-            self._state.relation(
-                GraphRelationSpec(
-                    relation_type=relation_type,
-                    source=source,
-                    target=destination,
-                    source_explicit=True,
-                    attributes={"source_relation": True},
-                    source_relation_version=(
-                        str(supplied_version)
-                        if supplied_version is not None and str(supplied_version).strip()
-                        else None
-                    ),
-                )
-            )
-        return tuple(unresolved)
-
-    @staticmethod
-    def _target_title(
-        relation: DocumentRelation,
-        resolved: GraphDocumentTarget | None,
-        target_id: str,
-    ) -> str:
-        """Name a relation's far end as well as the connector allows.
-
-        An unresolved target used to fall back to its own provider id, so a page that
-        was referenced but never ingested surfaced in the graph titled with a bare
-        numeric id -- and ``title`` is one of only three node selectors, so those nodes
-        were unfindable by name. Connectors that know the far end's name put it in
-        ``target_title``; use it before giving up on the id.
-        """
-
-        if resolved is not None and resolved.title:
-            return resolved.title
-        supplied = relation.metadata.get("target_title")
-        if supplied is not None and str(supplied).strip():
-            return str(supplied).strip()
-        return target_id
-
-    @staticmethod
-    def _normalize(relation: DocumentRelation) -> tuple[RelationType, bool] | None:
-        predicate = relation.predicate.strip().lower().replace("-", "_").replace(" ", "_")
-        registry: dict[str, tuple[RelationType, bool]] = {
-            "has_attachment": (RelationType.HAS_ATTACHMENT, False),
-            "attached_to": (RelationType.HAS_ATTACHMENT, True),
-            "child_of": (RelationType.PARENT_OF, True),
-            "parent_of": (RelationType.PARENT_OF, False),
-            "links_to": (RelationType.LINKS_TO, False),
-            "blocks": (RelationType.BLOCKS, False),
-            "is_blocked_by": (RelationType.BLOCKS, True),
-            "duplicates": (RelationType.DUPLICATES, False),
-            "is_duplicated_by": (RelationType.DUPLICATES, True),
-            "relates_to": (RelationType.RELATES_TO, False),
-            # Was absent, so the loop `continue`d BEFORE the unresolved_relations append:
-            # a transclusion produced no edge, no placeholder and no unresolved record --
-            # dropped without trace. Measured on a live space: 9 include macros, 0 edges.
-            "includes": (RelationType.INCLUDES, False),
-        }
-        return registry.get(predicate)
+__all__ = ["GraphProjectionBuilder", "SourceRelationProjector"]

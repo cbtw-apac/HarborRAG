@@ -46,8 +46,8 @@ their content either.
 
 ## Profiles
 
-Built-in profiles cover `fast`, `balanced`, `ocr`, `ocr_first`, `quality`,
-and `scientific`. A `PDFRouterConfig` may define application-specific profiles:
+Built-in profiles cover `liteparse` (the default: LiteParse, then PyMuPDF),
+`fast`, `balanced`, `ocr`, `ocr_first`, `quality`, and `scientific`. A `PDFRouterConfig` may define application-specific profiles:
 
 ```python
 from harborrag_adapters.parsers.pdf.config import (

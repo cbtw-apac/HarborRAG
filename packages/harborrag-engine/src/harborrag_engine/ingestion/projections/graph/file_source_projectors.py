@@ -76,7 +76,10 @@ class GitHubSourceProjector(BaseSourceProjector):
             # keeps that set homogeneous, and PARENT_OF is the closest honest axis. This
             # is the one place the two-axis split reads oddly -- see the design note.
             self.edge(state, RelationType.PARENT_OF, repository, ref)
-            self.edge(state, RelationType.POINTS_TO, ref, commit, explicit=True)
+            # One fact about the repository, observed by every file at this commit. As an
+            # explicit, version-owned support each file document wrote its own parallel
+            # ref -> commit edge; as a source-scope view they all MERGE into one edge.
+            self.edge(state, RelationType.POINTS_TO, ref, commit)
             self.edge(state, RelationType.RESOLVED_AT, document_version, commit, explicit=True)
         self.version(state, item, document_version)
         return item

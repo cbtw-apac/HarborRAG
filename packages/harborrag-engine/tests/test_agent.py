@@ -68,7 +68,7 @@ async def test_agent_runs_multiple_tool_hops_and_enforces_identity() -> None:
 @pytest.mark.asyncio
 async def test_agent_graph_switch_filters_graph_capabilities() -> None:
     tools = Tools()
-    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
+    tools.specs.append(Spec("resolve_graph_nodes"))
     chat = Chat([_response(text="answer")])
 
     await AgentService(chat, tools).run(
@@ -104,15 +104,15 @@ def test_agent_tool_schema_drops_provider_rejected_top_level_combinators() -> No
 
 
 @pytest.mark.asyncio
-async def test_agent_without_graph_forces_flat_retrieval_and_blocks_composed_search() -> None:
+async def test_agent_without_graph_forces_flat_retrieval_and_blocks_graph_readers() -> None:
     tools = Tools()
-    tools.specs.extend([Spec("resolve_graph_nodes"), Spec("composed_evidence_search")])
+    tools.specs.append(Spec("resolve_graph_nodes"))
     chat = Chat(
         [
             _response(
                 call=("call-1", "vector_search", '{"mode":"local_semantic","observe_graph":true}')
             ),
-            _response(call=("call-2", "composed_evidence_search", "{}")),
+            _response(call=("call-2", "resolve_graph_nodes", "{}")),
             _response(text="answer"),
         ]
     )

@@ -14,5 +14,9 @@ class TemporalConfigurationError(ConfigurationError):
     """Raised when Temporal runtime configuration is invalid or unreadable."""
 
 
+class ScheduleConfigurationError(ConfigurationError):
+    """Raised when declarative schedule configuration is invalid or unreadable."""
+
+
 class GraphBuildConfigurationError(ConfigurationError):
     """Raised when graph-build policy is invalid or unreadable."""

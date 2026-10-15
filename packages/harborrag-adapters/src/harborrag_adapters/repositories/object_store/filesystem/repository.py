@@ -33,6 +33,7 @@ from harborrag_core.schemas.object_store import (
     PutObjectRequest,
 )
 from harborrag_core.storage import (
+    DEFAULT_STORAGE_NAMESPACE_PREFIX,
     HealthStatus,
     RepositoryHealth,
     StorageFamily,
@@ -54,9 +55,11 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         root: Path | None = None,
         instance_name: str = "default",
     ) -> None:
+        self._namespace_prefix = DEFAULT_STORAGE_NAMESPACE_PREFIX
         if config is not None:
             root = config.root
             instance_name = config.instance_name
+            self._namespace_prefix = config.namespace_prefix
         if root is None:
             raise ValueError("filesystem object-store root is required")
         self._root = root.expanduser().resolve()

@@ -28,6 +28,7 @@ from .rendering import (
     legacy_cell_to_text,
     open_data_workbook,
     openxml_cell_to_text,
+    xlrd_errors_as_parse_errors,
 )
 
 parser_logger = get_parser_logger("excel")
@@ -262,7 +263,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
         # `wrap_parse_errors`: `on_demand=True` defers per-sheet parsing to
         # `sheet_by_index()`, so a corrupt sheet fails during iteration below,
         # not during `open_workbook()`.
-        with wrap_parse_errors("xlrd"):
+        with xlrd_errors_as_parse_errors(xlrd), wrap_parse_errors("xlrd"):
             workbook = xlrd.open_workbook(
                 file_contents=source_bytes,
                 on_demand=True,

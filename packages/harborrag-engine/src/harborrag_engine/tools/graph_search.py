@@ -41,8 +41,10 @@ from harborrag_engine.tools.retrieval_schemas import (
 from .base import BaseTool, ToolSpec
 from .graph_search_support import (
     COMPLETION_SCHEMA,
+    backend_failure,
     completion,
     direction,
+    node_selector,
 )
 from .graph_search_support import (
     relations as parse_relations,
@@ -116,14 +118,16 @@ class GraphTripletSearchTool(BaseTool):
             raise PermissionError("tool principal does not match invocation context")
         try:
             predicate_value = optional_text(arguments, "predicate")
+            subject = optional_text(arguments, "subject")
+            object_value = optional_text(arguments, "object")
             request = GraphTripletRequest(
                 access=access(arguments, principal_id),
                 query=GraphTripletQuery(
-                    subject=optional_text(arguments, "subject"),
+                    subject=node_selector(subject) if subject is not None else None,
                     predicate=(
                         RelationType(predicate_value) if predicate_value is not None else None
                     ),
-                    object=optional_text(arguments, "object"),
+                    object=node_selector(object_value) if object_value is not None else None,
                     limit=integer(
                         arguments,
                         "limit",
@@ -140,9 +144,10 @@ class GraphTripletSearchTool(BaseTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await graph.search_triplets(request)
-        except Exception:
-            logger.exception("graph_triplet_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+        except Exception as exc:
+            return backend_failure(
+                "graph_triplet_search", exc, narrow="by adding a subject or object, or lower limit"
+            )
         diagnostics = response.diagnostics
         return {
             "ok": True,
@@ -200,8 +205,8 @@ class GraphPathSearchTool(BaseTool):
             raise PermissionError("tool principal does not match invocation context")
         try:
             query = GraphPathQuery(
-                start_node=text(arguments, "start_node"),
-                end_node=text(arguments, "end_node"),
+                start_node=node_selector(text(arguments, "start_node")),
+                end_node=node_selector(text(arguments, "end_node")),
                 relationship_types=parse_relations(arguments),
                 max_depth=integer(
                     arguments,
@@ -227,9 +232,10 @@ class GraphPathSearchTool(BaseTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await graph.find_paths(request)
-        except Exception:
-            logger.exception("graph_path_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+        except Exception as exc:
+            return backend_failure(
+                "graph_path_search", exc, narrow="max_depth, max_paths or relationship_types"
+            )
         diagnostics = response.diagnostics
         return {
             "ok": True,
@@ -299,7 +305,7 @@ class GraphSubgraphSearchTool(BaseTool):
             raise PermissionError("tool principal does not match invocation context")
         try:
             query = GraphSubgraphQuery(
-                start_node=text(arguments, "start_node"),
+                start_node=node_selector(text(arguments, "start_node")),
                 relationship_types=parse_relations(arguments),
                 max_depth=integer(
                     arguments,
@@ -328,9 +334,10 @@ class GraphSubgraphSearchTool(BaseTool):
             return {"ok": False, "error": "graph retrieval backend is not configured"}
         try:
             response = await graph.expand_subgraph(request)
-        except Exception:
-            logger.exception("graph_subgraph_search backend raised during call")
-            return {"ok": False, "error": "graph retrieval backend failed"}
+        except Exception as exc:
+            return backend_failure(
+                "graph_subgraph_search", exc, narrow="max_depth, max_nodes or relationship_types"
+            )
         relations = [compact_relation(item) for item in response.relations]
         edge_truncated = len(relations) > _MAX_SUBGRAPH_EDGES
         diagnostics = dict(response.diagnostics)

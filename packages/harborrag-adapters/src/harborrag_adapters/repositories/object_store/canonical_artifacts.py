@@ -42,6 +42,7 @@ class CanonicalDocumentArtifactRepository:
         document_version_id: str,
         document: Document,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference:
         return await self._writer.put(
             ImmutableArtifact(
@@ -55,6 +56,7 @@ class CanonicalDocumentArtifactRepository:
                 artifact_kind="canonical-document",
             ),
             context=context,
+            adopt_existing=adopt_existing,
         )
 
     async def get(

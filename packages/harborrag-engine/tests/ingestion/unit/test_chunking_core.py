@@ -4,6 +4,7 @@ import pytest
 
 from harborrag_core.chunking import ChunkKind
 from harborrag_core.contracts.chunking import TextRefinementRequest, TextSplit, TokenCounter
+from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion.chunking import ChunkingError, ChunkingPlan
 from harborrag_engine.ingestion.chunking.config import ChunkingProfile
@@ -77,6 +78,58 @@ def test_preferred_minimum_merges_a_small_compatible_tail_under_maximum() -> Non
     assert [record.content for record in result.chunks] == ["aaaaaa\n\nb"]
     assert result.chunks[0].token_count == 9
     assert len(result.chunks[0].metadata["source_units"]) == 2
+
+
+def test_packed_source_units_keep_only_metadata_that_differs_from_the_chunk() -> None:
+    profile = make_profile(minimum=3, target=6, maximum=10)
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "aaaaaa", {"shared": "x", "part": "1"}),
+            DocumentElement("p2", "paragraph", "b", {"shared": "x", "part": "2"}),
+        ]
+    )
+
+    result = make_service(profile).chunk(make_request(document))
+
+    metadata = result.chunks[0].metadata
+    assert metadata["shared"] == "x"
+    assert "part" not in metadata
+    units = metadata["source_units"]
+    assert [unit["metadata"].get("part") for unit in units] == ["1", "2"]
+    assert all("shared" not in unit["metadata"] for unit in units)
+
+
+def test_jira_chunks_leave_document_level_detail_on_the_canonical_document() -> None:
+    profile = make_profile(name="jira", strategy="jira", minimum=1, target=128, maximum=256)
+    attribute = {"field_id": "customfield_1", "name": "Skill", "value": "Go", "text": "Go"}
+    document = make_document(
+        [
+            DocumentElement("p1", "paragraph", "First description paragraph."),
+            DocumentElement("p2", "paragraph", "Second description paragraph."),
+        ],
+        source="jira",
+        content_type="jira_issue",
+        record_id="ENG-1",
+        extra={
+            "issue_key": "ENG-1",
+            "typed_custom_attributes": [attribute],
+            "attachment_details": [{"title": "cv.pdf"}],
+            "processing_profile": {"parser_profile": "jira-v1"},
+            "fields": {"skill": "Go"},
+        },
+    )
+
+    result = make_service(profile).chunk(make_request(document))
+
+    assert result.chunks
+    for record in result.chunks:
+        unit_maps = [record.metadata]
+        unit_maps.extend(unit["metadata"] for unit in record.metadata.get("source_units", ()))
+        for metadata in unit_maps:
+            assert "typed_custom_attributes" not in metadata
+            assert "attachment_details" not in metadata
+            assert "processing_profile" not in metadata
+        assert record.metadata["fields"] == {"skill": "Go"}
 
 
 def test_plan_soft_maximum_limits_peer_merging_below_hard_maximum() -> None:
@@ -343,3 +396,52 @@ def test_oversized_table_ignores_whitespace_only_refiner_splits() -> None:
     result = make_service(profile, refiner=WhitespaceRefiner()).chunk(make_request(document))
 
     assert [record.content for record in result.chunks] == ["abc"]
+
+
+def test_duplicate_source_links_to_one_target_become_one_chunk_relation() -> None:
+    # Two distinct Jira "relates to" links to the same issue (CPM-145481 -> RHR-2700)
+    # used to fail chunk validation permanently with duplicate relations.
+    profile = make_profile(target=20, maximum=25)
+    document = replace(
+        make_document([DocumentElement("p1", "paragraph", "alpha")]),
+        relations=[
+            DocumentRelation(
+                predicate="relates_to",
+                target_id="jira://RHR/RHR-2700",
+                target_type="document",
+                metadata={"source_relation_version": version},
+            )
+            for version in ("497489", "505363")
+        ],
+    )
+
+    result = make_service(profile).chunk(make_request(document))
+
+    assert [
+        (relation.relation_type.value, relation.target_id)
+        for relation in result.chunks[0].relations
+    ] == [("relates_to", "jira://RHR/RHR-2700")]
+
+
+def test_route_chunk_keeps_labels_and_headings_within_its_token_cap() -> None:
+    # Hundreds of labels or dozens of top-level headings used to push the route
+    # over its cap and fail chunk validation for the whole document.
+    profile = make_profile(target=200, maximum=400)
+    elements: list[DocumentElement] = []
+    for index in range(60):
+        elements.append(DocumentElement(f"h{index}", "heading", f"Heading {index}", {"level": 1}))
+        elements.append(DocumentElement(f"p{index}", "paragraph", f"body {index}"))
+    document = make_document(
+        elements,
+        extra={"labels": [f"label-{index}" for index in range(400)]},
+    )
+
+    result = make_service(profile, create_route_chunks=True).chunk(make_request(document))
+
+    routes = [record for record in result.chunks if record.record_kind.value == "route"]
+    assert routes
+    document_route = routes[0]
+    assert "Labels: label-0, label-1" in document_route.content
+    assert "label-399" not in document_route.content
+    assert CharacterCounter().count(document_route.content) <= 512
+    assert result.manifest.validation.valid

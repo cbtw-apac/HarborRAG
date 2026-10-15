@@ -129,10 +129,10 @@ def test_evidence_extraction_accepts_only_available_source_content() -> None:
         ],
     }
 
-    references = evidence_references("composed_evidence_search", result)
+    references = evidence_references("fetch_evidence", result)
     assert [reference.chunk_id for reference in references] == ["available"]
     assert [reference.content for reference in references] == ["source"]
-    guided = tool_result_with_citation_guide("composed_evidence_search", result, references)
+    guided = tool_result_with_citation_guide("fetch_evidence", result, references)
     assert guided["citation_guide"] == [
         {
             "marker": references[0].marker,

@@ -155,6 +155,16 @@ class CompositionRoot:
                 "SQLite control databases are not supported when HARBORRAG_ENV=prod; "
                 "set HARBORRAG_CONTROL_DB_URL to a production database"
             )
+        encryption_key = settings.secrets_encryption_key
+        if is_blank_secret(encryption_key) and not scheme.startswith("sqlite"):
+            # env=dev with a real control DB is a legal combination, and it would
+            # otherwise silently encrypt stored secrets with the publicly-known
+            # dev-default key. Checked before migrations so a misconfigured
+            # process never opens a connection.
+            raise HarborConfigurationError(
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
+                "is not SQLite; the dev-only default key is not safe for stored secrets"
+            )
 
         try:
             run_migrations(dsn)
@@ -180,13 +190,12 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
-        encryption_key = settings.secrets_encryption_key
         if encryption_key is not None and not is_blank_secret(encryption_key):
             secrets_key = encryption_key.get_secret_value()
         else:
-            # Reached only if a blank key slipped past validate_secret_urls (e.g. a
-            # RuntimeSettings built without validation) -- fail closed to the known
-            # dev default rather than deriving a Fernet key from an empty string.
+            # Only a SQLite control DB reaches here with a blank key (see above).
+            # Fail closed to the known dev default rather than deriving a Fernet
+            # key from an empty string.
             secrets_key = _DEV_DEFAULT_SECRETS_KEY
             logger.warning(
                 "Using the dev-only default secrets encryption key against a SQLite "

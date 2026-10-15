@@ -11,10 +11,12 @@ from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 from .catalogs import parser_catalog
+from .ocr_server import apply_host_ocr_server_url
 
 if TYPE_CHECKING:
     from harborrag_adapters.connectors.attachments.processing import CustomAttachmentParser
     from harborrag_adapters.parsers import HarborParserRegistry
+    from harborrag_runtime.config import ParserCatalog
 
 
 class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
@@ -80,24 +82,65 @@ class RapidOcrImageParser(BaseParser[ParseInput, ParsedDocument]):
 
 
 def build_harbor_parser() -> HarborParserRegistry:
-    """Assemble the parser stack from `config/parsers.yaml` (PDF via Docling)
+    """Assemble the parser stack from `config/parsers.yaml`.
 
-    and swap in RapidOCR for plain images, since RapidOCR routing isn't part of
-    the declarative parser catalog schema.
+    Both the PDF chain and the image engine are whatever the catalog enables
+    (LiteParse against the OCR server in the shipped configuration), so a
+    smoke run exercises the same engines the worker does. The OCR server URL
+    is retargeted for this host afterwards, because the shipped value names a
+    container-only DNS alias.
     """
-    harbor_parser = parser_catalog().build_harbor_parser(environment=os.environ)
-    harbor_parser.register_family(
-        HarborImageParser(engines=(RapidOcrImageParser(),)),
-        replace=True,
-    )
+    catalog = parser_catalog()
+    harbor_parser = catalog.build_harbor_parser(environment=os.environ)
+    apply_host_ocr_server_url(harbor_parser)
+    _print_engine_selection(harbor_parser, _reported_families(catalog))
     return harbor_parser
 
 
-def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
-    """Route image attachments (Confluence/JIRA) to RapidOCR."""
-    from harborrag_adapters.connectors.attachments.processing import FileType
+def _reported_families(catalog: ParserCatalog) -> frozenset[str]:
+    """Parser families whose engine choice this run should report.
 
-    return {FileType.IMAGE: _parse_image_with_rapidocr}
+    Only the configured families (plus the image family the bootstrap wires
+    itself) are named: the untouched defaults for text, markup, and the rest
+    carry no configuration decision worth echoing.
+    """
+    return frozenset(
+        {catalog.get(name).parser for name in catalog.names(enabled_only=True)}
+        | {HarborImageParser.parser_name}
+    )
+
+
+def _print_engine_selection(
+    harbor_parser: HarborParserRegistry,
+    families: frozenset[str],
+) -> None:
+    """Name the engines that will actually parse, per configured parser family.
+
+    Which PDF engine runs is a configuration decision, so a smoke run that
+    reports real parsing must say which engine it exercised instead of
+    leaving it to be inferred from the checked-in catalog.
+    """
+    for family in harbor_parser.families():
+        if family.parser_name not in families:
+            continue
+        engines = [
+            # `name` is the concrete selection (e.g. "liteparse"); the class-level
+            # `parser_engine` only names the family's supported providers.
+            str(getattr(engine, "name", None) or getattr(engine, "parser_engine", ""))
+            for engine in getattr(family, "engines", ())
+        ]
+        if engines:
+            print(f"[parsers] {family.parser_name} engines={', '.join(engines)}")
+
+
+def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
+    """Take no attachment type away from the configured parser registry.
+
+    Image attachments used to be diverted to RapidOCR here. The catalog now
+    configures the image family itself, so leaving this empty lets every
+    attachment route through the same engines `config/parsers.yaml` selects.
+    """
+    return {}
 
 
 _RAPID_OCR_ENGINE: Any | None = None

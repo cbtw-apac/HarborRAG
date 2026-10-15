@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from collections.abc import Generator
+from contextlib import contextmanager
 from io import BytesIO
 from typing import Any
 
 from harborrag_adapters.parsers.common.validation import ParseResourceBudget
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import ParseError, PasswordProtectedError
 
 # openpyxl reports these when a worksheet's <dimension> record is absent or wrong.
 _SHEET_MAX_ROWS = 1_048_576
@@ -93,3 +95,19 @@ def legacy_cell_to_text(cell: Any, datemode: int, xlrd: Any) -> str:
 
 
 __all__ = ["guard_declared_table_size", "legacy_cell_to_text", "openxml_cell_to_text"]
+
+
+@contextmanager
+def xlrd_errors_as_parse_errors(xlrd: Any) -> Generator[None, None, None]:
+    """Convert xlrd's own exception type, which derives only from Exception.
+
+    `xlrd.XLRDError` is what corrupt, truncated, non-BIFF and encrypted
+    (FILEPASS) workbooks raise, so it must not escape the parser contract.
+    """
+
+    try:
+        yield
+    except xlrd.XLRDError as exc:
+        if "encrypted" in str(exc).lower():
+            raise PasswordProtectedError("XLS is password-protected") from exc
+        raise ParseError(f"xlrd failed to parse input: {exc}") from exc

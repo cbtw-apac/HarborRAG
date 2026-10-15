@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, Self
 from pydantic import ConfigDict, Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
+from harborrag_core.summaries import FACET_NAME_PATTERN, SummaryFacet
 from harborrag_core.topology.ontology import OntologyRegistry
 
 if TYPE_CHECKING:
@@ -127,12 +128,38 @@ class GraphBuildExtractionConfig(_GraphBuildModel):
     max_windows: int = Field(default=8, ge=1, le=64)
 
 
+class GraphBuildFacetConfig(_GraphBuildModel):
+    """One filterable fact every source-entity card in this scope should carry.
+
+    ``field`` names a structured field the connector already extracted -- a Jira
+    custom field such as *Skill Set* or *Years of experience* by display name or
+    customfield id, or a standard issue attribute such as ``status`` -- and its
+    value is copied verbatim onto the card, with no model call. The declared list
+    is the whole vocabulary: a card carries these names and no others.
+    """
+
+    name: str = Field(pattern=FACET_NAME_PATTERN)
+    field: str = Field(min_length=1, max_length=256)
+    type: Literal["text", "integer"] = "text"
+
+    def as_policy_facet(self) -> SummaryFacet:
+        return SummaryFacet(name=self.name, field=self.field, kind=self.type)
+
+
 class GraphBuildSourceConfig(_GraphBuildModel):
     source_scope_id: str = Field(min_length=1, max_length=128)
     enabled: bool = True
     model: str = Field(default="primary", min_length=1, max_length=256)
     ontology: str | None = Field(default=None, min_length=1, max_length=128)
     extraction: GraphBuildExtractionConfig = Field(default_factory=GraphBuildExtractionConfig)
+    facets: list[GraphBuildFacetConfig] = Field(default_factory=list, max_length=12)
+
+    @model_validator(mode="after")
+    def validate_unique_facets(self) -> Self:
+        names = [facet.name for facet in self.facets]
+        if len(names) != len(set(names)):
+            raise ValueError(f"source {self.source_scope_id!r} declares duplicate facet names")
+        return self
 
 
 class GraphBuildTenantConfig(_GraphBuildModel):

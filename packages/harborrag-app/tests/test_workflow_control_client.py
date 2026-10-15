@@ -21,6 +21,7 @@ from workflow_control_fixtures import (
 
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_app.workflow_control.ingestion.client import PublicIngestionClientMixin
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.gateway import IngestionGatewayDescription
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
@@ -289,6 +290,28 @@ async def test_control_actions_are_forwarded(action: str) -> None:
     assert response.ok is True
     assert response.data["action"] == action
     assert client.calls[0][0] == action
+
+
+@pytest.mark.parametrize("action", ["pause", "resume", "cancel"])
+@pytest.mark.asyncio
+async def test_public_control_actions_forward_the_actor(action: str) -> None:
+    # The HTTP routes pass actor=principal.subject; the facade must accept it.
+    calls: list[tuple[str, str, str | None]] = []
+
+    class RecordingIngestions:
+        def __getattr__(self, name: str):
+            async def control(task_id: str, *, actor: str | None = None) -> dict[str, object]:
+                calls.append((name, task_id, actor))
+                return {"task_id": task_id}
+
+            return control
+
+    facade = PublicIngestionClientMixin()
+    facade._public_ingestions = RecordingIngestions()  # type: ignore[assignment]
+
+    await getattr(facade, action)("run-1", actor="alice")
+
+    assert calls == [(action, "run-1", "alice")]
 
 
 @pytest.mark.asyncio

@@ -42,7 +42,22 @@ def build_ingestion_control(
         pool_recycle_seconds=1800,
         echo=False,
     )
-    return IngestionControlPlaneDatabase(client, create_schema=False)
+    return IngestionControlPlaneDatabase(
+        client, create_schema=False, summaries_enabled=summarization_enabled(settings)
+    )
+
+
+def summarization_enabled(settings: RuntimeSettings) -> bool:
+    """Whether summaries are produced, per config/topology/graph_build.yaml.
+
+    Resolved here rather than by callers because the ingestion runtime builds
+    its control database from raw settings, before the YAML is applied.
+    """
+
+    from harborrag_runtime.config.graph_build import GraphBuildConfig
+
+    config = GraphBuildConfig.from_settings(settings)
+    return config.effective_settings(settings).topology_parent_enabled
 
 
 def embedding_dimensions(config: Any, model_name: str) -> int:
@@ -79,7 +94,12 @@ def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
             FilesystemObjectStoreConfig,
         )
 
-        return FilesystemObjectStore(FilesystemObjectStoreConfig(root=settings.object_store_root))
+        return FilesystemObjectStore(
+            FilesystemObjectStoreConfig(
+                root=settings.object_store_root,
+                namespace_prefix=settings.storage_namespace_prefix,
+            )
+        )
     if settings.object_store_provider != "s3":
         return storage_providers.object_store(settings)
 
@@ -91,6 +111,7 @@ def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
             secret_access_key=settings.object_store_secret_access_key,
             session_token=settings.object_store_session_token,
             allow_insecure_remote=settings.object_store_allow_insecure_remote,
+            namespace_prefix=settings.storage_namespace_prefix,
         )
     )
 
@@ -108,7 +129,7 @@ def build_vector_repository(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
-            collection_prefix=settings.qdrant_collection_prefix,
+            namespace_prefix=settings.storage_namespace_prefix,
             allow_insecure_remote=settings.qdrant_allow_insecure_remote,
         )
     )
@@ -145,7 +166,7 @@ def build_graph_config(settings: RuntimeSettings) -> FalkorDBGraphConfig:
         max_connections=settings.falkordb_max_connections,
         allow_insecure_remote=settings.falkordb_allow_insecure_remote,
         tenant_isolation=True,
-        tenant_graph_prefix=settings.falkordb_tenant_graph_prefix,
+        namespace_prefix=settings.storage_namespace_prefix,
         max_cached_tenants=settings.falkordb_max_cached_tenants,
         read_username=settings.falkordb_read_username,
         read_password=settings.falkordb_read_password,

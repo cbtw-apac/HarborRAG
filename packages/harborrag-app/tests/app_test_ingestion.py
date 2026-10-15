@@ -178,7 +178,7 @@ class IngestionServiceFixture:
             "next_cursor": None,
         }
 
-    async def pause(self, task_id: str) -> dict[str, object]:
+    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         if task_id == "complete":
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         return {
@@ -187,7 +187,7 @@ class IngestionServiceFixture:
             "message": "Pause requested",
         }
 
-    async def resume(self, task_id: str) -> dict[str, object]:
+    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         if task_id == "complete":
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         return {
@@ -196,7 +196,7 @@ class IngestionServiceFixture:
             "message": "Resume requested",
         }
 
-    async def cancel(self, task_id: str) -> dict[str, object]:
+    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         if task_id == "complete":
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         return {

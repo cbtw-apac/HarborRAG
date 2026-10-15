@@ -1,29 +1,22 @@
-"""Document discovery and citation verification shared by MCP and agent clients."""
+"""Document discovery shared by MCP and agent clients."""
 
 from __future__ import annotations
 
-import hashlib
 import json
 import logging
-from copy import deepcopy
 from dataclasses import asdict, dataclass
 
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.contracts.reader import (
     DOCUMENT_LIST_LIMIT,
     DocumentListRequest,
-    DocumentMetadataRequest,
-    EvidenceReadRequest,
 )
 from harborrag_core.contracts.tools import ToolBehavior, ToolInvocationContext
 
 from .base import ToolSpec
 from .reader_base import ReaderTool
-from .reader_catalog import (
-    FETCH_EVIDENCE_SPEC,
-    reader_success_schema,
-)
-from .reader_support import cursor_payload, evidence_selector, failure, success
+from .reader_catalog import reader_success_schema
+from .reader_support import cursor_payload, failure, success
 from .retrieval_inputs import TENANT_PROPERTY, access, integer, optional_text, text
 
 logger = logging.getLogger("harborrag.runtime.tools.documents")
@@ -48,62 +41,6 @@ _DOCUMENT = {
     },
     "additionalProperties": False,
 }
-_VERIFY_INPUT = deepcopy(FETCH_EVIDENCE_SPEC.input_schema)
-_VERIFY_INPUT["properties"]["items"]["items"]["properties"]["expected_content_sha256"] = {
-    "type": "string",
-    "pattern": "^[a-f0-9]{64}$",
-}
-
-
-@dataclass(slots=True)
-class GetDocumentMetadataTool(ReaderTool):
-    spec = ToolSpec(
-        "get_document_metadata",
-        "Read current document title, version, source, connector and chunk count without "
-        "returning content or storage addresses. Unreadable and unpublished documents "
-        "have the same unavailable result.",
-        {
-            "type": "object",
-            "required": ["tenant_id", "document_id"],
-            "properties": {
-                "tenant_id": TENANT_PROPERTY,
-                "document_id": {"type": "string", "minLength": 1, "maxLength": 128},
-            },
-            "additionalProperties": False,
-        },
-        output_schema=reader_success_schema(
-            {"document": {"anyOf": [_DOCUMENT, {"type": "null"}]}}, ["document"]
-        ),
-        behavior=ToolBehavior(read_only=True, idempotent=True),
-    )
-
-    async def call(
-        self,
-        arguments: dict[str, object],
-        *,
-        principal_id: str,
-        context: ToolInvocationContext | None = None,
-    ) -> dict[str, object]:
-        if context is not None and principal_id != context.access.principal_id:
-            raise PermissionError("tool principal does not match invocation context")
-        try:
-            response = await self.require_knowledge().get_document_metadata(
-                DocumentMetadataRequest(
-                    access(arguments, principal_id), text(arguments, "document_id")
-                )
-            )
-            document = response.document
-            return success(
-                response.request_id,
-                {"document": asdict(document) if document is not None else None},
-                complete=document is not None,
-                reasons=[] if document is not None else ["unavailable"],
-            )
-        except (HarborValidationError, HarborCapabilityError, ValueError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("document metadata retrieval failed")
-            return failure("document metadata retrieval failed")
 
 
 @dataclass(slots=True)
@@ -192,84 +129,3 @@ class ListDocumentsTool(ReaderTool):
         except Exception:
             logger.exception("document discovery failed")
             return failure("document discovery failed")
-
-
-@dataclass(slots=True)
-class VerifyCitationsTool(ReaderTool):
-    spec = ToolSpec(
-        "verify_citations",
-        "Recheck up to ten citation chunk IDs against current publication, expected "
-        "document/version and caller permissions. Returns validity and SHA-256 of "
-        "canonical UTF-8 content without returning the content itself.",
-        _VERIFY_INPUT,
-        output_schema=reader_success_schema(
-            {
-                "items": {
-                    "type": "array",
-                    "maxItems": 10,
-                    "items": {
-                        "type": "object",
-                        "required": ["chunk_id", "valid", "content_sha256"],
-                        "properties": {
-                            "chunk_id": {"type": "string"},
-                            "valid": {"type": "boolean"},
-                            "content_sha256": {"type": ["string", "null"]},
-                        },
-                        "additionalProperties": False,
-                    },
-                },
-            },
-            ["items"],
-        ),
-        behavior=ToolBehavior(read_only=True, idempotent=True),
-    )
-
-    async def call(
-        self,
-        arguments: dict[str, object],
-        *,
-        principal_id: str,
-        context: ToolInvocationContext | None = None,
-    ) -> dict[str, object]:
-        if context is not None and principal_id != context.access.principal_id:
-            raise PermissionError("tool principal does not match invocation context")
-        try:
-            raw = arguments.get("items")
-            if not isinstance(raw, list):
-                raise HarborValidationError("items must be an array")
-            expected_hashes = {
-                text(item, "chunk_id"): optional_text(item, "expected_content_sha256")
-                for item in raw
-                if isinstance(item, dict)
-            }
-            response = await self.require_knowledge().read_evidence(
-                EvidenceReadRequest(
-                    access(arguments, principal_id), tuple(evidence_selector(item) for item in raw)
-                )
-            )
-            items = [
-                {
-                    "chunk_id": item.chunk_id,
-                    "valid": item.availability == "available",
-                    "content_sha256": hashlib.sha256(item.text.encode("utf-8")).hexdigest()
-                    if item.availability == "available" and item.text is not None
-                    else None,
-                }
-                for item in response.items
-            ]
-            for item in items:
-                expected = expected_hashes.get(str(item["chunk_id"]))
-                if expected is not None and item["content_sha256"] != expected:
-                    item["valid"] = False
-            complete = all(item["valid"] for item in items)
-            return success(
-                response.request_id,
-                {"items": items},
-                complete=complete,
-                reasons=[] if complete else ["citation_invalid"],
-            )
-        except (HarborValidationError, HarborCapabilityError, ValueError) as exc:
-            return failure(str(exc))
-        except Exception:
-            logger.exception("citation verification failed")
-            return failure("citation verification failed")

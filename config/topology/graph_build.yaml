@@ -4,10 +4,8 @@ runtime:
   derived:
     enabled: true
 
-# Parent nodes summarise their 1-hop children's content. Chunks are never summarised --
-# they already carry their full text. Runs independently of entity extraction.
 summarization:
-  enabled: true
+  enabled: false  
   task_queue: harborrag-summaries
   debounce_seconds: 5
   max_wait_seconds: 60

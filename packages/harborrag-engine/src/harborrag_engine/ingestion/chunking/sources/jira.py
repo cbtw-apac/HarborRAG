@@ -35,6 +35,13 @@ _SECTION_FIELDS = {
 }
 
 _CHILD_COLLECTIONS = frozenset({"attachments", "comments", "changelog", "custom_fields"})
+# Document-level detail that stays on the canonical document and is never read from
+# a chunk. Every unit would otherwise copy it: `typed_custom_attributes` alone is
+# ~50 KB for a project with ~130 custom fields. The flat `fields` map stays, because
+# the vector payload filters on it.
+_DOCUMENT_ONLY_FIELDS = frozenset(
+    {"typed_custom_attributes", "attachment_details", "processing_profile"}
+)
 _ENTITY_CONTENT_FIELDS = frozenset({"body", "download_url", "items", "reason", "text"})
 _OVERVIEW_FIELDS = frozenset({"summary", "metadata", "custom_fields"})
 
@@ -67,7 +74,9 @@ class JiraChunkingStrategy:
         provenance = dict(request.document.provenance.extra)
         issue_key = provenance.get("issue_key") or request.document.provenance.record_id
         common_metadata = {
-            key: value for key, value in provenance.items() if key not in _CHILD_COLLECTIONS
+            key: value
+            for key, value in provenance.items()
+            if key not in _CHILD_COLLECTIONS and key not in _DOCUMENT_ONLY_FIELDS
         }
         context = _JiraUnitContext(request, issue_key, common_metadata)
         elements = self._field_elements(request, provenance)
@@ -86,12 +95,18 @@ class JiraChunkingStrategy:
             is not None
         ]
 
+        # A connector that already emits an element per entity owns that evidence:
+        # rebuilding it from provenance would duplicate the chunk and cite a source
+        # element the canonical document never contained.
+        covered = {field for _, field in elements}
         source_ordinal = len(elements)
         for collection, field in (
             ("comments", "comment"),
             ("attachments", "attachment"),
             ("changelog", "changelog"),
         ):
+            if field in covered:
+                continue
             source_position = 0
             for item in self._mapping_items(provenance.get(collection)):
                 content = self._entity_content(field, item)

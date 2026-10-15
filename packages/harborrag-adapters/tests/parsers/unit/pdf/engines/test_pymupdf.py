@@ -147,7 +147,9 @@ def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -
         assert path != pdf
         assert path.read_bytes() == pdf.read_bytes()
 
-    document = HarborParserFactory().create_pdf_parser().parse_input(ParseInput(path=pdf))
+    # The default profile is LiteParse-first; `fast` puts PyMuPDF first.
+    parser = HarborParserFactory().create_pdf_parser(profile="fast")
+    document = parser.parse_input(ParseInput(path=pdf))
     assert "Hello PDF" in document.content
     assert document.metadata["pdf_engine"] == "pymupdf"
 

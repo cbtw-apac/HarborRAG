@@ -26,13 +26,15 @@ from .chunking_helpers import make_document, make_profile, make_request, make_se
 __all__ = ["keys", "project"]
 
 
-def project(
+def project(  # noqa: PLR0913
     connector: str,
     extra: dict[str, object],
     *,
     source_item_id: str,
     relations: list[DocumentRelation] | None = None,
     resolved_targets: Mapping[str, GraphDocumentTarget] | None = None,
+    external_stubs: bool = False,
+    source_scope_id: str | None = None,
 ):
     document = make_document(
         [DocumentElement("p1", "paragraph", "Provider evidence")],
@@ -55,6 +57,7 @@ def project(
                 "connector_type": ConnectorType(connector),
                 "document_kind": DocumentKind(f"{connector}_file"),
                 "source_item_id": source_item_id,
+                **({"source_scope_id": source_scope_id} if source_scope_id else {}),
             }
         )
         for chunk in chunks
@@ -65,6 +68,7 @@ def project(
             chunks=rebound,
             resolved_targets=resolved_targets or {},
             graph_projection_version="graph-v2",
+            external_stubs=external_stubs,
         )
     )
 

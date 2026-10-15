@@ -6,7 +6,7 @@ from harborrag_adapters.topology.descriptions import (
     DESCRIPTION_CONTRACT_VERSION,
     DESCRIPTION_PROMPT,
 )
-from harborrag_core.summaries import SummaryPolicy
+from harborrag_core.summaries import CardWordBudgets, SummaryPolicy
 from harborrag_core.topology.extraction import digest
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -32,6 +32,7 @@ def build_summary_policy(
         max_input_bytes=settings.topology_parent_max_input_bytes,
         max_input_tokens=settings.topology_parent_max_input_tokens,
         max_calls=settings.topology_parent_max_calls,
+        card_words=CardWordBudgets(source_entity=settings.summary_entity_card_max_words),
         debounce_seconds=settings.summary_debounce_seconds,
         max_wait_seconds=settings.summary_max_wait_seconds,
         tenant_enabled=settings.summary_tenant_enabled,

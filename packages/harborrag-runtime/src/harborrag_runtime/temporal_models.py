@@ -93,9 +93,39 @@ class ActivityRetryConfig:
 
     discovery: RetryPolicyConfig = RetryPolicyConfig()
     document: RetryPolicyConfig = RetryPolicyConfig(
-        maximum_interval_seconds=120.0,
-        maximum_attempts=5,
+        maximum_interval_seconds=300.0,
+        maximum_attempts=12,
     )
+
+
+# A week: long enough for any source this runtime is sized for, short enough
+# that a typo cannot park an activity for good.
+_MAX_ACTIVITY_TIMEOUT_SECONDS = 7 * 24 * 3600
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityTimeoutConfig:
+    """Per-attempt wall-clock budgets of the source-level activities.
+
+    Discovery and finalization scale with the size of the source, so a fixed
+    budget that fits a few hundred documents cuts a large source off on every
+    attempt. Both heartbeat, so a dead worker is still noticed within the
+    heartbeat timeout whatever these are set to. The defaults are the budgets
+    every run used before they were configurable, which keeps runs started
+    before this field existed replaying the same commands.
+    """
+
+    discovery_seconds: int = 1_800
+    finalization_seconds: int = 900
+
+    def __post_init__(self) -> None:
+        if any(
+            isinstance(value, bool) or not 60 <= value <= _MAX_ACTIVITY_TIMEOUT_SECONDS
+            for value in (self.discovery_seconds, self.finalization_seconds)
+        ):
+            raise RuntimeConfigurationError(
+                "Temporal activity timeouts must be between 60 seconds and 7 days"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,3 +134,4 @@ class TemporalWorkflowOptions:
 
     task_queues: TaskQueueConfig = TaskQueueConfig()
     retries: ActivityRetryConfig = ActivityRetryConfig()
+    timeouts: ActivityTimeoutConfig = ActivityTimeoutConfig()

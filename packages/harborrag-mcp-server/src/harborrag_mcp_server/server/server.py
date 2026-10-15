@@ -26,9 +26,23 @@ if TYPE_CHECKING:
 # these live outside the dataclass defaults to retain one audit trail and
 # policy across facade calls.
 _default_policy = McpToolPolicy()
-_default_audit_log = McpAuditLog(
-    path=Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
-)
+_default_audit_log: McpAuditLog | None = None
+
+
+def _shared_audit_log() -> McpAuditLog:
+    """Create the process audit trail on first use, not at import.
+
+    The CLI imports this module before it loads ``--env-file`` and
+    ``--local-stack-root`` values, so reading the path at import ignored an
+    ``HARBORRAG_MCP_AUDIT_PATH`` set in those files.
+    """
+
+    global _default_audit_log  # noqa: PLW0603 - one process-wide trail by design
+    if _default_audit_log is None:
+        _default_audit_log = McpAuditLog(
+            path=Path(os.environ.get("HARBORRAG_MCP_AUDIT_PATH", ".harborrag/mcp-audit.jsonl"))
+        )
+    return _default_audit_log
 
 
 @dataclass(slots=True)
@@ -38,7 +52,7 @@ class McpServer(BaseMcpServer):
     runtime: ReaderServices | None = None
     tools: list[BaseTool] | None = None
     policy: McpToolPolicy = field(default_factory=lambda: _default_policy)
-    audit: McpAuditLog = field(default_factory=lambda: _default_audit_log)
+    audit: McpAuditLog = field(default_factory=_shared_audit_log)
     configuration: McpConfigurationStore | None = None
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
     invoker: ToolInvoker | None = None

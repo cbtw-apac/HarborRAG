@@ -117,6 +117,15 @@ class KnowledgeGraphRepositoryPort(Protocol):
         """Verify new native link supports, then retract this version's obsolete links."""
         ...
 
+    async def prune_external_stubs(
+        self,
+        *,
+        context: StorageOperationContext,
+        grace_seconds: int = 3600,
+    ) -> int:
+        """Delete external link-target stubs nothing references; return how many."""
+        ...
+
     async def retire_legacy_source_relations(
         self,
         source_scope_id: str,

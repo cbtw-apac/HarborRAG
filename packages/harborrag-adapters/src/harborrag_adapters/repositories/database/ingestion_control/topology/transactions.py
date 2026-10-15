@@ -5,6 +5,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -56,6 +57,24 @@ class TopologySession(AsyncSession):
             super().execute(*args, **kwargs),
             close_on_cancel=lambda result: result.close(),
         )
+
+
+@asynccontextmanager
+async def read_only_transaction(client: SQLAlchemyDBClient) -> AsyncIterator[AsyncSession]:
+    """A reader's transaction: one consistent snapshot, no row locks, no writes.
+
+    Publication holds the tenant summary lock while it swaps bindings and
+    scopes; a reader used to take the same lock (an INSERT plus SELECT FOR
+    UPDATE) purely to avoid seeing half of that swap. A REPEATABLE READ snapshot
+    gives the same guarantee without writing, so a read-only database role can
+    serve every reader tool. READ ONLY makes any future write on this path fail
+    loudly instead of quietly widening the role. SQLite serialises writers and
+    already reads a single snapshot, so it needs nothing.
+    """
+    async with topology_transaction(client) as session:
+        if client.raw.dialect.name == "postgresql":
+            await session.execute(text("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY"))
+        yield session
 
 
 @asynccontextmanager

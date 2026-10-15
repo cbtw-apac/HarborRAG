@@ -6,18 +6,20 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AsyncExitStack, asynccontextmanager
 from typing import TYPE_CHECKING, cast
 
+from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     ImmutableArtifactReader,
     ImmutableArtifactWriter,
 )
-from harborrag_runtime.composition.resources import build_object_store
+from harborrag_runtime.composition.resources import build_object_store, build_vector_repository
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.temporal.optional import load_temporal_attribute
 
 from .composition import connect_topology_authority
+from .derived_models import RequestEmbedder
 from .summary_factory import SummaryRuntimeFactory
 
 if TYPE_CHECKING:
@@ -62,8 +64,24 @@ async def connect_summaries(
         stack.push_async_callback(store.close)
         await store.connect()
         await store.ensure_buckets((ARTIFACT_BUCKET,))
+        vectors = None
+        embed = None
+        if settings.summary_entity_index_enabled:
+            vectors = build_vector_repository(settings)
+            stack.push_async_callback(vectors.close)
+            await vectors.connect()
+            client = HarborEmbedClient.from_config(
+                HarborEmbedClientConfig.from_file(settings.model_config_path)
+            )
+            stack.push_async_callback(client.aclose)
+            embed = RequestEmbedder(client)
         factory = SummaryRuntimeFactory(
-            settings, control, ImmutableArtifactReader(store), ImmutableArtifactWriter(store)
+            settings,
+            control,
+            ImmutableArtifactReader(store),
+            ImmutableArtifactWriter(store),
+            vectors,
+            embed,
         )
         await factory.initialize(tenant_id)
         yield factory

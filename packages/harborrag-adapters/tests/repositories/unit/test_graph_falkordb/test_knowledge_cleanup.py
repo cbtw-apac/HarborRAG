@@ -126,13 +126,26 @@ async def test_tenant_projection_inventory_and_delete_are_tenant_scoped() -> Non
 @pytest.mark.asyncio
 async def test_version_cleanup_deletes_only_version_owned_v2_records() -> None:
     client = FakeFalkorDBClient()
+    client.read_results = [
+        FakeQueryResult(
+            [HeaderItem("relationship_type"), HeaderItem("relations")],
+            [["HAS_CHUNK", 3]],
+        )
+    ]
 
     await repository(client).delete_version(
         "version-1",
         context=StorageOperationContext.system("tenant-1"),
     )
 
+    # Relations are found and deleted per type, through that type's
+    # document_version_id index, then the version's nodes.
     assert len(client.write_calls) == 2
+    assert client.write_calls[0][0].startswith("MATCH ()-[relation:HAS_CHUNK]->()")
+    assert "(node:KnowledgeNode)" in client.write_calls[1][0]
+    lookup, _ = client.read_calls[0]
+    assert "MATCH ()-[relation]->()" not in lookup
+    assert "relation.document_version_id = $document_version_id" in lookup
     for statement, parameters in client.write_calls[:2]:
         assert "ownership_scope = 'DOCUMENT_VERSION'" in statement
         assert "graph_schema_version = $graph_schema_version" in statement

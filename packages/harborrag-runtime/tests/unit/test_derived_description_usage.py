@@ -24,7 +24,7 @@ pytestmark = pytest.mark.unit
 
 
 class _ReportingDescriptions:
-    async def generate_usage(self, packets):
+    async def generate_usage(self, packets, **_):
         del packets
         return DescriptionRun(
             output=DescriptionOutput(

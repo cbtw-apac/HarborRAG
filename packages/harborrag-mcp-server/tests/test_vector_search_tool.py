@@ -10,12 +10,13 @@ from harborrag_mcp_server.server.server import McpServer
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
-def _result(id_: str, text: str, score: float) -> RetrievalResult:
+def _result(id_: str, text: str, score: float, relevance: float | None = None) -> RetrievalResult:
     """A ``RetrievalResult`` with the exact metadata shape the real service produces."""
     return RetrievalResult(
         id=id_,
         text=text,
         score=score,
+        relevance=relevance,
         metadata={
             "document_id": "document-1",
             "document_version_id": "version-1",
@@ -88,7 +89,9 @@ async def test_vector_search_defaults_to_hybrid_without_graph_observation() -> N
 
 @pytest.mark.asyncio
 async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
-    harbor, retrieval = runtime([_result("high", "alpha", 0.9), _result("low", "beta", 0.2)])
+    harbor, retrieval = runtime(
+        [_result("high", "alpha", 0.9, 0.9), _result("low", "beta", 0.2, 0.2)]
+    )
 
     result = await VectorSearchTool(runtime=harbor).call(
         {
@@ -96,7 +99,7 @@ async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
             "tenant_id": "demo",
             "lane": "dense",
             "mode": "local_semantic",
-            "filters": {"category": "runbook"},
+            "filters": {"status": "runbook"},
             "observe_graph": False,
             "score_threshold": 0.8,
         },
@@ -106,7 +109,7 @@ async def test_vector_search_forwards_explicit_controls_and_threshold() -> None:
     request = retrieval.last_request
     assert request.lane == RetrievalLane.DENSE
     assert request.mode == RetrievalMode.LOCAL_SEMANTIC
-    assert request.filters == {"category": "runbook"}
+    assert request.filters == {"status": "runbook"}
     assert request.observe_graph is False
     assert [item["id"] for item in result["results"]] == ["high"]
 
@@ -202,3 +205,97 @@ async def test_server_enforces_vector_result_budget() -> None:
             "vector_search",
             {"query": "over budget", "tenant_id": "demo"},
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "filters",
+    [{"category": "runbook"}, {"document_title": "x"}, {"fields.Skill Set": "x"}],
+)
+async def test_vector_search_refuses_unindexed_filter_keys_before_searching(filters) -> None:
+    harbor, retrieval = runtime([_result("vec-1", "one", 0.95)])
+
+    result = await VectorSearchTool(runtime=harbor).call(
+        {"query": "x", "tenant_id": "demo", "filters": filters},
+        principal_id="subject-1",
+    )
+
+    assert result["ok"] is False
+    assert "unsupported evidence filter" in result["error"]
+    assert retrieval.last_request is None
+
+
+def test_vector_search_filters_schema_lists_indexed_keys() -> None:
+    filters = VectorSearchTool.spec.input_schema["properties"]["filters"]
+
+    keys = filters["propertyNames"]["anyOf"][0]["enum"]
+
+    assert {"issue_key", "status", "assignee", "labels"} <= set(keys)
+    assert "fields.<key>" in filters["description"]
+
+
+@pytest.mark.asyncio
+async def test_a_threshold_on_the_sparse_lane_is_refused() -> None:
+    result = await VectorSearchTool(runtime=runtime([])[0]).call(
+        {"query": "x", "tenant_id": "demo", "lane": "sparse", "score_threshold": 0.5},
+        principal_id="subject-1",
+    )
+
+    assert result["ok"] is False
+    assert "sparse" in result["error"]
+
+
+@pytest.mark.asyncio
+async def test_a_threshold_drops_hits_whose_similarity_was_never_measured() -> None:
+    harbor, _ = runtime([_result("measured", "a", 0.6, 0.6), _result("unmeasured", "b", 0.99)])
+
+    result = await VectorSearchTool(runtime=harbor).call(
+        {"query": "x", "tenant_id": "demo", "score_threshold": 0.5},
+        principal_id="subject-1",
+    )
+
+    assert [item["id"] for item in result["results"]] == ["measured"]
+
+
+@pytest.mark.asyncio
+async def test_a_refused_filter_reports_its_reason_not_a_backend_failure() -> None:
+    from harborrag_core.contracts.errors import HarborValidationError
+
+    class RefusingRetrievalFacade:
+        async def search(self, request):
+            raise HarborValidationError("source field filter(s) fields.skill_set have no index")
+
+    result = await VectorSearchTool(
+        runtime=SimpleNamespace(retrieval=RefusingRetrievalFacade())
+    ).call(
+        {"query": "x", "tenant_id": "demo", "filters": {"fields.skill_set": "Java"}},
+        principal_id="subject-1",
+    )
+
+    assert result == {
+        "ok": False,
+        "error": "source field filter(s) fields.skill_set have no index",
+    }
+
+
+@pytest.mark.asyncio
+async def test_hits_carry_the_issue_key_but_not_constant_bookkeeping() -> None:
+    hit = _result("vec-1", "Senior Java Engineer", 0.9, 0.5)
+    hit.metadata.update({"issue_key": "CPM-101361", "content_hash": "abc", "raw_score": 0.4})
+    harbor, _ = runtime([hit])
+
+    result = await VectorSearchTool(runtime=harbor).call(
+        {"query": "java", "tenant_id": "demo"}, principal_id="subject-1"
+    )
+
+    metadata = result["results"][0]["metadata"]
+    assert metadata["issue_key"] == "CPM-101361"
+    assert {
+        "record_kind",
+        "retrieval_source",
+        "raw_score",
+        "quality_score",
+        "content_hash",
+    }.isdisjoint(metadata)
+    # Everything citations and the Explorer read is still there.
+    assert {"document_id", "document_title", "section_path", "citation_locator"} <= set(metadata)

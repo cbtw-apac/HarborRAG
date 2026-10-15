@@ -25,6 +25,7 @@ from .document.service import DocumentReleaseService
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
@@ -59,6 +60,8 @@ class IngestionRuntime:
     connector_rate_limiter: ConnectorRateLimiter
     telemetry: IngestionTelemetry
     connector_errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
+    # None keeps hand-built runtimes (tests, embedders) free of the purge.
+    retention: RetiredVersionPurgeService | None = None
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:

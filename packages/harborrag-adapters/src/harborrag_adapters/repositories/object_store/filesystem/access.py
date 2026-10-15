@@ -47,6 +47,7 @@ class FilesystemAccessMixin:
     """
 
     _root: Path
+    _namespace_prefix: str
     _instance_name: str
     _encode_key_segments: bool = os.name == "nt"
 
@@ -143,7 +144,9 @@ class FilesystemAccessMixin:
     def _tenant_root(self, bucket: str, context: StorageOperationContext) -> Path:
         if not _BUCKET.fullmatch(bucket):
             raise ValueError("invalid filesystem bucket name")
-        namespace = Path(*tenant_object_prefix(context.tenant_id).split("/"))
+        namespace = Path(
+            *tenant_object_prefix(context.tenant_id, self._namespace_prefix).split("/")
+        )
         tenant_root = self._root / bucket / namespace
         if not tenant_root.resolve().is_relative_to(self._root):
             raise ValueError("filesystem bucket escapes configured root")

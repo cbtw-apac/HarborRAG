@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from time import perf_counter
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
+    ArtifactReference,
     ChangeFingerprintBuilder,
     DocumentIdentityBuilder,
     DocumentVersionCandidate,
@@ -118,20 +120,26 @@ class DocumentCaptureStages:
             )
         context = _context(request.tenant_id)
         candidate_id: str | None = None
+        # Parsing is the longest document stage, so each step's share is logged
+        # per document: it tells a slow parser from slow storage on a large run.
+        marks = [perf_counter()]
         try:
             raw = await self._dependencies.raw_artifacts.get(
                 capture.raw_reference,
                 context=context,
             )
+            marks.append(perf_counter())
             parsed = await asyncio.to_thread(
                 self._dependencies.parser.parse,
                 raw,
             )
+            marks.append(perf_counter())
             normalized = await asyncio.to_thread(
                 self._dependencies.normalizer.normalize,
                 raw,
                 parsed,
             )
+            marks.append(perf_counter())
             normalized = with_title_as_content(
                 normalized,
                 binding=request.source_identity.binding.kind,
@@ -163,9 +171,11 @@ class DocumentCaptureStages:
                 active=active,
                 fingerprints=planned.candidate.fingerprints,
             )
+            marks.append(perf_counter())
             if decision == SourceAdmissionDecision.UNCHANGED and not request.force_reprocess:
                 if active is None:
                     raise HarborInvariantError("active must not be None here")
+                _log_parse_timings(capture.document_id, candidate_id, decision, marks)
                 return PreparedDocumentStage(
                     document_id=capture.document_id,
                     document_version_id=str(active.document_version_id),
@@ -194,12 +204,14 @@ class DocumentCaptureStages:
             )
             canonical_reference = snapshot.canonical_artifact
             if canonical_reference is None:
-                canonical_reference = await self._dependencies.canonical_artifacts.put(
+                canonical_reference = await self._record_canonical(
                     document_id=capture.document_id,
                     document_version_id=candidate_id,
                     document=document,
                     context=context,
                 )
+            marks.append(perf_counter())
+            _log_parse_timings(capture.document_id, candidate_id, decision, marks)
             return PreparedDocumentStage(
                 document_id=capture.document_id,
                 document_version_id=candidate_id,
@@ -215,6 +227,39 @@ class DocumentCaptureStages:
                     error=error,
                 )
             raise
+
+    async def _record_canonical(
+        self,
+        *,
+        document_id: str,
+        document_version_id: str,
+        document: Document,
+        context: StorageOperationContext,
+    ) -> ArtifactReference:
+        """Write the canonical boundary and record it in the same activity.
+
+        Recording it only in the later PersistCanonical activity left a window in
+        which a retried parse rebuilt the document and met the object the earlier
+        attempt had written. Parsing is not byte-for-byte reproducible (OCR under
+        load), so that retry failed permanently on the immutable key. The caller
+        only gets here when no reference is recorded, so the first writer's object
+        is adopted: the version id already pins its evidence and retrieval content.
+        """
+
+        reference = await self._dependencies.canonical_artifacts.put(
+            document_id=document_id,
+            document_version_id=document_version_id,
+            document=document,
+            context=context,
+            adopt_existing=True,
+        )
+        await self._lifecycle.advance(
+            document_version_id,
+            DocumentVersionState.CANONICAL_READY,
+            artifact_column="canonical_artifact",
+            artifact=reference,
+        )
+        return reference
 
     @staticmethod
     def _has_indexable_content(document: Document) -> bool:
@@ -257,7 +302,7 @@ class DocumentCaptureStages:
             )
             reference = snapshot.canonical_artifact
             if reference is None:
-                reference = await self._dependencies.canonical_artifacts.put(
+                reference = await self._record_canonical(
                     document_id=document_id,
                     document_version_id=document_version_id,
                     document=materialized,
@@ -340,3 +385,26 @@ class DocumentCaptureStages:
 
 def _context(tenant_id: str) -> StorageOperationContext:
     return StorageOperationContext.system(tenant_id)
+
+
+_PARSE_STEPS = ("raw", "parse", "normalize", "admit", "persist")
+
+
+def _log_parse_timings(
+    document_id: str, document_version_id: str, decision: object, marks: list[float]
+) -> None:
+    """One line per parsed document with the milliseconds each step took."""
+
+    steps = " ".join(
+        f"{name}_ms={(marks[index + 1] - marks[index]) * 1000:.0f}"
+        for index, name in enumerate(_PARSE_STEPS)
+        if index + 1 < len(marks)
+    )
+    logger.info(
+        "Document parsed document_id=%s document_version_id=%s decision=%s %s total_ms=%.0f",
+        document_id,
+        document_version_id,
+        getattr(decision, "value", decision),
+        steps,
+        (marks[-1] - marks[0]) * 1000,
+    )

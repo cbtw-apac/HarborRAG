@@ -8,12 +8,29 @@ from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
     SparseVector,
+    VectorDistance,
     VectorIndexRecord,
     VectorIndexSpec,
     VectorSearchQuery,
     VectorSearchResult,
 )
 from harborrag_core.storage import StorageOperationContext
+
+
+def dense_similarity(raw: float, distance: VectorDistance) -> float | None:
+    """The similarity a dense score measures, or ``None`` when it measures none.
+
+    Cosine *is* a similarity: it is reported as-is, clamped at zero because a
+    threshold is a 0..1 number and "opposite" is no more relevant than "unrelated".
+    It used to be reported as ``(cos + 1) / 2`` -- the ranking score -- which put an
+    unrelated text (cos ~0.4) at 0.7 and made every threshold mean something else.
+    Dot product and the distances are unbounded or scale-dependent, so no number
+    from them is a similarity a caller could compare across queries.
+    """
+
+    if distance != VectorDistance.COSINE:
+        return None
+    return max(0.0, min(1.0, raw))
 
 
 def search_result(
@@ -28,7 +45,7 @@ def search_result(
         id=logical_id,
         score=normalized,
         raw_score=float(point.score),
-        relevance=normalized,
+        relevance=dense_similarity(float(point.score), spec.distance),
         payload=payload if query.include_payload else {},
         vector=dense if query.include_vectors else None,
     )
@@ -43,11 +60,14 @@ def sparse_result(
     raw_score = max(0.0, float(point.score))
     payload, logical_id = _payload(point)
     dense, _, _ = vectors(point.vector, spec)
+    # ``score`` keeps the squashed BM25 value for ordering; it is not a similarity.
+    # IDF-weighted BM25 is unbounded and query-dependent -- a long rare-term query
+    # puts an off-topic CV at 0.95 -- so the lane reports no relevance at all.
     return VectorSearchResult(
         id=logical_id,
         score=raw_score / (1.0 + raw_score),
         raw_score=raw_score,
-        relevance=raw_score / (1.0 + raw_score),
+        relevance=None,
         payload=payload if query.include_payload else {},
         vector=dense if query.include_vectors else None,
     )
@@ -88,27 +108,20 @@ def _add_ranked_scores(
 
 def lane_relevance(
     dense_points: Sequence[Any],
-    sparse_points: Sequence[Any],
     spec: VectorIndexSpec,
-) -> dict[str, float]:
-    """The best normalized per-lane score for each fused point.
+) -> dict[str, float | None]:
+    """The dense similarity of each point the dense lane scored.
 
-    ``weighted_rrf`` keeps only rank, so the similarity each lane actually
-    measured is otherwise lost at fusion. A point present in both lanes takes
-    the higher of the two: the lanes disagree about form, not about whether
-    the point is on topic, and the stronger signal is the honest one.
+    ``weighted_rrf`` keeps only rank, so the similarity the dense lane measured is
+    otherwise lost at fusion. The sparse lane contributes rank only: its BM25 score
+    is no similarity, and taking the larger of the two let a squashed keyword score
+    (0.95 for an off-topic CV) pose as one. A point only the sparse lane found is
+    absent here; the caller measures it separately rather than guessing.
     """
 
-    best: dict[str, float] = {}
-    for point in dense_points:
-        value = QdrantMapper.normalize_score(float(point.score), spec.distance)
-        identity = str(point.id)
-        best[identity] = max(best.get(identity, 0.0), value)
-    for point in sparse_points:
-        raw = max(0.0, float(point.score))
-        identity = str(point.id)
-        best[identity] = max(best.get(identity, 0.0), raw / (1.0 + raw))
-    return best
+    return {
+        str(point.id): dense_similarity(float(point.score), spec.distance) for point in dense_points
+    }
 
 
 def fused_results(
@@ -120,7 +133,7 @@ def fused_results(
 ) -> list[VectorSearchResult]:
     """Fuse both lanes by rank, keeping the relevance each lane measured."""
 
-    relevance = lane_relevance(dense_points, sparse_points, spec)
+    relevance = lane_relevance(dense_points, spec)
     output: list[VectorSearchResult] = []
     for raw_score, point in weighted_rrf(
         dense_points, sparse_points, dense_weight=query.dense_weight

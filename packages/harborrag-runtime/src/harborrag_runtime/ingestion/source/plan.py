@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import AsyncIterator
 from datetime import datetime
 
 from harborrag_adapters.repositories.object_store import (
@@ -25,7 +27,19 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_runtime.serialization import to_json_value
 
 from ..document.models import DocumentReleaseRequest
-from .models import PlannedDocumentRelease, SourcePlanCheckpoint
+from .models import (
+    PlannedDocumentRelease,
+    PlannedDocuments,
+    SourcePlanCheckpoint,
+    SourcePlanIndex,
+    SourcePlanPageRange,
+)
+
+_PLAN_KEY = re.compile(r"^source-plans/(?P<task_id>[^/]+)/(?P<scan_id>[^/]+)\.json$")
+_INDEX_KEY = re.compile(r"^source-plans/(?P<task_id>[^/]+)/(?P<scan_id>[^/]+)/index\.json$")
+# Legacy (non-paginated) discoveries hand over the whole plan at once; it is
+# paged after the fact so document lookups stay bounded there too.
+DEFAULT_PLAN_PAGE_SIZE = 500
 
 
 class SourcePlanRepository:
@@ -82,12 +96,167 @@ class SourcePlanRepository:
         scan_id: str,
         context: StorageOperationContext,
     ) -> ArtifactReference | None:
-        """Resolve an already-persisted dispatch plan after an activity replay."""
+        """Resolve an already-persisted dispatch plan after an activity replay.
 
+        A plan is its page index: the index is written only once every page it
+        names is, so finding it means the plan is complete. A run from before
+        plans were paged has only the whole-plan artifact.
+        """
+
+        index = await self._reader.find(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.source_plan_index(task_id, scan_id),
+            media_type="application/json",
+            context=context,
+        )
+        if index is not None:
+            return index
         return await self._reader.find(
             bucket=ARTIFACT_BUCKET,
             key=IngestionArtifactLayout.source_plan(task_id, scan_id),
             media_type="application/json",
+            context=context,
+        )
+
+    @staticmethod
+    def plan_identity(reference: ArtifactReference) -> tuple[str, str] | None:
+        """``(task_id, scan_id)`` of a plan or plan-index reference, or None for any other key."""
+
+        match = _PLAN_KEY.match(reference.key) or _INDEX_KEY.match(reference.key)
+        if match is None:
+            return None
+        return match.group("task_id"), match.group("scan_id")
+
+    async def documents(
+        self,
+        reference: ArtifactReference,
+        *,
+        context: StorageOperationContext,
+    ) -> PlannedDocuments:
+        """The plan behind ``reference``, read one persisted page at a time."""
+
+        match = _INDEX_KEY.match(reference.key)
+        if match is None:
+            return PlannedDocuments.of(await self.get(reference, context=context))
+        task_id, scan_id = match.group("task_id"), match.group("scan_id")
+        index = self._parse_index(await self._reader.get(reference, context=context))
+
+        async def pages(start: int) -> AsyncIterator[tuple[PlannedDocumentRelease, ...]]:
+            for page in index.pages[start:]:
+                documents = await self.get_page_documents(
+                    task_id=task_id,
+                    scan_id=scan_id,
+                    page_number=page.page_number,
+                    context=context,
+                )
+                if documents is None or len(documents) != page.count:
+                    raise ValueError("source plan page is missing or disagrees with its index")
+                yield documents
+
+        return PlannedDocuments(document_count=index.document_count, read_pages=pages)
+
+    async def put_index(
+        self,
+        *,
+        task_id: str,
+        scan_id: str,
+        index: SourcePlanIndex,
+        context: StorageOperationContext,
+    ) -> ArtifactReference:
+        payload = {
+            "document_count": index.document_count,
+            "pages": [
+                {"page_number": p.page_number, "start_index": p.start_index, "count": p.count}
+                for p in index.pages
+            ],
+        }
+        return await self._writer.put(
+            ImmutableArtifact(
+                bucket=ARTIFACT_BUCKET,
+                key=IngestionArtifactLayout.source_plan_index(task_id, scan_id),
+                payload=json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+                media_type="application/json",
+                artifact_kind="source-dispatch-plan-index",
+            ),
+            context=context,
+        )
+
+    async def find_index(
+        self, *, task_id: str, scan_id: str, context: StorageOperationContext
+    ) -> SourcePlanIndex | None:
+        reference = await self._reader.find(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.source_plan_index(task_id, scan_id),
+            media_type="application/json",
+            context=context,
+        )
+        if reference is None:
+            return None
+        return self._parse_index(await self._reader.get(reference, context=context))
+
+    @staticmethod
+    def _parse_index(payload: bytes) -> SourcePlanIndex:
+        value = json.loads(payload)
+        pages = value.get("pages") if isinstance(value, dict) else None
+        if not isinstance(pages, list):
+            raise ValueError("source plan index is invalid")
+        return SourcePlanIndex(
+            document_count=int(value["document_count"]),
+            pages=tuple(
+                SourcePlanPageRange(
+                    page_number=int(p["page_number"]),
+                    start_index=int(p["start_index"]),
+                    count=int(p["count"]),
+                )
+                for p in pages
+            ),
+        )
+
+    async def get_page_documents(
+        self,
+        *,
+        task_id: str,
+        scan_id: str,
+        page_number: int,
+        context: StorageOperationContext,
+    ) -> tuple[PlannedDocumentRelease, ...] | None:
+        reference = await self.find_page(
+            task_id=task_id, scan_id=scan_id, page_number=page_number, context=context
+        )
+        if reference is None:
+            return None
+        return (await self.get_page(reference, context=context)).planned
+
+    async def put_pages_and_index(
+        self,
+        *,
+        task_id: str,
+        scan_id: str,
+        planned: tuple[PlannedDocumentRelease, ...],
+        context: StorageOperationContext,
+        page_size: int = DEFAULT_PLAN_PAGE_SIZE,
+    ) -> ArtifactReference:
+        """Page an already complete plan and write its index; returns the index."""
+
+        if page_size < 1:
+            raise ValueError("plan page size must be positive")
+        counts: list[int] = []
+        for number, start in enumerate(range(0, len(planned), page_size)):
+            page = planned[start : start + page_size]
+            await self.put_page(
+                task_id=task_id,
+                scan_id=scan_id,
+                page_number=number,
+                checkpoint=SourcePlanCheckpoint(
+                    planned=page, next_cursor=None, root_count=len(page)
+                ),
+                context=context,
+            )
+            counts.append(len(page))
+        return await self.put_index(
+            task_id=task_id,
+            scan_id=scan_id,
+            index=SourcePlanIndex.from_page_counts(counts),
             context=context,
         )
 

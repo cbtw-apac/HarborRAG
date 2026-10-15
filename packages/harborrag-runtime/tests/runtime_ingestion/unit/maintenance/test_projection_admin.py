@@ -52,7 +52,7 @@ async def test_inventory_and_vector_only_delete_stay_within_tenant() -> None:
     vectors = VectorRepository()
     graph = GraphRepository()
     service = ProjectionAdministrationService(
-        RuntimeSettings(qdrant_collection_prefix="harbor_", falkordb_graph="knowledge"),
+        RuntimeSettings(storage_namespace_prefix="harbor"),
         vectors=vectors,  # type: ignore[arg-type]
         graph=graph,  # type: ignore[arg-type]
     )
@@ -68,6 +68,7 @@ async def test_inventory_and_vector_only_delete_stay_within_tenant() -> None:
     assert [item.physical_name for item in inventory.vector_collections] == [
         "harbor_ACME_evidence",
     ]
+    assert inventory.graph_name == "harbor_ACME"
     assert (inventory.graph_nodes, inventory.graph_relations) == (7, 5)
     assert vectors.deleted == [("ACME", "evidence")]
     assert graph.deleted == []

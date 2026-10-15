@@ -69,7 +69,7 @@ class QdrantCollectionMixin:
                     await client.create_payload_index(
                         collection_name=name,
                         field_name=field,
-                        field_schema=self._payload_schema(field),
+                        field_schema=self._payload_schema(field, spec),
                         wait=True,
                     )
                 self._specs[self._queries.spec_key(spec.index_name, context)] = spec
@@ -106,7 +106,7 @@ class QdrantCollectionMixin:
         existing_indexes = getattr(info, "payload_schema", {}) or {}
         for field in spec.metadata_indexes:
             existing = existing_indexes.get(field)
-            if existing is not None and self._payload_schema_matches(field, existing):
+            if existing is not None and self._payload_schema_matches(field, existing, spec):
                 continue
             if existing is not None:
                 await self._database.raw.delete_payload_index(
@@ -115,7 +115,7 @@ class QdrantCollectionMixin:
             await self._database.raw.create_payload_index(
                 collection_name=name,
                 field_name=field,
-                field_schema=self._payload_schema(field),
+                field_schema=self._payload_schema(field, spec),
                 wait=True,
             )
         self._specs[self._queries.spec_key(spec.index_name, context)] = spec
@@ -143,23 +143,28 @@ class QdrantCollectionMixin:
         return options
 
     @staticmethod
-    def _payload_schema(field: str) -> Any:
+    def _payload_schema(field: str, spec: VectorIndexSpec | None = None) -> Any:
         """Choose the index kind a payload field can actually be filtered with.
 
         A keyword index answers equality and set membership only. Giving one to a
         numeric field would leave every range filter on it doing a full scan while
         still reporting the field as indexed, so the numeric fields are named here
-        even before anything asks to index them.
+        even before anything asks to index them -- or, for a declared source field
+        such as ``fields.years_of_experience``, named numeric by the spec.
         """
 
         if field in _INTEGER_PAYLOAD_FIELDS:
             return qm.PayloadSchemaType.INTEGER
-        if field in _FLOAT_PAYLOAD_FIELDS:
+        if field in _FLOAT_PAYLOAD_FIELDS or (
+            spec is not None and field in spec.float_metadata_indexes
+        ):
             return qm.PayloadSchemaType.FLOAT
         return qm.PayloadSchemaType.KEYWORD
 
     @classmethod
-    def _payload_schema_matches(cls, field: str, existing: object) -> bool:
+    def _payload_schema_matches(
+        cls, field: str, existing: object, spec: VectorIndexSpec | None = None
+    ) -> bool:
         current = (
             existing.get("data_type")
             if isinstance(existing, Mapping)
@@ -167,7 +172,7 @@ class QdrantCollectionMixin:
         )
         if current is None:
             return True
-        expected = cls._payload_schema(field)
+        expected = cls._payload_schema(field, spec)
         return (
             str(getattr(current, "value", current)).lower()
             == str(getattr(expected, "value", expected)).lower()

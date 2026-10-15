@@ -92,14 +92,19 @@ def test_settings_errors_are_reported_without_input_values() -> None:
     from harborrag_app.cli.doctor.environment import settings_error_detail
     from harborrag_runtime.config.settings import RuntimeSettings
 
+    # Any settings error will do; the point is that the DSN passed alongside it
+    # never reaches the report. (The encryption-key rule used here before now
+    # lives in CompositionRoot.production, not in settings validation.)
     with pytest.raises(ValidationError) as caught:
         RuntimeSettings(
-            control_db_url="postgresql+asyncpg://u:hunter2@db/x", secrets_encryption_key=None
+            control_db_url="postgresql+asyncpg://u:hunter2@db/x",
+            corpus_access_mode="tenant_shared",
+            corpus_shared_tenant_id=None,
         )
 
     detail = settings_error_detail(caught.value)
 
-    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY" in detail
+    assert "HARBORRAG_CORPUS_SHARED_TENANT_ID" in detail
     assert "hunter2" not in detail and "input_value" not in detail
 
 

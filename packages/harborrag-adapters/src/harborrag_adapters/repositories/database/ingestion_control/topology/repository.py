@@ -38,8 +38,9 @@ class TopologyRepository(
 ):
     """Tenant-scoped authority; semantic publication is independent of ingestion."""
 
-    def __init__(self, client: SQLAlchemyDBClient) -> None:
+    def __init__(self, client: SQLAlchemyDBClient, *, summaries_enabled: bool = True) -> None:
         self._client = client
+        self._summaries_enabled = summaries_enabled
 
     async def configure_policy(self, policy: TopologyPolicy) -> int:
         async with topology_transaction(self._client) as session:

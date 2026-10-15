@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.temporal_models import (
     ActivityRetryConfig,
+    ActivityTimeoutConfig,
     TaskQueueConfig,
     TemporalWorkflowOptions,
 )
@@ -173,6 +174,7 @@ class TemporalRuntimeConfig:
     worker: WorkerConfig = WorkerConfig()
     task_queues: TaskQueueConfig = TaskQueueConfig()
     retries: ActivityRetryConfig = ActivityRetryConfig()
+    timeouts: ActivityTimeoutConfig = ActivityTimeoutConfig()
     ingestion: IngestionConfig = IngestionConfig()
     workflow_execution_timeout_seconds: int = 2_592_000
     workflow_task_timeout_seconds: int = 10
@@ -199,9 +201,11 @@ class TemporalRuntimeConfig:
         return load_temporal_config(path)
 
     def workflow_options(self) -> TemporalWorkflowOptions:
-        """Freeze configurable routing and retries into workflow history."""
+        """Freeze configurable routing, retries and budgets into workflow history."""
 
-        return TemporalWorkflowOptions(task_queues=self.task_queues, retries=self.retries)
+        return TemporalWorkflowOptions(
+            task_queues=self.task_queues, retries=self.retries, timeouts=self.timeouts
+        )
 
     @classmethod
     def _loaded(cls, settings: RuntimeSettings) -> TemporalRuntimeConfig:

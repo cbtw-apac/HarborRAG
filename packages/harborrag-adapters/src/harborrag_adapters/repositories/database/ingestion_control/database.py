@@ -7,12 +7,14 @@ from .document_versions import DocumentVersionRepository
 from .publication import DocumentVersionPublisher
 from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
+from .retention import RetiredVersionRetentionRepository
 from .schema import METADATA
 from .source_scans import SourceScanRepository
 from .summary_repository import SummaryRepository
 from .task_events import TaskEventRepository
 from .tasks import IngestionTaskRepository
 from .topology import TopologyRepository
+from .unresolved_relations import UnresolvedRelationRepository
 
 
 class IngestionControlPlaneDatabase:
@@ -24,19 +26,22 @@ class IngestionControlPlaneDatabase:
         *,
         create_schema: bool = False,
         owns_client: bool = True,
+        summaries_enabled: bool = True,
     ) -> None:
         self._client = client
         self._create_schema = create_schema
         self._owns_client = owns_client
         self.source_scans = SourceScanRepository(client)
         self.document_versions = DocumentVersionRepository(client)
-        self.publisher = DocumentVersionPublisher(client)
+        self.publisher = DocumentVersionPublisher(client, summaries_enabled=summaries_enabled)
         self.reliability = IngestionReliabilityRepository(client)
+        self.retention = RetiredVersionRetentionRepository(client)
         self.reindex = ReindexJobRepository(client)
         self.tasks = IngestionTaskRepository(client)
         self.task_events = TaskEventRepository(client)
-        self.topology = TopologyRepository(client)
+        self.topology = TopologyRepository(client, summaries_enabled=summaries_enabled)
         self.summaries = SummaryRepository(client)
+        self.unresolved_relations = UnresolvedRelationRepository(client)
 
     async def __aenter__(self) -> IngestionControlPlaneDatabase:
         await self.connect()

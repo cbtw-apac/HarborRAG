@@ -66,3 +66,20 @@ async def test_shared_mode_is_only_applied_to_its_configured_tenant() -> None:
     assert (await server.call_tool("mode_probe", {"tenant_id": "RESTRICTED"}))["mode"] == (
         "source_acl"
     )
+
+
+@pytest.mark.parametrize("tenant", ["'*'", "' * '", "' DEFAULT'"])
+def test_reader_key_rejects_wildcard_or_padded_tenant(tmp_path, monkeypatch, tenant):
+    monkeypatch.setenv("TEST_MCP_KEY_HASH", "a" * 64)
+    path = tmp_path / "keys.yaml"
+    path.write_text(
+        "version: 1\nkeys:\n"
+        "  - key_id: engineering\n"
+        "    principal_id: mcp-reader:engineering\n"
+        f"    tenant_id: {tenant}\n"
+        "    secret_hash_env: TEST_MCP_KEY_HASH\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="tenant_id"):
+        create_api_key_verifier(path)

@@ -164,11 +164,19 @@ class SyncStructuredOutputExecutor:
 
 @dataclass(frozen=True, slots=True)
 class StructuredResult[StructuredResponseT: BaseModel]:
-    """Carry a parsed response alongside the provider usage it actually cost."""
+    """Carry a parsed response alongside the provider usage it actually cost.
+
+    ``estimated_cost_usd`` is the sum of LiteLLM's per-response price across every
+    call (repairs included), or None when any call came back unpriced. Tokens alone
+    are not enough for a spend ledger: a settlement without a cost keeps its whole
+    reservation ceiling, and the pricing LiteLLM already computed was being thrown
+    away here.
+    """
 
     value: StructuredResponseT
     usage: HarborChatUsage
     provider_calls: int
+    estimated_cost_usd: float | None = None
 
 
 def _accumulated(total: HarborChatUsage, response: HarborChatResponse) -> HarborChatUsage:
@@ -180,6 +188,17 @@ def _accumulated(total: HarborChatUsage, response: HarborChatResponse) -> Harbor
         completion_tokens=total.completion_tokens + usage.completion_tokens,
         total_tokens=total.total_tokens + usage.total_tokens,
     )
+
+
+def _accumulated_cost(
+    total: float | None, response: HarborChatResponse, calls: int
+) -> float | None:
+    """Sum priced responses; one unpriced call makes the whole request unpriced."""
+
+    cost = response.estimated_cost_usd
+    if cost is None or (total is None and calls > 0):
+        return None
+    return (total or 0.0) + cost
 
 
 class AsyncStructuredOutputExecutor:
@@ -215,15 +234,17 @@ class AsyncStructuredOutputExecutor:
             request_kwargs=request_kwargs,
         )
         usage = HarborChatUsage()
+        cost: float | None = None
         calls = 0
         async with async_structured_deadline(self._operation_seconds, state.request):
             while True:
                 response = await self._client.achat(request=state.request)
                 usage = _accumulated(usage, response)
+                cost = _accumulated_cost(cost, response, calls)
                 calls += 1
                 result = state.validate_or_prepare_repair(response.text)
                 if result is not None:
-                    return StructuredResult(result, usage, calls)
+                    return StructuredResult(result, usage, calls, cost)
 
 
 def _validate_response_model(response_model: object) -> None:

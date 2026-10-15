@@ -39,14 +39,18 @@ def context(tenant="tenant-a"):
     return StorageOperationContext.system(tenant)
 
 
-def test_registry_is_stable_opaque_and_uses_only_trusted_tenant_context():
+def test_registry_names_graphs_after_the_trusted_tenant_like_vector_collections():
     registry = TenantGraphRegistry("harbor")
-    assert registry.graph_for(context()) == registry.graph_for(context())
-    assert registry.graph_for(context()) != registry.graph_for(context("tenant-b"))
-    assert "tenant-a" not in registry.graph_for(context())
-    assert len(registry.graph_for(context())) == len("harbor_") + 64
+    assert registry.graph_for(context()) == "harbor_tenant-a"
+    assert registry.graph_for(context("tenant-b")) == "harbor_tenant-b"
     with pytest.raises(ValidationError):
         configuration(tenant_graph_prefix="graph) DETACH DELETE n")
+
+
+@pytest.mark.parametrize("tenant", ["tenant a", "-tenant", "tenant`a", "t" * 129])
+def test_registry_rejects_tenants_outside_the_shared_projection_charset(tenant):
+    with pytest.raises(ValueError, match="trusted tenant"):
+        TenantGraphRegistry("harbor").graph_for(context(tenant))
 
 
 @pytest.mark.asyncio

@@ -46,6 +46,10 @@ async def test_shared_reader_sees_published_document_without_acl(tmp_path: Path)
             SourceCatalogQuery(tenant_id="DEFAULT", access=shared, limit=10)
         )
         assert [source.source_scope_id for source in sources] == ["scope-engineering"]
+        # Publication registers the scope for summaries without a policy: no cards,
+        # so no facets, and the source says so instead of listing nothing silently.
+        assert sources[0].entity_summaries == "disabled"
+        assert sources[0].entity_facets == ()
         wrong_tenant = AccessContext(
             principal_id="reader", tenant_id="OTHER", corpus_mode="tenant_shared"
         )

@@ -190,3 +190,77 @@ def test_parsed_document_defaults() -> None:
     doc = ParsedDocument(content="c", parser_name="p")
     assert doc.parser_version == "1.0.0"
     assert doc.warnings is None and doc.raw is None
+
+
+def test_coerce_recovers_the_source_filename_from_metadata() -> None:
+    """A connector's own upload name routes better than its permalink.
+
+    `RawDocument` has no `filename` attribute, so without this the name falls
+    back to the last segment of `source` -- `CPM-1#attachment-397115` -- which
+    carries no suffix. Routing then has only the media type, and providers
+    routinely report a generic one for user uploads.
+    """
+
+    from harborrag_core.domain.raw_document import RawDocument
+
+    raw = RawDocument(
+        id="jira://CPM/CPM-1/attachments/397115",
+        source="https://example.atlassian.net/browse/CPM-1#attachment-397115",
+        content=b"%PDF-1.4",
+        content_type="application/octet-stream",
+        metadata={"filename": "Anh Nguyen - Data.pdf", "title": "Anh Nguyen - Data.pdf"},
+    )
+
+    parse_input = coerce_parse_input(raw)
+
+    assert parse_input.filename == "Anh Nguyen - Data.pdf"
+    assert parse_input_suffix(parse_input) == ".pdf"
+
+
+def test_coerce_never_reads_a_document_title_as_its_filename() -> None:
+    """An issue summary naming a file must not route the issue by that suffix."""
+
+    from harborrag_core.domain.raw_document import RawDocument
+
+    raw = RawDocument(
+        id="jira://CPM/CPM-2",
+        source="https://example.atlassian.net/browse/CPM-2",
+        content="Loading fails on startup.",
+        content_type="text/markdown",
+        metadata={"title": "Crash loading config.yaml", "name": "config.yaml"},
+    )
+
+    assert parse_input_suffix(coerce_parse_input(raw)) == ""
+
+
+def test_coerce_decodes_percent_escapes_in_a_uri_derived_name() -> None:
+    from harborrag_core.domain.raw_document import RawDocument
+
+    raw = RawDocument(
+        id="a",
+        source="https://example.test/download/attachments/9/Anh%20Nguyen%20-%20Data.pdf",
+        content=b"%PDF-1.4",
+        content_type="application/octet-stream",
+        metadata={},
+    )
+
+    assert coerce_parse_input(raw).filename == "Anh Nguyen - Data.pdf"
+
+
+@pytest.mark.parametrize(
+    "filename",
+    [
+        "Anh Nguyen - Data.pdf",
+        "Ảnh màn hình 2026-01-26 lúc 10.31.11.png",
+        "Resume.pdf ",
+        " Resume.pdf",
+        "Resume.pdf\n",
+    ],
+)
+def test_suffix_survives_whitespace_around_the_name(filename: str) -> None:
+    """Interior spaces are ordinary; surrounding whitespace must not lose the route."""
+
+    suffix = parse_input_suffix(ParseInput(content=b"x", filename=filename))
+
+    assert suffix == Path(filename.strip()).suffix.lower()
+    assert suffix.strip() == suffix

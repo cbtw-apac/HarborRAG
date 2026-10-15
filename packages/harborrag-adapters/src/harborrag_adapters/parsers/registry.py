@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Iterable
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, NamedTuple
 
@@ -11,6 +11,7 @@ from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.models import ParseRequest, ParseResult
 from harborrag_adapters.parsers.common.resources import (
     coerce_parse_input,
+    filename_suffix,
     parse_input_suffix,
 )
 from harborrag_adapters.parsers.common.utils import (
@@ -30,6 +31,16 @@ parser_logger = get_parser_logger("registry")
 _GENERIC_MIME_TYPES = frozenset(
     {"", "text/plain", "application/octet-stream", "binary/octet-stream"}
 )
+# A suffix that names a file format: no spaces and at least one letter, with
+# "-" or "_" allowed only after a leading letter (".foo-bar"). Page titles such
+# as "Release v2.0 Notes", "Version 2.0" or "Release v2.0-beta" yield
+# ".0 notes", ".0" or ".0-beta", which name nothing and must leave routing to
+# the content type.
+_FILE_SUFFIX = re.compile(r"\.(?:(?=[a-z0-9]*[a-z])[a-z0-9]+|[a-z][a-z0-9_-]*)")
+# Suffixes deliberately left out of the extension index because two formats
+# share them (Word template or Graphviz graph, PowerPoint template or gettext
+# catalog); the content type picks the family, so they stay routable by it.
+_CONTENT_TYPE_ROUTED_SUFFIXES = frozenset({".dot", ".pot"})
 
 
 class _FamilyRoute(NamedTuple):
@@ -219,6 +230,17 @@ class HarborParserRegistry:
         route = self._route(parse_input.filename, parse_input.content_type)
         return route.builder() if route is not None else None
 
+    def supports_extension(self, extension: str) -> bool:
+        """Return whether every file with ``extension`` routes (dot optional).
+
+        Suffixes routed only by content type (``.dot``, ``.pot``) are excluded:
+        a file of that suffix without a content type has no parser.
+        """
+
+        normalized = extension.lower().strip()
+        normalized = normalized if normalized.startswith(".") else f".{normalized}"
+        return normalized in self._extensions
+
     def families(self) -> tuple[HarborParser, ...]:
         return tuple(builder() for builder in self._families.values())
 
@@ -227,7 +249,7 @@ class HarborParserRegistry:
         filename: str | None,
         mime_type: str | None,
     ) -> _FamilyRoute | None:
-        suffix = Path(filename).suffix.lower() if filename else ""
+        suffix = filename_suffix(filename)
         extension_builder = self._extensions.get(suffix)
         extension_route = (
             _FamilyRoute(extension_builder, "extension", suffix)
@@ -254,6 +276,15 @@ class HarborParserRegistry:
                 "Conflicting parser-family routes for input: "
                 f"extension {suffix!r} and MIME type {normalized_mime!r}."
             )
+        if (
+            extension_route is None
+            and normalized_mime in _GENERIC_MIME_TYPES
+            and _FILE_SUFFIX.fullmatch(suffix)
+            and suffix not in _CONTENT_TYPE_ROUTED_SUFFIXES
+        ):
+            # An unregistered file suffix outranks a generic content type: a
+            # .srt or .rtf reported as text/plain is unsupported, not plain text.
+            return None
         return mime_route or extension_route
 
     @staticmethod

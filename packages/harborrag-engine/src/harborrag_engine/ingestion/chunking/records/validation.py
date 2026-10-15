@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from harborrag_core.chunking import ChunkRecord, RecordKind, thaw_metadata
 from harborrag_core.contracts.chunking import TokenCounter
 
-from ..config import ChunkingProfile
+from ..config import ROUTE_MAXIMUM_TOKENS, ChunkingProfile
 from ..identity import content_fingerprint
 from ..schemas import ChunkingRequest, ChunkValidationResult
 
@@ -109,7 +109,11 @@ class ChunkValidator:
             errors.append(f"{label} token_count is not exact")
         if exact_count < 1:
             errors.append(f"{label} token_count must be positive")
-        maximum_tokens = 512 if record.record_kind == RecordKind.ROUTE else profile.maximum_tokens
+        maximum_tokens = (
+            ROUTE_MAXIMUM_TOKENS
+            if record.record_kind == RecordKind.ROUTE
+            else profile.maximum_tokens
+        )
         if exact_count > maximum_tokens:
             errors.append(f"{label} exceeds maximum_tokens")
         if record.record_kind != RecordKind.ROUTE and exact_count < profile.minimum_tokens:
