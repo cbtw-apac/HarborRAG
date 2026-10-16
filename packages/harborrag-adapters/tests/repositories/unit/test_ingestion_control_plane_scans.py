@@ -53,6 +53,26 @@ async def test_source_scan_overlap_and_failed_scan_cannot_remove_documents(
 
 
 @pytest.mark.asyncio
+async def test_running_scan_is_reported_only_while_started(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        scans = control_plane.source_scans
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v1",
+        )
+
+        assert await scans.has_running_scan("scope-engineering") is False
+        scan_id = await scans.start("scope-engineering")
+        assert await scans.has_running_scan("scope-engineering") is True
+        assert await scans.has_running_scan("scope-other") is False
+        await scans.fail(scan_id, safe_reason="connector_timeout")
+        assert await scans.has_running_scan("scope-engineering") is False
+
+
+@pytest.mark.asyncio
 async def test_open_scan_start_is_idempotent_for_the_same_identity(
     tmp_path: Path,
 ) -> None:

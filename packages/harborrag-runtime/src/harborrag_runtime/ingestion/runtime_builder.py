@@ -7,6 +7,7 @@ import os
 
 from harborrag_adapters.chunking import build_text_refiner
 from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.registry import connector_registry
@@ -48,6 +49,7 @@ from harborrag_runtime.composition.resources import (
 )
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
+    ConnectorDefinition,
     connector_fingerprint,
     load_connector_catalog,
     load_parser_catalog,
@@ -79,6 +81,31 @@ from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
+
+
+def _require_parseable_extensions(
+    definition: ConnectorDefinition,
+    parser: HarborParserRegistry,
+) -> None:
+    """Reject an ``allowed_extensions`` entry that no parser family can read.
+
+    Admitting such a file only spends a fetch and a parse attempt on a document
+    that can never publish, so the connector is refused while loading instead.
+    """
+
+    allowed = definition.settings.get("allowed_extensions") or ()
+    unsupported = sorted(
+        {
+            normalize_extension(str(extension))
+            for extension in allowed
+            if not parser.supports_extension(str(extension))
+        }
+    )
+    if unsupported:
+        raise ConnectorConfigurationError(
+            f"Connector {definition.name!r} allows extensions no parser supports: "
+            f"{', '.join(unsupported)}"
+        )
 
 
 class IngestionRuntimeBuilder:
@@ -260,6 +287,8 @@ class IngestionRuntimeBuilder:
             connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
             connector: BaseConnector | HarborConnector | None = None
             try:
+                if isinstance(attachment_parser, HarborParserRegistry):
+                    _require_parseable_extensions(definition, attachment_parser)
                 connector = catalog.build(name, connector_kwargs=connector_kwargs)
                 require_corpus_access_mode(
                     name, connector, corpus_access_mode=self._settings.corpus_access_mode

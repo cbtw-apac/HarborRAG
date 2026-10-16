@@ -56,7 +56,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         env_prefix="HARBORRAG_", extra="ignore", hide_input_in_errors=True
     )
 
-    env: Literal["dev", "prod"] = "dev"
+    # staging is held to every prod guard: each check below tests env != "dev".
+    env: Literal["dev", "staging", "prod"] = "dev"
     ingestion_tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
@@ -89,6 +90,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
     temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
     temporal_config_path: Path = Path("config/temporal.yaml")
+    schedule_config_path: Path = Path("config/schedules.yaml")
+    # How often a worker exports schedule pause/overlap gauges by describing every
+    # schedule. 0 disables it; with several replicas keep it on one of them.
+    schedule_metrics_interval_seconds: float = Field(default=30.0, ge=0, le=3600)
     metrics_port: int | None = Field(default=None, ge=1, le=65_535)
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False
@@ -247,10 +252,10 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")
-        if self.env == "prod" and is_sqlite_control_db:
+        if self.env != "dev" and is_sqlite_control_db:
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
-                "HARBORRAG_ENV=prod; SQLite is development-only"
+                "HARBORRAG_ENV is staging or prod; SQLite is development-only"
             )
         # The secrets encryption key is required only by the process that opens
         # the control-plane secret store (CompositionRoot.production enforces it

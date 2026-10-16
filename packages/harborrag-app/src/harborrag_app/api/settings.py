@@ -52,7 +52,8 @@ class ApiSettings(BaseSettings):
     # 0.0.0.0 and must acknowledge disabled authentication in development.
     host: str = "127.0.0.1"
     port: int = 8000
-    env: Literal["dev", "prod"] = "dev"
+    # staging is held to every prod guard: each check below tests env != "dev".
+    env: Literal["dev", "staging", "prod"] = "dev"
     cors_origins: list[str] = []
     auth_mode: AuthMode = "none"
     allow_insecure_dev: bool = False
@@ -100,19 +101,25 @@ class ApiSettings(BaseSettings):
 
         ``docs_enabled`` defaults to True for local/dev ergonomics, but that
         default must not silently expose the API schema in production. If
-        ``env`` resolves to "prod" and the operator never set
+        ``env`` resolves to "staging" or "prod" and the operator never set
         ``docs_enabled``/``HARBORRAG_DOCS_ENABLED`` explicitly, this flips
         the effective default to False; an explicit value (either way) is
         always respected.
         """
-        if isinstance(data, dict) and data.get("env") == "prod" and "docs_enabled" not in data:
+        if (
+            isinstance(data, dict)
+            and data.get("env") in ("staging", "prod")
+            and "docs_enabled" not in data
+        ):
             data = {**data, "docs_enabled": False}
         return data
 
     @model_validator(mode="after")
     def _validate_capacity_backend(self) -> ApiSettings:
-        if self.env == "prod" and self.api_capacity_redis_url is None:
-            raise ValueError("HARBORRAG_API_CAPACITY_REDIS_URL is required when HARBORRAG_ENV=prod")
+        if self.env != "dev" and self.api_capacity_redis_url is None:
+            raise ValueError(
+                f"HARBORRAG_API_CAPACITY_REDIS_URL is required when HARBORRAG_ENV={self.env}"
+            )
         if self.api_capacity_redis_url is not None:
             try:
                 _CAPACITY_REDIS_TRANSPORT.validate(

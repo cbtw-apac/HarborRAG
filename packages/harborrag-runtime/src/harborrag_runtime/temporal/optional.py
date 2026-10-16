@@ -17,6 +17,3 @@ def load_temporal_attribute(module_name: str, attribute: str) -> object:
             raise MissingOptionalDependencyError(TEMPORAL_EXTRA_HINT) from error
         raise
     return getattr(module, attribute)
-
-
-__all__ = ["TEMPORAL_EXTRA_HINT", "load_temporal_attribute"]

@@ -101,9 +101,9 @@ class DatabaseAgentRunRepository:
 
         selected = settings or RuntimeSettings()
         dsn = selected.control_db_url.get_secret_value()
-        if selected.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+        if selected.env != "dev" and dsn == DEFAULT_CONTROL_DB_URL:
             raise HarborConfigurationError(
-                "agent run checkpoints require HARBORRAG_CONTROL_DB_URL in production"
+                "agent run checkpoints require HARBORRAG_CONTROL_DB_URL outside development"
             )
         run_migrations(dsn)
         engine = create_control_plane_engine(dsn)

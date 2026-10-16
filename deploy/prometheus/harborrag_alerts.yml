@@ -1,0 +1,33 @@
+groups:
+  - name: harborrag-temporal-schedules
+    rules:
+      - alert: HarborRAGScheduledWorkflowFailed
+        expr: increase(harborrag_temporal_scheduled_runs_total{outcome="failed"}[15m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: A HarborRAG scheduled workflow failed
+          description: "Schedule {{ $labels.schedule_id }} has a failed run in the last 15 minutes."
+
+      - alert: HarborRAGScheduleUnexpectedlyPaused
+        expr: harborrag_temporal_schedule_paused > harborrag_temporal_schedule_expected_paused
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: A HarborRAG schedule is paused unexpectedly
+          description: "Schedule {{ $labels.schedule_id }} is paused but is not configured to be paused."
+      # A run is skipped while another ingestion holds the source scope. Skips
+      # with no successful run for a day mean a long-running or stranded scan.
+      - alert: HarborRAGScheduleKeepsSkipping
+        expr: |
+          sum by (schedule_id) (increase(harborrag_temporal_scheduled_runs_total{outcome="skipped"}[24h])) > 0
+          unless
+          sum by (schedule_id) (increase(harborrag_temporal_scheduled_runs_total{outcome=~"completed|partial"}[24h])) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: A HarborRAG schedule keeps skipping its runs
+          description: "Schedule {{ $labels.schedule_id }} skipped runs in the last 24 hours without completing one; its source scope is held by another ingestion or a stranded scan."

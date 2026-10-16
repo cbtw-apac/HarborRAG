@@ -166,21 +166,54 @@ def test_load_truncates_attachments_over_configured_limit():
     assert len(document.metadata["attachments"]) == 1
 
 
-def test_load_truncates_children_metadata_over_configured_limit():
+def test_load_keeps_every_child_in_children_metadata():
     client = FakeConfluenceClient()
     content = full_content()
     content["children"] = {
         "page": {"results": [{"id": "9", "title": "Child"}, {"id": "10", "title": "Child 2"}]}
     }
     client.add("content/1", content)
-    connector = ConfluenceConnector(
-        cloud_config(max_child_pages=1),
-        client=client,
-    )
+    connector = ConfluenceConnector(cloud_config(), client=client)
 
     document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
-    assert document.metadata["children"] == [{"id": "9", "title": None, "type": "page"}]
+    assert document.metadata["children"] == [
+        {"id": "9", "title": None, "type": "page"},
+        {"id": "10", "title": None, "type": "page"},
+    ]
+
+
+def test_load_fetches_every_page_of_children_metadata():
+    # The expanded children list is only the provider's first page; the
+    # rest must be fetched so the children metadata is complete.
+    client = FakeConfluenceClient()
+    content = full_content()
+    content["children"] = {
+        "page": {
+            "results": [{"id": "9", "title": "Child"}],
+            "start": 0,
+            "limit": 1,
+            "size": 1,
+            "_links": {"next": "/rest/api/content/1/child/page?start=1"},
+        }
+    }
+    client.add("content/1", content)
+    client.add(
+        "content/1/child/page",
+        {"results": [{"id": "10", "title": "Child 2"}], "start": 1, "limit": 25, "size": 1},
+    )
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
+
+    assert document.metadata["children"] == [
+        {"id": "9", "title": None, "type": "page"},
+        {"id": "10", "title": None, "type": "page"},
+    ]
+    child_calls = [
+        params for endpoint, params in client.calls if endpoint == "content/1/child/page"
+    ]
+    assert child_calls == [{"limit": 2, "start": 1}]
 
 
 def test_load_respects_record_comment_and_attachment_flags():

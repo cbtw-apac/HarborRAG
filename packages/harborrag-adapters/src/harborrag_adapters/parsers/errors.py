@@ -159,17 +159,28 @@ class MaxPixelsExceededError(ParseError):
 
     See :class:`MaxPagesExceededError` for why this stays a distinct type
     instead of a generic :class:`ParseError` string.
+
+    ``more_than`` replaces the dimensions when the decoder rejected the image
+    before reporting them, so only a lower bound on its pixel count is known.
     """
 
     def __init__(
-        self, *, width: int, height: int, max_pixels: int, filename: str | None = None
+        self,
+        *,
+        max_pixels: int,
+        width: int | None = None,
+        height: int | None = None,
+        more_than: int | None = None,
+        filename: str | None = None,
     ) -> None:
-        pixel_count = width * height
         suffix = f" (file={filename!r})" if filename else ""
-        super().__init__(
-            f"Image {width}x{height} ({pixel_count} pixels) exceeds max_pixels "
-            f"{max_pixels}{suffix}."
-        )
+        if width is not None and height is not None:
+            pixel_count: int | None = width * height
+            subject = f"Image {width}x{height} ({pixel_count} pixels)"
+        else:
+            pixel_count = None
+            subject = f"Image of more than {more_than} pixels" if more_than else "Image"
+        super().__init__(f"{subject} exceeds max_pixels {max_pixels}{suffix}.")
         self.width = width
         self.height = height
         self.pixel_count = pixel_count

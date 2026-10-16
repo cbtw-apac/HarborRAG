@@ -204,7 +204,11 @@ def test_explicit_ids_are_gated_and_limit_counts_admitted_pages():
     client.add("content/1", light_content("1", "Open"))
     connector = ConfluenceConnector(cloud_config(), client=client)
 
-    records = list(connector.discover(ConnectorQuery(limit=1, filters={"content_ids": ["2", "1"]})))
+    records = list(
+        connector.discover(
+            ConnectorQuery(limit=1, filters={"content_ids": ["2", "1"], "include_children": False})
+        )
+    )
 
     assert [record.metadata["content_id"] for record in records] == ["1"]
     assert [skip.path for skip in connector.skipped] == ["2"]
@@ -363,7 +367,7 @@ def test_explicit_id_paged_replay_reuses_ancestors_within_one_scan():
     client.add("content/2", pages[1])
     client.add("content/77", {"id": "77", "restrictions": unrestricted_read()})
     connector = ConfluenceConnector(cloud_config(), client=client)
-    query = ConnectorQuery(filters={"content_ids": ["1", "2"]})
+    query = ConnectorQuery(filters={"content_ids": ["1", "2"], "include_children": False})
 
     first = connector.discover_page(query, cursor=None, page_size=1)
     second = connector.discover_page(query, cursor=first.next_cursor, page_size=1)

@@ -159,6 +159,27 @@ async def test_graceful_cancellation_converges_task_state(
 
 
 @pytest.mark.asyncio
+async def test_cancellation_during_discovery_releases_the_scan(tmp_path: Path) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        request = source_request("task-cancel")
+        await service.begin_discovery(request)
+        assert await control.source_scans.has_running_scan(request.source_scope_id) is True
+
+        await service.cancel("task-cancel")
+
+        assert await control.source_scans.has_running_scan(request.source_scope_id) is False
+        task = await control.tasks.get("task-cancel")
+        assert task is not None
+        assert task.status == IngestionTaskState.CANCELLED
+
+
+@pytest.mark.asyncio
 async def test_direct_source_ingestion_persists_terminal_discovery_failure(
     tmp_path: Path,
 ) -> None:

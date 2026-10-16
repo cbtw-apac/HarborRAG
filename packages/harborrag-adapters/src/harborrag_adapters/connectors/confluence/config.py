@@ -55,7 +55,6 @@ class ConfluenceSpaceConfig:
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
-    max_child_pages: int | None = DEFAULT_MAX_NESTED_ITEMS
     fail_on_error: bool = False
     requests_per_minute: int = 60
     page_size: int = 25
@@ -102,7 +101,6 @@ class ConfluenceSpaceConfig:
         )
         validate_non_negative_limit("max_comments", self.max_comments)
         validate_non_negative_limit("max_attachments", self.max_attachments)
-        validate_non_negative_limit("max_child_pages", self.max_child_pages)
         validate_http_tuning(
             requests_per_minute=self.requests_per_minute,
             request_timeout_seconds=self.request_timeout_seconds,

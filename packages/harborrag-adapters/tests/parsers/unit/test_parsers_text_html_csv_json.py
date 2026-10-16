@@ -239,6 +239,76 @@ def test_csv_parser_skips_and_warns_on_field_count_mismatch(caplog):
     assert "expected 2 fields, found 1" in caplog.text
 
 
+_ORDERS_WITH_SHORT_ROW = [
+    ["OrderID", "CustomerName", "OrderDate", "Amount"],
+    ["8001", "Nguyen Van A", "2026-06-01", "129.50"],
+    ["8002", "Tran Thi B", "2026-06-02", "89.00"],
+    ["8003", "Le Van C"],
+    ["8004", "Pham Thi D", "2026-06-04", "15.20"],
+    ["8005", "Hoang Van E", "2026-06-05", "310.00"],
+]
+
+
+@pytest.mark.parametrize("delimiter", [",", ";", "|", "\t"])
+def test_csv_parser_reports_short_row_whatever_the_delimiter(delimiter, caplog):
+    # One short row is enough to make delimiter sniffing fail. Falling back to
+    # a comma then read a ";" or "|" file as one column, so every row had the
+    # same width and the short row passed through with no warning at all.
+    content = "\n".join(delimiter.join(row) for row in _ORDERS_WITH_SHORT_ROW) + "\n"
+
+    document = CsvParser().parse(ParseInput(content=content, filename="csv_malformed_row.csv"))
+
+    assert "Le Van C" not in document.content
+    assert document.content.splitlines() == [
+        "\t".join(row) for row in _ORDERS_WITH_SHORT_ROW if row[0] != "8003"
+    ]
+    assert document.warnings == ["skipped malformed CSV row at line 4: expected 4 fields, found 2"]
+    assert "expected 4 fields, found 2" in caplog.text
+
+
+def test_csv_parser_records_malformed_rows_for_quarantine():
+    content = "\n".join(",".join(row) for row in _ORDERS_WITH_SHORT_ROW) + "\n"
+
+    document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
+
+    assert document.metadata["malformed_rows"] == [
+        {"line": 4, "expected_fields": 4, "found_fields": 2, "cells": ["8003", "Le Van C"]}
+    ]
+    assert document.metadata["rows"] == 5
+
+
+def test_csv_parser_quarantines_parsed_cells_so_quoted_delimiters_survive():
+    # Re-joining cells would turn `8003,"Le, Van C"` into three fields.
+    content = 'OrderID,Name,Amount\n8001,An,1\n8003,"Le, Van C"\n8004,Binh,4\n'
+
+    document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
+
+    assert document.metadata["malformed_rows"][0]["cells"] == ["8003", "Le, Van C"]
+
+
+def test_csv_parser_records_rows_rejected_by_the_csv_reader_for_quarantine():
+    # An unterminated quote has no field count to report, only the error.
+    content = 'OrderID,Name\n8001,An\n8002,"Binh\n'
+
+    document = CsvParser().parse(ParseInput(content=content.encode(), filename="orders.csv"))
+
+    assert document.metadata["malformed_rows"] == [{"line": 3, "error": "unexpected end of data"}]
+    assert "8001\tAn" in document.content
+
+
+def test_csv_header_fallback_ignores_delimiters_inside_quoted_fields():
+    from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import _header_dialect
+
+    dialect = _header_dialect(['"First, Name";Amount\n', "An;1\n"], tsv=False)
+
+    assert dialect.delimiter == ";"
+
+
+def test_csv_parser_omits_malformed_rows_when_every_row_is_well_formed():
+    document = CsvParser().parse(ParseInput(content="a,b\n1,2\n", filename="ok.csv"))
+    assert "malformed_rows" not in document.metadata
+
+
 def test_csv_parser_quarantines_single_bad_row_in_real_world_fixture():
     """Row 9003 has an invalid UTF-8 continuation byte; the other four data
     rows are well-formed. Before per-row decoding, whole-file encoding

@@ -156,9 +156,9 @@ class CompositionRoot:
             settings.env,
             scheme,
         )
-        if settings.env == "prod" and scheme.startswith("sqlite"):
+        if settings.env != "dev" and scheme.startswith("sqlite"):
             raise HarborConfigurationError(
-                "SQLite control databases are not supported when HARBORRAG_ENV=prod; "
+                "SQLite control databases are not supported when HARBORRAG_ENV is staging or prod; "
                 "set HARBORRAG_CONTROL_DB_URL to a production database"
             )
         encryption_key = settings.secrets_encryption_key

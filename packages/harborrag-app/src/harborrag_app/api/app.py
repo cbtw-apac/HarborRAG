@@ -37,6 +37,7 @@ _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
 _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 _MEMORY_RETENTION_INTERVAL_SECONDS = 3600.0
+_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -112,6 +113,31 @@ async def _purge_expired_memories(app: FastAPI) -> None:
         await asyncio.sleep(_MEMORY_RETENTION_INTERVAL_SECONDS)
 
 
+async def _sync_declared_schedules(app: FastAPI) -> None:
+    """Reconcile declared schedules once, retrying while the engine is unreachable.
+
+    Runs in the background so a Temporal outage never blocks API startup.
+    Invalid configuration (``ValueError``) and a missing Temporal SDK
+    (``ImportError``) cannot heal without a redeploy, so they stop the loop.
+    """
+
+    while True:
+        try:
+            await app.state.app_service.sync_declared_schedules()
+            return
+        except asyncio.CancelledError:
+            raise
+        except (ValueError, ImportError):
+            logger.exception("Declared schedule sync failed; fix the deployment and restart")
+            return
+        except Exception:
+            logger.exception(
+                "Declared schedule sync failed; retrying in %.0fs",
+                _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS,
+            )
+        await asyncio.sleep(_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -139,21 +165,20 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     control_plane_effect_recovery_task = asyncio.create_task(
         _recover_pending_control_plane_effects(app)
     )
-    retention_task = asyncio.create_task(_purge_expired_memories(app))
+    background_tasks = [
+        recovery_task,
+        progress_task,
+        control_plane_effect_recovery_task,
+        asyncio.create_task(_purge_expired_memories(app)),
+    ]
+    if hasattr(service, "sync_declared_schedules"):
+        background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
     try:
         yield
     finally:
-        recovery_task.cancel()
-        progress_task.cancel()
-        control_plane_effect_recovery_task.cancel()
-        retention_task.cancel()
-        await asyncio.gather(
-            recovery_task,
-            progress_task,
-            control_plane_effect_recovery_task,
-            retention_task,
-            return_exceptions=True,
-        )
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
         logger.info("Closing the application service")
         if owns_memory_extraction:
             await service.drain_memory_extraction()

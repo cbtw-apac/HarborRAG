@@ -33,11 +33,13 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
 
     none -> None (implicit owner principal); hmac -> HS256 against
     HARBORRAG_AUTH_SECRET; oidc -> HarborCapabilityError until M5.
-    Fails closed: auth cannot be disabled when HARBORRAG_ENV=prod.
+    Fails closed: auth cannot be disabled when HARBORRAG_ENV is staging or prod.
     """
     if settings.auth_mode == "none":
-        if settings.env == "prod":
-            raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
+        if settings.env != "dev":
+            raise HarborConfigurationError(
+                f"auth_mode=none is not allowed when HARBORRAG_ENV={settings.env}"
+            )
         if not is_loopback_address(settings.host) and not settings.allow_insecure_dev:
             raise HarborConfigurationError(
                 "auth_mode=none may bind only to a loopback host; set "

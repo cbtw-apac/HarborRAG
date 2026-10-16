@@ -221,6 +221,7 @@ services:
       # manifest after projection cleanup; "off" keeps them forever.
       HARBORRAG_RETIRED_VERSION_RETENTION_DAYS: ${HARBORRAG_RETIRED_VERSION_RETENTION_DAYS:-30}
       HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS: ${HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS:-24}
+      HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS: ${HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS:-30}
       HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE: "${HARBORRAG_FALKORDB_ALLOW_INSECURE_REMOTE:-true}"
       # Raising activity concurrency (config/temporal.yaml worker.max_concurrent_activities)
       # requires headroom here: pool + overflow must cover 6 * max_concurrent_activities.

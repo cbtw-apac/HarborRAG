@@ -1,7 +1,7 @@
 """Journal of right-to-erasure runs.
 
-Revision ID: 0040
-Revises: 0039
+Revision ID: 0041
+Revises: 0040
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0040"
-down_revision = "0039"
+revision = "0041"
+down_revision = "0040"
 branch_labels = None
 depends_on = None
 

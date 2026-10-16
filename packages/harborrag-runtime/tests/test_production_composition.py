@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
@@ -34,10 +35,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0041"
+    assert control_db["migrations"] == "0042"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0041" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0042" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -103,22 +104,26 @@ def test_production_probe_failure_aborts_startup(
 
 
 @pytest.mark.whitebox
-def test_prod_env_refuses_default_control_db_url() -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_prod_env_refuses_default_control_db_url(env: Literal["staging", "prod"]) -> None:
     """Fail closed: env=prod with the default sqlite control_db_url must not
     boot, mirroring the auth_mode=none-in-prod guard. control_db_url is
     passed explicitly so the test exercises the intended default regardless
     of an ambient HARBORRAG_CONTROL_DB_URL in the environment."""
     with pytest.raises(ValueError, match="SQLite is development-only"):
-        RuntimeSettings(env="prod", control_db_url=DEFAULT_CONTROL_DB_URL)
+        RuntimeSettings(env=env, control_db_url=DEFAULT_CONTROL_DB_URL)
 
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_prod_env_rejects_every_explicit_sqlite_url(tmp_path: Path) -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+async def test_prod_env_rejects_every_explicit_sqlite_url(
+    tmp_path: Path, env: Literal["staging", "prod"]
+) -> None:
     """An alternate filename must not bypass the production database policy."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     with pytest.raises(ValueError, match="SQLite is development-only"):
-        RuntimeSettings(env="prod", control_db_url=dsn)
+        RuntimeSettings(env=env, control_db_url=dsn)
 
 
 @pytest.mark.asyncio

@@ -171,6 +171,8 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
                 for record in self._explicit_records(content_ids, query):
                     yielded += 1
                     yield record
+                    if query.limit is not None and yielded >= query.limit:
+                        return
                 return
 
             cql = self._cql_from_query(query)
@@ -263,11 +265,15 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     ) -> Iterator[SourceRecord]:
         """Resolve requested IDs (and children) to records, withholding restricted pages."""
 
+        if query.limit is not None and query.limit <= 0:
+            return
         admitted = 0
         for content_id in self._content.with_children(content_ids, query):
             record = self._record_for_id(content_id, query)
-            content = record.metadata[DISCOVERY_DESCRIPTOR_KEY]
-            if not self._gate.admit(self._access.page_acl(content), path=content_id):
+            # Same label, live-doc and restricted-content filters as search.
+            # Skipping a page still walks its children, which are judged alone.
+            if not self._discoverable(record.metadata[DISCOVERY_DESCRIPTOR_KEY], content_id):
+                logger.debug("Confluence content filtered out content_id=%s", content_id)
                 continue
             yield record
             admitted += 1
@@ -337,10 +343,9 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             attachments = self._attachments.process(self._content.list_attachments(content_id))
 
         metadata = build_document_metadata(
-            content,
+            self._content.complete_children(content),
             comments=comments,
             attachments=attachments,
-            max_child_pages=self.config.max_child_pages,
         )
         body_html = body_html_from_content(content)
         source_url = display_url(

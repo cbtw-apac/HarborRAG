@@ -181,6 +181,7 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
     [
         ("prod", timedelta(days=91), "90 days"),
         ("dev", timedelta(days=8), "7 days"),
+        ("staging", timedelta(days=31), "30 days"),
         ("prod", timedelta(minutes=59), "at least 1 hour"),
     ],
 )

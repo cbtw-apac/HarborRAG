@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 import pytest
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
@@ -161,11 +163,12 @@ def test_docs_disabled_by_settings() -> None:
 
 
 @pytest.mark.blackbox
-def test_docs_default_to_disabled_in_prod() -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_docs_default_to_disabled_in_prod(env: Literal["staging", "prod"]) -> None:
     """env=prod must not silently expose Swagger docs (or the raw OpenAPI
     schema route) via the docs_enabled=True default."""
     settings = ApiSettings(
-        env="prod",
+        env=env,
         auth_mode="hmac",
         auth_secret="production-test-secret-at-least-32-bytes",
         api_capacity_redis_url="rediss://localhost:6379/1",
@@ -180,10 +183,11 @@ def test_docs_default_to_disabled_in_prod() -> None:
 
 
 @pytest.mark.blackbox
-def test_prod_requires_distributed_api_capacity_backend() -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_prod_requires_distributed_api_capacity_backend(env: Literal["staging", "prod"]) -> None:
     with pytest.raises(ValueError, match="API_CAPACITY_REDIS_URL is required"):
         ApiSettings(
-            env="prod",
+            env=env,
             auth_mode="hmac",
             auth_secret="production-test-secret-at-least-32-bytes",
         )
@@ -202,10 +206,13 @@ def test_remote_plaintext_capacity_redis_requires_development_acknowledgement() 
 
 
 @pytest.mark.blackbox
-def test_prod_rejects_plaintext_capacity_redis_even_with_acknowledgement() -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_prod_rejects_plaintext_capacity_redis_even_with_acknowledgement(
+    env: Literal["staging", "prod"],
+) -> None:
     with pytest.raises(ValueError, match="encrypted transport"):
         ApiSettings(
-            env="prod",
+            env=env,
             auth_mode="hmac",
             auth_secret="production-test-secret-at-least-32-bytes",
             api_capacity_redis_url="redis://redis.internal:6379/1",

@@ -4,8 +4,8 @@
 seed the purge would never run in production (see 0018 for the same lesson).
 The two indexes serve the purge's oldest-first scan and explicit-expiry filter.
 
-Revision ID: 0041
-Revises: 0040
+Revision ID: 0042
+Revises: 0041
 """
 
 from __future__ import annotations
@@ -15,8 +15,8 @@ from datetime import UTC, datetime
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0041"
-down_revision = "0040"
+revision = "0042"
+down_revision = "0041"
 branch_labels = None
 depends_on = None
 
