@@ -18,12 +18,13 @@ from harborrag_core.security.directory import DecisionLogEntry, DirectorySnapsho
 from harborrag_core.security.resources import ResourceRef
 from harborrag_core.sources.acl import SourceAcl
 from harborrag_core.testing.access_fakes import InMemoryAccessFacts
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import PermissionResourceKind, ResolvedPermissionSnapshot
 from harborrag_engine.security.access_service import (
     AccessLimits,
     ClassAccessService,
     CorpusPolicy,
 )
+from harborrag_engine.security.derived import may_serve
 
 REALM = "atlassian:acme.atlassian.net"
 OTHER_REALM = "atlassian:other.atlassian.net"
@@ -39,6 +40,11 @@ NOW = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)
 C1 = ClassId("class-1")
 C2 = ClassId("class-2")
 C3 = ClassId("class-3")
+C4 = ClassId("class-4")
+C5 = ClassId("class-5")
+C6 = ClassId("class-6")
+C7 = ClassId("class-7")
+C8 = ClassId("class-8")
 
 SOURCE_ACL = CorpusPolicy(mode="source_acl", shared_tenant_id=None)
 
@@ -93,10 +99,11 @@ def snapshot(
     tenant: str = TENANT,
     public: bool = False,
     allowed: Sequence[str] = (PRINCIPAL,),
+    kind: PermissionResourceKind = "class",
 ) -> ResolvedPermissionSnapshot:
     return ResolvedPermissionSnapshot(
         tenant_id=tenant,
-        resource_kind="class",
+        resource_kind=kind,
         resource_id=class_id,
         revision="rev-1",
         resolved_at=NOW - timedelta(hours=1),
@@ -132,10 +139,15 @@ async def world(
     snapshots: Sequence[ResolvedPermissionSnapshot] = (),
     documents: dict[str, DocumentAccess] | None = None,
     tenant: str = TENANT,
+    synced_realms: Sequence[str] = (REALM,),
 ) -> None:
+    """Fill ``facts``; every realm of ``synced_realms`` has a fresh directory (override to age it)."""
+
     await facts.register_classes(list(classes))
     await facts.set_class_snapshots(list(snapshots))
     await facts.assign_documents(tenant, documents or {})
+    for realm in synced_realms:
+        await facts.replace_directory(directory(realm, tenant=tenant))
 
 
 # --- the corpus policy ------------------------------------------------------------------------
@@ -281,6 +293,7 @@ async def test_class_ids_hold_the_readable_classes_public_ones_included_and_neve
     service, facts, _ = build()
     await world(
         facts,
+        classes=[acl_class(C1), acl_class(C2), acl_class(C3)],
         snapshots=[
             snapshot(C1, public=True),
             snapshot(C2, allowed=(PRINCIPAL,)),
@@ -302,7 +315,11 @@ async def test_class_ids_hold_the_readable_classes_public_ones_included_and_neve
 @pytest.mark.asyncio
 async def test_too_many_classes_fail_closed():
     service, facts, _ = build(limits=AccessLimits(max_classes_per_user=2))
-    await world(facts, snapshots=[snapshot(C1), snapshot(C2), snapshot(C3)])
+    await world(
+        facts,
+        classes=[acl_class(C1), acl_class(C2), acl_class(C3)],
+        snapshots=[snapshot(C1), snapshot(C2), snapshot(C3)],
+    )
 
     with pytest.raises(HarborAccessLimitError):
         await service.authenticate(token(TENANT), tenant_id=TENANT)
@@ -311,7 +328,9 @@ async def test_too_many_classes_fail_closed():
 @pytest.mark.asyncio
 async def test_classes_up_to_the_limit_are_returned_whole():
     service, facts, _ = build(limits=AccessLimits(max_classes_per_user=2))
-    await world(facts, snapshots=[snapshot(C1), snapshot(C2)])
+    await world(
+        facts, classes=[acl_class(C1), acl_class(C2)], snapshots=[snapshot(C1), snapshot(C2)]
+    )
 
     context = await service.authenticate(token(TENANT), tenant_id=TENANT)
 
@@ -483,6 +502,180 @@ async def test_fresh_realms_leave_the_scope_full():
     # Another tenant's stale directory says nothing about this tenant.
     assert context.scope.status == "full"
     assert context.scope.stale_realms == ()
+
+
+# --- classes of stale realms ------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_restricted_class_of_a_stale_realm_is_not_in_class_ids():
+    service, facts, _ = build()
+    await world(
+        facts,
+        classes=[acl_class(C1, realm=REALM), acl_class(C2, realm=OTHER_REALM)],
+        snapshots=[snapshot(C1), snapshot(C2)],
+        synced_realms=(REALM, OTHER_REALM),
+    )
+    await facts.replace_directory(directory(REALM, synced_ago=timedelta(hours=25)))
+
+    context = await service.authenticate(token(TENANT), tenant_id=TENANT)
+
+    assert context.class_ids == frozenset({C2})
+    assert context.scope.status == "stale"
+    assert context.scope.stale_realms == (REALM,)
+
+
+@pytest.mark.asyncio
+async def test_a_public_class_of_a_stale_realm_stays_in_class_ids():
+    service, facts, _ = build()
+    await world(
+        facts,
+        classes=[acl_class(C1), acl_class(C2)],
+        snapshots=[snapshot(C1, public=True), snapshot(C2)],
+    )
+    await facts.replace_directory(directory(REALM, synced_ago=timedelta(days=3)))
+
+    context = await service.authenticate(token(TENANT), tenant_id=TENANT)
+
+    assert context.class_ids == frozenset({C1})
+    assert context.scope.stale_realms == (REALM,)
+
+
+@pytest.mark.asyncio
+async def test_a_realm_with_no_sync_record_is_stale():
+    service, facts, _ = build()
+    await world(
+        facts,
+        classes=[acl_class(C1, realm=REALM), acl_class(C2, realm=OTHER_REALM)],
+        snapshots=[snapshot(C1), snapshot(C2, public=True)],
+        documents={"doc-1": DocumentAccess(C1, SCOPE), "doc-2": DocumentAccess(C2, SCOPE)},
+        synced_realms=(),
+    )
+    assert await facts.realm_sync_times(TENANT) == {}
+
+    context = await service.authenticate(token(TENANT), tenant_id=TENANT)
+
+    # The restricted class goes; the public one stays, though its realm is just as unknown.
+    assert context.class_ids == frozenset({C2})
+    assert context.scope.status == "stale"
+    assert context.scope.stale_realms == tuple(sorted([REALM, OTHER_REALM]))
+
+    # check_batch reaches the same verdict on its own, from a context that claims nothing.
+    handmade = AccessContext(
+        principal_id=PRINCIPAL, tenant_id=TENANT, class_ids=frozenset({C1, C2})
+    )
+    assert await service.check_batch(handmade, [doc("doc-1"), doc("doc-2")]) == [
+        Decision(False, "stale_realm", C1),
+        Decision(True, "public", C2),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_check_batch_judges_the_realms_of_the_classes_it_decides():
+    service, facts, _ = build()
+    await world(
+        facts,
+        classes=[acl_class(C1, realm=REALM), acl_class(C2, realm=OTHER_REALM)],
+        snapshots=[snapshot(C1), snapshot(C2)],
+        documents={"doc-1": DocumentAccess(C1, SCOPE), "doc-2": DocumentAccess(C2, SCOPE)},
+        synced_realms=(REALM,),
+    )
+    handmade = AccessContext(principal_id=PRINCIPAL, tenant_id=TENANT)
+
+    # OTHER_REALM has no sync record, REALM is fresh: only the class of OTHER_REALM is stale.
+    assert await service.check_batch(handmade, [doc("doc-1"), doc("doc-2")]) == [
+        Decision(True, "member", C1),
+        Decision(False, "stale_realm", C2),
+    ]
+
+
+class Distrusted(InMemoryAccessFacts):
+    """A store whose readable classes include ones its records cannot vouch for."""
+
+    async def readable_class_ids(self, access: AccessContext, *, limit: int) -> frozenset[ClassId]:
+        return frozenset({C1, C2, C3, C4, C5, C6, C7, C8})
+
+    async def classes(
+        self, tenant_id: str, class_ids: Sequence[ClassId] | None = None
+    ) -> dict[ClassId, AclClass]:
+        found = await super().classes(tenant_id, class_ids)
+        found[C4] = acl_class(C1)  # filed under another class's key
+        found[C5] = acl_class(C5)
+        found[C6] = acl_class(C6, tenant=OTHER_TENANT)  # another tenant's class
+        found[C7] = acl_class(C7)
+        found[C8] = acl_class(C8)
+        return found
+
+    async def class_snapshots(
+        self, tenant_id: str, class_ids: Sequence[ClassId]
+    ) -> dict[ClassId, ResolvedPermissionSnapshot]:
+        found = await super().class_snapshots(tenant_id, class_ids)
+        found[C4] = snapshot(C4)
+        found[C5] = snapshot(C1)  # another class's snapshot
+        found[C6] = snapshot(C6)
+        found[C7] = snapshot(C7, tenant=OTHER_TENANT)  # another tenant's snapshot
+        found[C8] = snapshot(C8, kind="document")  # a snapshot of something else
+        return found
+
+
+@pytest.mark.asyncio
+async def test_a_readable_class_the_records_cannot_vouch_for_is_dropped():
+    clock = Clock()
+    facts = Distrusted(clock=clock)
+    service, _, _ = build(facts=facts, clock=clock)
+    # C1 is whole. C2 has a class but no snapshot, C3 a snapshot but no class. C4's class is
+    # filed under another class's key, C5's snapshot is another class's, C6 is another tenant's,
+    # C7's snapshot is another tenant's and C8's is a document's.
+    await world(
+        facts,
+        classes=[acl_class(C1), acl_class(C2)],
+        snapshots=[snapshot(C1), snapshot(C3)],
+    )
+
+    context = await service.authenticate(token(TENANT), tenant_id=TENANT)
+
+    assert context.class_ids == frozenset({C1})
+    # None of them says anything about a realm, so none can name one as stale.
+    assert context.scope.status == "full"
+
+
+@pytest.mark.asyncio
+async def test_a_shared_corpus_scope_still_names_the_realms_past_their_slo():
+    policy = CorpusPolicy(mode="tenant_shared", shared_tenant_id=SHARED)
+    service, facts, _ = build(corpus=policy)
+    await facts.replace_directory(directory(REALM, tenant=SHARED, synced_ago=timedelta(hours=25)))
+    await facts.replace_directory(directory(OTHER_REALM, tenant=SHARED))
+
+    context = await service.authenticate(token(SHARED), tenant_id=SHARED)
+
+    assert context.class_ids == frozenset()
+    assert context.scope.status == "stale"
+    assert context.scope.stale_realms == (REALM,)
+
+
+@pytest.mark.asyncio
+async def test_a_stale_realms_restricted_class_no_longer_serves_derived_data():
+    service, facts, _ = build()
+    await world(
+        facts,
+        classes=[acl_class(C1, realm=REALM), acl_class(C2, realm=OTHER_REALM)],
+        snapshots=[snapshot(C1), snapshot(C2)],
+        synced_realms=(REALM, OTHER_REALM),
+    )
+    inputs = frozenset({C1, C2})
+    scopes = frozenset({SCOPE})
+
+    fresh = await service.authenticate(token(TENANT), tenant_id=TENANT)
+    assert may_serve(fresh, tenant_id=TENANT, classes=inputs, source_scopes=scopes) is True
+
+    await facts.replace_directory(directory(REALM, synced_ago=timedelta(hours=25)))
+    stale = await service.authenticate(token(TENANT), tenant_id=TENANT)
+
+    assert may_serve(stale, tenant_id=TENANT, classes=inputs, source_scopes=scopes) is False
+    assert (
+        may_serve(stale, tenant_id=TENANT, classes=frozenset({C1}), source_scopes=scopes) is False
+    )
+    assert may_serve(stale, tenant_id=TENANT, classes=frozenset({C2}), source_scopes=scopes) is True
 
 
 def test_limits_are_read_only_and_validated():

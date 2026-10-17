@@ -12,10 +12,16 @@ and keeps no state besides its configuration.
 - ``tenant_shared`` applies to the one tenant :class:`CorpusPolicy` names, and ``source_acl``
   to every other;
 - ``class_ids`` are the classes the principal may read, public ones included and the
-  quarantine class never. They are empty in a shared corpus, which has no per-class gate;
+  quarantine class never. A class that is not public and whose realm is stale is not
+  among them, nor is one whose class or snapshot record is missing or is not its own.
+  They are empty in a shared corpus, which has no per-class gate;
 - ``entitled_source_scopes`` come from the entitlement store in both modes;
-- the scope is ``stale`` when a realm's directory was last synced longer ago than its
-  revocation SLO.
+- the scope is ``stale`` and names the realms that are stale: those of the principal's
+  readable classes, and any realm whose last sync is past its SLO.
+
+A realm is stale when it has no sync record, or its last sync is older than its
+revocation SLO. Public classes are read whatever the state of their realm, as
+:func:`~harborrag_engine.security.decide.decide` reads them.
 
 Every doubt resolves to less access. A reader of more classes than the limit raises
 :class:`~harborrag_core.contracts.errors.HarborAccessLimitError` and is never given a
@@ -24,7 +30,7 @@ truncated list, and ``check_batch`` answers only once its decisions are recorded
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from types import MappingProxyType
@@ -35,11 +41,12 @@ from harborrag_core.contracts.errors import HarborAccessLimitError, HarborAuthEr
 from harborrag_core.ports.access import AccessFactsPort
 from harborrag_core.ports.identity import VerifiedToken
 from harborrag_core.schemas.ids import TenantId
-from harborrag_core.security.classes import QUARANTINE_CLASS, ClassId
+from harborrag_core.security.classes import QUARANTINE_CLASS, AclClass, ClassId
 from harborrag_core.security.context import AccessContext
 from harborrag_core.security.decisions import AccessScope, Decision
 from harborrag_core.security.directory import DecisionLogEntry
 from harborrag_core.security.resources import ResourceRef
+from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 from harborrag_engine.security.admit import CorpusMode
 from harborrag_engine.security.decide import decide
 
@@ -143,6 +150,31 @@ def _tenant_of(token: VerifiedToken, requested: str | None) -> str:
     return tenant
 
 
+def _vouched_realm(
+    tenant: str,
+    class_id: ClassId,
+    acl_class: AclClass | None,
+    snapshot: ResolvedPermissionSnapshot | None,
+) -> str | None:
+    """The realm of a class whose records are its own, else ``None``.
+
+    Both records must exist, and the class and its snapshot must be ``class_id``'s in
+    ``tenant``; anything else is no evidence about the class (as in ``decide``).
+    """
+
+    if acl_class is None or snapshot is None:
+        return None
+    if acl_class.class_id != class_id or acl_class.tenant_id != tenant:
+        return None
+    if (
+        snapshot.resource_kind != "class"
+        or snapshot.resource_id != class_id
+        or snapshot.tenant_id != tenant
+    ):
+        return None
+    return acl_class.acl.realm
+
+
 def _document_id(ref: ResourceRef) -> str | None:
     """The document a resource is read through (the same rule ``decide`` applies)."""
 
@@ -171,24 +203,29 @@ class ClassAccessService:
         tenant = _tenant_of(token, tenant_id)
         mode = self._corpus.mode_for(tenant)
         now = self._now()
-        stale = await self._stale_realms(tenant, now)
         access = AccessContext(
             principal_id=token.user_id,
             tenant_id=TenantId(tenant),
             corpus_mode=mode,
             actor_id=token.actor_id,
             entitled_source_scopes=await self._facts.entitled_source_scopes(tenant, token.user_id),
-            scope=AccessScope.stale(tuple(sorted(stale))) if stale else AccessScope.full(),
         )
+        synced = await self._facts.realm_sync_times(tenant)
         if mode == "tenant_shared":
-            return access
-        return access.model_copy(update={"class_ids": await self._readable_classes(access)})
+            class_ids: frozenset[ClassId] = frozenset()
+            stale = self._stale_realms(synced, now)
+        else:
+            class_ids, stale = await self._servable_classes(access, synced, now)
+        scope = AccessScope.stale(tuple(sorted(stale))) if stale else AccessScope.full()
+        return access.model_copy(update={"class_ids": class_ids, "scope": scope})
 
     async def classes_for(self, principal_id: str, tenant_id: str) -> frozenset[ClassId]:
-        """The classes ``principal_id`` may read in ``tenant_id``, whatever the corpus mode.
+        """The classes ``principal_id`` belongs to in ``tenant_id``, whatever the corpus mode.
 
-        Raises :class:`~harborrag_core.contracts.errors.HarborAccessLimitError` rather
-        than truncating, and never includes the quarantine class.
+        This is membership as the snapshots record it: unlike ``authenticate`` it does
+        not drop the classes of stale realms. Raises
+        :class:`~harborrag_core.contracts.errors.HarborAccessLimitError` rather than
+        truncating, and never includes the quarantine class.
         """
 
         if not _is_tenant_id(tenant_id):
@@ -223,7 +260,10 @@ class ClassAccessService:
         # ``classes(tenant, None)`` would mean every class, so an empty list is never passed.
         classes = await self._facts.classes(tenant, class_ids) if class_ids else {}
         snapshots = await self._facts.class_snapshots(tenant, class_ids) if class_ids else {}
-        stale_realms = await self._stale_realms(tenant, now) | frozenset(access.scope.stale_realms)
+        synced = await self._facts.realm_sync_times(tenant)
+        stale_realms = self._stale_realms(
+            synced, now, among=(acl_class.acl.realm for acl_class in classes.values())
+        ) | frozenset(access.scope.stale_realms)
         decisions = decide(
             access,
             refs,
@@ -264,12 +304,44 @@ class ClassAccessService:
             )
         return frozenset(readable) - {QUARANTINE_CLASS}
 
-    async def _stale_realms(self, tenant_id: str, now: datetime) -> frozenset[str]:
-        synced = await self._facts.realm_sync_times(tenant_id)
+    async def _servable_classes(
+        self, access: AccessContext, synced: Mapping[str, datetime], now: datetime
+    ) -> tuple[frozenset[ClassId], frozenset[str]]:
+        """The readable classes that may be served now, and the stale realms found.
+
+        A class is dropped when its class or snapshot record is missing or is not its
+        own, or when it is not public and its realm is stale.
+        """
+
+        readable = sorted(await self._readable_classes(access))
+        if not readable:
+            return frozenset(), self._stale_realms(synced, now)
+        tenant = str(access.tenant_id)
+        classes = await self._facts.classes(tenant, readable)
+        snapshots = await self._facts.class_snapshots(tenant, readable)
+        realms: dict[ClassId, str] = {}
+        for class_id in readable:
+            realm = _vouched_realm(tenant, class_id, classes.get(class_id), snapshots.get(class_id))
+            if realm is not None:
+                realms[class_id] = realm
+        stale = self._stale_realms(synced, now, among=realms.values())
+        served = frozenset(
+            class_id
+            for class_id, realm in realms.items()
+            if snapshots[class_id].public or realm not in stale
+        )
+        return served, stale
+
+    def _stale_realms(
+        self, synced: Mapping[str, datetime], now: datetime, *, among: Iterable[str] = ()
+    ) -> frozenset[str]:
+        """The realms whose last sync is older than their SLO, and those of ``among`` never synced."""
+
         slos = self._limits.revocation_slo
         default = self._limits.default_revocation_slo
-        return frozenset(
+        overdue = (
             realm
             for realm, synced_at in synced.items()
             if now - synced_at > slos.get(realm, default)
         )
+        return frozenset(overdue) | frozenset(realm for realm in among if realm not in synced)
