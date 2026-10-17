@@ -12,9 +12,11 @@ and keeps no state besides its configuration.
 - ``tenant_shared`` applies to the one tenant :class:`CorpusPolicy` names, and ``source_acl``
   to every other;
 - ``class_ids`` are the classes the principal may read, public ones included and the
-  quarantine class never. A class that is not public and whose realm is stale is not
-  among them, nor is one whose class or snapshot record is missing or is not its own.
-  They are empty in a shared corpus, which has no per-class gate;
+  quarantine class never. A class is among them only when its snapshot lets the
+  principal read it at the service clock. A class that is not public and whose realm
+  is stale is not among them, nor is one whose class or snapshot record is missing or
+  is not its own. They are empty in a shared corpus, which has no per-class gate, and
+  ``classes_for`` gives the same classes by the same rule;
 - ``entitled_source_scopes`` come from the entitlement store in both modes;
 - the scope is ``stale`` and names the realms that are stale: those of the principal's
   readable classes, and any realm whose last sync is past its SLO.

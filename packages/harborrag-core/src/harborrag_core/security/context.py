@@ -22,7 +22,11 @@ class AccessContext(StrictModel):
     ``entitled_source_scopes`` is ``None`` only for a tenant with no RBAC
     configured, which skips the entitlement gate. An empty set entitles nothing.
     ``purpose`` separates a request served to a person (``serve``) from trusted
-    background work (``process``); a serve check refuses a ``process`` context.
+    background work (``process``). ``check_batch`` decides a ``process`` context by
+    processing permission, not by class membership or entitlement, so a ``process``
+    context is trusted: only trusted background code may build one (see
+    :meth:`system`), never from request input. The stage (c) gate refuses ``process``
+    contexts on serving surfaces.
     """
 
     principal_id: str = Field(min_length=1, max_length=255)

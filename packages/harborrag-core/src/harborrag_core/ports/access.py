@@ -169,7 +169,22 @@ class AccessService(Protocol):
     """Turn credentials into access contexts and decide resources for them."""
 
     async def authenticate(self, token: VerifiedToken, *, tenant_id: str | None) -> AccessContext:
-        """Build the access context a verified token has in a tenant; raise when it has none."""
+        """Build the access context a verified token has in a tenant; raise when it has none.
+
+        ``tenant_id=None`` means the token's only named tenant: a token that names no
+        tenant or several (a ``*`` grant names none) raises
+        ``HarborAuthError(forbidden=True)``, as does a named tenant the token does not
+        grant.
+
+        In a ``source_acl`` corpus, ``class_ids`` holds a class only when its snapshot
+        lets the principal read it at the service clock and its class and snapshot
+        records exist and are its own (a missing or misfiled record excludes it). The
+        quarantine class is never among them, nor is a non-public class of a realm that
+        is stale or was never synced. In a ``tenant_shared`` corpus ``class_ids`` is
+        empty. ``entitled_source_scopes`` comes from the entitlement store, and the
+        scope names the stale realms. More readable classes than the limit raise
+        rather than truncate.
+        """
         ...
 
     async def classes_for(self, principal_id: str, tenant_id: str) -> frozenset[ClassId]:
@@ -184,7 +199,15 @@ class AccessService(Protocol):
     async def check_batch(
         self, access: AccessContext, refs: Sequence[ResourceRef]
     ) -> list[Decision]:
-        """One decision per ref, in order; a ref that cannot be decided is denied."""
+        """One decision per ref, in order; a ref that cannot be decided is denied.
+
+        The context is never trusted over the service's policy and facts. A context
+        whose ``corpus_mode`` is not the one the corpus policy gives its tenant raises
+        ``HarborAuthError(forbidden=True)`` and nothing is decided. A serve context is
+        decided with the stricter of its own and the entitlement store's
+        ``entitled_source_scopes``: it can narrow its entitlements, never widen them. A
+        ``process`` context is decided by processing permission instead.
+        """
         ...
 
     async def check_derived(
