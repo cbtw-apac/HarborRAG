@@ -1,5 +1,13 @@
 """Source connector contracts: events, the connector port, config, and errors."""
 
+from harborrag_core.sources.acl import (
+    SOURCE_ACL_METADATA_KEY,
+    AclStatus,
+    SourceAcl,
+    SourcePrincipal,
+    acl_from_metadata,
+    acl_metadata,
+)
 from harborrag_core.sources.codec import (
     decode_event,
     decode_mark,
@@ -54,6 +62,8 @@ from harborrag_core.sources.port import (
 
 __all__ = [
     "EPOCH",
+    "SOURCE_ACL_METADATA_KEY",
+    "AclStatus",
     "AuthError",
     "BlobRef",
     "Capabilities",
@@ -75,9 +85,11 @@ __all__ = [
     "PreflightCheck",
     "PreflightResult",
     "RateLimited",
+    "SourceAcl",
     "SourceAuthProvider",
     "SourceConnector",
     "SourceHttpClient",
+    "SourcePrincipal",
     "SourceRecord",
     "SourceResponse",
     "SourceStream",
@@ -86,6 +98,8 @@ __all__ = [
     "TimeRange",
     "Tombstone",
     "Transient",
+    "acl_from_metadata",
+    "acl_metadata",
     "classify",
     "decode_event",
     "decode_mark",
