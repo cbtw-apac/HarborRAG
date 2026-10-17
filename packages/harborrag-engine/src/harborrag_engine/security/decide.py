@@ -30,6 +30,7 @@ access. Nothing here raises for well-formed input: a denial is a :class:`Decisio
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime
 
 from harborrag_core.security.classes import QUARANTINE_CLASS, AclClass, ClassId
@@ -39,7 +40,18 @@ from harborrag_core.security.resources import ResourceRef
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
 
-def decide(
+@dataclass(frozen=True, slots=True)
+class _Facts:
+    """What :func:`decide` was told about the documents, their classes and the realms."""
+
+    documents: Mapping[str, DocumentAccess]
+    classes: Mapping[ClassId, AclClass]
+    snapshots: Mapping[ClassId, ResolvedPermissionSnapshot]
+    stale_realms: frozenset[str]
+    now: datetime
+
+
+def decide(  # noqa: PLR0913 - keyword-only facts, each named at the call site
     access: AccessContext,
     refs: Sequence[ResourceRef],
     *,
@@ -60,32 +72,46 @@ def decide(
 
     if now.utcoffset() is None:
         raise ValueError("now must be timezone-aware")
-    return [
-        _decide_one(
-            access,
-            ref,
-            documents=documents,
-            classes=classes,
-            snapshots=snapshots,
-            stale_realms=stale_realms,
-            now=now,
-        )
-        for ref in refs
-    ]
+    facts = _Facts(documents, classes, snapshots, stale_realms, now)
+    return [_decide_one(access, ref, facts) for ref in refs]
 
 
-def _decide_one(
-    access: AccessContext,
-    ref: ResourceRef,
-    *,
-    documents: Mapping[str, DocumentAccess],
-    classes: Mapping[ClassId, AclClass],
-    snapshots: Mapping[ClassId, ResolvedPermissionSnapshot],
-    stale_realms: frozenset[str],
-    now: datetime,
-) -> Decision:
+def _decide_one(access: AccessContext, ref: ResourceRef, facts: _Facts) -> Decision:
+    found = _class_of(access, ref, facts)
+    if isinstance(found, Decision):
+        return found
+    document, acl_class = found
+    class_id = acl_class.class_id
+
+    # Anything that is not a background context is held to the serve rules.
+    serving = access.purpose != "process"
+    if serving and (gated := _serve_gate(access, document, class_id)) is not None:
+        return gated
+
+    snapshot = facts.snapshots.get(class_id)
+    if snapshot is None or snapshot.resource_kind != "class" or snapshot.resource_id != class_id:
+        # A snapshot that is not this class's own (another class's, or a source's or
+        # document's) is no evidence about it, so it counts as missing.
+        return Decision(False, "unknown_snapshot", class_id)
+    if not serving:
+        if _may_process(snapshot, access, facts.now):
+            return Decision(True, "processing_allowed", class_id)
+        return Decision(False, "processing_disallowed", class_id)
+
+    if not snapshot.public and acl_class.acl.realm in facts.stale_realms:
+        return Decision(False, "stale_realm", class_id)
+    if snapshot.can_read(access, now=facts.now):
+        return Decision(True, "public" if snapshot.public else "member", class_id)
+    return Decision(False, "not_member", class_id)
+
+
+def _class_of(
+    access: AccessContext, ref: ResourceRef, facts: _Facts
+) -> tuple[DocumentAccess, AclClass] | Decision:
+    """Rules 1-3: the document ``ref`` is read through and its class, or the denial."""
+
     document_id = ref.id if ref.kind == "document" else ref.document_id
-    document = None if document_id is None else documents.get(document_id)
+    document = None if document_id is None else facts.documents.get(document_id)
     if document is None:
         return Decision(False, "no_class")
 
@@ -93,37 +119,27 @@ def _decide_one(
     if class_id == QUARANTINE_CLASS:
         return Decision(False, "quarantined", class_id)
 
-    acl_class = classes.get(class_id)
+    acl_class = facts.classes.get(class_id)
     if acl_class is None or acl_class.class_id != class_id:
         # A class filed under another class's key is not trusted: it would lend its
         # realm and tenant to a class it is not.
         return Decision(False, "no_class", class_id)
     if acl_class.tenant_id != str(access.tenant_id):
         return Decision(False, "tenant_mismatch", class_id)
+    return document, acl_class
 
-    # Anything that is not a background context is held to the serve rules.
-    serving = access.purpose != "process"
+
+def _serve_gate(
+    access: AccessContext, document: DocumentAccess, class_id: ClassId
+) -> Decision | None:
+    """Rules 4-5 for a serve context: its answer, or ``None`` when neither applies."""
+
     entitled = access.entitled_source_scopes
-    if serving and entitled is not None and document.source_scope_id not in entitled:
+    if entitled is not None and document.source_scope_id not in entitled:
         return Decision(False, "not_entitled", class_id)
-    if serving and access.corpus_mode == "tenant_shared":
+    if access.corpus_mode == "tenant_shared":
         return Decision(True, "tenant_shared", class_id)
-
-    snapshot = snapshots.get(class_id)
-    if snapshot is None or snapshot.resource_kind != "class" or snapshot.resource_id != class_id:
-        # A snapshot that is not this class's own (another class's, or a source's or
-        # document's) is no evidence about it, so it counts as missing.
-        return Decision(False, "unknown_snapshot", class_id)
-    if not serving:
-        if _may_process(snapshot, access, now):
-            return Decision(True, "processing_allowed", class_id)
-        return Decision(False, "processing_disallowed", class_id)
-
-    if not snapshot.public and acl_class.acl.realm in stale_realms:
-        return Decision(False, "stale_realm", class_id)
-    if snapshot.can_read(access, now=now):
-        return Decision(True, "public" if snapshot.public else "member", class_id)
-    return Decision(False, "not_member", class_id)
+    return None
 
 
 def _may_process(

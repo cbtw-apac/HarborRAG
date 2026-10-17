@@ -34,7 +34,7 @@ from .mappers import build_source_record, issue_key_from_record, project_identit
 class JiraDescriptorBuilder:
     """Build issue admission data and attachment records without attachment bytes."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - keyword-only collaborators
         self,
         *,
         issues: JiraIssueAPI,

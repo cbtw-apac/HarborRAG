@@ -18,7 +18,7 @@ from harborrag_core.security.directory import ProjectMember
 from harborrag_engine.security.access_service import ClassAccessService, CorpusPolicy
 from harborrag_engine.security.derived import may_serve
 
-from .test_access_service import (
+from .access_service_helpers import (
     C1,
     C2,
     C3,

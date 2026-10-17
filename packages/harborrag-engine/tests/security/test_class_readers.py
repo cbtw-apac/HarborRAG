@@ -35,7 +35,7 @@ def group(identifier: str, *, realm: str = REALM) -> SourcePrincipal:
     return principal("group", identifier, realm=realm)
 
 
-def directory(
+def directory(  # noqa: PLR0913 - one keyword per directory field a case pins
     *,
     members: Mapping[SourcePrincipal, Iterable[SourcePrincipal]] | None = None,
     grants: Mapping[str, Iterable[SourcePrincipal]] | None = None,

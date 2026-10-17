@@ -68,7 +68,7 @@ def _access(principal_id: str = "u1", tenant_id: str = "t1") -> AccessContext:
     return AccessContext(principal_id=principal_id, tenant_id=tenant_id)
 
 
-def _snapshot(
+def _snapshot(  # noqa: PLR0913 - one keyword per snapshot field a case pins
     class_id: ClassId,
     *,
     tenant_id: str = "t1",

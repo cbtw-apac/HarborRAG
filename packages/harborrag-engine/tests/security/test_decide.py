@@ -65,7 +65,7 @@ def acl_class(
     )
 
 
-def snapshot(
+def snapshot(  # noqa: PLR0913 - one keyword per snapshot field a case pins
     class_id: ClassId = C1,
     *,
     tenant: str = TENANT,
@@ -97,7 +97,7 @@ def doc(ref_id: str = "doc-1") -> ResourceRef:
     return ResourceRef(kind="document", id=ref_id)
 
 
-def run(
+def run(  # noqa: PLR0913 - mirrors the keyword-only inputs of decide
     context: AccessContext,
     refs: Sequence[ResourceRef],
     *,
