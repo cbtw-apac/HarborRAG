@@ -72,6 +72,16 @@ class HarborAuthorizationUnavailableError(HarborUnavailableError):
     """The server could not verify the current reader authorization decision."""
 
 
+class HarborAccessLimitError(HarborAuthorizationUnavailableError):
+    """A reader's access exceeds a bound the server enforces, so it cannot be decided.
+
+    Raised instead of truncating, so a caller can never be handed a partial
+    answer that looks complete. It subclasses
+    :class:`HarborAuthorizationUnavailableError` so every existing transport
+    mapping already fails closed on it.
+    """
+
+
 class HarborValidationError(HarborError):
     """Request payload failed domain validation."""
 

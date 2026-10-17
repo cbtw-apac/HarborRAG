@@ -1,7 +1,5 @@
 """Summary projection: authority operations."""
 
-from typing import Literal
-
 from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
@@ -15,7 +13,7 @@ from harborrag_core.summaries import (
     SummarySnapshot,
 )
 from harborrag_core.topology.extraction import digest
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import PermissionResourceKind, ResolvedPermissionSnapshot
 
 from .schema import (
     DOCUMENT_VERSIONS,
@@ -41,7 +39,7 @@ class SummaryAuthority:
 
     async def _resolved_permissions(
         self, session: AsyncSession, tenant_id: str
-    ) -> dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot]:
+    ) -> dict[tuple[PermissionResourceKind, str], ResolvedPermissionSnapshot]:
         permissions = (
             (
                 await session.execute(

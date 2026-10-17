@@ -1,7 +1,5 @@
 """Summary projection: reads operations."""
 
-from typing import Literal
-
 from sqlalchemy import select
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,7 +14,7 @@ from harborrag_core.summaries import (
     SummarySnapshot,
     SummaryView,
 )
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import PermissionResourceKind, ResolvedPermissionSnapshot
 
 from .summary_authority import SummaryAuthority
 from .summary_schema import SUMMARY_BINDINGS, SUMMARY_SCOPES
@@ -29,7 +27,7 @@ class SummaryReadOperations(SummaryAuthority):
         self,
         binding: SummaryBinding,
         policy: object,
-        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        acl: dict[tuple[PermissionResourceKind, str], ResolvedPermissionSnapshot],
         access: AccessContext,
         tenant_id: str,
     ) -> bool:
@@ -128,7 +126,7 @@ class SummaryReadOperations(SummaryAuthority):
         self,
         row: RowMapping,
         snapshot: SummarySnapshot | None,
-        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        acl: dict[tuple[PermissionResourceKind, str], ResolvedPermissionSnapshot],
         access: AccessContext,
         tenant_id: str,
     ) -> tuple[str, ...]:
