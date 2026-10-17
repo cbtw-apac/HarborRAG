@@ -46,7 +46,7 @@ def test_issue_acl_maps_security_levels():
     assert acl.realm == ENG_REALM
     assert acl.scope == "jira-project:ENG"
     assert [principal.key for principal in acl.levels[0]] == [
-        f"{ENG_REALM}|jira_security_level:10100"
+        f"{ENG_REALM}|jira_security_level:ENG/10100"
     ]
     malformed = issue()
     malformed["fields"]["security"] = "Internal only"
@@ -74,8 +74,28 @@ def test_security_level_is_a_realm_principal():
     acl = issue_acl(value, realm=R)
 
     assert acl.scope == "jira-project:CPM"
-    assert acl.levels == ((SourcePrincipal(realm=R, kind="jira_security_level", id="10001"),),)
+    assert acl.levels == ((SourcePrincipal(realm=R, kind="jira_security_level", id="CPM/10001"),),)
     assert acl.levels[0][0].display_name == "HR"
+
+
+def test_a_security_level_is_named_within_the_issues_project():
+    # One security scheme can serve several projects, and its project-role and project-lead
+    # members resolve in the issue's own project, so the level id alone names no one.
+    level = {"id": "10001", "name": "HR"}
+    cpm = issue_acl({"fields": {"project": {"key": "CPM"}, "security": level}}, realm=R)
+    ops = issue_acl({"fields": {"project": {"key": " OPS "}, "security": level}}, realm=R)
+
+    (cpm_level,) = cpm.levels[0]
+    (ops_level,) = ops.levels[0]
+    assert (cpm_level.kind, cpm_level.id) == ("jira_security_level", "CPM/10001")
+    assert (ops_level.kind, ops_level.id) == ("jira_security_level", "OPS/10001")
+    assert cpm_level != ops_level
+    assert cpm_level.key == f"{R}|jira_security_level:CPM/10001"
+    # The level is named by the project key its scope names, and the two classes differ:
+    # the engine fingerprints exactly this canonical form.
+    assert cpm.scope == "jira-project:CPM"
+    assert ops.scope == "jira-project:OPS"
+    assert cpm.canonical() != ops.canonical()
 
 
 def test_issue_without_project_is_unknown():
@@ -182,7 +202,7 @@ def test_include_policy_keeps_secured_issue_and_labels_record_and_document():
     assert acl["levels"][0][0] == {
         "realm": ENG_REALM,
         "kind": "jira_security_level",
-        "id": "10100",
+        "id": "ENG/10100",
         "display_name": "Internal only",
     }
 
@@ -293,4 +313,4 @@ def test_include_policy_labels_attachment_with_the_parent_acl_read_at_load():
 
     document = connector.load(attachment_record())
 
-    assert document.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "10100"
+    assert document.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "ENG/10100"

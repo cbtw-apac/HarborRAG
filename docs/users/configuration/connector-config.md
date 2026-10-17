@@ -210,7 +210,11 @@ Principals are keyed `<realm>|<kind>:<id>` and use the identifier the source
 returned. Confluence Cloud groups are keyed by group id, Data Center groups by name.
 For example:
 
-- Jira security level 10100: `atlassian:acme.atlassian.net|jira_security_level:10100`
+- Jira security level 10100 on an issue of project `CPM`:
+  `atlassian:acme.atlassian.net|jira_security_level:CPM/10100`. A security level
+  is keyed within the issue's project (the same key as its `jira-project:<KEY>`
+  scope), because one security scheme can serve several projects and a level's
+  project-role and project-lead members resolve in the issue's project.
 - Confluence Cloud group: `atlassian:acme.atlassian.net|group:<group id>`
 - SharePoint site group 3 (tenant `t1`):
   `entra:t1|site_group:<site id>/3`, where `<site id>` is the Graph site id

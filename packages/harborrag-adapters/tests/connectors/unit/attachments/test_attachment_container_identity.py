@@ -180,7 +180,7 @@ def test_an_attachment_of_a_secured_jira_issue_carries_the_parent_source_acl() -
     assert raw.metadata["source_acl"]["status"] == "restricted"
     assert raw.metadata["source_acl"]["realm"] == _JIRA_REALM
     assert raw.metadata["source_acl"]["scope"] == "jira-project:ACME"
-    assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "10100"
+    assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "ACME/10100"
     assert raw.metadata["source_acl"]["levels"][0][0]["realm"] == _JIRA_REALM
     assert raw.metadata["project_key"] == "ACME"
 
