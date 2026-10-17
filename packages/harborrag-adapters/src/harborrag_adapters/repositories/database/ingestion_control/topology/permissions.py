@@ -23,7 +23,7 @@ from harborrag_core.topology.permissions import (
 from ..schema import DOCUMENTS
 from ..summary_intent import invalidate_summary_scope, lock_summary_tenant
 from ..summary_schema import SUMMARY_SCOPES
-from .authorization import authorized_documents, readable_snapshot
+from .authorization import authorized_documents, entitled_scope_conditions, readable_snapshot
 from .configuration import lock_indexing_config
 from .policy_schema import PERMISSION_GRANTS, PERMISSION_HISTORY, PERMISSION_SNAPSHOTS
 from .transactions import topology_transaction
@@ -144,6 +144,7 @@ class TopologyPermissionOperations:
                             DOCUMENTS.c.tenant_id == tenant_id,
                             DOCUMENTS.c.active_document_version_id.is_not(None),
                             DOCUMENTS.c.document_id > after,
+                            *entitled_scope_conditions(DOCUMENTS.c.source_scope_id, access),
                         )
                         .order_by(DOCUMENTS.c.document_id)
                         .limit(limit)
@@ -375,6 +376,7 @@ class TopologyPermissionOperations:
                             .where(
                                 DOCUMENTS.c.tenant_id == tenant_id,
                                 DOCUMENTS.c.active_document_version_id.is_not(None),
+                                *entitled_scope_conditions(DOCUMENTS.c.source_scope_id, access),
                             )
                             .distinct()
                             if access.corpus_mode == "tenant_shared"
@@ -382,6 +384,7 @@ class TopologyPermissionOperations:
                                 source.c.tenant_id == tenant_id,
                                 source.c.resource_kind == "source",
                                 readable_snapshot(source, access),
+                                *entitled_scope_conditions(source.c.resource_id, access),
                             )
                         )
                         .order_by(
@@ -442,6 +445,7 @@ class TopologyPermissionOperations:
                                 DOCUMENTS.c.tenant_id == tenant_id,
                                 DOCUMENTS.c.active_document_version_id.is_not(None),
                                 DOCUMENTS.c.source_scope_id.in_(source_scope_ids),
+                                *entitled_scope_conditions(DOCUMENTS.c.source_scope_id, access),
                             )
                             .distinct()
                             if access.corpus_mode == "tenant_shared"
@@ -450,6 +454,7 @@ class TopologyPermissionOperations:
                                 source.c.resource_kind == "source",
                                 source.c.resource_id.in_(source_scope_ids),
                                 readable_snapshot(source, access),
+                                *entitled_scope_conditions(source.c.resource_id, access),
                             )
                         )
                     )

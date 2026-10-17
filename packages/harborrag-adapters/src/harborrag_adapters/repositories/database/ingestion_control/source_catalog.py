@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pydantic import ValidationError
 from sqlalchemy import and_, func, select
@@ -15,7 +15,7 @@ from harborrag_core.summaries import SummaryFacet
 
 from .schema import DOCUMENT_VERSIONS, DOCUMENTS, SOURCE_SCANS, SOURCE_SCOPES
 from .summary_schema import SUMMARY_SCOPES
-from .topology.authorization import readable_snapshot
+from .topology.authorization import entitled_scope_conditions, readable_snapshot
 from .topology.policy_schema import PERMISSION_SNAPSHOTS
 
 
@@ -23,6 +23,32 @@ class SourceCatalogReader:
     """List only corpus scopes authorized by a current source permission snapshot."""
 
     _client: SQLAlchemyDBClient
+
+    async def source_scope_ids_by_connection(
+        self, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, frozenset[str]]:
+        """The registered source scopes of each connection id, within one tenant.
+
+        Reads ``source_scopes``, which scope registration writes before any document of
+        the scope exists. A connection with no registered scope is absent from the result.
+        """
+
+        wanted = sorted(set(connection_ids))
+        if not wanted:
+            return {}
+        async with self._client.sessions() as session:
+            rows = (
+                await session.execute(
+                    select(SOURCE_SCOPES.c.connection_id, SOURCE_SCOPES.c.source_scope_id).where(
+                        SOURCE_SCOPES.c.tenant_id == tenant_id,
+                        SOURCE_SCOPES.c.connection_id.in_(wanted),
+                    )
+                )
+            ).all()
+        scopes: dict[str, set[str]] = {}
+        for connection_id, source_scope_id in rows:
+            scopes.setdefault(str(connection_id), set()).add(str(source_scope_id))
+        return {connection_id: frozenset(values) for connection_id, values in scopes.items()}
 
     async def list_readable_sources(
         self,
@@ -108,7 +134,10 @@ class SourceCatalogReader:
                 .outerjoin(
                     successful, successful.c.source_scope_id == publication.c.source_scope_id
                 )
-                .where(publication.c.tenant_id == request.tenant_id)
+                .where(
+                    publication.c.tenant_id == request.tenant_id,
+                    *entitled_scope_conditions(publication.c.source_scope_id, request.access),
+                )
             )
             if request.source_scope_ids:
                 statement = statement.where(
@@ -174,6 +203,7 @@ class SourceCatalogReader:
             )
             .where(
                 SOURCE_SCOPES.c.tenant_id == request.tenant_id,
+                *entitled_scope_conditions(SOURCE_SCOPES.c.source_scope_id, request.access),
             )
         )
         statement = statement.join(

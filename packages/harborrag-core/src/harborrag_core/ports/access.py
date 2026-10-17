@@ -161,6 +161,20 @@ class EntitlementStore(Protocol):
         ...
 
 
+class ConnectionScopeReader(Protocol):
+    """Resolves connection ids (keys of ``config/connectors.yaml``) to source scope ids."""
+
+    async def source_scope_ids_by_connection(
+        self, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, frozenset[str]]:
+        """The source scopes registered for each connection id in the tenant.
+
+        An unknown connection id is absent from the result, and another tenant's
+        scopes never appear.
+        """
+        ...
+
+
 class AccessFactsPort(AccessClassStore, DirectoryStore, EntitlementStore, DecisionLog, Protocol):
     """Everything the access service and the sync jobs read and write."""
 
