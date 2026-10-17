@@ -142,10 +142,16 @@ class SharePointConnector(BaseConnector):
             path=None if root_item_id else root_path,
         )
 
+    def _site_key(self) -> str:
+        """Stable identity of the configured site, as the connector requests it."""
+
+        return str(self._drive.resolve_site()["id"])
+
     def _admit(self, record: SourceRecord) -> bool:
         acl = self._permissions.item_acl(
             str(record.metadata["drive_id"]),
             str(record.metadata["item_id"]),
+            site_key=self._site_key(),
             version=record.metadata.get("ctag"),
         )
         if not self._gate.admit(acl, path=str(record.metadata.get("path") or record.locator)):
@@ -174,7 +180,7 @@ class SharePointConnector(BaseConnector):
             )
         self._drive.require_within_root(item, item_id)
         self._drive.enforce_size_limit(item)
-        acl = self._permissions.item_acl(drive_id, item_id)
+        acl = self._permissions.item_acl(drive_id, item_id, site_key=str(site["id"]))
         self._gate.require(acl, path=item_id)
 
         logger.info(

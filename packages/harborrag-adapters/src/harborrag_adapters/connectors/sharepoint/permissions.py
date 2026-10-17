@@ -39,6 +39,9 @@ _GRANTEE_KINDS = (
     ("siteUser", "site_user"),
     ("siteGroup", "site_group"),
 )
+# Site users and groups are numbered per site collection, so their ids mean nothing
+# outside the site they were read from; Entra users and groups are tenant-wide.
+_SITE_LOCAL_KINDS = frozenset({"site_user", "site_group"})
 
 
 def entra_realm(tenant_id: str) -> str:
@@ -97,19 +100,30 @@ def classify_item_permissions(
     *,
     realm: str,
     scope: str,
+    site_key: str,
 ) -> SourceAcl:
     """Classify one item's Graph permissions relative to its library root grants.
 
     ``scope`` is the library (``sharepoint-drive:<drive id>``) the root grants
     belong to; ``realm`` is the namespace of the principals the grants name.
+    ``site_key`` is the stable identity of the site the item was read from: the
+    ids of site-local principals (``site_user``, ``site_group``) are only unique
+    within one site collection, so they are qualified as ``<site_key>/<local id>``.
+    Without that, ``site_group:3`` on two sites would be one principal. A blank
+    ``site_key`` raises ``ValueError``.
     """
 
+    site = site_key.strip()
+    if not site:
+        raise ValueError("a site key is required to qualify site-local principals")
     grants = [permission for permission in permissions if not permission.get("link")]
     if not root_grant_ids or not grants:
         return SourceAcl.unknown(reason="item_permissions_empty", realm=realm, scope=scope)
     if all(grant.get("inheritedFrom") for grant in grants) and grant_ids(grants) == root_grant_ids:
         return SourceAcl.inherited(realm=realm, scope=scope)
-    principals = tuple(dict.fromkeys(p for grant in grants for p in _grantees(grant, realm=realm)))
+    principals = tuple(
+        dict.fromkeys(p for grant in grants for p in _grantees(grant, realm=realm, site=site))
+    )
     if not principals:
         return SourceAcl.unknown(reason="item_grantees_unreadable", realm=realm, scope=scope)
     return SourceAcl.restricted(
@@ -117,7 +131,7 @@ def classify_item_permissions(
     )
 
 
-def _grantees(permission: Mapping[str, Any], *, realm: str) -> list[SourcePrincipal]:
+def _grantees(permission: Mapping[str, Any], *, realm: str, site: str) -> list[SourcePrincipal]:
     identities = permission.get("grantedToV2") or permission.get("grantedTo")
     if not isinstance(identities, Mapping):
         return []
@@ -126,10 +140,11 @@ def _grantees(permission: Mapping[str, Any], *, realm: str) -> list[SourcePrinci
         identity = identities.get(field_name)
         if isinstance(identity, Mapping) and str(identity.get("id") or "").strip():
             display = str(identity.get("displayName") or "").strip() or None
+            identifier = str(identity["id"]).strip()
+            if kind in _SITE_LOCAL_KINDS:
+                identifier = f"{site}/{identifier}"
             principals.append(
-                SourcePrincipal(
-                    realm=realm, kind=kind, id=str(identity["id"]).strip(), display_name=display
-                )
+                SourcePrincipal(realm=realm, kind=kind, id=identifier, display_name=display)
             )
     return principals
 
@@ -137,18 +152,19 @@ def _grantees(permission: Mapping[str, Any], *, realm: str) -> list[SourcePrinci
 class SharePointPermissionResolver:
     """Read Graph permissions for drive items; cache the library root per drive.
 
-    Item results are cached per ``(drive, item, cTag)``, because paged discovery
-    replays the whole traversal once per page. Calls without a version (loads)
-    are never cached. The connector calls ``reset`` when a new scan starts:
-    permission changes rarely change an item's ``cTag``, so a cache that outlived
-    the scan would keep serving an item after its access narrowed.
+    Item results are cached per ``(site, drive, item, cTag)``, because paged
+    discovery replays the whole traversal once per page. The site is part of the
+    key because site-local principals are qualified with it. Calls without a
+    version (loads) are never cached. The connector calls ``reset`` when a new
+    scan starts: permission changes rarely change an item's ``cTag``, so a cache
+    that outlived the scan would keep serving an item after its access narrowed.
     """
 
     def __init__(self, client: SharePointClient, *, realm: str) -> None:
         self._client = client
         self._realm = realm
         self._root_grants: dict[str, frozenset[str]] = {}
-        self._items: dict[tuple[str, str, str], SourceAcl] = {}
+        self._items: dict[tuple[str, str, str, str], SourceAcl] = {}
 
     def reset(self) -> None:
         """Forget cached library-root and item permissions before a new scan."""
@@ -156,10 +172,16 @@ class SharePointPermissionResolver:
         self._root_grants.clear()
         self._items.clear()
 
-    def item_acl(self, drive_id: str, item_id: str, *, version: str | None = None) -> SourceAcl:
-        """Return the item's ACL, or ``unknown`` when Graph cannot tell us."""
+    def item_acl(
+        self, drive_id: str, item_id: str, *, site_key: str, version: str | None = None
+    ) -> SourceAcl:
+        """Return the item's ACL, or ``unknown`` when Graph cannot tell us.
 
-        key = (drive_id, item_id, version) if version else None
+        ``site_key`` identifies the site the item was read from; see
+        :func:`classify_item_permissions`.
+        """
+
+        key = (site_key, drive_id, item_id, version) if version else None
         scope = f"{_DRIVE_SCOPE_PREFIX}{drive_id}"
         if key is not None:
             cached = self._items.get(key)
@@ -171,6 +193,7 @@ class SharePointPermissionResolver:
                 self._root_grant_ids(drive_id),
                 realm=self._realm,
                 scope=scope,
+                site_key=site_key,
             )
         except (FetchError, AuthorizationError):
             return self._unavailable(scope)

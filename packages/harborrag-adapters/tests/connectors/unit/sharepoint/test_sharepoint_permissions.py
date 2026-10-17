@@ -55,10 +55,18 @@ ADA = {
 ROOT_IDS = frozenset({"perm-members", "perm-visitors"})
 REALM = entra_realm("t1")
 SCOPE = "sharepoint-drive:drive1"
+SITE_KEY = "contoso.sharepoint.com,site-guid,web-guid"
 
 
-def classify(permissions: list[dict], root_ids: frozenset[str] = ROOT_IDS) -> SourceAcl:
-    return classify_item_permissions(permissions, root_ids, realm=REALM, scope=SCOPE)
+def classify(
+    permissions: list[dict],
+    root_ids: frozenset[str] = ROOT_IDS,
+    *,
+    site_key: str = SITE_KEY,
+) -> SourceAcl:
+    return classify_item_permissions(
+        permissions, root_ids, realm=REALM, scope=SCOPE, site_key=site_key
+    )
 
 
 def make_resolver(client: FakeGraphClient) -> SharePointPermissionResolver:
@@ -69,6 +77,70 @@ def inherited(permission: dict, source: str = "root") -> dict:
     return {**permission, "inheritedFrom": {"driveId": "drive1", "id": source}}
 
 
+SITE_USER = {
+    "id": "perm-site-user",
+    "roles": ["read"],
+    "grantedToV2": {"siteUser": {"id": "7", "displayName": "Ada (site)"}},
+}
+ENTRA_GROUP = {
+    "id": "perm-entra-group",
+    "roles": ["read"],
+    "grantedToV2": {"group": {"id": "9f1c-entra-group", "displayName": "Engineers"}},
+}
+
+
+def test_site_local_principals_are_qualified_with_the_site_they_were_read_from():
+    acl = classify([MEMBERS, SITE_USER], site_key="siteA")
+
+    assert [(p.kind, p.id) for p in acl.levels[0]] == [
+        ("site_group", "siteA/3"),
+        ("site_user", "siteA/7"),
+    ]
+    assert [p.key for p in acl.levels[0]] == [
+        "entra:t1|site_group:siteA/3",
+        "entra:t1|site_user:siteA/7",
+    ]
+    assert [p.display_name for p in acl.levels[0]] == ["Members", "Ada (site)"]
+
+
+def test_the_same_site_group_id_on_two_sites_is_two_principals():
+    on_a = classify([MEMBERS], site_key="siteA").levels[0][0]
+    on_b = classify([MEMBERS], site_key="siteB").levels[0][0]
+
+    assert on_a != on_b
+    assert on_a.key != on_b.key
+    assert (on_a.realm, on_a.kind) == (on_b.realm, on_b.kind)
+    assert len({on_a, on_b}) == 2
+
+
+def test_entra_principals_are_tenant_wide_and_not_site_qualified():
+    on_a = classify([ENTRA_GROUP, ADA], site_key="siteA").levels[0]
+    on_b = classify([ENTRA_GROUP, ADA], site_key="siteB").levels[0]
+
+    assert on_a == on_b
+    assert [(p.kind, p.id) for p in on_a] == [("group", "9f1c-entra-group"), ("user", "aad-ada")]
+
+
+@pytest.mark.parametrize("site_key", ["", "   "])
+def test_a_blank_site_key_is_rejected_instead_of_leaving_site_ids_unqualified(site_key: str):
+    with pytest.raises(ValueError, match="site"):
+        classify([MEMBERS], site_key=site_key)
+
+
+def test_resolver_never_serves_a_cached_acl_read_for_another_site():
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/f1/permissions", {"value": [MEMBERS]}, {"value": [MEMBERS]})
+    resolver = make_resolver(client)
+
+    on_a = resolver.item_acl("drive1", "f1", site_key="siteA", version="ctag-1")
+    on_b = resolver.item_acl("drive1", "f1", site_key="siteB", version="ctag-1")
+    on_a_again = resolver.item_acl("drive1", "f1", site_key="siteA", version="ctag-1")
+
+    assert on_a.levels[0][0].id == "siteA/3"
+    assert on_b.levels[0][0].id == "siteB/3"
+    assert on_a_again is on_a
+
+
 def test_acls_carry_the_realm_and_the_drive_scope():
     inherited_acl = classify([inherited(MEMBERS), inherited(VISITORS)])
     restricted_acl = classify([MEMBERS, ADA])
@@ -77,7 +149,7 @@ def test_acls_carry_the_realm_and_the_drive_scope():
     assert (restricted_acl.realm, restricted_acl.scope) == ("entra:t1", "sharepoint-drive:drive1")
     assert restricted_acl.levels == (
         (
-            SourcePrincipal(realm=REALM, kind="site_group", id="3"),
+            SourcePrincipal(realm=REALM, kind="site_group", id=f"{SITE_KEY}/3"),
             SourcePrincipal(realm=REALM, kind="user", id="aad-ada"),
         ),
     )
@@ -163,7 +235,7 @@ def test_resolver_scopes_each_item_acl_to_the_drive_it_was_read_from():
     client.add("drives/drive7/items/f1/permissions", {"value": [ADA]})
     resolver = make_resolver(client)
 
-    acl = resolver.item_acl("drive7", "f1")
+    acl = resolver.item_acl("drive7", "f1", site_key=SITE_KEY)
 
     assert (acl.status, acl.realm, acl.scope) == ("restricted", REALM, "sharepoint-drive:drive7")
 
@@ -173,7 +245,7 @@ def test_unavailable_permissions_stay_unknown_but_name_the_realm_and_scope():
         def get_json(self, endpoint, *, params=None):
             raise FetchError("Graph unavailable", status_code=503)
 
-    acl = make_resolver(FailingClient()).item_acl("drive1", "f1")
+    acl = make_resolver(FailingClient()).item_acl("drive1", "f1", site_key=SITE_KEY)
 
     assert (acl.status, acl.reason) == ("unknown", "item_permissions_unavailable")
     assert (acl.realm, acl.scope) == (REALM, SCOPE)
@@ -199,7 +271,7 @@ def test_unique_permissions_are_restricted_with_their_grantees():
     assert acl.status == "restricted"
     assert acl.reason == "sharepoint_item_permissions"
     assert [principal.key for principal in acl.levels[0]] == [
-        "entra:t1|site_group:3",
+        f"entra:t1|site_group:{SITE_KEY}/3",
         "entra:t1|user:aad-ada",
     ]
 
@@ -230,8 +302,8 @@ def test_resolver_follows_pagination_and_caches_the_library_root():
     client.add("drives/drive1/items/f2/permissions", both)
     resolver = make_resolver(client)
 
-    assert resolver.item_acl("drive1", "f1").status == "inherited"
-    assert resolver.item_acl("drive1", "f2").status == "inherited"
+    assert resolver.item_acl("drive1", "f1", site_key=SITE_KEY).status == "inherited"
+    assert resolver.item_acl("drive1", "f2", site_key=SITE_KEY).status == "inherited"
     endpoints = [endpoint for endpoint, _ in client.calls]
     assert endpoints.count("drives/drive1/root/permissions") == 1
 
@@ -240,9 +312,9 @@ def test_resolver_caches_items_by_version_only():
     client = FakeGraphClient()
     resolver = make_resolver(client)
 
-    resolver.item_acl("drive1", "f1", version="ctag-1")
-    resolver.item_acl("drive1", "f1", version="ctag-1")
-    resolver.item_acl("drive1", "f1")
+    resolver.item_acl("drive1", "f1", site_key=SITE_KEY, version="ctag-1")
+    resolver.item_acl("drive1", "f1", site_key=SITE_KEY, version="ctag-1")
+    resolver.item_acl("drive1", "f1", site_key=SITE_KEY)
 
     endpoints = [endpoint for endpoint, _ in client.calls]
     assert endpoints.count("drives/drive1/items/f1/permissions") == 2
@@ -255,7 +327,9 @@ def test_permission_endpoint_denial_fails_closed():
                 raise AuthorizationError("Graph denied", status_code=403)
             return super().get_json(endpoint, params=params)
 
-    assert make_resolver(DenyingClient()).item_acl("drive1", "f1").status == ("unknown")
+    assert make_resolver(DenyingClient()).item_acl("drive1", "f1", site_key=SITE_KEY).status == (
+        "unknown"
+    )
 
 
 def test_discover_withholds_items_with_unique_permissions():
@@ -312,6 +386,56 @@ def test_discovered_items_record_their_inherited_acl_with_the_connector_realm(mo
             realm="sharepoint:contoso.sharepoint.com", scope="sharepoint-drive:drive1"
         ).to_dict()
     )
+
+
+def test_discovered_site_group_principals_are_qualified_with_the_resolved_site_id():
+    client = FakeGraphClient()
+    add_site_and_default_drive(client)
+    client.add("drives/drive1/root/children", {"value": [file_item("secret", "Secret.docx")]})
+    client.add("drives/drive1/items/secret/permissions", {"value": [MEMBERS, ADA]})
+    connector = SharePointConnector(
+        config(tenant_id="t1", restricted_content="include"), client=client
+    )
+
+    [record] = list(connector.discover())
+
+    [level] = record.metadata[SOURCE_ACL_METADATA_KEY]["levels"]
+    assert [(p["kind"], p["id"]) for p in level] == [
+        ("site_group", "site1/3"),
+        ("user", "aad-ada"),
+    ]
+
+
+def test_loaded_site_group_principals_are_qualified_with_the_configured_site_id():
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/secret", file_item("secret", "Secret.docx"))
+    client.add("drives/drive1/items/secret/permissions", {"value": [MEMBERS]})
+    client.downloads["drives/drive1/items/secret/content"] = b"bytes"
+    connector = SharePointConnector(
+        SharePointSiteConfig(
+            site_id="contoso.sharepoint.com,site-guid,web-guid",
+            drive_id="drive1",
+            access_token="token",
+            tenant_id="t1",
+            restricted_content="include",
+            requests_per_minute=6000,
+        ),
+        client=client,
+    )
+
+    document = connector.load(
+        SourceRecord(
+            "sharepoint://site/drive1/secret",
+            "application/octet-stream",
+            "secret",
+            metadata={"drive_id": "drive1", "item_id": "secret"},
+        )
+    )
+
+    [level] = document.metadata[SOURCE_ACL_METADATA_KEY]["levels"]
+    assert [(p["kind"], p["id"]) for p in level] == [
+        ("site_group", "contoso.sharepoint.com,site-guid,web-guid/3")
+    ]
 
 
 def test_loaded_document_records_the_acl_read_at_load_time(monkeypatch):
@@ -372,7 +496,7 @@ def test_invalid_permission_value_list_fails_closed():
     client = FakeGraphClient()
     client.add("drives/drive1/items/f1/permissions", {"value": "not-a-list"})
 
-    assert make_resolver(client).item_acl("drive1", "f1").status == "unknown"
+    assert make_resolver(client).item_acl("drive1", "f1", site_key=SITE_KEY).status == "unknown"
 
 
 def test_library_root_fetch_failure_is_unknown_and_not_cached():
@@ -388,8 +512,12 @@ def test_library_root_fetch_failure_is_unknown_and_not_cached():
     client.root_failures = 1
     resolver = make_resolver(client)
 
-    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "unknown"
-    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "inherited"
+    assert (
+        resolver.item_acl("drive1", "f1", site_key=SITE_KEY, version="ctag-1").status == "unknown"
+    )
+    assert (
+        resolver.item_acl("drive1", "f1", site_key=SITE_KEY, version="ctag-1").status == "inherited"
+    )
     endpoints = [endpoint for endpoint, _ in client.calls]
     assert endpoints.count("drives/drive1/root/permissions") == 2
 
@@ -551,4 +679,6 @@ def test_cache_reset_between_store_and_read_does_not_raise():
     resolver._root_grants = ResetAfterStore()
     resolver._items = ResetAfterStore()
 
-    assert resolver.item_acl("drive1", "f1", version="ctag-1").status == "inherited"
+    assert (
+        resolver.item_acl("drive1", "f1", site_key=SITE_KEY, version="ctag-1").status == "inherited"
+    )
