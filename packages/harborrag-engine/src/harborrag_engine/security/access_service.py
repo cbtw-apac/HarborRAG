@@ -47,6 +47,7 @@ from harborrag_core.security.classes import QUARANTINE_CLASS, AclClass, ClassId
 from harborrag_core.security.context import AccessContext
 from harborrag_core.security.decisions import AccessScope, Decision
 from harborrag_core.security.directory import DecisionLogEntry
+from harborrag_core.security.entitlements import narrower
 from harborrag_core.security.resources import ResourceRef
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 from harborrag_engine.security.admit import CorpusMode
@@ -173,16 +174,6 @@ def _vouched_realm(
     if snapshot.resource_kind != "class" or snapshot.resource_id != class_id:
         return None
     return acl_class.acl.realm
-
-
-def _stricter(left: frozenset[str] | None, right: frozenset[str] | None) -> frozenset[str] | None:
-    """The tighter of two entitlements: ``None`` gates nothing, so the other one wins."""
-
-    if left is None:
-        return right
-    if right is None:
-        return left
-    return left & right
 
 
 def _document_id(ref: ResourceRef) -> str | None:
@@ -340,7 +331,7 @@ class ClassAccessService:
 
         if access.purpose == "process":
             return access
-        entitled = _stricter(
+        entitled = narrower(
             access.entitled_source_scopes,
             await self._facts.entitled_source_scopes(str(access.tenant_id), access.principal_id),
         )

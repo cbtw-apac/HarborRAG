@@ -18,6 +18,7 @@ from harborrag_core.security.directory import (
     IdentityLink,
     ProjectMember,
 )
+from harborrag_core.security.entitlements import entitled_scopes
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 
 
@@ -205,17 +206,10 @@ class InMemoryAccessFacts:
         """
         if tenant_id not in self._rbac_tenants:
             return None
-        scopes: set[str] = set()
-        for project_id, members in self._members.get(tenant_id, {}).items():
-            for member in members:
-                if member.principal_id != principal_id:
-                    continue
-                project_scopes = await self.project_scopes(tenant_id, project_id)
-                if member.source_scope_ids is None:
-                    scopes |= project_scopes
-                else:
-                    scopes |= member.source_scope_ids & project_scopes
-        return frozenset(scopes)
+        memberships = (
+            member for members in self._members.get(tenant_id, {}).values() for member in members
+        )
+        return entitled_scopes(memberships, self._project_scopes.get(tenant_id, {}), principal_id)
 
 
 def _conforms(facts: InMemoryAccessFacts) -> AccessFactsPort:
