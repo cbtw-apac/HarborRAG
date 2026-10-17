@@ -36,6 +36,7 @@ class InMemoryAccessFacts:
         self._directories: dict[str, dict[str, DirectorySnapshot]] = {}
         self._links: dict[str, tuple[IdentityLink, ...]] = {}
         self._members: dict[str, dict[str, tuple[ProjectMember, ...]]] = {}
+        self._rbac_tenants: set[str] = set()
         self._project_scopes: dict[str, dict[str, frozenset[str]]] = {}
         self.decisions: list[DecisionLogEntry] = []
 
@@ -153,7 +154,11 @@ class InMemoryAccessFacts:
     async def replace_project_members(
         self, tenant_id: str, project_id: str, members: Sequence[ProjectMember]
     ) -> None:
-        """Make ``members`` the whole membership of the project; another project's member raises."""
+        """Make ``members`` the whole membership of the project and enable RBAC for the tenant.
+
+        Enablement is sticky and happens even for an empty list. A member of another
+        project raises and changes nothing.
+        """
         require_text(tenant_id, "tenant_id")
         require_text(project_id, "project_id")
         for member in members:
@@ -162,6 +167,7 @@ class InMemoryAccessFacts:
                     f"project member of project {member.project_id!r} given for "
                     f"project {project_id!r}"
                 )
+        self._rbac_tenants.add(tenant_id)
         tenant_members = self._members.setdefault(tenant_id, {})
         if members:
             tenant_members[project_id] = tuple(members)
@@ -185,12 +191,11 @@ class InMemoryAccessFacts:
     async def entitled_source_scopes(
         self, tenant_id: str, principal_id: str
     ) -> frozenset[str] | None:
-        """``None`` without any project members; else the union of the principal's scopes."""
-        projects = self._members.get(tenant_id, {})
-        if not projects:
+        """``None`` for a tenant that never configured RBAC; else the principal's union of scopes."""
+        if tenant_id not in self._rbac_tenants:
             return None
         scopes: set[str] = set()
-        for project_id, members in projects.items():
+        for project_id, members in self._members.get(tenant_id, {}).items():
             for member in members:
                 if member.principal_id != principal_id:
                     continue

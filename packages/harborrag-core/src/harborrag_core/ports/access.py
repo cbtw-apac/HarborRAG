@@ -110,12 +110,20 @@ class DecisionLog(Protocol):
 
 
 class EntitlementStore(Protocol):
-    """AUTA RBAC: which datasources a principal is entitled to through its projects."""
+    """AUTA RBAC: which datasources a principal is entitled to through its projects.
+
+    RBAC enablement is sticky per tenant. A tenant is RBAC-enabled from the first
+    ``replace_project_members`` call made for it, even with an empty member list,
+    and stays enabled; there is no way to turn it off here.
+    """
 
     async def replace_project_members(
         self, tenant_id: str, project_id: str, members: Sequence[ProjectMember]
     ) -> None:
-        """Make ``members`` the whole membership of the project."""
+        """Make ``members`` the whole membership of the project.
+
+        Enables RBAC for the tenant, permanently, whether or not ``members`` is empty.
+        """
         ...
 
     async def project_scopes(self, tenant_id: str, project_id: str) -> frozenset[str]:
@@ -133,11 +141,12 @@ class EntitlementStore(Protocol):
     ) -> frozenset[str] | None:
         """Datasources the principal is entitled to read.
 
-        ``None`` when the tenant has no project members at all, meaning RBAC is
-        not configured and the entitlement gate is skipped. Otherwise the union,
-        over the principal's memberships, of the membership's ``source_scope_ids``
-        or, when that is ``None``, of the project's scopes. A principal with no
-        membership gets an empty set, which entitles nothing.
+        ``None`` only for a tenant that never had RBAC configured, meaning the
+        entitlement gate is skipped. Once RBAC is configured the result is never
+        ``None``: it is the union, over the principal's memberships, of the
+        membership's ``source_scope_ids`` or, when that is ``None``, of the
+        project's scopes. A principal with no membership gets an empty set, which
+        entitles nothing, even after the tenant's last member was removed.
         """
         ...
 

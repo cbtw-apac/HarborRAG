@@ -425,7 +425,17 @@ async def test_replacing_a_projects_members_drops_the_previous_ones():
 
 
 @pytest.mark.asyncio
-async def test_a_tenant_without_any_project_member_has_no_rbac():
+async def test_a_tenant_that_never_configured_rbac_has_none():
+    facts = _facts()
+    await facts.set_project_scopes("t1", "p1", frozenset({"s1"}))
+    await facts.replace_project_members("t2", "p1", [ProjectMember("p1", "u1", "reader")])
+
+    assert await facts.entitled_source_scopes("t1", "u1") is None
+    assert await facts.entitled_source_scopes("t3", "u1") is None
+
+
+@pytest.mark.asyncio
+async def test_removing_every_member_keeps_rbac_on():
     facts = _facts()
     await facts.set_project_scopes("t1", "p1", frozenset({"s1"}))
     await facts.replace_project_members("t1", "p1", [ProjectMember("p1", "u1", "reader")])
@@ -436,7 +446,22 @@ async def test_a_tenant_without_any_project_member_has_no_rbac():
     assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
 
     await facts.replace_project_members("t1", "p2", [])
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+    assert await facts.entitled_source_scopes("t1", "u2") == frozenset()
+    assert await facts.entitled_source_scopes("t1", "u3") == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_an_empty_first_push_enables_rbac():
+    facts = _facts()
+    await facts.set_project_scopes("t1", "p1", frozenset({"s1"}))
     assert await facts.entitled_source_scopes("t1", "u1") is None
+
+    await facts.replace_project_members("t1", "p1", [])
+
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+    assert await facts.entitled_source_scopes("t1", "anyone") == frozenset()
+    assert await facts.entitled_source_scopes("t2", "u1") is None
 
 
 @pytest.mark.asyncio
