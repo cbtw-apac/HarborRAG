@@ -17,6 +17,7 @@ from urllib.parse import quote, unquote
 from pydantic import BaseModel
 
 from harborrag_core.base import FrozenDict, _deep_freeze
+from harborrag_core.sources.acl import SourceAcl
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 """Start of the first window for a connection that has never synced."""
@@ -151,6 +152,10 @@ class SourceRecord:
     ``children``, when set, is the item's *complete* set of child keys; the
     runtime diffs it against stored children and tombstones the ones that
     disappeared. ``None`` means the connector makes no claim about children.
+
+    ``acl`` is the source's own statement of who may read the item. It is
+    required and has no default: a connector that has not captured access
+    evidence must say so with ``SourceAcl.unknown``, never by omission.
     """
 
     key: DocKey
@@ -162,10 +167,13 @@ class SourceRecord:
     metadata: Mapping[str, Any] = field(default_factory=FrozenDict)
     blob: BlobRef | None = None
     children: frozenset[DocKey] | None = None
+    acl: SourceAcl = field(kw_only=True)
 
     def __post_init__(self) -> None:
         _require_text(self.version, "record version")
         _require_aware(self.updated_at, "record updated_at")
+        if not isinstance(self.acl, SourceAcl):
+            raise ValueError("a record's acl must be a SourceAcl")
         if self.parent is not None and self.parent.source_id != self.key.source_id:
             raise ValueError("a record's parent must belong to the same source")
         if self.parent == self.key:
