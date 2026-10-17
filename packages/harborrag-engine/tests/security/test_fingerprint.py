@@ -129,6 +129,27 @@ def test_fingerprint_changes_with_status_membership_kind_and_level_structure() -
     assert len(fingerprints) == 5
 
 
+def test_principals_whose_keys_would_collide_cannot_be_built() -> None:
+    # kind "group:x" with id "y" and kind "group" with id "x:y" would both key as
+    # "<realm>|group:x:y", so two different ACLs could share one fingerprint.
+    with pytest.raises(ValueError):
+        SourcePrincipal(realm=REALM, kind="group:x", id="y")
+    with pytest.raises(ValueError):
+        SourcePrincipal(realm=REALM, kind="gro|up", id="y")
+    with pytest.raises(ValueError):
+        SourcePrincipal(realm="atlassian|acme", kind="group", id="y")
+
+    colon_in_id = group("x:y")
+    assert colon_in_id.key == f"{REALM}|group:x:y"
+    assert user("a|b").key == f"{REALM}|user:a|b"
+    assert acl_fingerprint(restricted([[group("x:y")]])) != acl_fingerprint(
+        restricted([[group("x"), group("y")]])
+    )
+    assert acl_fingerprint(restricted([[user("a|b")]])) != acl_fingerprint(
+        restricted([[user("a"), user("b")]])
+    )
+
+
 def test_class_of_names_the_class_by_the_fingerprint() -> None:
     acl = restricted([[user("a")]])
 

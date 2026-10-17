@@ -267,13 +267,54 @@ def test_restricted_class_is_scope_intersected_with_every_level() -> None:
     links = accounts(
         p_a1=user("a1"), p_a2=user("a2"), p_a3=user("a3"), p_a4=user("a4"), p_a5=user("a5")
     )
-    acl_class = restricted_class([[user("a1"), user("a2")], [group("leads")]])
+    acl_class = restricted_class([[user("a1"), user("a2"), user("a4")], [group("leads")]])
 
     readers = class_readers(acl_class, snapshot, links)
 
-    # a1 misses the second level, a3 the first, a4 is not in the scope at all.
+    # a1 misses the second level and a3 the first. a4 passes both levels and is stopped
+    # by the scope alone: it is not one of the engineers.
     assert readers.principal_ids == {"p-a2"}
     assert readers.public is False
+    assert readers.scope_known is True
+
+
+def test_a_restricted_class_never_reads_beyond_the_scope_readers() -> None:
+    # a2 is active and linked and named by the level, but the scope grants only a1.
+    snapshot = directory(grants={SCOPE: [user("a1")]}, active=[user("a1"), user("a2")])
+    links = accounts(p_a1=user("a1"), p_a2=user("a2"))
+
+    readers = class_readers(restricted_class([[user("a1"), user("a2")]]), snapshot, links)
+
+    assert readers.principal_ids == {"p-a1"}
+    assert readers.scope_known is True
+
+
+def test_an_everyone_level_is_still_bounded_by_the_scope_readers() -> None:
+    snapshot = directory(
+        members={group("staff"): [user("a1"), user("a2")]},
+        grants={SCOPE: [user("a1")]},
+        active=[user("a1"), user("a2"), user("a3")],
+    )
+    links = accounts(p_a1=user("a1"), p_a2=user("a2"), p_a3=user("a3"))
+    everyone = principal("everyone", "*")
+
+    only_everyone = class_readers(restricted_class([[everyone]]), snapshot, links)
+    everyone_and_staff = class_readers(
+        restricted_class([[everyone], [group("staff")]]), snapshot, links
+    )
+
+    assert only_everyone.principal_ids == {"p-a1"}
+    assert everyone_and_staff.principal_ids == {"p-a1"}
+
+
+def test_a_scope_granted_to_nobody_leaves_a_restricted_class_with_no_readers() -> None:
+    snapshot = directory(grants={SCOPE: []}, active=[user("a1"), user("a2")])
+    links = accounts(p_a1=user("a1"), p_a2=user("a2"))
+    acl_class = restricted_class([[user("a1"), user("a2"), principal("everyone", "*")]])
+
+    readers = class_readers(acl_class, snapshot, links)
+
+    assert readers.principal_ids == frozenset()
     assert readers.scope_known is True
 
 
@@ -562,17 +603,139 @@ def test_class_snapshot_admits_exactly_the_readers_and_a_public_class_admits_eve
     assert public_snapshot.can_read(bob, now=now) is True
 
 
-def test_a_class_with_no_readers_admits_nobody() -> None:
+def test_a_known_scope_with_no_readers_is_a_known_snapshot_that_admits_nobody() -> None:
+    acl_class = inherited_class()
     snapshot = class_snapshot(
-        inherited_class(),
-        ClassReaders(frozenset(), False, frozenset(), False),
+        acl_class,
+        ClassReaders(frozenset(), False, frozenset(), True),
         resolved_at=T0,
         expires_at=T0 + timedelta(hours=1),
     )
     alice = AccessContext(principal_id="hr-alice", tenant_id=TenantId(TENANT))
 
+    assert snapshot.known is True
+    assert snapshot.processing_allowed is True
+    assert snapshot.public is False
+    assert snapshot.allowed_principal_ids == ()
+    assert snapshot.revision == _digest(acl_class.class_id, False, [])
+    assert snapshot.can_read(alice, now=T0 + timedelta(minutes=1)) is False
+
+
+def test_a_class_on_an_unknown_scope_is_an_unknown_snapshot_that_admits_nobody() -> None:
+    acl_class = inherited_class()
+    snapshot_dir = directory(grants={"jira-project:OTHER": [user("a1")]}, active=[user("a1")])
+    readers = class_readers(acl_class, snapshot_dir, accounts(hr_alice=user("a1")))
+    window = {"resolved_at": T0, "expires_at": T0 + timedelta(hours=1)}
+
+    snapshot = class_snapshot(acl_class, readers, **window)
+    known_but_empty = class_snapshot(
+        acl_class, ClassReaders(frozenset(), False, frozenset(), True), **window
+    )
+    alice = AccessContext(principal_id="hr-alice", tenant_id=TenantId(TENANT))
+
+    assert readers.scope_known is False
+    assert snapshot.known is False
+    assert snapshot.processing_allowed is False
+    assert snapshot.public is False
     assert snapshot.allowed_principal_ids == ()
     assert snapshot.can_read(alice, now=T0 + timedelta(minutes=1)) is False
+    assert snapshot.revision != known_but_empty.revision
+    assert snapshot.tenant_id == TENANT
+    assert snapshot.resource_kind == "class"
+    assert snapshot.resource_id == acl_class.class_id
+
+
+def test_an_unknown_scope_withholds_even_readers_that_were_built_by_hand() -> None:
+    readers = ClassReaders(frozenset({"hr-alice"}), True, frozenset(), False)
+
+    snapshot = class_snapshot(
+        inherited_class(), readers, resolved_at=T0, expires_at=T0 + timedelta(hours=1)
+    )
+    alice = AccessContext(principal_id="hr-alice", tenant_id=TenantId(TENANT))
+
+    assert snapshot.known is False
+    assert snapshot.processing_allowed is False
+    assert snapshot.public is False
+    assert snapshot.allowed_principal_ids == ()
+    assert snapshot.can_read(alice, now=T0 + timedelta(minutes=1)) is False
+
+
+def test_a_public_class_lists_no_principal_ids_because_it_admits_everyone() -> None:
+    acl_class = inherited_class()
+    readers = ClassReaders(frozenset({"hr-alice", "hr-bob"}), True, frozenset(), True)
+
+    snapshot = class_snapshot(
+        acl_class, readers, resolved_at=T0, expires_at=T0 + timedelta(hours=1)
+    )
+    stranger = AccessContext(principal_id="hr-stranger", tenant_id=TenantId(TENANT))
+
+    assert snapshot.public is True
+    assert snapshot.known is True
+    assert snapshot.processing_allowed is True
+    assert snapshot.allowed_principal_ids == ()
+    assert snapshot.revision == _digest(acl_class.class_id, True, [])
+    assert snapshot.can_read(stranger, now=T0 + timedelta(minutes=1)) is True
+
+
+def test_a_public_class_revision_changes_with_visibility_but_not_with_linked_users() -> None:
+    window = {"resolved_at": T0, "expires_at": T0 + timedelta(hours=1)}
+    acl_class = inherited_class()
+
+    public_alice = class_snapshot(
+        acl_class, ClassReaders(frozenset({"hr-alice"}), True, frozenset(), True), **window
+    )
+    public_bob = class_snapshot(
+        acl_class, ClassReaders(frozenset({"hr-bob"}), True, frozenset(), True), **window
+    )
+    private_alice = class_snapshot(
+        acl_class, ClassReaders(frozenset({"hr-alice"}), False, frozenset(), True), **window
+    )
+    private_none = class_snapshot(
+        acl_class, ClassReaders(frozenset(), False, frozenset(), True), **window
+    )
+
+    assert public_alice.revision == public_bob.revision
+    assert public_alice.revision != private_alice.revision
+    assert public_alice.revision != private_none.revision
+
+
+def test_a_public_class_with_more_readers_than_a_snapshot_can_list_is_still_published() -> None:
+    readers = ClassReaders(
+        frozenset(f"hr-{number}" for number in range(10_001)), True, frozenset(), True
+    )
+
+    snapshot = class_snapshot(
+        inherited_class(), readers, resolved_at=T0, expires_at=T0 + timedelta(hours=1)
+    )
+
+    assert snapshot.public is True
+    assert snapshot.allowed_principal_ids == ()
+
+
+def test_a_restricted_class_keeps_every_reader_up_to_the_snapshot_limit() -> None:
+    ids = frozenset(f"hr-{number}" for number in range(10_000))
+
+    snapshot = class_snapshot(
+        inherited_class(),
+        ClassReaders(ids, False, frozenset(), True),
+        resolved_at=T0,
+        expires_at=T0 + timedelta(hours=1),
+    )
+
+    assert len(snapshot.allowed_principal_ids) == 10_000
+    assert set(snapshot.allowed_principal_ids) == ids
+
+
+def test_a_restricted_class_over_the_snapshot_limit_raises_and_never_truncates() -> None:
+    ids = frozenset(f"hr-{number}" for number in range(10_001))
+
+    with pytest.raises(ValueError):
+        class_snapshot(
+            inherited_class(),
+            ClassReaders(ids, False, frozenset(), True),
+            resolved_at=T0,
+            expires_at=T0 + timedelta(hours=1),
+        )
 
 
 def test_snapshot_revision_is_stable_until_readers_change() -> None:

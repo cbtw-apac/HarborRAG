@@ -77,6 +77,50 @@ def test_principal_rejects_blank_identity_fields(field: str, blank: str):
         SourcePrincipal(**values)
 
 
+@pytest.mark.parametrize("realm", ["atlassian:acme|other", "|", "a|b:c", "|entra:t1", "entra:t1|"])
+def test_principal_rejects_a_realm_containing_the_key_separator(realm: str):
+    with pytest.raises(ValueError, match="realm"):
+        SourcePrincipal(realm=realm, kind="group", id="g1")
+
+
+@pytest.mark.parametrize("kind", ["group:x", ":", "group:", ":group", "gro|up", "|", "a|b:c"])
+def test_principal_rejects_a_kind_containing_a_key_delimiter(kind: str):
+    with pytest.raises(ValueError, match="kind"):
+        SourcePrincipal(realm=REALM, kind=kind, id="g1")
+
+
+def test_principal_from_dict_rejects_a_realm_or_kind_with_a_key_delimiter():
+    with pytest.raises(ValueError, match="kind"):
+        SourcePrincipal.from_dict({"realm": REALM, "kind": "group:x", "id": "y"})
+    with pytest.raises(ValueError, match="realm"):
+        SourcePrincipal.from_dict({"realm": "a|b", "kind": "group", "id": "y"})
+
+
+@pytest.mark.parametrize("realm", ["atlassian:acme.atlassian.net", "entra:t1", "entra:0f2c-91"])
+def test_a_realm_may_contain_colons(realm: str):
+    assert SourcePrincipal(realm=realm, kind="user", id="u1").key == f"{realm}|user:u1"
+
+
+@pytest.mark.parametrize("identifier", ["x:y", "a|b", "712020:abc-123", ":", "|", "site/7:1|2"])
+def test_an_id_may_contain_key_delimiters_and_the_key_still_parses_back(identifier: str):
+    principal = SourcePrincipal(realm="atlassian:acme.atlassian.net", kind="group", id=identifier)
+
+    realm, _, rest = principal.key.partition("|")
+    kind, _, parsed_id = rest.partition(":")
+
+    assert (realm, kind, parsed_id) == (principal.realm, principal.kind, identifier)
+
+
+def test_principal_keys_do_not_collide_across_the_kind_and_id_boundary():
+    keys = {
+        SourcePrincipal(realm=REALM, kind="group", id="x:y").key,
+        SourcePrincipal(realm=REALM, kind="group", id="x").key,
+        SourcePrincipal(realm=REALM, kind="user", id="x:y").key,
+    }
+
+    assert len(keys) == 3
+
+
 def test_principal_rejects_non_string_identity_fields():
     with pytest.raises(ValueError):
         SourcePrincipal(realm=REALM, kind="group", id=7)  # type: ignore[arg-type]

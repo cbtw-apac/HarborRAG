@@ -54,15 +54,27 @@ def _principals(values: object, realm: str, name: str) -> frozenset[SourcePrinci
     return principals
 
 
+MAX_PRINCIPAL_ID_LENGTH = 255
+"""Longest HarborRAG principal id: the bound of ``AccessContext.principal_id``."""
+
+
 @dataclass(frozen=True, slots=True)
 class IdentityLink:
-    """A HarborRAG principal and its user account in one source realm."""
+    """A HarborRAG principal and its user account in one source realm.
+
+    ``principal_id`` is at most :data:`MAX_PRINCIPAL_ID_LENGTH` characters, so every
+    linked principal can appear in a class snapshot and in an access context.
+    """
 
     principal_id: str
     account: SourcePrincipal
 
     def __post_init__(self) -> None:
         require_text(self.principal_id, "identity link principal_id")
+        if len(self.principal_id) > MAX_PRINCIPAL_ID_LENGTH:
+            raise ValueError(
+                f"identity link principal_id must be at most {MAX_PRINCIPAL_ID_LENGTH} characters"
+            )
         if not isinstance(self.account, SourcePrincipal):
             raise ValueError("identity link account must be a source principal")
         if self.account.kind != "user":

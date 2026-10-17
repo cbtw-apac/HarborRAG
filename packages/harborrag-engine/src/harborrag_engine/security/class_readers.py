@@ -106,16 +106,29 @@ def class_snapshot(
 ) -> ResolvedPermissionSnapshot:
     """The permission snapshot of ``acl_class`` for its ``readers``.
 
-    ``revision`` hashes the class id, ``public`` and the sorted reader ids, so it
-    stays the same while the readers do and changes the moment they change.
+    - A public class (``readers.public``) lists no principal ids: ``public`` already
+      admits every principal, so the ids add nothing, and a large public scope can
+      never overflow the snapshot's limit of 10,000 ids.
+    - Any other class lists its readers sorted. More than 10,000 of them raises
+      ``ValueError`` (pydantic's ``ValidationError``) and is never truncated: a
+      shortened list would silently lock readers out.
+    - When ``readers.scope_known`` is false the directory said nothing about the
+      scope, so the snapshot is ``known=False`` and ``processing_allowed=False``
+      with no readers and ``public=False``, whatever ``readers`` otherwise holds.
+      Coverage reports then count the class as unknown instead of healthy.
+
+    ``revision`` hashes the class id, ``public`` and the listed ids (plus a marker
+    for an unknown scope), so it stays the same while what the snapshot says does
+    and changes the moment that changes.
     """
 
-    allowed = tuple(sorted(readers.principal_ids))
-    revision = hashlib.sha256(
-        json.dumps(
-            [acl_class.class_id, readers.public, list(allowed)], separators=(",", ":")
-        ).encode()
-    ).hexdigest()
+    scope_known = readers.scope_known
+    public = scope_known and readers.public
+    allowed = () if public or not scope_known else tuple(sorted(readers.principal_ids))
+    payload: list[object] = [acl_class.class_id, public, list(allowed)]
+    if not scope_known:
+        payload.append("unknown-scope")
+    revision = hashlib.sha256(json.dumps(payload, separators=(",", ":")).encode()).hexdigest()
     return ResolvedPermissionSnapshot(
         tenant_id=acl_class.tenant_id,
         resource_kind="class",
@@ -123,8 +136,8 @@ def class_snapshot(
         revision=revision,
         resolved_at=resolved_at,
         expires_at=expires_at,
-        known=True,
-        processing_allowed=True,
-        public=readers.public,
+        known=scope_known,
+        processing_allowed=scope_known,
+        public=public,
         allowed_principal_ids=allowed,
     )

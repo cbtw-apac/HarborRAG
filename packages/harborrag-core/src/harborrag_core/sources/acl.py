@@ -44,7 +44,9 @@ class SourcePrincipal:
     """One source-side identity named by an ACL, e.g. a Jira group or an Entra user.
 
     Identity is ``(realm, kind, id)``. ``display_name`` is a label for people and
-    never takes part in equality, hashing or ordering.
+    never takes part in equality, hashing or ordering. A realm may contain ``:``
+    but not ``|``, and a kind contains neither, so that :attr:`key` names exactly
+    one principal; ids are unrestricted.
     """
 
     realm: str
@@ -56,6 +58,13 @@ class SourcePrincipal:
         _require_text(self.realm, "source principal realm")
         _require_text(self.kind, "source principal kind")
         _require_text(self.id, "source principal id")
+        # ``key`` is ``<realm>|<kind>:<id>``. It is injective, so one key names one
+        # principal, because it is parsed left to right: the realm ends at the first
+        # ``|`` and the kind at the next ``:``. Ids stay free-form (they are parsed last).
+        if "|" in self.realm:
+            raise ValueError("source principal realm must not contain '|'")
+        if "|" in self.kind or ":" in self.kind:
+            raise ValueError("source principal kind must not contain '|' or ':'")
         if self.display_name is not None:
             _require_str(self.display_name, "source principal display_name")
 

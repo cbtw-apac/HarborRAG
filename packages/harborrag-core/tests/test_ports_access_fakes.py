@@ -719,6 +719,13 @@ def test_an_identity_link_needs_a_principal_and_a_source_principal():
         IdentityLink("u1", "a1")  # type: ignore[arg-type]
 
 
+def test_an_identity_link_principal_id_is_bounded_like_an_access_context_principal_id():
+    # AccessContext.principal_id allows 1..255 characters; a longer id could never be a reader.
+    assert IdentityLink("u" * 255, _user("a1")).principal_id == "u" * 255
+    with pytest.raises(ValueError, match="255"):
+        IdentityLink("u" * 256, _user("a1"))
+
+
 def test_a_project_member_defaults_to_every_datasource_of_its_project():
     everything = ProjectMember("p1", "u1", "reader")
     narrowed = ProjectMember("p1", "u1", "reader", {"s1"})  # type: ignore[arg-type]
