@@ -422,6 +422,7 @@ async def test_entitlements_are_loaded_in_both_corpus_modes():
     policy = CorpusPolicy(mode="tenant_shared", shared_tenant_id=SHARED)
     service, facts, _ = build(corpus=policy)
     for tenant in (TENANT, SHARED):
+        await facts.set_project_scopes(tenant, "p1", frozenset({SCOPE}))
         await facts.replace_project_members(
             tenant, "p1", [ProjectMember("p1", PRINCIPAL, "reader", frozenset({SCOPE}))]
         )
@@ -987,6 +988,7 @@ async def test_check_batch_applies_the_contexts_entitlements_and_corpus_mode():
         },
         tenant=SHARED,
     )
+    await facts.set_project_scopes(SHARED, "p1", frozenset({SCOPE, OTHER_SCOPE}))
     await facts.replace_project_members(
         SHARED, "p1", [ProjectMember("p1", PRINCIPAL, "reader", frozenset({SCOPE}))]
     )
@@ -1025,6 +1027,8 @@ async def two_datasources(
     )
     if entitled is not None:
         member = PRINCIPAL if entitled else "hr-bob"
+        # Narrowing is bounded by the project, so the project holds both datasources.
+        await facts.set_project_scopes(tenant, "p1", frozenset({SCOPE, OTHER_SCOPE}))
         await facts.replace_project_members(
             tenant, "p1", [ProjectMember("p1", member, "reader", entitled or frozenset({SCOPE}))]
         )

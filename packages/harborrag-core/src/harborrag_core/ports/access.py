@@ -144,8 +144,11 @@ class EntitlementStore(Protocol):
         ``None`` only for a tenant that never had RBAC configured, meaning the
         entitlement gate is skipped. Once RBAC is configured the result is never
         ``None``: it is the union, over the principal's memberships, of the
-        membership's ``source_scope_ids`` or, when that is ``None``, of the
-        project's scopes. A principal with no membership gets an empty set, which
+        project's current scopes (``project_scopes``) or, for a membership narrowed
+        by ``source_scope_ids``, of ``source_scope_ids & project_scopes``. Narrowing
+        is bounded by the project: a datasource of another project entitles
+        nothing, and one removed from the project is revoked from every member
+        narrowed to it. A principal with no membership gets an empty set, which
         entitles nothing, even after the tenant's last member was removed.
         """
         ...

@@ -385,6 +385,50 @@ async def test_a_member_narrowed_to_nothing_is_entitled_to_nothing():
 
 
 @pytest.mark.asyncio
+async def test_narrowing_to_another_projects_datasource_entitles_nothing():
+    facts = _facts()
+    await facts.set_project_scopes("t1", "p1", frozenset({"s1"}))
+    await facts.set_project_scopes("t1", "p2", frozenset({"s-secret"}))
+    await facts.replace_project_members(
+        "t1", "p1", [ProjectMember("p1", "u1", "reader", frozenset({"s-secret"}))]
+    )
+
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+
+    # Narrowing picks among the project's own datasources; the rest of it is dropped.
+    await facts.replace_project_members(
+        "t1", "p1", [ProjectMember("p1", "u1", "reader", frozenset({"s1", "s-secret"}))]
+    )
+    assert await facts.entitled_source_scopes("t1", "u1") == {"s1"}
+
+
+@pytest.mark.asyncio
+async def test_removing_a_datasource_from_a_project_revokes_it_from_narrowed_members():
+    facts = _facts()
+    await facts.set_project_scopes("t1", "p1", frozenset({"s1", "s2"}))
+    await facts.replace_project_members(
+        "t1", "p1", [ProjectMember("p1", "u1", "reader", frozenset({"s2"}))]
+    )
+    assert await facts.entitled_source_scopes("t1", "u1") == {"s2"}
+
+    await facts.set_project_scopes("t1", "p1", frozenset({"s1"}))
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+
+    await facts.set_project_scopes("t1", "p1", frozenset())
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+
+
+@pytest.mark.asyncio
+async def test_a_project_without_datasources_entitles_its_narrowed_members_to_nothing():
+    facts = _facts()
+    await facts.replace_project_members(
+        "t1", "p1", [ProjectMember("p1", "u1", "reader", frozenset({"s1"}))]
+    )
+
+    assert await facts.entitled_source_scopes("t1", "u1") == frozenset()
+
+
+@pytest.mark.asyncio
 async def test_a_whole_project_member_follows_the_projects_scopes():
     facts = _facts()
     await facts.replace_project_members("t1", "p1", [ProjectMember("p1", "u1", "reader")])

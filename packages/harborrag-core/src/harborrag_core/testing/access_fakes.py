@@ -191,7 +191,12 @@ class InMemoryAccessFacts:
     async def entitled_source_scopes(
         self, tenant_id: str, principal_id: str
     ) -> frozenset[str] | None:
-        """``None`` for a tenant that never configured RBAC; else the principal's union of scopes."""
+        """``None`` for a tenant that never configured RBAC; else the principal's union of scopes.
+
+        A membership narrowed to some datasources only ever keeps those that are still
+        the project's own, so it can neither reach another project's datasources nor
+        keep one its project no longer has.
+        """
         if tenant_id not in self._rbac_tenants:
             return None
         scopes: set[str] = set()
@@ -199,10 +204,11 @@ class InMemoryAccessFacts:
             for member in members:
                 if member.principal_id != principal_id:
                     continue
+                project_scopes = await self.project_scopes(tenant_id, project_id)
                 if member.source_scope_ids is None:
-                    scopes |= await self.project_scopes(tenant_id, project_id)
+                    scopes |= project_scopes
                 else:
-                    scopes |= member.source_scope_ids
+                    scopes |= member.source_scope_ids & project_scopes
         return frozenset(scopes)
 
 
