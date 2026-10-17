@@ -2,16 +2,21 @@
 
 Connectors only *capture* what a source says about who may read an item, relative
 to the connector's configured source scope (a Confluence space, a Jira project, a
-SharePoint library). They never turn that into HarborRAG grants: effective principal
-decisions are ``ResolvedPermissionSnapshot`` values imported by a trusted operator
-(see ``acl_snapshots.permission_snapshot``).
+SharePoint library). They never turn that into HarborRAG grants: effective
+decisions are made elsewhere, from this evidence plus a directory of the source's
+own identities. The evidence types themselves live in
+``harborrag_core.sources.acl`` and are re-exported here for connector code.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
-from typing import Any, Literal, get_args
+from harborrag_core.sources.acl import (
+    SOURCE_ACL_METADATA_KEY,
+    AclStatus,
+    SourceAcl,
+    SourcePrincipal,
+    acl_metadata,
+)
 
 from .exceptions import SourceRestrictedError
 from .schemas import (
@@ -20,8 +25,17 @@ from .schemas import (
     ConnectorSkip,
 )
 
-AclStatus = Literal["inherited", "restricted", "unknown"]
-SOURCE_ACL_METADATA_KEY = "source_acl"
+__all__ = [
+    "RESTRICTED_CONTENT_POLICIES",
+    "SOURCE_ACL_METADATA_KEY",
+    "AclStatus",
+    "RestrictedContentGate",
+    "SourceAcl",
+    "SourcePrincipal",
+    "acl_metadata",
+    "validate_restricted_content_policy",
+]
+
 RESTRICTED_CONTENT_POLICIES = frozenset({"skip", "include"})
 
 
@@ -34,98 +48,6 @@ def validate_restricted_content_policy(value: str) -> str:
             f"got {value!r}"
         )
     return value
-
-
-@dataclass(frozen=True, slots=True)
-class SourcePrincipal:
-    """One source-side identity named by an ACL, e.g. a Confluence user or group."""
-
-    kind: str
-    id: str
-    display_name: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.kind.strip() or not self.id.strip():
-            raise ValueError("source principal kind and id must be non-empty")
-
-    @property
-    def key(self) -> str:
-        """Stable directory key, ``<kind>:<id>``."""
-
-        return f"{self.kind}:{self.id}"
-
-    def to_dict(self) -> dict[str, str]:
-        payload = {"kind": self.kind, "id": self.id}
-        if self.display_name:
-            payload["display_name"] = self.display_name
-        return payload
-
-
-@dataclass(frozen=True, slots=True)
-class SourceAcl:
-    """Read access for one source item, relative to the connector's source scope.
-
-    ``inherited``: readable by exactly the readers of the configured scope.
-    ``restricted``: narrower; a reader must match at least one principal in
-    *every* level (Confluence page and ancestor restrictions intersect).
-    ``unknown``: access could not be determined; always handled fail-closed.
-    """
-
-    status: AclStatus
-    levels: tuple[tuple[SourcePrincipal, ...], ...] = ()
-    reason: str = ""
-
-    def __post_init__(self) -> None:
-        if self.status not in get_args(AclStatus):
-            raise ValueError(f"unsupported source ACL status: {self.status!r}")
-        if self.status == "restricted" and not self.levels:
-            raise ValueError("restricted source ACLs need at least one principal level")
-        if self.status != "restricted" and self.levels:
-            raise ValueError(f"{self.status} source ACLs carry no principal levels")
-        if any(not level for level in self.levels):
-            raise ValueError("source ACL principal levels must be non-empty")
-
-    @classmethod
-    def inherited(cls) -> SourceAcl:
-        return cls("inherited")
-
-    @classmethod
-    def unknown(cls, reason: str) -> SourceAcl:
-        return cls("unknown", reason=reason)
-
-    @classmethod
-    def restricted(cls, levels: Iterable[Iterable[SourcePrincipal]], *, reason: str) -> SourceAcl:
-        return cls("restricted", tuple(tuple(level) for level in levels), reason)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "status": self.status,
-            "reason": self.reason,
-            "levels": [[principal.to_dict() for principal in level] for level in self.levels],
-        }
-
-    @classmethod
-    def from_dict(cls, payload: Mapping[str, Any]) -> SourceAcl:
-        levels = tuple(
-            tuple(
-                SourcePrincipal(
-                    kind=str(item["kind"]),
-                    id=str(item["id"]),
-                    display_name=item.get("display_name"),
-                )
-                for item in level
-            )
-            for level in payload.get("levels") or ()
-        )
-        return cls(status=payload["status"], levels=levels, reason=str(payload.get("reason") or ""))
-
-
-def acl_metadata(acl: SourceAcl) -> dict[str, Any]:
-    """Metadata carried by records and documents whose ACL is not plain inherited."""
-
-    if acl.status == "inherited":
-        return {}
-    return {SOURCE_ACL_METADATA_KEY: acl.to_dict()}
 
 
 class RestrictedContentGate:

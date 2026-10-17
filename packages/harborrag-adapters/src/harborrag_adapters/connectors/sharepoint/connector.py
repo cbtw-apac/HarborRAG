@@ -26,7 +26,7 @@ from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
 from .drive_paths import is_drive_file, item_mime_type, item_name, scoped_drive_root
 from .mappers import build_document_metadata, drive_item_id_from_record
-from .permissions import SharePointPermissionResolver
+from .permissions import SharePointPermissionResolver, site_realm
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time
@@ -59,7 +59,7 @@ class SharePointConnector(BaseConnector):
         self.config = config
         self.client = client or _RequestsGraphClient(config)
         self._drive = SharePointDriveAPI(self.client, config)
-        self._permissions = SharePointPermissionResolver(self.client)
+        self._permissions = SharePointPermissionResolver(self.client, realm=site_realm(config))
         self._gate = RestrictedContentGate(config.restricted_content)
 
     def close(self) -> None:

@@ -144,10 +144,12 @@ class JiraProjectConfig:
 
         ``security`` is always requested: without it a security-level issue is
         indistinguishable from an open one, and the access gate would fail open.
+        ``project`` is always requested too: it names the scope an issue's ACL is
+        relative to, and an issue without it is withheld as ``unknown``.
         """
         if self.include_all_fields:
             return ("*all",)
-        return tuple(dict.fromkeys((*self.fields, "security")))
+        return tuple(dict.fromkeys((*self.fields, "security", "project")))
 
     @staticmethod
     def _string_list(value: list[str] | str) -> list[str]:

@@ -42,12 +42,14 @@ class JiraDescriptorBuilder:
         config: JiraProjectConfig,
         base_url: str,
         gate: RestrictedContentGate,
+        realm: str,
     ) -> None:
         self._issues = issues
         self._attachments = attachments
         self._config = config
         self._base_url = base_url
         self._gate = gate
+        self._realm = realm
 
     def describe(
         self,
@@ -60,7 +62,7 @@ class JiraDescriptorBuilder:
             if isinstance(cached_issue, dict)
             else self._issues.get_issue_descriptor(issue_key)
         )
-        acl = issue_acl(issue)
+        acl = issue_acl(issue, realm=self._realm)
         self._gate.require(acl, path=issue_key)
         restricted = acl_metadata(acl)
         discovered = build_source_record(issue, base_url=self._base_url)

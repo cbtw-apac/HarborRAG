@@ -12,6 +12,7 @@ from harborrag_adapters.connectors.acl import (
     SourceAcl,
     acl_metadata,
 )
+from harborrag_adapters.connectors.atlassian.realm import atlassian_realm
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -93,6 +94,7 @@ class JiraConnector(BaseConnector):
         """Initialize issue operations and shared attachment processing."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
+        self._realm = atlassian_realm(self.base_url)
         self.client = client or _RequestsJiraClient(
             config,
             rate_limiter=rate_limiter,
@@ -127,6 +129,7 @@ class JiraConnector(BaseConnector):
             config=config,
             base_url=self.base_url,
             gate=self._gate,
+            realm=self._realm,
         )
 
     def close(self) -> None:
@@ -179,7 +182,7 @@ class JiraConnector(BaseConnector):
             for issue in self._issues.search(self._policy.jql(query)):
                 issue_key = str(issue.get("key") or "")
                 self._policy.validate_issue(issue, issue_key)
-                if not self._gate.admit(issue_acl(issue), path=issue_key):
+                if not self._gate.admit(issue_acl(issue, realm=self._realm), path=issue_key):
                     continue
                 record = build_source_record(issue, base_url=self.base_url)
                 record.metadata[DISCOVERY_DESCRIPTOR_KEY] = issue
@@ -231,7 +234,7 @@ class JiraConnector(BaseConnector):
             for issue in issues:
                 issue_key = str(issue.get("key") or "")
                 self._policy.validate_issue(issue, issue_key)
-                if not self._gate.admit(issue_acl(issue), path=issue_key):
+                if not self._gate.admit(issue_acl(issue, realm=self._realm), path=issue_key):
                     continue
                 record = build_source_record(issue, base_url=self.base_url)
                 record.metadata[DISCOVERY_DESCRIPTOR_KEY] = issue
@@ -258,7 +261,7 @@ class JiraConnector(BaseConnector):
         """
 
         parent_key = attachment_parent_locator(record)
-        acl = issue_acl(self._issues.get_issue_descriptor(parent_key))
+        acl = issue_acl(self._issues.get_issue_descriptor(parent_key), realm=self._realm)
         self._gate.require(acl, path=parent_key)
         return acl
 
@@ -281,7 +284,7 @@ class JiraConnector(BaseConnector):
         issue_key = issue_key_from_record(record)
         issue = self._issues.get_issue(issue_key)
         self._policy.validate_issue(issue, issue_key)
-        acl = issue_acl(issue)
+        acl = issue_acl(issue, realm=self._realm)
         self._gate.require(acl, path=issue_key)
 
         include_comments = bool(

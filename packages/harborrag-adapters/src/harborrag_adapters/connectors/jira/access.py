@@ -7,26 +7,45 @@ from typing import Any
 
 from harborrag_adapters.connectors.acl import SourceAcl, SourcePrincipal
 
+PROJECT_SCOPE_PREFIX = "jira-project:"
 
-def issue_acl(issue: Mapping[str, Any]) -> SourceAcl:
+
+def _project_scope(fields: Mapping[str, Any]) -> str | None:
+    project = fields.get("project")
+    key = project.get("key") if isinstance(project, Mapping) else None
+    if not isinstance(key, str) or not key.strip():
+        return None
+    return f"{PROJECT_SCOPE_PREFIX}{key.strip()}"
+
+
+def issue_acl(issue: Mapping[str, Any], *, realm: str) -> SourceAcl:
     """Map an issue's security level onto captured ACL evidence.
 
+    The ACL is relative to the issue's own project (``jira-project:<KEY>``), read
+    from ``fields.project.key``. An issue whose project cannot be read has no scope
+    to inherit from and is ``unknown``, which is withheld.
+
     ``fields.security`` is null or absent for issues every project browser can
-    read, which is exactly the connector's project scope. A security level narrows
-    that to the level's members (users, groups, project roles, reporter, assignee,
-    ...). Resolving those members needs Jira admin APIs, so the level itself is the
-    captured principal and the operator's directory must expand it.
+    read, which is exactly that scope. A security level narrows it to the level's
+    members (users, groups, project roles, reporter, assignee, ...). Resolving
+    those members needs Jira admin APIs, so the level itself is the captured
+    principal, in the site's ``realm``, and the operator's directory must expand it.
     """
 
     fields = issue.get("fields")
-    security = fields.get("security") if isinstance(fields, Mapping) else None
+    if not isinstance(fields, Mapping):
+        return SourceAcl.unknown(reason="issue_project_unreadable", realm=realm)
+    scope = _project_scope(fields)
+    if scope is None:
+        return SourceAcl.unknown(reason="issue_project_unreadable", realm=realm)
+    security = fields.get("security")
     if security is None:
-        return SourceAcl.inherited()
+        return SourceAcl.inherited(realm=realm, scope=scope)
     level_id = str(security.get("id") or "").strip() if isinstance(security, Mapping) else ""
     if not level_id:
-        return SourceAcl.unknown("issue_security_level_unreadable")
+        return SourceAcl.unknown(reason="issue_security_level_unreadable", realm=realm, scope=scope)
     name = str(security.get("name") or "").strip() or None
+    level = SourcePrincipal(realm=realm, kind="jira_security_level", id=level_id, display_name=name)
     return SourceAcl.restricted(
-        [[SourcePrincipal("jira_security_level", level_id, name)]],
-        reason="issue_security_level",
+        realm=realm, scope=scope, levels=[[level]], reason="issue_security_level"
     )

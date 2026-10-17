@@ -12,6 +12,7 @@ from harborrag_adapters.connectors.acl import (
     SourceAcl,
     acl_metadata,
 )
+from harborrag_adapters.connectors.atlassian.realm import atlassian_realm
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
     AttachmentProcessor,
@@ -111,7 +112,11 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             logger_=logger,
         )
         self._attachment_loader = AttachmentDocumentLoader(attachment_sources)
-        self._access = ConfluenceAccessResolver(self._content)
+        self._access = ConfluenceAccessResolver(
+            self._content,
+            realm=atlassian_realm(self.base_url),
+            scope=f"confluence-space:{config.space_key}",
+        )
         self._gate = RestrictedContentGate(config.restricted_content)
         self._descriptors = ConfluenceDescriptorBuilder(
             content=self._content,
