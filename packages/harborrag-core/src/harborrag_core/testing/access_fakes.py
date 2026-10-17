@@ -43,16 +43,22 @@ class InMemoryAccessFacts:
     # AccessClassStore
 
     async def register_classes(self, classes: Sequence[AclClass]) -> None:
-        """Record classes; a different ACL under a registered id raises and records nothing."""
+        """Record classes; a different ACL under a registered id raises and records nothing.
+
+        ACLs are compared by their canonical form, so an equivalent ACL (reordered or
+        repeated principals and levels, another ``reason``) under a registered id is
+        the same class: the registered one is kept.
+        """
         staged = {tenant_id: dict(known) for tenant_id, known in self._classes.items()}
         for acl_class in classes:
             tenant_classes = staged.setdefault(acl_class.tenant_id, {})
             existing = tenant_classes.get(acl_class.class_id)
-            if existing is not None and existing != acl_class:
+            if existing is None:
+                tenant_classes[acl_class.class_id] = acl_class
+            elif existing.acl.canonical() != acl_class.acl.canonical():
                 raise ValueError(
                     f"ACL class {acl_class.class_id!r} is already registered with a different ACL"
                 )
-            tenant_classes[acl_class.class_id] = acl_class
         self._classes = staged
 
     async def assign_documents(

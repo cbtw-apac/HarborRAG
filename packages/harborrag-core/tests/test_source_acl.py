@@ -291,6 +291,106 @@ def test_unknown_may_carry_realm_and_scope():
     assert (acl.realm, acl.scope, acl.status) == (REALM, SCOPE, "unknown")
 
 
+# --- SourceAcl canonical form ------------------------------------------------
+
+
+def _keys(acl: SourceAcl) -> list[list[str]]:
+    return [[principal.key for principal in level] for level in acl.levels]
+
+
+def test_canonical_sorts_and_dedupes_principals_and_levels_and_clears_the_reason():
+    acl = SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=[
+            [_user("u2"), _group("g1", "Recruiting"), _user("u2")],
+            [_group("g2")],
+            [_group("g1"), _user("u2")],
+        ],
+        reason="page_restrictions",
+    )
+
+    canonical = acl.canonical()
+
+    assert _keys(canonical) == [
+        [f"{REALM}|group:g1", f"{REALM}|user:u2"],
+        [f"{REALM}|group:g2"],
+    ]
+    assert canonical.reason == ""
+    assert (canonical.realm, canonical.scope, canonical.status) == (REALM, SCOPE, "restricted")
+    assert canonical.levels[0][0].display_name == "Recruiting"
+
+
+def test_canonical_sorts_principals_and_levels_by_key_not_by_field_order():
+    # By (realm, kind, id) kind "a" sorts before "a-b"; by key "<realm>|a-b:x" sorts first.
+    plain = SourcePrincipal(realm=REALM, kind="a", id="x")
+    dashed = SourcePrincipal(realm=REALM, kind="a-b", id="x")
+    acl = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("u1")], [plain, dashed], [_group("g9")]], reason=""
+    )
+
+    assert _keys(acl.canonical()) == [
+        [dashed.key, plain.key],
+        [f"{REALM}|group:g9"],
+        [f"{REALM}|user:u1"],
+    ]
+
+
+def test_equivalent_acls_share_one_canonical_form():
+    base = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")], [_group("g")]], reason="x"
+    )
+    reordered = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_group("g")], [_user("b"), _user("a")]], reason="x"
+    )
+    duplicated = SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=[[_user("a"), _user("b"), _user("a")], [_group("g")], [_group("g")]],
+        reason="x",
+    )
+    other_reason = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")], [_group("g")]], reason="y"
+    )
+
+    assert {acl.canonical() for acl in (base, reordered, duplicated, other_reason)} == {
+        base.canonical()
+    }
+    assert base.canonical().canonical() == base.canonical()
+
+
+def test_canonical_keeps_what_decides_access_apart():
+    either = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")]], reason=""
+    )
+    both = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a")], [_user("b")]], reason=""
+    )
+    elsewhere = SourceAcl.restricted(
+        realm=REALM, scope="jira-project:OPS", levels=[[_user("a"), _user("b")]], reason=""
+    )
+
+    assert len({either.canonical(), both.canonical(), elsewhere.canonical()}) == 3
+
+
+def test_canonical_of_an_inherited_acl_only_clears_the_reason():
+    acl = SourceAcl(realm=REALM, scope=SCOPE, status="inherited", reason="space_default")
+
+    assert acl.canonical() == SourceAcl.inherited(realm=REALM, scope=SCOPE)
+    assert acl.canonical().reason == ""
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+        SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE),
+    ],
+)
+def test_canonical_of_an_unknown_acl_is_the_acl_itself(acl: SourceAcl):
+    assert acl.canonical() is acl
+
+
 # --- SourceAcl serialisation -------------------------------------------------
 
 

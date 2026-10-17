@@ -201,6 +201,43 @@ async def test_registering_a_different_acl_under_a_known_class_id_fails_closed()
     assert await facts.classes("t1") == {C_MEMBER: _class(C_MEMBER, group="g1")}
 
 
+def _class_of_levels(
+    levels: list[list[SourcePrincipal]], *, reason: str = "restricted", class_id: ClassId = C_MEMBER
+) -> AclClass:
+    acl = SourceAcl.restricted(realm=REALM, scope=SCOPE, levels=levels, reason=reason)
+    return AclClass(tenant_id="t1", class_id=class_id, acl=acl)
+
+
+@pytest.mark.asyncio
+async def test_registering_an_equivalent_acl_under_a_known_class_id_is_a_no_op():
+    facts = _facts()
+    first = _class_of_levels([[_user("a1"), _user("a2")], [_group("g1")]])
+    await facts.register_classes([first])
+
+    await facts.register_classes(
+        [
+            _class_of_levels([[_group("g1")], [_user("a2"), _user("a1")]]),
+            _class_of_levels([[_user("a1"), _user("a2"), _user("a1")], [_group("g1")] * 2]),
+            _class_of_levels([[_user("a1"), _user("a2")], [_group("g1")]], reason="other"),
+        ]
+    )
+
+    assert await facts.classes("t1") == {C_MEMBER: first}
+
+
+@pytest.mark.asyncio
+async def test_a_genuinely_different_acl_under_a_known_class_id_still_fails_closed():
+    facts = _facts()
+    either = _class_of_levels([[_user("a1"), _user("a2")]])
+    await facts.register_classes([either])
+
+    # "a1 or a2" and "a1 and a2" name the same people but are different ACLs.
+    with pytest.raises(ValueError, match="already registered"):
+        await facts.register_classes([_class_of_levels([[_user("a1")], [_user("a2")]])])
+
+    assert await facts.classes("t1") == {C_MEMBER: either}
+
+
 @pytest.mark.asyncio
 async def test_class_snapshots_are_returned_for_the_requested_classes_only():
     facts = _facts()

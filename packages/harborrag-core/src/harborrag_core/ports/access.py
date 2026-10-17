@@ -37,7 +37,14 @@ class AccessClassStore(Protocol):
     """ACL classes, the class each document belongs to, and each class's snapshot."""
 
     async def register_classes(self, classes: Sequence[AclClass]) -> None:
-        """Record classes; registering one again is a no-op, a different ACL under its id raises."""
+        """Record classes; registering one again is a no-op, a different ACL under its id raises.
+
+        Two ACLs are the same class when their canonical forms
+        (:meth:`~harborrag_core.sources.acl.SourceAcl.canonical`) are equal, so an
+        equivalent ACL under a registered id is a no-op too. Only an ACL whose
+        canonical form differs from the registered one raises ``ValueError``, and
+        then nothing of the call is recorded.
+        """
         ...
 
     async def assign_documents(

@@ -158,7 +158,40 @@ def test_class_of_names_the_class_by_the_fingerprint() -> None:
     assert isinstance(acl_class, AclClass)
     assert acl_class.tenant_id == "tenant-1"
     assert acl_class.class_id == ClassId(acl_fingerprint(acl))
-    assert acl_class.acl == acl
+    assert acl_class.acl == acl.canonical()
+
+
+def test_class_of_stores_the_canonical_acl() -> None:
+    plain = restricted([[user("a"), user("b")], [group("g")]])
+    shuffled = restricted(
+        [[group("g")], [user("b"), user("a"), user("b")], [group("g")]],
+        reason="a different reason",
+    )
+
+    acl_class = class_of("tenant-1", shuffled)
+
+    assert acl_class.acl == shuffled.canonical()
+    assert acl_class.acl.reason == ""
+    assert [[p.key for p in level] for level in acl_class.acl.levels] == canonical_acl(plain)[
+        "levels"
+    ]
+    assert class_of("tenant-1", shuffled) == class_of("tenant-1", plain)
+
+
+def test_the_canonical_dict_is_the_core_canonical_form() -> None:
+    shuffled = restricted(
+        [[user("b"), group("g", display_name="Staff"), user("a")], [user("z")], [user("z")]],
+        reason="anything",
+    )
+    canonical = shuffled.canonical()
+
+    assert canonical_acl(shuffled) == {
+        "realm": canonical.realm,
+        "scope": canonical.scope,
+        "status": canonical.status,
+        "levels": [[p.key for p in level] for level in canonical.levels],
+    }
+    assert acl_fingerprint(shuffled) == acl_fingerprint(canonical)
 
 
 def test_the_same_acl_in_two_tenants_shares_a_class_id_but_not_a_class() -> None:

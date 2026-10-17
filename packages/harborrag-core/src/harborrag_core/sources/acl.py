@@ -173,6 +173,36 @@ class SourceAcl:
     def unknown(cls, *, reason: str, realm: str = "", scope: str = "") -> SourceAcl:
         return cls(realm=realm, scope=scope, status="unknown", reason=reason)
 
+    def canonical(self) -> SourceAcl:
+        """The equivalent ACL in the one form that names its access class.
+
+        A reader must match a principal in every level, so neither the order of
+        levels nor a repeated level or principal changes who may read; the
+        free-text ``reason`` never does. The canonical ACL keeps ``realm``,
+        ``scope`` and ``status``, sorts each level's principals by :attr:`SourcePrincipal.key`
+        without duplicates (the first of a repeated key is kept, display name and
+        all), sorts the levels by their keys without duplicates, and clears
+        ``reason``. ``[[a, b]]`` ("a or b") and ``[[a], [b]]`` ("a and b") stay apart.
+
+        An ``unknown`` ACL has no access to name: it is returned unchanged.
+        """
+
+        if self.status == "unknown":
+            return self
+        levels: dict[tuple[str, ...], tuple[SourcePrincipal, ...]] = {}
+        for level in self.levels:
+            principals: dict[str, SourcePrincipal] = {}
+            for principal in level:
+                principals.setdefault(principal.key, principal)
+            keys = tuple(sorted(principals))
+            levels.setdefault(keys, tuple(principals[key] for key in keys))
+        return SourceAcl(
+            realm=self.realm,
+            scope=self.scope,
+            status=self.status,
+            levels=tuple(levels[keys] for keys in sorted(levels)),
+        )
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "realm": self.realm,
