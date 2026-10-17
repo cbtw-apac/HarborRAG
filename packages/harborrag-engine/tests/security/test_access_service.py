@@ -382,6 +382,7 @@ async def test_classes_for_names_the_readable_classes_without_quarantine():
     service, facts, _ = build()
     await world(
         facts,
+        classes=[acl_class(C1), acl_class(C2), acl_class(C3), acl_class(QUARANTINE_CLASS)],
         snapshots=[
             snapshot(C1, public=True),
             snapshot(C2),

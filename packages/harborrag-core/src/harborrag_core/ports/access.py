@@ -173,13 +173,40 @@ class AccessService(Protocol):
         ...
 
     async def classes_for(self, principal_id: str, tenant_id: str) -> frozenset[ClassId]:
-        """The classes a principal belongs to; raises rather than truncating."""
+        """Exactly the ``class_ids`` that ``authenticate`` would give the principal in the tenant.
+
+        The same rule decides both, at the service clock: empty in a ``tenant_shared``
+        corpus; in a ``source_acl`` one, the readable classes as ``authenticate``
+        describes them. Raises rather than truncating.
+        """
         ...
 
     async def check_batch(
         self, access: AccessContext, refs: Sequence[ResourceRef]
     ) -> list[Decision]:
         """One decision per ref, in order; a ref that cannot be decided is denied."""
+        ...
+
+    async def check_derived(
+        self,
+        access: AccessContext,
+        *,
+        tenant_id: str,
+        classes: frozenset[ClassId],
+        source_scopes: frozenset[str],
+    ) -> bool:
+        """Whether ``access`` may be served data of ``tenant_id`` derived from these inputs.
+
+        ``classes`` and ``source_scopes`` are the ACL classes and datasources of every
+        input. The context is held to the corpus policy and the entitlement store as
+        ``check_batch`` holds it: a ``corpus_mode`` other than the one the corpus
+        policy gives its tenant raises ``HarborAuthError(forbidden=True)``, and a serve
+        context is entitled to the stricter of its own and the store's entitlements.
+        Data is then served only to a serve context of ``tenant_id`` that is entitled
+        to every input datasource and either reads a shared corpus or holds every
+        input class in its ``class_ids`` (read as the context gives them); no input
+        classes, or the quarantine class among them, serves nothing.
+        """
         ...
 
 

@@ -49,6 +49,7 @@ from harborrag_core.security.resources import ResourceRef
 from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 from harborrag_engine.security.admit import CorpusMode
 from harborrag_engine.security.decide import decide
+from harborrag_engine.security.derived import may_serve
 
 WILDCARD_TENANT = "*"
 """The tenant a token lists when it may act in every tenant. It is never a tenant itself."""
@@ -217,22 +218,19 @@ class ClassAccessService:
             actor_id=token.actor_id,
             entitled_source_scopes=await self._facts.entitled_source_scopes(tenant, token.user_id),
         )
-        synced = await self._facts.realm_sync_times(tenant)
-        if mode == "tenant_shared":
-            class_ids: frozenset[ClassId] = frozenset()
-            stale = self._stale_realms(synced, now)
-        else:
-            class_ids, stale = await self._servable_classes(access, synced, now)
+        class_ids, stale = await self._class_ids(access, now)
         scope = AccessScope.stale(tuple(sorted(stale))) if stale else AccessScope.full()
         return access.model_copy(update={"class_ids": class_ids, "scope": scope})
 
     async def classes_for(self, principal_id: str, tenant_id: str) -> frozenset[ClassId]:
-        """The classes ``principal_id`` belongs to in ``tenant_id``, whatever the corpus mode.
+        """The classes ``authenticate`` would put in ``class_ids`` for the principal, now.
 
-        This is membership as the snapshots record it: unlike ``authenticate`` it does
-        not drop the classes of stale realms. Raises
+        They are decided by the very rule ``authenticate`` applies, so they are empty in
+        a shared corpus and never hold the quarantine class, a class whose records are
+        missing or not its own, one whose snapshot does not let the principal read it
+        now, or a non-public class of a stale or never-synced realm. Raises
         :class:`~harborrag_core.contracts.errors.HarborAccessLimitError` rather than
-        truncating, and never includes the quarantine class.
+        truncating, and ``ValueError`` for a ``tenant_id`` that is not a plain tenant id.
         """
 
         if not _is_tenant_id(tenant_id):
@@ -242,7 +240,8 @@ class ClassAccessService:
             tenant_id=TenantId(tenant_id),
             corpus_mode=self._corpus.mode_for(tenant_id),
         )
-        return await self._readable_classes(access)
+        class_ids, _ = await self._class_ids(access, self._now())
+        return class_ids
 
     async def check_batch(
         self, access: AccessContext, refs: Sequence[ResourceRef]
@@ -261,20 +260,11 @@ class ClassAccessService:
         """
 
         tenant = str(access.tenant_id)
-        if access.corpus_mode != self._corpus.mode_for(tenant):
-            raise HarborAuthError(
-                "the access context does not match the corpus policy of its tenant", forbidden=True
-            )
+        self._require_policy_mode(access)
         if not refs:
             return []
         now = self._now()
-        effective = access
-        if access.purpose != "process":
-            entitled = _stricter(
-                access.entitled_source_scopes,
-                await self._facts.entitled_source_scopes(tenant, access.principal_id),
-            )
-            effective = access.model_copy(update={"entitled_source_scopes": entitled})
+        effective = await self._held_to_entitlements(access)
         document_ids = list(
             dict.fromkeys(id_ for ref in refs if (id_ := _document_id(ref)) is not None)
         )
@@ -311,6 +301,49 @@ class ClassAccessService:
         )
         return decisions
 
+    async def check_derived(
+        self,
+        access: AccessContext,
+        *,
+        tenant_id: str,
+        classes: frozenset[ClassId],
+        source_scopes: frozenset[str],
+    ) -> bool:
+        """Whether ``access`` may be served data of ``tenant_id`` derived from these inputs.
+
+        The context is held to the corpus policy and the entitlement store as
+        ``check_batch`` holds it: a ``corpus_mode`` other than the one the corpus policy
+        gives its tenant raises ``HarborAuthError(forbidden=True)``, and a serve context
+        is entitled to the stricter of its own and the store's ``entitled_source_scopes``.
+        The answer is then :func:`~harborrag_engine.security.derived.may_serve` for that
+        context, which reads the context's ``class_ids`` as given. Nothing is recorded.
+        """
+
+        self._require_policy_mode(access)
+        effective = await self._held_to_entitlements(access)
+        return may_serve(
+            effective, tenant_id=tenant_id, classes=classes, source_scopes=source_scopes
+        )
+
+    def _require_policy_mode(self, access: AccessContext) -> None:
+        """Refuse a context whose corpus mode is not the one its tenant has."""
+
+        if access.corpus_mode != self._corpus.mode_for(str(access.tenant_id)):
+            raise HarborAuthError(
+                "the access context does not match the corpus policy of its tenant", forbidden=True
+            )
+
+    async def _held_to_entitlements(self, access: AccessContext) -> AccessContext:
+        """``access``, entitled to no more than the store says; background contexts as they are."""
+
+        if access.purpose == "process":
+            return access
+        entitled = _stricter(
+            access.entitled_source_scopes,
+            await self._facts.entitled_source_scopes(str(access.tenant_id), access.principal_id),
+        )
+        return access.model_copy(update={"entitled_source_scopes": entitled})
+
     def _now(self) -> datetime:
         now = self._clock()
         if now.utcoffset() is None:
@@ -326,6 +359,20 @@ class ClassAccessService:
                 f"reader can read {len(readable)} ACL classes, over the limit of {limit}"
             )
         return frozenset(readable) - {QUARANTINE_CLASS}
+
+    async def _class_ids(
+        self, access: AccessContext, now: datetime
+    ) -> tuple[frozenset[ClassId], frozenset[str]]:
+        """The ``class_ids`` of ``access`` at ``now``, and the stale realms found on the way.
+
+        A shared corpus has no per-class gate, so its classes are empty and its stale
+        realms are those past their SLO; otherwise see :meth:`_servable_classes`.
+        """
+
+        synced = await self._facts.realm_sync_times(str(access.tenant_id))
+        if access.corpus_mode == "tenant_shared":
+            return frozenset(), self._stale_realms(synced, now)
+        return await self._servable_classes(access, synced, now)
 
     async def _servable_classes(
         self, access: AccessContext, synced: Mapping[str, datetime], now: datetime
