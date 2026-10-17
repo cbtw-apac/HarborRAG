@@ -89,6 +89,21 @@ class _IncludeMacroHandler:
         )
 
 
+class _CodeMacroHandler:
+    """Code and noformat macros: their plain-text body is a code block."""
+
+    keys = frozenset({"code", "noformat"})
+    emits_container = False
+    emits_visible_content = True
+    emits_table = False
+    needs_rendered_fallback = False
+
+    def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        del macro_key
+        safe = filter_macro_parameters(parameters)
+        return MacroHandling(DocumentBlockKind.CODE_BLOCK, safe.get("title"), safe)
+
+
 class GenericMacroHandler:
     keys: frozenset[str] = frozenset()
     emits_container = True
@@ -128,6 +143,7 @@ class ConfluenceMacroHandlerRegistry:
 def default_macro_handlers() -> tuple[ConfluenceMacroHandler, ...]:
     return (
         _IncludeMacroHandler(),
+        _CodeMacroHandler(),
         _ContainerMacroHandler(
             frozenset({"expand", "details"}),
             DocumentBlockKind.EXPAND,

@@ -136,7 +136,7 @@ class _RequestsGitHubClient:
                     last_error = RateLimitError("GitHub rate limit exceeded")
                     retry_headers = response.headers
                     response.close()
-                    self._sleep(attempt, last_error, retry_headers)
+                    self._sleep(attempt, last_error, retry_headers, throttled=True)
                     continue
                 if response.status_code == 403:
                     raise AuthenticationError(detail)
@@ -198,10 +198,17 @@ class _RequestsGitHubClient:
             time.sleep(wait)
         self._last_request_at = time.monotonic()
 
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
+    def _sleep(
+        self,
+        attempt: int,
+        error: Exception,
+        headers: Any = None,
+        *,
+        throttled: bool = False,
+    ) -> None:
         """Sleep before retrying, honoring provider retry headers when present."""
         fallback_delay = self.config.backoff_factor * (2**attempt)
-        delay = retry_delay_seconds(headers, fallback_delay)
+        delay = retry_delay_seconds(headers, fallback_delay, throttled=throttled)
         logger.warning(
             "Retrying GitHub request after %s, attempt %d/%d",
             type(error).__name__,

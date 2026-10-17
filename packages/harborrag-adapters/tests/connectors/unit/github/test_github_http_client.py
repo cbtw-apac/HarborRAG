@@ -238,6 +238,54 @@ def test_github_request_retries_5xx_then_succeeds():
     assert retry_response.closed is True
 
 
+def test_github_5xx_retry_does_not_wait_for_rate_limit_window(monkeypatch):
+    import time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleeps.append(seconds))
+    client = _github_client(max_retries=1, backoff_factor=0.01)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=502,
+                text="bad gateway",
+                headers={
+                    "X-RateLimit-Remaining": "4999",
+                    "X-RateLimit-Reset": str(time.time() + 3000),
+                },
+            ),
+            FakeResponse(status_code=200, _json={"ok": True}),
+        ]
+    )
+
+    assert client.get_json("repos/o/r") == {"ok": True}
+    assert max(sleeps) < 1.0
+
+
+def test_github_secondary_rate_limit_waits_for_reset_header(monkeypatch):
+    import time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", lambda seconds: sleeps.append(seconds))
+    client = _github_client(max_retries=1, backoff_factor=0.01)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=403,
+                text="You have exceeded a secondary rate limit",
+                headers={
+                    "X-RateLimit-Remaining": "10",
+                    "X-RateLimit-Reset": str(time.time() + 100),
+                },
+            ),
+            FakeResponse(status_code=200, _json={"ok": True}),
+        ]
+    )
+
+    assert client.get_json("repos/o/r") == {"ok": True}
+    assert 90.0 <= max(sleeps) <= 110.0
+
+
 def test_github_request_raises_fetch_error_on_non_retryable_4xx():
     from harborrag_adapters.connectors.exceptions import FetchError
 

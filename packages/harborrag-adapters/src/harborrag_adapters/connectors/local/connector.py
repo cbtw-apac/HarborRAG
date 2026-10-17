@@ -58,7 +58,10 @@ class LocalFileConnector(BaseConnector):
         query = query or ConnectorQuery()
         yielded = 0
         for path, is_symlink in self._files.files_from_query(query):
-            yield self._files.source_record(path, is_symlink=is_symlink)
+            record = self._files.discovered_record(path, is_symlink=is_symlink)
+            if record is None:
+                continue
+            yield record
             yielded += 1
             if query.limit is not None and yielded >= query.limit:
                 return

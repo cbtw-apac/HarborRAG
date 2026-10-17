@@ -40,6 +40,7 @@ from harborrag_core.domain.source import SourceRecord
 
 from .access import issue_acl
 from .client import JiraClient, _RequestsJiraClient
+from .comment_visibility import keep_verified_comments
 from .config import JiraProjectConfig
 from .content import build_raw_content
 from .discovery import JiraDescriptorBuilder
@@ -286,7 +287,10 @@ class JiraConnector(BaseConnector):
         include_comments = bool(
             self.config.include_comments and record.metadata.get("include_comments", True)
         )
-        comments = self._issues.fetch_comments(issue_key) if include_comments else []
+        comments: list[dict[str, Any]] = []
+        if include_comments:
+            comments = self._issues.fetch_comments(issue_key)
+            keep_verified_comments(issue, comments)
         changelog = self._issues.fetch_changelog(issue_key) if self.config.include_changelog else []
         attachments = []
         include_attachments = bool(

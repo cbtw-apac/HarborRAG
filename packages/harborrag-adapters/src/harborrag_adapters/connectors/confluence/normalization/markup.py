@@ -24,9 +24,48 @@ _TAG_KINDS = {
     "ri:page": "link",
     "ac:structured-macro": "macro",
     "ac:rich-text-body": "group",
-    "ac:plain-text-body": "group",
+    # A macro's plain-text body (code, noformat) is the macro's own content.
+    "ac:plain-text-body": "inline",
+    "#text": "text",
 }
+# Formatting and link wrappers whose text reads as part of the enclosing block.
+_INLINE_TAGS = frozenset(
+    {
+        "abbr",
+        "b",
+        "big",
+        "cite",
+        "code",
+        "del",
+        "em",
+        "font",
+        "i",
+        "ins",
+        "kbd",
+        "mark",
+        "q",
+        "s",
+        "samp",
+        "small",
+        "span",
+        "strike",
+        "strong",
+        "sub",
+        "sup",
+        "time",
+        "tt",
+        "u",
+        "var",
+        "ac:emoticon",
+        "ac:image",
+        "ac:inline-comment-marker",
+        "ac:link",
+        "ac:link-body",
+        "ac:plain-text-link-body",
+    }
+)
 _VOID_TAGS = frozenset({"br", "hr", "img", "meta", "link", "input", "ri:attachment", "ri:page"})
+_TEXT_TAG = "#text"
 
 
 @dataclass(slots=True)
@@ -34,6 +73,8 @@ class _MutableNode:
     tag: str
     attributes: dict[str, str]
     path: tuple[int, ...]
+    # Only text nodes (`#text`) carry text; elements hold it in text children,
+    # so text keeps its place between inline elements.
     text: list[str] = field(default_factory=list)
     children: list[_MutableNode] = field(default_factory=list)
 
@@ -45,6 +86,9 @@ class _TreeParser(HTMLParser):
         self._stack = [self.root]
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag.lower() == "br":
+            self.handle_data("\n")
+            return
         parent = self._stack[-1]
         node = _MutableNode(
             tag.lower(),
@@ -68,7 +112,19 @@ class _TreeParser(HTMLParser):
                 return
 
     def handle_data(self, data: str) -> None:
-        self._stack[-1].text.append(data)
+        parent = self._stack[-1]
+        if parent.children and parent.children[-1].tag == _TEXT_TAG:
+            parent.children[-1].text.append(data)
+            return
+        parent.children.append(
+            _MutableNode(_TEXT_TAG, {}, (*parent.path, len(parent.children)), text=[data])
+        )
+
+    def unknown_decl(self, data: str) -> None:
+        # Storage format carries code and noformat macro bodies, and plain-text
+        # link bodies, as CDATA; the base parser would drop them.
+        if data.startswith("CDATA["):
+            self.handle_data(data[len("CDATA[") :])
 
 
 class ConfluenceMarkupParser:
@@ -81,7 +137,9 @@ class ConfluenceMarkupParser:
             parser.close()
         except (AssertionError, ValueError) as exc:
             raise ConfluenceNormalizationError("Confluence markup body is malformed") from exc
-        if not parser.root.children and not "".join(parser.root.text).strip():
+        if not any(
+            child.tag != _TEXT_TAG or "".join(child.text).strip() for child in parser.root.children
+        ):
             raise ConfluenceNormalizationError("Confluence markup body is empty")
         return self._node(parser.root)
 
@@ -134,6 +192,8 @@ class ConfluenceMarkupParser:
         classes = set(value.attributes.get("class", "").lower().split())
         if "confluence-information-macro" in classes or "panel" in classes:
             return "panel"
+        if tag in _INLINE_TAGS:
+            return "inline"
         return _TAG_KINDS.get(tag, "group")
 
     @staticmethod
@@ -143,7 +203,9 @@ class ConfluenceMarkupParser:
             if child.tag != "ac:parameter":
                 continue
             name = child.attributes.get("ac:name", "")
-            parameter_value = "".join(child.text).strip()
+            parameter_value = "".join(
+                part for node in child.children if node.tag == _TEXT_TAG for part in node.text
+            ).strip()
             if name and parameter_value:
                 parameters[name] = parameter_value
         return parameters

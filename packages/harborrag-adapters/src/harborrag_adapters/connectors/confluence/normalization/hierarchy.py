@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+
 from harborrag_core.chunking import CanonicalIdentityBuilder, encoded_identifier
 from harborrag_core.domain import (
     DocumentBlock,
@@ -18,7 +20,7 @@ from .block_models import (
     ConfluenceBuildContext,
 )
 from .macros import ConfluenceMacroHandlerRegistry
-from .nodes import ConfluenceNode
+from .nodes import INLINE_KINDS, ConfluenceNode
 from .table_evidence import build_table_evidence_elements
 from .tables import TableArtifactBuilder
 
@@ -93,7 +95,7 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         base_context: BlockContext,
     ) -> None:
         section_stack: list[tuple[int, BlockDraft, BlockContext]] = []
-        for node in nodes:
+        for node in _block_nodes(nodes):
             if node.kind == "heading":
                 level = self._heading_level(node)
                 while section_stack and section_stack[-1][0] >= level:
@@ -308,3 +310,38 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         for child in block.children:
             elements.extend(ConfluenceHierarchyBuilder._flatten_elements(child))
         return elements
+
+
+def _block_nodes(nodes: tuple[ConfluenceNode, ...]) -> Iterator[ConfluenceNode]:
+    """Yield block nodes, gathering each run of loose inline nodes into one paragraph.
+
+    Text, inline formatting, links and media directly inside a container (a page
+    body, a macro body, a layout column) read as one paragraph, as on the page.
+    A run with no visible text yields only the links and media inside it, so
+    they still become references.
+    """
+
+    run: list[ConfluenceNode] = []
+    for node in (*nodes, None):
+        if node is not None and node.kind in INLINE_KINDS:
+            run.append(node)
+            continue
+        if run:
+            paragraph = ConfluenceNode(
+                kind="paragraph", source_id=run[0].source_id, children=tuple(run)
+            )
+            if paragraph.visible_text():
+                yield paragraph
+            else:
+                yield from _references(run)
+            run = []
+        if node is not None:
+            yield node
+
+
+def _references(nodes: Iterable[ConfluenceNode]) -> Iterator[ConfluenceNode]:
+    for node in nodes:
+        if node.kind in {"link", "media"}:
+            yield node
+        elif node.kind in INLINE_KINDS:
+            yield from _references(node.children)

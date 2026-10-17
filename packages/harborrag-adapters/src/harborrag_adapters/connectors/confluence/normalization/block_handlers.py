@@ -14,7 +14,7 @@ from harborrag_core.domain import (
 from .block_models import BlockContext, BlockDraft, BlockPresentation
 from .include_handlers import ConfluenceIncludeTableHandlers
 from .macros import ConfluenceMacroHandlerRegistry
-from .nodes import ConfluenceNode
+from .nodes import INLINE_KINDS, ConfluenceNode
 from .tables import TableArtifactBuilder
 
 _PAGE_ID_PATTERN = re.compile(r"/pages/(\d+)(?:/|$)")
@@ -94,9 +94,7 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         )
         parent.children.append(draft)
         child_context = self._container_context(context, draft)
-        child_nodes = tuple(
-            child for child in node.children if child.kind not in {"text", "link", "media"}
-        )
+        child_nodes = tuple(child for child in node.children if child.kind not in INLINE_KINDS)
         if child_nodes:
             self._populate(draft, child_nodes, child_context)
         self._append_inline_references(draft, node, child_context)
@@ -107,16 +105,13 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        children = node.children
         if node.text.strip():
-            paragraph = self._draft(
-                node,
-                DocumentBlockKind.PARAGRAPH,
-                parent,
-                context,
-                BlockPresentation(text=node.text.strip()),
-            )
-            parent.children.append(paragraph)
-        self._populate(parent, node.children, context)
+            # Own text leads the group's content; `_populate` makes it (and
+            # any inline siblings that follow) one paragraph.
+            own_text = ConfluenceNode(kind="text", source_id=node.source_id, text=node.text)
+            children = (own_text, *children)
+        self._populate(parent, children, context)
 
     def _append_macro(
         self,
@@ -142,7 +137,10 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
             context,
             BlockPresentation(
                 text=(
-                    node.visible_text(exclude_kinds=_NESTED_BLOCK_KINDS)
+                    node.visible_text(
+                        exclude_kinds=_NESTED_BLOCK_KINDS,
+                        verbatim=handling.kind == DocumentBlockKind.CODE_BLOCK,
+                    )
                     or (str(include_title) if include_title else None)
                 ),
                 title=(str(include_title) if include_title else handling.title),
@@ -161,9 +159,7 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         parent.children.append(draft)
         self._append_include_relation(node, key, include_target)
         child_context = self._container_context(context, draft)
-        child_nodes = tuple(
-            child for child in node.children if child.kind not in {"text", "link", "media"}
-        )
+        child_nodes = tuple(child for child in node.children if child.kind not in INLINE_KINDS)
         if child_nodes:
             self._populate(draft, child_nodes, child_context)
         self._append_inline_references(draft, node, child_context)
@@ -222,9 +218,7 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         )
         parent.children.append(draft)
         child_context = self._container_context(context, draft)
-        child_nodes = tuple(
-            child for child in node.children if child.kind not in {"text", "link", "media"}
-        )
+        child_nodes = tuple(child for child in node.children if child.kind not in INLINE_KINDS)
         if child_nodes:
             self._populate(draft, child_nodes, child_context)
         self._append_inline_references(draft, node, child_context)
@@ -235,16 +229,20 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
-        """Create reference blocks for direct link/media children only.
+        """Create reference blocks for the links and media in a node's inline content.
 
-        Other children are populated recursively through `_append_node`, including their
-        nested references. Recursing here would emit those references twice under the
+        Inline formatting is searched too, since its text already belongs to
+        ``parent`` and it is never populated on its own. Block children are
+        populated through `_append_node`, which adds their own references;
+        recursing into them here would emit those references twice under the
         wrong parent.
         """
 
         for child in node.children:
             if child.kind in {"link", "media"}:
                 self._append_reference(parent, child, context)
+            elif child.kind in INLINE_KINDS:
+                self._append_inline_references(parent, child, context)
 
     @staticmethod
     def _reference_attributes(node: ConfluenceNode) -> dict[str, object]:

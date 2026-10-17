@@ -54,6 +54,30 @@ def test_local_link_outside_source_root_is_ignored(
     assert relations == []
 
 
+@pytest.mark.parametrize(
+    "link",
+    ["bad%00name.md", "locked/notes.md", "x" * 300 + ".md"],
+    ids=["embedded null byte", "unreadable directory", "name too long"],
+)
+def test_link_that_cannot_be_resolved_is_ignored(tmp_path: Path, link: str) -> None:
+    locked = tmp_path / "locked"
+    locked.mkdir()
+    (tmp_path / "ok.md").write_text("ok", encoding="utf-8")
+    source = tmp_path / "start.md"
+    source.write_text(f"[bad]({link}) [ok](ok.md)", encoding="utf-8")
+    locked.chmod(0)
+    try:
+        relations = LocalDocumentRelationResolver(tmp_path).relations(
+            source_path=source,
+            content=source.read_bytes(),
+            media_type="text/markdown",
+        )
+    finally:
+        locked.chmod(0o700)
+
+    assert [relation["target_id"] for relation in relations] == ["ok.md"]
+
+
 # Unclosed link openers made the old pattern rescan the rest of the document from
 # every "[": "[](" * 20_000 (60 KB) took about 19 s and 120 KB about a minute,
 # holding the GIL inside connector.load.

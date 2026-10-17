@@ -65,7 +65,28 @@ def test_retry_delay_uses_x_ratelimit_reset():
         fallback_delay=1.0,
         max_delay=300.0,
         jitter=False,
+        throttled=True,
     )
+    assert 90.0 <= delay <= 100.0
+
+
+def test_retry_delay_ignores_reset_header_on_unthrottled_response():
+    # GitHub sends the hourly window's reset time on every response, so a
+    # transient 502 must back off briefly instead of waiting for the window.
+    headers = {
+        "X-RateLimit-Reset": str(time.time() + 3000),
+        "X-RateLimit-Remaining": "4999",
+    }
+    delay = retry_delay_seconds(headers, fallback_delay=1.0, jitter=False)
+    assert delay == 1.0
+
+
+def test_retry_delay_honors_reset_header_when_quota_is_exhausted():
+    headers = {
+        "X-RateLimit-Reset": str(time.time() + 100),
+        "X-RateLimit-Remaining": "0",
+    }
+    delay = retry_delay_seconds(headers, fallback_delay=1.0, max_delay=300.0, jitter=False)
     assert 90.0 <= delay <= 100.0
 
 
@@ -122,6 +143,7 @@ def test_retry_delay_falls_back_to_rate_limit_reset_header():
         {"X-RateLimit-Reset": str(reset_at)},
         fallback_delay=1.0,
         jitter=False,
+        throttled=True,
     )
     assert delay == pytest.approx(10.0, abs=1.0)
 
@@ -193,6 +215,7 @@ def test_retry_delay_unparseable_retry_after_falls_back_to_reset_header():
         {"Retry-After": "not-a-date", "X-RateLimit-Reset": str(reset_at)},
         fallback_delay=1.0,
         jitter=False,
+        throttled=True,
     )
     assert delay == pytest.approx(7.0, abs=1.0)
 

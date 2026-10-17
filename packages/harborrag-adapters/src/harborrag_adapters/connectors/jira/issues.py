@@ -187,9 +187,15 @@ class JiraIssueAPI:
         comments: list[dict[str, Any]] = []
         start_at = 0
         while True:
+            # `properties` carries `sd.public.comment`, the only mark of a
+            # Service Management internal note on Data Center.
             response = self.client.get_json(
                 f"issue/{issue_key}/comment",
-                params={"startAt": start_at, "maxResults": self.config.page_size},
+                params={
+                    "startAt": start_at,
+                    "maxResults": self.config.page_size,
+                    "expand": "properties",
+                },
             )
             values = response.get("comments", [])
             total = response.get("total")

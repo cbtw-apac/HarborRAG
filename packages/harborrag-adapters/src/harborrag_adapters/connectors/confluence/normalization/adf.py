@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
+from datetime import UTC, datetime
 from typing import Any
 
 from .errors import ConfluenceNormalizationError
@@ -16,6 +17,13 @@ _KIND_MAP = {
     "bulletList": "list",
     "orderedList": "list",
     "listItem": "list_item",
+    "taskList": "list",
+    "taskItem": "list_item",
+    "decisionList": "list",
+    "decisionItem": "list_item",
+    "layoutSection": "group",
+    "layoutColumn": "group",
+    "caption": "caption",
     "codeBlock": "code_block",
     "blockquote": "quote",
     "panel": "panel",
@@ -105,6 +113,9 @@ class AdfDocumentParser:
         )
         if source_type == "text":
             return self._text_node(value, source_id)
+        atom_text = _inline_atom_text(source_type, attributes)
+        if atom_text is not None:
+            return ConfluenceNode(kind="text", source_id=source_id, text=atom_text)
         kind = _KIND_MAP.get(source_type, "unsupported")
         if source_type == "hardBreak":
             return ConfluenceNode(kind="text", source_id=source_id, text="\n")
@@ -116,7 +127,7 @@ class AdfDocumentParser:
             attributes["macro_name"] = str(
                 attributes.get("extensionKey") or attributes.get("extensionType") or source_type
             )
-            attributes["parameters"] = _mapping(attributes.get("parameters"))
+            attributes["parameters"] = _macro_parameters(_mapping(attributes.get("parameters")))
         if kind == "link":
             attributes["href"] = str(attributes.get("url") or "")
         return ConfluenceNode(
@@ -142,6 +153,50 @@ class AdfDocumentParser:
             text=text,
             attributes={"href": str(link.get("href") or "")},
         )
+
+
+def _macro_parameters(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Unwrap a legacy macro's ``macroParams.<name>.value`` into plain parameters.
+
+    Native extensions keep plain parameters; ``macroMetadata`` is editor
+    bookkeeping, not a parameter.
+    """
+
+    macro_params = _mapping(parameters.get("macroParams"))
+    if not macro_params:
+        return parameters
+    plain = {
+        key: value
+        for key, value in parameters.items()
+        if key not in {"macroParams", "macroMetadata"}
+    }
+    for name, entry in macro_params.items():
+        value = entry.get("value") if isinstance(entry, Mapping) else entry
+        if value is not None:
+            plain[str(name)] = value
+    return plain
+
+
+def _inline_atom_text(source_type: str, attributes: Mapping[str, Any]) -> str | None:
+    """Text of an inline node that keeps it in ``attrs``, or None for other nodes."""
+
+    if source_type in {"mention", "status"}:
+        return str(attributes.get("text") or "")
+    if source_type == "emoji":
+        return str(attributes.get("text") or attributes.get("shortName") or "")
+    if source_type == "date":
+        return _date_text(attributes.get("timestamp"))
+    return None
+
+
+def _date_text(value: object) -> str:
+    """An ADF date's epoch-millisecond timestamp as an ISO calendar date (UTC)."""
+
+    try:
+        milliseconds = int(str(value))
+        return datetime.fromtimestamp(milliseconds / 1000, UTC).date().isoformat()
+    except (OverflowError, OSError, ValueError):
+        return ""
 
 
 def _integer(value: object, default: int) -> int:

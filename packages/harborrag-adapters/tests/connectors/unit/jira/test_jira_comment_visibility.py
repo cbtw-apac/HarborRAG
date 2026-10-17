@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from jira_test_helpers import FakeJiraClient, cloud_config, issue
+from jira_test_helpers import FakeJiraClient, cloud_config, dc_config, issue
 
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.comment_visibility import (
@@ -41,6 +41,77 @@ INTERNAL_NOTE = {
     "jsdPublic": False,
     "created": CREATED,
 }
+
+
+# Jira Service Management Data Center marks an internal note only through this
+# comment property, which the comment endpoint returns with `expand=properties`.
+DC_INTERNAL_NOTE = {
+    "id": "c5",
+    "author": {"displayName": "Agent"},
+    "body": "Data Center internal note",
+    "created": CREATED,
+    "properties": [{"key": "sd.public.comment", "value": {"internal": True}}],
+}
+
+
+def _sd_public_comment(value: object) -> dict:
+    return {**PUBLIC, "properties": [{"key": "sd.public.comment", "value": value}]}
+
+
+class _PropertiesAwareJiraClient(FakeJiraClient):
+    """Returns comment properties only when the request expands them, as Jira does."""
+
+    def get_json(self, endpoint, *, params=None):
+        response = super().get_json(endpoint, params=params)
+        expand = str((params or {}).get("expand", "")).split(",")
+        if endpoint.endswith("/comment") and "properties" not in expand:
+            response = {
+                **response,
+                "comments": [
+                    {key: value for key, value in comment.items() if key != "properties"}
+                    for comment in response["comments"]
+                ],
+            }
+        return response
+
+
+def test_data_center_internal_note_property_is_restricted():
+    assert is_restricted_comment(DC_INTERNAL_NOTE)
+    assert not is_restricted_comment(_sd_public_comment({"internal": False}))
+    assert not is_restricted_comment({**PUBLIC, "properties": [{"key": "other", "value": {}}]})
+
+
+@pytest.mark.parametrize("value", [{}, None, "true", {"internal": "yes"}])
+def test_malformed_internal_note_property_is_restricted(value):
+    assert is_restricted_comment(_sd_public_comment(value))
+
+
+def test_load_omits_data_center_internal_notes_from_content_metadata_and_raw():
+    client = _PropertiesAwareJiraClient()
+    loaded = issue()
+    # The issue's embedded comments never carry properties.
+    embedded_note = {key: value for key, value in DC_INTERNAL_NOTE.items() if key != "properties"}
+    loaded["fields"]["comment"] = {"total": 2, "comments": [PUBLIC, embedded_note]}
+    client.add_get("issue/ENG-1", loaded)
+    client.add_get(
+        "issue/ENG-1/comment",
+        {"startAt": 0, "total": 2, "comments": [PUBLIC, DC_INTERNAL_NOTE]},
+    )
+    connector = JiraConnector(dc_config(page_size=10), client=client)
+    record = SourceRecord(
+        id="jira://ENG/ENG-1",
+        source_type="application/vnd.atlassian.jira.issue+json",
+        locator="ENG-1",
+        metadata={"issue_key": "ENG-1"},
+    )
+
+    document = connector.load(record)
+
+    text = document.text()
+    assert "Public note" in text
+    assert "Data Center internal note" not in text
+    serialized = json.dumps(document.metadata) + json.dumps(document.raw)
+    assert "Data Center internal note" not in serialized
 
 
 def test_is_restricted_comment_classifies_visibility_and_internal_notes():

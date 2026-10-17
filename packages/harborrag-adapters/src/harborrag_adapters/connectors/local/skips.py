@@ -61,8 +61,8 @@ class LocalSkipReport:
             detail=f"exceeds size limit: {size} bytes > max_file_size_bytes {limit}",
         )
 
-    def unreadable(self, path: str | Path, *, error: OSError) -> None:
-        """Record a path that could not be listed or stat'ed."""
+    def unreadable(self, path: str | Path, *, error: Exception) -> None:
+        """Record a path that could not be listed, stat'ed or read."""
         self.record(path, reason=SKIP_REASON_UNREADABLE, detail=f"unreadable: {error}")
 
     def out_of_scope(self, path: str | Path) -> None:

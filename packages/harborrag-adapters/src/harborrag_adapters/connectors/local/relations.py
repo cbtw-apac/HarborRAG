@@ -64,13 +64,18 @@ class LocalDocumentRelationResolver:
         candidate = Path(path_value)
         if not candidate.is_absolute():
             candidate = source_path.parent / candidate
-        resolved = candidate.resolve(strict=False)
-        if not resolved.is_relative_to(self._root_path):
-            # A document may legitimately link to a file outside the indexed
-            # source tree. It is not a local relation, and resolving it must
-            # never turn ordinary document content into an ingestion failure.
+        try:
+            resolved = candidate.resolve(strict=False)
+            if not resolved.is_relative_to(self._root_path):
+                # A document may legitimately link to a file outside the indexed
+                # source tree. It is not a local relation, and resolving it must
+                # never turn ordinary document content into an ingestion failure.
+                return None
+            return resolved if resolved.is_file() else None
+        except (OSError, ValueError):
+            # Same rule for a link through an unreadable directory, an
+            # over-long name or an embedded NUL: no relation, but no failure.
             return None
-        return resolved if resolved.is_file() else None
 
     @staticmethod
     def _is_text(media_type: str, path: Path) -> bool:

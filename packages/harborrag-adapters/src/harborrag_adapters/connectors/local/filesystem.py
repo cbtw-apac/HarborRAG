@@ -254,6 +254,26 @@ class LocalFileSystem:
             is_symlink=is_symlink,
         )
 
+    def discovered_record(self, path: Path, *, is_symlink: bool) -> SourceRecord | None:
+        """Build a discovered file's record, or skip a file that changed under the scan.
+
+        Selection stat'ed the file moments earlier, but it can vanish (editor
+        lock files), lose its permissions, or outgrow the size cap before its
+        record is built. Like an unlistable directory, that costs only this
+        file unless ``fail_on_error`` is set.
+        """
+        try:
+            return self.source_record(path, is_symlink=is_symlink)
+        except OSError as exc:
+            if self.config.fail_on_error:
+                raise FetchError(f"Could not stat local file {path}: {exc}") from exc
+            self.skips.unreadable(path, error=exc)
+        except (FetchError, DocumentProcessingError) as exc:
+            if self.config.fail_on_error:
+                raise
+            self.skips.unreadable(path, error=exc)
+        return None
+
     def record_for_path(self, path: str | Path) -> SourceRecord:
         """Resolve a caller-provided path and return its source record.
 

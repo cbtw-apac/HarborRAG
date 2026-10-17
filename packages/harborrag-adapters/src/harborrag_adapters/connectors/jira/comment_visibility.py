@@ -2,8 +2,10 @@
 
 An issue becomes one document with one access decision. A comment Jira limits to
 a project role or group (``visibility``), or a Jira Service Management internal
-note (``jsdPublic: false``), is narrower than its issue, so it is dropped rather
-than merged into text that every reader of the issue would receive.
+note, is narrower than its issue, so it is dropped rather than merged into text
+that every reader of the issue would receive. Cloud marks an internal note with
+``jsdPublic: false``; Data Center only with the ``sd.public.comment`` comment
+property, which the comment endpoint returns when asked to expand ``properties``.
 """
 
 from __future__ import annotations
@@ -11,18 +13,34 @@ from __future__ import annotations
 from collections.abc import Iterable, Mapping
 from typing import Any
 
+INTERNAL_NOTE_PROPERTY = "sd.public.comment"
+
 
 def is_restricted_comment(comment: Mapping[str, Any]) -> bool:
     """Return whether Jira shows this comment to fewer readers than its issue.
 
     Any non-null ``visibility`` counts, including an empty or malformed value:
     Jira only sends the key for restricted comments, so an unexpected shape is
-    treated as restricted rather than guessed to be public.
+    treated as restricted rather than guessed to be public. The same holds for
+    an ``sd.public.comment`` property: only an explicit ``internal: false``
+    reads as public.
     """
 
     if comment.get("visibility") is not None:
         return True
-    return comment.get("jsdPublic") is False
+    if comment.get("jsdPublic") is False:
+        return True
+    return _is_internal_note(comment.get("properties"))
+
+
+def _is_internal_note(properties: object) -> bool:
+    if not isinstance(properties, list):
+        return False
+    for entry in properties:
+        if isinstance(entry, Mapping) and entry.get("key") == INTERNAL_NOTE_PROPERTY:
+            value = entry.get("value")
+            return not (isinstance(value, Mapping) and value.get("internal") is False)
+    return False
 
 
 def shareable_comments(comments: Iterable[object]) -> list[dict[str, Any]]:
@@ -60,6 +78,31 @@ def redact_restricted_comments(issue: dict[str, Any]) -> dict[str, Any]:
             shareable_ids = {str(entry.get("id")) for entry in embedded[list_key]}
         if isinstance(rendered, dict) and block_name in rendered:
             _redact_rendered_block(rendered, block_name, list_key, shareable_ids)
+    return issue
+
+
+def keep_verified_comments(
+    issue: dict[str, Any], verified: Iterable[Mapping[str, Any]]
+) -> dict[str, Any]:
+    """Narrow an issue's embedded comments to the ones ``verified`` holds, in place.
+
+    Embedded comments never carry comment properties, so on Data Center an
+    internal note looks public there. ``fetch_comments`` reads comments with
+    their properties; only the ids it kept survive in the issue payload.
+    """
+
+    verified_ids = {str(comment.get("id")) for comment in verified}
+    fields = issue.get("fields")
+    embedded = fields.get("comment") if isinstance(fields, dict) else None
+    if isinstance(embedded, dict) and isinstance(embedded.get("comments"), list):
+        embedded["comments"] = [
+            comment
+            for comment in embedded["comments"]
+            if isinstance(comment, dict) and str(comment.get("id")) in verified_ids
+        ]
+    rendered = issue.get("renderedFields")
+    if isinstance(rendered, dict) and "comment" in rendered:
+        _redact_rendered_block(rendered, "comment", "comments", verified_ids)
     return issue
 
 

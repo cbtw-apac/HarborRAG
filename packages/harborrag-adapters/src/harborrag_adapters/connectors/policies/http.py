@@ -229,17 +229,21 @@ def retry_delay_seconds(
     *,
     max_delay: float = DEFAULT_MAX_RETRY_DELAY_SECONDS,
     jitter: bool = True,
+    throttled: bool = False,
 ) -> float:
     """Choose a retry delay from provider headers or a fallback backoff.
 
     HTTP providers commonly return either ``Retry-After`` or
     ``X-RateLimit-Reset``. This helper centralizes that interpretation so every
-    connector sleeps consistently when it is throttled. The result is always
-    clamped to ``max_delay`` (defending against hostile headers) and, when
-    ``jitter`` is set, spread by a small random factor to avoid a thundering
-    herd of synchronized retries across workers.
+    connector sleeps consistently when it is throttled. ``X-RateLimit-Reset``
+    only applies when the caller classified the response as ``throttled`` or
+    ``X-RateLimit-Remaining`` is ``0``: GitHub sends the reset time of its
+    hourly window on every response, and a transient 5xx must not wait for it.
+    The result is always clamped to ``max_delay`` (defending against hostile
+    headers) and, when ``jitter`` is set, spread by a small random factor to
+    avoid a thundering herd of synchronized retries across workers.
     """
-    delay = _raw_delay(headers, fallback_delay)
+    delay = _raw_delay(headers, fallback_delay, throttled=throttled)
     delay = max(0.0, min(delay, max_delay))
     if jitter and delay > 0:
         delay += random.uniform(0.0, min(1.0, delay * 0.1))
@@ -249,6 +253,8 @@ def retry_delay_seconds(
 def _raw_delay(
     headers: Mapping[str, str] | HTTPResponse | None,
     fallback_delay: float,
+    *,
+    throttled: bool,
 ) -> float:
     if not headers:
         return fallback_delay
@@ -258,6 +264,9 @@ def _raw_delay(
         parsed = _parse_retry_after(retry_after)
         if parsed is not None:
             return parsed
+
+    if not throttled and _header(headers, "X-RateLimit-Remaining") != "0":
+        return fallback_delay
 
     reset_at = _header(headers, "X-RateLimit-Reset")
     if reset_at:

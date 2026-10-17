@@ -8,7 +8,7 @@ import pytest
 from local_test_helpers import config, write_file
 
 from harborrag_adapters.connectors import LocalFileConnector
-from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
@@ -142,6 +142,72 @@ def test_discover_does_not_follow_symlinks_outside_source_scope(tmp_path: Path, 
         monkeypatch.setattr(filesystem, "resolve_path", resolve_link)
 
     assert list(connector.discover()) == []
+
+
+def _change_after_selection(root: Path, name: str, change):
+    """A callback that alters one file after selection, before its record is built."""
+
+    def callback(relative: str, size: int, mime_type: str) -> tuple[bool, str]:
+        if Path(relative).name == name:
+            change(root / relative)
+        return True, ""
+
+    return callback
+
+
+def test_discover_skips_file_that_vanishes_after_selection(tmp_path: Path):
+    # Office lock files such as `~$report.docx` come and go mid-scan.
+    write_file(tmp_path / "a.md", "a")
+    write_file(tmp_path / "~$report.docx", "lock")
+    connector = LocalFileConnector(
+        config(
+            tmp_path,
+            process_file_callback=_change_after_selection(tmp_path, "~$report.docx", Path.unlink),
+        )
+    )
+
+    records = list(connector.discover())
+
+    assert [record.id for record in records] == ["a.md"]
+    assert [(Path(s.path).name, s.reason) for s in connector.skipped] == [
+        ("~$report.docx", "unreadable")
+    ]
+
+
+def test_discover_skips_file_that_outgrows_size_cap_before_hashing(tmp_path: Path):
+    write_file(tmp_path / "a.md", "a")
+    write_file(tmp_path / "grows.log", "small")
+    connector = LocalFileConnector(
+        config(
+            tmp_path,
+            checksum_mode="sha256",
+            max_file_size_bytes=10,
+            process_file_callback=_change_after_selection(
+                tmp_path, "grows.log", lambda path: path.write_text("x" * 100)
+            ),
+        )
+    )
+
+    records = list(connector.discover())
+
+    assert [record.id for record in records] == ["a.md"]
+    assert [(Path(s.path).name, s.reason) for s in connector.skipped] == [
+        ("grows.log", "unreadable")
+    ]
+
+
+def test_discover_raises_for_vanished_file_when_fail_on_error(tmp_path: Path):
+    write_file(tmp_path / "gone.md", "a")
+    connector = LocalFileConnector(
+        config(
+            tmp_path,
+            fail_on_error=True,
+            process_file_callback=_change_after_selection(tmp_path, "gone.md", Path.unlink),
+        )
+    )
+
+    with pytest.raises(FetchError):
+        list(connector.discover())
 
 
 def test_discover_stops_at_limit(tmp_path: Path):
