@@ -299,24 +299,33 @@ def _connection_ids(value: object, label: str) -> frozenset[str]:
     return frozenset(ids)
 
 
-type _Signature = tuple[int, int] | None
+type _Stamp = tuple[int, int, int, int] | None
+type _Signature = tuple[_Stamp, _Stamp]
 
 
 @dataclass(frozen=True, slots=True)
 class _Observed:
-    """What the file looked like at a stat, and what it loaded to."""
+    """What both files looked like at a stat, and what they loaded to."""
 
     signature: _Signature
     access: AccessFile | None
 
 
 class AccessFileWatcher:
-    """The access file as it stands now, reloaded when it changes.
+    """The access file as it stands now, reloaded when it or the connector catalog changes.
 
-    :meth:`current` stats the file on every call and reloads only when its
-    ``(st_mtime_ns, st_size)`` differs from the last call's. While the file is missing or
-    invalid it returns ``None``, which callers treat as "refuse everyone"; one warning per
-    change records the exception type and the path, never the file's contents.
+    :meth:`current` stats both files on every call and reloads when either one's stamp,
+    ``(st_mtime_ns, st_size, st_ctime_ns, st_ino)``, differs from the last call's. Size and
+    modification time alone miss a same-size replacement whose modification time was put
+    back, and a permission fix; the change time and the inode catch both. The catalog is
+    watched too, because the access file is valid only against it.
+
+    While the file is missing or invalid it returns ``None``, which callers treat as
+    "refuse everyone". A verdict on the files themselves (missing, invalid, or fine) is kept
+    until a stamp changes. A failure to read them (an ``OSError`` while statting or loading,
+    such as ``EIO`` or ``EMFILE``) is not kept: that call is refused and the next call tries
+    again. One warning per (stamp, exception type) records the exception type and the
+    paths, never the files' contents.
 
     Nothing is read until the first call. Several watchers over one file are independent,
     and each reloads on its own.
@@ -329,18 +338,23 @@ class AccessFileWatcher:
         self._catalog_path = Path(catalog_path).expanduser()
         self._lock = threading.Lock()
         self._observed: _Observed | None = None
+        self._last_failure: tuple[_Signature | None, str] | None = None
 
     def current(self) -> AccessFile | None:
-        """The loaded file, or ``None`` while it is missing or invalid."""
+        """The loaded file, or ``None`` while it is missing, invalid or unreadable."""
 
-        signature = self._signature()
+        try:
+            signature: _Signature = (_stamp(self._path), _stamp(self._catalog_path))
+        except OSError as exc:
+            with self._lock:
+                self._warn_once(None, exc)
+            return None
         observed = self._observed
         if observed is None or observed.signature != signature:
             with self._lock:
                 observed = self._observed
                 if observed is None or observed.signature != signature:
-                    observed = _Observed(signature, self._load())
-                    self._observed = observed
+                    return self._reload(signature)
         return observed.access
 
     def listed_tenants(self, principal_id: str) -> frozenset[str]:
@@ -355,26 +369,61 @@ class AccessFileWatcher:
             if access.entitled_connections(tenant_id, principal_id)
         )
 
-    def _signature(self) -> _Signature:
-        try:
-            stat = os.stat(self._path)
-        except OSError:
-            return None
-        return (stat.st_mtime_ns, stat.st_size)
+    def _reload(self, signature: _Signature) -> AccessFile | None:
+        """Load both files under the lock and keep the verdict, unless reading failed."""
 
-    def _load(self) -> AccessFile | None:
         try:
             catalog = load_connector_catalog(self._catalog_path)
-            return load_access_file(self._path, catalog=catalog)
+            access = load_access_file(self._path, catalog=catalog)
         except Exception as exc:  # noqa: BLE001 - any failure must refuse, never raise into a request
-            logger.warning(
-                "Access file %s (connector catalog %s) could not be loaded: %s; every "
-                "principal is refused until it is fixed",
-                self._path,
-                self._catalog_path,
-                type(exc).__name__,
-            )
+            self._warn_once(signature, exc)
+            if not _is_read_failure(exc):
+                self._observed = _Observed(signature, None)
             return None
+        self._last_failure = None
+        self._observed = _Observed(signature, access)
+        return access
+
+    def _warn_once(self, signature: _Signature | None, exc: BaseException) -> None:
+        failure = (signature, type(exc).__name__)
+        if failure == self._last_failure:
+            return
+        self._last_failure = failure
+        logger.warning(
+            "Access file %s (connector catalog %s) could not be loaded: %s; every "
+            "principal is refused until it is fixed",
+            self._path,
+            self._catalog_path,
+            type(exc).__name__,
+        )
+
+
+def _stamp(path: Path) -> _Stamp:
+    """The file's identity as one ``os.stat`` sees it; ``None`` when it is not there.
+
+    Any other ``OSError`` is not a verdict on the file, so it propagates.
+    """
+
+    try:
+        stat = os.stat(path)
+    except (FileNotFoundError, NotADirectoryError):
+        return None
+    return (stat.st_mtime_ns, stat.st_size, stat.st_ctime_ns, stat.st_ino)
+
+
+def _is_read_failure(exc: BaseException) -> bool:
+    """Whether ``exc`` is, or was raised from, an ``OSError``.
+
+    ``read_yaml_file`` wraps a failed read in the configuration error it was given, so
+    the ``OSError`` is its ``__cause__``.
+    """
+
+    error: BaseException | None = exc
+    while error is not None:
+        if isinstance(error, OSError):
+            return True
+        error = error.__cause__
+    return False
 
 
 __all__ = [

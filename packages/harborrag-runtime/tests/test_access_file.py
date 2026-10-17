@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import copy
+import errno
 import logging
 import os
+import time
 from pathlib import Path
 from textwrap import dedent
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -703,3 +706,222 @@ def test_listed_tenants(tmp_path: Path, catalog_path: Path) -> None:
 
     path.unlink()
     assert watcher.listed_tenants("p-aaaa") == frozenset()
+
+
+def _access_records(caplog: pytest.LogCaptureFixture) -> list[logging.LogRecord]:
+    return [record for record in caplog.records if record.name == _ACCESS_LOGGER]
+
+
+def test_catalog_edit_is_seen(tmp_path: Path, catalog_path: Path) -> None:
+    both = frozenset({"confluence-eng", "jira-cpm"})
+    only_confluence = "version: 1\nconnectors:\n  confluence-eng:\n    provider: local\n"
+    path = _write(tmp_path / "access.yaml", _document())
+    catalog_path.write_text(only_confluence, encoding="utf-8")
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+    untouched = path.stat()
+
+    # The file lists jira-cpm, which the catalog does not have yet: refused.
+    assert watcher.current() is None
+
+    # The catalog gains it. The access file is not touched, and is accepted.
+    catalog_path.write_text(dedent(_CATALOG), encoding="utf-8")
+    current = watcher.current()
+    assert current is not None
+    assert current.entitled_connections("acme", "p-whole") == both
+    assert path.stat().st_mtime_ns == untouched.st_mtime_ns
+    assert path.stat().st_size == untouched.st_size
+
+    # The catalog drops a connection the loaded file lists: the file is refused again.
+    catalog_path.write_text(only_confluence, encoding="utf-8")
+    assert watcher.current() is None
+
+    # The catalog restricts a connection to another tenant: refused as well.
+    catalog_path.write_text(dedent(_CATALOG).replace("[acme]", "[globex]"), encoding="utf-8")
+    assert watcher.current() is None
+
+    catalog_path.write_text(dedent(_CATALOG), encoding="utf-8")
+    assert watcher.current() is not None
+
+
+@pytest.mark.parametrize("how", ["overwrite", "replace"])
+def test_same_size_same_mtime_replacement_is_seen(
+    tmp_path: Path, catalog_path: Path, how: str
+) -> None:
+    path = _write(tmp_path / "access.yaml", _document())
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+    first = watcher.current()
+    assert first is not None
+    assert first.entitled_connections("acme", "p-aaaa") == frozenset({"confluence-eng"})
+    seen = path.stat()
+    # Let the filesystem's clock tick, so a write in place cannot land on the old ctime.
+    time.sleep(0.05)
+
+    swapped = _document()
+    _project(swapped)["members"][0]["principal"] = "p-bbbb"
+    if how == "overwrite":
+        _write(path, swapped)
+    else:
+        os.replace(_write(tmp_path / "staged.yaml", swapped), path)
+    os.utime(path, ns=(seen.st_atime_ns, seen.st_mtime_ns))
+
+    now = path.stat()
+    assert (now.st_size, now.st_mtime_ns) == (seen.st_size, seen.st_mtime_ns)
+    current = watcher.current()
+    assert current is not None
+    assert current.entitled_connections("acme", "p-bbbb") == frozenset({"confluence-eng"})
+    assert current.entitled_connections("acme", "p-aaaa") == frozenset()
+
+
+_STAMP_FIELDS = ("st_mtime_ns", "st_size", "st_ctime_ns", "st_ino")
+
+
+@pytest.mark.parametrize("target", ["access file", "catalog"])
+@pytest.mark.parametrize("stamp_field", _STAMP_FIELDS)
+def test_every_part_of_either_files_stamp_triggers_a_reload(
+    tmp_path: Path,
+    catalog: ConnectorCatalog,
+    monkeypatch: pytest.MonkeyPatch,
+    target: str,
+    stamp_field: str,
+) -> None:
+    access_path = tmp_path / "access.yaml"
+    catalog_path = tmp_path / "connectors.yaml"
+    stamps = {path: dict.fromkeys(_STAMP_FIELDS, 1) for path in (access_path, catalog_path)}
+    loads: list[str] = []
+
+    def fake_stat(path: Path) -> SimpleNamespace:
+        return SimpleNamespace(**stamps[Path(path)])
+
+    def fake_catalog(path: Path) -> ConnectorCatalog:
+        loads.append("catalog")
+        return catalog
+
+    def fake_access(path: Path, *, catalog: ConnectorCatalog) -> AccessFile:
+        loads.append("access file")
+        return AccessFile({})
+
+    monkeypatch.setattr(access_file_module, "os", SimpleNamespace(stat=fake_stat))
+    monkeypatch.setattr(access_file_module, "load_connector_catalog", fake_catalog)
+    monkeypatch.setattr(access_file_module, "load_access_file", fake_access)
+    watcher = AccessFileWatcher(access_path, catalog_path=catalog_path)
+
+    assert watcher.current() is not None
+    assert watcher.current() is not None
+    assert loads == ["catalog", "access file"]
+
+    stamps[access_path if target == "access file" else catalog_path][stamp_field] += 1
+
+    assert watcher.current() is not None
+    assert loads == ["catalog", "access file"] * 2
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root ignores file modes")
+def test_permission_fix_is_seen(
+    tmp_path: Path, catalog_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    path = _write(tmp_path / "access.yaml", _document())
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+    assert watcher.current() is not None
+
+    path.chmod(0o000)
+    try:
+        assert watcher.current() is None
+        assert watcher.current() is None
+        assert len(_access_records(caplog)) == 1
+    finally:
+        path.chmod(0o644)
+
+    current = watcher.current()
+    assert current is not None
+    assert current.entitled_connections("acme", "p-aaaa") == frozenset({"confluence-eng"})
+
+
+def test_transient_oserror_is_retried(
+    tmp_path: Path,
+    catalog_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(tmp_path / "access.yaml", _document())
+    real_load = access_file_module.load_access_file
+    attempts: list[Path] = []
+
+    def flaky(file: Path, *, catalog: ConnectorCatalog) -> AccessFile:
+        attempts.append(file)
+        if len(attempts) <= 3:
+            raise OSError(errno.EIO, "Input/output error")
+        return real_load(file, catalog=catalog)
+
+    monkeypatch.setattr(access_file_module, "load_access_file", flaky)
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+
+    # The file never changes, yet each call tries again; the failure is said once.
+    assert [watcher.current() for _ in range(3)] == [None, None, None]
+    assert len(attempts) == 3
+    records = _access_records(caplog)
+    assert len(records) == 1
+    assert records[0].levelno == logging.WARNING
+    assert "OSError" in records[0].getMessage()
+    assert str(path) in records[0].getMessage()
+
+    recovered = watcher.current()
+    assert recovered is not None
+    assert watcher.current() is recovered
+    assert len(attempts) == 4
+    assert len(_access_records(caplog)) == 1
+
+
+def test_a_read_error_wrapped_by_the_loader_is_retried(
+    tmp_path: Path,
+    catalog_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(tmp_path / "access.yaml", _document())
+    real_read = access_file_module.read_yaml_file
+    attempts: list[Path] = []
+
+    def flaky_read(file: Path, **kwargs: Any) -> tuple[Path, object]:
+        attempts.append(file)
+        if len(attempts) == 1:
+            # What read_yaml_file raises when the read itself fails.
+            raise ConnectorConfigurationError("Could not read") from OSError(errno.EIO, "I/O")
+        return real_read(file, **kwargs)
+
+    monkeypatch.setattr(access_file_module, "read_yaml_file", flaky_read)
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+
+    assert watcher.current() is None
+    assert watcher.current() is not None
+    assert len(attempts) == 2
+    assert len(_access_records(caplog)) == 1
+
+
+def test_transient_oserror_while_statting_is_retried(
+    tmp_path: Path,
+    catalog_path: Path,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _write(tmp_path / "access.yaml", _document())
+    real_stat = os.stat
+    failing = [True]
+
+    def flaky_stat(file: Path) -> os.stat_result:
+        if failing[0]:
+            raise OSError(errno.EIO, "Input/output error")
+        return real_stat(file)
+
+    monkeypatch.setattr(access_file_module, "os", SimpleNamespace(stat=flaky_stat))
+    watcher = AccessFileWatcher(path, catalog_path=catalog_path)
+
+    assert watcher.current() is None
+    assert watcher.current() is None
+    assert watcher.listed_tenants("p-aaaa") == frozenset()
+    records = _access_records(caplog)
+    assert len(records) == 1
+    assert "OSError" in records[0].getMessage()
+
+    failing[0] = False
+    assert watcher.current() is not None
+    assert watcher.listed_tenants("p-aaaa") == frozenset({"acme"})
