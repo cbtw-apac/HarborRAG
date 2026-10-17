@@ -158,21 +158,28 @@ def _vouched_realm(
 ) -> str | None:
     """The realm of a class whose records are its own, else ``None``.
 
-    Both records must exist, and the class and its snapshot must be ``class_id``'s in
-    ``tenant``; anything else is no evidence about the class (as in ``decide``).
+    Both records must exist, the class must be ``class_id`` of ``tenant`` and the snapshot
+    must be that class's own; anything else is no evidence about the class (as in
+    ``decide``). The snapshot's tenant is checked where it is read, by ``can_read``.
     """
 
     if acl_class is None or snapshot is None:
         return None
     if acl_class.class_id != class_id or acl_class.tenant_id != tenant:
         return None
-    if (
-        snapshot.resource_kind != "class"
-        or snapshot.resource_id != class_id
-        or snapshot.tenant_id != tenant
-    ):
+    if snapshot.resource_kind != "class" or snapshot.resource_id != class_id:
         return None
     return acl_class.acl.realm
+
+
+def _stricter(left: frozenset[str] | None, right: frozenset[str] | None) -> frozenset[str] | None:
+    """The tighter of two entitlements: ``None`` gates nothing, so the other one wins."""
+
+    if left is None:
+        return right
+    if right is None:
+        return left
+    return left & right
 
 
 def _document_id(ref: ResourceRef) -> str | None:
@@ -242,16 +249,32 @@ class ClassAccessService:
     ) -> list[Decision]:
         """One decision per ref, in order, recorded before they are returned.
 
-        Staleness is judged now, from the directories' sync times, and a realm the
-        context already names as stale stays stale: the context is never trusted to
-        be fresher than it says. A recording failure propagates, so no decision
-        leaves unrecorded.
+        The context is held to the service's own policy and facts, never trusted over
+        them. Its ``corpus_mode`` must be the one the corpus policy gives its tenant, or
+        ``HarborAuthError(forbidden=True)`` is raised and nothing is decided. A context
+        that is not a background one is entitled to the stricter of its own
+        ``entitled_source_scopes`` and the entitlement store's, so it can narrow its
+        entitlements but never widen them. Staleness is judged now, from the directories'
+        sync times, and a realm the context already names as stale stays stale: the
+        context is never trusted to be fresher than it says. A recording failure
+        propagates, so no decision leaves unrecorded.
         """
 
+        tenant = str(access.tenant_id)
+        if access.corpus_mode != self._corpus.mode_for(tenant):
+            raise HarborAuthError(
+                "the access context does not match the corpus policy of its tenant", forbidden=True
+            )
         if not refs:
             return []
         now = self._now()
-        tenant = str(access.tenant_id)
+        effective = access
+        if access.purpose != "process":
+            entitled = _stricter(
+                access.entitled_source_scopes,
+                await self._facts.entitled_source_scopes(tenant, access.principal_id),
+            )
+            effective = access.model_copy(update={"entitled_source_scopes": entitled})
         document_ids = list(
             dict.fromkeys(id_ for ref in refs if (id_ := _document_id(ref)) is not None)
         )
@@ -265,7 +288,7 @@ class ClassAccessService:
             synced, now, among=(acl_class.acl.realm for acl_class in classes.values())
         ) | frozenset(access.scope.stale_realms)
         decisions = decide(
-            access,
+            effective,
             refs,
             documents=documents,
             classes=classes,
@@ -310,7 +333,9 @@ class ClassAccessService:
         """The readable classes that may be served now, and the stale realms found.
 
         A class is dropped when its class or snapshot record is missing or is not its
-        own, or when it is not public and its realm is stale.
+        own, when its snapshot does not let the principal read it now, or when it is not
+        public and its realm is stale. Only the realms of the classes that remain
+        readable are looked at.
         """
 
         readable = sorted(await self._readable_classes(access))
@@ -322,7 +347,7 @@ class ClassAccessService:
         realms: dict[ClassId, str] = {}
         for class_id in readable:
             realm = _vouched_realm(tenant, class_id, classes.get(class_id), snapshots.get(class_id))
-            if realm is not None:
+            if realm is not None and snapshots[class_id].can_read(access, now=now):
                 realms[class_id] = realm
         stale = self._stale_realms(synced, now, among=realms.values())
         served = frozenset(
