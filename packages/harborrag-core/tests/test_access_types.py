@@ -152,6 +152,24 @@ def test_stale_scope_rejects_blank_realms():
         AccessScope.stale([])
 
 
+@pytest.mark.parametrize("realms", ["atlassian:acme.atlassian.net", b"atlassian:acme"])
+def test_stale_scope_refuses_a_bare_string_for_its_realms(realms: object):
+    # A bare string would otherwise be read as one realm per character.
+    with pytest.raises(ValueError):
+        AccessScope.stale(realms)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("status", ["full", "partial"])
+def test_only_a_stale_scope_names_stale_realms(status: str):
+    with pytest.raises(ValueError, match="stale"):
+        AccessScope(
+            status=status,  # type: ignore[arg-type]
+            reason="directory unreachable",
+            stale_realms=("atlassian:acme.atlassian.net",),
+        )
+    assert AccessScope(status=status, reason="directory unreachable").stale_realms == ()  # type: ignore[arg-type]
+
+
 def test_full_scope_is_the_default_and_is_immutable():
     scope = AccessScope.full()
     assert (scope.status, scope.reason, scope.stale_realms) == ("full", None, ())

@@ -15,7 +15,7 @@ from typing import Literal, Self
 from pydantic import model_validator
 
 from harborrag_core.base import StrictModel
-from harborrag_core.security._validation import require_text
+from harborrag_core.security._validation import require_text, text_items
 from harborrag_core.security.classes import ClassId
 
 DecisionReason = Literal[
@@ -65,7 +65,8 @@ class AccessScope(StrictModel):
 
     ``full``: every realm resolved. ``partial``: some part could not be resolved
     and ``reason`` says why. ``stale``: a directory behind the named
-    ``stale_realms`` is out of date, so those realms' ACLs are not trusted.
+    ``stale_realms`` is out of date, so those realms' ACLs are not trusted. Only a
+    ``stale`` scope names stale realms.
     """
 
     status: Literal["full", "partial", "stale"] = "full"
@@ -78,6 +79,8 @@ class AccessScope(StrictModel):
             require_text(self.reason, "a partial access scope reason")
         if self.status == "stale" and not self.stale_realms:
             raise ValueError("a stale access scope must name at least one stale realm")
+        if self.status != "stale" and self.stale_realms:
+            raise ValueError(f"a {self.status} access scope names no stale realms")
         for realm in self.stale_realms:
             require_text(realm, "a stale realm")
         return self
@@ -92,4 +95,6 @@ class AccessScope(StrictModel):
 
     @classmethod
     def stale(cls, realms: Iterable[str]) -> AccessScope:
-        return cls(status="stale", stale_realms=tuple(realms))
+        """A stale scope naming ``realms``; a bare string is refused, not split into characters."""
+
+        return cls(status="stale", stale_realms=text_items(realms, "a stale realm"))
