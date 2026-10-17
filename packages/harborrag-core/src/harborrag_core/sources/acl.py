@@ -27,6 +27,8 @@ AclStatus = Literal["inherited", "restricted", "unknown"]
 SOURCE_ACL_METADATA_KEY = "source_acl"
 
 _STATUSES: frozenset[str] = frozenset(get_args(AclStatus))
+_PRINCIPAL_KEYS: frozenset[str] = frozenset({"realm", "kind", "id", "display_name"})
+_ACL_KEYS: frozenset[str] = frozenset({"realm", "scope", "status", "reason", "levels"})
 
 
 def _require_text(value: object, name: str) -> None:
@@ -37,6 +39,14 @@ def _require_text(value: object, name: str) -> None:
 def _require_str(value: object, name: str) -> None:
     if not isinstance(value, str):
         raise ValueError(f"{name} must be a string")
+
+
+def _reject_unknown_keys(payload: Mapping[Any, Any], known: frozenset[str], name: str) -> None:
+    """Refuse a payload carrying any key its ``to_dict`` never writes."""
+
+    unknown = sorted(repr(key) for key in payload if key not in known)
+    if unknown:
+        raise ValueError(f"{name} has unknown keys: {', '.join(unknown)}")
 
 
 @dataclass(frozen=True, slots=True, order=True, kw_only=True)
@@ -82,10 +92,14 @@ class SourcePrincipal:
 
     @classmethod
     def from_dict(cls, payload: Mapping[str, Any]) -> SourcePrincipal:
-        """Decode :meth:`to_dict`; any missing or blank identity field raises ``ValueError``."""
+        """Decode :meth:`to_dict`; a missing or blank identity field or an unknown key raises.
+
+        Every failure is a ``ValueError``.
+        """
 
         if not isinstance(payload, Mapping):
             raise ValueError("a source principal must be a mapping")
+        _reject_unknown_keys(payload, _PRINCIPAL_KEYS, "a source principal")
         return cls(
             realm=payload.get("realm"),  # type: ignore[arg-type]
             kind=payload.get("kind"),  # type: ignore[arg-type]
@@ -218,11 +232,13 @@ class SourceAcl:
 
         ``realm`` and ``scope`` must be present for every status, since
         :meth:`to_dict` always writes them (blank only for ``unknown``). Payloads
-        stored before ACLs carried them are therefore rejected, never guessed at.
+        stored before ACLs carried them are therefore rejected, never guessed at. A
+        key :meth:`to_dict` never writes, here or in a principal, raises too.
         """
 
         if not isinstance(payload, Mapping):
             raise ValueError("a source ACL must be a mapping")
+        _reject_unknown_keys(payload, _ACL_KEYS, "a source ACL")
         status = payload.get("status")
         if not isinstance(status, str) or status not in _STATUSES:
             raise ValueError(f"unsupported source ACL status: {status!r}")

@@ -165,6 +165,23 @@ def test_principal_from_dict_raises_value_error_for_missing_or_bad_fields(
         SourcePrincipal.from_dict(payload)
 
 
+@pytest.mark.parametrize("extra", [{"email": "a@example.com"}, {"realms": REALM}, {1: "x"}])
+def test_principal_from_dict_rejects_unknown_keys(extra: dict[Any, Any]):
+    payload = {**_group("g1", "Recruiting").to_dict(), **extra}
+
+    with pytest.raises(ValueError, match="unknown"):
+        SourcePrincipal.from_dict(payload)
+
+
+@pytest.mark.parametrize("principal", [_group("g1"), _group("g1", "Recruiting")])
+def test_principal_from_dict_reads_back_every_key_to_dict_writes(principal: SourcePrincipal):
+    payload = principal.to_dict()
+
+    assert set(payload) <= {"realm", "kind", "id", "display_name"}
+    restored = SourcePrincipal.from_dict(payload)
+    assert (restored, restored.display_name) == (principal, principal.display_name)
+
+
 @pytest.mark.parametrize("payload", [None, "group:g1", ["group", "g1"], 3])
 def test_principal_from_dict_rejects_non_mappings(payload: Any):
     with pytest.raises(ValueError):
@@ -549,6 +566,45 @@ def test_legacy_restricted_payload_never_decodes_to_an_inherited_acl():
 def test_from_dict_raises_value_error_for_missing_or_malformed_fields(payload: dict[str, Any]):
     with pytest.raises(ValueError):
         SourceAcl.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "extra", [{"public": True}, {"inherits_from": "jira-project:OPS"}, {"Levels": []}]
+)
+@pytest.mark.parametrize(
+    "acl",
+    [_restricted(), SourceAcl.inherited(realm=REALM, scope=SCOPE), SourceAcl.unknown(reason="r")],
+    ids=["restricted", "inherited", "unknown"],
+)
+def test_from_dict_rejects_unknown_keys(acl: SourceAcl, extra: dict[str, Any]):
+    with pytest.raises(ValueError, match="unknown"):
+        SourceAcl.from_dict({**acl.to_dict(), **extra})
+
+
+def test_from_dict_rejects_unknown_keys_of_a_principal_in_a_level():
+    payload = _restricted().to_dict()
+    payload["levels"][1][0]["role"] = "admin"
+
+    with pytest.raises(ValueError, match="unknown"):
+        SourceAcl.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        _restricted(),
+        SourceAcl.inherited(realm=REALM, scope=SCOPE),
+        SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE),
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+    ],
+    ids=["restricted", "inherited", "unknown-scoped", "unknown-bare"],
+)
+def test_from_dict_reads_back_every_key_to_dict_writes(acl: SourceAcl):
+    payload = acl.to_dict()
+
+    assert set(payload) == {"realm", "scope", "status", "reason", "levels"}
+    assert SourceAcl.from_dict(payload) == acl
+    assert SourceAcl.from_dict(json.loads(json.dumps(payload))) == acl
 
 
 @pytest.mark.parametrize("payload", [None, "inherited", ["inherited"], 3])
