@@ -69,24 +69,35 @@ def test_a_stage_decision_is_immutable() -> None:
         decision.action = "withhold"  # type: ignore[misc]
 
 
-def test_an_unrecognised_corpus_mode_withholds_a_restricted_item() -> None:
+@pytest.mark.parametrize(
+    "acl",
+    [NONE_ACL, UNKNOWN, INHERITED, RESTRICTED],
+    ids=["none", "unknown", "inherited", "restricted"],
+)
+@pytest.mark.parametrize(
+    ("restricted_content", "corpus_mode"),
+    [
+        ("everything", "source_acl"),
+        ("include", "somewhere_else"),
+        ("everything", "somewhere_else"),
+        ("", "source_acl"),
+        ("include", ""),
+        (None, "tenant_shared"),
+        (["skip"], "source_acl"),
+        ("skip", ["source_acl"]),
+        ("skip", None),
+    ],
+)
+def test_a_forged_policy_withholds_every_acl_and_never_stages(
+    acl: SourceAcl | None, restricted_content: object, corpus_mode: object
+) -> None:
     decision = stage_decision(
-        RESTRICTED,
-        restricted_content="include",
-        corpus_mode="somewhere_else",  # type: ignore[arg-type]
+        acl,
+        restricted_content=restricted_content,  # type: ignore[arg-type]
+        corpus_mode=corpus_mode,  # type: ignore[arg-type]
     )
 
-    assert decision == StageDecision(action="withhold", reason="restricted_in_shared_corpus")
-
-
-def test_an_unrecognised_restricted_content_policy_withholds_a_restricted_item() -> None:
-    decision = stage_decision(
-        RESTRICTED,
-        restricted_content="everything",  # type: ignore[arg-type]
-        corpus_mode="source_acl",
-    )
-
-    assert decision == StageDecision(action="withhold", reason="restricted_skip")
+    assert decision == StageDecision(action="withhold", reason="unrecognised_policy")
 
 
 def test_an_acl_with_an_unrecognised_status_is_withheld() -> None:

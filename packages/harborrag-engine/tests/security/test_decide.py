@@ -12,7 +12,10 @@ from harborrag_core.security.context import AccessContext
 from harborrag_core.security.decisions import Decision, DocumentAccess
 from harborrag_core.security.resources import ResourceRef
 from harborrag_core.sources.acl import SourceAcl
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import (
+    PermissionResourceKind,
+    ResolvedPermissionSnapshot,
+)
 from harborrag_engine.security.decide import decide
 
 REALM = "atlassian:acme.atlassian.net"
@@ -73,10 +76,11 @@ def snapshot(
     denied: Iterable[str] = (),
     resolved_at: datetime = T0,
     expires_at: datetime = EXPIRES,
+    kind: PermissionResourceKind = "class",
 ) -> ResolvedPermissionSnapshot:
     return ResolvedPermissionSnapshot(
         tenant_id=tenant,
-        resource_kind="class",
+        resource_kind=kind,
         resource_id=class_id,
         revision="rev-1",
         resolved_at=resolved_at,
@@ -145,6 +149,28 @@ def test_a_derived_resource_is_never_decided_by_its_own_id() -> None:
     decisions = run(access(), [chunk], documents=documents, classes=classes, snapshots=snapshots)
 
     assert decisions == [Decision(False, "not_member", C2)]
+
+
+def test_a_document_ref_is_decided_by_its_own_class_whatever_document_id_it_carries() -> None:
+    # ``doc-unreadable`` is not readable by the principal; the stray ``document_id`` names a
+    # document that is. Borrowing that document's class would turn a denial into ``member``.
+    documents = {
+        "doc-readable": DocumentAccess(C1, SCOPE),
+        "doc-unreadable": DocumentAccess(C2, SCOPE),
+    }
+    classes = {C1: acl_class(C1), C2: acl_class(C2)}
+    snapshots = {C1: snapshot(C1), C2: snapshot(C2, allowed=("someone-else",))}
+    ref = ResourceRef(kind="document", id="doc-unreadable", document_id="doc-readable")
+
+    decisions = run(access(), [ref], documents=documents, classes=classes, snapshots=snapshots)
+
+    assert decisions == [Decision(False, "not_member", C2)]
+
+
+def test_a_document_ref_with_a_stray_document_id_is_not_rescued_by_it() -> None:
+    ref = ResourceRef(kind="document", id="doc-404", document_id="doc-1")
+
+    assert run(access(), [ref]) == [Decision(False, "no_class", None)]
 
 
 @pytest.mark.parametrize("kind", ["chunk", "node", "edge", "summary", "blob", "memory"])
@@ -223,6 +249,34 @@ def test_a_tenant_mismatch_is_reported_before_an_unentitled_datasource() -> None
 
 def test_a_missing_class_is_reported_before_an_unentitled_datasource() -> None:
     assert one(access(entitled=[]), classes={}) == Decision(False, "no_class", C1)
+
+
+def test_a_class_filed_under_another_class_id_is_treated_as_missing() -> None:
+    documents = {"doc-1": DocumentAccess(C2, SCOPE)}
+    classes = {C2: acl_class(C1)}
+    snapshots = {C2: snapshot(C2)}
+
+    decision = one(access(), documents=documents, classes=classes, snapshots=snapshots)
+
+    assert decision == Decision(False, "no_class", C2)
+
+
+def test_a_misfiled_class_cannot_hide_a_stale_realm() -> None:
+    # ``C2`` really belongs to a stale realm. ``C1`` (a fresh realm) is filed under its key;
+    # trusting it would skip the stale-realm denial and answer ``member``.
+    documents = {"doc-1": DocumentAccess(C2, SCOPE)}
+    classes = {C2: acl_class(C1, realm=REALM)}
+    snapshots = {C2: snapshot(C2)}
+
+    decision = one(
+        access(),
+        documents=documents,
+        classes=classes,
+        snapshots=snapshots,
+        stale_realms=frozenset({OTHER_REALM}),
+    )
+
+    assert decision == Decision(False, "no_class", C2)
 
 
 # --- rule 4: datasource entitlement ----------------------------------------------------------
@@ -307,6 +361,41 @@ def test_a_class_without_a_snapshot_is_an_unknown_snapshot() -> None:
 
 def test_a_snapshot_of_another_class_does_not_stand_in_for_a_missing_one() -> None:
     assert one(access(), snapshots={C2: snapshot(C2)}) == Decision(False, "unknown_snapshot", C1)
+
+
+@pytest.mark.parametrize(
+    ("mode", "purpose"),
+    [("source_acl", "serve"), ("source_acl", "process"), ("tenant_shared", "process")],
+)
+def test_a_snapshot_filed_under_another_class_id_is_treated_as_missing(
+    mode: Mode, purpose: Purpose
+) -> None:
+    # ``C1``'s snapshot lists the principal and allows processing, but it is filed under
+    # ``C2``, the class of the document.
+    documents = {"doc-1": DocumentAccess(C2, SCOPE)}
+    classes = {C2: acl_class(C2)}
+    snapshots = {C2: snapshot(C1)}
+
+    decision = one(
+        access(mode=mode, purpose=purpose),
+        documents=documents,
+        classes=classes,
+        snapshots=snapshots,
+    )
+
+    assert decision == Decision(False, "unknown_snapshot", C2)
+
+
+@pytest.mark.parametrize("purpose", ["serve", "process"])
+@pytest.mark.parametrize("kind", ["source", "document"])
+def test_a_snapshot_of_something_other_than_a_class_is_treated_as_missing(
+    kind: PermissionResourceKind, purpose: Purpose
+) -> None:
+    snapshots = {C1: snapshot(C1, kind=kind)}
+
+    decision = one(access(purpose=purpose), snapshots=snapshots)
+
+    assert decision == Decision(False, "unknown_snapshot", C1)
 
 
 def test_a_process_context_still_needs_a_snapshot_in_the_shared_corpus() -> None:

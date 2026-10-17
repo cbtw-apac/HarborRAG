@@ -7,13 +7,15 @@ its datasource and the permission snapshot of that class decide, in this order
 1. The document is ``ref.id`` for a document and ``ref.document_id`` otherwise.
    Without one, or one that is not in ``documents``: ``no_class``.
 2. The quarantine class: ``quarantined``. Nobody is ever a member.
-3. A class that is not in ``classes``: ``no_class``; one of another tenant than the
-   context's: ``tenant_mismatch``.
+3. A class that is not in ``classes``, or is filed there under a key that is not its
+   own ``class_id``: ``no_class``; one of another tenant than the context's:
+   ``tenant_mismatch``.
 4. A ``serve`` context entitled to a set of datasources that lacks this one:
    ``not_entitled``. An empty set entitles nothing; only ``None`` (a tenant with no
    RBAC) skips the gate. It applies in both corpus modes.
 5. A ``serve`` context in a ``tenant_shared`` corpus: ``tenant_shared`` (allowed).
-6. A class without a snapshot: ``unknown_snapshot``.
+6. A class without a snapshot of its own (a ``class`` snapshot whose ``resource_id``
+   is the class id): ``unknown_snapshot``.
 7. A ``process`` context reads by processing permission: ``processing_allowed``
    when the snapshot is known, current and processing-allowed, else
    ``processing_disallowed``.
@@ -92,7 +94,9 @@ def _decide_one(
         return Decision(False, "quarantined", class_id)
 
     acl_class = classes.get(class_id)
-    if acl_class is None:
+    if acl_class is None or acl_class.class_id != class_id:
+        # A class filed under another class's key is not trusted: it would lend its
+        # realm and tenant to a class it is not.
         return Decision(False, "no_class", class_id)
     if acl_class.tenant_id != str(access.tenant_id):
         return Decision(False, "tenant_mismatch", class_id)
@@ -106,7 +110,9 @@ def _decide_one(
         return Decision(True, "tenant_shared", class_id)
 
     snapshot = snapshots.get(class_id)
-    if snapshot is None:
+    if snapshot is None or snapshot.resource_kind != "class" or snapshot.resource_id != class_id:
+        # A snapshot that is not this class's own (another class's, or a source's or
+        # document's) is no evidence about it, so it counts as missing.
         return Decision(False, "unknown_snapshot", class_id)
     if not serving:
         if _may_process(snapshot, access, now):

@@ -10,16 +10,24 @@ captured for it. Only an ACL the corpus can enforce lets an item through.
   corpus enforces source ACLs. A shared corpus has no per-reader enforcement, so it
   never holds restricted content, whatever the policy says.
 
-Only a positive match stages; every other input, including a value the types do not
-allow, is withheld.
+Only a positive match stages. The two policy arguments are checked first, before
+the ACL is looked at: a value the types do not allow (``unrecognised_policy``)
+withholds every item, whatever its ACL, because a gate that cannot tell what it was
+asked to enforce must not stage anything.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
 from harborrag_core.sources.acl import SourceAcl
+
+RestrictedContent = Literal["skip", "include"]
+CorpusMode = Literal["source_acl", "tenant_shared"]
+
+_RESTRICTED_CONTENT: frozenset[str] = frozenset(get_args(RestrictedContent))
+_CORPUS_MODES: frozenset[str] = frozenset(get_args(CorpusMode))
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,9 +48,17 @@ def stage_decision(
 
     ``acl`` is ``None`` when the connector reported none. ``restricted_content`` is
     the policy for restricted items, and ``corpus_mode`` says how the target corpus
-    enforces access.
+    enforces access. Either one outside its allowed values withholds the item with
+    the reason ``unrecognised_policy``.
     """
 
+    if (
+        not isinstance(restricted_content, str)
+        or restricted_content not in _RESTRICTED_CONTENT
+        or not isinstance(corpus_mode, str)
+        or corpus_mode not in _CORPUS_MODES
+    ):
+        return StageDecision("withhold", "unrecognised_policy")
     if acl is None:
         return StageDecision("withhold", "acl_missing")
     if acl.status == "inherited":
@@ -50,8 +66,8 @@ def stage_decision(
     if acl.status != "restricted":
         # ``unknown``, and anything the status type does not name.
         return StageDecision("withhold", "acl_unknown")
-    if corpus_mode != "source_acl":
+    if corpus_mode == "tenant_shared":
         return StageDecision("withhold", "restricted_in_shared_corpus")
-    if restricted_content != "include":
+    if restricted_content == "skip":
         return StageDecision("withhold", "restricted_skip")
     return StageDecision("stage", "restricted_include")

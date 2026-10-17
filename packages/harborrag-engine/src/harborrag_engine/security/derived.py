@@ -2,7 +2,7 @@
 
 Derived data is only as readable as its least readable input, so it is served only
 to a context that could read every input: every input class, and every datasource
-the inputs came from.
+the inputs came from, in the tenant the data belongs to.
 """
 
 from __future__ import annotations
@@ -20,10 +20,19 @@ def classes_of(inputs: Iterable[ClassId]) -> frozenset[ClassId]:
 
 
 def may_serve(
-    access: AccessContext, *, classes: frozenset[ClassId], source_scopes: frozenset[str]
+    access: AccessContext,
+    *,
+    tenant_id: str,
+    classes: frozenset[ClassId],
+    source_scopes: frozenset[str],
 ) -> bool:
-    """Whether derived data built from ``classes`` and ``source_scopes`` may be served.
+    """Whether ``access`` may be served derived data built from ``classes`` and ``source_scopes``.
 
+    ``tenant_id`` is the tenant the derived data belongs to. Class ids are
+    fingerprints of an ACL, not of a tenant, so two tenants can hold the same class
+    id, and ``class_ids`` and a shared corpus say nothing about another tenant's data.
+
+    - A context of another tenant than ``tenant_id`` is never served.
     - Only a ``serve`` context is ever served: a serve check refuses a ``process``
       context (see :class:`~harborrag_core.security.context.AccessContext`).
     - No input classes means no evidence of what the data was built from, and a
@@ -35,6 +44,8 @@ def may_serve(
       belong to every input class: ``classes <= access.class_ids``.
     """
 
+    if str(access.tenant_id) != tenant_id:
+        return False
     if access.purpose != "serve":
         return False
     if not classes or QUARANTINE_CLASS in classes:
