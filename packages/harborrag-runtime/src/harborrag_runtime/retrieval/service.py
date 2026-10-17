@@ -35,7 +35,9 @@ from harborrag_engine.retrieval import (
 )
 from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
 from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
+from harborrag_engine.security.access_service import CorpusPolicy
 
+from .access_policy import ReaderAccessPolicy
 from .contracts import (
     CloseOperation,
     RetrievalDiagnostics,
@@ -92,7 +94,14 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         policy: RetrievalPolicy,
         close_resources: tuple[CloseOperation, ...] = (),
         telemetry: RetrievalTelemetry | None = None,
+        access_policy: ReaderAccessPolicy | None = None,
     ) -> None:
+        # Without one, every tenant is source-ACL and no access file limits anyone: the
+        # same rules the contexts already carry. A deployment's own policy -- its shared
+        # tenant, its access file -- is built from settings by ``connect_retrieval_service``.
+        self._access_policy = access_policy or ReaderAccessPolicy(
+            corpus=CorpusPolicy(mode="source_acl", shared_tenant_id=None), entitlements=None
+        )
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
         self._summaries = resources.summary_repository
@@ -176,6 +185,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         dense_vector = await self._result_loader.dense_vector(request.query)
         return await self._entities.find(request, request_id, dense_vector, context)
+
+    async def hold_access(self, access: AccessContext) -> AccessContext:
+        """The context a serving read runs as: ``access`` held to the corpus policy and file.
+
+        The reader facades call this before every read, so what reaches the service was held
+        by this deployment's policy rather than built by the caller. Raises
+        ``HarborAuthError`` (403) for a context that may read nothing.
+        """
+
+        return await self._access_policy.hold(access)
 
     @property
     def vector_repository(self) -> VectorRepositoryPort:

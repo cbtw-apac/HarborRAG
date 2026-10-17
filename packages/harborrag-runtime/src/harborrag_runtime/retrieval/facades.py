@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from typing import TYPE_CHECKING, Protocol
 
 from harborrag_core.contracts.reader import (
@@ -41,11 +41,28 @@ from harborrag_core.security import AccessContext
 from harborrag_core.topology.records import CanonicalMention
 
 if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
+
     from harborrag_runtime.retrieval.service import RuntimeRetrievalService
+
+    class _ServingRequest(DataclassInstance, Protocol):
+        @property
+        def access(self) -> AccessContext: ...
 
 
 class _ReaderOwner(Protocol):
     async def _retrieval_service(self) -> RuntimeRetrievalService: ...
+
+
+async def _held[R: _ServingRequest](service: RuntimeRetrievalService, request: R) -> R:
+    """The request with its access context replaced by the one the service's policy holds it to.
+
+    Every serving read passes through here (or ``hold_access`` itself), so the service never
+    sees a context the policy did not hold. A method uses the returned request throughout,
+    not the one it was called with.
+    """
+
+    return replace(request, access=await service.hold_access(request.access))
 
 
 class RetrievalFacade:
@@ -56,6 +73,7 @@ class RetrievalFacade:
         from ..retrieval import RetrievalOptions
 
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         report = await service.retrieve(
             request.query,
             tenant_id=str(request.access.tenant_id),
@@ -79,6 +97,7 @@ class RetrievalFacade:
 
     async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.find_entities(request)
 
 
@@ -91,6 +110,7 @@ class GraphFacade:
         request: GraphTripletRequest,
     ) -> GraphTripletResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         result = await service.search_graph_triplets(request.query, access=request.access)
         return GraphTripletResponse(
             triplets=result.triplets,
@@ -99,6 +119,7 @@ class GraphFacade:
 
     async def find_paths(self, request: GraphPathRequest) -> GraphPathResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         result = await service.search_graph_paths(request.query, access=request.access)
         return GraphPathResponse(
             paths=result.paths,
@@ -110,6 +131,7 @@ class GraphFacade:
         request: GraphSubgraphRequest,
     ) -> GraphSubgraphResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         result = await service.search_graph_subgraph(request.query, access=request.access)
         return GraphSubgraphResponse(
             nodes=result.graph.nodes,
@@ -126,34 +148,41 @@ class KnowledgeFacade:
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.list_documents(request)
 
     async def fetch_evidence(self, request: EvidenceFetchRequest) -> EvidenceFetchResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.fetch_evidence(request.chunk_ids, access=request.access)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.read_evidence(request)
 
     async def get_document_context(
         self, request: DocumentContextRequest
     ) -> DocumentContextResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.get_document_context(request)
 
     async def list_sources(self, request: SourceListRequest) -> SourceListResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.list_readable_sources(request)
 
     async def resolve_graph_nodes(
         self, request: GraphNodeResolveRequest
     ) -> GraphNodeResolveResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.resolve_graph_nodes(request)
 
     async def resolve_entities(self, request: EntityResolveRequest) -> EntityResolveResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.resolve_entities(
             request.name,
             limit=request.limit,
@@ -171,11 +200,12 @@ class KnowledgeFacade:
         return await service.lookup_entities(
             entity_ids=entity_ids,
             chunk_ids=chunk_ids,
-            access=access,
+            access=await service.hold_access(access),
         )
 
     async def find_relations(self, request: RelationSearchRequest) -> RelationSearchResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.find_semantic_relations(
             request.entity_id,
             predicates=request.predicates,
@@ -186,6 +216,7 @@ class KnowledgeFacade:
 
     async def find_paths(self, request: SemanticPathRequest) -> SemanticPathResponse:
         service = await self._owner._retrieval_service()
+        request = await _held(service, request)
         return await service.find_semantic_paths(request)
 
 

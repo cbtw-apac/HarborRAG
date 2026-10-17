@@ -8,6 +8,18 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from harborrag_core.chunking import RelationType
+from harborrag_core.contracts.reader import (
+    DocumentContextRequest,
+    EntityResolveRequest,
+    EvidenceReadRequest,
+    EvidenceReadSelector,
+    GraphNodeResolveRequest,
+    GraphPathRequest,
+    GraphSubgraphRequest,
+    RelationSearchRequest,
+    SemanticPathRequest,
+    SourceListRequest,
+)
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import FilterOperator
 from harborrag_core.ingestion import (
@@ -24,7 +36,14 @@ from harborrag_core.models.chat import (
     HarborChatResponse,
     HarborChatUsage,
 )
-from harborrag_core.retrieval import GraphTriplet, GraphTripletQuery
+from harborrag_core.retrieval import (
+    GraphNodeResolutionQuery,
+    GraphNodeSelectorKind,
+    GraphPathQuery,
+    GraphSubgraphQuery,
+    GraphTriplet,
+    GraphTripletQuery,
+)
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.search import EvidenceBundle
 from harborrag_engine.retrieval import RetrievalLane
@@ -261,10 +280,21 @@ class _Diagnostics:
     duration_ms: float = 1.0
 
 
+def _held(access: AccessContext) -> AccessContext:
+    """What a service's policy hands back: the same principal, distinguishable from the request's."""
+
+    return access.model_copy(update={"actor_id": "held"})
+
+
 class _RetrievalService:
     def __init__(self) -> None:
         self.call = None
         self.closed = False
+        self.held: AccessContext | None = None
+
+    async def hold_access(self, access):
+        self.held = _held(access)
+        return self.held
 
     async def retrieve(self, query, **kwargs):
         self.call = (query, kwargs)
@@ -420,7 +450,8 @@ async def test_sdk_retrieval_preserves_access_and_builds_filters() -> None:
     assert response.evidence.coverage_gaps == ("fixture-gap",)
     assert service.call is not None
     _, kwargs = service.call
-    assert kwargs["access"] is access
+    assert kwargs["access"] is service.held
+    assert kwargs["access"].principal_id == access.principal_id
     assert kwargs["tenant_id"] == "tenant-1"
     conditions = {item.field: item for item in kwargs["options"].filters.must}
     assert conditions["source_scope_id"].operator == FilterOperator.IN
@@ -448,7 +479,8 @@ async def test_sdk_graph_facade_preserves_access_context() -> None:
     )
 
     assert response.triplets[0].predicate.relation_type == RelationType.LINKS_TO
-    assert service.graph_call[1] is access
+    assert service.graph_call[1] is service.held
+    assert service.graph_call[1].principal_id == access.principal_id
 
 
 @pytest.mark.asyncio
@@ -493,17 +525,20 @@ async def test_graph_facade_delegates_paths_and_subgraphs() -> None:
             )
         ),
     )
+    held = _held(access)
+    service.hold_access = AsyncMock(return_value=held)
     owner = SimpleNamespace(_retrieval_service=AsyncMock(return_value=service))
     facade = GraphFacade(owner)
-    request = SimpleNamespace(query="query", access=access)
+    path_query = GraphPathQuery(start_node="a", end_node="b")
+    subgraph_query = GraphSubgraphQuery(start_node="a")
 
-    paths = await facade.find_paths(request)
-    subgraph = await facade.expand_subgraph(request)
+    paths = await facade.find_paths(GraphPathRequest(access, path_query))
+    subgraph = await facade.expand_subgraph(GraphSubgraphRequest(access, subgraph_query))
 
     assert paths.paths == ("path",)
     assert subgraph.nodes == () and subgraph.relations == ()
-    service.search_graph_paths.assert_awaited_once_with("query", access=access)
-    service.search_graph_subgraph.assert_awaited_once_with("query", access=access)
+    service.search_graph_paths.assert_awaited_once_with(path_query, access=held)
+    service.search_graph_subgraph.assert_awaited_once_with(subgraph_query, access=held)
 
 
 @pytest.mark.asyncio
@@ -520,39 +555,59 @@ async def test_knowledge_facade_delegates_canonical_reads() -> None:
         find_semantic_relations=AsyncMock(return_value=response),
         find_semantic_paths=AsyncMock(return_value=response),
     )
+    access = AccessContext(principal_id="reader", tenant_id="tenant")
+    held = _held(access)
+    service.hold_access = AsyncMock(return_value=held)
     owner = SimpleNamespace(_retrieval_service=AsyncMock(return_value=service))
     facade = KnowledgeFacade(owner)
-    access = AccessContext(principal_id="reader", tenant_id="tenant")
-    request = SimpleNamespace(
-        access=access,
-        chunk_ids=("chunk",),
-        name="entity",
-        limit=3,
-        entity_id="entity-id",
-        predicates=("owns",),
-        direction="outgoing",
-    )
+    requests = {
+        "fetch": EvidenceFetchRequest(access, ("chunk",)),
+        "read": EvidenceReadRequest(access, (EvidenceReadSelector("chunk"),)),
+        "context": DocumentContextRequest(access, "document"),
+        "sources": SourceListRequest(access),
+        "nodes": GraphNodeResolveRequest(
+            access,
+            GraphNodeResolutionQuery(selector_kind=GraphNodeSelectorKind.EXACT_TITLE, value="x"),
+        ),
+        "resolve": EntityResolveRequest(access, "entity", limit=3),
+        "relations": RelationSearchRequest(
+            access, "entity-id", predicates=("owns",), direction="outgoing", limit=3
+        ),
+        "paths": SemanticPathRequest(access, "entity-id", "other-id"),
+    }
 
-    assert await facade.fetch_evidence(request) is response
-    assert await facade.read_evidence(request) is response
-    assert await facade.get_document_context(request) is response
-    assert await facade.list_sources(request) is response
-    assert await facade.resolve_graph_nodes(request) is response
-    assert await facade.resolve_entities(request) is response
+    assert await facade.fetch_evidence(requests["fetch"]) is response
+    assert await facade.read_evidence(requests["read"]) is response
+    assert await facade.get_document_context(requests["context"]) is response
+    assert await facade.list_sources(requests["sources"]) is response
+    assert await facade.resolve_graph_nodes(requests["nodes"]) is response
+    assert await facade.resolve_entities(requests["resolve"]) is response
     assert await facade.lookup_entities(
         access=access, entity_ids=("entity-id",), chunk_ids=("chunk",)
     ) == ("mention",)
-    assert await facade.find_relations(request) is response
-    assert await facade.find_paths(request) is response
+    assert await facade.find_relations(requests["relations"]) is response
+    assert await facade.find_paths(requests["paths"]) is response
 
-    service.resolve_entities.assert_awaited_once_with("entity", limit=3, access=access)
+    service.fetch_evidence.assert_awaited_once_with(("chunk",), access=held)
+    service.resolve_entities.assert_awaited_once_with("entity", limit=3, access=held)
+    service.lookup_entities.assert_awaited_once_with(
+        entity_ids=("entity-id",), chunk_ids=("chunk",), access=held
+    )
     service.find_semantic_relations.assert_awaited_once_with(
         "entity-id",
         predicates=("owns",),
         direction="outgoing",
         limit=3,
-        access=access,
+        access=held,
     )
+    # A method that forwards the whole request forwards it with the held context in place.
+    for name in ("read_evidence", "get_document_context", "list_readable_sources"):
+        (request,) = getattr(service, name).await_args.args
+        assert request.access is held
+    (request,) = service.resolve_graph_nodes.await_args.args
+    assert request.access is held
+    (request,) = service.find_semantic_paths.await_args.args
+    assert request.access is held
 
 
 @pytest.mark.asyncio
@@ -632,7 +687,11 @@ async def test_temporal_sdk_delegates_durable_lifecycle_operations() -> None:
 @pytest.mark.asyncio
 async def test_sdk_connects_retrieval_once_and_exposes_chat_stream() -> None:
     response = object()
-    service = SimpleNamespace(fetch_evidence=AsyncMock(return_value=response), aclose=AsyncMock())
+    service = SimpleNamespace(
+        fetch_evidence=AsyncMock(return_value=response),
+        hold_access=AsyncMock(side_effect=lambda access: access),
+        aclose=AsyncMock(),
+    )
     connect = AsyncMock(return_value=service)
     stream = object()
     chat = SimpleNamespace(stream=Mock(return_value=stream), aclose=AsyncMock())

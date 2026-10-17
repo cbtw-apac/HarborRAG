@@ -6,6 +6,8 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harborrag_core.contracts.errors import HarborAuthError
+from harborrag_core.security import AccessContext
 from harborrag_core.topology.derived import ContextualIndexProfile
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -210,3 +212,77 @@ async def test_reader_bucket_validation_failure_closes_all_connected_resources(
         resource.close.assert_awaited_once()
     embed.aclose.assert_awaited_once()
     telemetry.close.assert_awaited_once()
+
+
+class _Scopes:
+    """The control plane's connection-to-scope lookup, for the access file."""
+
+    async def source_scope_ids_by_connection(self, tenant_id, connection_ids):
+        known = {"confluence-eng": frozenset({"scope-conf"}), "jira-cpm": frozenset({"scope-jira"})}
+        return {name: known[name] for name in connection_ids if name in known}
+
+
+@pytest.mark.asyncio
+async def test_the_service_is_given_the_corpus_policy_from_settings(monkeypatch) -> None:
+    # The control double has no source_scans: without an access file it is never asked for them.
+    _providers(monkeypatch)
+    service_factory = Mock(return_value=object())
+    monkeypatch.setattr(retrieval_factory, "RuntimeRetrievalService", service_factory)
+    settings = _settings().model_copy(
+        update={"corpus_access_mode": "tenant_shared", "corpus_shared_tenant_id": "acme"}
+    )
+
+    await retrieval_factory.connect_retrieval_service(settings)
+
+    policy = service_factory.call_args.kwargs["access_policy"]
+    shared = await policy.hold(AccessContext(principal_id="reader", tenant_id="acme"))
+    other = await policy.hold(AccessContext(principal_id="reader", tenant_id="globex"))
+    assert (shared.corpus_mode, shared.entitled_source_scopes) == ("tenant_shared", None)
+    assert (other.corpus_mode, other.entitled_source_scopes) == ("source_acl", None)
+
+
+@pytest.mark.asyncio
+async def test_a_corpus_policy_the_settings_cannot_form_connects_nothing(monkeypatch) -> None:
+    _, control, objects, vectors, graph, telemetry = _providers(monkeypatch)
+    settings = _settings().model_copy(
+        update={"corpus_access_mode": "tenant_shared", "corpus_shared_tenant_id": "*"}
+    )
+
+    with pytest.raises(ValueError, match="unusable shared tenant id"):
+        await retrieval_factory.connect_retrieval_service(settings)
+
+    for resource in (control, objects, vectors, graph):
+        resource.connect.assert_not_awaited()
+    telemetry.start.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_an_access_file_limits_the_service_to_its_scopes(monkeypatch, tmp_path: Path) -> None:
+    _, control, *_ = _providers(monkeypatch)
+    control.source_scans = _Scopes()
+    service_factory = Mock(return_value=object())
+    monkeypatch.setattr(retrieval_factory, "RuntimeRetrievalService", service_factory)
+    catalog = tmp_path / "connectors.yaml"
+    catalog.write_text(
+        "version: 1\nconnectors:\n  confluence-eng:\n    provider: local\n"
+        "  jira-cpm:\n    provider: local\n",
+        encoding="utf-8",
+    )
+    access = tmp_path / "access.yaml"
+    access.write_text(
+        "version: 1\ntenants:\n  acme:\n    projects:\n      beta:\n"
+        "        datasources: [confluence-eng, jira-cpm]\n"
+        "        members:\n          - principal: reader-sub\n            datasources: [jira-cpm]\n",
+        encoding="utf-8",
+    )
+    settings = _settings().model_copy(
+        update={"access_config_path": access, "connector_config_path": catalog}
+    )
+
+    await retrieval_factory.connect_retrieval_service(settings)
+
+    policy = service_factory.call_args.kwargs["access_policy"]
+    held = await policy.hold(AccessContext(principal_id="reader-sub", tenant_id="acme"))
+    assert held.entitled_source_scopes == frozenset({"scope-jira"})
+    with pytest.raises(HarborAuthError):
+        await policy.hold(AccessContext(principal_id="someone-else", tenant_id="acme"))
