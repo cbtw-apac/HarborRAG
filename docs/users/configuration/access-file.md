@@ -215,15 +215,18 @@ Your own admin or owner JWT is held to the file like any other token. List its `
 member of a project that grants at least one datasource, in every tenant you administer;
 otherwise the API refuses it there, admin routes included.
 
-On the MCP playground route `POST /api/tools/call`, and for in-process calls, a tool call
-that names no tenant runs in the token's tenant when the token grants exactly one, and
-otherwise in the tenant `local`. A wildcard token, such as the local owner token, can reach
-any tenant it names, but for a call that names none it needs a listing in `local`. Being
+On the MCP playground route `POST /api/tools/call`, and for in-process calls, a call to a tool
+that takes a tenant but names none runs in the token's tenant when the token grants exactly
+one, and otherwise in the tenant `local`. A wildcard token, such as the local owner token, can
+reach any tenant it names, but for a call that names none it needs a listing in `local`. Being
 listed in another tenant does not carry the call into `local`.
 
-Over the MCP protocol there is no `local` fallback: a call that names no tenant is refused
-outright unless the token grants exactly one tenant. With a wildcard token, or with no token
-(stdio), name the tenant in the call.
+Over the MCP protocol there is no `local` fallback: a call to a tool that takes a tenant but
+names none is refused outright unless the token grants exactly one tenant. With a wildcard
+token, or with no token (stdio), name the tenant in the call.
+
+`describe_graph` takes no tenant and reads none, so on every transport it needs only a listing
+in some tenant.
 
 ## Choosing spaces
 
