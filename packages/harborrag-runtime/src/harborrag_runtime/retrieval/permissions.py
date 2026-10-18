@@ -29,13 +29,45 @@ class RetrievalPermissions:
             # Explicit legacy embedding-only callers. Production composition
             # always supplies canonical authority; unknown permissions there deny.
             return filters
-        if context.access.corpus_mode == "tenant_shared":
+        access = context.access
+        conditions: list[VectorFilterCondition] = []
+        if access.corpus_mode != "tenant_shared":
+            documents = await self._allowed_documents(self._repository, context)
+            conditions.append(
+                VectorFilterCondition(
+                    field="document_id", operator=FilterOperator.IN, value=list(documents)
+                )
+            )
+        # The datasources the principal is entitled to apply in both corpus modes.
+        # Every evidence point carries an indexed ``source_scope_id``, so this ranks
+        # inside the set instead of filling the window with points the final check
+        # would drop.
+        if access.entitled_source_scopes is not None:
+            conditions.append(
+                VectorFilterCondition(
+                    field="source_scope_id",
+                    operator=FilterOperator.IN,
+                    value=sorted(access.entitled_source_scopes),
+                )
+            )
+        if not conditions:
             # The vector repository already scopes by tenant. The final canonical
             # publication check still runs in validate().
             return filters
+        result = filters if filters is not None else VectorFilter()
+        return VectorFilter(
+            must=[*result.must, *conditions],
+            should=list(result.should),
+            must_not=list(result.must_not),
+        )
+
+    @staticmethod
+    async def _allowed_documents(
+        repository: TopologySearchPort, context: StorageOperationContext
+    ) -> tuple[str, ...]:
         try:
             async with asyncio.timeout(2):
-                documents = await self._repository.allowed_document_ids(
+                return await repository.allowed_document_ids(
                     str(context.tenant_id), access=context.access, limit=10000
                 )
         except Exception as error:
@@ -43,17 +75,6 @@ class RetrievalPermissions:
                 "Permission scope unavailable", extra={"error_code": type(error).__name__}
             )
             raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
-        result = filters if filters is not None else VectorFilter()
-        return VectorFilter(
-            must=[
-                *result.must,
-                VectorFilterCondition(
-                    field="document_id", operator=FilterOperator.IN, value=list(documents)
-                ),
-            ],
-            should=list(result.should),
-            must_not=list(result.must_not),
-        )
 
     async def validate(
         self, candidates: tuple[VectorSearchResult, ...], context: StorageOperationContext

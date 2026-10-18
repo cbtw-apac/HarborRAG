@@ -18,6 +18,7 @@ from harborrag_core.topology.permissions import PermissionResourceKind, Resolved
 
 from .summary_authority import SummaryAuthority
 from .summary_schema import SUMMARY_BINDINGS, SUMMARY_SCOPES
+from .topology.authorization import entitled_scope_conditions
 from .topology.configuration import read_indexing_config
 from .topology.transactions import read_only_transaction
 
@@ -76,7 +77,8 @@ class SummaryReadOperations(SummaryAuthority):
         makes before showing a card is made here before returning a single chunk:
         the tenant gate, the binding's own permission dependencies, and the active
         document versions the card was written over. A stale or unreadable binding
-        yields no chunks rather than an unfiltered set.
+        yields no chunks rather than an unfiltered set. A binding of a datasource
+        outside ``access.entitled_source_scopes`` yields none either.
         """
 
         if str(access.tenant_id) != tenant_id or not node_keys or len(node_keys) > 1000:
@@ -104,6 +106,7 @@ class SummaryReadOperations(SummaryAuthority):
                         .where(
                             SUMMARY_BINDINGS.c.tenant_id == tenant_id,
                             SUMMARY_BINDINGS.c.node_key.in_(node_keys),
+                            *entitled_scope_conditions(SUMMARY_BINDINGS.c.source_scope_id, access),
                         )
                     )
                 )
