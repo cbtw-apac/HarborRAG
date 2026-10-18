@@ -15,6 +15,7 @@ from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
+from harborrag_mcp_server.server.access_gate import TenantListing, require_listed_off_loop
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 
 if TYPE_CHECKING:
@@ -58,6 +59,9 @@ class McpServer(BaseMcpServer):
     invoker: ToolInvoker | None = None
     corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
     shared_tenant_id: str | None = None
+    # The access file's listing, when one is in force: an unlisted principal is refused
+    # before any tool runs. None means no access file, and nothing is checked.
+    access_watcher: TenantListing | None = None
 
     def __post_init__(self) -> None:
         if self.corpus_mode == "tenant_shared" and not self.shared_tenant_id:
@@ -143,6 +147,7 @@ class McpServer(BaseMcpServer):
                 spec = self.configuration.tool_spec(spec, tenant_id)
                 policy = self.configuration.policy()
             if context is None:
+                await require_listed_off_loop(self.access_watcher, principal_id, tenant_id)
                 context = ToolInvocationContext(
                     access=AccessContext(
                         principal_id=principal_id,

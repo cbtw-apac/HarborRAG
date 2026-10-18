@@ -37,6 +37,7 @@ if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.auth import TokenVerifier
 
+    from harborrag_mcp_server.server.access_gate import TenantListing
     from harborrag_runtime.config.settings import RuntimeSettings
 
 
@@ -61,6 +62,18 @@ def _default_config_path() -> str:
 
 _READER_DEFAULT_PORT = "8010"
 _UI_DEFAULT_PORT = "8011"
+
+
+def _access_watcher(settings: RuntimeSettings) -> TenantListing | None:
+    """The access file's watcher when beta access is on, otherwise None (nothing checked)."""
+
+    if settings.access_config_path is None:
+        return None
+    from harborrag_runtime.config.access_file import AccessFileWatcher
+
+    return AccessFileWatcher(
+        settings.access_config_path, catalog_path=settings.connector_config_path
+    )
 
 
 def _tool_names(registry: McpServer, *, ui: bool = False) -> list[str]:
@@ -311,6 +324,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
         references=runtime.references,
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
+        access_watcher=_access_watcher(settings),
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(

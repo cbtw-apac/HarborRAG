@@ -20,7 +20,7 @@ from fastapi.responses import RedirectResponse
 from starlette.routing import compile_path
 
 from harborrag_app import __version__
-from harborrag_app.api.auth.dependencies import build_token_verifier
+from harborrag_app.api.auth.dependencies import build_access_watcher, build_token_verifier
 from harborrag_app.api.auth.loopback import install_loopback_guard
 from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
@@ -31,6 +31,7 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
+from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
@@ -192,9 +193,18 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
             await app.state.api_capacity_limiter.aclose()
 
 
-def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
-    """Build the Control Plane API app from (env-derived) settings."""
+def create_fastapi_app(
+    settings: ApiSettings | None = None,
+    runtime_settings: RuntimeSettings | None = None,
+) -> FastAPI:
+    """Build the Control Plane API app from (env-derived) settings.
+
+    ``runtime_settings`` supplies the beta access file the door check reads; a
+    deployment that sets ``HARBORRAG_ACCESS_CONFIG_PATH`` must also run with
+    authenticated callers identified by their ``sub`` (refused here otherwise).
+    """
     settings = settings or ApiSettings()
+    runtime_settings = runtime_settings or RuntimeSettings()
     # uvicorn configures the root logger, not the "harborrag" namespace; this
     # attaches the namespace handler so runtime and route logs are emitted.
     configure_logging()
@@ -207,6 +217,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    app.state.access_watcher = build_access_watcher(settings, runtime_settings)
     app.state.token_verifier = build_token_verifier(settings)
     redis_url = (
         settings.api_capacity_redis_url.get_secret_value()

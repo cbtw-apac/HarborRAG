@@ -7,6 +7,7 @@ from logging import Logger
 from pydantic import ValidationError
 
 from harborrag_core.contracts.errors import (
+    HarborAuthError,
     HarborConflictError,
     HarborNotFoundError,
     HarborValidationError,
@@ -147,15 +148,26 @@ def public_error_message(exc: Exception) -> str:
     return type(exc).__name__
 
 
+def _is_forbidden(exc: Exception) -> bool:
+    return isinstance(exc, HarborAuthError) and exc.forbidden
+
+
 def failure_response(
     logger: Logger,
     exc: Exception,
     message: str = "Application service call failed",
     *args: object,
 ) -> AppResponse:
-    """Log private detail while returning only a reviewed public message."""
+    """Log private detail while returning only a reviewed public message.
 
-    public = public_error_message(exc)
+    A forbidden refusal (``HarborAuthError(forbidden=True)``) is the one auth error
+    carried through: its text is authored by the access policy and names nobody, and
+    ``forbidden`` lets a route answer 403 (:func:`raise_if_forbidden`) instead of
+    reporting an unavailable service.
+    """
+
+    forbidden = _is_forbidden(exc)
+    public = str(exc) if forbidden else public_error_message(exc)
     if public == type(exc).__name__:
         logger.error(message, *args, exc_info=exc)
     else:
@@ -165,8 +177,14 @@ def failure_response(
         # values); the full traceback stays at DEBUG.
         logger.warning(message + ": %s", *args, public)
         logger.debug(message, *args, exc_info=exc)
-    return AppResponse(
-        False,
-        data={"error_type": type(exc).__name__},
-        error=public,
-    )
+    data: dict[str, object] = {"error_type": type(exc).__name__}
+    if forbidden:
+        data["forbidden"] = True
+    return AppResponse(False, data=data, error=public)
+
+
+def raise_if_forbidden(response: AppResponse) -> None:
+    """Re-raise a forbidden refusal that :func:`failure_response` carried, so it is a 403."""
+
+    if not response.ok and response.data.get("forbidden"):
+        raise HarborAuthError(response.error or "access is not permitted", forbidden=True)

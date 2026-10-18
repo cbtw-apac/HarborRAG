@@ -13,6 +13,8 @@ import json
 
 from pydantic import ValidationError
 
+from harborrag_core.contracts.errors import HarborAuthError
+
 _MAX_REPORTED_FIELDS = 10
 _MAX_FIELD_PATH_LENGTH = 80
 
@@ -48,6 +50,10 @@ def public_tool_error(exc: BaseException) -> tuple[str, int]:
         # The server's own policy refusals carry no errno; an OS PermissionError
         # names a filesystem path.
         return (str(exc) if exc.errno is None else "permission denied"), 403
+    if isinstance(exc, HarborAuthError) and exc.forbidden:
+        # Authored by the access policy and naming nobody; an authentication failure
+        # (not forbidden) is not a message for a tool caller and keeps its class name.
+        return str(exc), 403
     if isinstance(exc, (TypeError, ValueError)):
         return f"invalid tool request ({type(exc).__name__})", 422
     return f"tool execution failed ({type(exc).__name__})", 500
