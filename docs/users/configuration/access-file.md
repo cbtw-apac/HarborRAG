@@ -41,12 +41,12 @@ tenants:
       beta-all:
         datasources: [confluence-eng, jira-cpm]   # connection ids from config/connectors.yaml
         members:
-          - principal: "6d2f…e91a"                # the identity provider's permanent id
+          - principal: "user-6d2f…e91a"           # user-<the identity provider's permanent id>
             label: alice@acme.com                 # for people only, never matched
       hr-pilot:
         datasources: [confluence-hr]
         members:
-          - principal: "b07c…41d3"
+          - principal: "user-b07c…41d3"
             label: carol@acme.com
 ```
 
@@ -60,7 +60,7 @@ reads the union of their datasources.
 | `version` | Required; `1` |
 | `tenants.<tenant>.projects.<project>.datasources` | Required list of connection ids the project grants |
 | `...members` | Required list of the project's members; may be empty |
-| `...members[].principal` | Required. The member's permanent id; matched exactly against the caller's identity |
+| `...members[].principal` | Required. `user-<permanent id>`, matched exactly against the caller's identity; see [Identity](#identity) |
 | `...members[].label` | Optional note for a person, such as an email address. Never matched, never logged |
 | `...members[].datasources` | Optional narrowing, see below |
 
@@ -69,8 +69,8 @@ they may read:
 
 ```yaml
 members:
-  - principal: "6d2f…e91a"                  # all of beta-all
-  - principal: "9a41…0c77"
+  - principal: "user-6d2f…e91a"             # all of beta-all
+  - principal: "user-9a41…0c77"
     datasources: [jira-cpm]                 # only this one
 ```
 
@@ -133,26 +133,34 @@ one person quickly, delete their `members` entry.
 
 ## Identity
 
-Key each member on the identity provider's permanent id, never on an email address. People
-change names and addresses, and an address can be reassigned. Use Entra ID's `oid`; for any
-other provider, use its `sub`. Put the email in `label` if you want a reminder of whose id it
-is. `label` is never matched.
+Each person is one principal string, `user-<permanent id>`, and it is the same string on the API
+and on the MCP server. List it once.
 
-On the API, the user is the JWT's `sub`, so the tokens HarborRAG receives must carry that
-permanent id in `sub`. While the file is on:
+Key it on the identity provider's permanent id, never on an email address. People change names
+and addresses, and an address can be reassigned. Use Entra ID's `oid`; for any other provider,
+use its `sub`. Put the email in `label` if you want a reminder of whose id it is. `label` is
+never matched.
 
-- `HARBORRAG_AUTH_USER_ID_CLAIM` must stay `sub`, and
-- `HARBORRAG_AUTH_MODE` must not be `none`,
+- **The API.** The user is the JWT's `sub`, so the issuer must mint tokens with
+  `sub = "user-<permanent id>"`: `user-<entra oid>`, or `user-<idp sub>` when that `sub` is
+  lowercase letters, digits and `-`.
+- **MCP.** The user is the key's owner. Issue each key with
+  `harborrag auth keys create --owner user-<permanent id>`.
+- **MCP file-store keys** (`HARBORRAG_MCP_KEY_STORE=file`) carry a free-form `principal_id`. Use
+  the same `user-<permanent id>` string.
+- **The access file.** List that same string as the member's `principal`.
 
-or the API refuses to start.
+Keys issued by the CLI refuse an owner that does not match `user-`, `svc-` or `team-` followed by
+lowercase letters, digits and `-`. If your provider's id has other characters (uppercase letters,
+or `|` as in `auth0|...`), derive a stable lowercase form, such as the lowercase `oid`, and use
+that form everywhere: in the token, the key owner and the file.
 
-On the MCP server, the user is the key's owner, and the `principal` to list is that string
-exactly. Keys issued with `harborrag auth keys create` (the default `postgres` key store) take
-an `--owner` of the form `user-<name>`, `svc-<name>` or `team-<name>`, so issue each key with
-`--owner user-<id>` and list the whole string `user-<id>`. A person who uses both the API and
-MCP then appears as two members, one per form, with the same datasources. Keys in a key file
-(`HARBORRAG_MCP_KEY_STORE=file`) carry a free-form `principal_id`, which can be the bare
-permanent id.
+While the file is on, the API requires:
+
+- `HARBORRAG_AUTH_USER_ID_CLAIM` stays `sub`, and
+- `HARBORRAG_AUTH_MODE` is not `none`,
+
+or it refuses to start.
 
 ## Settings the file requires
 
