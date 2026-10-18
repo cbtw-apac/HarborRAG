@@ -59,6 +59,7 @@ from .readers import ReaderResources, ReaderRetrieval
 from .result_loader import EvidenceResultLoader
 from .source_fields import SourceFieldTrace, split_field_filters
 from .topology import TopologyRetrieval
+from .topology_visibility import restrict_to_readable_documents
 from .validation import validate_retrieval_request
 
 _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
@@ -311,6 +312,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             context=context,
             dense_vector=dense_vector,
         )
+        topology = await restrict_to_readable_documents(topology, self._permissions, context)
         loaded, load_failures = await self._result_loader.load_candidates(
             topology.candidates,
             request_id=request_id,

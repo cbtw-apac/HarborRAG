@@ -72,6 +72,8 @@ class DerivedVectorProjection:
                     "document_id",
                     "document_version_id",
                     "embedding_profile",
+                    # Retrieval ranks inside the datasources a reader is entitled to.
+                    "source_scope_id",
                 ],
             ),
             context=context,

@@ -44,6 +44,8 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_engine.retrieval.fusion import fuse_candidates
 
+from .entitled_scopes import entitled_vector_conditions
+
 _MAX_ENTITIES = 8
 _MAX_CHUNKS_PER_ENTITY = 8
 # With facet filters the lane is doing selection, not enrichment: the caller has
@@ -115,16 +117,6 @@ def _effective_scope_ids(
     if not requested:
         return tuple(sorted(entitled))
     return tuple(scope for scope in requested if scope in entitled)
-
-
-def _entitled_conditions(entitled: frozenset[str] | None) -> list[VectorFilterCondition]:
-    if entitled is None:
-        return []
-    return [
-        VectorFilterCondition(
-            field="source_scope_id", operator=FilterOperator.IN, value=sorted(entitled)
-        )
-    ]
 
 
 @dataclass(frozen=True)
@@ -371,7 +363,7 @@ class EntitySummarySearch:
                     field="embedding_profile", value=self.profile.entity_fingerprint
                 ),
                 *(facet_filter.must if facet_filter else []),
-                *_entitled_conditions(context.access.entitled_source_scopes),
+                *entitled_vector_conditions(context.access.entitled_source_scopes),
             ],
             should=list(facet_filter.should) if facet_filter else [],
             must_not=list(facet_filter.must_not) if facet_filter else [],

@@ -15,6 +15,8 @@ from harborrag_core.indexing import (
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.search import TopologySearchPort
 
+from .entitled_scopes import entitled_vector_conditions
+
 logger = logging.getLogger("harborrag.runtime.retrieval.permissions")
 
 
@@ -38,18 +40,10 @@ class RetrievalPermissions:
                     field="document_id", operator=FilterOperator.IN, value=list(documents)
                 )
             )
-        # The datasources the principal is entitled to apply in both corpus modes.
-        # Every evidence point carries an indexed ``source_scope_id``, so this ranks
-        # inside the set instead of filling the window with points the final check
-        # would drop.
-        if access.entitled_source_scopes is not None:
-            conditions.append(
-                VectorFilterCondition(
-                    field="source_scope_id",
-                    operator=FilterOperator.IN,
-                    value=sorted(access.entitled_source_scopes),
-                )
-            )
+        # The datasources the principal is entitled to apply in both corpus modes, so
+        # the window ranks inside the set instead of filling with points the final
+        # check would drop.
+        conditions.extend(entitled_vector_conditions(access.entitled_source_scopes))
         if not conditions:
             # The vector repository already scopes by tenant. The final canonical
             # publication check still runs in validate().
@@ -76,6 +70,24 @@ class RetrievalPermissions:
             )
             raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
 
+    async def authorized_documents(
+        self, document_ids: tuple[str, ...], context: StorageOperationContext
+    ) -> set[str]:
+        """The documents among ``document_ids`` the reader may read, by the canonical check."""
+
+        if self._repository is None:
+            return set(document_ids)
+        try:
+            async with asyncio.timeout(1):
+                return await self._repository.authorized_document_ids(
+                    str(context.tenant_id), document_ids, access=context.access
+                )
+        except Exception as error:
+            logger.warning(
+                "Final permission check unavailable", extra={"error_code": type(error).__name__}
+            )
+            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
+
     async def validate(
         self, candidates: tuple[VectorSearchResult, ...], context: StorageOperationContext
     ) -> tuple[VectorSearchResult, ...]:
@@ -88,14 +100,5 @@ class RetrievalPermissions:
                 if item.payload.get("document_id")
             )
         )
-        try:
-            async with asyncio.timeout(1):
-                allowed = await self._repository.authorized_document_ids(
-                    str(context.tenant_id), documents, access=context.access
-                )
-        except Exception as error:
-            logger.warning(
-                "Final permission check unavailable", extra={"error_code": type(error).__name__}
-            )
-            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE") from error
+        allowed = await self.authorized_documents(documents, context)
         return tuple(item for item in candidates if item.payload.get("document_id") in allowed)
