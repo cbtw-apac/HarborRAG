@@ -8,11 +8,19 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from harborrag_core.indexing import VectorSearchResult
-from harborrag_core.ingestion import GraphNodeRecord, KnowledgeGraphTraversal, KnowledgeNodeKind
+from harborrag_core.ingestion import (
+    GraphEdgeRecord,
+    GraphNodeRecord,
+    KnowledgeGraphTraversal,
+    KnowledgeNodeKind,
+)
 from harborrag_core.retrieval import compact_node, compact_relation
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.retrieval import graph_access_scope
-from harborrag_engine.retrieval.graph_visibility import GraphVisibilityAuthorizer
+from harborrag_engine.retrieval.graph_visibility import (
+    GraphVisibilityAuthorizer,
+    apply_graph_permissions,
+)
 
 from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
@@ -120,6 +128,7 @@ class GraphObserver:
         scope = await graph_access_scope(self._authorizer, context)
         if not scope.tenant_visible:
             return GraphObservation()
+        seeds = (*results, *extra)
         walks = await asyncio.gather(
             *(
                 self._graph.traverse(
@@ -130,9 +139,11 @@ class GraphObserver:
                     access_scope=scope,
                     context=context,
                 )
-                for node_key in (*results, *extra)
+                for node_key in seeds
             )
         )
+        if context.access.entitled_source_scopes is not None:
+            walks = await self._entitled_walks(seeds, walks, context)
         nodes = {node.node_key: node for traversal in walks for node in traversal.nodes}
         relation_ids = {
             relation.relation_id for traversal in walks for relation in traversal.relations
@@ -150,6 +161,55 @@ class GraphObserver:
                 tuple(zip(results, walks[: len(results)], strict=True)),
             ),
         )
+
+    async def _entitled_walks(
+        self,
+        seeds: Sequence[str],
+        walks: Sequence[KnowledgeGraphTraversal],
+        context: StorageOperationContext,
+    ) -> list[KnowledgeGraphTraversal]:
+        """The walks without what the reader's datasource entitlement leaves out.
+
+        On a shared corpus ``graph_access_scope`` names no allowlist, so the graph is
+        walked across every datasource; a reader narrowed to some of them is held here,
+        by the same check triplet, path and subgraph search apply after their own walks.
+        A walk whose seed the reader may not see contributes nothing, since a memory seed
+        is the caller's word. A relation stays only when neither it nor either end is
+        hidden, so a hidden node's key never reaches ``related_results``.
+        """
+
+        records: dict[str, GraphNodeRecord | GraphEdgeRecord] = {}
+        for walk in walks:
+            records.update((node.node_key, node) for node in walk.nodes)
+            records.update((relation.relation_id, relation) for relation in walk.relations)
+        states = await apply_graph_permissions(
+            records, dict.fromkeys(records, "active"), self._authorizer, context
+        )
+        hidden = {key for key, state in states.items() if state == "denied"}
+        return [_visible_walk(seed, walk, hidden) for seed, walk in zip(seeds, walks, strict=True)]
+
+
+def _visible_walk(
+    seed: str, walk: KnowledgeGraphTraversal, hidden: set[str]
+) -> KnowledgeGraphTraversal:
+    """``walk`` without its hidden records, or nothing at all when its seed is hidden.
+
+    An empty walk keeps its place, so result walks still line up with their results.
+    """
+
+    if seed in hidden:
+        return KnowledgeGraphTraversal(nodes=(), relations=())
+    return KnowledgeGraphTraversal(
+        nodes=tuple(node for node in walk.nodes if node.node_key not in hidden),
+        relations=tuple(
+            relation
+            for relation in walk.relations
+            if hidden.isdisjoint(
+                (relation.relation_id, relation.source_node_key, relation.target_node_key)
+            )
+        ),
+        truncated=walk.truncated,
+    )
 
 
 def _document_neighborhoods(
