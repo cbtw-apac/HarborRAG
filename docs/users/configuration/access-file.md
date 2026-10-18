@@ -174,11 +174,14 @@ reader's prompt:
 | `HARBORRAG_MEMORY_RECALL_SCOPES` | Must not include `project` or `tenant`; use `user` and `session` |
 | `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | Must be `false` |
 
-Two reads are not narrowed by datasource, so with the file on they need the `editor` role
-instead of `reader`:
+Two routes expose content from every datasource of the tenant and are not narrowed, so with
+the file on they need the `editor` role instead of `reader`:
 
-- `GET /v1/ingestions/{task_id}/documents`
-- `GET /v1/graph/conflicts`
+- `GET /v1/ingestions/{task_id}/documents` lists the task's items with their titles.
+- `GET /v1/graph/conflicts` lists graph conflicts with their descriptions and node keys.
+
+No other route is narrowed by datasource, and the rest stay at `reader`; see
+[What it does not do](#what-it-does-not-do).
 
 ## Operator principals to list
 
@@ -199,14 +202,31 @@ listing in `local`. Being listed in another tenant does not carry the call into 
 
 A datasource is read as a whole, so include a Confluence space or Jira project only if every
 beta user can already open it in Jira or Confluence. Keep `restricted_content` at `skip`, its
-default for Confluence and Jira connectors: restricted pages and issues are then never
-ingested, and nobody sees anything in HarborRAG they could not open in the source.
+default for Confluence and Jira connectors: pages and issues that are restricted in the source
+when it is scanned are then not ingested.
+
+This is not instant. An item that was restricted in the source after it was ingested stays
+readable to everyone allowed its datasource until it is retired, which happens only after
+`missing_threshold` completed full scans (default 2) have missed it. Incremental syncs usually
+do not notice restriction changes, so after tightening access at the source, run those full
+scans. See [Source access control](connector-config.md#source-access-control).
 
 ## What it does not do
 
 - It applies no per-document ACLs. Everyone allowed a datasource sees all of it.
-- Some list endpoints (sources, activity and ingestion task lists) are refused only for users
-  the file does not list. They are not narrowed by datasource.
+- It narrows only reads of ingested content: chat, the agent, retrieval, the graph routes and
+  the MCP tools. Every other route is gated by the access-file listing, the tenant and the role
+  only. A listed user with the `reader` role sees, for all of the tenant's connections and not
+  only their own datasources:
+  - connection ids and source types (`GET /v1/connections`)
+  - ingestion task metadata, including each task's `source` and `message`
+    (`GET /v1/ingestions` and `GET /v1/ingestions/{task_id}`)
+  - schedules and their run history (the `GET /v1/schedules` routes)
+  - projects and counts (`GET /projects`, `GET /metrics/ingestion`)
+  - the sources and activity lists
+- The two routes that expose item titles and graph conflicts across datasources are raised to
+  `editor` (see [Settings the file requires](#settings-the-file-requires)); they are the only
+  ones.
 
 ## Before you turn it on: the search index
 
