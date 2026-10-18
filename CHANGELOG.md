@@ -97,6 +97,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Temporal worker now hands its vector repository and embed client to the summary
   projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
   not only on the standalone `topology summaries worker` CLI.
+- Datasource access file for beta deployments (`HARBORRAG_ACCESS_CONFIG_PATH`). A versioned
+  YAML file lists, per tenant and project, which connections each member may read; the HTTP
+  API and the MCP server refuse an unlisted user or tenant with 403, limit every read to the
+  listed datasources, and refuse everyone while the file is missing or invalid. Edits apply on
+  the next request. It keys on the identity provider's permanent id (the JWT `sub`), so while
+  it is on the API refuses to start with `HARBORRAG_AUTH_MODE=none` or a
+  `HARBORRAG_AUTH_USER_ID_CLAIM` other than `sub`, the settings refuse project or tenant
+  memory scopes, and `GET /v1/ingestions/{task_id}/documents` and `GET /v1/graph/conflicts`
+  need the `editor` role. See `docs/users/configuration/access-file.md`.
 
 ### Changed
 
@@ -197,6 +206,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
   Deployments that already wrote digest-named graphs must rename them or reindex, and
   projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
+- `/v1/retrieval/vector` and the graph routes now read the shared tenant in `tenant_shared`
+  mode, like chat and MCP.
+- A forbidden authorization failure on the retrieval and graph routes now returns 403 with its
+  message instead of 503.
 
 ### Removed
 

@@ -48,6 +48,7 @@ settings through `HARBORRAG_*` variables.
 | `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/connectors.yaml` |
 | `HARBORRAG_PARSER_CONFIG_PATH` | `config/parsers.yaml` |
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` |
+| `HARBORRAG_ACCESS_CONFIG_PATH` | Unset (no access file); the optional beta list of who may read which datasources, read by the API and the MCP server. See [Access File](access-file.md) |
 | `HARBORRAG_CONTROL_DB_URL` | Local SQLite development database |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback object storage; ignored in production |
