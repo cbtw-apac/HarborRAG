@@ -1,10 +1,11 @@
 """Topology evidence explains a result only with documents the reader may read.
 
 A passage reached through the topology graph carries the assertions and navigation
-summaries that led to it. Serving builds are not limited to a reader's datasources, so
-a route can run through an assertion owned by another datasource's document and end at a
-passage the reader is entitled to. The passage stays; the explanation must not name the
-other document.
+summaries that led to it. Serving builds are already limited to a reader's entitled
+datasources (``eligible_builds``), so no assertion owned by another datasource's document
+should reach here. This is defence in depth: if one ever did, a route could run through
+it and end at a passage the reader is entitled to. The passage would stay; the
+explanation must not name the other document.
 """
 
 from __future__ import annotations
@@ -25,8 +26,10 @@ async def restrict_to_readable_documents(
 ) -> TopologyCandidates:
     """Drop the assertions, paths and navigation summaries owned by unreadable documents.
 
-    Only a reader with a datasource entitlement set is checked: otherwise the serving
-    builds are already limited to what the reader's ACLs allow, and the one extra
+    Only a reader with a datasource entitlement set is checked, as defence in depth: the
+    serving builds are already limited to that set (and, on a ``source_acl`` corpus, to
+    the reader's ACLs), so the check should drop nothing. Without a set, the serving
+    builds are limited to what the corpus policy lets the reader read, and the one extra
     canonical read would change nothing. A navigation summary carries no document of its
     own, so it follows the document of the passage it rides on.
     """

@@ -346,11 +346,14 @@ TOPOLOGY_DOCUMENT_SCOPES = {"document-1": ENGINEERING, "document-2": ENGINEERING
 
 
 class EntitledTopology(CanonicalTopology):
-    """Canonical topology as ``build_permissions_current(serving=True)`` serves it.
+    """Canonical topology that serves builds outside the reader's datasources.
 
-    Mentions and assertions come back for every accepted build whatever the reader's
-    datasource set is; only the document check knows about datasources. The one assertion
-    is owned by the HR document and joins two entities that engineering chunks mention.
+    The real serving reads (``eligible_builds``) leave out builds of datasources the
+    reader is not entitled to. This stub deliberately does not: mentions and assertions
+    come back for every accepted build whatever the reader's datasource set is, so the
+    tests show the document check holding on its own, as defence in depth. The one
+    assertion is owned by the HR document and joins two entities that engineering chunks
+    mention.
     """
 
     def __init__(self) -> None:
