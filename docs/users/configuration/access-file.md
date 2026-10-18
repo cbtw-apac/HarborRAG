@@ -11,15 +11,25 @@ It is not a per-document ACL. Everyone allowed a datasource sees all of it; see
 ## Turn it on
 
 Point `HARBORRAG_ACCESS_CONFIG_PATH` at the file, in the environment of the API and of the MCP
-server:
+server, together with two memory settings that the file requires. The default memory recall
+scopes include `project` and `tenant`, so setting the path alone makes the settings refuse to
+load:
 
 ```bash
 HARBORRAG_ACCESS_CONFIG_PATH=config/access.yaml
+HARBORRAG_MEMORY_RECALL_SCOPES=user,session
+HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE=false
 ```
+
+See [Settings the file requires](#settings-the-file-requires) for why, and for the other
+settings it checks.
 
 Unset, there is no access file and nothing described on this page applies. Set, every call is
 checked against the file, and a missing or broken file refuses everyone (see
-[Fail closed](#fail-closed)).
+[Fail closed](#fail-closed)). The file is applied only in a process that has the variable: the
+CLI, for example, is held to the file only when it runs with `HARBORRAG_ACCESS_CONFIG_PATH` set,
+and then needs the listing described under
+[Operator principals to list](#operator-principals-to-list).
 
 ## The file
 
@@ -136,10 +146,13 @@ permanent id in `sub`. While the file is on:
 
 or the API refuses to start.
 
-On the MCP server, the user is the key's owner. Issue each key with the permanent id as its
-owner. `harborrag auth keys create --owner` takes `user-<name>`, so the owner, and the
-`principal` to list, is the whole string `user-<id>`. A person who uses both the API and MCP
-appears as two members, one per form, with the same datasources.
+On the MCP server, the user is the key's owner, and the `principal` to list is that string
+exactly. Keys issued with `harborrag auth keys create` (the default `postgres` key store) take
+an `--owner` of the form `user-<name>`, `svc-<name>` or `team-<name>`, so issue each key with
+`--owner user-<id>` and list the whole string `user-<id>`. A person who uses both the API and
+MCP then appears as two members, one per form, with the same datasources. Keys in a key file
+(`HARBORRAG_MCP_KEY_STORE=file`) carry a free-form `principal_id`, which can be the bare
+permanent id.
 
 ## Settings the file requires
 
