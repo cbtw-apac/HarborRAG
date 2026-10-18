@@ -16,7 +16,7 @@ from harborrag_engine.tools.references import KnowledgeReferenceStore
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.access_gate import TenantListing, require_listed_off_loop
-from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
+from harborrag_mcp_server.server.base import BaseMcpServer, declares_tenant, tool_reported_error
 
 if TYPE_CHECKING:
     from harborrag_core.ports.reader import ReaderServices
@@ -27,6 +27,8 @@ if TYPE_CHECKING:
 # these live outside the dataclass defaults to retain one audit trail and
 # policy across facade calls.
 _default_policy = McpToolPolicy()
+# The tenant a tool call is bound to when neither a token nor the call names one.
+_LOCAL_TENANT = "local"
 _default_audit_log: McpAuditLog | None = None
 
 
@@ -98,6 +100,28 @@ class McpServer(BaseMcpServer):
             if self.configuration.resolve(tool.spec.name, tenant_id).enabled
         ]
 
+    async def _require_listed(
+        self,
+        tool: BaseTool | None,
+        principal_id: str,
+        tenant_id: str | None,
+        context: ToolInvocationContext | None,
+    ) -> None:
+        """Hold a call that arrives without a context to the tenant it will run in.
+
+        An authenticated call carries a context whose tenant was already checked against
+        the file. Otherwise the call runs in the tenant it names, or in ``local`` when it
+        names none, and the principal must be listed there. Only a tool whose schema
+        declares no tenant (``describe_graph``) reads none, and for it listing anywhere
+        is enough.
+        """
+
+        if context is not None:
+            return
+        scoped = tool is None or declares_tenant(tool.spec.input_schema)
+        bound = (tenant_id or _LOCAL_TENANT) if scoped else None
+        await require_listed_off_loop(self.access_watcher, principal_id, bound)
+
     async def call_tool(  # noqa: C901 - audit and policy checks share one boundary
         self,
         name: str,
@@ -134,6 +158,9 @@ class McpServer(BaseMcpServer):
             if self.tools is None:
                 raise HarborInvariantError("self.tools must not be None here")
             tool = next((item for item in self.tools if item.spec.name == name), None)
+            # Before anything that depends on the tenant, such as whether the tool is
+            # enabled for it: an unlisted principal learns nothing about the tenant.
+            await self._require_listed(tool, principal_id, tenant_id, context)
             if tool is None:
                 raise ValueError(f"Unknown MCP tool: {name}")
             policy = self.policy
@@ -147,11 +174,10 @@ class McpServer(BaseMcpServer):
                 spec = self.configuration.tool_spec(spec, tenant_id)
                 policy = self.configuration.policy()
             if context is None:
-                await require_listed_off_loop(self.access_watcher, principal_id, tenant_id)
                 context = ToolInvocationContext(
                     access=AccessContext(
                         principal_id=principal_id,
-                        tenant_id=TenantId(tenant_id or "local"),
+                        tenant_id=TenantId(tenant_id or _LOCAL_TENANT),
                         corpus_mode=(
                             self.corpus_mode if tenant_id == self.shared_tenant_id else "source_acl"
                         ),

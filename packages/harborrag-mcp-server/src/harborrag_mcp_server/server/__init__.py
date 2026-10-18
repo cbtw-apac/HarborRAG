@@ -14,7 +14,7 @@ from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.access_gate import TenantListing, require_listed
-from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
+from harborrag_mcp_server.server.base import BaseMcpServer, declares_tenant, tool_reported_error
 from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
 from harborrag_mcp_server.server.server import McpServer
 
@@ -313,10 +313,7 @@ def _declares_tenant(server: McpServer, tool_name: str) -> bool:
     """
 
     spec = next((item for item in server.list_tools() if item.name == tool_name), None)
-    if spec is None:
-        return True
-    properties = spec.input_schema.get("properties")
-    return not isinstance(properties, dict) or "tenant_id" in properties
+    return spec is None or declares_tenant(spec.input_schema)
 
 
 def _token_subject() -> str:

@@ -245,15 +245,22 @@ async def test_a_real_unlisted_token_is_refused_by_its_own_identity(tmp_path: Pa
     assert _calls(server) == []
 
 
-def _app(server: McpServer, tmp_path: Path) -> Starlette:
-    configuration = McpConfigurationStore(
+def _configure(
+    server: McpServer, tmp_path: Path, configuration: McpConfiguration | None = None
+) -> McpConfigurationStore:
+    store = McpConfigurationStore(
         path=tmp_path / "mcp.yaml",
-        configuration=McpConfiguration(),
+        configuration=configuration or McpConfiguration(),
         specs=server.list_tools(),
         audit=server.audit,
         environment={},
     )
-    server.configuration = configuration
+    server.configuration = store
+    return store
+
+
+def _app(server: McpServer, tmp_path: Path) -> Starlette:
+    configuration = _configure(server, tmp_path)
     verifier = create_local_token_verifier(TOKEN)
     transport = create_mcp_server(registry=server, auth=verifier)
     register_http_routes(
@@ -310,6 +317,61 @@ async def test_http_tool_call_serves_a_listed_principal_in_its_listed_tenant_onl
 
     assert (listed.status_code, elsewhere.status_code) == (200, 403)
     assert _calls(server) == ["vector_search"]
+
+
+@pytest.mark.asyncio
+async def test_http_tool_call_naming_no_tenant_is_held_to_the_tenant_it_runs_in(
+    tmp_path: Path,
+) -> None:
+    """The wildcard owner token binds no tenant, so the call falls back to ``local``.
+
+    Being listed in ``demo`` must not carry the call into ``local``.
+    """
+
+    elsewhere = _server(tmp_path, {LOCAL_OWNER: {"demo"}})
+    in_local = _server(tmp_path, {LOCAL_OWNER: {"local"}})
+    call = {"name": "vector_search", "arguments": {"query": "harbor"}}
+
+    refused = await _post_call(_app(elsewhere, tmp_path), call)
+    served = await _post_call(_app(in_local, tmp_path), call)
+
+    assert (refused.status_code, served.status_code) == (403, 200)
+    assert refused.json()["error"] == REFUSAL
+    assert _calls(elsewhere) == []
+    assert _calls(in_local) == ["vector_search"]
+
+
+@pytest.mark.asyncio
+async def test_an_in_process_call_naming_no_tenant_is_held_to_the_tenant_it_runs_in(
+    tmp_path: Path,
+) -> None:
+    server = _server(tmp_path, {"reader-1": {"demo"}})
+
+    with pytest.raises(PermissionError, match=REFUSAL):
+        await server.call_tool("vector_search", {"query": "harbor"}, principal_id="reader-1")
+
+    assert _calls(server) == []
+
+
+@pytest.mark.asyncio
+async def test_an_unlisted_principal_cannot_learn_whether_a_tool_is_enabled(
+    tmp_path: Path,
+) -> None:
+    """The door is checked before the per-tenant enabled lookup that would answer it."""
+
+    server = _server(tmp_path, {"someone-else": {"demo"}})
+    disabled = McpConfiguration.model_validate(
+        {"tenants": {"demo": {"tools": {"vector_search": {"enabled": False}}}}}
+    )
+    _configure(server, tmp_path, disabled)
+
+    with pytest.raises(PermissionError) as refused:
+        await server.call_tool(
+            "vector_search", {"query": "harbor", "tenant_id": "demo"}, principal_id="stranger"
+        )
+
+    assert str(refused.value) == REFUSAL
+    assert _calls(server) == []
 
 
 @pytest.mark.asyncio

@@ -190,7 +190,11 @@ def test_startup_refuses_auth_mode_none_with_access_file(access_file: Path) -> N
     assert "HARBORRAG_AUTH_MODE" in message
 
 
-def test_without_an_access_file_the_app_has_no_watcher_and_any_user_claim_starts() -> None:
+def test_without_an_access_file_the_app_has_no_watcher_and_any_user_claim_starts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("HARBORRAG_ACCESS_CONFIG_PATH", raising=False)
+
     app = create_fastapi_app(ApiSettings(auth_user_id_claim="email"))
 
     assert app.state.access_watcher is None
