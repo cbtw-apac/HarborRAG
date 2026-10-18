@@ -10,7 +10,7 @@ named by its connection id, the key it has in ``config/connectors.yaml``::
           beta-all:
             datasources: [confluence-eng, jira-cpm]
             members:
-              - principal: "6d2f...e91a"
+              - principal: "user-6d2f...e91a"  # user-<the identity provider's permanent id>
                 label: alice@acme.com         # optional, for people only, never matched
                 datasources: [confluence-eng]  # optional narrowing within the project
 
@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 import threading
 from collections import Counter
 from collections.abc import Mapping
@@ -57,6 +58,9 @@ PRINCIPAL_MAX_LENGTH = 255
 logger = logging.getLogger("harborrag.runtime.config.access_file")
 
 _NAME = "Access configuration"
+# The tenant charset of the Qdrant collections and FalkorDB graphs, so a key is a tenant
+# the stores could hold. It also keeps out ``*``, the wildcard of a token's tenant grant.
+_TENANT_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
 _ROOT_KEYS = frozenset({"version", "tenants"})
 _TENANT_KEYS = frozenset({"projects"})
 _PROJECT_KEYS = frozenset({"datasources", "members"})
@@ -152,10 +156,25 @@ def load_access_file(path: str | Path, *, catalog: ConnectorCatalog) -> AccessFi
     raw_tenants = _mapping(root.get("tenants"), "tenants")
     return AccessFile(
         {
-            _text(tenant_id, "tenants key"): _parse_tenant(tenant_id, raw_tenant, catalog)
+            _tenant_id(tenant_id): _parse_tenant(tenant_id, raw_tenant, catalog)
             for tenant_id, raw_tenant in raw_tenants.items()
         }
     )
+
+
+def _tenant_id(value: object) -> str:
+    """A tenant key that names one tenant, so a wildcard such as ``*`` never lists one.
+
+    A listed ``*`` would let a wildcard token keep every tenant on the API.
+    """
+
+    tenant_id = _text(value, "tenants key")
+    if _TENANT_ID.fullmatch(tenant_id) is None:
+        raise ConnectorConfigurationError(
+            f"tenants key {tenant_id!r} is not a valid tenant id: use 1-128 ASCII letters, "
+            "digits, '.', '_' or '-', beginning with a letter or digit"
+        )
+    return tenant_id
 
 
 def _read_root(path: str | Path) -> object:

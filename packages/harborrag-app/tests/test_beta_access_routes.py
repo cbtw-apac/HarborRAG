@@ -15,6 +15,8 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import _restrict_to_listed
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.errors import failure_response
 from harborrag_app.workflow_control.schemas import AppResponse
@@ -248,3 +250,32 @@ def test_listed_user_keeps_listed_tenants_only(client: TestClient, service: Mock
     # Listed for TENANT, but the token grants only OTHER: nothing is left in common.
     assert client.get("/v1/connections", headers=unlisted_grant).status_code == 403
     assert [call["tenant_id"] for call in service.retrieval_calls] == [TENANT, TENANT]
+
+
+class _Listing:
+    """A watcher whose listing names the wildcard, which the loader itself refuses."""
+
+    def __init__(self, *tenants: str) -> None:
+        self._tenants = frozenset(tenants)
+
+    def listed_tenants(self, principal_id: str) -> frozenset[str]:
+        return self._tenants
+
+
+def _principal(*tenants: str) -> Principal:
+    return Principal(subject=LISTED, role="reader", tenant_ids=frozenset(tenants))
+
+
+@pytest.mark.parametrize("granted", [("*",), ("*", TENANT), (TENANT,)])
+def test_a_listed_wildcard_never_survives_the_door_check(granted: tuple[str, ...]) -> None:
+    held = _restrict_to_listed(_principal(*granted), _Listing("*", TENANT))  # type: ignore[arg-type]
+
+    assert held.tenant_ids == frozenset({TENANT})
+    assert not held.can_access_tenant("OTHER")
+
+
+def test_a_listing_of_only_the_wildcard_lists_nobody() -> None:
+    with pytest.raises(HarborAuthError, match="not listed in the access file") as refused:
+        _restrict_to_listed(_principal("*"), _Listing("*"))  # type: ignore[arg-type]
+
+    assert refused.value.forbidden

@@ -7,6 +7,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import httpx
 import pytest
@@ -259,9 +260,9 @@ def _configure(
     return store
 
 
-def _app(server: McpServer, tmp_path: Path) -> Starlette:
+def _app(server: McpServer, tmp_path: Path, verifier: Any = None) -> Starlette:
     configuration = _configure(server, tmp_path)
-    verifier = create_local_token_verifier(TOKEN)
+    verifier = verifier or create_local_token_verifier(TOKEN)
     transport = create_mcp_server(registry=server, auth=verifier)
     register_http_routes(
         transport,
@@ -399,3 +400,88 @@ async def test_without_a_watcher_nothing_is_checked(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     assert _calls(server) == ["vector_search"]
+
+
+READER_KEY = "reader-key-" + "r" * 40
+
+
+def _reader_key_verifier() -> Any:
+    """The local owner token, and a reader key bound to ``demo`` for ``reader-1``."""
+
+    from fastmcp.server.auth.providers.jwt import StaticTokenVerifier
+
+    return StaticTokenVerifier(
+        tokens={
+            TOKEN: {
+                "client_id": LOCAL_OWNER,
+                "sub": LOCAL_OWNER,
+                "role": "owner",
+                "tenants": ["*"],
+                "scopes": ["mcp:read", "mcp:admin"],
+            },
+            READER_KEY: {
+                "client_id": "mcp-key:0",
+                "sub": "reader-1",
+                "role": "reader",
+                "tenants": ["demo"],
+                "scopes": ["mcp:read"],
+            },
+        },
+        required_scopes=["mcp:read"],
+    )
+
+
+async def _list_tools(app: Starlette, token: str, query: str = "") -> httpx.Response:
+    async with app.router.lifespan_context(app):
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client:
+            return await client.get(
+                f"/api/tools{query}", headers={"Authorization": f"Bearer {token}"}
+            )
+
+
+@pytest.mark.asyncio
+async def test_tool_listing_refuses_an_unlisted_reader_key_its_own_tenant(
+    tmp_path: Path,
+) -> None:
+    """The listing is per tenant, so an unlisted key gets the refusal and no catalog."""
+
+    stranger = _server(tmp_path, {"someone-else": {"demo"}})
+    listed = _server(tmp_path, {"reader-1": {"demo"}})
+
+    refused = await _list_tools(_app(stranger, tmp_path, _reader_key_verifier()), READER_KEY)
+    served = await _list_tools(_app(listed, tmp_path, _reader_key_verifier()), READER_KEY)
+
+    assert refused.status_code == 403
+    assert refused.json() == {"error": REFUSAL}
+    assert served.status_code == 200
+    assert served.json()["tenant_id"] == "demo"
+    assert served.json()["tools"]
+
+
+@pytest.mark.asyncio
+async def test_tool_listing_checks_a_tenant_named_in_the_query(tmp_path: Path) -> None:
+    """The wildcard owner token is held to the tenant it asks for, not to any listing."""
+
+    server = _server(tmp_path, {LOCAL_OWNER: {"demo"}})
+    app = _app(server, tmp_path)
+
+    listed = await _list_tools(app, TOKEN, "?tenant_id=demo")
+    elsewhere = await _list_tools(app, TOKEN, "?tenant_id=other")
+
+    assert (listed.status_code, elsewhere.status_code) == (200, 403)
+    assert elsewhere.json() == {"error": REFUSAL}
+
+
+@pytest.mark.asyncio
+async def test_an_unbound_tool_listing_needs_a_listing_somewhere(tmp_path: Path) -> None:
+    stranger = _server(tmp_path, {"someone-else": {"demo"}})
+    listed = _server(tmp_path, {LOCAL_OWNER: {"demo"}})
+
+    refused = await _list_tools(_app(stranger, tmp_path), TOKEN)
+    served = await _list_tools(_app(listed, tmp_path), TOKEN)
+
+    assert (refused.status_code, served.status_code) == (403, 200)
+    assert refused.json() == {"error": REFUSAL}
+    assert served.json()["tenant_id"] is None

@@ -19,6 +19,8 @@ from harborrag_mcp_server.configuration import (
     McpConfiguration,
     McpConfigurationStore,
 )
+from harborrag_mcp_server.server.access_gate import REFUSAL as LISTING_REFUSAL
+from harborrag_mcp_server.server.access_gate import require_listed_off_loop
 from harborrag_mcp_server.server.http_auth import (
     ADMIN_SCOPE,
     Unauthorized,
@@ -279,6 +281,13 @@ def _list_tools_handler(
             authorize_administration(request)
         else:
             authorize_request_tenant(request, tenant_id)
+        # The catalog is per tenant (which tools are on, and their defaults), so a
+        # principal the access file does not list there gets the refusal and no catalog.
+        # An unbound listing needs a listing in some tenant, as a tenant-free tool does.
+        try:
+            await require_listed_off_loop(registry.access_watcher, principal_id, tenant_id)
+        except PermissionError:
+            return error_response(LISTING_REFUSAL, status_code=403)
         tools = [
             {
                 "name": spec.name,

@@ -114,9 +114,11 @@ def _restrict_to_listed(principal: Principal, watcher: AccessFileWatcher) -> Pri
 
     A wildcard grant becomes exactly the listed tenants. A principal left with none --
     unlisted, or listed only where its token grants nothing -- is refused outright, so
-    no route runs for it. An invalid or missing file lists nobody.
+    no route runs for it. An invalid or missing file lists nobody. The loader refuses a
+    ``*`` tenant key; it is dropped here too, because a held ``*`` would keep the
+    wildcard and pass the tenant check for every tenant.
     """
-    listed = watcher.listed_tenants(principal.subject)
+    listed = watcher.listed_tenants(principal.subject) - {"*"}
     held = listed if "*" in principal.tenant_ids else principal.tenant_ids & listed
     if not held:
         raise HarborAuthError("not listed in the access file", forbidden=True)
