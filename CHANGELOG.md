@@ -98,14 +98,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
   not only on the standalone `topology summaries worker` CLI.
 - Datasource access file for beta deployments (`HARBORRAG_ACCESS_CONFIG_PATH`). A versioned
-  YAML file lists, per tenant and project, which connections each member may read; the HTTP
-  API and the MCP server refuse an unlisted user or tenant with 403, limit every read to the
-  listed datasources, and refuse everyone while the file is missing or invalid. Edits apply on
-  the next request. It keys on the identity provider's permanent id (the JWT `sub`), so while
-  it is on the API refuses to start with `HARBORRAG_AUTH_MODE=none` or a
+  YAML file lists, per tenant and project, which connections each member may read. The HTTP
+  API and the MCP server refuse an unlisted user or tenant before anything runs (403 on the
+  API and on the MCP HTTP playground routes; over the MCP protocol, a tool error whose text
+  the server masks), limit reads of ingested content (chat, the agent, retrieval, the graph
+  routes and the MCP tools) to the listed datasources, and refuse everyone while the file is
+  missing or invalid. Other reader routes are refused to unlisted users but not narrowed.
+  Edits apply on the next request. It keys on the identity provider's permanent id (the JWT
+  `sub`), so while it is on the API refuses to start with `HARBORRAG_AUTH_MODE=none` or a
   `HARBORRAG_AUTH_USER_ID_CLAIM` other than `sub`, the settings refuse project or tenant
   memory scopes, and `GET /v1/ingestions/{task_id}/documents` and `GET /v1/graph/conflicts`
   need the `editor` role. See `docs/users/configuration/access-file.md`.
+- The derived vector collections (contextual chunks and parent descriptions) gain a
+  `source_scope_id` payload index on their next derived projection, whether or not the access
+  file is on. Until then, filtering them by datasource is an unindexed scan, and a Qdrant
+  strict mode that refuses unindexed filters would make those searches error. With derived
+  enrichment on, `harborrag topology derive` for one accepted build per tenant adds it.
 
 ### Changed
 

@@ -25,6 +25,7 @@
   - [Model Configuration](users/configuration/model-config.md)
   - [Engine Configuration](users/configuration/config-file-reference.md)
   - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
+  - [Access File (Beta Access)](users/configuration/access-file.md)
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
   - [MCP Setup and Integration](users/detailed-guides/mcp-server/setup-and-integration.md)
 - [Troubleshooting](users/troubleshooting/README.md)

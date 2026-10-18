@@ -81,6 +81,8 @@ The narrowing can only remove: it may name only connections the project lists.
 The file is checked as a whole when it loads, and any of these makes it invalid:
 
 - an unknown key at any level, or a `version` other than `1`
+- a tenant key that is not a tenant id, such as `*`: a tenant id is 1-128 ASCII letters,
+  digits, `.`, `_` or `-`, beginning with a letter or digit
 - a connection that is not in `config/connectors.yaml`, or that the connection's own `tenants`
   list does not allow for this tenant
 - a member `datasources` entry that is not also in the project's `datasources`
@@ -90,7 +92,9 @@ The file is checked as a whole when it loads, and any of these makes it invalid:
   narrowing" and widen the member to the whole project
 
 Because logs name only the type of the error and the path (see below), check a file before you
-deploy it. From an environment where `harborrag-runtime` is installed:
+deploy it, and check it again before you deploy an edit to `config/connectors.yaml`, since the
+access file is valid only against it (see [Kill switch](#kill-switch)). From an environment
+where `harborrag-runtime` is installed:
 
 ```bash
 python - <<'EOF'
@@ -109,8 +113,13 @@ principal or label.
 
 With the file on, anything it does not grant is refused:
 
-- A user or tenant that is not in the file is refused with `403` before anything runs: chat,
-  the agent, retrieval, the graph routes and the MCP tools.
+- A user or tenant that is not in the file is refused before anything runs: chat, the agent,
+  retrieval, the graph routes and the MCP tools. The HTTP API answers `403`. So do the MCP
+  server's HTTP playground routes (`GET /api/tools` and `POST /api/tools/call`), with the
+  message `not listed in the access file`. Over the MCP protocol the refusal is a tool error,
+  and the server masks its text to `Error calling tool '<name>'`; the reason,
+  `PermissionError: not listed in the access file`, is in the server log, and the MCP audit
+  log records `PermissionError`.
 - A listed user whose datasources have never been ingested has nothing to read, and is refused
   too. Only the retrieval and graph routes answer `403` for this case; in chat, the agent and
   the MCP tools the read comes back as an error or a failed tool result, not a `403`.
@@ -124,12 +133,20 @@ With the file on, anything it does not grant is refused:
 
 The file is read again on the next request after it changes; there is no restart and no
 cache to clear. Remove a datasource from a project, or remove a member, and that access is
-gone on their next call. Edits to `connectors.yaml` are picked up the same way, because the
-access file is valid only against it.
+gone on their next call. Nothing they created earlier is purged: their personal memories and
+chat history stay, including text drawn from a datasource they have lost, and a user who is
+still listed can still read their own.
 
-An edit that leaves the file invalid refuses everyone, so check the new version first (see
-above) and move it into place in one step rather than saving a half-written file. To cut off
-one person quickly, delete their `members` entry.
+Edits to `connectors.yaml` are picked up the same way, because the access file is valid only
+against it. An edit there can therefore refuse everyone: removing a connection the access
+file lists, or changing the connection's `tenants` so that it no longer allows a tenant the
+access file lists it under, makes the whole access file invalid until one of the two files is
+fixed.
+
+An edit that leaves the access file invalid, directly or through `connectors.yaml`, refuses
+everyone, so check the new versions first (see above) and move each file into place in one
+step rather than saving a half-written file. To cut off one person quickly, delete their
+`members` entry.
 
 ## Identity
 
@@ -180,8 +197,8 @@ the file on they need the `editor` role instead of `reader`:
 - `GET /v1/ingestions/{task_id}/documents` lists the task's items with their titles.
 - `GET /v1/graph/conflicts` lists graph conflicts with their descriptions and node keys.
 
-No other route is narrowed by datasource, and the rest stay at `reader`; see
-[What it does not do](#what-it-does-not-do).
+No other route is raised to `editor`; the reads that are not narrowed stay at `reader` (see
+[What it does not do](#what-it-does-not-do)).
 
 ## Operator principals to list
 
@@ -194,22 +211,32 @@ not list. Add the ones you use, in the tenants they work in:
 | MCP over stdio (no token) | `local-unauthenticated` |
 | The local MCP owner token | `harborrag-local` |
 
-An MCP tool call that names no tenant runs in the tenant `local`. A wildcard token, such as the
-local owner token, can reach any tenant it names, but for a call that names none it needs a
-listing in `local`. Being listed in another tenant does not carry the call into `local`.
+Your own admin or owner JWT is held to the file like any other token. List its `sub` as a
+member of a project that grants at least one datasource, in every tenant you administer;
+otherwise the API refuses it there, admin routes included.
+
+On the MCP playground route `POST /api/tools/call`, and for in-process calls, a tool call
+that names no tenant runs in the token's tenant when the token grants exactly one, and
+otherwise in the tenant `local`. A wildcard token, such as the local owner token, can reach
+any tenant it names, but for a call that names none it needs a listing in `local`. Being
+listed in another tenant does not carry the call into `local`.
+
+Over the MCP protocol there is no `local` fallback: a call that names no tenant is refused
+outright unless the token grants exactly one tenant. With a wildcard token, or with no token
+(stdio), name the tenant in the call.
 
 ## Choosing spaces
 
 A datasource is read as a whole, so include a Confluence space or Jira project only if every
 beta user can already open it in Jira or Confluence. Keep `restricted_content` at `skip`, its
-default for Confluence and Jira connectors: pages and issues that are restricted in the source
-when it is scanned are then not ingested.
+default for Confluence, Jira and SharePoint connectors: items that are restricted in the
+source when it is scanned are then not ingested.
 
 This is not instant. An item that was restricted in the source after it was ingested stays
 readable to everyone allowed its datasource until it is retired, which happens only after
-`missing_threshold` completed full scans (default 2) have missed it. Incremental syncs usually
-do not notice restriction changes, so after tightening access at the source, run those full
-scans. See [Source access control](connector-config.md#source-access-control).
+`missing_threshold` consecutive completed full scans (default 2) have missed it. Incremental
+syncs usually do not notice restriction changes, so after tightening access at the source, run
+those full scans. See [Source access control](connector-config.md#source-access-control).
 
 ## What it does not do
 
@@ -230,8 +257,26 @@ scans. See [Source access control](connector-config.md#source-access-control).
 
 ## Before you turn it on: the search index
 
-Datasource filtering uses a `source_scope_id` payload index. The derived and contextual vector
-collections gain that index on their next derived projection. Until a collection has been
-reprojected, filtering on it is an unindexed scan, and a Qdrant strict mode that forbids
-unindexed filtering would make those searches error. Reproject the derived collections first,
-then turn the file on.
+Datasource filtering uses a `source_scope_id` payload index. The two derived vector
+collections, contextual chunks (`contextual-v2-*`) and parent descriptions (`parent-v2-*`),
+gain that index the next time any derived projection is written to them, whether or not the
+file is on. Each tenant has its own collections, and Qdrant builds the index over a whole
+collection, so one write to each is enough. Until then, filtering them by datasource is an
+unindexed scan, and a Qdrant strict mode that forbids unindexed filtering would make those
+searches error.
+
+The topology worker writes a derived projection each time it derives a newly accepted build.
+To add the index before you turn the file on, run derived enrichment for one accepted build
+in each tenant:
+
+```bash
+harborrag topology status --tenant acme            # lists the build_id of each accepted job
+harborrag topology derive <build_id> --tenant acme
+```
+
+`derive` prints a state for its `contextual` and `parents` stages; each stage that reports
+`ready` has written its collection, and so indexed it. It re-runs derived enrichment for that
+build, which can call the embedding and description models. With derived enrichment off
+(`runtime.derived.enabled: false` in `config/topology/graph_build.yaml`) it writes nothing and
+reports `disabled`. `harborrag topology rebuild` does not add the index: it restores only the
+graph projection.
