@@ -2,254 +2,295 @@
   "id": null,
   "uid": "harborrag-ingestion-timing",
   "title": "HarborRAG Ingestion Pipeline Timing",
-  "description": "Per-stage timing for the document ingestion pipeline (fetch -> parse -> chunk -> encode/embed -> build relations/projections -> write to Qdrant/FalkorDB -> verify -> publish), from the harborrag_ingestion_stage_duration_seconds histogram (stage label, see observability_types.IngestionStage). There is no single end-to-end per-document metric; the 'approx total pipeline time' stat sums stage time and divides by documents parsed as an estimate, not a per-document trace.",
+  "description": "End-to-end document ingest time (p50/p90/p99) from harborrag_ingestion_document_duration_seconds, plus average per-module duration (fetch -> parse -> chunk -> encode -> relations/projections -> Qdrant/FalkorDB -> verify -> publish) from harborrag_ingestion_stage_duration_seconds.",
   "tags": ["harborrag", "ingestion"],
   "timezone": "browser",
   "editable": true,
   "schemaVersion": 39,
-  "version": 1,
+  "version": 8,
   "refresh": "30s",
   "time": { "from": "now-6h", "to": "now" },
   "panels": [
     {
       "id": 1,
       "type": "row",
-      "title": "Pipeline stage timing",
-      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
+      "title": "Full document ingest (end-to-end)",
       "collapsed": false,
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 1 },
       "panels": []
     },
     {
       "id": 2,
-      "type": "bargauge",
-      "title": "Average stage duration",
-      "description": "sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_sum[5m])) / sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_count[5m])), limited to the core per-document pipeline stages",
+      "type": "stat",
+      "title": "Document ingest time p50",
+      "description": "p50 time for one document from workflow start (fetch) to its terminal outcome (publish or failure), over the selected time range. histogram_quantile(0.5, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 1, "w": 12, "h": 9 },
+      "gridPos": { "x": 0, "y": 1, "w": 8, "h": 5 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_sum{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m])) / sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_count{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m]))",
-          "legendFormat": "{{stage}}",
+          "expr": "histogram_quantile(0.5, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
           "instant": true
         }
       ]
     },
     {
       "id": 3,
-      "type": "bargauge",
-      "title": "p95 stage duration",
-      "description": "histogram_quantile(0.95, sum by (le, stage) (rate(harborrag_ingestion_stage_duration_seconds_bucket[5m]))), limited to the core per-document pipeline stages",
+      "type": "stat",
+      "title": "Document ingest time p90",
+      "description": "p90 time for one document from workflow start (fetch) to its terminal outcome (publish or failure), over the selected time range. histogram_quantile(0.9, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 12, "y": 1, "w": 12, "h": 9 },
+      "gridPos": { "x": 8, "y": 1, "w": 8, "h": 5 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m])))",
-          "legendFormat": "{{stage}}",
+          "expr": "histogram_quantile(0.9, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
           "instant": true
         }
       ]
     },
     {
       "id": 4,
-      "type": "timeseries",
-      "title": "Parse duration (parse_normalize)",
-      "description": "Document parsing/extraction, runs in an isolated subprocess. p50/p95/p99 from harborrag_ingestion_stage_duration_seconds_bucket{stage=\"parse_normalize\"}",
+      "type": "stat",
+      "title": "Document ingest time p99",
+      "description": "p99 time for one document from workflow start (fetch) to its terminal outcome (publish or failure), over the selected time range. histogram_quantile(0.99, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
+      "gridPos": { "x": 16, "y": 1, "w": 8, "h": 5 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none" },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"parse_normalize\"}[5m])) by (le))", "legendFormat": "p50" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.95, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"parse_normalize\"}[5m])) by (le))", "legendFormat": "p95" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"parse_normalize\"}[5m])) by (le))", "legendFormat": "p99" }
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "histogram_quantile(0.99, sum by (le) (increase(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[$__range])))",
+          "instant": true
+        }
       ]
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Embedding duration (encode)",
-      "description": "Chunk embedding generation only (no vector-store write). p50/p95/p99 from harborrag_ingestion_stage_duration_seconds_bucket{stage=\"encode\"}",
+      "title": "Document ingest time p50 / p90 / p99",
+      "description": "End-to-end time for one document (fetch -> publish), from harborrag_ingestion_document_duration_seconds. Filter by terminal outcome with the $outcome variable.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 6, "w": 24, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"encode\"}[5m])) by (le))", "legendFormat": "p50" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.95, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"encode\"}[5m])) by (le))", "legendFormat": "p95" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"encode\"}[5m])) by (le))", "legendFormat": "p99" }
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "histogram_quantile(0.5, sum by (le) (rate(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "histogram_quantile(0.9, sum by (le) (rate(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[5m])))",
+          "legendFormat": "p90"
+        },
+        {
+          "refId": "C",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "histogram_quantile(0.99, sum by (le) (rate(harborrag_ingestion_document_duration_seconds_bucket{outcome=~\"$outcome\"}[5m])))",
+          "legendFormat": "p99"
+        }
       ]
     },
     {
       "id": 6,
-      "type": "timeseries",
-      "title": "Vector DB write duration (Qdrant)",
-      "description": "p50/p95/p99 from harborrag_ingestion_stage_duration_seconds_bucket{stage=\"qdrant_write\"}",
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 18, "w": 12, "h": 8 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
-      "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"qdrant_write\"}[5m])) by (le))", "legendFormat": "p50" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.95, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"qdrant_write\"}[5m])) by (le))", "legendFormat": "p95" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"qdrant_write\"}[5m])) by (le))", "legendFormat": "p99" }
-      ]
+      "type": "row",
+      "title": "Per-module duration (average, s/ms)",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 1 },
+      "panels": []
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Graph DB write duration (FalkorDB)",
-      "description": "p50/p95/p99 from harborrag_ingestion_stage_duration_seconds_bucket{stage=\"falkordb_write\"}",
+      "type": "bargauge",
+      "title": "Average duration per module",
+      "description": "Average duration of each module over the selected time range: total seconds / number of runs, every run counted equally (including retries and failed attempts). Modules that did not run in the range (for example the middle stages when every document was unchanged) do not appear. sum by (stage) (increase(_sum[$__range])) / sum by (stage) (increase(_count[$__range])) Filtered by $outcome through the document_kind label: the document's admission decision mapped to outcome words (new/updated content = activated, force reprocess of unchanged content = republished, unchanged = skipped). It is decided before the module runs, so a document that later fails still counts under the kind it started as; selecting only 'failed' shows nothing here.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 12, "y": 18, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 15, "w": 12, "h": 9 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
+      "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
-        { "refId": "A", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.50, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"falkordb_write\"}[5m])) by (le))", "legendFormat": "p50" },
-        { "refId": "B", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.95, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"falkordb_write\"}[5m])) by (le))", "legendFormat": "p95" },
-        { "refId": "C", "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" }, "expr": "histogram_quantile(0.99, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=\"falkordb_write\"}[5m])) by (le))", "legendFormat": "p99" }
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "sum by (stage) (increase(harborrag_ingestion_stage_duration_seconds_sum{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}[$__range])) / (sum by (stage) (increase(harborrag_ingestion_stage_duration_seconds_count{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}[$__range])) > 0)",
+          "legendFormat": "{{stage}}",
+          "instant": true
+        }
       ]
     },
     {
       "id": 8,
       "type": "timeseries",
-      "title": "All pipeline stages, p95 duration",
-      "description": "One line per stage for fetch, parse_normalize, chunk, encode, relation_build, projection_build, qdrant_write, falkordb_write, verification, publication -- for comparing relative cost over time.",
+      "title": "Average duration per module over time",
+      "description": "Mean stage duration: rate(_sum[5m]) / rate(_count[5m]) by stage. Grafana shows sub-second values in ms. Filtered by $outcome through the document_kind label: the document's admission decision mapped to outcome words (new/updated content = activated, force reprocess of unchanged content = republished, unchanged = skipped). It is decided before the module runs, so a document that later fails still counts under the kind it started as; selecting only 'failed' shows nothing here.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 26, "w": 24, "h": 9 },
+      "gridPos": { "x": 12, "y": 15, "w": 12, "h": 9 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": ["mean", "max"] } },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "histogram_quantile(0.95, sum(rate(harborrag_ingestion_stage_duration_seconds_bucket{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m])) by (le, stage))",
+          "expr": "sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_sum{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}[5m])) / (sum by (stage) (rate(harborrag_ingestion_stage_duration_seconds_count{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}[5m])) > 0)",
           "legendFormat": "{{stage}}"
         }
       ]
     },
     {
       "id": 9,
-      "type": "row",
-      "title": "Throughput & outcomes",
-      "gridPos": { "x": 0, "y": 35, "w": 24, "h": 1 },
-      "collapsed": false,
-      "panels": []
+      "type": "timeseries",
+      "title": "Worker CPU usage",
+      "description": "CPU used by the ingestion worker, stacked: the worker process itself plus its isolated parse subprocesses. 100% = one full CPU core (200% = two cores). Subprocess CPU is counted when each parse subprocess finishes, so it shows as spikes. rate(process_cpu_seconds_total[$__rate_interval]) and rate(harborrag_ingestion_subprocess_cpu_seconds_total[$__rate_interval]).",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": { "x": 0, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": {
+        "defaults": { "unit": "percentunit", "min": 0, "custom": { "stacking": { "mode": "normal", "group": "A" }, "fillOpacity": 30 } },
+        "overrides": []
+      },
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "sum(rate(process_cpu_seconds_total{job=\"harborrag-ingestion-worker\"}[$__rate_interval]))",
+          "legendFormat": "worker process"
+        },
+        {
+          "refId": "B",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "expr": "sum(rate(harborrag_ingestion_subprocess_cpu_seconds_total{job=\"harborrag-ingestion-worker\"}[$__rate_interval]))",
+          "legendFormat": "parse subprocesses"
+        }
+      ]
     },
     {
       "id": 10,
+      "type": "stat",
+      "title": "CPU time per document",
+      "description": "Worker CPU seconds (process + parse subprocesses) in the selected time range divided by documents that finished with the selected $outcome. Includes the worker's idle background CPU, so it is an upper estimate when ingestion is sparse.",
+      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+      "gridPos": { "x": 12, "y": 24, "w": 12, "h": 8 },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "none" },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
+          "instant": true,
+          "expr": "(sum(increase(process_cpu_seconds_total{job=\"harborrag-ingestion-worker\"}[$__range])) + sum(increase(harborrag_ingestion_subprocess_cpu_seconds_total{job=\"harborrag-ingestion-worker\"}[$__range]))) / sum(increase(harborrag_ingestion_document_duration_seconds_count{outcome=~\"$outcome\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "type": "row",
+      "title": "Throughput & outcomes",
+      "collapsed": false,
+      "gridPos": { "x": 0, "y": 32, "w": 24, "h": 1 },
+      "panels": []
+    },
+    {
+      "id": 12,
       "type": "timeseries",
       "title": "Stage operations rate by outcome",
-      "description": "sum(rate(harborrag_ingestion_stage_operations_total[5m])) by (stage, outcome), core pipeline stages only",
+      "description": "Module runs per second over 5 minutes, by module and stage outcome (succeeded/failed), following the $outcome filter through document_kind. Stages with no runs are hidden.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 36, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 33, "w": 12, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(rate(harborrag_ingestion_stage_operations_total{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m])) by (stage, outcome)",
+          "expr": "sum(rate(harborrag_ingestion_stage_operations_total{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}[5m])) by (stage, outcome) > 0",
           "legendFormat": "{{stage}} {{outcome}}"
         }
       ]
     },
     {
-      "id": 11,
+      "id": 13,
       "type": "table",
       "title": "Stage operation counts (current)",
-      "description": "sum(harborrag_ingestion_stage_operations_total) by (stage, outcome)",
+      "description": "Module runs since the worker last started, by module, stage outcome and document kind, following the $outcome filter. Rows with no runs are hidden.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 12, "y": 36, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 33, "w": 12, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
       "options": { "showHeader": true },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(harborrag_ingestion_stage_operations_total) by (stage, outcome)",
+          "expr": "sum(harborrag_ingestion_stage_operations_total{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\",document_kind=~\"$outcome\"}) by (stage, outcome, document_kind) > 0",
           "format": "table",
           "instant": true
         }
       ]
     },
     {
-      "id": 12,
+      "id": 14,
       "type": "stat",
-      "title": "Approx. total pipeline time per document",
-      "description": "Estimate only, not a per-document trace: sum of core-stage time-rate divided by the rate of documents completing parse_normalize. sum(rate(harborrag_ingestion_stage_duration_seconds_sum{core stages}[5m])) / sum(rate(harborrag_ingestion_stage_operations_total{stage=\"parse_normalize\",outcome=\"success\"}[5m]))",
+      "title": "Documents by outcome",
+      "description": "Documents that reached each terminal outcome in the selected time range, following the $outcome filter: activated = a new version went live, republished = the already-active version was published again (e.g. force reprocess of unchanged content), skipped = unchanged, failed. Counted exactly: Grafana sums the counter's increases over the range (the Delta reduction), so counter resets after a worker restart are handled and there is no extrapolation. sum by (outcome) (harborrag_ingestion_documents_total{outcome=~\"$outcome\"}) reduced with Delta.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 44, "w": 8, "h": 6 },
-      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area" },
+      "gridPos": { "x": 0, "y": 41, "w": 12, "h": 6 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["delta"] }, "graphMode": "none" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(rate(harborrag_ingestion_stage_duration_seconds_sum{stage=~\"fetch|parse_normalize|chunk|encode|relation_build|projection_build|qdrant_write|falkordb_write|verification|publication\"}[5m])) / sum(rate(harborrag_ingestion_stage_operations_total{stage=\"parse_normalize\",outcome=\"success\"}[5m]))",
-          "instant": true
-        }
-      ]
-    },
-    {
-      "id": 13,
-      "type": "stat",
-      "title": "Documents parsed rate",
-      "description": "sum(rate(harborrag_ingestion_stage_operations_total{stage=\"parse_normalize\"}[5m])) by (outcome)",
-      "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 8, "y": 44, "w": 8, "h": 6 },
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area" },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(rate(harborrag_ingestion_stage_operations_total{stage=\"parse_normalize\"}[5m])) by (outcome)",
+          "expr": "sum by (outcome) (harborrag_ingestion_documents_total{outcome=~\"$outcome\"})",
+          "legendFormat": "{{outcome}}",
           "legendFormat": "{{outcome}}"
         }
       ]
     },
     {
-      "id": 14,
+      "id": 15,
       "type": "stat",
-      "title": "Chunks produced rate",
-      "description": "sum(rate(harborrag_ingestion_chunks_total[5m])) by (kind)",
+      "title": "Chunks produced",
+      "description": "Chunks produced in the selected time range, by kind. Only documents that are actually re-chunked count; versions whose chunk artifacts already exist are reused and add nothing. Counted exactly with the Delta reduction over the range. sum by (kind) (harborrag_ingestion_chunks_total) reduced with Delta.",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 16, "y": 44, "w": 8, "h": 6 },
-      "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
-      "options": { "reduceOptions": { "calcs": ["lastNotNull"] }, "graphMode": "area" },
+      "gridPos": { "x": 12, "y": 41, "w": 12, "h": 6 },
+      "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["delta"] }, "graphMode": "none" },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "sum(rate(harborrag_ingestion_chunks_total[5m])) by (kind)",
+          "expr": "sum by (kind) (harborrag_ingestion_chunks_total)",
+          "legendFormat": "{{kind}}",
           "legendFormat": "{{kind}}"
         }
       ]
     },
     {
-      "id": 15,
+      "id": 16,
       "type": "row",
       "title": "Parser engines & model calls",
-      "description": "PDF parser-engine attempts (harborrag_ingestion_parser_engine_*, recorded per fallback attempt inside the parse_normalize stage) and embedding/chat model call metrics (harborrag_model_*, bridged from the same TelemetryEvent stream OpenTelemetry's no-op meter otherwise discards).",
-      "gridPos": { "x": 0, "y": 50, "w": 24, "h": 1 },
       "collapsed": false,
+      "gridPos": { "x": 0, "y": 47, "w": 24, "h": 1 },
       "panels": []
     },
     {
-      "id": 16,
+      "id": 17,
       "type": "bargauge",
       "title": "Parser engine average duration",
       "description": "sum by (engine) (rate(harborrag_ingestion_parser_engine_duration_seconds_sum[5m])) / sum by (engine) (rate(harborrag_ingestion_parser_engine_duration_seconds_count[5m])) -- one bar per PDF engine tried (mineru, pymupdf, paddleocr, docling, liteparse)",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 51, "w": 8, "h": 8 },
+      "gridPos": { "x": 0, "y": 48, "w": 8, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "options": { "displayMode": "gradient", "orientation": "horizontal", "reduceOptions": { "calcs": ["lastNotNull"] } },
       "targets": [
@@ -263,12 +304,12 @@
       ]
     },
     {
-      "id": 17,
+      "id": 18,
       "type": "timeseries",
       "title": "Parser engine attempts by outcome",
       "description": "sum(rate(harborrag_ingestion_parser_engine_attempts_total[5m])) by (engine, outcome) -- a failed attempt means the PDF family fell back to the next configured engine",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 8, "y": 51, "w": 16, "h": 8 },
+      "gridPos": { "x": 8, "y": 48, "w": 16, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "ops" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
@@ -281,36 +322,30 @@
       ]
     },
     {
-      "id": 18,
+      "id": 19,
       "type": "timeseries",
-      "title": "Model call duration (p50 / p95)",
-      "description": "histogram_quantile(q, sum(rate(harborrag_model_call_duration_seconds_bucket[5m])) by (le, provider, model)) -- covers embedding calls today (encode stage); chat calls once a chat-path caller passes a registry to build_model_telemetry too",
+      "title": "Model call average duration",
+      "description": "Mean model call duration by provider/model: rate(harborrag_model_call_duration_seconds_sum[5m]) / rate(_count[5m]).",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 0, "y": 59, "w": 12, "h": 8 },
+      "gridPos": { "x": 0, "y": 56, "w": 12, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
         {
           "refId": "A",
           "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "histogram_quantile(0.50, sum(rate(harborrag_model_call_duration_seconds_bucket[5m])) by (le, provider, model))",
-          "legendFormat": "p50 {{provider}}/{{model}}"
-        },
-        {
-          "refId": "B",
-          "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-          "expr": "histogram_quantile(0.95, sum(rate(harborrag_model_call_duration_seconds_bucket[5m])) by (le, provider, model))",
-          "legendFormat": "p95 {{provider}}/{{model}}"
+          "expr": "sum by (provider, model) (rate(harborrag_model_call_duration_seconds_sum[5m])) / sum by (provider, model) (rate(harborrag_model_call_duration_seconds_count[5m]))",
+          "legendFormat": "{{provider}}/{{model}}"
         }
       ]
     },
     {
-      "id": 19,
+      "id": 20,
       "type": "timeseries",
       "title": "Model call rate by status",
-      "description": "sum(rate(harborrag_model_requests_total[5m])) by (operation, provider, model, status)",
+      "description": "Model requests per second by status. Empty when encode is skipped because a reused document version already has embeddings. sum(rate(harborrag_model_requests_total[5m])) by (operation, provider, model, status)",
       "datasource": { "type": "prometheus", "uid": "PBFA97CFB590B2093" },
-      "gridPos": { "x": 12, "y": 59, "w": 12, "h": 8 },
+      "gridPos": { "x": 12, "y": 56, "w": 12, "h": 8 },
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] },
       "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["mean", "max"] } },
       "targets": [
@@ -322,5 +357,24 @@
         }
       ]
     }
-  ]
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "outcome",
+        "label": "Document outcome",
+        "type": "custom",
+        "query": "activated,republished,skipped,failed",
+        "current": { "selected": true, "text": ["activated"], "value": ["activated"] },
+        "multi": true,
+        "includeAll": true,
+        "options": [
+          { "selected": true, "text": "activated", "value": "activated" },
+          { "selected": false, "text": "republished", "value": "republished" },
+          { "selected": false, "text": "skipped", "value": "skipped" },
+          { "selected": false, "text": "failed", "value": "failed" }
+        ]
+      }
+    ]
+  }
 }

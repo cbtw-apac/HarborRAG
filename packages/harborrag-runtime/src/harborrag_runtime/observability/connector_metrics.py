@@ -12,3 +12,9 @@ def connector_metric_label(connector_type: str) -> str:
         return connector_registry.canonical_name(normalized)
     except ConnectorNotFoundError:
         return "other"
+
+
+def connector_metric_labels() -> list[str]:
+    """Every value ``connector_metric_label`` can return."""
+
+    return [*connector_registry.canonical_names(), "other"]

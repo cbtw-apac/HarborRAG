@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import timedelta
 
 from temporalio import workflow
@@ -25,6 +26,9 @@ class DocumentIngestionWorkflow:
 
     @workflow.run
     async def run(self, request: DocumentIngestionInput) -> DocumentIngestionOutcome:
+        if request.started_at is None:
+            # Deterministic on replay: the start time comes from workflow history.
+            request = replace(request, started_at=workflow.info().start_time.timestamp())
         prepared: PreparedDocument | None = None
         failed_stage = "FetchAndCaptureRaw"
         queues = request.workflow_options.task_queues

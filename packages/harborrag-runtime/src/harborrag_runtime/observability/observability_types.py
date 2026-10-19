@@ -30,8 +30,36 @@ class DocumentMetricOutcome(StrEnum):
     ADMITTED = "admitted"
     SKIPPED = "skipped"
     ACTIVATED = "activated"
+    # Publication of the version that was already active (for example a
+    # force-reprocess of unchanged content): nothing new was activated.
+    REPUBLISHED = "republished"
     FAILED = "failed"
     REPLAYED = "replayed"
+
+
+# ``document_kind`` label on stage metrics: what the stage is working on, in
+# the same words as the document outcome, so dashboards filter both with one
+# variable. A stage ends before the document's outcome is final, so this is the
+# admission decision mapped forward, not the outcome itself.
+DOCUMENT_KIND_NONE = "none"
+DOCUMENT_KIND_OTHER = "other"
+DOCUMENT_KINDS = ("activated", "republished", "skipped", DOCUMENT_KIND_OTHER)
+_DECISION_KINDS = {
+    "NEW": "activated",
+    "UPDATED": "activated",
+    "METADATA_CHANGED": "activated",
+    "METADATA_ONLY": "activated",
+    "FORCE_REPROCESS": "republished",
+    "UNCHANGED": "skipped",
+}
+
+
+def document_kind(decision: str | None) -> str:
+    """Map an admission decision to the ``document_kind`` stage label."""
+
+    if decision is None:
+        return DOCUMENT_KIND_NONE
+    return _DECISION_KINDS.get(str(decision), DOCUMENT_KIND_OTHER)
 
 
 class ArtifactMetricKind(StrEnum):

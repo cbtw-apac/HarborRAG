@@ -108,6 +108,9 @@ class DocumentIngestionInput:
     plan_reference: WorkflowArtifactReference
     document_index: int
     workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
+    # Epoch seconds when the document workflow started; set by the workflow so
+    # terminal activities can observe end-to-end document duration.
+    started_at: float | None = None
 
 
 @dataclass(frozen=True, slots=True)

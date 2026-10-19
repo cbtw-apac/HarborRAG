@@ -55,7 +55,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: DocumentIngestionInput,
     ) -> RawCaptureResult:
-        with self._observability.boundary("FetchAndCaptureRaw"):
+        with self._observability.boundary("FetchAndCaptureRaw") as observation:
             planned = await self._documents.get(request)
             result = await heartbeat_while(
                 self._runtime.stages.preparation.fetch_and_capture(
@@ -71,6 +71,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 result,
                 planned.request.source_identity.connector_type.value,
             )
+            observation.set_decision(result.decision)
             return to_raw_capture_result(request, result)
 
     @activity.defn(name="harborrag.parse_and_normalize")
@@ -78,7 +79,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: RawCaptureResult,
     ) -> PreparedDocument:
-        with self._observability.boundary("ParseAndNormalize"):
+        with self._observability.boundary("ParseAndNormalize") as observation:
             planned = await self._documents.get(request.document)
             capture_stage = to_capture_stage(request)
             prior = last_heartbeat_detail()
@@ -138,6 +139,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 )
                 raise
             self._observability.record_prepared(prepared_stage)
+            observation.set_decision(prepared_stage.decision)
             return to_prepared_document(request.document, prepared_stage)
 
     @activity.defn(name="harborrag.sync_content_units")
@@ -145,7 +147,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("SyncContentUnits"):
+        with self._observability.boundary("SyncContentUnits", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.preparation.sync_content_units(
@@ -161,7 +163,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("PersistCanonical"):
+        with self._observability.boundary("PersistCanonical", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.preparation.persist_canonical(
@@ -177,7 +179,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("ChunkAndValidate"):
+        with self._observability.boundary("ChunkAndValidate", decision=request.decision):
             planned = await self._documents.get(request.document)
             statistics = await heartbeat_while(
                 self._runtime.stages.preparation.chunk_and_validate(
@@ -194,7 +196,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("EncodeChunks"):
+        with self._observability.boundary("EncodeChunks", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.preparation.encode_chunks(
@@ -210,7 +212,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("BuildRelations"):
+        with self._observability.boundary("BuildRelations", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.projections.build_relations(
@@ -226,7 +228,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("BuildProjections"):
+        with self._observability.boundary("BuildProjections", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.projections.build_projections(
@@ -242,7 +244,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("WriteVectorProjection"):
+        with self._observability.boundary("WriteVectorProjection", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.projections.write_vector_projection(
@@ -258,7 +260,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("WriteGraphProjection"):
+        with self._observability.boundary("WriteGraphProjection", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.projections.write_graph_projection(
@@ -274,7 +276,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> PreparedDocument:
-        with self._observability.boundary("VerifyProjections"):
+        with self._observability.boundary("VerifyProjections", decision=request.decision):
             planned = await self._documents.get(request.document)
             await heartbeat_while(
                 self._runtime.stages.projections.verify_projections(
@@ -290,20 +292,23 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: PreparedDocument,
     ) -> DocumentIngestionOutcome:
-        with self._observability.boundary("PublishVersion"):
+        with self._observability.boundary("PublishVersion", decision=request.decision):
             planned = await self._documents.get(request.document)
             outcome = await self._runtime.stages.projections.publish_version(
                 to_prepared_stage(request)
             )
-            self._observability.record_publication(
-                outcome,
-                planned.request.source_identity.connector_type.value,
-            )
-            return await self._runtime.sources.record_published_document(
+            result = await self._runtime.sources.record_published_document(
                 request.document.task_id,
                 planned,
                 outcome,
             )
+            # Record last so a retried attempt never observes the document twice.
+            self._observability.record_publication(
+                outcome,
+                planned.request.source_identity.connector_type.value,
+                started_at=request.document.started_at,
+            )
+            return result
 
     @activity.defn(name="harborrag.record_document_failure")
     async def record_document_failure(
@@ -326,6 +331,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             )
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,
+                started_at=request.document.started_at,
             )
 
 
