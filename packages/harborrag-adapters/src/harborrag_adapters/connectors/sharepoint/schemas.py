@@ -34,6 +34,7 @@ class SharePointMetadata(ConnectorMetadata):
     size: int
     etag: Any
     ctag: Any
+    author: str | None
     created_by: str | None
     updated_by: str | None
     parent: SharePointParentReference
@@ -53,6 +54,7 @@ class SharePointPageMetadata(ConnectorMetadata):
     item_name: str
     page_layout: Any
     etag: Any
+    author: str | None
     created_by: str | None
     updated_by: str | None
     has_text_content: bool

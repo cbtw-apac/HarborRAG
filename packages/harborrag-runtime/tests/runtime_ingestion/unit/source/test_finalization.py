@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
+from harborrag_core.ingestion.task_query_contracts import (
+    StoredTaskDocumentResult,
+    TaskDocumentPage,
+)
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
 from harborrag_runtime.ingestion.source.models import (
@@ -29,6 +34,9 @@ class _Recorder:
             return self.results.get(name)
 
         return call
+
+
+_NO_RESULTS = TaskDocumentPage(items=(), has_more=False)
 
 
 class _PageRepair:
@@ -63,7 +71,7 @@ def _paged_plan(*pages: tuple[str, ...]) -> PlannedDocuments:
 
 @pytest.mark.asyncio
 async def test_finalization_repairs_relations_page_by_page_and_sums_the_results() -> None:
-    tasks = _Recorder()
+    tasks = _Recorder(document_results_page=_NO_RESULTS)
     control = SimpleNamespace(
         tasks=tasks,
         source_scans=_Recorder(reconcile_removals=()),
@@ -106,7 +114,7 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
     # A retry must not repeat hours of repair: pages a prior attempt finished are
     # skipped, and their totals still count toward the outcome.
     control = SimpleNamespace(
-        tasks=_Recorder(),
+        tasks=_Recorder(document_results_page=_NO_RESULTS),
         source_scans=_Recorder(reconcile_removals=()),
         publisher=_Recorder(),
     )
@@ -137,6 +145,70 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
     assert outcome.unresolved_relations == 2
     assert progress == RelationRepairProgress(
         next_page=2, repaired_documents=3, resolved_relations=4, unresolved_relations=2
+    )
+
+
+@pytest.mark.asyncio
+async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
+    # Discovery skips are already on the task; a document that failed while
+    # parsing is an extraction skip, and one that failed elsewhere is not.
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="ParseAndNormalize"),
+            _failed_result("doc-2", stage="FetchAndCaptureRaw"),
+        ),
+        has_more=False,
+    )
+    task = SimpleNamespace(
+        summary={
+            "skipped": 3,
+            "skipped_by_reason": {"NOT_IN_ALLOWLIST": 2, "EXCEEDS_SIZE_LIMIT": 1},
+        }
+    )
+    tasks = _Recorder(get=task, document_results_page=failed)
+    control = SimpleNamespace(
+        tasks=tasks,
+        source_scans=_Recorder(reconcile_removals=()),
+        publisher=_Recorder(),
+    )
+    finalization = SourceFinalizationService(control=cast(Any, control))
+    request = SimpleNamespace(
+        task_id="task-1",
+        tenant_id="tenant-1",
+        missing_threshold=1,
+        query=SimpleNamespace(include_attachments=True),
+        processing=SimpleNamespace(graph_projection_version="graph-v2"),
+    )
+
+    await finalization.finish(
+        cast(Any, request),
+        scan_id="scan-1",
+        planned=_paged_plan(
+            ("a", "b", "c"),
+        ),
+        summary=SourceDispatchSummary(published=1, failed=2),
+    )
+
+    stored = cast(
+        dict[str, object],
+        next(kwargs["summary"] for name, _, kwargs in tasks.calls if name == "finalize"),
+    )
+    assert stored["skipped"] == 4
+    assert stored["skipped_by_reason"] == {
+        "EXCEEDS_SIZE_LIMIT": 1,
+        "EXTRACTION_FAILED": 1,
+        "NOT_IN_ALLOWLIST": 2,
+    }
+
+
+def _failed_result(document_id: str, *, stage: str) -> StoredTaskDocumentResult:
+    return StoredTaskDocumentResult(
+        task_id="task-1",
+        document_id=document_id,
+        document_version_id=None,
+        status="failed",
+        result={"failure_stage": stage},
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 
 

@@ -83,3 +83,29 @@ connectors:
     secrets:
       token_env: JIRA_TOKEN
       email_env: JIRA_EMAIL
+
+  sharepoint-main:
+    provider: sharepoint
+    enabled: true
+    environment:
+      site_url: SHAREPOINT_SITE_URL
+    settings:
+      auth_mode: client_credentials
+      graph_api_url: https://graph.microsoft.com/v1.0
+      crawl_all_drives: false
+      recursive: true
+      allowed_extensions: [docx, pdf, pptx, xlsx, txt, md]
+      excluded_extensions: []
+      include_hidden: false
+      include_pages: false
+      max_file_size_bytes: 104857600
+      fail_on_error: false
+      requests_per_minute: 120
+      page_size: 200
+      request_timeout_seconds: 60
+      max_retries: 3
+      backoff_factor: 0.5
+    secrets:
+      tenant_id_env: MICROSOFT_TENANT_ID
+      client_id_env: MICROSOFT_CLIENT_ID
+      client_secret_env: MICROSOFT_CLIENT_SECRET

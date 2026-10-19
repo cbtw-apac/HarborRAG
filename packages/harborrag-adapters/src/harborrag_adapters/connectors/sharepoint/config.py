@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
@@ -26,11 +27,17 @@ from .config_validation import (
 from .delegated import default_token_cache_path
 from .drive_paths import parse_sharepoint_site_url
 
-AUTH_ACCESS_TOKEN = "access_token"
-AUTH_CLIENT_CREDENTIALS = "client_credentials"
-AUTH_DEVICE_CODE = "device_code"
-AUTH_MODES = frozenset({AUTH_ACCESS_TOKEN, AUTH_CLIENT_CREDENTIALS, AUTH_DEVICE_CODE})
 
+class SharePointAuthMode(StrEnum):
+    """Supported ways of obtaining Microsoft Graph tokens."""
+
+    ACCESS_TOKEN = "access_token"
+    CLIENT_CREDENTIALS = "client_credentials"
+    DEVICE_CODE = "device_code"
+
+
+# Fallbacks for fields a connection omits. Deployments set these per connection
+# under `settings` in config/connectors.yaml; see config/connectors.example.yaml.
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
 DEFAULT_ALLOWED_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".xlsx", ".txt", ".md"})
@@ -86,7 +93,7 @@ class SharePointSiteConfig:
     tenant_id: str | None = None
     client_id: str | None = None
     client_secret: str | None = field(default=None, repr=False)  # secret
-    auth_mode: str | None = None
+    auth_mode: SharePointAuthMode | str | None = None
     token_cache_path: str | None = None
     graph_api_url: str = DEFAULT_GRAPH_API_URL
     allowed_extensions: set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
@@ -110,8 +117,8 @@ class SharePointSiteConfig:
         self.client_id = self.client_id or os.getenv("MICROSOFT_CLIENT_ID")
         if self.auth_mode is not None:
             # Normalize first so " Device_Code" still takes the delegated guard below.
-            self.auth_mode = self.auth_mode.strip().lower()
-        if self.auth_mode != AUTH_DEVICE_CODE:
+            self.auth_mode = str(self.auth_mode).strip().lower()
+        if self.auth_mode != SharePointAuthMode.DEVICE_CODE:
             # A delegated connection must never fall back to ambient app credentials.
             self.access_token = self.access_token or os.getenv("MICROSOFT_GRAPH_TOKEN")
             self.client_secret = self.client_secret or os.getenv("MICROSOFT_CLIENT_SECRET")
@@ -150,22 +157,24 @@ class SharePointSiteConfig:
     def _resolve_auth_mode(self) -> None:
         if self.auth_mode is None:
             if self.access_token:
-                self.auth_mode = AUTH_ACCESS_TOKEN
+                self.auth_mode = SharePointAuthMode.ACCESS_TOKEN
             elif self.client_secret:
-                self.auth_mode = AUTH_CLIENT_CREDENTIALS
+                self.auth_mode = SharePointAuthMode.CLIENT_CREDENTIALS
             else:
                 raise ValueError("SharePoint config requires access_token or client credentials")
-        self.auth_mode = self.auth_mode.strip().lower()
-        if self.auth_mode not in AUTH_MODES:
-            raise ValueError(f"auth_mode must be one of {', '.join(sorted(AUTH_MODES))}")
+        try:
+            self.auth_mode = SharePointAuthMode(str(self.auth_mode).strip().lower())
+        except ValueError:
+            modes = ", ".join(sorted(SharePointAuthMode))
+            raise ValueError(f"auth_mode must be one of {modes}") from None
 
-        if self.auth_mode == AUTH_ACCESS_TOKEN and not self.access_token:
+        if self.auth_mode == SharePointAuthMode.ACCESS_TOKEN and not self.access_token:
             raise ValueError("auth_mode access_token requires access_token")
-        if self.auth_mode == AUTH_CLIENT_CREDENTIALS and not (
+        if self.auth_mode == SharePointAuthMode.CLIENT_CREDENTIALS and not (
             self.tenant_id and self.client_id and self.client_secret
         ):
             raise ValueError("SharePoint config requires access_token or client credentials")
-        if self.auth_mode == AUTH_DEVICE_CODE:
+        if self.auth_mode == SharePointAuthMode.DEVICE_CODE:
             if not (self.tenant_id and self.client_id):
                 raise ValueError("auth_mode device_code requires tenant_id and client_id")
             if self.client_secret or self.access_token:

@@ -247,6 +247,29 @@ class SharePointDriveAPI:
         logger.debug("Resolved SharePoint site %s", site.get("id"))
         return site
 
+    def verify_site_access(self, site: dict[str, Any]) -> None:
+        """Read a site configured by ``site_id`` once, so auth fails at startup.
+
+        A site resolved from its URL was already read from Graph. One given by
+        ID was not, so without this check bad credentials or a missing
+        ``Sites.Selected`` grant would only surface mid-traversal. The site's
+        ``webUrl`` is kept when the config did not supply one, which lets a
+        URL entry in ``allowed_sites`` match a site configured by ID.
+        """
+        if not self.config.site_id:
+            return
+        endpoint = f"sites/{self.config.site_id}"
+        try:
+            remote = self.client.get_json(endpoint, params={"$select": "id,webUrl,displayName"})
+        except AuthorizationError as exc:
+            raise AuthorizationError(
+                f"SharePoint app is not granted access to site {self.config.site_id!r}; "
+                "grant it Sites.Selected access to this site",
+                status_code=403,
+            ) from exc
+        if not site.get("webUrl") and remote.get("webUrl"):
+            site["webUrl"] = remote["webUrl"]
+
     def resolve_drive(self, site: dict[str, Any]) -> dict[str, Any]:
         """Resolve and cache the configured or default document library drive."""
         if self._drive is not None:

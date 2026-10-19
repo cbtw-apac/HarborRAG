@@ -37,9 +37,8 @@ CI_ONLY_TARGETS: dict[str, str] = {
         "33 tests fail on Windows (2026-10-15 run): POSIX-only shell entrypoint "
         "and permission-model tests, plus the unguarded os.fchmod in the "
         "harborrag-mcp-server configuration store. A local pytest gate would "
-        "block every push from a Windows machine. See Known gaps in "
-        "docs/superpowers/specs/2026-08-13-pre-commit-hooks-design.md; restore "
-        "the hook once those failures are fixed."
+        "block every push from a Windows machine. Restore the hook once those "
+        "failures are fixed."
     ),
 }
 
