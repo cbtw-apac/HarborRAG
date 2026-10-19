@@ -510,6 +510,8 @@ def test_activity_boundary_labels_stage_metrics_with_the_document_kind() -> None
     assert count("encode", "republished") == 1.0
     assert count("encode", "activated") == 0.0
     assert count("fetch", "skipped") == 1.0
+
+
 def test_schedule_states_seed_outcome_series_so_the_first_failure_alerts() -> None:
     telemetry = IngestionTelemetry(registry=CollectorRegistry())
     telemetry.record_schedule_states({"daily-sync": (False, False, 0)})

@@ -406,6 +406,8 @@ def _extract_parser_attempts(parsed: ParsedDocument) -> tuple[tuple[str, bool, f
             continue
         attempts.append((engine, bool(attempt.get("success")), float(duration_ms)))
     return tuple(attempts)
+
+
 _PARSE_STEPS = ("raw", "parse", "normalize", "admit", "persist")
 
 

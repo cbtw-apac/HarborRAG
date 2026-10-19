@@ -24,6 +24,16 @@ from harborrag_runtime.temporal_models import TaskQueueConfig, TemporalWorkflowO
 from .fixtures import plan_reference as _plan_reference
 
 
+@pytest.fixture(autouse=True)
+def _workflow_start_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The document workflow stamps its start time; these tests run it outside Temporal."""
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.document_workflow.workflow.info",
+        lambda: SimpleNamespace(start_time=datetime(2026, 1, 1, tzinfo=UTC)),
+    )
+
+
 @pytest.mark.asyncio
 async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeypatch) -> None:
     calls = []

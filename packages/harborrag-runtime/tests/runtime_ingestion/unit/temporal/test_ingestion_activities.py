@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import Mock, AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from temporalio.service import RPCError, RPCStatusCode
