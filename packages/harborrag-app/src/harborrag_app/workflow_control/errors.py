@@ -34,6 +34,14 @@ class IngestionAlreadyCompletedError(HarborConflictError):
     error_code = "INGESTION_ALREADY_COMPLETED"
 
 
+class IngestionAlreadyPausedError(HarborConflictError):
+    error_code = "INGESTION_ALREADY_PAUSED"
+
+
+class IngestionAlreadyRunningError(HarborConflictError):
+    error_code = "INGESTION_ALREADY_RUNNING"
+
+
 class IngestionIdempotencyConflictError(HarborConflictError):
     error_code = "INGESTION_IDEMPOTENCY_CONFLICT"
 
@@ -48,6 +56,22 @@ class IngestionCursorError(HarborValidationError):
 
 class IngestionStatusFilterError(HarborValidationError):
     error_code = "INGESTION_STATUS_INVALID"
+
+
+class ScheduleNotFoundAppError(HarborNotFoundError):
+    error_code = "SCHEDULE_NOT_FOUND"
+
+
+class ScheduleAlreadyExistsError(HarborConflictError):
+    error_code = "SCHEDULE_ALREADY_EXISTS"
+
+
+class ScheduleManagedByConfigError(HarborConflictError):
+    error_code = "SCHEDULE_MANAGED_BY_CONFIG"
+
+
+class ScheduleInvalidError(HarborValidationError):
+    error_code = "SCHEDULE_INVALID"
 
 
 # Error types whose messages are authored inside HarborRAG at the Temporal

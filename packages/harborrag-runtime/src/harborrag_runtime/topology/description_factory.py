@@ -16,6 +16,7 @@ from harborrag_adapters.topology.descriptions import (
 )
 from harborrag_core.topology import ExtractionProfile
 from harborrag_core.topology.derived import DescriptionOutput, DescriptionPacket
+from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.observability import build_model_telemetry
 
@@ -28,10 +29,20 @@ class ConfiguredDescriptionGenerator:
     document_id: str
     frozen_catalog: HarborChatClientConfig | None = None
 
-    async def generate(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionOutput:
-        return (await self.generate_usage(packets)).output
+    async def generate(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        *,
+        max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
+    ) -> DescriptionOutput:
+        return (await self.generate_usage(packets, max_words=max_words)).output
 
-    async def generate_usage(self, packets: tuple[DescriptionPacket, ...]) -> DescriptionRun:
+    async def generate_usage(
+        self,
+        packets: tuple[DescriptionPacket, ...],
+        *,
+        max_words: int = PARENT_DESCRIPTION_MAX_WORDS,
+    ) -> DescriptionRun:
         catalog = self.frozen_catalog or HarborChatClientConfig.from_file(
             self.settings.model_config_path
         )
@@ -39,7 +50,11 @@ class ConfiguredDescriptionGenerator:
             # The rollup has its own prompt, so it cannot pass the extraction pin.
             config, pricing = pin_rollup_model(catalog, self.settings.topology_parent_model)
         else:
-            config, pricing = pinned_configuration(catalog, self.profile), None
+            config = pinned_configuration(catalog, self.profile)
+            # The pinned configuration narrows to one deployment; its rates are the
+            # fallback price when the provider does not price the response itself.
+            _, logical = config.model_for(self.profile.model)
+            pricing = logical.deployments[0].pricing if logical.deployments else None
         telemetry = build_model_telemetry(config, langfuse_enabled=self.settings.langfuse_enabled)
         try:
             client = ChatClientFactory.create_async(
@@ -61,6 +76,6 @@ class ConfiguredDescriptionGenerator:
                 self.settings.topology_operation_seconds,
                 self.settings.topology_parent_max_output_tokens,
                 pricing,
-            ).generate_usage(packets)
+            ).generate_usage(packets, max_words=max_words)
         finally:
             await client.aclose()

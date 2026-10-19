@@ -56,9 +56,13 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
         )
         await service.provision(tenant_id="default")
 
-        with caplog.at_level(
-            logging.DEBUG,
-            logger="harborrag.runtime.ingestion.document_pipeline",
+        with (
+            caplog.at_level(
+                logging.DEBUG,
+                logger="harborrag.runtime.ingestion.document_pipeline",
+            ),
+            # Same handler as above, so this must not raise its level past DEBUG.
+            caplog.at_level(logging.DEBUG, logger="harborrag.runtime.ingestion.capture"),
         ):
             first = await service.release(
                 release_request(source_version="1"),
@@ -85,6 +89,9 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
         assert replay.decision == SourceAdmissionDecision.UNCHANGED
         assert (connector.loads, parser.calls, len(embed.inputs)) == expensive_counts
         assert "Document stage completed" in caplog.text
+        # Each parsed document reports how long every parse step took.
+        assert "Document parsed" in caplog.text
+        assert "parse_ms=" in caplog.text and "persist_ms=" in caplog.text
         assert "stage=WriteVectorProjection" in caplog.text
         assert "Document pipeline completed" in caplog.text
 
@@ -321,3 +328,168 @@ async def test_failed_release_replays_from_canonical_without_connector_or_parser
         assert str(active.document_version_id) == failed_version_id
         assert connector.loads == connector_calls
         assert resources.parser.calls == parser_calls
+
+
+class _PutCountingStore(MemoryObjectStore):
+    def __init__(self) -> None:
+        super().__init__()
+        self.put_keys: list[str] = []
+
+    async def put(self, request, *, context):  # type: ignore[no-untyped-def]
+        self.put_keys.append(request.key)
+        return await super().put(request, context=context)
+
+
+@pytest.mark.asyncio
+async def test_release_writes_each_artifact_once_and_no_relation_artifact(
+    tmp_path: Path,
+) -> None:
+    control = build_control_plane(tmp_path)
+    store = _PutCountingStore()
+    vectors = InMemoryVectorRepository()
+    graph = InMemoryKnowledgeGraph()
+    async with control, store:
+        service = build_release_service(
+            ReleaseResources(
+                control,
+                store,
+                TextParser(),
+                DeterministicEmbedClient(),
+                vectors,
+                graph,
+            )
+        )
+        await service.provision(tenant_id="default")
+
+        outcome = await service.release(
+            release_request(source_version="1"),
+            SourceConnector(),
+        )
+
+        assert outcome.published is True
+        assert outcome.document_version_id is not None
+        repeated = sorted({key for key in store.put_keys if store.put_keys.count(key) > 1})
+        assert repeated == []
+        assert not any(key.startswith("relations/") for key in store.put_keys)
+        snapshot = await control.document_versions.get_version(outcome.document_version_id)
+        assert snapshot is not None
+        assert snapshot.relation_artifact is None
+        assert snapshot.canonical_artifact is not None
+
+
+@pytest.mark.asyncio
+async def test_retried_publish_of_an_already_active_version_is_a_replay(
+    tmp_path: Path,
+) -> None:
+    # The publish commits, the attempt times out, and Temporal runs it again:
+    # that used to raise "document version in ACTIVE cannot publish".
+    from harborrag_core.ingestion import SourceAdmissionDecision
+    from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
+    from harborrag_runtime.ingestion.document.stage_models import PreparedDocumentStage
+
+    control = build_control_plane(tmp_path)
+    store = MemoryObjectStore()
+    async with control, store:
+        resources = ReleaseResources(
+            control,
+            store,
+            TextParser(),
+            DeterministicEmbedClient(),
+            InMemoryVectorRepository(),
+            InMemoryKnowledgeGraph(),
+        )
+        service = build_release_service(resources)
+        await service.provision(tenant_id="default")
+        first = await service.release(release_request(source_version="1"), SourceConnector())
+        assert first.published is True
+        assert first.document_version_id is not None
+        snapshot = await control.document_versions.get_version(first.document_version_id)
+        assert snapshot is not None
+
+        retried = await DocumentStagePipeline(
+            build_dependencies(resources)
+        ).projections.publish_version(
+            PreparedDocumentStage(
+                document_id=str(snapshot.document_id),
+                document_version_id=first.document_version_id,
+                decision=SourceAdmissionDecision.NEW,
+                canonical_reference=snapshot.canonical_artifact,
+            )
+        )
+
+        assert retried.publication is not None
+        assert retried.publication.replayed is True
+        active = await control.document_versions.active_snapshot(str(snapshot.document_id))
+        assert active is not None
+        assert str(active.document_version_id) == first.document_version_id
+
+
+@pytest.mark.asyncio
+async def test_release_adopts_an_unrecorded_canonical_left_by_an_earlier_attempt(
+    tmp_path: Path,
+) -> None:
+    # An attempt wrote the canonical object, then timed out before recording
+    # it; the retry re-parses to different bytes (OCR under load). That used to
+    # fail permanently with "immutable artifact key already contains different
+    # content". Learn the deterministic ids from a clean run first.
+    from harborrag_adapters.repositories.object_store import (
+        CanonicalDocumentArtifactRepository,
+        ImmutableArtifactReader,
+        ImmutableArtifactWriter,
+    )
+    from harborrag_core.storage import StorageOperationContext
+
+    probe_control = build_control_plane(tmp_path / "probe")
+    probe_store = MemoryObjectStore()
+    async with probe_control, probe_store:
+        probe = build_release_service(
+            ReleaseResources(
+                probe_control,
+                probe_store,
+                TextParser(),
+                DeterministicEmbedClient(),
+                InMemoryVectorRepository(),
+                InMemoryKnowledgeGraph(),
+            )
+        )
+        await probe.provision(tenant_id="default")
+        baseline = await probe.release(release_request(source_version="1"), SourceConnector())
+        assert baseline.document_version_id is not None
+        snapshot = await probe_control.document_versions.get_version(baseline.document_version_id)
+        assert snapshot is not None and snapshot.canonical_artifact is not None
+        canonical = await CanonicalDocumentArtifactRepository(
+            ImmutableArtifactWriter(probe_store), ImmutableArtifactReader(probe_store)
+        ).get(snapshot.canonical_artifact, context=StorageOperationContext.system("default"))
+
+    control = build_control_plane(tmp_path / "retry")
+    store = MemoryObjectStore()
+    async with control, store:
+        earlier = canonical
+        earlier.provenance.extra["parser_note"] = "written by an earlier attempt"
+        await CanonicalDocumentArtifactRepository(
+            ImmutableArtifactWriter(store), ImmutableArtifactReader(store)
+        ).put(
+            document_id=str(snapshot.document_id),
+            document_version_id=baseline.document_version_id,
+            document=earlier,
+            context=StorageOperationContext.system("default"),
+        )
+        service = build_release_service(
+            ReleaseResources(
+                control,
+                store,
+                TextParser(),
+                DeterministicEmbedClient(),
+                InMemoryVectorRepository(),
+                InMemoryKnowledgeGraph(),
+            )
+        )
+        await service.provision(tenant_id="default")
+
+        outcome = await service.release(release_request(source_version="1"), SourceConnector())
+
+        assert outcome.published is True
+        assert outcome.document_version_id == baseline.document_version_id
+        recorded = await control.document_versions.get_version(baseline.document_version_id)
+        assert recorded is not None and recorded.canonical_artifact is not None
+        assert recorded.canonical_artifact.sha256 != snapshot.canonical_artifact.sha256

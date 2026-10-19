@@ -7,6 +7,7 @@ import os
 
 from harborrag_adapters.chunking import RecursiveTextRefiner
 from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.registry import connector_registry
@@ -47,10 +48,12 @@ from harborrag_runtime.composition.resources import (
 )
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
+    ConnectorDefinition,
     connector_fingerprint,
     load_connector_catalog,
     load_parser_catalog,
 )
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
@@ -64,15 +67,42 @@ from .document.normalizers import (
 )
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
+from .field_indexes import declared_field_indexes
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
 from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
+
+
+def _require_parseable_extensions(
+    definition: ConnectorDefinition,
+    parser: HarborParserRegistry,
+) -> None:
+    """Reject an ``allowed_extensions`` entry that no parser family can read.
+
+    Admitting such a file only spends a fetch and a parse attempt on a document
+    that can never publish, so the connector is refused while loading instead.
+    """
+
+    allowed = definition.settings.get("allowed_extensions") or ()
+    unsupported = sorted(
+        {
+            normalize_extension(str(extension))
+            for extension in allowed
+            if not parser.supports_extension(str(extension))
+        }
+    )
+    if unsupported:
+        raise ConnectorConfigurationError(
+            f"Connector {definition.name!r} allows extensions no parser supports: "
+            f"{', '.join(unsupported)}"
+        )
 
 
 class IngestionRuntimeBuilder:
@@ -114,7 +144,10 @@ class IngestionRuntimeBuilder:
         artifact_reader = ImmutableArtifactReader(object_store)
         vector_store = VectorProjectionStore(
             vectors,
-            VectorProjectionPolicy(dimension=dimensions),
+            VectorProjectionPolicy(
+                dimension=dimensions,
+                field_indexes=declared_field_indexes(GraphBuildConfig.from_settings(settings)),
+            ),
         )
         canonical_artifacts = CanonicalDocumentArtifactRepository(
             artifacts,
@@ -192,6 +225,11 @@ class IngestionRuntimeBuilder:
                 vector_store=vector_store,
                 graph_store=graph,
             ),
+            retention=RetiredVersionPurgeService(
+                control=control,
+                object_store=object_store,
+                retention_days=settings.retired_version_retention_days,
+            ),
             reindex=DocumentReindexService(dependencies, pipeline=stages),
             source_plans=SourcePlanRepository(artifacts, artifact_reader),
             object_store=object_store,
@@ -239,6 +277,8 @@ class IngestionRuntimeBuilder:
             definition = catalog.get(name)
             connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
             try:
+                if isinstance(attachment_parser, HarborParserRegistry):
+                    _require_parseable_extensions(definition, attachment_parser)
                 connectors[name] = catalog.build(name, connector_kwargs=connector_kwargs)
             except ConnectorConfigurationError as exc:
                 logger.warning(

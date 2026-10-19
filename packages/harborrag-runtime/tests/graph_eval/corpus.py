@@ -137,6 +137,12 @@ def build_corpus() -> EvalCorpus:
             document_version_id=DocumentVersionId(versions[document_id]),
             source_scope_id=TENANT_ID,
             title=None,
+            # What production resolution reads from the target's descriptor: whether
+            # it declares a link back decides which end owns an issue link.
+            declared_relations=frozenset(
+                (relation.predicate, relation.target_id)
+                for relation in documents[document_id].relations
+            ),
         )
         for document_id in documents
     }

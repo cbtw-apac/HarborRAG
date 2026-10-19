@@ -255,6 +255,26 @@ def test_jira_request_raises_fetch_error_on_non_retryable_4xx():
         client.get_json("issue/ENG-1/nope")
 
 
+def test_jira_request_raises_not_found_on_404_without_retrying():
+    # An issue deleted after discovery answers 404 every time; it must not be
+    # classified as a transient outage and retried.
+    from harborrag_adapters.connectors.exceptions import FetchError, ItemNotFoundError
+    from harborrag_core.ingestion import SourceItemNotFoundError
+
+    client = _jira_client(max_retries=3)
+    session = FakeSession(
+        responses=[FakeResponse(status_code=404, text="Issue does not exist", headers={})]
+    )
+    client.session = session
+    with pytest.raises(ItemNotFoundError, match="HTTP 404") as raised:
+        client.get_json("issue/CPM-1")
+
+    assert isinstance(raised.value, FetchError)
+    assert isinstance(raised.value, SourceItemNotFoundError)
+    assert raised.value.status_code == 404
+    assert len(session.calls) == 1
+
+
 def test_jira_config_rejects_negative_max_retries():
     with pytest.raises(ValueError, match="max_retries"):
         _jira_client(max_retries=-1)

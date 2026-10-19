@@ -246,7 +246,9 @@ async def pause_ingestion(
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(await service.pause(task_id))
+    return IngestionActionResponse.model_validate(
+        await service.pause(task_id, actor=principal.subject)
+    )
 
 
 @router.post(
@@ -262,7 +264,9 @@ async def resume_ingestion(
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(await service.resume(task_id))
+    return IngestionActionResponse.model_validate(
+        await service.resume(task_id, actor=principal.subject)
+    )
 
 
 @router.post(
@@ -278,7 +282,9 @@ async def cancel_ingestion(
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(await service.cancel(task_id))
+    return IngestionActionResponse.model_validate(
+        await service.cancel(task_id, actor=principal.subject)
+    )
 
 
 @router.post(

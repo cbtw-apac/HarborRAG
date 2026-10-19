@@ -81,6 +81,57 @@ class SourceIngestionInput(PreparedSourceSubmission):
 
 
 @dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionInput:
+    """Schedule action payload: only the target, prepared afresh on each firing.
+
+    A prepared source frozen at schedule creation would carry a stale connector
+    fingerprint, processing profile and task queues once the worker config moves.
+    """
+
+    schedule_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.schedule_id.strip():
+            raise ValueError("schedule_id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparationInput:
+    task_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparation:
+    """A source prepared by the worker; ``source`` is None while its scope is busy."""
+
+    source: SourceIngestionInput | None
+    source_scope_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionResult:
+    schedule_id: str
+    outcome: str
+    task_id: str | None = None
+    result: SourceIngestionResult | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledRunMetricInput:
+    schedule_id: str
+    outcome: str
+    schedule_to_start_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class SourceDiscoveryResult:
     scan_id: str
     plan_reference: WorkflowArtifactReference
@@ -184,6 +235,24 @@ class SourceCancellationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SourcePauseInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("paused source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceResumeInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("resumed source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
 class SourceFailureInput:
     task_id: str
     error_code: str
@@ -191,6 +260,19 @@ class SourceFailureInput:
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.error_code.strip():
             raise ValueError("source failure task ID and error code must be non-empty")
+
+
+# A result travels through Temporal as one payload, capped at 2 MB. Each removed
+# document id is about 75 bytes, so a rescan that retires tens of thousands of
+# documents cannot carry them all; the retirements are durable in the control
+# plane anyway, so the result names a bounded sample and the full count.
+MAX_REPORTED_REMOVAL_CANDIDATES = 1_000
+
+
+def reported_removal_candidates(removals: tuple[str, ...]) -> tuple[str, ...]:
+    """The removed document ids a Temporal result may carry."""
+
+    return removals[:MAX_REPORTED_REMOVAL_CANDIDATES]
 
 
 @dataclass(frozen=True, slots=True)
@@ -201,13 +283,23 @@ class SourceIngestionResult:
     published: int
     unchanged: int
     failed: int
+    # At most MAX_REPORTED_REMOVAL_CANDIDATES of the removed documents.
     removal_candidates: tuple[str, ...]
     unresolved_relations: int
     status: str = "COMPLETED"
+    # Every removed document, including those not named above. Results recorded
+    # before this field existed carry no value and are read as the named ones.
+    removal_count: int | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
             raise ValueError("source result has an unsupported status")
+        if len(self.removal_candidates) > MAX_REPORTED_REMOVAL_CANDIDATES:
+            raise ValueError("source result names more removals than a payload may carry")
+        if self.removal_count is None:
+            object.__setattr__(self, "removal_count", len(self.removal_candidates))
+        elif self.removal_count < len(self.removal_candidates):
+            raise ValueError("source result removal count is below the removals it names")
 
 
 @dataclass(frozen=True, slots=True)
@@ -216,12 +308,36 @@ class SourceIngestionStatus:
     status: str
     paused: bool
     cancel_requested: bool
+    pause_applied: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id.strip():
             raise ValueError("source status task ID must be non-empty")
         if self.status not in _SOURCE_TASK_STATES:
             raise ValueError("source status is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowExecutionControlInput:
+    workflow_id: str
+
+    def __post_init__(self) -> None:
+        if not self.workflow_id.strip():
+            raise ValueError("workflow control workflow ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceBatchStatus:
+    task_id: str
+    status: str
+    paused: bool
+    cancel_requested: bool
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("source batch status task ID must be non-empty")
+        if self.status not in {"PENDING", "RUNNING", "PAUSED", "CANCELLING", "COMPLETED"}:
+            raise ValueError("source batch status is invalid")
 
 
 @dataclass(frozen=True, slots=True)

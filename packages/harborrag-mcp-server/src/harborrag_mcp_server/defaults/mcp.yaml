@@ -60,5 +60,17 @@ tools:
       limit: 5
     limits:
       limit: 10
+  list_documents:
+    enabled: true
+    defaults:
+      limit: 20
+    limits:
+      limit: 20
+  find_entities:
+    enabled: true
+    defaults:
+      limit: 10
+    limits:
+      limit: 20
 
 tenants: {}

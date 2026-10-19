@@ -14,7 +14,7 @@ class _Generator:
     def __init__(self) -> None:
         self.calls: list[tuple[str, ...]] = []
 
-    async def generate(self, packets):
+    async def generate(self, packets, **_):
         self.calls.append(tuple(packet.text for packet in packets))
         return DescriptionOutput(
             description="rolled up",

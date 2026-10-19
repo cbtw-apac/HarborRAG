@@ -26,7 +26,7 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.connection.target == "localhost:7233"
     assert config.connection.namespace == "harborrag"
     assert config.connection.tls.enabled is False
-    assert config.worker.max_concurrent_activities == 2
+    assert config.worker.max_concurrent_activities == 4
     assert config.task_queues.as_tuple() == (
         "harborrag-discovery",
         "harborrag-transform",
@@ -36,10 +36,13 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
         "harborrag-index",
     )
     assert config.retries.discovery.maximum_attempts == 8
-    assert config.retries.document.maximum_attempts == 5
+    assert config.retries.document.maximum_attempts == 12
+    assert config.timeouts.discovery_seconds == 43_200
+    assert config.timeouts.finalization_seconds == 21_600
+    assert config.workflow_options().timeouts == config.timeouts
     assert config.workflow_execution_timeout_seconds == 2_592_000
     assert config.health_timeout_seconds == 5
-    assert config.ingestion.batch_size == 200
+    assert config.ingestion.batch_size == 300
     assert config.ingestion.document_concurrency == 8
 
 
@@ -316,3 +319,39 @@ def test_explicit_ingestion_overrides_still_apply_on_the_direct_path() -> None:
     assert ingestion.batch_size == 17
     assert ingestion.document_concurrency == 3
     assert TemporalRuntimeConfig.from_settings(settings).ingestion == ingestion
+
+
+def test_activity_timeouts_default_to_the_budgets_runs_used_before_they_were_configurable(
+    tmp_path: Path,
+) -> None:
+    # A run started before the field existed deserializes to these defaults, so
+    # it must keep scheduling its activities with the old fixed budgets.
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text("version: 1\n", encoding="utf-8")
+
+    timeouts = load_temporal_config(config_path).workflow_options().timeouts
+
+    assert (timeouts.discovery_seconds, timeouts.finalization_seconds) == (1_800, 900)
+
+
+@pytest.mark.parametrize(
+    "timeouts_yaml",
+    ["discovery_seconds: 59", "finalization_seconds: 604801", "discovery_seconds: true"],
+)
+def test_temporal_timeouts_section_rejects_out_of_range_values(
+    tmp_path: Path,
+    timeouts_yaml: str,
+) -> None:
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text(f"version: 1\ntimeouts:\n  {timeouts_yaml}\n", encoding="utf-8")
+
+    with pytest.raises(TemporalConfigurationError):
+        load_temporal_config(config_path)
+
+
+def test_temporal_timeouts_section_rejects_unknown_keys(tmp_path: Path) -> None:
+    config_path = tmp_path / "temporal.yaml"
+    config_path.write_text("version: 1\ntimeouts:\n  document_seconds: 60\n", encoding="utf-8")
+
+    with pytest.raises(TemporalConfigurationError, match="unknown field"):
+        load_temporal_config(config_path)

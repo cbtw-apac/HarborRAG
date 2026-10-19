@@ -11,9 +11,10 @@ required and which are merely optional:
 - ``GRAPH_SEARCH_DIAGNOSTICS_SCHEMA`` -- ``GraphSearchDiagnostics``
   (``harborrag_engine.retrieval.graph``), the diagnostics behind every graph tool.
 - ``RETRIEVAL_RESULT_SCHEMA`` -- ``RetrievalResult`` as built by
-  ``EvidenceResultLoader.result`` (``harborrag_runtime.retrieval.result_loader``); this
-  is the only place a production ``vector_search`` response constructs one, so its
-  ``metadata`` keys are exhaustive, not illustrative.
+  ``EvidenceResultLoader.result`` (``harborrag_runtime.retrieval.result_loader``), less
+  the keys the tool trims (``vector_search.TRIMMED_METADATA_KEYS``); this is the only
+  place a production ``vector_search`` response constructs one, so its ``metadata``
+  keys are exhaustive, not illustrative.
 - ``RETRIEVAL_DIAGNOSTICS_SCHEMA`` -- ``RetrievalDiagnostics``
   (``harborrag_runtime.retrieval.contracts``), including its nested
   ``graph_documents``/``related_results`` (``GraphDocumentSummary`` /
@@ -31,13 +32,18 @@ from harborrag_core.chunking import PROJECTED_RELATION_TYPES
 from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.summary_cards import SummaryView
 
-from .evidence_output_schema import ASSERTION_SCHEMA, EVIDENCE_PATH_SCHEMA, NAVIGATION_SCHEMA
+from .evidence_output_schema import (
+    ASSERTION_SCHEMA,
+    EVIDENCE_PATH_SCHEMA,
+    NAVIGATION_SCHEMA,
+    inline_schema,
+)
 
 _NODE_KIND_VALUES = [kind.value for kind in KnowledgeNodeKind]
 _PROJECTED_RELATION_VALUES = [relation.value for relation in PROJECTED_RELATION_TYPES]
-_SUMMARY_SCHEMA = SummaryView.model_json_schema()
-_SUMMARY_DEFINITIONS = _SUMMARY_SCHEMA.pop("$defs")
-_SUMMARY_SCHEMA["properties"]["card"]["anyOf"][0] = _SUMMARY_DEFINITIONS["SummaryCard"]
+# Fully inlined: this fragment is nested deep inside each tool's outputSchema, where
+# a leftover ``#/$defs/...`` pointer resolves against the tool root and fails.
+_SUMMARY_SCHEMA = inline_schema(SummaryView.model_json_schema())
 
 NODE_SCHEMA: dict[str, object] = {
     "type": "object",
@@ -171,6 +177,9 @@ RETRIEVAL_DIAGNOSTICS_SCHEMA: dict[str, object] = {
         "duration_ms": {"type": "number"},
         "graph_documents": {"type": "array", "items": _GRAPH_DOCUMENT_SUMMARY_SCHEMA},
         "short_by": {"type": "integer", "minimum": 0},
+        # Hits dropped because a better-ranked hit had identical text; the wider
+        # search window backfilled the page, so this is not a shortfall.
+        "duplicates_collapsed": {"type": "integer", "minimum": 0},
         "topology": {
             "type": "object",
             "properties": {
@@ -204,18 +213,17 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
         # and older payloads predate the field. Unlike "score", this is the
         # number a client may threshold -- on the hybrid lane "score" is a
         # rank-fusion value whose top hit is near 1.0 however poor the match.
+        # Dense cosine similarity, clamped at 0; null on the sparse lane, whose BM25
+        # score is unbounded and not comparable across queries.
         "relevance": {"type": ["number", "null"]},
         "metadata": {
             "type": "object",
             "required": [
                 "document_id",
                 "document_version_id",
-                "record_kind",
                 "chunk_kind",
                 "connector_type",
                 "citation_locator",
-                "quality_score",
-                "retrieval_source",
                 "document_title",
                 "section_path",
             ],
@@ -228,14 +236,13 @@ RETRIEVAL_RESULT_SCHEMA: dict[str, object] = {
                 # Connector-specific locator shape; genuinely open, unlike everything
                 # else here -- there is no fixed set of keys to close over.
                 "citation_locator": {"type": "object"},
-                "quality_score": {"type": ["number", "null"]},
-                "retrieval_source": {"type": "string"},
-                "raw_score": {"type": "number"},
                 "source_scope_id": {"type": "string"},
                 "source_item_id": {"type": "string"},
+                # The source's own human-readable key (a Jira issue key such as
+                # CPM-101361), so callers need not parse it out of source_item_id.
+                "issue_key": {"type": "string"},
                 "document_title": {"type": ["string", "null"]},
                 "section_path": {"type": "array", "items": {"type": "string"}},
-                "content_hash": {"type": "string"},
                 "topology_build_ids": {"type": "array", "items": {"type": "string"}},
                 "topology_assertion_ids": {"type": "array", "items": {"type": "string"}},
                 "evidence_paths": {"type": "array", "items": EVIDENCE_PATH_SCHEMA},

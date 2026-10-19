@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.contracts.errors import HarborNoIndexedContentError
+from harborrag_core.contracts.errors import HarborCapabilityError, HarborNoIndexedContentError
 
 
 def no_indexed_content() -> HarborNoIndexedContentError:
@@ -21,4 +21,17 @@ def no_indexed_content() -> HarborNoIndexedContentError:
     )
 
 
-__all__ = ["no_indexed_content"]
+def no_entity_index() -> HarborCapabilityError:
+    """Report entity search as a capability this deployment has not turned on.
+
+    It needs the summary projection publishing entity points
+    (``HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED``) -- a configuration choice, not a
+    fault -- so the caller learns what to enable rather than that something broke.
+    """
+
+    return HarborCapabilityError(
+        "entity search is not enabled; set HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED"
+    )
+
+
+__all__ = ["no_entity_index", "no_indexed_content"]

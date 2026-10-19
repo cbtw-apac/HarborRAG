@@ -8,7 +8,7 @@ import pytest
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_engine.tools.vector_search import _quality, _results
+from harborrag_engine.tools.vector_search import _meets, _results
 
 pytestmark = [pytest.mark.unit]
 
@@ -34,14 +34,19 @@ def test_a_threshold_measures_relevance_not_rank_arithmetic() -> None:
     assert [result["id"] for result in kept] == ["b"]
 
 
-def test_a_lane_without_a_relevance_still_has_its_score_used() -> None:
-    """Some lanes cannot measure similarity and report null."""
+def test_a_hit_without_measured_similarity_cannot_meet_a_threshold() -> None:
+    """A null relevance means nothing measured it; its score is no stand-in.
+
+    The sparse lane's score is a squashed BM25 value -- 0.95 for an off-topic CV --
+    so letting it answer a similarity threshold passed exactly what it should not.
+    """
 
     unmeasured = RetrievalResult("a", "text", 0.9, {})
 
-    assert _quality(unmeasured) == 0.9
-    assert [r["id"] for r in _results(_Response(unmeasured), 0.5)] == ["a"]
-    assert _results(_Response(unmeasured), 0.95) == []
+    assert not _meets(unmeasured, 0.5)
+    assert _results(_Response(unmeasured), 0.5) == []
+    # No threshold is no filter: unmeasured hits are still returned.
+    assert [r["id"] for r in _results(_Response(unmeasured), 0.0)] == ["a"]
 
 
 def test_expired_handles_are_swept_without_walking_the_whole_store() -> None:

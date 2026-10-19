@@ -79,7 +79,9 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
                 context=self._error_context("put", "", request.key, context),
             )
         validate_object_key(bucket, request.key)
-        physical_key = physical_object_key(context.tenant_id, request.key)
+        physical_key = physical_object_key(
+            context.tenant_id, request.key, self._config.namespace_prefix
+        )
         existing = await self._existing_head(bucket, physical_key)
         common = self._put_parameters(
             bucket=bucket,
@@ -178,7 +180,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         await self._authorize(bucket, key, context)
         kwargs: dict[str, Any] = {
             "Bucket": bucket,
-            "Key": physical_object_key(context.tenant_id, key),
+            "Key": physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
         }
         if byte_range:
             kwargs["Range"] = f"bytes={byte_range[0]}-{byte_range[1]}"
@@ -199,7 +201,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
             await self._authorize(bucket, key, context)
             response = await self.client.get_object(
                 Bucket=bucket,
-                Key=physical_object_key(context.tenant_id, key),
+                Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
             )
             async with response["Body"] as stream:
                 while chunk := await stream.read(chunk_size):
@@ -262,7 +264,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
             return False
         await self.client.delete_object(
             Bucket=bucket,
-            Key=physical_object_key(context.tenant_id, key),
+            Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
         )
         return True
 
@@ -280,14 +282,18 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         while len(output) < limit:
             kwargs: dict[str, Any] = {
                 "Bucket": bucket,
-                "Prefix": physical_object_key(context.tenant_id, prefix),
+                "Prefix": physical_object_key(
+                    context.tenant_id, prefix, self._config.namespace_prefix
+                ),
                 "MaxKeys": min(1000, limit - len(output)),
             }
             if token:
                 kwargs["ContinuationToken"] = token
             page = await self.client.list_objects_v2(**kwargs)
             for item in page.get("Contents", []):
-                logical_key = logical_object_key(context.tenant_id, item["Key"])
+                logical_key = logical_object_key(
+                    context.tenant_id, item["Key"], self._config.namespace_prefix
+                )
                 if logical_key is None:
                     continue
                 try:
@@ -313,7 +319,7 @@ class S3ObjectOperationsMixin(S3BodySpoolMixin, S3ObjectMetadataMixin):
         authorized = await self._authorize(bucket, key, context)
         params = {
             "Bucket": bucket,
-            "Key": physical_object_key(context.tenant_id, key),
+            "Key": physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
         }
         if authorized.get("VersionId"):
             params["VersionId"] = authorized["VersionId"]

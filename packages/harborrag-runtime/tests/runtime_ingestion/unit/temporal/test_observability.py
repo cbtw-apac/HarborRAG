@@ -91,6 +91,33 @@ def test_stage_observation_records_span_duration_outcome_and_retry() -> None:
     assert "harborrag_ingestion_temporal_activity_retries_total" in output
 
 
+def test_schedule_metrics_record_runs_latency_and_pause_state() -> None:
+    telemetry = IngestionTelemetry(registry=CollectorRegistry())
+    telemetry.record_scheduled_run("daily-sync", "started", schedule_to_start_seconds=2.5)
+    telemetry.record_scheduled_run("daily-sync", "failed")
+    telemetry.record_schedule_states({"daily-sync": (True, False, 3)})
+
+    output = generate_latest(telemetry.registry).decode()
+
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="started",schedule_id="daily-sync"} 1.0'
+        in output
+    )
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 1.0'
+        in output
+    )
+    assert 'harborrag_temporal_schedule_paused{schedule_id="daily-sync"} 1.0' in output
+    assert 'harborrag_temporal_schedule_expected_paused{schedule_id="daily-sync"} 0.0' in output
+    assert (
+        'harborrag_temporal_schedule_actions_skipped_overlap{schedule_id="daily-sync"} 3.0'
+        in output
+    )
+    assert (
+        'harborrag_temporal_schedule_to_start_seconds_count{schedule_id="daily-sync"} 1.0' in output
+    )
+
+
 def test_stage_observation_preserves_failures_and_marks_span() -> None:
     tracer = RecordingTracer()
     telemetry = IngestionTelemetry(
@@ -483,3 +510,25 @@ def test_activity_boundary_labels_stage_metrics_with_the_document_kind() -> None
     assert count("encode", "republished") == 1.0
     assert count("encode", "activated") == 0.0
     assert count("fetch", "skipped") == 1.0
+def test_schedule_states_seed_outcome_series_so_the_first_failure_alerts() -> None:
+    telemetry = IngestionTelemetry(registry=CollectorRegistry())
+    telemetry.record_schedule_states({"daily-sync": (False, False, 0)})
+
+    output = generate_latest(telemetry.registry).decode()
+
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 0.0'
+        in output
+    )
+
+
+def test_first_recorded_run_seeds_every_outcome_series() -> None:
+    telemetry = IngestionTelemetry(registry=CollectorRegistry())
+    telemetry.record_scheduled_run("daily-sync", "started")
+
+    output = generate_latest(telemetry.registry).decode()
+
+    assert (
+        'harborrag_temporal_scheduled_runs_total{outcome="failed",schedule_id="daily-sync"} 0.0'
+        in output
+    )

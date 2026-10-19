@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_core.contracts.reader import (
+    EntityFindRequest,
+    EntityFindResponse,
     EntityResolveResponse,
     EvidenceFetchResponse,
     RelationSearchResponse,
@@ -19,13 +22,18 @@ from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
 from harborrag_core.topology.search import RetrievalMode
+from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 from harborrag_engine.retrieval import (
     ActiveVersionCandidateValidator,
     AuthoritativeGraphSearch,
     AuthoritativeProjectionSearch,
+    AuthoritativeSearchDiagnostics,
     AuthoritativeSearchRequest,
+    AuthoritativeSearchResult,
     RetrievalLane,
 )
+from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
+from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
 
 from .contracts import (
     CloseOperation,
@@ -36,7 +44,8 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
-from .errors import no_indexed_content
+from .entity_summary import split_facet_filters
+from .errors import no_entity_index, no_indexed_content
 from .evidence import budget_diagnostics, build_evidence_bundle, select_evidence
 from .graph_observation import GraphObservation, GraphObserver
 from .graph_service import RuntimeGraphRetrievalMixin
@@ -45,8 +54,19 @@ from .permissions import RetrievalPermissions
 from .reader_service import RuntimeReaderRetrievalMixin
 from .readers import ReaderResources, ReaderRetrieval
 from .result_loader import EvidenceResultLoader
+from .source_fields import SourceFieldTrace, split_field_filters
 from .topology import TopologyRetrieval
 from .validation import validate_retrieval_request
+
+_NO_CANDIDATES = AuthoritativeSearchDiagnostics(
+    candidate_count=0,
+    accepted_count=0,
+    stale_count=0,
+    unpublished_count=0,
+    malformed_count=0,
+    search_window=0,
+    exhausted=True,
+)
 
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
@@ -75,6 +95,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._sparse = resources.sparse_encoder
         self._graph = resources.graph_repository
         self._summaries = resources.summary_repository
+        self._entities = resources.entity_summary_search
         self._policy = policy
         self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
         self._permissions = RetrievalPermissions(resources.topology_repository)
@@ -113,6 +134,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             resources.vector_repository,
             self._candidate_validator,
         )
+        self._fields = SourceFieldTrace(resources.vector_repository, EVIDENCE_INDEX)
         self._graph_search = (
             AuthoritativeGraphSearch(
                 resources.graph_repository,
@@ -130,6 +152,29 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             else None
         )
         self._closed = False
+
+    async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        """Rank source entities for a question, within the facet values a caller names.
+
+        The entity index answers "which entities, in what order"; the summary
+        authority answers "which of those may this principal see, and with what
+        evidence". Nothing from the index is returned unless the authority
+        released it, so an entity whose binding is stale or private is simply
+        absent, not shown without its evidence. A missing index, and (on a shared
+        corpus) hits nothing was released for, come back as reason codes rather
+        than as an empty answer that looks complete -- see ``EntitySummarySearch.find``.
+        """
+
+        request_id = f"entities-{uuid4().hex}"
+        if self._entities is None or self._summaries is None:
+            raise no_entity_index()
+        context = self._retrieval_context(
+            request_id=request_id,
+            tenant_id=str(request.access.tenant_id),
+            access=request.access,
+        )
+        dense_vector = await self._result_loader.dense_vector(request.query)
+        return await self._entities.find(request, request_id, dense_vector, context)
 
     @property
     def vector_repository(self) -> VectorRepositoryPort:
@@ -162,6 +207,9 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
 
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
+        # Before permission conditions join it: only the caller's own keys are
+        # checked, and an unindexed one is refused rather than scanned.
+        validate_evidence_filter(selected.filters)
         started = perf_counter()
         request_id = f"retrieval-{uuid4().hex}"
         context = self._retrieval_context(
@@ -179,17 +227,46 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
+        # A ``facet.*`` filter addresses entity summary points, not chunks. It is
+        # applied on the entity lane and taken out of the chunk filter; left in, it
+        # would match nothing on chunks and force the flat lane for no reason.
+        facet_filter, chunk_filter = (
+            split_facet_filters(selected.filters)
+            if self._entities is not None
+            else (None, selected.filters)
+        )
+        if facet_filter is not None:
+            selected = replace(selected, filters=chunk_filter)
+        # A ``fields.*`` filter names an item's own fields -- a Jira issue's custom
+        # fields -- which its attachments do not carry. It is resolved to the
+        # matching items first, then applied as "their evidence or evidence
+        # attached to them", so a CV is reached through the issue it belongs to.
+        field_filter, chunk_filter = split_field_filters(chunk_filter)
+        traced: tuple[str, ...] | None = None
         try:
-            search = await self._search.search(
-                AuthoritativeSearchRequest(
-                    lane=selected.lane,
-                    top_k=top_k,
-                    dense_vector=dense_vector,
-                    sparse_vector=sparse_vector,
-                    filters=await self._permissions.scope_filter(selected.filters, context),
-                    dense_weight=self._policy.dense_weight,
-                ),
-                context=context,
+            if field_filter is not None:
+                traced = await self._fields.matching_items(
+                    await self._permissions.scope_filter(field_filter, context),
+                    context=context,
+                )
+                chunk_filter = SourceFieldTrace.scope(traced, chunk_filter)
+                selected = replace(selected, filters=chunk_filter)
+            search = (
+                await self._search.search(
+                    AuthoritativeSearchRequest(
+                        lane=selected.lane,
+                        top_k=top_k,
+                        dense_vector=dense_vector,
+                        sparse_vector=sparse_vector,
+                        filters=await self._permissions.scope_filter(chunk_filter, context),
+                        dense_weight=self._policy.dense_weight,
+                    ),
+                    context=context,
+                )
+                if traced != ()
+                # No item has those field values: nothing can qualify, and an empty
+                # membership condition is not one every backend accepts.
+                else AuthoritativeSearchResult((), _NO_CANDIDATES)
             )
         except HarborStorageNotFoundError as exc:
             logger.info(
@@ -197,9 +274,21 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 extra={"request_id": request_id, "tenant_id": tenant_id},
             )
             raise no_indexed_content() from exc
+        candidates = search.candidates
+        # Enrichment fuses entity evidence in without the chunk filter, which would
+        # readmit evidence of items the fields filter just excluded.
+        if self._entities is not None and (facet_filter is not None or field_filter is None):
+            # Entity-reached chunks join the authoritative set before validation,
+            # so they face exactly the permission and active-version checks every
+            # other candidate faces -- reaching them differently is not a reason
+            # to serve them differently. With a facet filter the lane selects
+            # instead of enriching: only qualifying entities' evidence remains.
+            candidates = await self._entities.expand(
+                candidates, dense_vector, context=context, facet_filter=facet_filter
+            )
         topology = await self._topology.prepare(
             query,
-            await self._permissions.validate(search.candidates, context),
+            await self._permissions.validate(candidates, context),
             options=selected,
             context=context,
             dense_vector=dense_vector,
@@ -226,9 +315,14 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         permitted = await self._permissions.validate(final_validation.accepted, context)
         active_candidate_ids = {str(candidate.id) for candidate in permitted}
-        results = [
-            result for candidate, result in loaded if str(candidate.id) in active_candidate_ids
-        ]
+        # Entity- and topology-reached chunks join after the search collapsed its
+        # own duplicates, so the same text can arrive twice by different routes.
+        distinct, late_duplicates = collapse_duplicates(
+            [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
+            lambda result: duplicate_identity(result.metadata),
+            limit=top_k,
+        )
+        results = list(distinct)
         if selected.mode != RetrievalMode.FLAT:
             results, tokens, excluded = select_evidence(
                 results, topology.flat, top_k=top_k, policy=self._policy.topology
@@ -278,6 +372,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 graph_documents=observation.documents,
                 short_by=max(0, top_k - len(results)),
                 topology=topology_diagnostics,
+                duplicates_collapsed=diagnostics.collapsed_count + late_duplicates,
             ),
         )
 

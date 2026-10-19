@@ -68,11 +68,12 @@ def test_confluence_topology_includes_ancestry_and_attachments() -> None:
     assert {
         GraphEntityType.CONFLUENCE_SPACE,
         GraphEntityType.CONFLUENCE_PAGE,
-        GraphEntityType.CONFLUENCE_ATTACHMENT,
     } <= {node.entity_type for node in graph.nodes}
-    assert {"parent_of", "has_attachment", "has_version"} <= {
-        relation.relation_type.value for relation in graph.relations
-    }
+    relation_types = {relation.relation_type.value for relation in graph.relations}
+    assert {"parent_of", "has_version"} <= relation_types
+    # The page's attachment list draws nothing: each attachment owns page -> attachment.
+    assert "has_attachment" not in relation_types
+    assert GraphEntityType.CONFLUENCE_ATTACHMENT not in {node.entity_type for node in graph.nodes}
 
 
 def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links() -> None:
@@ -250,3 +251,56 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             if node.node_key not in reachable and not node.attributes.get("placeholder")
         }
         assert not stranded, (connector, stranded)
+
+
+def test_jira_issue_observation_describes_and_dates_the_issue() -> None:
+    """The observation a reader re-attaches to the shared issue node.
+
+    Source-entity node properties are written empty on purpose, so whatever this
+    omits is unreachable from the graph even though the document carries it.
+    """
+
+    graph = _project(
+        "jira",
+        {
+            "project_key": "ENG",
+            "project_name": "Harbor Ingestion",
+            "issue_key": "ENG-2",
+            "status": "In Progress",
+            "status_category": "In Progress",
+            "issue_type": "Bug",
+            "priority": "High",
+            "assignee": "Grace",
+            "reporter": "Alan",
+            "creator": "Alan",
+            "labels": ["ingestion", "urgent"],
+            "components": ["worker"],
+            "source_created_at": "2026-01-01T00:00:00+00:00",
+            "source_updated_at": "2026-03-09T00:00:00+00:00",
+        },
+        source_item_id="ENG-2",
+    )
+
+    issue = next(
+        node
+        for node in graph.nodes
+        if node.entity_type == GraphEntityType.JIRA_ISSUE
+        and node.attributes.get("placeholder") is not True
+    )
+
+    assert issue.attributes == {
+        "issue_key": "ENG-2",
+        "status": "In Progress",
+        "status_category": "In Progress",
+        "issue_type": "Bug",
+        "priority": "High",
+        "assignee": "Grace",
+        "reporter": "Alan",
+        "creator": "Alan",
+        "project_key": "ENG",
+        "project_name": "Harbor Ingestion",
+        "labels": ["ingestion", "urgent"],
+        "components": ["worker"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-03-09T00:00:00+00:00",
+    }

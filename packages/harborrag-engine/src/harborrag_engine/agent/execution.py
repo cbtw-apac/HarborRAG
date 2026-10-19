@@ -36,7 +36,7 @@ logger = logging.getLogger("harborrag.engine.agent.execution")
 
 _BLOCKED_TOOL_NAMES = frozenset({"agent", "chat"})
 _GRAPH_TOOL_PREFIX = "graph_"
-_GRAPH_READER_TOOLS = frozenset({"resolve_graph_nodes", "composed_evidence_search"})
+_GRAPH_READER_TOOLS = frozenset({"resolve_graph_nodes"})
 
 
 class ChatAndToolExecutor:

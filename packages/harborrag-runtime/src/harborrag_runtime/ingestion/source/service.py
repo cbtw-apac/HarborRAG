@@ -17,7 +17,8 @@ from .discovery import SourceDiscoveryPlanner
 from .documents import SourceDocumentService
 from .finalization import SourceFinalizationService
 from .models import (
-    PlannedDocumentRelease,
+    PlannedDocuments,
+    RelationRepairProgress,
     SourceDiscoveryPage,
     SourceDiscoveryRun,
     SourceDispatchSummary,
@@ -97,7 +98,7 @@ class SourceIngestionService(SourceDocumentOperations):
         outcome = await self.finish(
             request,
             scan_id=discovery.scan_id,
-            planned=discovery.planned,
+            planned=PlannedDocuments.of(discovery.planned),
             summary=SourceDispatchSummary.from_results(results),
         )
         logger.info(
@@ -117,6 +118,10 @@ class SourceIngestionService(SourceDocumentOperations):
     async def cancel(self, task_id: str) -> None:
         """Converge a graceful workflow cancellation on durable task state."""
 
+        # A cancel during discovery would otherwise leave the scan STARTED and
+        # block every later scan of the scope.
+        if await self._control.source_scans.cancel_if_started(source_scan_id(task_id)):
+            logger.info("Open source scan cancelled task_id=%s", task_id)
         task = await self._control.tasks.get(task_id)
         if task is None or task.status == IngestionTaskState.CANCELLED:
             logger.debug(
@@ -140,6 +145,20 @@ class SourceIngestionService(SourceDocumentOperations):
             summary={"cancelled_at_safe_boundary": True},
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
+
+    async def pause(self, task_id: str) -> None:
+        task = await self._control.tasks.get(task_id)
+        if task is None or task.status == IngestionTaskState.PAUSED:
+            return
+        if task.status == IngestionTaskState.RUNNING:
+            await self._control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+
+    async def resume(self, task_id: str) -> None:
+        task = await self._control.tasks.get(task_id)
+        if task is None or task.status == IngestionTaskState.RUNNING:
+            return
+        if task.status == IngestionTaskState.PAUSED:
+            await self._control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
     async def fail(self, task_id: str, *, error_code: str) -> None:
         """Persist one terminal source-workflow failure without runtime details."""
@@ -277,14 +296,16 @@ class SourceIngestionService(SourceDocumentOperations):
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
         return await self._finalization.finish(
             request,
             scan_id=scan_id,
             planned=planned,
             summary=summary,
+            repair_progress=repair_progress,
         )
 
     async def _initialize(self, request: SourceIngestionRequest) -> None:

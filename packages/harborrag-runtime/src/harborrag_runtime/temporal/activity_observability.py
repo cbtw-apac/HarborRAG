@@ -17,6 +17,7 @@ from harborrag_runtime.ingestion.document.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
 )
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.observability import (
     ArtifactMetricKind,
     ChunkMetricKind,
@@ -32,6 +33,8 @@ logger = logging.getLogger("harborrag.runtime.temporal.activities")
 _ACTIVITY_STAGES = {
     "DiscoverSourceItems": IngestionStage.DISCOVERY,
     "CancelSourceIngestion": IngestionStage.CANCELLATION,
+    "PauseSourceIngestion": IngestionStage.CONTROL,
+    "ResumeSourceIngestion": IngestionStage.CONTROL,
     "RecordSourceFailure": IngestionStage.FAILURE_CAPTURE,
     "FetchAndCaptureRaw": IngestionStage.FETCH,
     "ParseAndNormalize": IngestionStage.PARSE_NORMALIZE,
@@ -65,7 +68,7 @@ class ActivityObservability:
         failures: IngestionFailureClassifier | None = None,
     ) -> None:
         self._telemetry = telemetry
-        self._failures = failures or IngestionFailureClassifier()
+        self._failures = failures or ingestion_failure_classifier()
 
     @contextmanager
     def boundary(self, stage: str, *, decision: str | None = None) -> Iterator[StageObservation]:

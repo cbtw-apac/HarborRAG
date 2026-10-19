@@ -7,6 +7,15 @@ from enum import StrEnum
 from uuid import uuid4
 
 from harborrag_core.contracts.reader import (
+    EntityFindRequest as EntityFindRequest,
+)
+from harborrag_core.contracts.reader import (
+    EntityFindResponse as EntityFindResponse,
+)
+from harborrag_core.contracts.reader import (
+    EntityMatch as EntityMatch,
+)
+from harborrag_core.contracts.reader import (
     EntityResolveRequest as EntityResolveRequest,
 )
 from harborrag_core.contracts.reader import (

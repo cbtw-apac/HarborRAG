@@ -14,8 +14,10 @@ from temporalio.exceptions import ApplicationError
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorPage
 from harborrag_adapters.repositories.object_store import (
+    ARTIFACT_BUCKET,
     ImmutableArtifactReader,
     ImmutableArtifactWriter,
+    IngestionArtifactLayout,
 )
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.schemas.storage import StorageOperationContext
@@ -196,6 +198,25 @@ async def test_native_discovery_resumes_from_immutable_page_checkpoint(tmp_path)
             context=StorageOperationContext.system(source.tenant_id),
         )
         assert checkpoint is not None
+        # The index maps document indexes onto the pages discovery persisted,
+        # so a document workflow never has to load the whole plan.
+        index = await plans.find_index(
+            task_id=source.task_id,
+            scan_id=result.scan_id,
+            context=StorageOperationContext.system(source.tenant_id),
+        )
+        assert index is not None and index.document_count == 6
+        # Two provider pages of two roots; the first page's roots carry a descriptor each.
+        assert [page.count for page in index.pages] == [4, 2]
+        # The index is the plan handed on: no artifact ever holds every document.
+        assert result.plan_reference.key.endswith(f"/{result.scan_id}/index.json")
+        whole_plan = await reader.find(
+            bucket=ARTIFACT_BUCKET,
+            key=IngestionArtifactLayout.source_plan(source.task_id, result.scan_id),
+            media_type="application/json",
+            context=StorageOperationContext.system(source.tenant_id),
+        )
+        assert whole_plan is None
 
 
 def _source_input(

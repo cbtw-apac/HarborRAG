@@ -22,8 +22,16 @@ _TASK_TRANSITIONS = {
     ),
     IngestionTaskState.RUNNING: frozenset(
         {
+            IngestionTaskState.PAUSED,
             IngestionTaskState.COMPLETED,
             IngestionTaskState.PARTIAL,
+            IngestionTaskState.FAILED,
+            IngestionTaskState.CANCELLED,
+        }
+    ),
+    IngestionTaskState.PAUSED: frozenset(
+        {
+            IngestionTaskState.RUNNING,
             IngestionTaskState.FAILED,
             IngestionTaskState.CANCELLED,
         }

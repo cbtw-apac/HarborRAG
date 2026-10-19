@@ -6,15 +6,18 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ReindexJob, ReindexJobState
 from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
+from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.temporal.maintenance_activities import (
     MaintenanceActivities,
 )
 from harborrag_runtime.temporal.maintenance_schemas import (
+    ProjectionCleanupResult,
     ReindexInput,
 )
 from harborrag_runtime.temporal.schemas import (
@@ -59,6 +62,7 @@ def _reindex(*, document_id: str | None = None) -> ReindexInput:
 
 def _runtime() -> SimpleNamespace:
     return SimpleNamespace(
+        retention=None,
         cleanup=SimpleNamespace(
             run_scope=AsyncMock(
                 return_value=ProjectionCleanupBatch(
@@ -133,6 +137,45 @@ async def test_maintenance_cleanup_routes_source_corpus_and_document_scopes() ->
         document_ids=("document-1",),
         limit=1_000,
     )
+
+
+@pytest.mark.asyncio
+async def test_source_cleanup_purges_retired_versions_of_the_same_scope() -> None:
+    runtime = _runtime()
+    runtime.retention = SimpleNamespace(
+        run_scope=AsyncMock(return_value=RetiredVersionPurgeBatch(eligible=3, purged=2, failed=1))
+    )
+
+    result = await MaintenanceActivities(runtime).cleanup_source_projections(_source())
+
+    runtime.retention.run_scope.assert_awaited_once_with(
+        tenant_id="tenant-1",
+        source_scope_id="docs",
+        limit=1_000,
+    )
+    # A failed purge leaves the version RETIRED for the next run; it is reported
+    # without failing the activity, unlike a failed projection cleanup.
+    assert (result.completed, result.purged_versions, result.purge_failed_versions) == (1, 2, 1)
+
+
+@pytest.mark.asyncio
+async def test_reindex_cleanup_does_not_purge_retired_versions() -> None:
+    runtime = _runtime()
+    runtime.retention = SimpleNamespace(run_scope=AsyncMock())
+
+    result = await MaintenanceActivities(runtime).cleanup_reindex_projections(_reindex())
+
+    runtime.retention.run_scope.assert_not_awaited()
+    assert (result.purged_versions, result.purge_failed_versions) == (0, 0)
+
+
+def test_cleanup_result_decodes_payloads_recorded_before_purge_counts() -> None:
+    converter = DataConverter.default.payload_converter
+    payload = converter.to_payloads([{"claimed": 1, "completed": 1, "cancelled": 0, "failed": 0}])
+    (decoded,) = converter.from_payloads(payload, [ProjectionCleanupResult])
+
+    assert decoded == ProjectionCleanupResult(claimed=1, completed=1, cancelled=0, failed=0)
+    assert decoded.purged_versions == 0
 
 
 @pytest.mark.asyncio

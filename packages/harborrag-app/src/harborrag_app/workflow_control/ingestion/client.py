@@ -65,14 +65,14 @@ class PublicIngestionClientMixin:
             limit=limit,
         )
 
-    async def pause(self, task_id: str) -> dict[str, object]:
-        return await self._public_ingestions.pause(task_id)
+    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        return await self._public_ingestions.pause(task_id, actor=actor)
 
-    async def resume(self, task_id: str) -> dict[str, object]:
-        return await self._public_ingestions.resume(task_id)
+    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        return await self._public_ingestions.resume(task_id, actor=actor)
 
-    async def cancel(self, task_id: str) -> dict[str, object]:
-        return await self._public_ingestions.cancel(task_id)
+    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        return await self._public_ingestions.cancel(task_id, actor=actor)
 
     async def retry_failures(
         self,

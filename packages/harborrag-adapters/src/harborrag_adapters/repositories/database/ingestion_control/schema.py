@@ -233,6 +233,14 @@ TASK_DOCUMENT_RESULTS = Table(
     Column("result", JSON, nullable=False, default=dict),
     Column("completed_at", UTCDateTime(), nullable=False),
 )
+# Progress is a count per status over one task, polled every few seconds while
+# the task runs. Without this the poll reads every result row of the task from
+# the heap; with it the count is answered from the index alone.
+Index(
+    "ix_task_document_results_task_status",
+    TASK_DOCUMENT_RESULTS.c.task_id,
+    TASK_DOCUMENT_RESULTS.c.status,
+)
 
 DOCUMENT_FAILURES = Table(
     "document_failures",
@@ -311,4 +319,33 @@ REINDEX_JOBS = Table(
         "connector_call_count = 0",
         name="ck_reindex_connector_calls_zero",
     ),
+)
+
+# A source link whose target no ingested scope has published, as last seen by relation
+# repair of the declaring document. The graph points such a link at an external stub;
+# this row is how a later run finds who to re-repair once the target is ingested.
+UNRESOLVED_SOURCE_RELATIONS = Table(
+    "unresolved_source_relations",
+    METADATA,
+    Column(
+        "declaring_document_id",
+        String(128),
+        ForeignKey("documents.document_id", ondelete="CASCADE"),
+        primary_key=True,
+    ),
+    Column("target_source_item_id", String(512), primary_key=True),
+    Column("predicate", String(64), primary_key=True),
+    Column("tenant_id", String(128), nullable=False),
+    Column("declaring_document_version_id", String(128), nullable=False),
+    Column("connector_type", String(32), nullable=False),
+    Column("connection_id", String(255), nullable=False),
+    Column("target_connector_type", String(32), nullable=False),
+    Column("relation_type", String(64), nullable=False),
+    Column("updated_at", UTCDateTime(), nullable=False),
+)
+Index(
+    "ix_unresolved_source_relations_target",
+    UNRESOLVED_SOURCE_RELATIONS.c.tenant_id,
+    UNRESOLVED_SOURCE_RELATIONS.c.target_connector_type,
+    UNRESOLVED_SOURCE_RELATIONS.c.target_source_item_id,
 )

@@ -76,6 +76,20 @@ class SourceScanRepository(SourceCatalogReader):
                 )
             )
 
+    async def has_running_scan(self, source_scope_id: str) -> bool:
+        """Whether an authoritative scan currently holds the scope."""
+
+        async with self._client.sessions.begin() as session:
+            result = await session.execute(
+                select(SOURCE_SCANS.c.scan_id)
+                .where(
+                    SOURCE_SCANS.c.source_scope_id == source_scope_id,
+                    SOURCE_SCANS.c.status == SourceScanState.STARTED.value,
+                )
+                .limit(1)
+            )
+            return result.scalar_one_or_none() is not None
+
     async def start(self, source_scope_id: str, *, scan_id: str | None = None) -> str:
         selected_scan_id = scan_id or f"scan:{uuid4().hex}"
         async with self._client.sessions.begin() as session:
@@ -228,6 +242,25 @@ class SourceScanRepository(SourceCatalogReader):
 
         if not safe_reason.strip():
             raise ValueError("source scan failure reason must be non-empty")
+        return await self._finish_if_started(
+            scan_id, state=SourceScanState.FAILED, failure_reason=safe_reason
+        )
+
+    async def cancel(self, scan_id: str) -> None:
+        await self._finish(scan_id, state=SourceScanState.CANCELLED)
+
+    async def cancel_if_started(self, scan_id: str) -> bool:
+        """Release a cancelled task's open scan so the scope can be scanned again."""
+
+        return await self._finish_if_started(scan_id, state=SourceScanState.CANCELLED)
+
+    async def _finish_if_started(
+        self,
+        scan_id: str,
+        *,
+        state: SourceScanState,
+        failure_reason: str | None = None,
+    ) -> bool:
         async with self._client.sessions.begin() as session:
             result = await session.execute(
                 select(SOURCE_SCANS).where(SOURCE_SCANS.c.scan_id == scan_id).with_for_update()
@@ -239,15 +272,12 @@ class SourceScanRepository(SourceCatalogReader):
                 update(SOURCE_SCANS)
                 .where(SOURCE_SCANS.c.scan_id == scan_id)
                 .values(
-                    status=SourceScanState.FAILED.value,
+                    status=state.value,
                     completed_at=utc_now(),
-                    failure_reason=safe_reason,
+                    failure_reason=failure_reason,
                 )
             )
             return True
-
-    async def cancel(self, scan_id: str) -> None:
-        await self._finish(scan_id, state=SourceScanState.CANCELLED)
 
     async def reconcile_removals(
         self,

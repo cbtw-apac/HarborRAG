@@ -10,22 +10,12 @@ from __future__ import annotations
 import os
 from collections.abc import MutableMapping, Sequence
 from pathlib import Path
-from urllib.parse import quote
 
-from dotenv.parser import parse_stream
-
-
-def _read_env_file(path: Path) -> dict[str, str]:
-    if not path.is_file():
-        raise ValueError(f"Environment file does not exist: {path}")
-    values: dict[str, str] = {}
-    with path.open(encoding="utf-8") as stream:
-        for binding in parse_stream(stream):
-            if binding.error:
-                raise ValueError(f"Invalid environment file {path} at line {binding.original.line}")
-            if binding.key is not None and binding.value is not None:
-                values[binding.key] = binding.value
-    return values
+from harborrag_runtime.config.checkout import (
+    control_db_url_from_compose,
+    missing_control_db_values,
+    read_compose_env_file,
+)
 
 
 def _from_root(root: Path, value: str) -> Path:
@@ -39,20 +29,15 @@ def _set_default(environ: MutableMapping[str, str], name: str, value: str | None
 
 
 def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: bool) -> None:
-    database_values = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB")
     if "HARBORRAG_CONTROL_DB_URL" not in environ:
-        missing = [name for name in database_values if not environ.get(name)]
+        missing = missing_control_db_values(environ)
         if missing and not check:
             raise ValueError("Checkout database configuration is missing: " + ", ".join(missing))
         if not missing:
-            user = quote(environ["POSTGRES_USER"], safe="")
-            password = quote(environ["POSTGRES_PASSWORD"], safe="")
-            database = quote(environ["POSTGRES_DB"], safe="")
-            port = environ.get("POSTGRES_PORT", "5432")
             _set_default(
                 environ,
                 "HARBORRAG_CONTROL_DB_URL",
-                f"postgresql+asyncpg://{user}:{password}@localhost:{port}/{database}",
+                control_db_url_from_compose(environ),
             )
 
     _set_default(
@@ -113,7 +98,7 @@ def load_launch_environment(
             files.append(mcp_file)
     files.extend(env_files)
     for path in files:
-        for name, value in _read_env_file(path).items():
+        for name, value in read_compose_env_file(path).items():
             if name not in protected:
                 pending[name] = value
     if root is not None:

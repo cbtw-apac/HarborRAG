@@ -50,6 +50,16 @@ class RollupSource(StrictModel):
         )
 
 
+# Source-entity summary points are deliberately absent from
+# ``DERIVED_VECTOR_PRODUCTS`` below. Every product in that registry is owned by one
+# document topology build and is validated, served and cleaned up through that
+# build's identity. An entity summary spans the documents under one source entity,
+# so it has no build to belong to: the summary projection owns its lifecycle and
+# prunes it per source scope.
+ENTITY_SUMMARY_REVISION = "entity-summary-v1"
+ENTITY_SUMMARY_RECORD_KIND = "entity_summary"
+
+
 class ContextualManifest(StrictModel):
     artifact: ArtifactReference
     embedding_profile: str = Field(min_length=1, max_length=128)
@@ -86,6 +96,21 @@ class ContextualIndexProfile(StrictModel):
     @property
     def parent_index_name(self) -> str:
         return f"parent-v2-{self.parent_fingerprint[:24]}"
+
+    @property
+    def entity_fingerprint(self) -> str:
+        """Identity of the source-entity summary index.
+
+        It moves with the parent fingerprint because both are driven by the same
+        embedding profile and summary policy, and adds its own revision so the two
+        indexes can never share a physical collection.
+        """
+
+        return digest([self.parent_fingerprint, ENTITY_SUMMARY_REVISION])
+
+    @property
+    def entity_index_name(self) -> str:
+        return f"entity-v2-{self.entity_fingerprint[:24]}"
 
 
 @dataclass(frozen=True, slots=True)

@@ -5,12 +5,15 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import Mock
+from unittest.mock import Mock, AsyncMock
 
 import pytest
+from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_runtime.ingestion.source.models import PlannedDocuments
 from harborrag_runtime.temporal import ingestion_activities as activity_module
+from harborrag_runtime.temporal import source_activities as source_activities_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
 from harborrag_runtime.temporal.schemas import (
     DocumentFailureInput,
@@ -18,6 +21,7 @@ from harborrag_runtime.temporal.schemas import (
     PreparedDocument,
     RawCaptureResult,
     WorkflowArtifactReference,
+    WorkflowExecutionControlInput,
 )
 
 pytestmark = pytest.mark.whitebox
@@ -115,9 +119,19 @@ class RecordingPlans:
         self.calls.append("get")
         return self.planned
 
+    async def documents(self, reference: object, **kwargs: object) -> PlannedDocuments:
+        del reference, kwargs
+        self.calls.append("documents")
+        return PlannedDocuments.of(cast(Any, self.planned))
+
     async def put(self, **kwargs: object) -> object:
         del kwargs
         self.calls.append("put")
+        return self.put_reference
+
+    async def put_pages_and_index(self, **kwargs: object) -> object:
+        del kwargs
+        self.calls.append("put_pages_and_index")
         return self.put_reference
 
 
@@ -171,6 +185,74 @@ def _build_activities() -> tuple[
 
 
 @pytest.mark.asyncio
+async def test_native_workflow_pause_controls_update_temporal_ui_execution_status(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    activities, *_ = _build_activities()
+    workflow_service = SimpleNamespace(
+        pause_workflow_execution=AsyncMock(
+            side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+        ),
+        unpause_workflow_execution=AsyncMock(
+            side_effect=RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
+        ),
+    )
+    activities._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=workflow_service,
+    )
+    monkeypatch.setattr(
+        source_activities_module.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_id="harborrag-source:task-1", activity_id="42"),
+    )
+    request = WorkflowExecutionControlInput(workflow_id="harborrag-source-batch:task-1:0")
+
+    await activities.pause_workflow_execution(request)
+    await activities.unpause_workflow_execution(request)
+
+    pause = workflow_service.pause_workflow_execution.await_args.args[0]
+    unpause = workflow_service.unpause_workflow_execution.await_args.args[0]
+    assert pause.namespace == "harborrag"
+    assert pause.workflow_id == request.workflow_id
+    assert pause.request_id == "harborrag-source:task-1:42"
+    assert unpause.namespace == "harborrag"
+    assert unpause.workflow_id == request.workflow_id
+    assert unpause.request_id == "harborrag-source:task-1:42"
+
+
+@pytest.mark.asyncio
+async def test_unpause_already_running_batch_is_idempotent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    activities, *_ = _build_activities()
+    workflow_service = SimpleNamespace(
+        unpause_workflow_execution=AsyncMock(
+            side_effect=RPCError(
+                "workflow is not paused",
+                RPCStatusCode.FAILED_PRECONDITION,
+                b"",
+            )
+        )
+    )
+    activities._temporal_client = SimpleNamespace(
+        namespace="harborrag",
+        workflow_service=workflow_service,
+    )
+    monkeypatch.setattr(
+        source_activities_module.activity,
+        "info",
+        lambda: SimpleNamespace(workflow_id="harborrag-source:task-1", activity_id="42"),
+    )
+
+    await activities.unpause_workflow_execution(
+        WorkflowExecutionControlInput(workflow_id="harborrag-source-batch:task-1:0")
+    )
+
+    workflow_service.unpause_workflow_execution.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_document_activities_delegate_every_stage_and_record_outcomes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -180,15 +262,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
         heartbeat_details.append(detail)
         return await operation
 
-    async def isolated_subprocess(
-        fn: Any, *args: Any, heartbeat_detail: object = "", **_kw: Any
-    ) -> object:
-        del fn, _kw
-        heartbeat_details.append(heartbeat_detail)
-        return await args[0].parse_and_normalize(args[1], args[2])
-
     monkeypatch.setattr(activity_module, "heartbeat_while", heartbeat)
-    monkeypatch.setattr(activity_module, "run_in_isolated_subprocess", isolated_subprocess)
     monkeypatch.setattr(activity_module, "last_heartbeat_detail", lambda: None)
     monkeypatch.setattr(activity_module, "to_capture_stage", lambda request: "capture-stage")
     monkeypatch.setattr(activity_module, "to_prepared_stage", lambda request: "prepared-stage")
@@ -240,7 +314,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
             "task_id": "task-1",
             "document_id": "doc-1",
             "document_index": 0,
-            "mode": "subprocess",
+            "mode": "in-process",
             "resumed": False,
             "prior_attempt_count": 0,
         },
@@ -281,7 +355,6 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
     assert "PublishVersion" in observer.boundaries
     assert [name for name, _ in observer.records] == [
         "capture",
-        "subprocess_outcome",
         "prepared",
         "chunking",
         "publication",

@@ -90,7 +90,6 @@ _CONFLUENCE_BLOCK = """\
       max_attachment_size_bytes: 26214400
       max_comments: 1000
       max_attachments: 1000
-      max_child_pages: 1000
       fail_on_error: false
       requests_per_minute: 60
       page_size: 25

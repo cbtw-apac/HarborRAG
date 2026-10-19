@@ -8,6 +8,7 @@ from typing import Any
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_core.chunking import RelationType
+from harborrag_core.contracts.errors import HarborDeadlineExceeded
 from harborrag_core.ingestion import KnowledgeNodeKind
 from harborrag_core.retrieval import GraphAccessScope
 
@@ -72,3 +73,54 @@ async def read_rows(
     """Execute a read statement and decode it into plain row mappings."""
 
     return FalkorDBMapper.rows(await database.read(statement, parameters))
+
+
+# FalkorDB aborts a read that outlives its server-side TIMEOUT with a bare ResponseError
+# carrying exactly this text; the exception type is redis's generic one, so the message is
+# the only thing that distinguishes "too expensive" from a malformed query.
+_QUERY_TIMEOUT_MESSAGE = "query timed out"
+
+
+async def read_retrieval_rows(
+    database: FalkorDBClient,
+    statement: str,
+    parameters: Mapping[str, Any],
+) -> list[dict[str, Any]]:
+    """``read_rows`` for interactive retrieval, with a server timeout made explicit.
+
+    A timed-out traversal is the caller's bounds being too wide for the neighborhood,
+    not a broken backend, and a reader tool can only say so if it can tell the two
+    apart. Translating it here keeps the provider's error text inside the adapter, and
+    only for retrieval: ingestion reads share ``read_rows`` but not this translation,
+    because ingestion policy treats ``HarborDeadlineExceeded`` as transient and would
+    start retrying reads whose failure classification has not changed.
+    """
+
+    try:
+        return await read_rows(database, statement, parameters)
+    except Exception as exc:
+        if _QUERY_TIMEOUT_MESSAGE in str(exc).casefold():
+            raise HarborDeadlineExceeded("graph query timed out") from exc
+        raise
+
+
+async def relationship_types_matching(
+    database: FalkorDBClient,
+    predicate: str,
+    parameters: Mapping[str, Any],
+) -> tuple[str, ...]:
+    """The knowledge relationship types holding at least one ``relation`` that matches.
+
+    An untyped ``()-[relation]->()`` pattern can use no relationship index, so it walks
+    every edge in the graph -- once per document at ingestion, which makes a large
+    source quadratic. Asking each type in one read lets every branch use that type's
+    index, and the writes that follow touch only the types that hold something.
+    """
+
+    branches = [
+        f"MATCH ()-[relation:{identifier}]->() WHERE {predicate} "
+        f"RETURN '{identifier}' AS relationship_type, count(relation) AS relations"
+        for identifier in sorted(set(RELATION_IDENTIFIERS.values()))
+    ]
+    rows = await read_rows(database, "\nUNION ALL\n".join(branches), parameters)
+    return tuple(sorted(str(row["relationship_type"]) for row in rows if int(row["relations"]) > 0))

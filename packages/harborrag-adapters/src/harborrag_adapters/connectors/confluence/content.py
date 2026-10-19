@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import itertools
 import logging
 from collections.abc import Iterator
 from typing import Any
@@ -209,8 +208,12 @@ class ConfluenceContentAPI:
         content_ids: list[str],
         query: ConnectorQuery,
     ) -> Iterator[str]:
-        """Yield requested content IDs and optionally traverse child pages."""
-        include_children = bool(query.filters.get("include_children"))
+        """Yield requested content IDs followed by their child pages.
+
+        Requesting a parent page brings its children along;
+        ``include_children: false`` requests the listed pages alone.
+        """
+        include_children = bool(query.filters.get("include_children", True))
         seen: set[str] = set()
         for raw_content_id in content_ids:
             content_id = validate_content_id(raw_content_id)
@@ -232,29 +235,11 @@ class ConfluenceContentAPI:
         recursive: bool,
         seen: set[str],
     ) -> Iterator[str]:
-        """Traverse child page IDs, truncated at max_child_pages.
+        """Traverse child page IDs iteratively.
 
-        ``islice`` stops pulling from the underlying generator as soon as the
-        cap is reached, so traversal never fetches pages beyond what's needed
-        -- ``max_child_pages`` caps the discovery count by stopping, not by
-        failing the whole traversal once exceeded.
-        """
-        ids = self._child_page_ids_unbounded(content_id, recursive=recursive, seen=seen)
-        if self.config.max_child_pages is None:
-            yield from ids
-            return
-        yield from itertools.islice(ids, self.config.max_child_pages)
-
-    def _child_page_ids_unbounded(
-        self,
-        content_id: str,
-        *,
-        recursive: bool,
-        seen: set[str],
-    ) -> Iterator[str]:
-        """Traverse child page IDs iteratively, with no count limit applied.
-
-        An explicit stack replaces recursive generator delegation so a deep or
+        A page tree never leaves its space, so the configured space bounds the
+        walk; callers cap the total through ``ConnectorQuery.limit``. An
+        explicit stack replaces recursive generator delegation so a deep or
         broad page hierarchy cannot grow the Python call stack or raise
         RecursionError.
         """
@@ -262,33 +247,54 @@ class ConfluenceContentAPI:
         stack = [root_id]
         while stack:
             current_id = stack.pop()
-            start = 0
-            while True:
-                response = self.client.get_json(
-                    f"content/{current_id}/child/page",
-                    params={"limit": self.config.page_size, "start": start},
-                )
-                results = response.get("results", [])
-                logger.debug(
-                    "Confluence child page fetched parent_id=%s start=%d records=%d",
-                    current_id,
-                    start,
-                    len(results),
-                )
-                for child in results:
-                    child_id = str(child.get("id") or "")
-                    if not child_id:
-                        continue
-                    child_id = validate_content_id(child_id)
-                    if child_id in seen:
-                        continue
-                    seen.add(child_id)
-                    yield child_id
-                    if recursive:
-                        stack.append(child_id)
-                if not _has_next_page(response, results, self.config.page_size):
-                    break
-                start += len(results)
+            for child in self._child_pages(current_id):
+                child_id = str(child.get("id") or "")
+                if not child_id:
+                    continue
+                child_id = validate_content_id(child_id)
+                if child_id in seen:
+                    continue
+                seen.add(child_id)
+                yield child_id
+                if recursive:
+                    stack.append(child_id)
+
+    def complete_children(self, content: dict[str, Any]) -> dict[str, Any]:
+        """Extend the expanded ``children.page`` list with its remaining pages.
+
+        The expansion carries only the provider's first page of child pages,
+        so a page with more children would otherwise report a partial list.
+        """
+        page = content.get("children", {}).get("page")
+        if not isinstance(page, dict):
+            return content
+        results = list(page.get("results", []))
+        # The expansion's page size is the server's, not ``page_size``: with
+        # no limit reported, trust only its next link or total.
+        if not _has_next_page(page, results, 0):
+            return content
+        content_id = validate_content_id(str(content.get("id") or ""))
+        results.extend(self._child_pages(content_id, start=len(results)))
+        return {**content, "children": {**content["children"], "page": {"results": results}}}
+
+    def _child_pages(self, parent_id: str, *, start: int = 0) -> Iterator[dict[str, Any]]:
+        """Yield one parent's direct child pages, following pagination lazily."""
+        while True:
+            response = self.client.get_json(
+                f"content/{parent_id}/child/page",
+                params={"limit": self.config.page_size, "start": start},
+            )
+            results = response.get("results", [])
+            logger.debug(
+                "Confluence child page fetched parent_id=%s start=%d records=%d",
+                parent_id,
+                start,
+                len(results),
+            )
+            yield from results
+            if not _has_next_page(response, results, self.config.page_size):
+                return
+            start += len(results)
 
 
 def _has_next_page(

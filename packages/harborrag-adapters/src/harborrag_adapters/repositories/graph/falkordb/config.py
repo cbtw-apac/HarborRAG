@@ -18,9 +18,6 @@ class FalkorDBGraphConfig(RepositoryConfig):
     password: SecretStr | None = None
     graph_name: str = "harborrag"
     tenant_isolation: bool = False
-    tenant_graph_prefix: str = Field(
-        default="harborrag_tenant", pattern=r"^[A-Za-z][A-Za-z0-9_-]{0,63}$"
-    )
     max_cached_tenants: int = Field(default=64, ge=1, le=10000)
     read_username: str | None = None
     read_password: SecretStr | None = None

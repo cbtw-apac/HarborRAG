@@ -12,6 +12,12 @@ from harborrag_core.ingestion import SourceScanState
 
 from .schema import SOURCE_ITEMS, SOURCE_SCANS
 
+# Each reconciled item binds its id plus a value in each of two CASE maps, so a
+# rescan that finds tens of thousands of stale items would pass PostgreSQL's
+# 32767 bind parameters in one statement and fail the same way on every retry.
+# Chunks stay inside the one transaction, so the outcome is unchanged.
+_STATEMENT_CHUNK = 2_000
+
 
 class SourceRemovalReconciler:
     """Apply consecutive misses only for the latest completed source scan."""
@@ -76,7 +82,8 @@ class SourceRemovalReconciler:
             )
 
             documents_with_other_bindings: set[str] = set()
-            if removed_documents:
+            removed = sorted(removed_documents)
+            for start in range(0, len(removed), _STATEMENT_CHUNK):
                 binding_result = await session.execute(
                     select(
                         SOURCE_ITEMS.c.source_scope_id,
@@ -84,7 +91,9 @@ class SourceRemovalReconciler:
                         SOURCE_ITEMS.c.document_id,
                         SOURCE_ITEMS.c.is_active,
                     )
-                    .where(SOURCE_ITEMS.c.document_id.in_(removed_documents))
+                    .where(
+                        SOURCE_ITEMS.c.document_id.in_(removed[start : start + _STATEMENT_CHUNK])
+                    )
                     .with_for_update()
                 )
                 for binding in binding_result.mappings().all():
@@ -93,27 +102,30 @@ class SourceRemovalReconciler:
                         documents_with_other_bindings.add(str(binding["document_id"]))
 
             item_ids = tuple(misses_by_item)
-            await session.execute(
-                update(SOURCE_ITEMS)
-                .where(
-                    SOURCE_ITEMS.c.source_scope_id == scan["source_scope_id"],
-                    SOURCE_ITEMS.c.source_item_id.in_(item_ids),
+            reconciled_at = utc_now()
+            for start in range(0, len(item_ids), _STATEMENT_CHUNK):
+                chunk = item_ids[start : start + _STATEMENT_CHUNK]
+                await session.execute(
+                    update(SOURCE_ITEMS)
+                    .where(
+                        SOURCE_ITEMS.c.source_scope_id == scan["source_scope_id"],
+                        SOURCE_ITEMS.c.source_item_id.in_(chunk),
+                    )
+                    .values(
+                        consecutive_misses=case(
+                            {item_id: misses_by_item[item_id] for item_id in chunk},
+                            value=SOURCE_ITEMS.c.source_item_id,
+                            else_=SOURCE_ITEMS.c.consecutive_misses,
+                        ),
+                        last_reconciled_scan_sequence=scan_sequence,
+                        is_active=case(
+                            {item_id: active_by_item[item_id] for item_id in chunk},
+                            value=SOURCE_ITEMS.c.source_item_id,
+                            else_=SOURCE_ITEMS.c.is_active,
+                        ),
+                        updated_at=reconciled_at,
+                    )
                 )
-                .values(
-                    consecutive_misses=case(
-                        misses_by_item,
-                        value=SOURCE_ITEMS.c.source_item_id,
-                        else_=SOURCE_ITEMS.c.consecutive_misses,
-                    ),
-                    last_reconciled_scan_sequence=scan_sequence,
-                    is_active=case(
-                        active_by_item,
-                        value=SOURCE_ITEMS.c.source_item_id,
-                        else_=SOURCE_ITEMS.c.is_active,
-                    ),
-                    updated_at=utc_now(),
-                )
-            )
             return tuple(sorted(removed_documents - documents_with_other_bindings))
 
 

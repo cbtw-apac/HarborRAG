@@ -9,6 +9,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Parse legacy Microsoft Office binary files: Word 97-2003 `.doc`
+  (body, tables, headers/footers, text boxes, notes) and PowerPoint 97-2003
+  `.ppt`/`.pps` (slide text and speaker notes; templates by MIME type) through new `doc` and
+  `ppt` engines built on `olefile`, which the `parsers`, `document`,
+  `presentation`, and `parsers-all` extras now install. Encrypted files are
+  rejected as password-protected and Word 6/95 files as unsupported.
+
+- Links to items no ingested scope has published get an external stub node in the graph
+  (`ExternalSourceEntity`-style: a `SourceEntity` marked `external`, keyed by tenant, connector,
+  connection and source item id -- never by scope -- and carrying the provider id only, no
+  title or metadata from the unread source). Relation repair persists each unresolved link
+  (`unresolved_source_relations`, migration 0039), and every source run finishes with a
+  reverse pass that re-repairs documents elsewhere whose link targets are now published, so
+  the link moves from the stub to the real node. Stubs nothing references are pruned after a
+  grace period.
+
+- Retention TTL for retired document versions (`HARBORRAG_RETIRED_VERSION_RETENTION_DAYS`,
+  default 30 days; `0` purges as soon as eligible, `off` disables). After a source-scope
+  run's projection cleanup, every version of that scope that has been RETIRED for longer
+  than the TTL, and whose projection cleanup job has COMPLETED, is purged: its object-store
+  artifacts (canonical, chunks and chunk index, representations, relations, comments,
+  tables, projection files) are deleted, raw source and metadata objects are deleted only
+  when no other unpurged version of the document references them, and its
+  `projection_manifests` row is dropped. The version row is kept, with its artifact columns
+  cleared, in the new `PURGED` state (migration 0038), so task results still resolve; the
+  shared parse cache (`parsed/`) and source plans are never touched, and a storage error
+  leaves the version RETIRED for the next run. Re-ingesting content identical to a purged
+  version rebuilds that version from scratch. The cleanup activity result reports
+  `purged_versions` and `purge_failed_versions`.
+  A purge first claims the version (`RETIRED` -> `PURGING`); while it is claimed a replay of
+  the same content is refused as transient and retried, so it can never be restored onto
+  artifacts that are being deleted, and an interrupted purge resumes on the next run. Besides
+  the purge after each source run, every worker sweeps all scopes every
+  `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` (default 24; `0` disables).
+- `harborrag auth keys create|list|revoke`: hashed, tenant-bound MCP reader keys with a
+  bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0036) and
+  verified on every request. `HARBORRAG_MCP_AUTH_MODE=api_key` accepts them (and keeps the
+  loopback owner token for the status UI); the UI's tool playground now accepts reader keys
+  for their own tenant. The secret is written once to a `0600` file, never printed.
+- Pause, resume and cancel of an ingestion run append a `task.<id>.control` event naming the
+  action and who asked for it, next to the run's progress events.
 - `harborrag init` scaffolds a self-contained project directory (`harborrag.yaml`, `.env`,
   `config/` catalogs, `docker-compose.yml`) with provider presets for OpenAI, Azure OpenAI,
   Gemini, and OpenAI-compatible gateways. The CLI discovers the project by walking up from
@@ -22,27 +63,181 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object store and the control database, and checks Temporal only with `--temporal`.
 - The `harborrag` command ships with every install of `harborrag`, including the bare one;
   `harborrag[local]` adds the clients the local stack needs.
+- Source-entity summaries can be searched, not only read. With
+  `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, each accepted source-entity card is
+  published as its own vector point, and a query that matches one expands into the evidence
+  chunks beneath that entity. This is what lets a question spanning an issue's body, its
+  comments and an attached file reach that issue, which chunk search alone cannot do. The
+  point carries no card text: a hit yields a node key, and the summary authority re-checks
+  the binding's permission dependencies and freshness before releasing any chunk.
+- Summary cards carry `attributes`: named facets (a short reusable name, its values, and the
+  documents each value was copied from) that make a card filterable as well as readable.
+- `HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS` (default `60`) sets how long a source-entity card
+  may be, so the level that spans documents can be a dossier while section and document cards
+  stay navigation hints. The budget is part of the summary policy fingerprint, so widening it
+  regenerates only the cards it applies to.
+- Source scopes can declare **facets** in `config/topology/graph_build.yaml`: the named,
+  filterable facts every source-entity card carries. Each facet names a structured field the
+  connector already extracted (`field: "Skill Set"` -- a custom field by display name or id,
+  or a standard attribute such as `status`) and copies its value verbatim, with no model call;
+  a Jira issue node now carries its typed custom fields for this. Facets land on the entity
+  point as indexed `facet.<name>` payload, so `filters: {"facet.stage": "placed"}` selects
+  entities without forcing the flat lane, and a new `find_entities` reader tool ranks whole
+  entities against a question within a facet selection, returning each one's summary, facets
+  and released evidence ids.
+- Every evidence chunk of a Jira issue carries the issue's typed custom fields as a `fields`
+  payload map keyed by normalized field name (`Skill Set` -> `fields.skill_set`, `Years of
+  experience` -> `fields.years_of_experience`). Values keep their type, so
+  `{"fields.skill_set": "Data Engineering"}` matches exactly and a range condition works on a
+  number. A `fields.*` filter also reaches the issue's attachments: retrieval resolves it to
+  the matching issues, then searches their evidence and every document attached to them
+  (each attachment chunk now carries `parent_source_item_id`), so a CV is found through the
+  candidate issue whose fields describe it without copying those fields onto the CV. Documents
+  ingested before this change gain the map and the link on their next reprocessing.
+- The Temporal worker now hands its vector repository and embed client to the summary
+  projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
+  not only on the standalone `topology summaries worker` CLI.
 
 ### Changed
 
+- A source link is one graph edge however many documents declare it. Each relation type has
+  one owner: the attachment owns `has_attachment`, the child owns `parent_of`, the outward
+  issue owns `blocks`/`duplicates`, the smaller source item id owns `relates_to`; the other end
+  asserts the edge only when the far end is not published or does not declare the link back.
+  Jira subtasks and Confluence page attachment lists no longer draw a second, parent-owned
+  edge, and a GitHub ref -> commit link is one shared edge instead of one per file. The Jira
+  connector now declares `parent_of` for an issue's subtasks. Existing parallel edges heal on
+  the next ingestion run of each scope.
+- A document skipped by relation repair (its artifacts were cleaned) no longer counts as an
+  unresolved relation, and `unresolved_relations` counts each distinct target and predicate
+  once.
+
+- One tenant namespace in every store: `{prefix}_{tenant_id}` (default `harborrag_DEFAULT`) is
+  the Qdrant collection stem (`harborrag_DEFAULT_evidence`), the FalkorDB graph name and the
+  object-store key prefix (`harborrag_DEFAULT/…`, no longer a SHA-256 of the tenant), so a tenant
+  is found and removed by one name per store. `HARBORRAG_STORAGE_NAMESPACE_PREFIX` replaces
+  `HARBORRAG_QDRANT_COLLECTION_PREFIX` and `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`.
+  **Existing data is not moved**: reset the stores and re-ingest after upgrading.
+- Evidence points carry `graph_chunk_node_key` and `graph_source_node_key` (indexed), the
+  chunk's graph node and its document's source entity, so a vector hit joins the graph directly.
+- Summarization is off in the shipped `config/topology/graph_build.yaml` (`summarization.enabled:
+  false`), and the switch now stops all summary work, not just the worker: publishing, retiring and
+  permission imports no longer take the summary tenant lock or mark `summary_scopes` dirty, and
+  retrieval no longer joins summary views onto graph nodes. Rebuild the worker image to pick up the
+  YAML. After turning it back on, run `harborrag topology summaries backfill` so scopes published
+  while it was off are summarized.
+- An issue or page no longer asserts its own `HAS_ATTACHMENT` edge to an attachment that is a
+  separate document: the attachment's projection owns that edge. Every pair used to have two
+  parallel edges, the extra one owned by the container's version and carrying its full metadata.
+  Existing duplicates are removed by relation repair on the next ingestion run of the scope.
+- Search collapses identical chunk text per subject (the source item, or an attachment's parent)
+  instead of across the whole corpus. The same file attached twice to one issue still shows once,
+  but the same comment on different issues (for example a status line on each candidate) is no
+  longer reduced to a single hit.
+- LiteParse is the default parser engine. A new `liteparse` PDF profile (LiteParse, then
+  PyMuPDF) is the default wherever a profile was not named (it was `balanced`, which starts with
+  PyMuPDF), and the image parser's default `ocr_engine` is `liteparse` instead of `pytesseract`.
+  `harborrag init` now scaffolds `pdf-liteparse` and `image-liteparse` (Docling and RapidOCR stay
+  as commented alternatives) and writes `HARBORRAG_OCR_SERVER_URL=` to `.env`. The adapters
+  `parsers` and `image` extras install `liteparse`, so the default engine is always present.
+- The LiteParse OCR server is opt-in. `config/parsers.yaml` reads `HARBORRAG_OCR_SERVER_URL`
+  with no default, and `env/.env.parser` carries the variable (empty in the example). Unset or
+  empty, the PDF and image parsers use no OCR server and LiteParse OCRs locally with Tesseract;
+  previously they fell back to `http://ppocr-server:8888/ocr`. To keep using the server, set
+  `HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr` (or `http://localhost:8888/ocr` on the host).
+- MinIO now runs from `cgr.dev/chainguard/minio` (pinned by digest) in the dev stack and in
+  `harborrag init` projects, because `quay.io/minio/minio` refuses anonymous pulls. The image
+  runs as uid 65532 rather than root, so a `minio_data` volume written by the old image may hold
+  root-owned files: fix it once with
+  `docker run --rm -v <project>_minio_data:/data alpine chown -R 65532:65532 /data`, or reset it.
+- Ingestion is sized for the shared 4-vCPU / 15 GB host instead of for I/O latency.
+  `worker.max_concurrent_activities` drops from 12 to 4 (24 slots and executor threads per
+  worker process instead of 72), `ingestion.document_concurrency` from 32 to 8, and the example
+  worker replica count stays at 2. Every Compose service now has an overridable CPU and memory
+  ceiling (`HARBORRAG_<SERVICE>_CPUS` / `_MEMORY`), and Redis is bounded at 512 MB with
+  `volatile-lru`. Without the ceilings, a full Jira run drove the host into memory thrash: it
+  became unreachable and nothing was OOM-killed.
+- Ingestion workers pass already-loaded HarborRAG modules through the Temporal workflow sandbox
+  (`temporal/sandbox.py`), so it no longer re-imports them for every workflow run (about 320 ms
+  to 1 ms of CPU per document workflow). Workflow modules and their parent packages stay
+  sandboxed. The passthrough is configured on the runner because the in-module
+  `imports_passed_through()` form leaves base-class modules unresolvable when workflow inputs
+  are decoded.
+- `parse_and_normalize` parses in-process. The isolated-subprocess attempt before it could not
+  pickle the preparation stages and failed on every document before falling back.
+- Source dispatch plans are stored as pages with an index, and a document workflow resolves
+  its record from one cached page instead of downloading and parsing the whole plan. Per-
+  document cost no longer grows with the plan, which is what a 400,000-document run needs.
+- Summary reads (`entity_evidence`, `views`) run in a snapshot-isolated read-only
+  transaction and never lock or write; tenant rollups are queued by the worker's
+  `reconcile` when every source ACL is resolved and public, instead of by a reader.
+- `HARBORRAG_SECRETS_ENCRYPTION_KEY` is required by `CompositionRoot.production` (the one
+  place that opens the secret store), not by every `RuntimeSettings`; reader-only processes
+  such as the MCP server no longer receive it.
 - `ingest start --wait` and `ingest watch` render an inline progress block instead of a
   full-screen dashboard; `watch --events` streams NDJSON.
+- A summary's `coverage_mode` can now be `partial`, not only `complete` or `empty`. Coverage
+  is read from discovery -- the connector lists an issue's attachments and comments before any
+  of them is parsed -- so a card written while an attachment is still in OCR, or is of a type
+  nothing can parse, says so and names how many documents are missing, instead of silently
+  describing a candidate without their CV. A partial card is superseded automatically once the
+  missing document lands.
 - Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the
   Temporal client, so they work on a bare or `[local]` install; durable commands explain
   that `harborrag[temporal]` is required instead of failing with an import error.
+- `config/parsers.yaml` setting values may reference the environment with `${VARIABLE}` or
+  `${VARIABLE:-default}`, as `config/models.yaml` already did. The LiteParse OCR server URL
+  uses it: `HARBORRAG_OCR_SERVER_URL` (see `env-example/.env.parser.example`) moves both the
+  PDF and the image parser off the `ppocr-server` container alias - for example to
+  `http://localhost:8888/ocr` for a host run - without editing the catalog. A bare
+  `${VARIABLE}` that is unset fails the load; secrets keep using the `secrets` block.
+- FalkorDB names a tenant's graph `{falkordb_tenant_graph_prefix}_{tenant_id}` instead of
+  appending a SHA-256 digest of the tenant, matching the Qdrant collection naming so a graph
+  is recognizable without a lookup. The tenant must use the same charset Qdrant requires
+  (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
+  Deployments that already wrote digest-named graphs must rename them or reindex, and
+  projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
 
 ### Removed
 
 - The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
+- Three redundant MCP reader tools, leaving eleven: `composed_evidence_search` (use
+  `vector_search` with `mode: local_semantic`, then `fetch_evidence`), `verify_citations`
+  (`fetch_evidence` already rechecks publication, permissions and the expected
+  document/version), and `get_document_metadata` (`get_document_context` now returns
+  `document_title`). Remove their entries from a customised `mcp.yaml`, which rejects
+  unknown tools. The Explorer's "Deep evidence" search mode goes with them, and the reader
+  port and SDK drop `get_document_metadata` / `DocumentMetadataRequest` /
+  `DocumentMetadataResponse`; `list_documents` still returns `DocumentMetadata`.
 
 ### Security
 
+- The MCP server connects to PostgreSQL as a read-only role (`SELECT` on the ingestion
+  tables and `mcp_api_keys`, `default_transaction_read_only`) and to MinIO as a user that can
+  only read the artifact bucket; it no longer holds the owner/root credentials or the
+  secrets encryption key. The MCP Compose file no longer opts into plaintext remote backends.
+- Issued reader keys cannot name the `*` wildcard tenant, at issuance, verification and in the
+  database constraint; the file-backed key list refuses it too.
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
   user and not world-writable; `--project` opts in explicitly. The CLI announces the project
   it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
 
 ### Fixed
 
+- Report corrupt and encrypted legacy `.xls` workbooks as parser rejections
+  (`ParseError` / `PasswordProtectedError`) instead of leaking `xlrd.XLRDError`.
+- Ingesting a large source no longer fails in discovery. The discovery and finalization
+  activities had fixed 30- and 15-minute budgets per attempt, so a Jira project of tens of
+  thousands of issues exhausted its retries before listing finished (`TimeoutError`). Both
+  budgets are now `timeouts.discovery_seconds` / `timeouts.finalization_seconds` in
+  `config/temporal.yaml` (12h / 6h there; 30 / 15 minutes when unset), frozen into each run
+  like `retries`, and finalization now heartbeats. The dispatch plan is also no longer
+  assembled in memory: paged discovery keeps only page counts and hands on the page index,
+  and finalization and retry selection read the plan one page at a time. Runs started
+  earlier keep their whole-plan artifact and still finish.
+- The MCP `vector_search` and graph tools advertised an `outputSchema` with an unresolvable
+  `#/$defs/SummaryAttribute` reference, so clients rejected them; summary schemas are now
+  fully inlined.
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.

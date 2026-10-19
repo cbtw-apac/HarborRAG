@@ -13,7 +13,6 @@ from harborrag_core.ports.agent_runs import AgentEvidenceReference, AgentToolExe
 _SOURCE_RESULT_KEYS = {
     "vector_search": ("results",),
     "fetch_evidence": ("items",),
-    "composed_evidence_search": ("items",),
     "get_document_context": ("chunks",),
 }
 _SOURCE_TOP_LEVEL_KEYS = {
@@ -22,18 +21,6 @@ _SOURCE_TOP_LEVEL_KEYS = {
     ),
     "fetch_evidence": frozenset(
         {"ok", "error", "request_id", "contract_revision", "items", "completion"}
-    ),
-    "composed_evidence_search": frozenset(
-        {
-            "ok",
-            "error",
-            "request_id",
-            "contract_revision",
-            "items",
-            "diagnostics",
-            "cost",
-            "completion",
-        }
     ),
     "get_document_context": frozenset(
         {
@@ -44,6 +31,7 @@ _SOURCE_TOP_LEVEL_KEYS = {
             "outcome",
             "document_id",
             "document_version_id",
+            "document_title",
             "chunks",
             "outline",
             "outline_complete",

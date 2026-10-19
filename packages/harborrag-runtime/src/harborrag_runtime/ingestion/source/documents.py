@@ -8,7 +8,12 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome, TaskDocumentResult
+from harborrag_core.ingestion import (
+    BindingKind,
+    DocumentIngestionOutcome,
+    TaskDocumentResult,
+    is_retryable_failure_code,
+)
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from ..document.models import DocumentReleaseOutcome
@@ -115,7 +120,7 @@ class SourceDocumentService:
                     **self._document_summary(planned),
                     "safe_error_code": safe_error_code,
                     "failure_stage": failed_stage,
-                    "retryable": self._retryable_failure_stage(failed_stage),
+                    "retryable": is_retryable_failure_code(safe_error_code),
                 },
             )
         )
@@ -144,7 +149,3 @@ class SourceDocumentService:
             "document_kind": document_kind,
             "title": title,
         }
-
-    @staticmethod
-    def _retryable_failure_stage(stage: str) -> bool:
-        return stage not in {"PersistCanonical", "ChunkAndValidate"}

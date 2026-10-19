@@ -11,6 +11,7 @@ from harborrag_app.workflow_control.composition.factories import AppServiceFacto
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import (
@@ -29,6 +30,7 @@ class FakeRuntimeClient:
     def __init__(self, *, failure: Exception | None = None) -> None:
         self.calls: list[tuple[str, tuple[object, ...]]] = []
         self._failure = failure
+        self.workflow_paused = False
 
     def _record(self, name: str, *args: object) -> None:
         self.calls.append((name, args))
@@ -51,8 +53,8 @@ class FakeRuntimeClient:
         self._record("get_status", run_id)
         return IngestionExecutionStatus(
             task_id=run_id,
-            status="RUNNING",
-            paused=False,
+            status="PAUSED" if self.workflow_paused else "RUNNING",
+            paused=self.workflow_paused,
             cancel_requested=False,
         )
 
@@ -92,9 +94,14 @@ class FakeComposition:
 class FakeTaskRegistry:
     def __init__(self) -> None:
         self.registered: list[PreparedSourceSubmission] = []
+        self.events: list[tuple[str, HarborEvent]] = []
 
     async def register(self, source: PreparedSourceSubmission) -> None:
         self.registered.append(source)
+
+    async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
+        self.events.append((task_id, event))
+        return event
 
     async def close(self) -> None:
         return None

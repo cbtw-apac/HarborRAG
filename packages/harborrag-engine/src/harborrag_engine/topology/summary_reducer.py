@@ -5,7 +5,14 @@ from dataclasses import dataclass
 
 from harborrag_core.ports.description_generation import DescriptionGeneratorPort
 from harborrag_core.ports.summary_projection import SummaryCachePort
-from harborrag_core.summaries import SummaryCard, SummaryPolicy, generation_key
+from harborrag_core.summaries import (
+    LEAF_SUMMARY_KINDS,
+    SummaryCard,
+    SummaryKind,
+    SummaryPolicy,
+    generation_key,
+)
+from harborrag_core.summary_cards import SUMMARY_CARD_MAX_WORDS
 from harborrag_core.topology.derived import DescriptionPacket, description_prompt_json
 from harborrag_core.topology.extraction import digest
 
@@ -21,6 +28,9 @@ class SummaryReducer:
     cache: SummaryCachePort
     generator: DescriptionGeneratorPort
     calls: int = 0
+    # The policy value is a per-document allowance; a scope run covers many
+    # documents, so the caller scales it. None keeps the policy value as-is.
+    max_calls: int | None = None
 
     def _packets(self, inputs: tuple[str, ...]) -> tuple[DescriptionPacket, ...]:
         return tuple(
@@ -58,18 +68,32 @@ class SummaryReducer:
         return tuple(parts)
 
     async def reduce(
-        self, kind: str, metadata: dict[str, object], inputs: tuple[str, ...]
+        self,
+        kind: SummaryKind,
+        metadata: dict[str, object],
+        inputs: tuple[str, ...],
     ) -> tuple[SummaryCard, str]:
+        """Reduce to one card."""
+
+        words = self.policy.card_words.for_kind(kind)
+        fingerprint = self.policy.leaf_fingerprint if kind in LEAF_SUMMARY_KINDS else None
         context = json.dumps(
             {"kind": kind, **metadata}, ensure_ascii=False, sort_keys=True, separators=(",", ":")
         )
         if not inputs:
             card = SummaryCard(description="No published content is available for this node.")
-            key = generation_key(self.tenant_id, self.policy, [context, []])
+            key = generation_key(
+                self.tenant_id, self.policy, [context, [], words], fingerprint=fingerprint
+            )
             return await self.cache.put_card(self.tenant_id, key, card), key
         # The final node key includes context. Intermediate content reductions can
         # be reused across node and version identities within the tenant.
-        key = generation_key(self.tenant_id, self.policy, [context, inputs])
+        key = generation_key(
+            self.tenant_id,
+            self.policy,
+            [context, inputs, words],
+            fingerprint=fingerprint,
+        )
         cached = await self.cache.get_card(self.tenant_id, key)
         if cached is not None:
             return cached, key
@@ -84,27 +108,45 @@ class SummaryReducer:
                 group = (*group, value)
             if group:
                 groups.append(group)
-            next_values = tuple([(await self._call(group)).model_dump_json() for group in groups])
+            next_values = tuple(
+                [
+                    (
+                        await self._call(values, words=words, fingerprint=fingerprint)
+                    ).model_dump_json()
+                    for values in groups
+                ]
+            )
             if len(next_values) >= len(current) and sum(map(len, next_values)) >= sum(
                 map(len, current)
             ):
                 raise ValueError("summary reduction cannot make progress within input budget")
             current = next_values
-        card = await self._call((context, *current))
+        card = await self._call((context, *current), words=words, fingerprint=fingerprint)
         return await self.cache.put_card(self.tenant_id, key, card), key
 
-    async def _call(self, inputs: tuple[str, ...]) -> SummaryCard:
-        key = generation_key(self.tenant_id, self.policy, ["reduction", inputs])
+    async def _call(
+        self,
+        inputs: tuple[str, ...],
+        *,
+        words: int = SUMMARY_CARD_MAX_WORDS,
+        fingerprint: str | None = None,
+    ) -> SummaryCard:
+        key = generation_key(
+            self.tenant_id,
+            self.policy,
+            ["reduction", inputs, words],
+            fingerprint=fingerprint,
+        )
         cached = await self.cache.get_card(self.tenant_id, key)
         if cached is not None:
             return cached
-        if self.calls >= self.policy.max_calls:
+        if self.calls >= (self.max_calls or self.policy.max_calls):
             raise SummaryBudgetDeferred("summary_call_budget")
         if not self._fits(inputs):
             raise ValueError("summary input exceeds configured budget")
         self.calls += 1
         packets = self._packets(inputs)
-        output = await self.generator.generate(packets)
+        output = await self.generator.generate(packets, max_words=words)
         if not output.complete or not set(output.cited_packet_ids) <= {
             p.packet_id for p in packets
         }:

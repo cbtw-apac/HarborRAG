@@ -4,7 +4,7 @@
     python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence-main --output txt
     python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector harborrag-workspace --output md
 
-Connectors come from `config/connectors.yaml`, parsers (Docling for PDF,
+Connectors come from `config/connectors.yaml`, parsers (LiteParse for PDF,
 RapidOCR for images) come from `config/parsers.yaml`, and credentials come
 from `env/.env.connector` / `env/.env.parser`. See connectors/README.md.
 

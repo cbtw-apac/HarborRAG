@@ -32,6 +32,7 @@ class CanonicalDocumentArtifactPort(Protocol):
         document_version_id: str,
         document: Document,
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ArtifactReference: ...
 
     async def get(

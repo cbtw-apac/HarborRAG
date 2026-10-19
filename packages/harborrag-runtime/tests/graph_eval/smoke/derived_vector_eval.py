@@ -54,7 +54,7 @@ PROFILE = ContextualIndexProfile(
     model="deterministic-eval", dimension=2, deployment_revision="fixture-v1"
 )
 POINT_ID = str(UUID(int=1))
-COLLECTION_PREFIX = "hr_topology_eval_"
+COLLECTION_PREFIX = "hr_topology_eval"
 
 
 async def _fixture(
@@ -116,7 +116,7 @@ async def run() -> int:
             deployment=QdrantDeployment.REMOTE,
             url=f"http://127.0.0.1:{port}",
             prefer_grpc=False,
-            collection_prefix=COLLECTION_PREFIX,
+            namespace_prefix=COLLECTION_PREFIX,
         )
     )
     try:

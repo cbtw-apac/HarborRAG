@@ -221,6 +221,8 @@ class CanonicalVersionPlanner:
         }
         if processing is not None:
             extra["processing_profile"] = processing.model_dump(mode="json")
+        if provenance.created_at is not None:
+            extra["source_created_at"] = provenance.created_at.isoformat()
         if provenance.updated_at is not None:
             extra["source_updated_at"] = provenance.updated_at.isoformat()
         if binding.parent_source_item_id is not None:

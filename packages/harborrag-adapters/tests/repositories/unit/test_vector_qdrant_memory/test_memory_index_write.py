@@ -29,9 +29,9 @@ async def test_memories_live_in_their_own_tenant_scoped_collection(
 
     assert MEMORY_INDEX == "memories"
     assert [call["collection_name"] for call in raw.create_collection_calls] == [
-        "tenant-a_memories"
+        "harborrag_tenant-a_memories"
     ]
-    assert raw.upsert_calls[0]["collection_name"] == "tenant-a_memories"
+    assert raw.upsert_calls[0]["collection_name"] == "harborrag_tenant-a_memories"
 
 
 @pytest.mark.asyncio
@@ -46,8 +46,8 @@ async def test_collection_is_ensured_once_per_tenant(
     await index.index_memory(memory(memory_id="mem-3", owner=other_tenant))
 
     assert [call["collection_name"] for call in raw.create_collection_calls] == [
-        "tenant-a_memories",
-        "tenant-b_memories",
+        "harborrag_tenant-a_memories",
+        "harborrag_tenant-b_memories",
     ]
 
 
@@ -146,7 +146,7 @@ async def test_delete_removes_the_point_from_the_owning_tenant(
     await index.delete_memory(owner(tenant_id="tenant-b"), "mem-1")
 
     call = raw.delete_calls[0]
-    assert call["collection_name"] == "tenant-b_memories"
+    assert call["collection_name"] == "harborrag_tenant-b_memories"
     selector = call["points_selector"].filter
     # The logical memory id is mapped to its stable provider point id.
     assert selector.must[0].has_id == [QdrantMapper.point_id("mem-1")]

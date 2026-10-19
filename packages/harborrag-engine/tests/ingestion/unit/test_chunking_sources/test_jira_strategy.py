@@ -162,3 +162,42 @@ def test_jira_connector_markdown_recovers_fields_and_child_entity_boundaries() -
     assert "attachments" not in result.chunks[0].metadata
     assert "text" not in result.chunks[3].metadata
     assert "download_url" not in result.chunks[3].metadata
+
+
+def test_comment_elements_win_over_the_same_comments_in_provenance() -> None:
+    """A connector that emits comment elements owns that evidence outright.
+
+    Rebuilding it from provenance would duplicate every comment chunk and cite a
+    source element ID the canonical document never contained, which chunk
+    validation rejects for the whole document version.
+    """
+
+    profile = make_profile(name="jira", strategy="jira", target=100, maximum=120)
+    document = make_document(
+        [
+            DocumentElement("summary", "paragraph", "HARBOR-1: A bug", {"field": "summary"}),
+            DocumentElement(
+                "comment-1001",
+                "paragraph",
+                "Looks good",
+                {"field": "comment", "comment_id": "1001", "author": "Ada"},
+            ),
+        ],
+        source="jira",
+        record_id="HARBOR-1",
+        extra={
+            "issue_key": "HARBOR-1",
+            "comments": [{"id": "1001", "author": "Ada", "body": "Looks good"}],
+        },
+    )
+
+    result = make_service(profile).chunk(make_request(document))
+
+    element_ids = {element.id for element in document.content}
+    assert [record.chunk_kind for record in result.chunks] == [
+        ChunkKind.TEXT,
+        ChunkKind.COMMENT,
+    ]
+    assert all(
+        set(record.citation_locator.source_element_ids) <= element_ids for record in result.chunks
+    )

@@ -167,6 +167,52 @@ class GraphProjectionState:
             )
         )
 
+    def external_source_node(
+        self,
+        entity_type: GraphEntityType,
+        *,
+        connector_type: str,
+        connection_id: str,
+        source_item_id: str,
+        provider_id: str,
+    ) -> GraphNodeRecord:
+        """A stand-in for a link target that no ingested scope has published.
+
+        Its key ignores scope (see ``external_source_entity_node_key``); the scope it
+        records is the declaring document's, which is what a reader is checked against.
+        It carries the provider id and nothing else: the target lives somewhere this
+        source was not configured to read, so neither its title nor its metadata may
+        travel here.
+        """
+
+        return self.node(
+            GraphNodeSpec(
+                kind=KnowledgeNodeKind.SOURCE_ENTITY,
+                entity_type=entity_type,
+                logical_id=provider_id,
+                ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+                title=provider_id,
+                source_scope_id=self.context.source_scope_id,
+                attributes={"placeholder": True, "external": True},
+                node_key=self._identity.external_source_entity_node_key(
+                    tenant_id=str(self.context.tenant_id),
+                    connector_type=connector_type,
+                    connection_id=connection_id,
+                    source_item_id=source_item_id,
+                ),
+            )
+        )
+
+    def scoped_source_node_key(self, entity_type: GraphEntityType, provider_id: str) -> str:
+        """The key ``source_node`` would give this entity in the declaring scope."""
+
+        return self._identity.source_entity_node_key(
+            tenant_id=str(self.context.tenant_id),
+            source_scope_id=self.context.source_scope_id,
+            entity_type=entity_type.value,
+            provider_id=provider_id,
+        )
+
     def document_version_node(self, *, title: str | None) -> GraphNodeRecord:
         if title and self.context.connector_type.value == "local":
             title = title.replace("\\", "/").rstrip("/").rsplit("/", 1)[-1]

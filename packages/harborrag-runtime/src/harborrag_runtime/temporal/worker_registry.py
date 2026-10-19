@@ -12,7 +12,7 @@ from .maintenance_activities import MaintenanceActivities
 from .reindex_workflow import ReindexWorkflow
 from .retry_workflow import DocumentRetryWorkflow, RetryFailuresWorkflow
 from .source_batch_workflow import SourceBatchWorkflow
-from .source_workflow import SourceIngestionWorkflow
+from .source_workflow import ScheduledSourceIngestionWorkflow, SourceIngestionWorkflow
 
 
 def _stage_activities(
@@ -38,12 +38,18 @@ def worker_registrations(
     return (
         (
             task_queues.discovery,
-            (SourceIngestionWorkflow, RetryFailuresWorkflow),
+            (SourceIngestionWorkflow, ScheduledSourceIngestionWorkflow, RetryFailuresWorkflow),
             (
                 activities.discover_source_items,
                 activities.cancel_source_ingestion,
+                activities.pause_source_ingestion,
+                activities.resume_source_ingestion,
+                activities.pause_workflow_execution,
+                activities.unpause_workflow_execution,
                 activities.record_source_failure,
                 activities.finalize_source_ingestion,
+                activities.prepare_scheduled_source,
+                activities.record_scheduled_run_metrics,
                 activities.prepare_retry_failures,
                 activities.record_retry_failures_task_failure,
                 activities.finalize_retry_failures,

@@ -30,8 +30,11 @@ _INDEXED_PROPERTIES = (
     "document_version_id",
 )
 # Relationship predicates were previously unindexed scans in every traversal, delete, and
-# count. Indexing tenant_id per relationship type covers the universal filter.
-_INDEXED_RELATION_PROPERTIES = ("tenant_id",)
+# count. Indexing tenant_id per relationship type covers the universal filter. It selects
+# nothing in a graph that holds one tenant, though, so the per-document lookups -- verify
+# by relation_id, retract and clean up by document_version_id -- need their own indexes,
+# or each one walks every edge of its type.
+_INDEXED_RELATION_PROPERTIES = ("tenant_id", "relation_id", "document_version_id")
 # The merge identity for a node is the full triple, so the uniqueness constraint must be
 # the same triple. node_key alone would both contradict the tenant merge key and reject a
 # future schema version writing the same key.

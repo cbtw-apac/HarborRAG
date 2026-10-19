@@ -11,8 +11,6 @@ from harborrag_core.contracts.reader import (
     DocumentContextResponse,
     DocumentListRequest,
     DocumentListResponse,
-    DocumentMetadataRequest,
-    DocumentMetadataResponse,
     EvidenceReadRequest,
     EvidenceReadResponse,
     GraphNodeResolveRequest,
@@ -44,13 +42,6 @@ class ReaderRetrieval:
         self._evidence = ImmutableEvidenceReader(resources)
         self._documents = DocumentContextReader(resources)
         self._catalog = DocumentCatalogReader(resources)
-
-    async def document_metadata(self, request: DocumentMetadataRequest) -> DocumentMetadataResponse:
-        request_id = f"document-{uuid4().hex}"
-        context = _context(request.access, request_id, "document-metadata")
-        async with asyncio.timeout(_READ_DEADLINE_SECONDS):
-            document = await self._catalog.metadata(request.document_id, request.access, context)
-        return DocumentMetadataResponse(request_id, document)
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
         request_id = f"documents-{uuid4().hex}"

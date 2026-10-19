@@ -117,8 +117,34 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
     return embed, control, objects, vectors, graph, telemetry
 
 
+def _with_summarization(tmp_path: Path, *, enabled: bool) -> RuntimeSettings:
+    graph_build = tmp_path / "graph_build.yaml"
+    graph_build.write_text(f"summarization:\n  enabled: {str(enabled).lower()}\n", encoding="utf-8")
+    return _settings().model_copy(update={"graph_build_config_path": graph_build})
+
+
 @pytest.mark.asyncio
-async def test_retrieval_factory_connects_and_owns_every_provider(monkeypatch) -> None:
+@pytest.mark.parametrize("summarization", [True, False])
+async def test_summary_views_are_wired_only_while_summarization_is_on(
+    monkeypatch, tmp_path: Path, summarization: bool
+) -> None:
+    _, control, *_ = _providers(monkeypatch)
+    service_factory = Mock(return_value=object())
+    monkeypatch.setattr(retrieval_factory, "RuntimeRetrievalService", service_factory)
+
+    await retrieval_factory.connect_retrieval_service(
+        _with_summarization(tmp_path, enabled=summarization)
+    )
+
+    resources = service_factory.call_args.kwargs["resources"]
+    expected = control.summaries if summarization else None
+    assert resources.summary_repository is expected
+
+
+@pytest.mark.asyncio
+async def test_retrieval_factory_connects_and_owns_every_provider(
+    monkeypatch, tmp_path: Path
+) -> None:
     embed, control, objects, vectors, graph, telemetry = _providers(monkeypatch)
     service_factory = Mock(return_value=object())
     monkeypatch.setattr(
@@ -127,7 +153,9 @@ async def test_retrieval_factory_connects_and_owns_every_provider(monkeypatch) -
         service_factory,
     )
 
-    service = await retrieval_factory.connect_retrieval_service(_settings())
+    service = await retrieval_factory.connect_retrieval_service(
+        _with_summarization(tmp_path, enabled=True)
+    )
 
     assert service is service_factory.return_value
     assert all(resource.connect.await_count == 1 for resource in (control, objects, vectors, graph))

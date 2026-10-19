@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
@@ -16,6 +17,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionResult,
 )
 from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
+from harborrag_runtime.temporal_models import ActivityTimeoutConfig, TemporalWorkflowOptions
 
 from .fixtures import (
     plan_reference as _plan_reference,
@@ -117,6 +119,52 @@ async def test_source_workflow_passes_only_plan_reference_to_children(
     assert result.published == 3
     assert len(child_requests) == 2
     assert all(request.plan_reference == plan for request in child_requests)
+
+
+@pytest.mark.asyncio
+async def test_source_workflow_schedules_discovery_and_finalization_with_configured_budgets(
+    monkeypatch,
+) -> None:
+    source = replace(
+        _source(),
+        workflow_options=TemporalWorkflowOptions(
+            timeouts=ActivityTimeoutConfig(discovery_seconds=43_200, finalization_seconds=21_600)
+        ),
+    )
+    scheduled: dict[str, dict[str, object]] = {}
+
+    async def execute_activity(name, request, **options):
+        scheduled[name] = options
+        if name == "harborrag.discover_source_items":
+            return SourceDiscoveryResult(
+                scan_id="scan-1", plan_reference=_plan_reference(), document_count=0
+            )
+        if name == "harborrag.cleanup_source_projections":
+            return ProjectionCleanupResult(claimed=0, completed=0, cancelled=0, failed=0)
+        return SourceIngestionResult(
+            task_id="task-1",
+            scan_id="scan-1",
+            discovered=0,
+            published=0,
+            unchanged=0,
+            failed=0,
+            removal_candidates=(),
+            unresolved_relations=0,
+        )
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+
+    await SourceIngestionWorkflow().run(source)
+
+    discovery = scheduled["harborrag.discover_source_items"]
+    finalization = scheduled["harborrag.finalize_source_ingestion"]
+    assert discovery["start_to_close_timeout"] == timedelta(hours=12)
+    assert discovery["heartbeat_timeout"] == timedelta(minutes=2)
+    assert finalization["start_to_close_timeout"] == timedelta(hours=6)
+    assert finalization["heartbeat_timeout"] == timedelta(minutes=2)
 
 
 @pytest.mark.asyncio

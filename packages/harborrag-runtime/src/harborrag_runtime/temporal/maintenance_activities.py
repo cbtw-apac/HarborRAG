@@ -5,10 +5,11 @@ import logging
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from harborrag_engine.ingestion import IngestionFailureClassifier
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.reindex import ReindexRequest
+from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.ingestion.observability import (
     IngestionStage,
     IngestionTelemetry,
@@ -39,7 +40,7 @@ class MaintenanceActivities:
         telemetry: IngestionTelemetry | None = None,
     ) -> None:
         self._runtime = runtime
-        self._failures = IngestionFailureClassifier()
+        self._failures = ingestion_failure_classifier()
         self._telemetry = telemetry or IngestionTelemetry()
 
     @activity.defn(name="harborrag.cleanup_source_projections")
@@ -57,7 +58,37 @@ class MaintenanceActivities:
                 limit=1_000,
             )
             self._telemetry.record_cleanup_backlog(cleanup.failed)
-            return self._cleanup_result(cleanup)
+            purge = await self._purge_retired_versions(source)
+            return self._cleanup_result(cleanup, purge)
+
+    async def _purge_retired_versions(
+        self,
+        source: SourceIngestionInput,
+    ) -> RetiredVersionPurgeBatch:
+        """Apply the retired-version retention TTL to the scope just cleaned.
+
+        A version whose purge fails stays RETIRED for the next run, so it is
+        reported but does not fail the activity: a retry would only redo the
+        cleanup for nothing.
+        """
+
+        retention = self._runtime.retention
+        if retention is None:
+            return RetiredVersionPurgeBatch()
+        purge = await retention.run_scope(
+            tenant_id=source.tenant_id,
+            source_scope_id=source.source_scope_id,
+            limit=1_000,
+        )
+        if purge.failed:
+            logger.warning(
+                "Retired version purge left versions for the next run "
+                "source_scope_id=%s purged=%d failed=%d",
+                source.source_scope_id,
+                purge.purged,
+                purge.failed,
+            )
+        return purge
 
     @activity.defn(name="harborrag.cleanup_reindex_projections")
     async def cleanup_reindex_projections(
@@ -105,12 +136,16 @@ class MaintenanceActivities:
     @staticmethod
     def _cleanup_result(
         cleanup: ProjectionCleanupBatch,
+        purge: RetiredVersionPurgeBatch | None = None,
     ) -> ProjectionCleanupResult:
+        purge = purge or RetiredVersionPurgeBatch()
         result = ProjectionCleanupResult(
             claimed=cleanup.claimed,
             completed=cleanup.completed,
             cancelled=cleanup.cancelled,
             failed=cleanup.failed,
+            purged_versions=purge.purged,
+            purge_failed_versions=purge.failed,
         )
         if result.failed:
             raise ApplicationError("projection cleanup batch contains failed jobs")
