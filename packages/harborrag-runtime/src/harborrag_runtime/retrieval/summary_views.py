@@ -5,6 +5,19 @@ from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.security.context import AccessContext
 
 
+def _may_carry_card(node: GraphNodeRecord, entitled: frozenset[str] | None) -> bool:
+    """Whether a reader with this datasource set may be shown ``node``'s card.
+
+    The summary authority applies the same rule to what it is asked for; not asking keeps
+    the card out of any reader that does not. The tenant card summarises every
+    datasource, so a node with no datasource of its own gets none.
+    """
+
+    if entitled is None:
+        return True
+    return node.node_kind != KnowledgeNodeKind.TENANT and node.source_scope_id in entitled
+
+
 async def apply_summary_views(
     nodes: tuple[GraphNodeRecord, ...],
     reader: SummaryReaderPort | None,
@@ -23,6 +36,7 @@ async def apply_summary_views(
             KnowledgeNodeKind.DATA_SOURCE,
             KnowledgeNodeKind.TENANT,
         }
+        and _may_carry_card(node, access.entitled_source_scopes)
     )
     views = await reader.views(
         str(access.tenant_id),

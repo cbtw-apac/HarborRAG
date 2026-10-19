@@ -16,6 +16,7 @@ from typing import Annotated, Any, ClassVar, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from ..acl import SourceAcl
 from ..config import ConnectorConfig, FieldClass
 from ..events import (
     BlobRef,
@@ -44,7 +45,11 @@ FAKE_CHILD = "fake_child"
 
 @dataclass(frozen=True)
 class FakeItem:
-    """One item in the fake source. A child names its parent."""
+    """One item in the fake source. A child names its parent.
+
+    ``acl=None`` means the item is readable by exactly the readers of its source:
+    the fake emits an inherited ACL in realm ``fake``, scope ``fake:<source_id>``.
+    """
 
     key: DocKey
     updated_at: datetime
@@ -52,6 +57,7 @@ class FakeItem:
     version: str = "1"
     parent: DocKey | None = None
     blob: bytes | None = None
+    acl: SourceAcl | None = None
 
 
 class FakeConfig(ConnectorConfig):
@@ -191,6 +197,9 @@ class FakeSourceConnector:
         blob = None
         if item.blob is not None:
             blob = BlobRef(str(item.key), size=len(item.blob))
+        acl = item.acl
+        if acl is None:
+            acl = SourceAcl.inherited(realm="fake", scope=f"fake:{item.key.source_id}")
         return SourceRecord(
             key=item.key,
             parent=item.parent,
@@ -201,4 +210,5 @@ class FakeSourceConnector:
             metadata={"kind": item.key.kind},
             blob=blob,
             children=children,
+            acl=acl,
         )

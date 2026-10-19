@@ -26,6 +26,7 @@ from ..config.graph_build import GraphBuildConfig
 from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
+from .access_policy import build_access_policy
 from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
 from .entity_summary import EntitySummarySearch
@@ -62,6 +63,12 @@ async def connect_retrieval_service(
         control.summaries.allow_shared_processing(
             settings.ingestion_tenant_id, settings.summary_processing_revision
         )
+    access_policy = build_access_policy(
+        settings,
+        # Only the access file resolves connections to scopes; without one the control
+        # plane is not asked for it.
+        scopes=control.source_scans if settings.access_config_path is not None else None,
+    )
     object_store = build_object_store(settings)
     vector_repository = build_vector_repository(settings)
     graph_repository = build_knowledge_graph(settings)
@@ -130,4 +137,5 @@ async def connect_retrieval_service(
             telemetry.close,
         ),
         telemetry=telemetry,
+        access_policy=access_policy,
     )

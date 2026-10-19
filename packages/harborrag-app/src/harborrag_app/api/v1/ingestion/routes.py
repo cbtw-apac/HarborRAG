@@ -14,6 +14,7 @@ from harborrag_app.api.auth.dependencies import (
     authorize_task_tenant,
     authorize_tenant,
     require_role,
+    require_role_when_restricted,
 )
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
@@ -157,7 +158,7 @@ async def get_ingestion(
 async def list_ingestion_documents(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role_when_restricted("reader", "editor"))],
     query: Annotated[IngestionDocumentQuery, Query()],
 ) -> IngestionDocumentPage:
     task = await service.get_task(task_id)

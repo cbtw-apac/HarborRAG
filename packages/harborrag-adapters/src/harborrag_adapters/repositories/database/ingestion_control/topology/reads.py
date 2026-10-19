@@ -14,7 +14,7 @@ from harborrag_core.topology import (
 )
 
 from ..schema import DOCUMENTS
-from .authorization import build_permissions_current
+from .authorization import build_permissions_current, entitled_scope_conditions
 from .builds import build_record_digest
 from .guards import job_from_row
 from .jobs import runnable_predicate
@@ -65,6 +65,14 @@ def eligible_builds(
             TOPOLOGY_ACCEPTED.c.tenant_id == tenant_id,
             build_permissions_current(
                 TOPOLOGY_ACCEPTED.c.build_id, tenant_id, access, serving=serving
+            ),
+            # A serving read is also limited to the datasources the reader is entitled to.
+            # The permission check above is the reader's ACL, or nothing at all on a
+            # shared corpus, so it cannot say that a build belongs to another datasource.
+            *(
+                entitled_scope_conditions(TOPOLOGY_ACCEPTED.c.source_scope_id, access)
+                if serving
+                else ()
             ),
         )
     )

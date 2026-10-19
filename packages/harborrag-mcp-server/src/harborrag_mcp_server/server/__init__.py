@@ -13,7 +13,8 @@ from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_mcp_server.audit import McpAuditLog
-from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
+from harborrag_mcp_server.server.access_gate import TenantListing, require_listed
+from harborrag_mcp_server.server.base import BaseMcpServer, declares_tenant, tool_reported_error
 from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
 from harborrag_mcp_server.server.server import McpServer
 
@@ -256,9 +257,7 @@ def _tool_handler(
         principal = "in-process"
         try:
             if tenant_scoped:
-                context = _request_context(
-                    arguments.get("tenant_id"), server.corpus_mode, server.shared_tenant_id
-                )
+                context = await _bind_context(server, arguments.get("tenant_id"))
                 principal = context.access.principal_id
             else:
                 # ``describe_graph`` returns the static graph contract and
@@ -314,10 +313,7 @@ def _declares_tenant(server: McpServer, tool_name: str) -> bool:
     """
 
     spec = next((item for item in server.list_tools() if item.name == tool_name), None)
-    if spec is None:
-        return True
-    properties = spec.input_schema.get("properties")
-    return not isinstance(properties, dict) or "tenant_id" in properties
+    return spec is None or declares_tenant(spec.input_schema)
 
 
 def _token_subject() -> str:
@@ -361,10 +357,25 @@ def _request_principal_id(tenant_id: object | None = None) -> str:
     return "authenticated-unknown"
 
 
+async def _bind_context(server: McpServer, tenant_id: object | None) -> ToolInvocationContext:
+    """The call's authenticated context; with an access file, built off the event loop.
+
+    The listing stats the file and may parse it, so it runs in a worker thread (which
+    carries the request's context variables, and so its token). Without a file the call
+    is bound in place, as it always was.
+    """
+
+    arguments = (tenant_id, server.corpus_mode, server.shared_tenant_id, server.access_watcher)
+    if server.access_watcher is None:
+        return _request_context(*arguments)
+    return await asyncio.to_thread(_request_context, *arguments)
+
+
 def _request_context(
     tenant_id: object | None,
     corpus_mode: Literal["source_acl", "tenant_shared"],
     shared_tenant_id: str | None,
+    access_watcher: TenantListing | None = None,
 ) -> ToolInvocationContext:
     from fastmcp.server.dependencies import get_access_token
 
@@ -384,6 +395,7 @@ def _request_context(
             bound_tenant = tenant_id.strip()
         else:
             raise PermissionError("token must bind one tenant or the call must specify a tenant")
+    require_listed(access_watcher, principal, bound_tenant)
     return ToolInvocationContext(
         access=AccessContext(
             principal_id=principal,

@@ -268,13 +268,15 @@ async def check_children_complete(scenario: ContractScenario) -> CheckOutcome:
     return CheckOutcome.PASSED
 
 
-def _rendered(run: Run) -> Mapping[DocKey, tuple[str, str, object]]:
-    return {r.key: (r.title, r.body, r.metadata) for r in run.records}
+def _rendered(run: Run) -> Mapping[DocKey, tuple[str, str, object, object]]:
+    return {r.key: (r.title, r.body, r.metadata, r.acl.to_dict()) for r in run.records}
 
 
 async def check_deterministic_bodies(scenario: ContractScenario) -> CheckOutcome:
     first, second = await _fetch(scenario), await _fetch(scenario)
-    assert _rendered(first) == _rendered(second), "two reads rendered different bodies"
+    assert _rendered(first) == _rendered(second), (
+        "two reads rendered different titles, bodies, metadata or ACLs"
+    )
     return CheckOutcome.PASSED
 
 

@@ -158,6 +158,9 @@ def test_an_attachment_with_no_inherited_identity_loads_unchanged() -> None:
     assert raw.metadata["attachment_id"] == "att-1"
 
 
+_JIRA_REALM = "atlassian:acme.atlassian.net"
+
+
 def _jira_attachment_document(security: dict | None):
     from harborrag_adapters.connectors.acl import acl_metadata
     from harborrag_adapters.connectors.jira.access import issue_acl
@@ -166,7 +169,7 @@ def _jira_attachment_document(security: dict | None):
     record = attachment_source_record(
         _parent("jira://ACME/ACME-7"),
         _descriptor(),
-        inherited={**project_identity(issue), **acl_metadata(issue_acl(issue))},
+        inherited={**project_identity(issue), **acl_metadata(issue_acl(issue, realm=_JIRA_REALM))},
     )
     return AttachmentDocumentLoader(_Gateway()).load(record)  # type: ignore[arg-type]
 
@@ -175,11 +178,20 @@ def test_an_attachment_of_a_secured_jira_issue_carries_the_parent_source_acl() -
     raw = _jira_attachment_document({"id": "10100", "name": "Internal only"})
 
     assert raw.metadata["source_acl"]["status"] == "restricted"
-    assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "10100"
+    assert raw.metadata["source_acl"]["realm"] == _JIRA_REALM
+    assert raw.metadata["source_acl"]["scope"] == "jira-project:ACME"
+    assert raw.metadata["source_acl"]["levels"][0][0]["id"] == "ACME/10100"
+    assert raw.metadata["source_acl"]["levels"][0][0]["realm"] == _JIRA_REALM
     assert raw.metadata["project_key"] == "ACME"
 
 
-def test_an_attachment_of_an_unrestricted_jira_issue_carries_no_acl_label() -> None:
+def test_an_attachment_of_an_unrestricted_jira_issue_carries_the_inherited_acl() -> None:
     raw = _jira_attachment_document(None)
 
-    assert "source_acl" not in raw.metadata
+    assert raw.metadata["source_acl"] == {
+        "realm": _JIRA_REALM,
+        "scope": "jira-project:ACME",
+        "status": "inherited",
+        "reason": "",
+        "levels": [],
+    }

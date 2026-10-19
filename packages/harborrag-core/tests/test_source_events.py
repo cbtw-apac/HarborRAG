@@ -11,22 +11,26 @@ from harborrag_core.sources import (
     CheckpointMark,
     DocKey,
     ItemFailure,
+    SourceAcl,
     SourceRecord,
     SyncWindow,
     TimeRange,
 )
 
 NOW = datetime(2026, 10, 12, 9, 0, tzinfo=UTC)
+KEY = DocKey("conn", "jira_issue", "10001")
+ACL = SourceAcl.inherited(realm="atlassian:acme.atlassian.net", scope="jira-project:PTC")
 
 
 def _record(**overrides: object) -> SourceRecord:
     values: dict[str, object] = {
-        "key": DocKey("conn", "jira_issue", "10001"),
+        "key": KEY,
         "parent": None,
         "title": "PTC-1",
         "body": "# PTC-1",
         "version": "1",
         "updated_at": NOW,
+        "acl": ACL,
     }
     values.update(overrides)
     return SourceRecord(**values)  # type: ignore[arg-type]
@@ -79,6 +83,32 @@ def test_record_rejects_cross_source_parent_and_children() -> None:
         _record(children={DocKey("other", "jira_comment", "1")})
     with pytest.raises(ValueError, match="own parent"):
         _record(parent=DocKey("conn", "jira_issue", "10001"))
+
+
+def test_a_record_without_an_acl_is_rejected() -> None:
+    with pytest.raises(TypeError, match="acl"):
+        SourceRecord(  # type: ignore[call-arg]
+            key=KEY, parent=None, title="t", body="b", version="1", updated_at=NOW
+        )
+
+
+def test_a_record_acl_is_keyword_only() -> None:
+    with pytest.raises(TypeError):
+        SourceRecord(KEY, None, "t", "b", "1", NOW, {}, None, None, ACL)  # type: ignore[misc]
+
+
+@pytest.mark.parametrize(
+    "not_an_acl", [None, "inherited", {"status": "inherited", "realm": "r", "scope": "s"}]
+)
+def test_a_record_acl_must_be_a_source_acl(not_an_acl: object) -> None:
+    with pytest.raises(ValueError, match="SourceAcl"):
+        _record(acl=not_an_acl)
+
+
+def test_a_record_keeps_the_acl_it_was_given() -> None:
+    assert _record().acl is ACL
+    unknown = SourceAcl.unknown(reason="permissions_unreadable")
+    assert _record(acl=unknown).acl == unknown
 
 
 def test_record_freezes_json_metadata_and_rejects_other_values() -> None:

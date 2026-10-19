@@ -1,8 +1,8 @@
 """Summary projection: reads operations."""
 
-from typing import Literal
+from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, select
 from sqlalchemy.engine import RowMapping
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,12 +16,30 @@ from harborrag_core.summaries import (
     SummarySnapshot,
     SummaryView,
 )
-from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
+from harborrag_core.topology.permissions import PermissionResourceKind, ResolvedPermissionSnapshot
 
 from .summary_authority import SummaryAuthority
 from .summary_schema import SUMMARY_BINDINGS, SUMMARY_SCOPES
+from .topology.authorization import entitled_scope_conditions
 from .topology.configuration import read_indexing_config
 from .topology.transactions import read_only_transaction
+
+# The pseudo-scope the tenant-wide rollup card is bound to.
+_TENANT_SCOPE = "@tenant"
+
+
+def _card_scope_conditions(
+    scope_column: ColumnElement[Any], access: AccessContext
+) -> tuple[ColumnElement[bool], ...]:
+    """Conditions limiting cards to the datasources ``access`` is entitled to.
+
+    A card of a datasource outside the set is not readable. Neither is the tenant-wide
+    card, which summarises every datasource: it is named out here instead of being left to
+    ``IN``, so no entitlement set, whatever it holds, can release it.
+    """
+
+    conditions = entitled_scope_conditions(scope_column, access)
+    return (*conditions, scope_column != _TENANT_SCOPE) if conditions else ()
 
 
 class SummaryReadOperations(SummaryAuthority):
@@ -29,7 +47,7 @@ class SummaryReadOperations(SummaryAuthority):
         self,
         binding: SummaryBinding,
         policy: object,
-        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        acl: dict[tuple[PermissionResourceKind, str], ResolvedPermissionSnapshot],
         access: AccessContext,
         tenant_id: str,
     ) -> bool:
@@ -78,7 +96,8 @@ class SummaryReadOperations(SummaryAuthority):
         makes before showing a card is made here before returning a single chunk:
         the tenant gate, the binding's own permission dependencies, and the active
         document versions the card was written over. A stale or unreadable binding
-        yields no chunks rather than an unfiltered set.
+        yields no chunks rather than an unfiltered set. A binding of a datasource
+        outside ``access.entitled_source_scopes`` yields none either.
         """
 
         if str(access.tenant_id) != tenant_id or not node_keys or len(node_keys) > 1000:
@@ -106,6 +125,7 @@ class SummaryReadOperations(SummaryAuthority):
                         .where(
                             SUMMARY_BINDINGS.c.tenant_id == tenant_id,
                             SUMMARY_BINDINGS.c.node_key.in_(node_keys),
+                            *entitled_scope_conditions(SUMMARY_BINDINGS.c.source_scope_id, access),
                         )
                     )
                 )
@@ -128,7 +148,7 @@ class SummaryReadOperations(SummaryAuthority):
         self,
         row: RowMapping,
         snapshot: SummarySnapshot | None,
-        acl: dict[tuple[Literal["source", "document"], str], ResolvedPermissionSnapshot],
+        acl: dict[tuple[PermissionResourceKind, str], ResolvedPermissionSnapshot],
         access: AccessContext,
         tenant_id: str,
     ) -> tuple[str, ...]:
@@ -171,6 +191,15 @@ class SummaryReadOperations(SummaryAuthority):
         access: AccessContext,
         source_scopes: dict[str, str] | None = None,
     ) -> dict[str, SummaryView]:
+        """The card and state of each node the reader may be shown one for.
+
+        Graph nodes (``apply_summary_views``, which also names their source scopes) and
+        ``find_entities`` both read here, so the datasource rule is applied once, in the
+        queries: with ``access.entitled_source_scopes`` set, a node bound to another
+        datasource, or to the tenant-wide card, has no entry at all -- not an empty view and
+        not a ``pending`` one.
+        """
+
         if str(access.tenant_id) != tenant_id or len(node_keys) > 1000:
             return {}
         # Reads never queue summary work: the worker's reconcile and backfill own
@@ -199,6 +228,7 @@ class SummaryReadOperations(SummaryAuthority):
                         .where(
                             SUMMARY_BINDINGS.c.tenant_id == tenant_id,
                             SUMMARY_BINDINGS.c.node_key.in_(node_keys),
+                            *_card_scope_conditions(SUMMARY_BINDINGS.c.source_scope_id, access),
                         )
                     )
                 )
@@ -256,7 +286,7 @@ class SummaryReadOperations(SummaryAuthority):
                     updated_at=binding.updated_at,
                 )
             if source_scopes:
-                await self._pending_views(session, tenant_id, source_scopes, result)
+                await self._pending_views(session, tenant_id, source_scopes, result, access)
             return result
 
     @staticmethod
@@ -265,7 +295,9 @@ class SummaryReadOperations(SummaryAuthority):
         tenant_id: str,
         source_scopes: dict[str, str],
         result: dict[str, SummaryView],
+        access: AccessContext,
     ) -> None:
+        # The same scope rule as the cards: a withheld card must not turn up as a pending one.
         scopes = (
             (
                 await session.execute(
@@ -273,6 +305,7 @@ class SummaryReadOperations(SummaryAuthority):
                         SUMMARY_SCOPES.c.tenant_id == tenant_id,
                         SUMMARY_SCOPES.c.source_scope_id.in_(set(source_scopes.values())),
                         SUMMARY_SCOPES.c.policy.is_not(None),
+                        *_card_scope_conditions(SUMMARY_SCOPES.c.source_scope_id, access),
                     )
                 )
             )

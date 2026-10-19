@@ -22,6 +22,7 @@ New here? Start with the [Quick Start](../getting-started/quick-start.md) -
 - [Model configuration](configuration/model-config.md) - chat, embedding, and reranking providers
 - [Engine configuration](configuration/config-file-reference.md) - runtime and repository settings
 - [Tenant and workspace status](configuration/workspace-mode.md) - multi-tenant scoping
+- [Access file (beta access)](configuration/access-file.md) - who may read which datasources
 
 ## What HarborRAG exposes today
 

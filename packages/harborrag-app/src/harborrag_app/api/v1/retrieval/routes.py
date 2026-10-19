@@ -10,6 +10,7 @@ from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.workflow_control.errors import raise_if_forbidden
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborConnectionError
 from harborrag_core.retrieval import (
@@ -159,5 +160,6 @@ def _response_data(response: AppResponse, *, capability: str) -> dict[str, objec
     if not response.ok:
         if response.data.get("error_type") == "HarborCapabilityError":
             raise HarborCapabilityError(f"{capability} is not configured")
+        raise_if_forbidden(response)
         raise HarborConnectionError(f"{capability} service is unavailable")
     return response.data

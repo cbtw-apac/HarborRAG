@@ -44,6 +44,8 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_engine.retrieval.fusion import fuse_candidates
 
+from .entitled_scopes import entitled_vector_conditions
+
 _MAX_ENTITIES = 8
 _MAX_CHUNKS_PER_ENTITY = 8
 # With facet filters the lane is doing selection, not enrichment: the caller has
@@ -99,6 +101,22 @@ def facet_filter_from_mapping(
 
 def _folded(value: object) -> object:
     return value.strip().casefold() if isinstance(value, str) else value
+
+
+def _effective_scope_ids(
+    requested: tuple[str, ...], entitled: frozenset[str] | None
+) -> tuple[str, ...]:
+    """The datasources an entity search may rank: what was asked for, within what is entitled.
+
+    A request that names none gets every entitled datasource. An empty answer under
+    an entitlement means nothing may be ranked; it is not "no restriction".
+    """
+
+    if entitled is None:
+        return requested
+    if not requested:
+        return tuple(sorted(entitled))
+    return tuple(scope for scope in requested if scope in entitled)
 
 
 @dataclass(frozen=True)
@@ -242,14 +260,24 @@ class EntitySummarySearch:
         "the corpus has no such candidate" from "entity search cannot answer yet;
         use chunk search". They are told apart here with reason codes.
 
-        Released-nothing hits are counted only for a tenant-shared corpus. There
-        every principal reads every released card, so a withheld hit can only mean
-        a card not yet written or gone stale. Under source ACLs the same count
-        would tell a principal how many entities they may not see match their
-        facets, so those hits stay silently absent, as the authority intends.
+        Released-nothing hits are counted only for a tenant-shared corpus whose
+        principal has no datasource entitlement. There every principal reads every
+        released card, so a withheld hit can only mean a card not yet written or
+        gone stale. Under source ACLs, or once the principal is entitled to only some
+        datasources, the same count would tell them how many entities they may not
+        see match their facets, so those hits stay silently absent, as the authority
+        intends.
+
+        The request's datasources are narrowed to the entitled ones before ranking,
+        or replaced by them when the request names none. Naming only datasources
+        outside the entitlement ranks nothing and answers like an empty corpus.
         """
 
-        facet_filter = facet_filter_from_mapping(request.facets, request.source_scope_ids)
+        entitled = request.access.entitled_source_scopes
+        scopes = _effective_scope_ids(request.source_scope_ids, entitled)
+        if entitled is not None and not scopes:
+            return EntityFindResponse(request_id, ())
+        facet_filter = facet_filter_from_mapping(request.facets, scopes)
         hits = await self._rank(dense_vector, context, facet_filter, limit=request.limit + 1)
         if hits is None:
             return EntityFindResponse(request_id, (), reasons=(ENTITY_INDEX_UNAVAILABLE,))
@@ -275,7 +303,7 @@ class EntitySummarySearch:
                 self._match(hit, view.card, view.coverage_mode, chunks, rank=len(matches) + 1)
             )
         truncated = len(hits) > request.limit
-        if not withheld or request.access.corpus_mode != "tenant_shared":
+        if not withheld or request.access.corpus_mode != "tenant_shared" or entitled is not None:
             return EntityFindResponse(request_id, tuple(matches), truncated=truncated)
         return EntityFindResponse(
             request_id,
@@ -325,12 +353,17 @@ class EntitySummarySearch:
         index = self.profile.entity_index_name
         if not await self.vectors.index_exists(index, context=context):
             return None
+        # Every ranking path ends here, so this is where the datasources the
+        # principal is entitled to are applied -- including the entity lane inside
+        # ``retrieve``, which names no facet or datasource of its own. Left to the
+        # evidence check alone, other datasources' entities would fill the window.
         filters = VectorFilter(
             must=[
                 VectorFilterCondition(
                     field="embedding_profile", value=self.profile.entity_fingerprint
                 ),
                 *(facet_filter.must if facet_filter else []),
+                *entitled_vector_conditions(context.access.entitled_source_scopes),
             ],
             should=list(facet_filter.should) if facet_filter else [],
             must_not=list(facet_filter.must_not) if facet_filter else [],

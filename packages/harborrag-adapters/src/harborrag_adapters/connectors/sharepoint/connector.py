@@ -26,7 +26,7 @@ from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
 from .drive_paths import is_drive_file, item_mime_type, item_name, scoped_drive_root
 from .mappers import build_document_metadata, drive_item_id_from_record
-from .permissions import SharePointPermissionResolver
+from .permissions import SharePointPermissionResolver, site_realm
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time
@@ -59,7 +59,7 @@ class SharePointConnector(BaseConnector):
         self.config = config
         self.client = client or _RequestsGraphClient(config)
         self._drive = SharePointDriveAPI(self.client, config)
-        self._permissions = SharePointPermissionResolver(self.client)
+        self._permissions = SharePointPermissionResolver(self.client, realm=site_realm(config))
         self._gate = RestrictedContentGate(config.restricted_content)
 
     def close(self) -> None:
@@ -142,10 +142,16 @@ class SharePointConnector(BaseConnector):
             path=None if root_item_id else root_path,
         )
 
+    def _site_key(self) -> str:
+        """Stable identity of the configured site, as the connector requests it."""
+
+        return str(self._drive.resolve_site()["id"])
+
     def _admit(self, record: SourceRecord) -> bool:
         acl = self._permissions.item_acl(
             str(record.metadata["drive_id"]),
             str(record.metadata["item_id"]),
+            site_key=self._site_key(),
             version=record.metadata.get("ctag"),
         )
         if not self._gate.admit(acl, path=str(record.metadata.get("path") or record.locator)):
@@ -174,7 +180,7 @@ class SharePointConnector(BaseConnector):
             )
         self._drive.require_within_root(item, item_id)
         self._drive.enforce_size_limit(item)
-        acl = self._permissions.item_acl(drive_id, item_id)
+        acl = self._permissions.item_acl(drive_id, item_id, site_key=str(site["id"]))
         self._gate.require(acl, path=item_id)
 
         logger.info(

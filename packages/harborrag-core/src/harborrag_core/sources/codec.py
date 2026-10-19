@@ -15,6 +15,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from .acl import SourceAcl
 from .events import (
     BlobRef,
     CheckpointMark,
@@ -86,7 +87,17 @@ def _encode_record(record: SourceRecord) -> JsonObject:
         "metadata": _plain(record.metadata),
         "blob": _encode_blob(record.blob),
         "children": children,
+        "acl": record.acl.to_dict(),
     }
+
+
+def _decode_acl(data: Mapping[str, Any]) -> SourceAcl:
+    """Read a staged record's ACL; a record staged without one never decodes."""
+
+    raw = data.get("acl")
+    if raw is None:
+        raise ValueError("a staged record has no acl")
+    return SourceAcl.from_dict(raw)
 
 
 def _decode_record(data: Mapping[str, Any]) -> SourceRecord:
@@ -103,6 +114,7 @@ def _decode_record(data: Mapping[str, Any]) -> SourceRecord:
         metadata=data.get("metadata") or {},
         blob=_decode_blob(data.get("blob")),
         children=None if children is None else frozenset(DocKey.parse(c) for c in children),
+        acl=_decode_acl(data),
     )
 
 

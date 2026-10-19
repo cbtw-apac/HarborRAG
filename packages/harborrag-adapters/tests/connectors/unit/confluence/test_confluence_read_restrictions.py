@@ -13,7 +13,7 @@ from confluence_test_helpers import (
     unrestricted_read,
 )
 
-from harborrag_adapters.connectors.acl import SOURCE_ACL_METADATA_KEY
+from harborrag_adapters.connectors.acl import SOURCE_ACL_METADATA_KEY, SourceAcl
 from harborrag_adapters.connectors.confluence import ConfluenceConnector
 from harborrag_adapters.connectors.confluence.access import (
     ConfluenceAccessResolver,
@@ -34,6 +34,9 @@ from harborrag_adapters.connectors.schemas import (
 from harborrag_core.domain.source import SourceRecord
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
+
+REALM = "atlassian:example.atlassian.net"
+SCOPE = "confluence-space:ENG"
 
 
 def read_restricted_to(*, users: tuple[str, ...] = (), groups: tuple[str, ...] = ()) -> dict:
@@ -71,7 +74,9 @@ def restricted_page(content_id: str = "2", **who: tuple[str, ...]) -> dict:
 
 def resolver(client: FakeConfluenceClient | None = None) -> ConfluenceAccessResolver:
     return ConfluenceAccessResolver(
-        ConfluenceContentAPI(client or FakeConfluenceClient(), cloud_config())
+        ConfluenceContentAPI(client or FakeConfluenceClient(), cloud_config()),
+        realm=REALM,
+        scope=SCOPE,
     )
 
 
@@ -90,7 +95,36 @@ def test_expansions_request_read_restrictions():
 
 
 def test_unrestricted_page_without_ancestors_is_inherited():
-    assert resolver().page_acl(light_content("1", "Open")).status == "inherited"
+    acl = resolver().page_acl(light_content("1", "Open"))
+
+    assert acl == SourceAcl.inherited(realm=REALM, scope=SCOPE)
+
+
+def test_every_acl_status_carries_the_resolver_realm_and_space_scope():
+    access = resolver()
+    no_block = light_content("1", "x")
+    del no_block["restrictions"]
+
+    for acl in (
+        access.page_acl(light_content("1", "Open")),
+        access.page_acl(restricted_page(users=("user-a",))),
+        access.page_acl(no_block),
+    ):
+        assert (acl.realm, acl.scope) == (REALM, SCOPE)
+    assert access.page_acl(no_block).status == "unknown"
+
+
+def test_restriction_principals_carry_the_realm_they_are_read_in():
+    principals = read_restriction_principals(
+        restricted_page(users=("user-a",), groups=("group-a",)), realm=REALM
+    )
+
+    assert principals is not None
+    assert [(p.realm, p.kind, p.id) for p in principals] == [
+        (REALM, "user", "user-a"),
+        (REALM, "group", "id-group-a"),
+    ]
+    assert principals[0].display_name == "User-A"
 
 
 def test_page_restriction_captures_users_and_groups():
@@ -98,7 +132,10 @@ def test_page_restriction_captures_users_and_groups():
 
     assert acl.status == "restricted"
     assert acl.reason == "confluence_read_restriction"
-    assert [principal.key for principal in acl.levels[0]] == ["user:user-a", "group:id-group-a"]
+    assert [principal.key for principal in acl.levels[0]] == [
+        f"{REALM}|user:user-a",
+        f"{REALM}|group:id-group-a",
+    ]
 
 
 def test_datacenter_restriction_shape_is_captured():
@@ -112,8 +149,8 @@ def test_datacenter_restriction_shape_is_captured():
     acl = resolver().page_acl(page)
 
     assert [principal.key for principal in acl.levels[0]] == [
-        "user:user-key-b",
-        "group:group-c",
+        f"{REALM}|user:user-key-b",
+        f"{REALM}|group:group-c",
     ]
 
 
@@ -130,10 +167,10 @@ def test_ancestor_restriction_is_fetched_once_and_becomes_its_own_level():
     first_acl = access.page_acl(first)
     second_acl = access.page_acl(second)
 
-    assert [[p.key for p in level] for level in first_acl.levels] == [["group:id-group-b"]]
+    assert [[p.key for p in level] for level in first_acl.levels] == [[f"{REALM}|group:id-group-b"]]
     assert [[p.key for p in level] for level in second_acl.levels] == [
-        ["user:user-a"],
-        ["group:id-group-b"],
+        [f"{REALM}|user:user-a"],
+        [f"{REALM}|group:id-group-b"],
     ]
     assert client.calls == [("content/77", {"expand": READ_RESTRICTIONS_EXPAND})]
 
@@ -153,7 +190,7 @@ def test_missing_truncated_or_unidentified_restrictions_fail_closed():
 
     for content in (no_block, no_ancestors, truncated, full_page, anonymous):
         assert access.page_acl(content).status == "unknown"
-    assert read_restriction_principals({}) is None
+    assert read_restriction_principals({}, realm=REALM) is None
 
 
 def test_unreadable_or_malformed_ancestor_fails_closed():
@@ -246,6 +283,21 @@ def test_include_policy_loads_restricted_page_with_acl_metadata():
     acl = document.metadata[SOURCE_ACL_METADATA_KEY]
     assert acl["status"] == "restricted"
     assert acl["levels"][0][0]["id"] == "id-group-a"
+    assert (acl["realm"], acl["scope"]) == ("atlassian:confluence.example.com", SCOPE)
+    assert acl["levels"][0][0]["realm"] == "atlassian:confluence.example.com"
+
+
+def test_open_page_records_its_inherited_acl_with_the_connector_realm_and_space_scope():
+    client = FakeConfluenceClient()
+    client.add("content/1", full_content("1"), full_content("1"))
+    connector = ConfluenceConnector(cloud_config(), client=client)
+
+    descriptor = connector.describe(page_record("1"))
+    document = connector.load(page_record("1"))
+
+    expected = SourceAcl.inherited(realm=REALM, scope=SCOPE).to_dict()
+    assert descriptor.source.metadata[SOURCE_ACL_METADATA_KEY] == expected
+    assert document.metadata[SOURCE_ACL_METADATA_KEY] == expected
 
 
 def test_search_requests_read_restrictions():
@@ -426,7 +478,7 @@ def test_include_policy_labels_attachment_with_the_parent_acl_read_at_load():
     assert document.metadata[SOURCE_ACL_METADATA_KEY]["levels"][0][0]["id"] == "id-group-a"
 
 
-def test_attachment_of_a_parent_reopened_since_discovery_drops_its_stale_acl():
+def test_attachment_of_a_parent_reopened_since_discovery_replaces_its_stale_acl():
     client = FakeConfluenceClient()
     client.add("content/1", light_content("1", "Open"))
     client.downloads[f"{CLOUD_BASE}/download/attachments/1/notes.md"] = b"notes"
@@ -434,11 +486,20 @@ def test_attachment_of_a_parent_reopened_since_discovery_drops_its_stale_acl():
         cloud_config(include_attachments=True, restricted_content="include"), client=client
     )
     record = confluence_attachment_record()
-    record.metadata[SOURCE_ACL_METADATA_KEY] = {"status": "restricted", "levels": [], "reason": "x"}
+    record.metadata[SOURCE_ACL_METADATA_KEY] = {
+        "realm": REALM,
+        "scope": SCOPE,
+        "status": "restricted",
+        "levels": [[{"realm": REALM, "kind": "group", "id": "stale"}]],
+        "reason": "x",
+    }
 
     document = connector.load(record)
 
-    assert SOURCE_ACL_METADATA_KEY not in document.metadata
+    assert (
+        document.metadata[SOURCE_ACL_METADATA_KEY]
+        == SourceAcl.inherited(realm=REALM, scope=SCOPE).to_dict()
+    )
 
 
 def test_ancestor_cache_reset_between_store_and_read_does_not_raise():

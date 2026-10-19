@@ -14,16 +14,18 @@ from harborrag_core.base import StrictModel
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.security.context import AccessContext
 
+PermissionResourceKind = Literal["source", "document", "class"]
+
 
 class PermissionDependency(StrictModel):
-    resource_kind: Literal["source", "document"]
+    resource_kind: PermissionResourceKind
     resource_id: str = Field(min_length=1, max_length=128)
     revision: str = Field(min_length=1, max_length=128)
 
 
 class ResolvedPermissionSnapshot(StrictModel):
     tenant_id: str = Field(min_length=1, max_length=128)
-    resource_kind: Literal["source", "document"]
+    resource_kind: PermissionResourceKind
     resource_id: str = Field(min_length=1, max_length=128)
     revision: str = Field(min_length=1, max_length=128)
     resolved_at: datetime
@@ -130,7 +132,16 @@ class PermissionCoverageReport(StrictModel):
 
 class BuildInputLineage(StrictModel):
     input_document_versions: dict[str, str] = Field(min_length=1, max_length=1000)
-    permission_dependencies: tuple[PermissionDependency, ...] = Field(min_length=2, max_length=2000)
+    permission_dependencies: tuple[PermissionDependency, ...] = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def depends_on_a_class_or_on_source_and_document(self) -> Self:
+        kinds = {dependency.resource_kind for dependency in self.permission_dependencies}
+        if "class" not in kinds and not {"source", "document"} <= kinds:
+            raise ValueError(
+                "build permission dependencies need an ACL class, or a source and a document"
+            )
+        return self
 
 
 class DerivedArtifactLineage(BuildInputLineage):

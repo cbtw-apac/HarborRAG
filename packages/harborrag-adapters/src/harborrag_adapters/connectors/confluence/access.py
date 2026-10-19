@@ -27,12 +27,13 @@ def _mapping(value: object) -> Mapping[str, Any]:
 
 
 def read_restriction_principals(
-    holder: Mapping[str, Any],
+    holder: Mapping[str, Any], *, realm: str
 ) -> tuple[SourcePrincipal, ...] | None:
     """Return one item's read-restriction principals.
 
     ``()`` means the item adds no read restriction; ``None`` means the payload
-    cannot prove that, which callers must treat as unresolved.
+    cannot prove that, which callers must treat as unresolved. Every principal
+    belongs to the site's ``realm``.
     """
 
     restrictions = _mapping(
@@ -46,7 +47,7 @@ def read_restriction_principals(
         if entries is None:
             return None
         for entry in entries:
-            principal = _principal(kind, entry, id_fields)
+            principal = _principal(kind, entry, id_fields, realm=realm)
             if principal is None:
                 return None
             principals.append(principal)
@@ -66,7 +67,7 @@ def _complete_results(block: Mapping[str, Any]) -> list[Mapping[str, Any]] | Non
 
 
 def _principal(
-    kind: str, entry: Mapping[str, Any], id_fields: tuple[str, ...]
+    kind: str, entry: Mapping[str, Any], id_fields: tuple[str, ...], *, realm: str
 ) -> SourcePrincipal | None:
     identifier = next(
         (str(entry[name]).strip() for name in id_fields if str(entry.get(name) or "").strip()),
@@ -75,7 +76,7 @@ def _principal(
     if not identifier:
         return None
     display = str(entry.get("displayName") or entry.get("name") or "").strip() or None
-    return SourcePrincipal(kind=kind, id=identifier, display_name=display)
+    return SourcePrincipal(realm=realm, kind=kind, id=identifier, display_name=display)
 
 
 class ConfluenceAccessResolver:
@@ -86,10 +87,16 @@ class ConfluenceAccessResolver:
     parent restricted after it was first seen is re-read by the next scan. A
     failed fetch is never cached. Concurrent describes may race on the cache; a
     duplicate fetch is harmless.
+
+    Every ACL it returns is in ``realm`` (the site's identity namespace) and
+    relative to ``scope`` (``confluence-space:<KEY>``, the space the connector
+    reads).
     """
 
-    def __init__(self, content: ConfluenceContentAPI) -> None:
+    def __init__(self, content: ConfluenceContentAPI, *, realm: str, scope: str) -> None:
         self._content = content
+        self._realm = realm
+        self._scope = scope
         self._ancestors: dict[str, tuple[SourcePrincipal, ...] | None] = {}
 
     def reset(self) -> None:
@@ -98,24 +105,32 @@ class ConfluenceAccessResolver:
         self._ancestors.clear()
 
     def page_acl(self, content: Mapping[str, Any]) -> SourceAcl:
-        own = read_restriction_principals(content)
+        own = read_restriction_principals(content, realm=self._realm)
         ancestors = content.get("ancestors")
         if own is None or not isinstance(ancestors, list):
-            return SourceAcl.unknown("page_read_restrictions_unavailable")
+            return self._unknown("page_read_restrictions_unavailable")
         levels = [own] if own else []
         for ancestor in ancestors:
             level = self._ancestor_level(_mapping(ancestor))
             if level is None:
-                return SourceAcl.unknown("ancestor_read_restrictions_unavailable")
+                return self._unknown("ancestor_read_restrictions_unavailable")
             if level:
                 levels.append(level)
         if not levels:
-            return SourceAcl.inherited()
-        return SourceAcl.restricted(levels, reason="confluence_read_restriction")
+            return SourceAcl.inherited(realm=self._realm, scope=self._scope)
+        return SourceAcl.restricted(
+            realm=self._realm,
+            scope=self._scope,
+            levels=levels,
+            reason="confluence_read_restriction",
+        )
+
+    def _unknown(self, reason: str) -> SourceAcl:
+        return SourceAcl.unknown(reason=reason, realm=self._realm, scope=self._scope)
 
     def _ancestor_level(self, ancestor: Mapping[str, Any]) -> tuple[SourcePrincipal, ...] | None:
         if "restrictions" in ancestor:
-            return read_restriction_principals(ancestor)
+            return read_restriction_principals(ancestor, realm=self._realm)
         ancestor_id = str(ancestor.get("id") or "").strip()
         # One read: a concurrent reset() must not empty the cache between check and use.
         cached = self._ancestors.get(ancestor_id, _MISSING)
@@ -125,6 +140,6 @@ class ConfluenceAccessResolver:
             payload: Mapping[str, Any] = self._content.get_read_restrictions(ancestor_id)
         except (FetchError, AuthorizationError, ValueError):
             return None
-        level = read_restriction_principals(payload)
+        level = read_restriction_principals(payload, realm=self._realm)
         self._ancestors[ancestor_id] = level
         return level

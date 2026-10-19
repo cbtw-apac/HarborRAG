@@ -185,24 +185,48 @@ Restriction changes usually do not change an item's version, so incremental sync
 do not notice them. After tightening access at the source, run `missing_threshold`
 full scans (default 2) to retire the newly withheld items.
 
-To import snapshots for `include` mode, take each document's `source_acl`
-evidence and map it with
-`harborrag_adapters.connectors.acl_snapshots.permission_snapshot`. The evidence
-is in the discovered-item descriptor that discovery records for each
-`document_id` (the serialized source record's `metadata.source_acl`) and in the
-raw document's metadata. Give the mapper a
-directory from source principal keys (`user:<id>`, `group:<id>`,
-`site_group:<id>`, `jira_security_level:<id>`) to HarborRAG principal ids, with
-groups already expanded. Keys use the identifier the source returned: Confluence
-Cloud groups are keyed by group id, Data Center groups by name. Principals
-missing from the directory grant nothing. Unresolved ACLs produce a snapshot that
-denies every reader.
+For `include` mode, each restricted document needs a resolved permission snapshot
+imported with `harborrag topology indexing permissions-import`. HarborRAG no longer
+ships a helper that builds those snapshots from `source_acl`, so build them with
+your own tooling for now. Class-based access, where HarborRAG computes reader sets
+per ACL class, is meant to replace this manual step in a later release.
+
+Your tooling reads the captured evidence from the discovered-item descriptor that
+discovery records for each `document_id` (the serialized source record's
+`metadata.source_acl`) and from the raw document's metadata. It is recorded for
+every item that is ingested, inherited ones included, with:
+
+- `realm`: the identity namespace of the principals. `atlassian:<host>` for Jira and
+  Confluence; `entra:<tenant id>` for SharePoint. A SharePoint connector with no
+  tenant id configured uses the placeholder `sharepoint:<host>`, which no Entra
+  directory resolves.
+- `scope`: what the ACL is relative to (`jira-project:<KEY>`,
+  `confluence-space:<KEY>`, `sharepoint-drive:<drive id>`). `inherited` means exactly
+  the readers of that scope.
+- `status`, `reason` and `levels`: a reader must match at least one principal in
+  every level. An `unknown` ACL is never imported.
+
+Principals are keyed `<realm>|<kind>:<id>` and use the identifier the source
+returned. Confluence Cloud groups are keyed by group id, Data Center groups by name.
+For example:
+
+- Jira security level 10100 on an issue of project `CPM`:
+  `atlassian:acme.atlassian.net|jira_security_level:CPM/10100`. A security level
+  is keyed within the issue's project (the same key as its `jira-project:<KEY>`
+  scope), because one security scheme can serve several projects and a level's
+  project-role and project-lead members resolve in the issue's project.
+- Confluence Cloud group: `atlassian:acme.atlassian.net|group:<group id>`
+- SharePoint site group 3 (tenant `t1`):
+  `entra:t1|site_group:<site id>/3`, where `<site id>` is the Graph site id
+  (`contoso.sharepoint.com,<site guid>,<web guid>`). SharePoint site users and site
+  groups are only numbered within one site, so they carry the site; Entra `user` and
+  `group` ids are tenant-wide and do not.
 
 | Provider | Restriction captured | API access needed |
 | --- | --- | --- |
 | Jira | Issue security level (`fields.security`); comments with `visibility` or `jsdPublic: false`, and worklogs with `visibility`, are always dropped from the issue | Browse projects. The credential must be able to see the issues. Cloud OAuth: `read:jira-work` |
 | Confluence | Page read restrictions plus every ancestor's (inherited view restrictions); space permissions are the source scope | The credential must view the page and every ancestor. Cloud OAuth: `read:confluence-content.permission` (verify for your app type). An ancestor the credential cannot read makes the page `unknown`. Ancestor restrictions are cached for one scan; a failed read is never cached |
-| SharePoint | Item permissions compared with the library root (`/drives/{id}/items/{id}/permissions`, `/drives/{id}/root/permissions`); sharing links are ignored because they only widen access | Graph application permission `Sites.Read.All` or `Files.Read.All` (verify; `Sites.Selected` with a read grant on the site also works). One extra Graph request per file. Results are cached for one scan only; the next scan re-reads every permission, so a narrowed item is reclassified even when its `cTag` did not change. Site groups cannot be expanded through Graph: map `site_group:<id>` keys in your directory. A 403 on a permissions read makes that file `unknown`; a 401 aborts the run. Explicit-ID restriction is enforced at load, because describe fetches nothing from SharePoint |
+| SharePoint | Item permissions compared with the library root (`/drives/{id}/items/{id}/permissions`, `/drives/{id}/root/permissions`); sharing links are ignored because they only widen access | Graph application permission `Sites.Read.All` or `Files.Read.All` (verify; `Sites.Selected` with a read grant on the site also works). One extra Graph request per file. Results are cached for one scan only; the next scan re-reads every permission, so a narrowed item is reclassified even when its `cTag` did not change. Site groups cannot be expanded through Graph: map the `site_group` principals (`<site id>/<id>`) in your own tooling. A 403 on a permissions read makes that file `unknown`; a 401 aborts the run. Explicit-ID restriction is enforced at load, because describe fetches nothing from SharePoint |
 
 ### Network policy
 

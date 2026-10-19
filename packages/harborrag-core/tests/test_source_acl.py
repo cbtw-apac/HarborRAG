@@ -1,0 +1,676 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+import pytest
+
+from harborrag_core.base import _deep_freeze
+from harborrag_core.sources import (
+    SOURCE_ACL_METADATA_KEY,
+    SourceAcl,
+    SourcePrincipal,
+    acl_from_metadata,
+    acl_metadata,
+)
+
+REALM = "atlassian:acme.atlassian.net"
+SCOPE = "jira-project:CPM"
+
+
+def _group(gid: str, name: str | None = None) -> SourcePrincipal:
+    return SourcePrincipal(realm=REALM, kind="group", id=gid, display_name=name)
+
+
+def _user(uid: str) -> SourcePrincipal:
+    return SourcePrincipal(realm=REALM, kind="user", id=uid)
+
+
+def _restricted() -> SourceAcl:
+    return SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=[[_group("g1", "Recruiting"), _user("u1")], [_group("g2")]],
+        reason="issue_security_level",
+    )
+
+
+# --- SourcePrincipal ---------------------------------------------------------
+
+
+def test_principal_key_names_its_realm():
+    assert _group("g1").key == "atlassian:acme.atlassian.net|group:g1"
+
+
+def test_display_name_is_not_identity():
+    assert _group("g1", "Recruiting") == _group("g1", "HR")
+    assert hash(_group("g1", "Recruiting")) == hash(_group("g1", "HR"))
+    assert len({_group("g1", "Recruiting"), _group("g1", "HR")}) == 1
+
+
+def test_principals_in_other_realms_are_different_identities():
+    other = SourcePrincipal(realm="entra:t1", kind="group", id="g1")
+    assert other != _group("g1")
+    assert other.key == "entra:t1|group:g1"
+    assert other.key != _group("g1").key
+
+
+def test_principals_order_by_realm_kind_id_ignoring_display_name():
+    ordered = sorted([_group("b", "A"), _user("a"), _group("a", "Z")])
+    assert [principal.key for principal in ordered] == [
+        f"{REALM}|group:a",
+        f"{REALM}|group:b",
+        f"{REALM}|user:a",
+    ]
+
+
+def test_principals_are_keyword_only():
+    with pytest.raises(TypeError):
+        SourcePrincipal(REALM, "group", "g1")  # type: ignore[misc]
+
+
+@pytest.mark.parametrize("field", ["realm", "kind", "id"])
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_principal_rejects_blank_identity_fields(field: str, blank: str):
+    values = {"realm": REALM, "kind": "group", "id": "g1", field: blank}
+    with pytest.raises(ValueError):
+        SourcePrincipal(**values)
+
+
+@pytest.mark.parametrize("realm", ["atlassian:acme|other", "|", "a|b:c", "|entra:t1", "entra:t1|"])
+def test_principal_rejects_a_realm_containing_the_key_separator(realm: str):
+    with pytest.raises(ValueError, match="realm"):
+        SourcePrincipal(realm=realm, kind="group", id="g1")
+
+
+@pytest.mark.parametrize("kind", ["group:x", ":", "group:", ":group", "gro|up", "|", "a|b:c"])
+def test_principal_rejects_a_kind_containing_a_key_delimiter(kind: str):
+    with pytest.raises(ValueError, match="kind"):
+        SourcePrincipal(realm=REALM, kind=kind, id="g1")
+
+
+def test_principal_from_dict_rejects_a_realm_or_kind_with_a_key_delimiter():
+    with pytest.raises(ValueError, match="kind"):
+        SourcePrincipal.from_dict({"realm": REALM, "kind": "group:x", "id": "y"})
+    with pytest.raises(ValueError, match="realm"):
+        SourcePrincipal.from_dict({"realm": "a|b", "kind": "group", "id": "y"})
+
+
+@pytest.mark.parametrize("realm", ["atlassian:acme.atlassian.net", "entra:t1", "entra:0f2c-91"])
+def test_a_realm_may_contain_colons(realm: str):
+    assert SourcePrincipal(realm=realm, kind="user", id="u1").key == f"{realm}|user:u1"
+
+
+@pytest.mark.parametrize("identifier", ["x:y", "a|b", "712020:abc-123", ":", "|", "site/7:1|2"])
+def test_an_id_may_contain_key_delimiters_and_the_key_still_parses_back(identifier: str):
+    principal = SourcePrincipal(realm="atlassian:acme.atlassian.net", kind="group", id=identifier)
+
+    realm, _, rest = principal.key.partition("|")
+    kind, _, parsed_id = rest.partition(":")
+
+    assert (realm, kind, parsed_id) == (principal.realm, principal.kind, identifier)
+
+
+def test_principal_keys_do_not_collide_across_the_kind_and_id_boundary():
+    keys = {
+        SourcePrincipal(realm=REALM, kind="group", id="x:y").key,
+        SourcePrincipal(realm=REALM, kind="group", id="x").key,
+        SourcePrincipal(realm=REALM, kind="user", id="x:y").key,
+    }
+
+    assert len(keys) == 3
+
+
+def test_principal_rejects_non_string_identity_fields():
+    with pytest.raises(ValueError):
+        SourcePrincipal(realm=REALM, kind="group", id=7)  # type: ignore[arg-type]
+
+
+def test_principal_to_dict_carries_realm_and_omits_missing_display_name():
+    assert _group("g1").to_dict() == {"realm": REALM, "kind": "group", "id": "g1"}
+    assert _group("g1", "Recruiting").to_dict() == {
+        "realm": REALM,
+        "kind": "group",
+        "id": "g1",
+        "display_name": "Recruiting",
+    }
+
+
+def test_principal_dict_round_trip_keeps_display_name():
+    principal = _group("g1", "Recruiting")
+    restored = SourcePrincipal.from_dict(principal.to_dict())
+    assert restored == principal
+    assert restored.display_name == "Recruiting"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"kind": "group", "id": "g1"},
+        {"realm": REALM, "id": "g1"},
+        {"realm": REALM, "kind": "group"},
+        {"realm": "", "kind": "group", "id": "g1"},
+        {"realm": REALM, "kind": " ", "id": "g1"},
+        {"realm": REALM, "kind": "group", "id": ""},
+        {"realm": None, "kind": "group", "id": "g1"},
+        {"realm": REALM, "kind": "group", "id": 7},
+        {"realm": REALM, "kind": "group", "id": "g1", "display_name": 5},
+        {},
+    ],
+)
+def test_principal_from_dict_raises_value_error_for_missing_or_bad_fields(
+    payload: dict[str, Any],
+):
+    with pytest.raises(ValueError):
+        SourcePrincipal.from_dict(payload)
+
+
+@pytest.mark.parametrize("extra", [{"email": "a@example.com"}, {"realms": REALM}, {1: "x"}])
+def test_principal_from_dict_rejects_unknown_keys(extra: dict[Any, Any]):
+    payload = {**_group("g1", "Recruiting").to_dict(), **extra}
+
+    with pytest.raises(ValueError, match="unknown"):
+        SourcePrincipal.from_dict(payload)
+
+
+@pytest.mark.parametrize("principal", [_group("g1"), _group("g1", "Recruiting")])
+def test_principal_from_dict_reads_back_every_key_to_dict_writes(principal: SourcePrincipal):
+    payload = principal.to_dict()
+
+    assert set(payload) <= {"realm", "kind", "id", "display_name"}
+    restored = SourcePrincipal.from_dict(payload)
+    assert (restored, restored.display_name) == (principal, principal.display_name)
+
+
+@pytest.mark.parametrize("payload", [None, "group:g1", ["group", "g1"], 3])
+def test_principal_from_dict_rejects_non_mappings(payload: Any):
+    with pytest.raises(ValueError):
+        SourcePrincipal.from_dict(payload)
+
+
+# --- SourceAcl construction --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: SourceAcl.inherited(realm=REALM, scope=""),
+        lambda: SourceAcl.inherited(realm="", scope="jira-project:CPM"),
+        lambda: SourceAcl.restricted(realm=REALM, scope="jira-project:CPM", levels=[], reason="x"),
+        lambda: SourceAcl.restricted(
+            realm=REALM, scope="jira-project:CPM", levels=[[]], reason="x"
+        ),
+        lambda: SourceAcl.restricted(
+            realm=REALM,
+            scope="jira-project:CPM",
+            levels=[[SourcePrincipal(realm="entra:t1", kind="group", id="g")]],
+            reason="x",
+        ),
+    ],
+)
+def test_invalid_acls_are_rejected(build: Any):
+    with pytest.raises(ValueError):
+        build()
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: SourceAcl.inherited(realm="  ", scope=SCOPE),
+        lambda: SourceAcl.inherited(realm=REALM, scope="   "),
+        lambda: SourceAcl.restricted(realm="", scope=SCOPE, levels=[[_group("g1")]], reason="x"),
+        lambda: SourceAcl.restricted(realm=REALM, scope="", levels=[[_group("g1")]], reason="x"),
+        lambda: SourceAcl.restricted(
+            realm=REALM, scope=SCOPE, levels=[[_group("g1")], []], reason="x"
+        ),
+        lambda: SourceAcl(realm=REALM, scope=SCOPE, status="open"),  # type: ignore[arg-type]
+        lambda: SourceAcl(realm=REALM, scope=SCOPE, status="inherited", levels=((_group("g1"),),)),
+        lambda: SourceAcl(realm=REALM, scope=SCOPE, status="unknown", levels=((_group("g1"),),)),
+        lambda: SourceAcl(realm=REALM, scope=SCOPE, status="restricted"),
+        lambda: SourceAcl(
+            realm=REALM,
+            scope=SCOPE,
+            status="restricted",
+            levels=(("g1",),),  # type: ignore[arg-type]
+        ),
+    ],
+)
+def test_more_invalid_acls_are_rejected(build: Any):
+    with pytest.raises(ValueError):
+        build()
+
+
+def test_every_principal_in_every_level_must_share_the_acl_realm():
+    stray = SourcePrincipal(realm="entra:t1", kind="group", id="g2")
+    with pytest.raises(ValueError, match="realm"):
+        SourceAcl.restricted(
+            realm=REALM, scope=SCOPE, levels=[[_group("g1")], [_group("g3"), stray]], reason="x"
+        )
+
+
+def test_acls_are_keyword_only():
+    with pytest.raises(TypeError):
+        SourceAcl(REALM, SCOPE, "inherited")  # type: ignore[misc]
+
+
+def test_inherited_acl_has_no_levels_or_reason():
+    acl = SourceAcl.inherited(realm=REALM, scope=SCOPE)
+    assert (acl.realm, acl.scope, acl.status) == (REALM, SCOPE, "inherited")
+    assert acl.levels == ()
+    assert acl.reason == ""
+
+
+def test_restricted_acl_freezes_levels_into_tuples():
+    acl = _restricted()
+    assert acl.status == "restricted"
+    assert acl.levels == ((_group("g1"), _user("u1")), (_group("g2"),))
+    assert all(isinstance(level, tuple) for level in acl.levels)
+    assert isinstance(acl.levels, tuple)
+    assert acl.reason == "issue_security_level"
+    assert hash(acl) == hash(_restricted())
+
+
+def test_restricted_accepts_generators_of_principals():
+    acl = SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=((principal for principal in (_group("g1"), _group("g2"))),),
+        reason="x",
+    )
+    assert acl.levels == ((_group("g1"), _group("g2")),)
+
+
+def test_direct_construction_normalises_list_levels_to_tuples():
+    acl = SourceAcl(
+        realm=REALM,
+        scope=SCOPE,
+        status="restricted",
+        levels=[[_group("g1")]],  # type: ignore[arg-type]
+        reason="x",
+    )
+    assert acl.levels == ((_group("g1"),),)
+    assert isinstance(acl.levels[0], tuple)
+
+
+def test_unknown_may_omit_realm_and_scope():
+    assert SourceAcl.unknown(reason="issue_project_unreadable").status == "unknown"
+
+
+def test_unknown_defaults_are_blank_and_levelless():
+    acl = SourceAcl.unknown(reason="issue_project_unreadable")
+    assert (acl.realm, acl.scope) == ("", "")
+    assert acl.levels == ()
+    assert acl.reason == "issue_project_unreadable"
+
+
+def test_unknown_may_carry_realm_and_scope():
+    acl = SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE)
+    assert (acl.realm, acl.scope, acl.status) == (REALM, SCOPE, "unknown")
+
+
+# --- SourceAcl canonical form ------------------------------------------------
+
+
+def _keys(acl: SourceAcl) -> list[list[str]]:
+    return [[principal.key for principal in level] for level in acl.levels]
+
+
+def test_canonical_sorts_and_dedupes_principals_and_levels_and_clears_the_reason():
+    acl = SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=[
+            [_user("u2"), _group("g1", "Recruiting"), _user("u2")],
+            [_group("g2")],
+            [_group("g1"), _user("u2")],
+        ],
+        reason="page_restrictions",
+    )
+
+    canonical = acl.canonical()
+
+    assert _keys(canonical) == [
+        [f"{REALM}|group:g1", f"{REALM}|user:u2"],
+        [f"{REALM}|group:g2"],
+    ]
+    assert canonical.reason == ""
+    assert (canonical.realm, canonical.scope, canonical.status) == (REALM, SCOPE, "restricted")
+    assert canonical.levels[0][0].display_name == "Recruiting"
+
+
+def test_canonical_sorts_principals_and_levels_by_key_not_by_field_order():
+    # By (realm, kind, id) kind "a" sorts before "a-b"; by key "<realm>|a-b:x" sorts first.
+    plain = SourcePrincipal(realm=REALM, kind="a", id="x")
+    dashed = SourcePrincipal(realm=REALM, kind="a-b", id="x")
+    acl = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("u1")], [plain, dashed], [_group("g9")]], reason=""
+    )
+
+    assert _keys(acl.canonical()) == [
+        [dashed.key, plain.key],
+        [f"{REALM}|group:g9"],
+        [f"{REALM}|user:u1"],
+    ]
+
+
+def test_equivalent_acls_share_one_canonical_form():
+    base = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")], [_group("g")]], reason="x"
+    )
+    reordered = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_group("g")], [_user("b"), _user("a")]], reason="x"
+    )
+    duplicated = SourceAcl.restricted(
+        realm=REALM,
+        scope=SCOPE,
+        levels=[[_user("a"), _user("b"), _user("a")], [_group("g")], [_group("g")]],
+        reason="x",
+    )
+    other_reason = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")], [_group("g")]], reason="y"
+    )
+
+    assert {acl.canonical() for acl in (base, reordered, duplicated, other_reason)} == {
+        base.canonical()
+    }
+    assert base.canonical().canonical() == base.canonical()
+
+
+def test_canonical_keeps_what_decides_access_apart():
+    either = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a"), _user("b")]], reason=""
+    )
+    both = SourceAcl.restricted(
+        realm=REALM, scope=SCOPE, levels=[[_user("a")], [_user("b")]], reason=""
+    )
+    elsewhere = SourceAcl.restricted(
+        realm=REALM, scope="jira-project:OPS", levels=[[_user("a"), _user("b")]], reason=""
+    )
+
+    assert len({either.canonical(), both.canonical(), elsewhere.canonical()}) == 3
+
+
+def test_canonical_of_an_inherited_acl_only_clears_the_reason():
+    acl = SourceAcl(realm=REALM, scope=SCOPE, status="inherited", reason="space_default")
+
+    assert acl.canonical() == SourceAcl.inherited(realm=REALM, scope=SCOPE)
+    assert acl.canonical().reason == ""
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+        SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE),
+    ],
+)
+def test_canonical_of_an_unknown_acl_is_the_acl_itself(acl: SourceAcl):
+    assert acl.canonical() is acl
+
+
+# --- SourceAcl serialisation -------------------------------------------------
+
+
+def test_dict_round_trip():
+    acl = SourceAcl.restricted(
+        realm=REALM,
+        scope="jira-project:CPM",
+        levels=[[_group("g1", "Recruiting")]],
+        reason="issue_security_level",
+    )
+    assert SourceAcl.from_dict(acl.to_dict()) == acl
+
+
+def test_dict_round_trip_preserves_multiple_levels_and_order():
+    acl = _restricted()
+    restored = SourceAcl.from_dict(acl.to_dict())
+    assert restored == acl
+    assert [[p.key for p in level] for level in restored.levels] == [
+        [f"{REALM}|group:g1", f"{REALM}|user:u1"],
+        [f"{REALM}|group:g2"],
+    ]
+    assert restored.levels[0][0].display_name == "Recruiting"
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        SourceAcl.inherited(realm=REALM, scope=SCOPE),
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+        SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE),
+    ],
+)
+def test_dict_round_trip_for_inherited_and_unknown(acl: SourceAcl):
+    assert SourceAcl.from_dict(acl.to_dict()) == acl
+
+
+def test_to_dict_shape_is_json_compatible():
+    payload = _restricted().to_dict()
+    assert payload == {
+        "realm": REALM,
+        "scope": SCOPE,
+        "status": "restricted",
+        "reason": "issue_security_level",
+        "levels": [
+            [
+                {"realm": REALM, "kind": "group", "id": "g1", "display_name": "Recruiting"},
+                {"realm": REALM, "kind": "user", "id": "u1"},
+            ],
+            [{"realm": REALM, "kind": "group", "id": "g2"}],
+        ],
+    }
+    assert json.loads(json.dumps(payload)) == payload
+
+
+def test_from_dict_reads_the_frozen_containers_metadata_is_stored_in():
+    acl = _restricted()
+    frozen = _deep_freeze(acl.to_dict())
+    assert SourceAcl.from_dict(frozen) == acl
+
+
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        {"status": "inherited", "reason": "", "levels": []},
+        {"status": "restricted", "reason": "r", "levels": [[{"kind": "group", "id": "g1"}]]},
+        {"status": "unknown", "reason": "r"},
+    ],
+)
+def test_legacy_payloads_without_realm_or_scope_are_rejected(legacy: dict[str, Any]):
+    with pytest.raises(ValueError):
+        SourceAcl.from_dict(legacy)
+
+
+@pytest.mark.parametrize(
+    "legacy",
+    [
+        {"status": "unknown", "reason": "r", "levels": []},
+        {"status": "unknown", "reason": "r"},
+        {"status": "unknown", "reason": "r", "realm": ""},
+        {"status": "unknown", "reason": "r", "scope": ""},
+    ],
+)
+def test_legacy_unknown_payloads_missing_realm_or_scope_keys_are_rejected(
+    legacy: dict[str, Any],
+):
+    with pytest.raises(ValueError):
+        SourceAcl.from_dict(legacy)
+
+
+def test_unknown_payload_with_blank_realm_and_scope_decodes_as_unknown():
+    acl = SourceAcl.from_dict({"status": "unknown", "reason": "r", "realm": "", "scope": ""})
+    assert acl == SourceAcl.unknown(reason="r")
+    assert acl.status == "unknown"
+    assert (acl.realm, acl.scope, acl.levels) == ("", "", ())
+
+
+@pytest.mark.parametrize("status", [[], {}, ["inherited"], 3, None])
+def test_unhashable_or_non_string_status_is_a_value_error(status: Any):
+    with pytest.raises(ValueError):
+        SourceAcl(realm=REALM, scope=SCOPE, status=status)
+
+
+def test_legacy_restricted_payload_never_decodes_to_an_inherited_acl():
+    legacy = {"status": "restricted", "reason": "r", "levels": [[{"kind": "group", "id": "g1"}]]}
+    with pytest.raises(ValueError):
+        SourceAcl.from_dict(legacy)
+    with pytest.raises(ValueError):
+        acl_from_metadata({SOURCE_ACL_METADATA_KEY: legacy})
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"realm": REALM, "scope": SCOPE},
+        {"realm": REALM, "scope": SCOPE, "status": ""},
+        {"realm": REALM, "scope": SCOPE, "status": None},
+        {"realm": REALM, "scope": SCOPE, "status": "open"},
+        {"realm": REALM, "scope": SCOPE, "status": 3},
+        {"scope": SCOPE, "status": "inherited"},
+        {"realm": REALM, "status": "inherited"},
+        {"realm": "", "scope": SCOPE, "status": "inherited"},
+        {"realm": REALM, "scope": "  ", "status": "inherited"},
+        {"realm": None, "scope": SCOPE, "status": "inherited"},
+        {"realm": REALM, "scope": 5, "status": "inherited"},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted"},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": []},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": [[]]},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": "g1"},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": {"g1": 1}},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": ["g1"]},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": [["g1"]]},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": [None]},
+        {"realm": REALM, "scope": SCOPE, "status": "restricted", "levels": [[{"kind": "group"}]]},
+        {
+            "realm": REALM,
+            "scope": SCOPE,
+            "status": "restricted",
+            "levels": [[{"kind": "group", "id": "g1"}]],
+        },
+        {
+            "realm": REALM,
+            "scope": SCOPE,
+            "status": "restricted",
+            "levels": [[{"realm": "entra:t1", "kind": "group", "id": "g1"}]],
+        },
+        {
+            "realm": REALM,
+            "scope": SCOPE,
+            "status": "inherited",
+            "levels": [[{"realm": REALM, "kind": "group", "id": "g1"}]],
+        },
+        {"realm": REALM, "scope": SCOPE, "status": "inherited", "reason": ["x"]},
+    ],
+)
+def test_from_dict_raises_value_error_for_missing_or_malformed_fields(payload: dict[str, Any]):
+    with pytest.raises(ValueError):
+        SourceAcl.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "extra", [{"public": True}, {"inherits_from": "jira-project:OPS"}, {"Levels": []}]
+)
+@pytest.mark.parametrize(
+    "acl",
+    [_restricted(), SourceAcl.inherited(realm=REALM, scope=SCOPE), SourceAcl.unknown(reason="r")],
+    ids=["restricted", "inherited", "unknown"],
+)
+def test_from_dict_rejects_unknown_keys(acl: SourceAcl, extra: dict[str, Any]):
+    with pytest.raises(ValueError, match="unknown"):
+        SourceAcl.from_dict({**acl.to_dict(), **extra})
+
+
+def test_from_dict_rejects_unknown_keys_of_a_principal_in_a_level():
+    payload = _restricted().to_dict()
+    payload["levels"][1][0]["role"] = "admin"
+
+    with pytest.raises(ValueError, match="unknown"):
+        SourceAcl.from_dict(payload)
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        _restricted(),
+        SourceAcl.inherited(realm=REALM, scope=SCOPE),
+        SourceAcl.unknown(reason="r", realm=REALM, scope=SCOPE),
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+    ],
+    ids=["restricted", "inherited", "unknown-scoped", "unknown-bare"],
+)
+def test_from_dict_reads_back_every_key_to_dict_writes(acl: SourceAcl):
+    payload = acl.to_dict()
+
+    assert set(payload) == {"realm", "scope", "status", "reason", "levels"}
+    assert SourceAcl.from_dict(payload) == acl
+    assert SourceAcl.from_dict(json.loads(json.dumps(payload))) == acl
+
+
+@pytest.mark.parametrize("payload", [None, "inherited", ["inherited"], 3])
+def test_from_dict_rejects_non_mappings(payload: Any):
+    with pytest.raises(ValueError):
+        SourceAcl.from_dict(payload)
+
+
+# --- metadata helpers --------------------------------------------------------
+
+
+def test_acl_metadata_records_inherited_acls():
+    acl = SourceAcl.inherited(realm=REALM, scope="jira-project:CPM")
+    assert acl_metadata(acl) == {"source_acl": acl.to_dict()}
+    assert acl_from_metadata(acl_metadata(acl)) == acl
+    assert acl_from_metadata({}) is None
+
+
+def test_metadata_key_is_source_acl():
+    assert SOURCE_ACL_METADATA_KEY == "source_acl"
+    assert list(acl_metadata(_restricted())) == ["source_acl"]
+
+
+@pytest.mark.parametrize(
+    "acl",
+    [
+        _restricted(),
+        SourceAcl.unknown(reason="issue_project_unreadable"),
+        SourceAcl.inherited(realm=REALM, scope=SCOPE),
+    ],
+)
+def test_acl_metadata_round_trips_every_status(acl: SourceAcl):
+    metadata = acl_metadata(acl)
+    assert metadata == {SOURCE_ACL_METADATA_KEY: acl.to_dict()}
+    assert acl_from_metadata(metadata) == acl
+    assert acl_from_metadata(_deep_freeze(metadata)) == acl
+
+
+def test_acl_from_metadata_ignores_unrelated_keys():
+    assert acl_from_metadata({"title": "x", "labels": ["a"]}) is None
+    acl = SourceAcl.inherited(realm=REALM, scope=SCOPE)
+    assert acl_from_metadata({"title": "x", **acl_metadata(acl)}) == acl
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [None, "", "inherited", [], 7, {}, {"status": "inherited"}, {"status": "restricted"}],
+)
+def test_acl_from_metadata_raises_when_present_but_malformed(stored: Any):
+    with pytest.raises(ValueError):
+        acl_from_metadata({SOURCE_ACL_METADATA_KEY: stored})
+
+
+# --- package exports ---------------------------------------------------------
+
+
+def test_names_are_exported_from_the_sources_package():
+    import harborrag_core.sources as sources
+
+    for name in (
+        "SOURCE_ACL_METADATA_KEY",
+        "AclStatus",
+        "SourceAcl",
+        "SourcePrincipal",
+        "acl_from_metadata",
+        "acl_metadata",
+    ):
+        assert name in sources.__all__
+        assert hasattr(sources, name)

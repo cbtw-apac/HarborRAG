@@ -18,6 +18,8 @@ from harborrag_core.topology.derived import ContextualIndexProfile
 from harborrag_core.topology.permissions import DerivedArtifactRecord
 from harborrag_core.topology.search import DerivedSearchPort, TopologyEvidence
 
+from .entitled_scopes import entitled_vector_conditions
+
 _MAX_ARTIFACTS = 1000
 _MAX_CANDIDATES = 100
 _MAX_PARENT_PASSAGES = 4
@@ -93,6 +95,10 @@ class ContextualEvidenceSearch:
                             operator=FilterOperator.IN,
                             value=sorted({row.lineage.build_id for row in manifests.values()}),
                         ),
+                        # Generated points carry their build's ``source_scope_id``, so the
+                        # window, and the diagnostics counted from it, cover only the
+                        # datasources the reader is entitled to.
+                        *entitled_vector_conditions(context.access.entitled_source_scopes),
                     ]
                 ),
             }

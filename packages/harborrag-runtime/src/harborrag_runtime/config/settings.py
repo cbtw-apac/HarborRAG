@@ -17,6 +17,7 @@ from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.ports.memory import MemoryScope
 from harborrag_core.security import RemoteTransportPolicy
 from harborrag_core.storage import (
     DEFAULT_STORAGE_NAMESPACE_PREFIX,
@@ -105,6 +106,9 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         pattern=r"^[A-Za-z0-9._-]+$",
     )
     connector_config_path: Path = Path("config/connectors.yaml")
+    # Opt-in beta access: when set, a reader sees only the datasources this file grants
+    # its principal (see ``access_file``). Unset leaves access exactly as it was.
+    access_config_path: Path | None = None
     parser_config_path: Path = Path("config/parsers.yaml")
     # Wall-clock budget for parsing one document in its isolated process; the
     # process and anything it started are killed at the deadline and the
@@ -282,6 +286,31 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
                 )
             except ValueError as exc:
                 raise ValueError(f"HARBORRAG_OBJECT_STORE_ENDPOINT_URL: {exc}") from exc
+        return self
+
+    @model_validator(mode="after")
+    def validate_access_file_memory_policy(self) -> RuntimeSettings:
+        """Keep shared memory out of a deployment that limits readers to some datasources.
+
+        Project and tenant memories are read by everyone in the project or tenant, and
+        their text comes from model output over documents that readers may be entitled
+        to differently, so with an access file one reader's datasource could reach
+        another reader's prompt.
+        """
+
+        if self.access_config_path is None:
+            return self
+        shared = {MemoryScope.PROJECT, MemoryScope.TENANT}
+        if shared & set(self.memory_recall_scope_order):
+            raise ValueError(
+                "HARBORRAG_MEMORY_RECALL_SCOPES must not include project or tenant when "
+                "HARBORRAG_ACCESS_CONFIG_PATH is set; use user and session"
+            )
+        if self.memory_extraction_project_scope:
+            raise ValueError(
+                "HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE must be false when "
+                "HARBORRAG_ACCESS_CONFIG_PATH is set"
+            )
         return self
 
     def insecure_remote_allowed(self, acknowledged: bool) -> bool:

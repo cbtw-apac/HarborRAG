@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from sqlalchemy import and_, exists, false, or_, select
+from sqlalchemy import ColumnElement, and_, exists, false, or_, select
 
 from harborrag_core.base import utc_now
 from harborrag_core.security.context import AccessContext
@@ -39,6 +39,23 @@ def readable_snapshot(snapshot: Any, access: AccessContext | None) -> Any:
     )
 
 
+def entitled_scope_conditions(
+    scope_column: ColumnElement[Any], access: AccessContext | None
+) -> tuple[ColumnElement[bool], ...]:
+    """Conditions limiting ``scope_column`` to the datasources ``access`` is entitled to.
+
+    No conditions when the context carries no entitlement set, so the gate stays off. An
+    empty set is ``false()`` rather than an empty ``IN``: it entitles nothing.
+    """
+
+    entitled = None if access is None else access.entitled_source_scopes
+    if entitled is None:
+        return ()
+    if not entitled:
+        return (false(),)
+    return (scope_column.in_(sorted(entitled)),)
+
+
 def authorized_documents(tenant_id: str, access: AccessContext | None) -> Any:
     if access is None or str(access.tenant_id) != tenant_id:
         return select(DOCUMENTS.c.document_id, DOCUMENTS.c.active_document_version_id).where(
@@ -48,6 +65,7 @@ def authorized_documents(tenant_id: str, access: AccessContext | None) -> Any:
         return select(DOCUMENTS.c.document_id, DOCUMENTS.c.active_document_version_id).where(
             DOCUMENTS.c.tenant_id == tenant_id,
             DOCUMENTS.c.active_document_version_id.is_not(None),
+            *entitled_scope_conditions(DOCUMENTS.c.source_scope_id, access),
         )
     source = PERMISSION_SNAPSHOTS.alias("source_acl")
     document = PERMISSION_SNAPSHOTS.alias("document_acl")
@@ -74,6 +92,7 @@ def authorized_documents(tenant_id: str, access: AccessContext | None) -> Any:
             DOCUMENTS.c.active_document_version_id.is_not(None),
             readable_snapshot(source, access),
             readable_snapshot(document, access),
+            *entitled_scope_conditions(DOCUMENTS.c.source_scope_id, access),
         )
     )
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Mapping
+from dataclasses import replace
 from typing import Annotated
 
 from fastapi import Depends, Request, Security
@@ -22,6 +23,8 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
+from harborrag_runtime.config.access_file import AccessFileWatcher
+from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.app.api.auth")
 
@@ -80,6 +83,48 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
 
+def build_access_watcher(
+    settings: ApiSettings, runtime_settings: RuntimeSettings
+) -> AccessFileWatcher | None:
+    """The process's one watcher over the access file, or None while beta access is off.
+
+    The file lists JWT subjects, so it needs authenticated callers whose ``sub`` is the
+    identity the facades hold; both conditions are checked here, at factory time, so a
+    deployment that would silently list nobody (or everybody) fails to start instead.
+    """
+    if runtime_settings.access_config_path is None:
+        return None
+    if settings.auth_mode == "none":
+        raise HarborConfigurationError(
+            "HARBORRAG_AUTH_MODE must not be none when HARBORRAG_ACCESS_CONFIG_PATH is set: "
+            "the access file lists authenticated principals"
+        )
+    if settings.auth_user_id_claim != "sub":
+        raise HarborConfigurationError(
+            "HARBORRAG_AUTH_USER_ID_CLAIM must be sub when HARBORRAG_ACCESS_CONFIG_PATH is "
+            "set: the access file lists JWT subjects"
+        )
+    return AccessFileWatcher(
+        runtime_settings.access_config_path, catalog_path=runtime_settings.connector_config_path
+    )
+
+
+def _restrict_to_listed(principal: Principal, watcher: AccessFileWatcher) -> Principal:
+    """Narrow the principal's tenants to those the access file lists it in.
+
+    A wildcard grant becomes exactly the listed tenants. A principal left with none --
+    unlisted, or listed only where its token grants nothing -- is refused outright, so
+    no route runs for it. An invalid or missing file lists nobody. The loader refuses a
+    ``*`` tenant key; it is dropped here too, because a held ``*`` would keep the
+    wildcard and pass the tenant check for every tenant.
+    """
+    listed = watcher.listed_tenants(principal.subject) - {"*"}
+    held = listed if "*" in principal.tenant_ids else principal.tenant_ids & listed
+    if not held:
+        raise HarborAuthError("not listed in the access file", forbidden=True)
+    return replace(principal, tenant_ids=held)
+
+
 def get_principal(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
@@ -87,7 +132,8 @@ def get_principal(
     """Resolve the caller's Principal from the bearer token.
 
     auth_mode=none yields an implicit owner (dev default); otherwise a missing
-    or invalid token raises HarborAuthError (401 envelope).
+    or invalid token raises HarborAuthError (401 envelope). With an access file,
+    the principal is then held to the tenants it is listed in (403 when none).
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
@@ -101,7 +147,9 @@ def get_principal(
     if credentials is None:
         raise HarborAuthError("missing bearer token")
     verifier: BaseTokenVerifier = request.app.state.token_verifier
-    return verifier.verify(credentials.credentials)
+    principal = verifier.verify(credentials.credentials)
+    watcher: AccessFileWatcher | None = request.app.state.access_watcher
+    return principal if watcher is None else _restrict_to_listed(principal, watcher)
 
 
 def authorize_role(principal: Principal, minimum: Role) -> None:
@@ -119,6 +167,27 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
     ) -> Principal:
         """Pass the principal through when its role clears the minimum."""
         authorize_role(principal, minimum)
+        return principal
+
+    return dependency
+
+
+def require_role_when_restricted(
+    open_minimum: Role, restricted_minimum: Role
+) -> Callable[..., Principal]:
+    """Like ``require_role``, with a higher floor while an access file is in force.
+
+    Some reads are not scoped to datasources (an ingestion task's documents, the graph
+    conflict queue), so a reader on an access-restricted deployment must not have them.
+    """
+
+    def dependency(
+        request: Request,
+        principal: Annotated[Principal, Depends(get_principal)],
+    ) -> Principal:
+        """Pass the principal through when its role clears the floor in force."""
+        restricted = request.app.state.access_watcher is not None
+        authorize_role(principal, restricted_minimum if restricted else open_minimum)
         return principal
 
     return dependency
