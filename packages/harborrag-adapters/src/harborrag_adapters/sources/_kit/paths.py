@@ -4,7 +4,9 @@ Patterns follow gitignore syntax (via ``pathspec``): ``**/x`` matches a
 root-level ``x``, ``*`` does not cross ``/``, and ``dir/`` covers everything
 below it. A path the source reports is never rewritten: it is only
 NFC-normalised for matching, so a ``\\`` in a Git file name stays a name
-character and never becomes a separator.
+character and never becomes a separator. Blank lines and ``#`` comments are
+dropped, so a list holding only those admits everything, and an invalid
+pattern is a :class:`~harborrag_core.sources.ConfigError`.
 """
 
 from __future__ import annotations
@@ -15,9 +17,18 @@ from dataclasses import dataclass
 
 import pathspec
 
+from harborrag_core.sources import ConfigError
+
 
 def _spec(patterns: Iterable[str]) -> pathspec.GitIgnoreSpec | None:
-    lines = [unicodedata.normalize("NFC", p) for p in patterns]
+    lines = [
+        unicodedata.normalize("NFC", p) for p in patterns if p.strip() and not p.startswith("#")
+    ]
+    for line in lines:  # compile one by one so the error names the pattern
+        try:
+            pathspec.GitIgnoreSpec.from_lines([line])
+        except ValueError as error:
+            raise ConfigError(f"invalid path pattern {line!r}") from error
     return pathspec.GitIgnoreSpec.from_lines(lines) if lines else None
 
 

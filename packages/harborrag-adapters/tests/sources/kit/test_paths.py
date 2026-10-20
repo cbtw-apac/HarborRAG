@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import pytest
+
 from harborrag_adapters.sources._kit.paths import PathRules, is_within
+from harborrag_core.sources import ConfigError
 
 
 def test_double_star_matches_root_level() -> None:
@@ -48,3 +51,22 @@ def test_is_within() -> None:
     assert not is_within("docsx/a.md", "docs")
     assert is_within("docs", "docs")
     assert is_within("x", "")
+
+
+def test_blank_and_comment_patterns_are_dropped() -> None:
+    assert PathRules.of(include=[""]).admits("a.md")
+    assert PathRules.of(include=[" "]).admits("a.md")
+    assert PathRules.of(include=["# only comment"]).admits("a.md")
+    assert not PathRules.of(include=["", "*.md"]).admits("a.txt")
+    assert PathRules.of(exclude=["", "# *.md"]).admits("a.md")
+
+
+def test_escaped_hash_is_a_pattern() -> None:
+    assert not PathRules.of(include=["\\#*.md"]).admits("a.md")
+    assert PathRules.of(include=["\\#*.md"]).admits("#a.md")
+
+
+def test_invalid_pattern_is_a_config_error() -> None:
+    with pytest.raises(ConfigError, match=r"invalid path pattern 'a\\\\'") as caught:
+        PathRules.of(exclude=["*.log", "a\\"])
+    assert isinstance(caught.value.__cause__, ValueError)
