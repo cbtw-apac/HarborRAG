@@ -46,6 +46,7 @@ from harborrag_core.sources.events import (
     TimeRange,
     Tombstone,
 )
+from harborrag_core.sources.fields import field_key
 from harborrag_core.sources.port import (
     Capabilities,
     DeletionMode,
@@ -59,6 +60,7 @@ from harborrag_core.sources.port import (
     SourceStream,
     SyncPolicy,
 )
+from harborrag_core.sources.reasons import SkipReason
 
 __all__ = [
     "EPOCH",
@@ -85,6 +87,7 @@ __all__ = [
     "PreflightCheck",
     "PreflightResult",
     "RateLimited",
+    "SkipReason",
     "SourceAcl",
     "SourceAuthProvider",
     "SourceConnector",
@@ -109,4 +112,5 @@ __all__ = [
     "encode_mark",
     "encode_window",
     "field_classes",
+    "field_key",
 ]

@@ -12,7 +12,7 @@ from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 
-from harborrag_core.sources import DocKey, ItemFailure
+from harborrag_core.sources import DocKey, ItemFailure, SkipReason
 
 from .errors import ResponseTooLarge
 
@@ -57,7 +57,7 @@ class BlobPolicy:
 
         if _extension(filename) not in self.extensions:
             return ItemFailure(
-                "unsupported_type",
+                SkipReason.UNSUPPORTED_TYPE,
                 detail=f"{filename}: extension not allowed",
                 key=key,
                 skipped=True,
@@ -66,14 +66,14 @@ class BlobPolicy:
             base = media_type.split(";", 1)[0].strip().lower()
             if base not in self.media_types:
                 return ItemFailure(
-                    "unsupported_type",
+                    SkipReason.UNSUPPORTED_TYPE,
                     detail=f"{filename}: {base} not allowed",
                     key=key,
                     skipped=True,
                 )
         if size is not None and size > self.max_bytes:
             return ItemFailure(
-                "too_large",
+                SkipReason.TOO_LARGE,
                 detail=f"{filename}: {size} bytes exceeds {self.max_bytes}",
                 key=key,
                 skipped=True,

@@ -11,6 +11,7 @@ from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
 from harborrag_adapters.parsers.common.markdown_tables import TableCell, markdown_table
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_core.ingestion import is_runtime_field
+from harborrag_core.sources import field_key
 
 from .schemas import (
     JiraCustomFieldKind,
@@ -25,7 +26,6 @@ _ADF_TABLE_CELL_TYPES = frozenset({"tableCell", "tableHeader"})
 # Markdown constructs that are only recognized at the start of a line.
 _STARTS_MARKDOWN_BLOCK = re.compile(r"\||#{1,6} |> |[-*+] |\d+\. |```|~~~")
 
-_FIELD_KEY_SEPARATORS = re.compile(r"[^a-z0-9]+")
 _MAX_FILTER_VALUE_CHARS = 256
 
 type FieldFilterValue = str | float | bool | list[str]
@@ -140,12 +140,6 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
             )
         )
     return values
-
-
-def field_key(name: str) -> str:
-    """The payload key one custom field is filtered by: ``Skill Set`` -> ``skill_set``."""
-
-    return _FIELD_KEY_SEPARATORS.sub("_", name.casefold()).strip("_")
 
 
 def filterable_fields(

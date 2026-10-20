@@ -18,6 +18,7 @@ from pydantic import BaseModel
 
 from harborrag_core.base import FrozenDict, _deep_freeze
 from harborrag_core.sources.acl import SourceAcl
+from harborrag_core.sources.reasons import SkipReason
 
 EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 """Start of the first window for a connection that has never synced."""
@@ -230,6 +231,8 @@ class ItemFailure:
         if (self.key is None) == (self.range is None):
             raise ValueError("an item failure names exactly one of key or range")
         if self.skipped:
+            if self.reason not in SkipReason:
+                raise ValueError(f"a skipped failure needs a skip reason, got {self.reason!r}")
             object.__setattr__(self, "retryable", False)
 
 

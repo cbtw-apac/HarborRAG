@@ -9,8 +9,8 @@ read every point's on-disk payload and timed out on a large tenant.
 
 from __future__ import annotations
 
-from harborrag_adapters.connectors.jira.content import field_key
 from harborrag_core.ingestion import VectorPayload
+from harborrag_core.sources import field_key
 from harborrag_engine.ingestion.projections.vector import SourceFieldIndex
 from harborrag_engine.retrieval.evidence_filters import SOURCE_FIELD_FILTER_PREFIX
 
