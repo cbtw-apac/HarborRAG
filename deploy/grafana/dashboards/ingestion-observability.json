@@ -1,0 +1,145 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": { "type": "grafana", "uid": "-- Grafana --" },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "color": { "mode": "palette-classic" }, "custom": { "drawStyle": "line", "lineInterpolation": "smooth", "lineWidth": 2, "fillOpacity": 12, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "max by (connector_type) (harborrag_ingestion_documents_pending)", "legendFormat": "{{connector_type}}", "refId": "A" }],
+      "title": "Documents pending by connector",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0, "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 300 }, { "color": "red", "value": 1800 }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 0 },
+      "id": 2,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto" },
+      "targets": [{ "expr": "max(harborrag_ingestion_pending_oldest_age_seconds)", "refId": "A" }],
+      "title": "Oldest pending document",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 0 },
+      "id": 3,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto" },
+      "targets": [{ "expr": "max(harborrag_ingestion_enrichment_pending)", "refId": "A" }],
+      "title": "Enrichment scopes pending",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "id": 4,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "max by (stage) (harborrag_ingestion_documents_in_progress)", "legendFormat": "{{stage}}", "refId": "A" }],
+      "title": "Documents in progress by stage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "ratio", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "id": 5,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "max by (task_queue) (harborrag_ingestion_backlog_capacity_ratio)", "legendFormat": "{{task_queue}}", "refId": "A" }],
+      "title": "Backlog / configured slots (not occupancy)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "short", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "id": 6,
+      "options": { "legend": { "displayMode": "table", "placement": "bottom", "calcs": ["lastNotNull"] }, "tooltip": { "mode": "multi" } },
+      "targets": [
+        { "expr": "sum by (task_queue) (temporal_worker_task_slots_used)", "legendFormat": "{{task_queue}} used", "refId": "A" },
+        { "expr": "sum by (task_queue) (temporal_worker_task_slots_available)", "legendFormat": "{{task_queue}} available", "refId": "B" }
+      ],
+      "title": "Real Temporal worker slot usage",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "id": 7,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, stage) (rate(harborrag_ingestion_stage_duration_seconds_bucket[5m])))", "legendFormat": "{{stage}} p95", "refId": "A" }],
+      "title": "Ingestion stage duration p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2, "fillOpacity": 8, "showPoints": "never" } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "id": 8,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, connector_type) (rate(harborrag_ingestion_connector_rate_limit_wait_seconds_bucket[5m])))", "legendFormat": "{{connector_type}} p95", "refId": "A" }],
+      "title": "Provider rate-limit wait p95",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "ops" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "id": 9,
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" }, "tooltip": { "mode": "multi" } },
+      "targets": [{ "expr": "sum by (connector_type) (rate(harborrag_ingestion_connector_rate_limit_events_total[5m]))", "legendFormat": "{{connector_type}}", "refId": "A" }],
+      "title": "Provider rate-limit events / second",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 32 },
+      "id": 10,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum by (le, enrichment) (rate(harborrag_ingestion_enrichment_lag_seconds_bucket[15m])))", "legendFormat": "{{enrichment}} p95", "refId": "A" }],
+      "title": "Enrichment lag p95",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 20 }, { "color": "red", "value": 30 }] } }, "overrides": [] },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
+      "id": 11,
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto" },
+      "targets": [{ "expr": "time() - max(harborrag_ingestion_queue_collected_timestamp_seconds)", "refId": "A" }],
+      "title": "Queue collection age (target < 30s)",
+      "type": "stat"
+    }
+  ],
+  "refresh": "15s",
+  "schemaVersion": 41,
+  "tags": ["harborrag", "ingestion", "temporal", "observability"],
+  "templating": { "list": [] },
+  "time": { "from": "now-1h", "to": "now" },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "HarborRAG Ingestion Operations",
+  "uid": "harborrag-ingestion-ops",
+  "version": 1
+}

@@ -92,6 +92,36 @@ async def test_published_content_summarizes_without_extraction_and_reuses_across
 
 
 @pytest.mark.asyncio
+async def test_current_summary_records_lag_since_publication(tmp_path):
+    async with Harness(tmp_path) as harness:
+        harness.include_graph = True
+        await harness.publish(content=LONG)
+        await harness.control.summaries.configure(
+            "DEFAULT", "scope", SummaryPolicy(model_fingerprint="model", debounce_seconds=0)
+        )
+        lags: list[tuple[str, float]] = []
+        settings = RuntimeSettings(topology_llm_operation_cost_usd=Decimal("0.1"))
+        loader = SummaryInputLoader(
+            harness.control.summaries, harness.reader, harness.writer, settings
+        )
+        runner = SummaryProjectionService(
+            harness.control.summaries,
+            harness.control.topology,
+            settings,
+            lambda lease: Model(),
+            loader.load,
+            record_enrichment_lag=lambda kind, seconds: lags.append((kind, seconds)),
+        )
+
+        assert await runner.run_once("DEFAULT") == "current"
+        assert await runner.run_once("DEFAULT") == "idle"
+
+    assert len(lags) == 1
+    kind, seconds = lags[0]
+    assert kind == "summary" and 0 <= seconds < 60
+
+
+@pytest.mark.asyncio
 async def test_unconfigured_cost_defers_without_provider_calls(tmp_path):
     async with Harness(tmp_path) as harness:
         harness.include_graph = True

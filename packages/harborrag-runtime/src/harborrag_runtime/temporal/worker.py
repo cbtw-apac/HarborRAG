@@ -9,6 +9,8 @@ from datetime import timedelta
 from typing import Any
 
 from temporalio.client import Client
+from temporalio.contrib.opentelemetry import TracingInterceptor
+from temporalio.runtime import PrometheusConfig, Runtime, TelemetryConfig
 from temporalio.worker import Worker
 
 from harborrag_adapters.repositories.object_store import (
@@ -20,6 +22,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
+from harborrag_runtime.observability.tracing import bootstrap_tracing
 from harborrag_runtime.topology.derived_models import RequestEmbedder
 from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
 from harborrag_runtime.topology.summary_worker import serve_summaries
@@ -37,6 +40,18 @@ from .worker_registry import (
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
 SCHEDULE_METRICS_INTERVAL_SECONDS = 30.0
+QUEUE_COLLECT_INTERVAL_SECONDS = 30.0
+TEMPORAL_SDK_METRICS_BIND_ADDRESS = "0.0.0.0:9465"
+
+
+def temporal_sdk_runtime(bind_address: str) -> Runtime:
+    """The process's one SDK runtime; its metrics stay off HarborRAG's own port."""
+
+    return Runtime(
+        telemetry=TelemetryConfig(
+            metrics=PrometheusConfig(bind_address=bind_address, durations_as_seconds=True)
+        )
+    )
 
 
 def thread_pool_size(config: TemporalRuntimeConfig) -> int:
@@ -69,10 +84,15 @@ async def run_workers(
 
     config = TemporalRuntimeConfig.from_settings(settings)
     _size_thread_pool(config)
+    sdk_runtime = temporal_sdk_runtime(
+        getattr(settings, "temporal_sdk_metrics_bind_address", TEMPORAL_SDK_METRICS_BIND_ADDRESS)
+    )
     # Establish the control-plane dependency before opening every ingestion
     # repository and connector. This fails fast during Temporal startup or
     # transport errors and avoids expensive start/close churn in restart loops.
-    client = await connect_temporal_client(config)
+    client = await connect_temporal_client(
+        config, runtime=sdk_runtime, interceptors=[TracingInterceptor()]
+    )
     runtime = build_ingestion_runtime(settings)
     try:
         await runtime.start()
@@ -99,7 +119,6 @@ async def run_workers(
             )
             for task_queue, workflows, queue_activities in registrations
         )
-        await _emit_queue_metrics(runtime.telemetry, client, config)
         logger.info(
             "Temporal ingestion worker polling queues: %s",
             ", ".join(config.task_queues.as_tuple()),
@@ -110,6 +129,17 @@ async def run_workers(
             *(worker.run() for worker in workers),
             *((summary_run,) if summary_run is not None else ()),
             *((retention_run,) if retention_run is not None else ()),
+        )
+        queue_metrics = asyncio.create_task(
+            _queue_metrics_loop(
+                runtime,
+                client,
+                config,
+                stop_event,
+                interval=getattr(
+                    settings, "queue_collect_interval", QUEUE_COLLECT_INTERVAL_SECONDS
+                ),
+            )
         )
         metrics_interval = getattr(settings, "schedule_metrics_interval_seconds", 0.0)
         schedule_metrics = (
@@ -124,9 +154,10 @@ async def run_workers(
         try:
             await _wait_for_shutdown(workers, runs, stop_event=stop_event)
         finally:
-            if schedule_metrics is not None:
-                schedule_metrics.cancel()
-                await asyncio.gather(schedule_metrics, return_exceptions=True)
+            background = (queue_metrics, *((schedule_metrics,) if schedule_metrics else ()))
+            for task in background:
+                task.cancel()
+            await asyncio.gather(*background, return_exceptions=True)
     finally:
         await runtime.close()
 
@@ -196,6 +227,7 @@ def _summary_runner(
     # duck-typing as above: a partial runtime simply gets cards without search.
     vectors = getattr(runtime, "vector_repository", None)
     embed_client = getattr(runtime, "embed_client", None)
+    telemetry = getattr(runtime, "telemetry", None)
     factory = SummaryRuntimeFactory(
         effective,
         runtime.control,
@@ -203,6 +235,7 @@ def _summary_runner(
         ImmutableArtifactWriter(runtime.object_store),
         vectors,
         RequestEmbedder(embed_client) if embed_client is not None else None,
+        telemetry.record_enrichment_lag if telemetry is not None else None,
     )
     logger.info(
         "Temporal summary worker polling queue=%s tenants=%s",
@@ -257,7 +290,34 @@ async def _emit_queue_metrics(
         telemetry.record_temporal_worker_slots(queue_name, slots)
         depth = queue_depths.get(queue_name)
         telemetry.record_temporal_queue_depth(queue_name, depth)
-        telemetry.record_temporal_worker_slot_saturation(queue_name, slots=slots, depth=depth)
+        telemetry.record_backlog_capacity_ratio(queue_name, slots=slots, depth=depth)
+
+
+async def _queue_metrics_loop(
+    runtime: Any,
+    client: Client,
+    config: TemporalRuntimeConfig,
+    stop_event: asyncio.Event | None,
+    *,
+    interval: float,
+) -> None:
+    while True:
+        try:
+            await _emit_queue_metrics(runtime.telemetry, client, config)
+            runtime.telemetry.record_queue_counts(await runtime.control.queue_metrics.counts())
+        except asyncio.CancelledError:
+            raise
+        except Exception as error:
+            # The collector drops its samples once this stays stale; no reset needed here.
+            logger.warning("Ingestion queue collection failed error_type=%s", type(error).__name__)
+        if stop_event is None:
+            await asyncio.sleep(interval)
+            continue
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval)
+        except TimeoutError:
+            continue
+        return
 
 
 async def _schedule_metrics_loop(
@@ -393,6 +453,7 @@ def _install_handlers(
 
 def main() -> None:
     configure_logging()
+    tracer_provider = bootstrap_tracing("harborrag-worker")
     with asyncio.Runner() as runner:
         loop = runner.get_loop()
         stop_event = asyncio.Event()
@@ -408,6 +469,7 @@ def main() -> None:
             for process_signal, handler in previous.items():
                 loop.remove_signal_handler(process_signal)
                 signal.signal(process_signal, handler)
+            tracer_provider.shutdown()
 
 
 if __name__ == "__main__":

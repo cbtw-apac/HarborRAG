@@ -1,6 +1,7 @@
 """Provider-neutral persistence boundaries for semantic navigation projections."""
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Protocol
 
 from harborrag_core.ingestion import GraphNodeRecord
@@ -95,6 +96,8 @@ class SummaryExecutionRepositoryPort(SummaryCachePort, Protocol):
     ) -> SummaryLease | None: ...
 
     async def renew(self, lease: SummaryLease, *, lease_seconds: int = 300) -> None: ...
+
+    async def pending_published_at(self, lease: SummaryLease) -> datetime | None: ...
 
     async def reserve(self, lease: SummaryLease, request: BudgetRequest) -> BudgetAdmission: ...
 

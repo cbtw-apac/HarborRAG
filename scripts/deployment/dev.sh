@@ -9,6 +9,7 @@ PARSER_ENV_FILE="${PARSER_ENV_FILE:-env/.env.parser}"
 MODEL_ENV_FILE="${MODEL_ENV_FILE:-env/.env.models}"
 API_ENV_FILE="${API_ENV_FILE:-env/.env.api}"
 MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
+MONITORING_ENV_FILE="${MONITORING_ENV_FILE:-env/.env.monitoring}"
 API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
@@ -27,6 +28,8 @@ Commands:
   temporal           Start only Temporal server services; never starts a worker
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
+  monitoring         Start Prometheus, Grafana, Loki, and Tempo (needs env/.env.monitoring)
+  metrics            Show live queue and Temporal slot metrics from each worker
   api [--build]      Start only the API; reuse its image and never start a worker
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
@@ -263,6 +266,58 @@ start_worker() {
         temporal-worker
 }
 
+start_monitoring() {
+    [[ "$#" -eq 0 ]] || fail "monitoring accepts no options."
+    # bootstrap never creates this file; Grafana needs an admin password set first.
+    [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]] ||
+        fail "Missing ${MONITORING_ENV_FILE}. Copy env-example/.env.monitoring.example and set GRAFANA_ADMIN_PASSWORD."
+    require_data_network
+    docker compose         --env-file "${ROOT_DIR}/${MONITORING_ENV_FILE}"         --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml"         up --detach
+}
+
+show_worker_metrics() {
+    [[ "$#" -eq 0 ]] || fail "metrics accepts no options."
+    local containers
+    containers="$(temporal_compose --profile worker ps -q temporal-worker)"
+    [[ -n "${containers}" ]] || fail "No Temporal worker containers are running. Start them with '$0 worker'."
+    local container
+    while IFS= read -r container; do
+        [[ -n "${container}" ]] || continue
+        docker exec -i "${container}" python - <<'PY'
+import urllib.request
+
+metrics = (
+    (9464, (
+        "harborrag_ingestion_documents_pending",
+        "harborrag_ingestion_pending_oldest_age_seconds",
+        "harborrag_ingestion_documents_in_progress",
+        "harborrag_ingestion_enrichment_pending",
+        "harborrag_ingestion_queue_collected_timestamp_seconds",
+        "harborrag_ingestion_backlog_capacity_ratio",
+        "harborrag_ingestion_enrichment_lag_seconds",
+    )),
+    (9465, (
+        "temporal_worker_task_slots_used",
+        "temporal_worker_task_slots_available",
+    )),
+)
+for port, names in metrics:
+    print(f"--- {port} ---")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3) as response:
+            lines = response.read().decode().splitlines()
+    except Exception as error:
+        print(f"unavailable: {type(error).__name__}: {error}")
+        continue
+    matched = [
+        line for line in lines
+        if any(line.startswith(name + " ") or line.startswith(name + "{") for name in names)
+    ]
+    print("\n".join(matched) if matched else "no samples yet")
+PY
+    done <<< "${containers}"
+}
+
 start_api() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
@@ -416,6 +471,12 @@ case "${command}" in
             shift
         done
         start_worker "${rebuild_image}"
+        ;;
+    monitoring)
+        start_monitoring "$@"
+        ;;
+    metrics)
+        show_worker_metrics "$@"
         ;;
     api)
         rebuild_image="${global_rebuild}"

@@ -26,6 +26,9 @@ memory = ["harborrag-memory==2.0.0a1"]
 temporal = [
     "temporalio>=1.30,<2",
     "cloudpickle>=3.1,<4",
+    # The worker and its parser launcher install the tracer provider and export OTLP/HTTP.
+    "opentelemetry-sdk>=1.43,<2",
+    "opentelemetry-exporter-otlp-proto-http>=1.43,<2",
 ]
 production = [
     "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]==2.0.0a1",

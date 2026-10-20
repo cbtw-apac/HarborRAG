@@ -7,5 +7,16 @@ rule_files:
 scrape_configs:
   - job_name: harborrag-ingestion-worker
     metrics_path: /metrics
-    static_configs:
-      - targets: ["temporal-worker:9464"]
+    dns_sd_configs:
+      - names: ["temporal-worker"]
+        type: A
+        port: 9464
+
+  # Temporal SDK metrics (slot usage, poll and schedule-to-start latency) in seconds.
+  # DNS discovery resolves the service name to every worker replica.
+  - job_name: temporal-sdk
+    metrics_path: /metrics
+    dns_sd_configs:
+      - names: ["temporal-worker"]
+        type: A
+        port: 9465

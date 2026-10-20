@@ -7,6 +7,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -145,6 +146,7 @@ class SummaryProjectionService:
     # Absent when the deployment has no vector backend wired into the summary
     # worker; cards are still written and still readable, only not searchable.
     entity_index: EntitySummaryIndex | None = None
+    record_enrichment_lag: Callable[[str, float], None] | None = None
 
     async def run_once(
         self,
@@ -168,7 +170,10 @@ class SummaryProjectionService:
                         await self._complete(lease)
                     finally:
                         renewal.cancel()
+            published_at = await self._published_at(lease)
             current = await self.repository.finish(lease)
+            if current and published_at is not None and self.record_enrichment_lag is not None:
+                self.record_enrichment_lag("summary", (utc_now() - published_at).total_seconds())
             return "current" if current else "superseded"
         except asyncio.CancelledError:
             # Lease expiry allows another worker to reuse completed reductions.
@@ -187,6 +192,15 @@ class SummaryProjectionService:
                 logger.warning("Summary projection attempt failed", exc_info=True, extra=details)
             await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
             return "blocked" if blocked else "failed"
+
+    async def _published_at(self, lease: SummaryLease) -> datetime | None:
+        if self.record_enrichment_lag is None:
+            return None
+        try:
+            return await self.repository.pending_published_at(lease)
+        except Exception as error:
+            logger.warning("Enrichment lag lookup failed error_type=%s", type(error).__name__)
+            return None
 
     async def _renew(self, lease: SummaryLease, heartbeat: Callable[[], None] | None) -> None:
         while True:

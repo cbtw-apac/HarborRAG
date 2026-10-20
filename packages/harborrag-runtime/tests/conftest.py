@@ -8,6 +8,11 @@ import pytest
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 
+@pytest.fixture(autouse=True)
+def test_profile_queue_interval(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARBORRAG_QUEUE_COLLECT_INTERVAL", "15")
+
+
 @pytest.fixture
 def sandbox_runner() -> Callable[[], SandboxedWorkflowRunner]:
     """Build a Temporal sandbox runner that passes ``beartype`` through.

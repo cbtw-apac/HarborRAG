@@ -2,14 +2,22 @@
 
 from __future__ import annotations
 
-from temporalio.client import Client, TLSConfig
+from collections.abc import Sequence
+
+from temporalio.client import Client, Interceptor, TLSConfig
+from temporalio.runtime import Runtime
 from temporalio.service import RPCError
 
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import RuntimeConnectionError
 
 
-async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
+async def connect_temporal_client(
+    config: TemporalRuntimeConfig,
+    *,
+    runtime: Runtime | None = None,
+    interceptors: Sequence[Interceptor] = (),
+) -> Client:
     """Connect with validated settings and translate low-level transport errors."""
 
     connection = config.connection
@@ -28,6 +36,8 @@ async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
             identity=connection.identity,
             api_key=connection.api_key,
             tls=tls,
+            runtime=runtime,
+            interceptors=interceptors,
         )
     except (RPCError, OSError, RuntimeError) as error:
         transport = "TLS" if connection.tls.enabled else "plaintext"

@@ -162,6 +162,8 @@ services:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile.temporal-worker
+      args:
+        HARBORRAG_PDF_EXTRAS: ${HARBORRAG_WORKER_PDF_EXTRAS:-pdf-liteparse}
     depends_on:
       temporal-namespace:
         condition: service_completed_successfully
@@ -181,12 +183,18 @@ services:
       HARBORRAG_LOG_LEVEL: ${HARBORRAG_LOG_LEVEL:-INFO}
       HARBORRAG_METRICS_PORT: "9464"
       HARBORRAG_METRICS_BIND_ADDRESS: 0.0.0.0
+      HARBORRAG_TEMPORAL_SDK_METRICS_BIND_ADDRESS: 0.0.0.0:9465
+      HARBORRAG_QUEUE_COLLECT_INTERVAL: ${HARBORRAG_QUEUE_COLLECT_INTERVAL:-30}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       HARBORRAG_LANGFUSE_ENABLED: ${HARBORRAG_LANGFUSE_ENABLED:-false}
       # Pin image-internal paths. Host-relative values from env files are not
       # valid after WORKDIR changes to /var/lib/harborrag.
       HARBORRAG_TEMPORAL_CONFIG_PATH: /app/config/temporal.yaml
       HARBORRAG_CONNECTOR_CONFIG_PATH: /app/config/connectors.yaml
-      HARBORRAG_PARSER_CONFIG_PATH: /app/config/parsers.yaml
+      # Image-internal too; config/parsers.mineru.yaml needs HARBORRAG_WORKER_PDF_EXTRAS
+      # to include pdf-mineru.
+      HARBORRAG_PARSER_CONFIG_PATH: ${HARBORRAG_WORKER_PARSER_CONFIG_PATH:-/app/config/parsers.yaml}
       HARBORRAG_MODEL_CONFIG_PATH: /app/config/models.yaml
       HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml
       LOCAL_SOURCE_PATH: /data/sources
@@ -248,6 +256,7 @@ services:
       - ${HARBORRAG_LOCAL_SOURCE_DIR:-../../docs}:/data/sources:ro
     expose:
       - "9464"
+      - "9465"
     init: true
     # Leave enough time beyond the SDK's 30s activity grace window to report
     # cancellations, drain worker tasks, and close shared dependencies.

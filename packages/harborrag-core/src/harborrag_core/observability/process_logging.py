@@ -19,16 +19,34 @@ import os
 import sys
 from typing import TextIO
 
+from .execution_context import current_execution
+
 ROOT_LOGGER_NAME = "harborrag"
 LEVEL_ENV_VAR = "HARBORRAG_LOG_LEVEL"
 DEFAULT_LEVEL = "INFO"
 
-_LOG_FORMAT = "%(asctime)s %(levelname)-8s %(name)s %(module)s.%(funcName)s:%(lineno)d %(message)s"
+_LOG_FORMAT = (
+    "%(asctime)s %(levelname)-8s %(name)s %(module)s.%(funcName)s:%(lineno)d "
+    "%(message)s%(temporal_context)s"
+)
 _DATE_FORMAT = "%Y-%m-%dT%H:%M:%S%z"
 
 
 class _ManagedStreamHandler(logging.StreamHandler):
     """Marks the handler this module owns so repeat calls never stack handlers."""
+
+
+class TemporalContextFilter(logging.Filter):
+    """Append the bound Temporal activity identity to every record."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = current_execution()
+        record.temporal_context = (
+            ""
+            if context is None
+            else "".join(f" {key}={value}" for key, value in context.temporal_attributes().items())
+        )
+        return True
 
 
 def resolve_level(level: str | int | None = None) -> int:
@@ -72,6 +90,7 @@ def configure_logging(
             return logger
     handler = _ManagedStreamHandler(stream if stream is not None else sys.stderr)
     handler.setLevel(resolved)
+    handler.addFilter(TemporalContextFilter())
     handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_DATE_FORMAT))
     logger.addHandler(handler)
     return logger

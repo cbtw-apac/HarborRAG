@@ -61,6 +61,8 @@ settings through `HARBORRAG_*` variables.
 | `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` | `24`; how often each ingestion worker sweeps every scope for expired retired versions (`0` disables the sweep; the purge after each source run still applies) |
 | `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/schedules.yaml`; declarative schedules the API syncs at startup (the API image sets `/app/config/schedules.yaml`) |
 | `HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS` | `30`; how often a worker exports schedule pause and overlap gauges (`0` disables; with several worker replicas enable it on one) |
+| `HARBORRAG_QUEUE_COLLECT_INTERVAL` | `30` (test profile `15`); seconds between live ingestion queue collections. Queue gauges report no samples after two missed intervals, never `0` |
+| `HARBORRAG_TEMPORAL_SDK_METRICS_BIND_ADDRESS` | `0.0.0.0:9465`; Temporal SDK Prometheus endpoint (slot usage, latencies in seconds), separate from `HARBORRAG_METRICS_PORT` |
 | `HARBORRAG_REDIS_URL` | Optional disposable cache/rate limiter |
 | `HARBORRAG_REDIS_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback Redis; ignored in production |
 | `HARBORRAG_API_CAPACITY_REDIS_URL` | Required in production for cross-replica API rate and concurrency limits |

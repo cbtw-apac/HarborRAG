@@ -8,6 +8,9 @@ from temporalio.client import Client
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
+
+from harborrag_runtime.temporal.sandbox import TRACING_PASSTHROUGH_MODULES
 
 from .summary_factory import SummaryRuntimeFactory
 from .summary_service import SummaryProjectionService
@@ -48,6 +51,11 @@ async def serve_summaries(
         task_queue=settings.summary_task_queue,
         workflows=[SummaryProjectionWorkflow],
         activities=[activities.project],
+        workflow_runner=SandboxedWorkflowRunner(
+            restrictions=SandboxRestrictions.default.with_passthrough_modules(
+                *TRACING_PASSTHROUGH_MODULES
+            )
+        ),
         max_concurrent_activities=settings.temporal_max_concurrent_activities,
         graceful_shutdown_timeout=timedelta(seconds=settings.temporal_graceful_shutdown_seconds),
     ):

@@ -13,6 +13,10 @@ RUN apt-get update \
         libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
+# Comma-separated PDF parser extras. Add pdf-mineru (large: torch and models)
+# to parse PDFs in the MinerU subprocess with config/parsers.mineru.yaml.
+ARG HARBORRAG_PDF_EXTRAS=pdf-liteparse
+
 COPY pyproject.toml uv.lock ./
 COPY packages/harborrag-core/pyproject.toml packages/harborrag-core/README.md ./packages/harborrag-core/
 COPY packages/harborrag-core/src/harborrag_core/__init__.py ./packages/harborrag-core/src/harborrag_core/
@@ -37,7 +41,7 @@ RUN uv export --quiet --frozen --package harborrag-runtime \
         --output-file /tmp/harborrag-lock.txt \
     && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
-        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]' \
+        -e "packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,${HARBORRAG_PDF_EXTRAS},postgres,qdrant,redis,s3,tables]" \
         -e packages/harborrag-memory \
         -e packages/harborrag-engine \
         -e 'packages/harborrag-runtime[temporal]' \

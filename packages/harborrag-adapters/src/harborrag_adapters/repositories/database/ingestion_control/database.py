@@ -5,6 +5,7 @@ from harborrag_core.storage import HealthStatus, RepositoryHealth, StorageFamily
 
 from .document_versions import DocumentVersionRepository
 from .publication import DocumentVersionPublisher
+from .queue_metrics import IngestionQueueMetricsRepository
 from .reindex import ReindexJobRepository
 from .reliability import IngestionReliabilityRepository
 from .retention import RetiredVersionRetentionRepository
@@ -42,6 +43,7 @@ class IngestionControlPlaneDatabase:
         self.topology = TopologyRepository(client, summaries_enabled=summaries_enabled)
         self.summaries = SummaryRepository(client)
         self.unresolved_relations = UnresolvedRelationRepository(client)
+        self.queue_metrics = IngestionQueueMetricsRepository(client)
 
     async def __aenter__(self) -> IngestionControlPlaneDatabase:
         await self.connect()

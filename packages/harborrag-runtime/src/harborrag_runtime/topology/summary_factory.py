@@ -1,5 +1,6 @@
 """Resolve the summary model without requiring an accepted extraction build."""
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from harborrag_adapters.models.chat import HarborChatClientConfig
@@ -36,6 +37,7 @@ class SummaryRuntimeFactory:
     # Without them the projection still runs; its cards are read-time only.
     vectors: VectorRepositoryPort | None = None
     embed: Embedder | None = None
+    record_enrichment_lag: Callable[[str, float], None] | None = None
 
     def policy(
         self, tenant_id: str | None = None, source_scope_id: str | None = None
@@ -170,4 +172,5 @@ class SummaryRuntimeFactory:
             self.generator,
             loader.load,
             self.entity_index(),
+            self.record_enrichment_lag,
         )

@@ -1,8 +1,8 @@
 """Summary projection: jobs operations."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from sqlalchemy import or_, select, true, update
+from sqlalchemy import func, or_, select, true, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.base import utc_now
@@ -19,6 +19,7 @@ from harborrag_core.summaries import (
 from harborrag_core.topology.budget import BudgetAdmission, BudgetRequest
 from harborrag_core.topology.extraction import digest
 
+from .schema import DOCUMENT_VERSIONS, DOCUMENTS
 from .summary_authority import SummaryAuthority
 from .summary_intent import invalidate_summary_scope, lock_summary_tenant
 from .summary_schema import SUMMARY_BINDINGS, SUMMARY_SCOPES
@@ -26,8 +27,40 @@ from .topology.budget import SummaryBudgetOwner, reserve
 from .topology.configuration import lock_indexing_config
 from .topology.transactions import topology_transaction
 
+# Publication stamps activated_at a moment before it marks the summary scope dirty.
+_PUBLICATION_SKEW = timedelta(seconds=1)
+
 
 class SummaryJobOperations(SummaryAuthority):
+    async def pending_published_at(self, lease: SummaryLease) -> datetime | None:
+        """Earliest publication the scope's next summary will be the first to cover."""
+        async with self._client.sessions() as session:
+            dirty_since = (
+                await session.execute(
+                    select(SUMMARY_SCOPES.c.dirty_since).where(*self._scope(lease))
+                )
+            ).scalar_one_or_none()
+            if dirty_since is None:
+                return None
+            predicates = [
+                DOCUMENTS.c.tenant_id == lease.tenant_id,
+                DOCUMENT_VERSIONS.c.activated_at >= dirty_since - _PUBLICATION_SKEW,
+            ]
+            if lease.source_scope_id != "@tenant":
+                predicates.append(DOCUMENTS.c.source_scope_id == lease.source_scope_id)
+            return (
+                await session.execute(
+                    select(func.min(DOCUMENT_VERSIONS.c.activated_at))
+                    .select_from(DOCUMENT_VERSIONS)
+                    .join(
+                        DOCUMENTS,
+                        DOCUMENTS.c.active_document_version_id
+                        == DOCUMENT_VERSIONS.c.document_version_id,
+                    )
+                    .where(*predicates)
+                )
+            ).scalar_one_or_none()
+
     async def configure(
         self, tenant_id: str, source_scope_id: str, policy: SummaryPolicy | None
     ) -> None:

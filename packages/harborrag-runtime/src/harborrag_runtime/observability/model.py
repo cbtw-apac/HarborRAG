@@ -14,6 +14,9 @@ from harborrag_adapters.models.runtime import (
     OpenTelemetryTelemetry,
     TelemetryDispatcher,
 )
+from harborrag_adapters.repositories.database.ingestion_control.queue_metrics import (
+    IngestionQueueCounts,
+)
 
 from .connector_metrics import connector_metric_label
 from .discovery_metrics import DiscoveryMetrics
@@ -23,6 +26,7 @@ from .observability_types import (
     DocumentMetricOutcome,
     IngestionStage,
 )
+from .queue_collector import LiveQueueCollector
 from .stage_observation import StageObservation
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
@@ -43,6 +47,7 @@ class IngestionTelemetry:
         metrics_bind_address: str = "0.0.0.0",
         registry: CollectorRegistry | None = None,
         tracer: Any | None = None,
+        queue_collect_interval_seconds: float = 30.0,
     ) -> None:
         self.registry = registry or CollectorRegistry(auto_describe=True)
         self._tracer = tracer or trace.get_tracer("harborrag.ingestion")
@@ -131,9 +136,10 @@ class IngestionTelemetry:
             ("task_queue",),
             registry=self.registry,
         )
-        self._temporal_worker_slot_saturation = Gauge(
-            "harborrag_temporal_worker_slot_saturation",
-            "Best-effort activity slot saturation ratio by task queue.",
+        self._backlog_capacity_ratio = Gauge(
+            "harborrag_ingestion_backlog_capacity_ratio",
+            "Temporal task-queue backlog divided by configured activity slots. Not slot "
+            "occupancy; use temporal_worker_task_slots_used for that.",
             ("task_queue",),
             registry=self.registry,
         )
@@ -176,6 +182,15 @@ class IngestionTelemetry:
             ("stage", "outcome"),
             registry=self.registry,
         )
+        self._enrichment_lag = Histogram(
+            "harborrag_ingestion_enrichment_lag_seconds",
+            "Time from document publication to the enrichment that covers it.",
+            ("enrichment",),
+            registry=self.registry,
+            buckets=(1, 5, 15, 60, 300, 900, 1800, 3600, 7200, 21600, 86400),
+        )
+        self.queue = LiveQueueCollector(queue_collect_interval_seconds)
+        self.registry.register(self.queue)
 
     async def start(self) -> None:
         """Expose this process's registry when a metrics port is configured."""
@@ -260,19 +275,22 @@ class IngestionTelemetry:
     def record_temporal_worker_slots(self, task_queue: str, slots: int) -> None:
         self._temporal_worker_slots.labels(task_queue=task_queue).set(max(1, slots))
 
-    def record_temporal_worker_slot_saturation(
+    def record_backlog_capacity_ratio(
         self,
         task_queue: str,
         *,
         slots: int,
         depth: int | None,
     ) -> None:
-        if depth is None:
-            value = float("nan")
-        else:
-            normalized_slots = max(1, slots)
-            value = min(1.0, max(0.0, depth / normalized_slots))
-        self._temporal_worker_slot_saturation.labels(task_queue=task_queue).set(value)
+        value = float("nan") if depth is None else max(0.0, depth / max(1, slots))
+        self._backlog_capacity_ratio.labels(task_queue=task_queue).set(value)
+
+    def record_queue_counts(self, counts: IngestionQueueCounts) -> None:
+        self.queue.record(counts)
+
+    def record_enrichment_lag(self, enrichment: str, lag_seconds: float) -> None:
+        if lag_seconds >= 0:
+            self._enrichment_lag.labels(enrichment=enrichment).observe(lag_seconds)
 
     def record_scheduled_run(
         self,
