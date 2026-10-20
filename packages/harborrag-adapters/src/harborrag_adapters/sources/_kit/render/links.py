@@ -42,7 +42,7 @@ def _strip_fences(markdown: str) -> str:
                 fence = ""
             continue
         opener = _FENCE.match(line)
-        if opener:
+        if opener and not (opener.group(1)[0] == "`" and "`" in line[opener.end() :]):
             fence = opener.group(1)
             continue
         kept.append(line)
@@ -64,12 +64,7 @@ def extract_links(markdown: str, *, limit: int = 1000) -> tuple[Link, ...]:
         if char == "\\":
             i += 2
         elif char == "`":
-            end = i
-            while end < size and text[end] == "`":
-                end += 1
-            starts = runs[end - i]
-            at = bisect_right(starts, i)
-            i = starts[at] + (end - i) if at < len(starts) else end
+            i = _skip_code_span(text, i, runs)
         elif char == "<":
             target = _autolink(text, i)
             if target:
@@ -86,6 +81,18 @@ def extract_links(markdown: str, *, limit: int = 1000) -> tuple[Link, ...]:
         else:
             i += 1
     return tuple(found.values())
+
+
+def _skip_code_span(text: str, i: int, runs: dict[int, list[int]]) -> int:
+    """Index after the code span opened at ``i`` (or after the lone backtick run)."""
+    end = i
+    while end < len(text) and text[end] == "`":
+        end += 1
+    starts = runs[end - i]
+    at = bisect_right(starts, i)
+    if at < len(starts) and "\n\n" not in text[i : starts[at]]:
+        return starts[at] + (end - i)  # a code span stays inside one paragraph
+    return end
 
 
 def _autolink(text: str, start: int) -> str:

@@ -53,3 +53,13 @@ def test_extract_links_is_linear_on_hostile_input() -> None:
 def test_extract_links_caps_count() -> None:
     md = " ".join(f"[a](x{i})" for i in range(5000))
     assert len(extract_links(md, limit=10)) == 10
+
+
+def test_extract_links_code_span_does_not_cross_paragraphs() -> None:
+    md = "don`t do it [a](1)\n\npara [b](2)\n\nit`s fine [c](3)"
+    assert [link.target for link in extract_links(md)] == ["1", "2", "3"]
+
+
+def test_extract_links_backtick_fence_with_inline_code_is_not_a_fence() -> None:
+    md = "```code``` then [a](1)\n\n[b](2)"
+    assert [link.target for link in extract_links(md)] == ["1", "2"]

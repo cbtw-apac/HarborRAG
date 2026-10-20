@@ -38,8 +38,9 @@ def test_reported_path_is_not_rewritten() -> None:
 
 
 def test_patterns_are_nfc_normalised() -> None:
-    assert PathRules.of(include=["café.md"]).admits("café.md")
-    assert PathRules.of(include=["café.md"]).admits("café.md")
+    nfd, nfc = "cafe\u0301.md", "caf\u00e9.md"
+    assert PathRules.of(include=[nfd]).admits(nfc)
+    assert PathRules.of(include=[nfc]).admits(nfd)
 
 
 def test_is_within() -> None:
