@@ -17,18 +17,18 @@ _MILLISECOND = timedelta(milliseconds=1)
 def parse_source_timestamp(value: str | None) -> datetime | None:
     """Parse a source timestamp to aware UTC, or ``None`` if unreadable or naive."""
 
-    if value is None:
+    if not isinstance(value, str):
         return None
     text = value.strip()
     if text[-1:] in ("Z", "z"):
         text = text[:-1] + "+00:00"
     try:
         moment = datetime.fromisoformat(text)
-    except ValueError:
+        if moment.tzinfo is None or moment.utcoffset() is None:
+            return None
+        return moment.astimezone(UTC)
+    except (ValueError, OverflowError):
         return None
-    if moment.tzinfo is None or moment.utcoffset() is None:
-        return None
-    return moment.astimezone(UTC)
 
 
 def epoch_ms(moment: datetime) -> int:

@@ -23,10 +23,13 @@ from harborrag_adapters.sources._kit.time import epoch_ms, parse_source_timestam
         ("yesterday", None),
         ("", None),
         (None, None),
+        ("0001-01-01T00:00:00+02:00", None),  # converting to UTC overflows
+        ("9999-12-31T23:59:59-02:00", None),  # converting to UTC overflows
+        (1791795600, None),  # untyped JSON epoch, not text
     ],
 )
-def test_parse_source_timestamp(raw: str | None, expected: datetime | None) -> None:
-    assert parse_source_timestamp(raw) == expected
+def test_parse_source_timestamp(raw: object, expected: datetime | None) -> None:
+    assert parse_source_timestamp(raw) == expected  # type: ignore[arg-type]
 
 
 def test_epoch_ms() -> None:
