@@ -48,6 +48,7 @@ class SourceDocumentService:
                 task_id,
                 planned,
                 error_type=type(error).__name__,
+                skip_reason=getattr(error, "skip_reason", None),
             )
             return DocumentIngestionOutcome.FAILED
 
@@ -106,6 +107,7 @@ class SourceDocumentService:
         *,
         error_type: str,
         failed_stage: str = "FetchAndCaptureRaw",
+        skip_reason: str | None = None,
     ) -> None:
         normalized = error_type.strip().lower()
         if not normalized:
@@ -121,6 +123,7 @@ class SourceDocumentService:
                     "safe_error_code": safe_error_code,
                     "failure_stage": failed_stage,
                     "retryable": is_retryable_failure_code(safe_error_code),
+                    **({"skip_reason": skip_reason} if skip_reason else {}),
                 },
             )
         )

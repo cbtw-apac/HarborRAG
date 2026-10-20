@@ -351,6 +351,7 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 planned,
                 error_type=request.error_type,
                 failed_stage=request.failed_stage,
+                skip_reason=request.skip_reason,
             )
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,

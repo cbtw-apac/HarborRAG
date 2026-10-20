@@ -21,6 +21,7 @@ from harborrag_runtime.ingestion.source.models import (
     RelationRepairProgress,
     SourceDispatchSummary,
 )
+from harborrag_runtime.ingestion.source.skips import discovery_skip_summary, run_skip_summary
 
 
 class _Recorder:
@@ -163,6 +164,7 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
         summary={
             "skipped": 3,
             "skipped_by_reason": {"NOT_IN_ALLOWLIST": 2, "EXCEEDS_SIZE_LIMIT": 1},
+            "discovery_skipped_by_reason": {"NOT_IN_ALLOWLIST": 2, "EXCEEDS_SIZE_LIMIT": 1},
         }
     )
     tasks = _Recorder(get=task, document_results_page=failed)
@@ -201,13 +203,49 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
     }
 
 
-def _failed_result(document_id: str, *, stage: str) -> StoredTaskDocumentResult:
+@pytest.mark.asyncio
+async def test_run_skip_summary_counts_item_load_skips_once() -> None:
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
+            _failed_result("doc-2", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
+            _failed_result("doc-3", stage="ParseAndNormalize"),
+        ),
+        has_more=False,
+    )
+    task = SimpleNamespace(summary={"discovery_skipped_by_reason": {"DELETED": 1}})
+    control = SimpleNamespace(tasks=_Recorder(get=task, document_results_page=failed))
+
+    first = await run_skip_summary(cast(Any, control), "task-1")
+    # A retried finalization sees the same task summary and must not double count.
+    second = await run_skip_summary(cast(Any, control), "task-1")
+
+    assert first == second
+    assert first["skipped_by_reason"] == {
+        "ACCESS_DENIED": 2,
+        "DELETED": 1,
+        "EXTRACTION_FAILED": 1,
+    }
+
+
+def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() -> None:
+    assert discovery_skip_summary(cast(Any, SimpleNamespace(skipped=()))) == {
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "discovery_skipped_by_reason": {},
+    }
+    assert discovery_skip_summary(cast(Any, SimpleNamespace())) is None
+
+
+def _failed_result(
+    document_id: str, *, stage: str, skip_reason: str | None = None
+) -> StoredTaskDocumentResult:
     return StoredTaskDocumentResult(
         task_id="task-1",
         document_id=document_id,
         document_version_id=None,
         status="failed",
-        result={"failure_stage": stage},
+        result={"failure_stage": stage, **({"skip_reason": skip_reason} if skip_reason else {})},
         updated_at=datetime(2026, 1, 1, tzinfo=UTC),
     )
 

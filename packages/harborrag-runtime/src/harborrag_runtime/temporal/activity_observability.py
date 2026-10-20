@@ -120,8 +120,14 @@ class ActivityObservability:
                     getattr(error, "status_code", None),
                     failure.retryable,
                 )
+                # A connector that declines one item names the standard skip
+                # reason; it rides in the failure details so the document
+                # result can record it.
+                skip_reason = getattr(error, "skip_reason", None)
+                details = (skip_reason,) if isinstance(skip_reason, str) and skip_reason else ()
                 raise ApplicationError(
                     "ingestion activity failed; inspect restricted worker logs",
+                    *details,
                     type=failure.code,
                     non_retryable=not failure.retryable,
                 ) from error
