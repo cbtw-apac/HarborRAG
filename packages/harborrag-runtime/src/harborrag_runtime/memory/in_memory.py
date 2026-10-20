@@ -356,7 +356,8 @@ class InMemoryConversationMemory:
             self._sessions[identity] = (*existing, *messages)[-self._max_messages :]
             state = self._state.get(identity)
             if state is not None:
-                state.updated_at = utc_now()
+                # Coarse clocks (Windows) can repeat a timestamp; activity must still advance.
+                state.updated_at = max(utc_now(), state.updated_at + timedelta(microseconds=1))
             self._sessions.move_to_end(identity)
             self._evict()
 

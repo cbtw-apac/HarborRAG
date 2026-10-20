@@ -5,7 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, cast
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from temporalio.service import RPCError, RPCStatusCode
@@ -53,15 +53,26 @@ class RecordingOperations:
         return operation
 
 
+class StageResult(str):
+    """A marker string that also carries the admission decision real stage results have."""
+
+    decision = "NEW"
+
+
 class RecordingObservability:
     def __init__(self) -> None:
         self.boundaries: list[str] = []
         self.records: list[tuple[str, tuple[object, ...]]] = []
+        self.decisions: list[tuple[str, object]] = []
 
     @contextmanager
-    def boundary(self, name: str):  # type: ignore[no-untyped-def]
+    def boundary(self, name: str, *, decision: str | None = None):  # type: ignore[no-untyped-def]
         self.boundaries.append(name)
-        yield
+        observation = Mock()
+        if decision is not None:
+            observation.set_decision(decision)
+        yield observation
+        self.decisions.append((name, observation.set_decision.call_args))
 
     def record_capture(self, *args: object) -> None:
         self.records.append(("capture", args))
@@ -72,10 +83,10 @@ class RecordingObservability:
     def record_chunking(self, *args: object) -> None:
         self.records.append(("chunking", args))
 
-    def record_publication(self, *args: object) -> None:
+    def record_publication(self, *args: object, **_kwargs: object) -> None:
         self.records.append(("publication", args))
 
-    def record_document_failure(self, *args: object) -> None:
+    def record_document_failure(self, *args: object, **_kwargs: object) -> None:
         self.records.append(("document_failure", args))
 
     def record_subprocess_outcome(self, *args: object) -> None:
@@ -143,8 +154,8 @@ def _build_activities() -> tuple[
     list[tuple[str, str]],
 ]:
     preparation = RecordingOperations(
-        fetch_and_capture="capture-result",
-        parse_and_normalize="prepared-stage",
+        fetch_and_capture=StageResult("capture-result"),
+        parse_and_normalize=StageResult("prepared-stage"),
         chunk_and_validate="chunk-statistics",
     )
     projections = RecordingOperations(
@@ -367,14 +378,14 @@ class FlakyGraphProjections:
 
     async def write_vector_projection(self, *args: object) -> object:
         self.calls.append(("write_vector_projection", args))
-        return "prepared-stage"
+        return StageResult("prepared-stage")
 
     async def write_graph_projection(self, *args: object) -> object:
         self.calls.append(("write_graph_projection", args))
         self._graph_write_attempts += 1
         if self._graph_write_attempts == 1:
             raise ConnectionError("simulated transient graph-store failure")
-        return "prepared-stage"
+        return StageResult("prepared-stage")
 
 
 @pytest.mark.asyncio

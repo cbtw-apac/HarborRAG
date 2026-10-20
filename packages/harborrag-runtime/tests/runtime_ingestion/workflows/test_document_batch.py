@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
@@ -20,6 +22,16 @@ from harborrag_runtime.temporal.source_batch_workflow import SourceBatchWorkflow
 from harborrag_runtime.temporal_models import TaskQueueConfig, TemporalWorkflowOptions
 
 from .fixtures import plan_reference as _plan_reference
+
+
+@pytest.fixture(autouse=True)
+def _workflow_start_time(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The document workflow stamps its start time; these tests run it outside Temporal."""
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.document_workflow.workflow.info",
+        lambda: SimpleNamespace(start_time=datetime(2026, 1, 1, tzinfo=UTC)),
+    )
 
 
 @pytest.mark.asyncio
@@ -55,6 +67,11 @@ async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeyp
         "harborrag_runtime.temporal.document_workflow.workflow.execute_activity",
         execute_activity,
     )
+    started = datetime(2026, 1, 1, tzinfo=UTC)
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.document_workflow.workflow.info",
+        lambda: SimpleNamespace(start_time=started),
+    )
     queues = TaskQueueConfig(
         discovery="test-discovery",
         transform="test-transform",
@@ -89,6 +106,8 @@ async def test_document_workflow_routes_twelve_stages_to_resource_queues(monkeyp
         ("harborrag.verify_projections", "test-index"),
         ("harborrag.publish_version", "test-index"),
     )
+    assert calls[0][1].started_at == started.timestamp()
+    assert calls[-1][1].document.started_at == started.timestamp()
 
 
 @pytest.mark.asyncio

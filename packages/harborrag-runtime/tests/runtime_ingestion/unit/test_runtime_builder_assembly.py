@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 
@@ -78,7 +79,9 @@ def wired(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         infra.dimension_requests.append(model)
         return 8
 
-    def model_telemetry(config: _FakeEmbedConfig, *, langfuse_enabled: bool) -> str:
+    def model_telemetry(
+        config: _FakeEmbedConfig, *, langfuse_enabled: bool, registry: object = None
+    ) -> str:
         infra.model_telemetry_flags.append(langfuse_enabled)
         return "model-telemetry"
 
@@ -157,7 +160,9 @@ def test_explicit_embedding_settings_skip_the_catalog_defaults(
         embedding_dimensions=16,
     )
 
-    client, model, dimensions = IngestionRuntimeBuilder(settings)._embedding_client()
+    client, model, dimensions = IngestionRuntimeBuilder(settings)._embedding_client(
+        cast(Any, SimpleNamespace(registry=None))
+    )
 
     assert (model, dimensions) == ("explicit-model", 16)
     assert wired.dimension_requests == []

@@ -399,8 +399,8 @@ chmod 600 env/.env.monitoring
 # harborrag-data-network exists.
 ```
 
-Note that Grafana and the FalkorDB browser both default to host port `3000`, so whichever
-starts second fails to bind. Change `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
+Grafana defaults to host port `3001` and the FalkorDB browser to `3000` so the two don't
+collide; override `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT` if either is already in use.
 
 See [Configuration](docs/users/configuration/README.md) for the full reference.
 

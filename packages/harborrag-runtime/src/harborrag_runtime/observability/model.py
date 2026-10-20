@@ -13,24 +13,58 @@ from harborrag_adapters.models.runtime import (
     ModelClientConfig,
     OpenTelemetryTelemetry,
     TelemetryDispatcher,
+    TelemetryEvent,
 )
 
-from .connector_metrics import connector_metric_label
+from .connector_metrics import connector_metric_label, connector_metric_labels
 from .discovery_metrics import DiscoveryMetrics
 from .observability_types import (
+    DOCUMENT_KIND_NONE,
+    DOCUMENT_KINDS,
     ArtifactMetricKind,
     ChunkMetricKind,
     DocumentMetricOutcome,
     IngestionStage,
 )
+from .process_metrics import register_process_metrics
 from .stage_observation import StageObservation
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
 SCHEDULED_RUN_OUTCOMES = ("started", "completed", "partial", "skipped", "cancelled", "failed")
 
+# One document can spend seconds to tens of minutes between fetch and publish,
+# well past prometheus_client's 10 s default ceiling.
+DOCUMENT_DURATION_BUCKETS = (
+    0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0
+)  # fmt: skip
+
 SubprocessOutcomeLabel = Literal[
     "success", "serialization_fail", "result_serialization_fail", "crash"
 ]
+
+
+# Stages that run once per document and so carry a document_kind.
+DOCUMENT_STAGES = (
+    IngestionStage.FETCH,
+    IngestionStage.PARSE_NORMALIZE,
+    IngestionStage.CONTENT_SYNC,
+    IngestionStage.CANONICAL_PERSIST,
+    IngestionStage.CHUNK,
+    IngestionStage.ENCODE,
+    IngestionStage.RELATION_BUILD,
+    IngestionStage.PROJECTION_BUILD,
+    IngestionStage.QDRANT_WRITE,
+    IngestionStage.FALKORDB_WRITE,
+    IngestionStage.VERIFICATION,
+    IngestionStage.PUBLICATION,
+)
+
+_TERMINAL_DOCUMENT_OUTCOMES = (
+    DocumentMetricOutcome.ACTIVATED,
+    DocumentMetricOutcome.REPUBLISHED,
+    DocumentMetricOutcome.SKIPPED,
+    DocumentMetricOutcome.FAILED,
+)
 
 
 class IngestionTelemetry:
@@ -44,7 +78,12 @@ class IngestionTelemetry:
         registry: CollectorRegistry | None = None,
         tracer: Any | None = None,
     ) -> None:
-        self.registry = registry or CollectorRegistry(auto_describe=True)
+        if registry is None:
+            registry = CollectorRegistry(auto_describe=True)
+            # Only a registry this telemetry owns gets process collectors, so a
+            # caller-shared registry never sees them registered twice.
+            register_process_metrics(registry)
+        self.registry = registry
         self._tracer = tracer or trace.get_tracer("harborrag.ingestion")
         self._metrics_port = metrics_port
         self._metrics_bind_address = metrics_bind_address
@@ -53,13 +92,13 @@ class IngestionTelemetry:
         self._stage_operations = Counter(
             "harborrag_ingestion_stage_operations_total",
             "Ingestion stage executions.",
-            ("stage", "outcome"),
+            ("stage", "outcome", "document_kind"),
             registry=self.registry,
         )
         self._stage_duration = Histogram(
             "harborrag_ingestion_stage_duration_seconds",
             "Ingestion stage duration.",
-            ("stage",),
+            ("stage", "document_kind"),
             registry=self.registry,
         )
         self._documents = Counter(
@@ -68,6 +107,14 @@ class IngestionTelemetry:
             ("outcome", "connector_type"),
             registry=self.registry,
         )
+        self._document_duration = Histogram(
+            "harborrag_ingestion_document_duration_seconds",
+            "End-to-end time for one document, from workflow start to its terminal outcome.",
+            ("outcome", "connector_type"),
+            buckets=DOCUMENT_DURATION_BUCKETS,
+            registry=self.registry,
+        )
+        self._initialize_document_series()
         self._artifact_bytes = Counter(
             "harborrag_ingestion_artifact_bytes_total",
             "Bytes persisted as durable ingestion artifacts.",
@@ -176,6 +223,41 @@ class IngestionTelemetry:
             ("stage", "outcome"),
             registry=self.registry,
         )
+        self._parser_engine_attempts = Counter(
+            "harborrag_ingestion_parser_engine_attempts_total",
+            "PDF parser engine attempts within the parse_normalize stage.",
+            ("engine", "outcome"),
+            registry=self.registry,
+        )
+        self._parser_engine_duration = Histogram(
+            "harborrag_ingestion_parser_engine_duration_seconds",
+            "PDF parser engine attempt duration, one observation per engine tried.",
+            ("engine",),
+            registry=self.registry,
+        )
+
+    def _initialize_document_series(self) -> None:
+        """Create every outcome/connector series at zero.
+
+        ``increase()`` and ``rate()`` use a series' first scraped sample as
+        the baseline, so a series born on its first increment silently loses
+        that increment. Both label sets are bounded, so pre-creating them is cheap.
+        """
+
+        connectors = connector_metric_labels()
+        for outcome in DocumentMetricOutcome:
+            for connector in connectors:
+                self._documents.labels(outcome=outcome.value, connector_type=connector)
+        for outcome in _TERMINAL_DOCUMENT_OUTCOMES:
+            for connector in connectors:
+                self._document_duration.labels(outcome=outcome.value, connector_type=connector)
+        for stage in DOCUMENT_STAGES:
+            for kind in DOCUMENT_KINDS:
+                self._stage_duration.labels(stage=stage.value, document_kind=kind)
+                for outcome in ("succeeded", "failed"):
+                    self._stage_operations.labels(
+                        stage=stage.value, outcome=outcome, document_kind=kind
+                    )
 
     async def start(self) -> None:
         """Expose this process's registry when a metrics port is configured."""
@@ -227,6 +309,17 @@ class IngestionTelemetry:
                 outcome=outcome.value,
                 connector_type=connector_metric_label(connector_type),
             ).inc(count)
+
+    def record_document_duration(
+        self,
+        outcome: DocumentMetricOutcome,
+        connector_type: str,
+        duration_seconds: float,
+    ) -> None:
+        self._document_duration.labels(
+            outcome=outcome.value,
+            connector_type=connector_metric_label(connector_type),
+        ).observe(max(0.0, duration_seconds))
 
     def record_artifact_bytes(self, kind: ArtifactMetricKind, byte_size: int) -> None:
         if byte_size > 0:
@@ -352,24 +445,93 @@ class IngestionTelemetry:
     def stage_tracer(self) -> Any:
         return self._tracer
 
-    def record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None:
-        self._stage_operations.labels(stage=stage.value, outcome=outcome).inc()
-        self._stage_duration.labels(stage=stage.value).observe(duration)
+    def record_stage(
+        self,
+        stage: IngestionStage,
+        outcome: str,
+        duration: float,
+        document_kind: str = DOCUMENT_KIND_NONE,
+    ) -> None:
+        self._stage_operations.labels(
+            stage=stage.value, outcome=outcome, document_kind=document_kind
+        ).inc()
+        self._stage_duration.labels(stage=stage.value, document_kind=document_kind).observe(
+            duration
+        )
+
+    def record_parser_engine_attempt(
+        self,
+        *,
+        engine: str,
+        success: bool,
+        duration_seconds: float,
+    ) -> None:
+        outcome = "success" if success else "failure"
+        self._parser_engine_attempts.labels(engine=engine, outcome=outcome).inc()
+        self._parser_engine_duration.labels(engine=engine).observe(max(0.0, duration_seconds))
 
 
 def build_model_telemetry(
     config: ModelClientConfig,
     *,
     langfuse_enabled: bool,
+    registry: CollectorRegistry | None = None,
 ) -> TelemetryDispatcher:
     """Compose sanitized model telemetry for embedding or chat clients.
 
     Annotated against the shared client-config base so every model family --
     embed, chat -- composes its dispatcher the same way; only
     ``config.observability`` is read.
+
+    ``OpenTelemetryTelemetry`` records into a bare OTel meter with no
+    MeterProvider/exporter wired up anywhere in this codebase, so its
+    histogram is otherwise discarded. Pass the caller's Prometheus
+    ``registry`` (e.g. ``IngestionTelemetry.registry``) to also record
+    call duration where it will actually be scraped.
     """
 
     sinks: list[object] = [OpenTelemetryTelemetry()]
+    if registry is not None:
+        sinks.append(PrometheusModelTelemetry(registry))
     if langfuse_enabled:
         sinks.append(LangfuseTelemetry())
     return TelemetryDispatcher(sinks, config=config.observability)
+
+
+class PrometheusModelTelemetry:
+    """Record model call counts/duration directly onto a prometheus_client registry."""
+
+    def __init__(self, registry: CollectorRegistry) -> None:
+        self._requests = Counter(
+            "harborrag_model_requests_total",
+            "Model requests completed, by operation, provider, model, and status.",
+            ("operation", "provider", "model", "status"),
+            registry=registry,
+        )
+        self._duration = Histogram(
+            "harborrag_model_call_duration_seconds",
+            "Model call duration, by operation, provider, model, and status.",
+            ("operation", "provider", "model", "status"),
+            registry=registry,
+        )
+
+    def emit(self, event: TelemetryEvent) -> None:
+        if event.total_duration_ms is None:
+            return
+        labels = {
+            "operation": event.operation,
+            "provider": event.provider or "unknown",
+            "model": event.provider_model or event.logical_model or "unknown",
+            "status": event.status.value,
+        }
+        self._requests.labels(**labels).inc()
+        self._duration.labels(**labels).observe(max(0.0, event.total_duration_ms / 1000))
+
+    async def aemit(self, event: TelemetryEvent) -> None:
+        self.emit(event)
+
+    def close(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None

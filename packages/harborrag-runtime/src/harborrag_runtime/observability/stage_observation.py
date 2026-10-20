@@ -6,7 +6,7 @@ from time import perf_counter
 from types import TracebackType
 from typing import Any, Literal, Protocol, Self
 
-from .observability_types import IngestionStage
+from .observability_types import DOCUMENT_KIND_NONE, IngestionStage, document_kind
 
 logger = logging.getLogger("harborrag.runtime.ingestion.observability")
 
@@ -16,7 +16,13 @@ class _StageTelemetry(Protocol):
 
     def record_activity_retry(self, stage: IngestionStage) -> None: ...
 
-    def record_stage(self, stage: IngestionStage, outcome: str, duration: float) -> None: ...
+    def record_stage(
+        self,
+        stage: IngestionStage,
+        outcome: str,
+        duration: float,
+        document_kind: str = ...,
+    ) -> None: ...
 
     def stage_tracer(self) -> Any: ...
 
@@ -36,9 +42,15 @@ class StageObservation:
         self._stage = stage
         self._attempt = attempt
         self._attributes = attributes
+        self._document_kind = DOCUMENT_KIND_NONE
         self._started_at = 0.0
         self._span_context: Any | None = None
         self._span: Any | None = None
+
+    def set_decision(self, decision: str | None) -> None:
+        """Label this run with the document's admission decision once known."""
+
+        self._document_kind = document_kind(decision)
 
     def __enter__(self) -> Self:
         self._started_at = perf_counter()
@@ -74,6 +86,7 @@ class StageObservation:
                 self._stage,
                 outcome,
                 max(0.0, perf_counter() - self._started_at),
+                self._document_kind,
             )
         except Exception as error:
             _log_telemetry_failure("record_metrics", error)

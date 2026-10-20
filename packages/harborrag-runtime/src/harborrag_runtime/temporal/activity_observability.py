@@ -4,7 +4,7 @@ import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from time import perf_counter
+from time import perf_counter, time
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -26,6 +26,7 @@ from harborrag_runtime.ingestion.observability import (
     IngestionTelemetry,
     SubprocessOutcomeLabel,
 )
+from harborrag_runtime.ingestion.stage_observation import StageObservation
 
 logger = logging.getLogger("harborrag.runtime.temporal.activities")
 
@@ -70,7 +71,7 @@ class ActivityObservability:
         self._failures = failures or ingestion_failure_classifier()
 
     @contextmanager
-    def boundary(self, stage: str) -> Iterator[None]:
+    def boundary(self, stage: str, *, decision: str | None = None) -> Iterator[StageObservation]:
         """Emit telemetry and convert domain failures into Temporal retry intent."""
 
         try:
@@ -89,9 +90,11 @@ class ActivityObservability:
             context.activity_id,
             context.attempt,
         )
-        with self._telemetry.stage(metric_stage, attempt=context.attempt):
+        with self._telemetry.stage(metric_stage, attempt=context.attempt) as observation:
+            if decision is not None:
+                observation.set_decision(decision)
             try:
-                yield
+                yield observation
             except ApplicationError as error:
                 self._record_verification_failure(metric_stage)
                 logger.error(
@@ -191,6 +194,12 @@ class ActivityObservability:
                 ArtifactMetricKind.CANONICAL,
                 prepared.canonical_reference.byte_size,
             )
+        for engine, success, duration_ms in prepared.parser_attempts:
+            self._telemetry.record_parser_engine_attempt(
+                engine=engine,
+                success=success,
+                duration_seconds=duration_ms / 1000,
+            )
 
     def record_chunking(self, statistics: ChunkingStatistics | None) -> None:
         if statistics is None:
@@ -217,21 +226,34 @@ class ActivityObservability:
         self,
         outcome: DocumentReleaseOutcome,
         connector_type: str,
+        *,
+        started_at: float | None = None,
     ) -> None:
-        self._telemetry.record_documents(
-            (
-                DocumentMetricOutcome.ACTIVATED
-                if outcome.published
-                else DocumentMetricOutcome.SKIPPED
-            ),
-            connector_type,
-        )
+        metric_outcome = _publication_metric_outcome(outcome)
+        self._telemetry.record_documents(metric_outcome, connector_type)
+        self._record_document_duration(metric_outcome, connector_type, started_at)
 
-    def record_document_failure(self, connector_type: str) -> None:
+    def record_document_failure(
+        self,
+        connector_type: str,
+        *,
+        started_at: float | None = None,
+    ) -> None:
         self._telemetry.record_documents(
             DocumentMetricOutcome.FAILED,
             connector_type,
         )
+        self._record_document_duration(DocumentMetricOutcome.FAILED, connector_type, started_at)
+
+    def _record_document_duration(
+        self,
+        outcome: DocumentMetricOutcome,
+        connector_type: str,
+        started_at: float | None,
+    ) -> None:
+        if started_at is None:
+            return
+        self._telemetry.record_document_duration(outcome, connector_type, time() - started_at)
 
     def record_subprocess_outcome(self, stage: str, outcome: SubprocessOutcomeLabel) -> None:
         try:
@@ -253,6 +275,14 @@ class _ActivityLogContext:
     workflow_id: str
     activity_id: str
     attempt: int
+
+
+def _publication_metric_outcome(outcome: DocumentReleaseOutcome) -> DocumentMetricOutcome:
+    if outcome.publication is None:
+        return DocumentMetricOutcome.SKIPPED
+    if outcome.publication.replayed:
+        return DocumentMetricOutcome.REPUBLISHED
+    return DocumentMetricOutcome.ACTIVATED
 
 
 def _activity_log_context() -> _ActivityLogContext:
