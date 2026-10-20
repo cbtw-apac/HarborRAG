@@ -1937,6 +1937,7 @@ dependencies = [
     { name = "aiosqlite" },
     { name = "harborrag-core" },
     { name = "httpx" },
+    { name = "pathspec" },
     { name = "requests" },
     { name = "sqlalchemy", extra = ["asyncio"] },
 ]
@@ -2193,6 +2194,7 @@ requires-dist = [
     { name = "paddleocr", marker = "extra == 'parsers-all'", specifier = ">=3.0.0" },
     { name = "paddleocr", marker = "extra == 'pdf'", specifier = ">=3.0.0" },
     { name = "paddleocr", marker = "extra == 'pdf-ocr'", specifier = ">=3.0.0" },
+    { name = "pathspec", specifier = ">=0.12,<2" },
     { name = "pillow", marker = "extra == 'image'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'image-rapidocr'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'image-tesseract'", specifier = ">=10.0.0" },

@@ -12,6 +12,7 @@ dependencies = [
     "requests>=2.28.0",
     "sqlalchemy[asyncio]>=2.0,<3",
     "aiosqlite>=0.20,<1",
+    "pathspec>=0.12,<2",
 ]
 
 [project.optional-dependencies]
