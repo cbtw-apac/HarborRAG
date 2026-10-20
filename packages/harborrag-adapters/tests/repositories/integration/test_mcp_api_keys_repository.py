@@ -31,6 +31,8 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     ActivityRow,
     McpApiKeyRow,
 )
+from harborrag_adapters.repositories.database.control_plane.tenants import SqlTenantDirectory
+from harborrag_adapters.repositories.database.ingestion_control.schema import INGESTION_TASKS
 from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
 
 SessionFactory = async_sessionmaker[AsyncSession]
@@ -288,3 +290,27 @@ async def test_a_wildcard_tenant_row_is_rejected_by_the_database(sessions: Sessi
         )
         with pytest.raises(IntegrityError):
             await session.flush()
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_is_known_once_an_ingestion_task_exists(sessions: SessionFactory) -> None:
+    directory = SqlTenantDirectory(sessions)
+    assert not await directory.exists("engineering")
+
+    # Any status counts, even a failed first ingestion: the tenant was named.
+    async with sessions.begin() as session:
+        await session.execute(
+            INGESTION_TASKS.insert().values(
+                task_id="task-1",
+                tenant_id="engineering",
+                source_scope_id="scope-1",
+                status="FAILED",
+                submitted_at=NOW,
+                request={},
+                summary={},
+            )
+        )
+
+    assert await directory.exists("engineering")
+    assert not await directory.exists("Engineering")  # ids are exact, not case-folded
+    assert not await directory.exists("other")

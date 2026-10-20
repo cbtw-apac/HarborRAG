@@ -363,3 +363,23 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
         "detail": "lifetime must not exceed 7 days in dev",
     }
     assert not (tmp_path / "k.key").exists()
+
+
+def test_an_unknown_tenant_is_reported_by_its_own_code(tmp_path: Path, monkeypatch):
+    from harborrag_engine.security import TenantNotFound
+
+    message = "tenant_id names no known tenant; submit an ingestion for it first"
+    monkeypatch.setattr(
+        api_key_operations, "create_key", AsyncMock(side_effect=TenantNotFound(message))
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "typo", "--owner", "user-huy", "--name", "k",
+         "--expires-in", "1d", "--secret-output", str(tmp_path / "k.key")],
+    )  # fmt: skip
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload == {"ok": False, "error_code": "TenantNotFound", "detail": message}
+    assert not (tmp_path / "k.key").exists()

@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from harborrag_core.ports.api_keys import ApiKeyManager, ApiKeyReader, ApiKeyRecord
+from harborrag_core.ports.tenants import TenantDirectory
 from harborrag_core.security.api_keys import generate_key, hash_matches, parse_key
 
 MIN_LIFETIME = timedelta(hours=1)
@@ -31,6 +32,10 @@ def _utc_now() -> datetime:
 
 class ApiKeyPolicyError(ValueError):
     """A create or revoke request that the key policy rejects."""
+
+
+class TenantNotFound(ApiKeyPolicyError):
+    """A key was requested for a tenant that no ingestion has been submitted for."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +106,7 @@ class ApiKeyManagementService:
     def __init__(
         self,
         manager: ApiKeyManager,
+        tenants: TenantDirectory,
         *,
         environment: str,
         clock: Callable[[], datetime] = _utc_now,
@@ -108,6 +114,7 @@ class ApiKeyManagementService:
         if environment not in MAX_LIFETIME:
             raise ValueError(f"unsupported key environment: {environment!r}")
         self._manager = manager
+        self._tenants = tenants
         self._environment = environment
         self._clock = clock
 
@@ -119,6 +126,11 @@ class ApiKeyManagementService:
         self, *, operator: str, tenant_id: str, owner: str, name: str, lifetime: timedelta
     ) -> CreatedKey:
         self._validate(tenant_id=tenant_id, owner=owner, name=name, lifetime=lifetime)
+        if not await self._tenants.exists(tenant_id):
+            # Names no value: the CLI echoes this message to the operator.
+            raise TenantNotFound(
+                "tenant_id names no known tenant; submit an ingestion for it first"
+            )
         now = self._clock()
         new = generate_key(self._environment)
         record = ApiKeyRecord(
@@ -195,5 +207,6 @@ __all__ = [
     "ApiKeyPolicyError",
     "ApiKeyVerificationService",
     "CreatedKey",
+    "TenantNotFound",
     "VerifiedKey",
 ]

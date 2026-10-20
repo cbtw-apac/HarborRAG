@@ -80,10 +80,16 @@ async def _service(settings: RuntimeSettings) -> tuple[ApiKeyManagementService, 
     from harborrag_adapters.repositories.database.control_plane.mcp_api_keys import (
         SqlApiKeyManager,
     )
+    from harborrag_adapters.repositories.database.control_plane.tenants import (
+        SqlTenantDirectory,
+    )
 
     engine = create_control_plane_engine(settings.control_db_url.get_secret_value())
-    manager = SqlApiKeyManager(create_session_factory(engine))
-    return ApiKeyManagementService(manager, environment=settings.env), engine
+    sessions = create_session_factory(engine)
+    service = ApiKeyManagementService(
+        SqlApiKeyManager(sessions), SqlTenantDirectory(sessions), environment=settings.env
+    )
+    return service, engine
 
 
 async def ensure_key_schema(settings: RuntimeSettings, *, migrate: bool) -> bool:

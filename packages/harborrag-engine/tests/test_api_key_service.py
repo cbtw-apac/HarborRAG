@@ -13,9 +13,20 @@ from harborrag_engine.security import (
     ApiKeyManagementService,
     ApiKeyPolicyError,
     ApiKeyVerificationService,
+    TenantNotFound,
 )
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+
+
+class FakeTenants:
+    """TenantDirectory over a fixed set of tenant ids."""
+
+    def __init__(self, *known: str) -> None:
+        self.known = set(known)
+
+    async def exists(self, tenant_id: str) -> bool:
+        return tenant_id in self.known
 
 
 class FakeStore:
@@ -150,8 +161,13 @@ async def test_store_outage_propagates_rather_than_looking_like_a_bad_key(store,
 
 
 @pytest.fixture
-def management(store: FakeStore) -> ApiKeyManagementService:
-    return ApiKeyManagementService(store, environment="prod", clock=lambda: NOW)
+def tenants() -> FakeTenants:
+    return FakeTenants("engineering", "t")
+
+
+@pytest.fixture
+def management(store: FakeStore, tenants: FakeTenants) -> ApiKeyManagementService:
+    return ApiKeyManagementService(store, tenants, environment="prod", clock=lambda: NOW)
 
 
 @pytest.mark.asyncio
@@ -185,12 +201,25 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
         ("prod", timedelta(minutes=59), "at least 1 hour"),
     ],
 )
-async def test_lifetime_limits(store, environment, lifetime, message) -> None:
-    service = ApiKeyManagementService(store, environment=environment, clock=lambda: NOW)
+async def test_lifetime_limits(store, tenants, environment, lifetime, message) -> None:
+    service = ApiKeyManagementService(store, tenants, environment=environment, clock=lambda: NOW)
 
     with pytest.raises(ApiKeyPolicyError, match=message):
         await service.create_key(
             operator="op", tenant_id="t", owner="user-x", name="k", lifetime=lifetime
+        )
+    assert store.records == {}
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_tenant_is_refused_and_nothing_is_stored(store, management) -> None:
+    with pytest.raises(TenantNotFound):
+        await management.create_key(
+            operator="op",
+            tenant_id="never-ingested",
+            owner="user-huy",
+            name="laptop",
+            lifetime=timedelta(days=1),
         )
     assert store.records == {}
 
@@ -218,8 +247,9 @@ async def test_bad_identifiers_are_rejected(store, management, owner, name, tena
 async def test_revoke_requires_a_reason_and_is_idempotent(store, management) -> None:
     _, record = _issued(store)
 
-    with pytest.raises(ApiKeyPolicyError, match="reason"):
-        await management.revoke_key(operator="op", key_id=record.key_id, reason="  ")
+    for empty in ("", "  "):
+        with pytest.raises(ApiKeyPolicyError, match="reason"):
+            await management.revoke_key(operator="op", key_id=record.key_id, reason=empty)
 
     assert await management.revoke_key(operator="op", key_id=record.key_id, reason="lost")
     assert not await management.revoke_key(operator="op", key_id=record.key_id, reason="again")

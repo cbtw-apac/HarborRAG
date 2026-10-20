@@ -72,7 +72,9 @@ def check_secret_output(path: Path) -> None:
             raise typer.BadParameter(f"cannot create {parent}: {type(error).__name__}") from None
     elif not parent.is_dir():
         raise typer.BadParameter(f"{parent} is not a directory")
-    if parent.stat().st_mode & stat.S_IWOTH:
+    # Windows reports a synthetic st_mode (directories look 0o777), so the POSIX
+    # world-writable test is meaningless there; access is governed by NTFS ACLs.
+    if os.name != "nt" and parent.stat().st_mode & stat.S_IWOTH:
         raise typer.BadParameter(f"{parent} is world-writable; use a private directory")
 
 
@@ -91,8 +93,9 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
         return asyncio.run(operation)
     except ApiKeyPolicyError as error:
         # Authored in-repo and never echoes input, so the operator gets the rule.
+        # The type tells TenantNotFound apart from the other policy rejections.
         typer.echo(
-            json.dumps({"ok": False, "error_code": "ApiKeyPolicyError", "detail": str(error)}),
+            json.dumps({"ok": False, "error_code": type(error).__name__, "detail": str(error)}),
             err=True,
         )
         raise typer.Exit(1) from None
