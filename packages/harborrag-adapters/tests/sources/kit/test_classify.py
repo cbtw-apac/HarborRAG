@@ -9,7 +9,7 @@ from harborrag_adapters.sources._kit.classify import (
     Action,
     Resolution,
     ResponseFacts,
-    classify,
+    classify_response,
 )
 from harborrag_adapters.sources._kit.errors import UnexpectedStatus
 from harborrag_adapters.sources._kit.net import redact_url
@@ -40,14 +40,14 @@ def facts(
 def test_default_classification(
     status: int, headers: dict[str, str], action: Action, error: type[Exception]
 ) -> None:
-    resolution = classify(facts(status, headers=headers))
+    resolution = classify_response(facts(status, headers=headers))
     assert resolution.action is action
     assert type(resolution.error) is error
     assert str(status) in str(resolution.error)
 
 
 def test_unexpected_status_keeps_code_and_detail() -> None:
-    error = classify(facts(400, detail="bad jql")).error
+    error = classify_response(facts(400, detail="bad jql")).error
     assert isinstance(error, UnexpectedStatus)
     assert (error.status_code, error.detail) == (400, "bad jql")
     assert str(error) == "400 for GET https://h.example/x: bad jql"
@@ -55,7 +55,7 @@ def test_unexpected_status_keeps_code_and_detail() -> None:
 
 def test_headers_are_read_case_insensitively_from_httpx_headers() -> None:
     headers = httpx.Headers({"X-RateLimit-Remaining": "0"})
-    assert classify(facts(403, headers=headers)).action is Action.THROTTLED
+    assert classify_response(facts(403, headers=headers)).action is Action.THROTTLED
 
 
 def test_rule_runs_first_and_none_falls_through() -> None:
@@ -64,21 +64,23 @@ def test_rule_runs_first_and_none_falls_through() -> None:
             return Resolution(Action.RETRY, Transient("dc paging"))
         return None
 
-    assert classify(facts(400, detail="paging bug"), [quirk]).action is Action.RETRY
-    assert classify(facts(400, detail="bad jql"), [quirk]).action is Action.FAIL
+    assert classify_response(facts(400, detail="paging bug"), [quirk]).action is Action.RETRY
+    assert classify_response(facts(400, detail="bad jql"), [quirk]).action is Action.FAIL
 
 
 def test_first_matching_rule_wins() -> None:
     first = Resolution(Action.THROTTLED, Transient("first"))
     second = Resolution(Action.FAIL, Transient("second"))
-    assert classify(facts(400), [lambda f: None, lambda f: first, lambda f: second]) is first
+    assert (
+        classify_response(facts(400), [lambda f: None, lambda f: first, lambda f: second]) is first
+    )
 
 
 def test_rule_cannot_override_401() -> None:
     def rule(f: ResponseFacts) -> Resolution:
         return Resolution(Action.RETRY, Transient("x"))
 
-    assert classify(facts(401), [rule]).action is Action.REFRESH
+    assert classify_response(facts(401), [rule]).action is Action.REFRESH
 
 
 def test_redact_url() -> None:

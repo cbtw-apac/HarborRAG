@@ -8,7 +8,7 @@ and the response size cap are implemented here once:
 * Redirects are followed by hand. Same-origin hops keep credentials; a
   cross-origin hop is refused unless the call allows it, and then it never
   carries the ``Authorization`` header (pre-signed download URLs).
-* What a failed response means is decided by :func:`.classify.classify`
+* What a failed response means is decided by :func:`.classify.classify_response`
   (plus any vendor rules) as a value; this client alone acts on it.
 * Error messages never carry a URL's userinfo, query, or fragment.
 """
@@ -27,7 +27,7 @@ import httpx
 
 from harborrag_core.sources import ConfigError, RateLimited, SourceAuthProvider, Transient
 
-from .classify import Action, Resolution, ResponseFacts, ResponseRule, classify
+from .classify import Action, Resolution, ResponseFacts, ResponseRule, classify_response
 from .errors import MalformedResponse, ResponseTooLarge
 from .net import SsrfGuard, redact_url, same_origin
 from .rate_limit import RateLimiter, UnlimitedRateLimiter
@@ -218,7 +218,7 @@ class HttpxSourceClient:
             if response.is_success:
                 return response
             facts = _facts(response, _detail(await self._read_prefix(response)))
-            resolution = classify(facts, self._rules)
+            resolution = classify_response(facts, self._rules)
             if resolution.action is Action.REFRESH:
                 if refreshed or not self._auth.supports_refresh:
                     raise resolution.error

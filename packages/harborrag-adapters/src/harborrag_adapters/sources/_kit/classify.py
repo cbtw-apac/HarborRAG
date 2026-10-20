@@ -1,6 +1,6 @@
 """What a non-2xx response means, decided once as a value.
 
-:func:`classify` turns the facts of a failed response into a
+:func:`classify_response` turns the facts of a failed response into a
 :class:`Resolution`: an :class:`Action` for the HTTP client to take and the
 error to raise when that action cannot proceed. The client is the only code
 that acts on it, so retries, throttling, and refresh live in one loop.
@@ -61,9 +61,15 @@ class Resolution:
 
 
 type ResponseRule = Callable[[ResponseFacts], Resolution | None]
+"""A vendor quirk: a :class:`Resolution` for the facts, or ``None`` to pass.
+
+Build a fresh ``Resolution`` and a fresh error on every call. Returning a
+shared exception instance means the client re-raises one object again and
+again, and each raise appends to its traceback, so it grows stale and long.
+"""
 
 
-def classify(facts: ResponseFacts, rules: Sequence[ResponseRule] = ()) -> Resolution:
+def classify_response(facts: ResponseFacts, rules: Sequence[ResponseRule] = ()) -> Resolution:
     """Decide what a non-2xx response means: 401, then ``rules``, then defaults."""
 
     if facts.status_code == 401:
