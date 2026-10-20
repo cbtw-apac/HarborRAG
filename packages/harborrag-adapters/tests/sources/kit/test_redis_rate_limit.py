@@ -14,7 +14,11 @@ LOGGER = "harborrag.adapters.sources.kit.rate_limit"
 
 
 class FakeRedis:
-    """Runs the bucket arithmetic in Python, replays scripted outcomes, records calls."""
+    """Replays scripted ``eval`` outcomes in order and records each call.
+
+    It runs no bucket arithmetic: each outcome is the script's reply (or an
+    exception to raise), so a test decides what Redis answers.
+    """
 
     def __init__(self, *outcomes: object) -> None:
         self.outcomes = list(outcomes)
@@ -165,7 +169,14 @@ def test_rate_limit_key_is_sanitised() -> None:
     )
 
 
-def test_fallback_can_be_a_token_bucket() -> None:
-    RedisTokenBucket(
-        FakeRedis(), key="k", rate_per_second=1.0, burst=1, fallback=TokenBucket(1.0, 1)
-    )
+@pytest.mark.asyncio
+async def test_fallback_can_be_a_token_bucket() -> None:
+    bucket_sleeps = Sleeps()
+    fallback = TokenBucket(1.0, 1, clock=lambda: 0.0, sleep=bucket_sleeps)
+    client = FakeRedis(ConnectionError("down"), ConnectionError("down"))
+    limiter = RedisTokenBucket(client, key="k", rate_per_second=1.0, burst=1, fallback=fallback)
+    await limiter.acquire()
+    await limiter.acquire()
+    # The second acquire found the local bucket empty and waited a full refill.
+    assert bucket_sleeps.calls == [1.0]
+    assert len(client.calls) == 2

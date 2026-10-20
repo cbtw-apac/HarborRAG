@@ -1,10 +1,10 @@
 """Client-side request budgets.
 
 One :class:`TokenBucket` is shared by every request of one connection, so a
-connector's concurrent sub-fetches cannot outrun the source's limits. A
-distributed limiter (Redis sliding window) can replace it later behind the
-same :class:`RateLimiter` protocol; :class:`RedisTokenBucket` is that
-limiter, reached through a small protocol so ``redis`` stays optional.
+connector's concurrent sub-fetches cannot outrun the source's limits.
+:class:`RedisTokenBucket` shares one bucket across processes behind the same
+:class:`RateLimiter` protocol; it reaches Redis through a small protocol so
+``redis`` stays optional.
 """
 
 from __future__ import annotations
@@ -145,6 +145,11 @@ class RedisTokenBucket:
     ``burst`` is the capacity and ``rate_per_second`` the refill. When Redis
     fails, requests go through ``fallback`` (warning once per outage) and the
     next call tries Redis again.
+
+    Give ``client`` socket and connect timeouts (``socket_timeout`` and
+    ``socket_connect_timeout`` in ``redis.asyncio``). Against an unreachable
+    Redis that drops packets, ``eval`` would otherwise hang and never fail
+    over to ``fallback``.
     """
 
     def __init__(  # noqa: PLR0913 - keyword-only limiter settings
