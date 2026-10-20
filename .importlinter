@@ -182,3 +182,23 @@ source_modules =
     harborrag_adapters.sources
 forbidden_modules =
     harborrag_adapters.connectors
+
+[importlinter:contract:16]
+name = Source connectors v2 only read sources; they never parse, chunk, embed or store
+type = forbidden
+source_modules =
+    harborrag_adapters.sources
+forbidden_modules =
+    harborrag_adapters.parsers
+    harborrag_adapters.chunking
+    harborrag_adapters.models
+    harborrag_adapters.repositories
+    harborrag_adapters.topology
+
+[importlinter:contract:17]
+name = The source kit knows no connector and no registry
+type = forbidden
+source_modules =
+    harborrag_adapters.sources._kit
+forbidden_modules =
+    harborrag_adapters.sources.registry
