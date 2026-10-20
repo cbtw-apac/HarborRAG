@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from datetime import timedelta
 
 import httpx
@@ -208,6 +209,66 @@ async def test_malformed_json_raises_malformed_response() -> None:
     async with make_client(lambda request: httpx.Response(200, content=b"{oops")) as client:
         with pytest.raises(MalformedResponse):
             (await client.request("GET", "/x")).json()
+
+
+@pytest.mark.asyncio
+async def test_client_applies_vendor_rule() -> None:
+    from harborrag_adapters.sources._kit.classify import Action, Resolution, ResponseFacts
+
+    def paging_quirk(facts: ResponseFacts) -> Resolution | None:
+        if facts.status_code == 400 and "paging" in facts.detail:
+            return Resolution(Action.RETRY, Transient("paging bug"))
+        return None
+
+    statuses = iter([400, 200])
+    sleeps = Sleeps()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(next(statuses), text="paging bug")
+
+    async with make_client(handler, sleeps=sleeps, rules=[paging_quirk]) as client:
+        assert (await client.request("GET", "/x")).status_code == 200
+    assert sleeps.calls == [0.5]
+
+
+@pytest.mark.asyncio
+async def test_error_messages_carry_no_query() -> None:
+    async def broken_body() -> AsyncIterator[bytes]:
+        yield b"partial"
+        raise httpx.ReadError("reset")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/json":
+            return httpx.Response(200, content=b"{oops")
+        if request.url.path == "/down":
+            raise httpx.ConnectError("refused", request=request)
+        if request.url.path == "/missing":
+            return httpx.Response(404)
+        return httpx.Response(200, content=broken_body())
+
+    errors: list[Exception] = []
+    retry = RetryPolicy(attempts=1)
+    async with make_client(handler, retry=retry, base_url="https://u:p@jira.example.com") as client:
+        response = await client.request("GET", "/json", params={"token": "s"})
+        with pytest.raises(MalformedResponse) as malformed:
+            response.json()
+        errors.append(malformed.value)
+        with pytest.raises(Transient, match="ConnectError") as network:
+            await client.request("GET", "/down?token=s")
+        errors.append(network.value)
+        with pytest.raises(ItemNotFound) as missing:
+            await client.request("GET", "/missing", params={"token": "s"})
+        errors.append(missing.value)
+        with pytest.raises(Transient, match="ReadError") as read:
+            await client.request("GET", "/read", params={"token": "s"})
+        errors.append(read.value)
+        with pytest.raises(Transient, match="broke") as broke:
+            async with client.stream("GET", "/stream", params={"token": "s"}) as stream:
+                [chunk async for chunk in stream.aiter_bytes()]
+        errors.append(broke.value)
+    for error in errors:
+        assert "token=" not in str(error)
+        assert "u:p@" not in str(error)
 
 
 @pytest.mark.asyncio

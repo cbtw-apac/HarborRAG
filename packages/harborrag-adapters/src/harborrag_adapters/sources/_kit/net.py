@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import re
 import socket
 from collections.abc import Awaitable, Callable, Iterable
 
@@ -25,6 +26,7 @@ from harborrag_core.sources import ConfigError, Transient
 type Resolver = Callable[[str, int], Awaitable[list[str]]]
 
 _DEFAULT_PORTS = {"http": 80, "https": 443}
+_USERINFO = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*://)[^/?#]*@")
 
 
 async def system_resolver(host: str, port: int) -> list[str]:
@@ -50,6 +52,22 @@ def _literal_ip(host: str) -> str | None:
 
 def port_of(url: httpx.URL) -> int | None:
     return url.port or _DEFAULT_PORTS.get(url.scheme)
+
+
+def redact_url(url: str | httpx.URL) -> str:
+    """``url`` without userinfo, query, or fragment, for error messages and logs.
+
+    Tokens and signatures travel in query strings (pre-signed downloads) and
+    in userinfo, so neither may reach an exception message. Never raises: a
+    URL httpx cannot parse is cut by hand.
+    """
+
+    try:
+        parsed = url if isinstance(url, httpx.URL) else httpx.URL(url)
+    except httpx.InvalidURL:
+        text = str(url).split("#", 1)[0].split("?", 1)[0]
+        return _USERINFO.sub(r"\1", text)
+    return str(parsed.copy_with(userinfo=b"", query=None, fragment=None))
 
 
 def same_origin(url: httpx.URL, other: httpx.URL) -> bool:

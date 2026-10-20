@@ -8,14 +8,16 @@ and the response size cap are implemented here once:
 * Redirects are followed by hand. Same-origin hops keep credentials; a
   cross-origin hop is refused unless the call allows it, and then it never
   carries the ``Authorization`` header (pre-signed download URLs).
-* Status codes map to the run-level errors in ``harborrag_core.sources``.
+* What a failed response means is decided by :func:`.classify.classify`
+  (plus any vendor rules) as a value; this client alone acts on it.
+* Error messages never carry a URL's userinfo, query, or fragment.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json as jsonlib
-from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
+from collections.abc import AsyncIterator, Awaitable, Callable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -23,18 +25,11 @@ from typing import Any
 
 import httpx
 
-from harborrag_core.sources import (
-    AuthError,
-    ConfigError,
-    Forbidden,
-    ItemNotFound,
-    RateLimited,
-    SourceAuthProvider,
-    Transient,
-)
+from harborrag_core.sources import ConfigError, RateLimited, SourceAuthProvider, Transient
 
-from .errors import MalformedResponse, ResponseTooLarge, UnexpectedStatus
-from .net import SsrfGuard, same_origin
+from .classify import Action, Resolution, ResponseFacts, ResponseRule, classify
+from .errors import MalformedResponse, ResponseTooLarge
+from .net import SsrfGuard, redact_url, same_origin
 from .rate_limit import RateLimiter, UnlimitedRateLimiter
 from .retry import RetryPolicy
 
@@ -61,7 +56,9 @@ class KitResponse:
         try:
             return jsonlib.loads(self.content)
         except (ValueError, UnicodeDecodeError) as exc:
-            raise MalformedResponse(f"response from {self.url} is not valid JSON") from exc
+            raise MalformedResponse(
+                f"response from {redact_url(self.url)} is not valid JSON"
+            ) from exc
 
     @property
     def text(self) -> str:
@@ -91,7 +88,9 @@ class KitStream:
             async for chunk in self._response.aiter_bytes():
                 yield chunk
         except httpx.TransportError as exc:
-            raise Transient(f"stream from {self.url} broke: {type(exc).__name__}") from exc
+            raise Transient(
+                f"stream from {redact_url(self.url)} broke: {type(exc).__name__}"
+            ) from exc
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,33 +106,14 @@ class _Call:
     allow_cross_origin_redirect: bool = False
 
 
-def _throttled(response: httpx.Response) -> bool:
-    if response.status_code == 429:
-        return True
-    # GitHub signals both primary and secondary rate limits with 403.
-    return response.status_code == 403 and (
-        response.headers.get("x-ratelimit-remaining") == "0" or "retry-after" in response.headers
-    )
-
-
 def _detail(content: bytes) -> str:
     text = content[:_ERROR_DETAIL_BYTES].decode("utf-8", errors="replace")
     return " ".join(text.split())[:300]
 
 
-def _status_error(response: httpx.Response, detail: str) -> Exception:
-    status = response.status_code
-    where = f"{response.request.method} {response.url.copy_with(query=None)}"
-    message = f"{status} for {where}"
-    if status == 401:
-        return AuthError(f"{message}: credentials rejected")
-    if status == 403:
-        return Forbidden(f"{message}: access denied")
-    if status in (404, 410):
-        return ItemNotFound(message)
-    if status >= 500:
-        return Transient(f"{message}: server error")
-    return UnexpectedStatus(status, f"{message}: {detail}" if detail else message, detail)
+def _facts(response: httpx.Response, detail: str) -> ResponseFacts:
+    where = f"{response.request.method} {redact_url(response.url)}"
+    return ResponseFacts(response.status_code, response.headers, detail, where)
 
 
 class HttpxSourceClient:
@@ -150,6 +130,7 @@ class HttpxSourceClient:
         max_response_bytes: int = DEFAULT_MAX_RESPONSE_BYTES,
         timeout: float = 30.0,
         headers: Mapping[str, str] | None = None,
+        rules: Sequence[ResponseRule] = (),
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], datetime] = _utcnow,
@@ -160,6 +141,7 @@ class HttpxSourceClient:
         self._retry = retry or RetryPolicy()
         self._guard = guard or SsrfGuard()
         self._max_bytes = max_response_bytes
+        self._rules = tuple(rules)
         self._sleep = sleep
         self._clock = clock
         self._client = httpx.AsyncClient(
@@ -235,36 +217,43 @@ class HttpxSourceClient:
                 continue
             if response.is_success:
                 return response
-            detail = _detail(await self._read_prefix(response))
-            if response.status_code == 401 and not refreshed and self._auth.supports_refresh:
+            facts = _facts(response, _detail(await self._read_prefix(response)))
+            resolution = classify(facts, self._rules)
+            if resolution.action is Action.REFRESH:
+                if refreshed or not self._auth.supports_refresh:
+                    raise resolution.error
                 refreshed = True
-                if await self._auth.refresh():
-                    attempt -= 1
-                    continue
-            await self._backoff_or_raise(call, attempt, response, detail)
+                if not await self._auth.refresh():
+                    raise resolution.error
+                attempt -= 1
+                continue
+            await self._backoff_or_raise(call, attempt, resolution, facts)
 
     async def _backoff_after_network_error(
         self, call: _Call, attempt: int, error: httpx.TransportError
     ) -> None:
         if not self._can_retry(call, attempt):
-            raise Transient(f"{call.method} {call.url} failed: {type(error).__name__}") from error
+            where = f"{call.method} {redact_url(call.url)}"
+            raise Transient(f"{where} failed: {type(error).__name__}") from error
         await self._sleep(self._retry.backoff(attempt))
 
     async def _backoff_or_raise(
-        self, call: _Call, attempt: int, response: httpx.Response, detail: str
+        self, call: _Call, attempt: int, resolution: Resolution, facts: ResponseFacts
     ) -> None:
-        throttled = _throttled(response)
-        if not (throttled or self._retry.retryable_status(response.status_code)):
-            raise _status_error(response, detail)
+        """Sleep before the next attempt, or raise what ``resolution`` says."""
+
+        if resolution.action not in (Action.RETRY, Action.THROTTLED):
+            raise resolution.error
+        throttled = resolution.action is Action.THROTTLED
         now = self._clock()
-        delay = self._retry.delay(attempt, response.headers, now, throttled=throttled)
+        delay = self._retry.delay(attempt, facts.headers, now, throttled=throttled)
         if self._can_retry(call, attempt):
             await self._sleep(delay)
             return
         if throttled:
             wait = max(delay, self._retry.max_retry_after)
-            raise RateLimited(now + timedelta(seconds=wait), f"still throttled: {detail}")
-        raise _status_error(response, detail)
+            raise RateLimited(now + timedelta(seconds=wait), f"still throttled: {facts.detail}")
+        raise resolution.error
 
     def _can_retry(self, call: _Call, attempt: int) -> bool:
         idempotent = self._retry.is_idempotent(call.method, read_only=call.read_only)
@@ -286,7 +275,7 @@ class HttpxSourceClient:
                 call = replace(call, method="GET", json=None, data=None)
             call = replace(call, params=None)
             url = target
-        raise Transient(f"more than {MAX_REDIRECTS} redirects for {call.url}")
+        raise Transient(f"more than {MAX_REDIRECTS} redirects for {redact_url(call.url)}")
 
     async def _send_once(self, call: _Call, url: httpx.URL) -> httpx.Response:
         await self._guard.check(url)
@@ -315,7 +304,8 @@ class HttpxSourceClient:
                 if len(body) > self._max_bytes:
                     raise ResponseTooLarge(self._max_bytes)
         except httpx.TransportError as exc:
-            raise Transient(f"reading {response.url} failed: {type(exc).__name__}") from exc
+            where = redact_url(response.url)
+            raise Transient(f"reading {where} failed: {type(exc).__name__}") from exc
         return bytes(body)
 
     @staticmethod

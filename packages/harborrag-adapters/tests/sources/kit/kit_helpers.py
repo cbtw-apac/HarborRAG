@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
+from harborrag_adapters.sources._kit.classify import ResponseRule
 from harborrag_adapters.sources._kit.http import HttpxSourceClient
 from harborrag_adapters.sources._kit.net import SsrfGuard
 from harborrag_adapters.sources._kit.retry import RetryPolicy
@@ -57,6 +58,7 @@ def make_client(  # noqa: PLR0913 - keyword-only test seams
     guard: SsrfGuard | None = None,
     max_response_bytes: int = 1024 * 1024,
     base_url: str = "https://jira.example.com",
+    rules: Sequence[ResponseRule] = (),
 ) -> HttpxSourceClient:
     return HttpxSourceClient(
         base_url=base_url,
@@ -64,6 +66,7 @@ def make_client(  # noqa: PLR0913 - keyword-only test seams
         retry=retry or RetryPolicy(rng=lambda: 1.0),
         guard=guard or SsrfGuard(resolver=public_resolver),
         max_response_bytes=max_response_bytes,
+        rules=rules,
         transport=httpx.MockTransport(handler),
         sleep=sleeps or Sleeps(),
         clock=lambda: NOW,
