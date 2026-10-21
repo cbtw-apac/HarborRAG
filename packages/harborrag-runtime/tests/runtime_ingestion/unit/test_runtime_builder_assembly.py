@@ -251,7 +251,7 @@ def test_resource_targets_never_render_credentials() -> None:
     targets = resource_targets(settings)
 
     assert targets["control"] == "postgresql db.internal:5432"
-    assert targets["vector"] == "Qdrant http://localhost:6333/prefix"
+    assert targets["vector"] == "Qdrant http://localhost:6333"
     assert targets["object_store"] == "http://localhost:9000"
     assert targets["graph"] == "FalkorDB localhost:6379"
     assert all("hunter2" not in value for value in targets.values())
@@ -259,3 +259,29 @@ def test_resource_targets_never_render_credentials() -> None:
     assert grpc["vector"] == "Qdrant gRPC localhost:6334"
     sqlite = resource_targets(RuntimeSettings())
     assert sqlite["control"] == "sqlite"
+
+
+@pytest.mark.parametrize(
+    ("url", "grpc", "expected"),
+    [
+        ("http://u:pa/ss@h:6333", False, "Qdrant (configured URL)"),
+        ("u:secret@h:6333", False, "Qdrant (configured URL)"),
+        ("u:secret@h:6333", True, "Qdrant (configured URL)"),
+        ("http://u:p@h:6333/?api_key=x", False, "Qdrant http://h:6333"),
+        ("http://[::1]:6333", False, "Qdrant http://[::1]:6333"),
+        ("http://[::1]:6333", True, "Qdrant gRPC [::1]:6334"),
+    ],
+)
+def test_qdrant_target_never_renders_unparseable_userinfo(
+    url: str, grpc: bool, expected: str
+) -> None:
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        qdrant_url=url, qdrant_prefer_grpc=grpc, object_store_provider="memory"
+    )
+    vector = resource_targets(settings)["vector"]
+
+    assert vector == expected
+    for fragment in ("secret", "pa", "ss", "u:", "api_key"):
+        assert fragment not in vector

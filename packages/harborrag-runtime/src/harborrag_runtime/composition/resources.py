@@ -99,19 +99,33 @@ def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None
         )
 
 
-def _display_url(url: str) -> str:
-    """Scheme, host, port and path; never userinfo, query or fragment."""
+def _origin(url: str) -> tuple[str, str, int | None] | None:
+    """(scheme, host, port) of a clean http(s) URL, else ``None``.
+
+    Never the path, query or userinfo: an unencoded ``/`` in a password moves
+    part of it into the path, so anything that does not parse cleanly is
+    treated as unrenderable rather than partially shown.
+    """
 
     parts = urlsplit(url)
-    host = parts.hostname or ""
-    if ":" in host:
-        host = f"[{host}]"
+    if parts.scheme not in {"http", "https"}:
+        return None
     try:
         port = parts.port
     except ValueError:
-        port = None
-    netloc = f"{host}:{port}" if port else host
-    return f"{parts.scheme}://{netloc}{parts.path}" if parts.scheme else netloc
+        return None
+    host = parts.hostname
+    if not host:
+        return None
+    return parts.scheme, f"[{host}]" if ":" in host else host, port
+
+
+def _display_url(url: str) -> str | None:
+    origin = _origin(url)
+    if origin is None:
+        return None
+    scheme, host, port = origin
+    return f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
 
 
 def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
@@ -129,12 +143,16 @@ def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
         host = parts.hostname or "unknown-host"
         control = f"postgresql {host}:{port}" if port else f"postgresql {host}"
     if settings.object_store_provider == "s3" and settings.object_store_endpoint_url:
-        object_store = _display_url(settings.object_store_endpoint_url)
+        object_store = (
+            _display_url(settings.object_store_endpoint_url) or "object store (configured URL)"
+        )
     else:
         object_store = f"object store ({settings.object_store_provider})"
-    qdrant = urlsplit(settings.qdrant_url)
-    if settings.qdrant_prefer_grpc:
-        vector = f"Qdrant gRPC {qdrant.hostname or 'localhost'}:6334"
+    origin = _origin(settings.qdrant_url)
+    if origin is None:
+        vector = "Qdrant (configured URL)"
+    elif settings.qdrant_prefer_grpc:
+        vector = f"Qdrant gRPC {origin[1]}:6334"
     else:
         vector = f"Qdrant {_display_url(settings.qdrant_url)}"
     return {

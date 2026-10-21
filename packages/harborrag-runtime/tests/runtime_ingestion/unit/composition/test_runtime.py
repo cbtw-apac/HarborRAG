@@ -209,7 +209,9 @@ async def test_start_wraps_bucket_provisioning_failures() -> None:
     runtime = _startable_runtime(object_store=object_store)
     runtime.resource_targets = {"object_store": "http://localhost:9000"}
 
-    with pytest.raises(RuntimeConnectionError, match="http://localhost:9000") as failure:
+    with pytest.raises(
+        RuntimeConnectionError, match="Could not connect to or initialise http://localhost:9000"
+    ) as failure:
         await runtime.start()
 
     assert "hunter2" not in str(failure.value)

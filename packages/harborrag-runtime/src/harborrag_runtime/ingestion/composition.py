@@ -142,7 +142,9 @@ class IngestionRuntime:
             label,
             type(error).__name__,
         )
-        return RuntimeConnectionError(f"Could not reach {target}; {_START_HINTS[label]}")
+        return RuntimeConnectionError(
+            f"Could not connect to or initialise {target}; {_START_HINTS[label]}"
+        )
 
     async def close(self) -> None:
         if not self._started:
