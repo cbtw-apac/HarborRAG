@@ -333,3 +333,40 @@ def test_source_workflow_pause_and_resume_status_are_explicit() -> None:
 
     assert paused.paused is True
     assert resumed.paused is False
+
+
+@pytest.mark.asyncio
+async def test_discover_failure_marks_query_status_failed(monkeypatch) -> None:
+    from temporalio.exceptions import ActivityError, ApplicationError
+
+    async def execute_activity(name, request, **options):
+        del request, options
+        if name == "harborrag.discover_source_items":
+            error = ActivityError(
+                "activity failed",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker",
+                activity_type=name,
+                activity_id="1",
+                retry_state=None,
+            )
+            error.__cause__ = ApplicationError("boom", type="source_unavailable")
+            raise error
+        assert name == "harborrag.record_source_failure"
+        return None
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda _name: True,
+    )
+
+    instance = SourceIngestionWorkflow()
+    with pytest.raises(ActivityError):
+        await instance.run(_source())
+
+    assert instance.get_status().status == "FAILED"

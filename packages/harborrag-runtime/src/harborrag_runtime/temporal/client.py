@@ -12,7 +12,7 @@ from temporalio.api.workflowservice.v1 import (
     PauseWorkflowExecutionRequest,
     UnpauseWorkflowExecutionRequest,
 )
-from temporalio.client import Client, WorkflowHandle
+from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -27,6 +27,7 @@ from harborrag_runtime.errors import (
 )
 
 from .connection import connect_temporal_client
+from .failure_handling import terminal_failure_code
 from .identity import RuntimeWorkflowRef
 from .maintenance_schemas import (
     ReindexInput,
@@ -43,6 +44,23 @@ from .schemas import (
 ResultT = TypeVar("ResultT")
 
 logger = logging.getLogger("harborrag.runtime.temporal.client")
+
+
+def _failure_message(label: str, code: str) -> str:
+    """Authored text plus the safe error code of a failed workflow run."""
+
+    if code.startswith("discoversourceitems_") and code.endswith(
+        ("_keyerror", "_connectorconfigurationerror")
+    ):
+        return (
+            f"Could not {label}: the run failed (error_code={code}). The source's connector "
+            "is not configured on the worker; add it to config/connectors.yaml for the "
+            "worker and restart it"
+        )
+    return (
+        f"Could not {label}: the run failed (error_code={code}); "
+        "check the task status or the worker logs"
+    )
 
 
 class IngestionTemporalClient:
@@ -367,6 +385,10 @@ class IngestionTemporalClient:
     ) -> ResultT:
         try:
             return await operation
+        except WorkflowFailureError as error:
+            raise WorkflowOperationError(
+                _failure_message(label, terminal_failure_code(error))
+            ) from error
         except RPCError as error:
             if error.status is RPCStatusCode.NOT_FOUND:
                 raise WorkflowNotFoundError(f"Could not {label}: task not found") from error

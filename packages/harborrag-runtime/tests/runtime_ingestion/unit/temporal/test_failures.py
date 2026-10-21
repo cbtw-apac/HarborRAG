@@ -3,7 +3,15 @@
 from __future__ import annotations
 
 import pytest
-from temporalio.exceptions import ApplicationError
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    CancelledError,
+    ChildWorkflowError,
+    TerminatedError,
+    TimeoutError,
+)
 
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
@@ -18,7 +26,7 @@ from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal.activity_observability import (
     ActivityObservability,
 )
-from harborrag_runtime.temporal.failure_handling import durable_failure
+from harborrag_runtime.temporal.failure_handling import durable_failure, terminal_failure_code
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -158,3 +166,56 @@ def test_activity_boundary_emits_distinct_non_retryable_code_for_401_and_403(
     failure_type, _ = durable_failure(_FakeActivityError(captured.value))
 
     assert failure_type == expected_code
+
+
+def _chain(*errors: BaseException) -> BaseException:
+    for outer, inner in zip(errors, errors[1:], strict=False):
+        outer.__cause__ = inner
+    return errors[0]
+
+
+def _activity_error() -> ActivityError:
+    return ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="x",
+        activity_id="1",
+        retry_state=None,
+    )
+
+
+def test_terminal_failure_code_unwraps_child_workflow_chains() -> None:
+    child = ChildWorkflowError(
+        "child failed",
+        namespace="default",
+        workflow_id="wf",
+        run_id="run",
+        workflow_type="harborrag.source_batch",
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    error = _chain(
+        WorkflowFailureError(cause=Exception("x")),
+        child,
+        _activity_error(),
+        ApplicationError("hunter2", type="source_unavailable"),
+    )
+
+    assert terminal_failure_code(error) == "source_unavailable"
+
+
+def test_terminal_failure_code_handles_terminal_causes() -> None:
+    def wrapped(cause: BaseException) -> BaseException:
+        return _chain(WorkflowFailureError(cause=cause), cause)
+
+    assert (
+        terminal_failure_code(wrapped(TimeoutError("t", type=None, last_heartbeat_details=[])))
+        == "timeout"
+    )
+    assert terminal_failure_code(wrapped(TerminatedError("t", []))) == "terminated"
+    assert terminal_failure_code(wrapped(CancelledError("c"))) == "cancelled"
+    assert terminal_failure_code(WorkflowFailureError(cause=Exception("x"))) == "unknown"
+    assert terminal_failure_code(RuntimeError("hunter2")) == "unknown"

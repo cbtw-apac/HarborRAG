@@ -39,6 +39,7 @@ from .schemas import (
     WorkflowExecutionControlInput,
 )
 
+_DISCOVER_FAILURE_STATUS_PATCH = "discover-failure-status"
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
 
 
@@ -424,8 +425,8 @@ class SourceIngestionWorkflow:
         )
         await asyncio.shield(cleanup)
 
-    @staticmethod
     async def _discover(
+        self,
         request: SourceIngestionInput,
     ) -> SourceDiscoveryResult:
         try:
@@ -446,6 +447,8 @@ class SourceIngestionWorkflow:
                 ),
             )
         except ActivityError as error:
+            if workflow.patched(_DISCOVER_FAILURE_STATUS_PATCH):
+                self._status = "FAILED"
             error_code, _ = durable_failure(error)
             await workflow.execute_activity(
                 "harborrag.record_source_failure",
