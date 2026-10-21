@@ -5,6 +5,7 @@ from .api_key_service import (
     ApiKeyPolicyError,
     ApiKeyVerificationService,
     CreatedKey,
+    KeyNotFound,
     TenantNotFound,
     VerifiedKey,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "ApiKeyPolicyError",
     "ApiKeyVerificationService",
     "CreatedKey",
+    "KeyNotFound",
     "TenantNotFound",
     "VerifiedKey",
 ]

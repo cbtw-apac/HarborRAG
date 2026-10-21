@@ -13,6 +13,7 @@ from harborrag_engine.security import (
     ApiKeyManagementService,
     ApiKeyPolicyError,
     ApiKeyVerificationService,
+    KeyNotFound,
     TenantNotFound,
 )
 
@@ -197,7 +198,7 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
     [
         ("prod", timedelta(days=91), "90 days"),
         ("dev", timedelta(days=8), "7 days"),
-        ("staging", timedelta(days=31), "30 days"),
+        ("staging", timedelta(days=91), "90 days"),
         ("prod", timedelta(minutes=59), "at least 1 hour"),
     ],
 )
@@ -254,6 +255,18 @@ async def test_revoke_requires_a_reason_and_is_idempotent(store, management) -> 
     assert await management.revoke_key(operator="op", key_id=record.key_id, reason="lost")
     assert not await management.revoke_key(operator="op", key_id=record.key_id, reason="again")
     assert store.records[record.key_id].revocation_reason == "lost"
+
+
+@pytest.mark.asyncio
+async def test_revoke_of_an_unknown_key_id_is_not_reported_as_already_revoked(
+    store, management
+) -> None:
+    unknown = "0" * 24
+
+    with pytest.raises(KeyNotFound) as raised:
+        await management.revoke_key(operator="op", key_id=unknown, reason="typo")
+
+    assert unknown not in str(raised.value)
 
 
 @pytest.mark.asyncio

@@ -18,11 +18,11 @@ from harborrag_core.security.api_keys import generate_key, hash_matches, parse_k
 MIN_LIFETIME = timedelta(hours=1)
 MAX_LIFETIME: dict[str, timedelta] = {
     "dev": timedelta(days=7),
-    "staging": timedelta(days=30),
+    "staging": timedelta(days=90),
     "prod": timedelta(days=90),
 }
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
-_OWNER_RE = re.compile(r"^(user|svc|team)-[a-z0-9][a-z0-9-]{0,120}$")
+_OWNER_RE = re.compile(r"^(user|svc)-[a-z0-9][a-z0-9-]{0,120}$")
 _MAX_REASON = 256
 
 
@@ -36,6 +36,10 @@ class ApiKeyPolicyError(ValueError):
 
 class TenantNotFound(ApiKeyPolicyError):
     """A key was requested for a tenant that no ingestion has been submitted for."""
+
+
+class KeyNotFound(ApiKeyPolicyError):
+    """A revoke named a key id that does not exist."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,7 +160,12 @@ class ApiKeyManagementService:
 
     async def revoke_key(self, *, operator: str, key_id: str, reason: str) -> bool:
         self._validate_reason(reason)
-        return await self._manager.revoke(key_id, at=self._clock(), by=operator, reason=reason)
+        revoked = await self._manager.revoke(key_id, at=self._clock(), by=operator, reason=reason)
+        # False means unknown or already revoked; keys are never deleted, so a
+        # lookup after the fact tells the two apart without a race.
+        if not revoked and await self._manager.get_by_key_id(key_id) is None:
+            raise KeyNotFound("no key with this id")  # no input echoed
+        return revoked
 
     async def revoke_owner(
         self, *, operator: str, tenant_id: str, owner: str, reason: str
@@ -207,6 +216,7 @@ __all__ = [
     "ApiKeyPolicyError",
     "ApiKeyVerificationService",
     "CreatedKey",
+    "KeyNotFound",
     "TenantNotFound",
     "VerifiedKey",
 ]

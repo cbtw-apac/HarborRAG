@@ -95,6 +95,14 @@ class SqlApiKeyManager:
 
     sessions: SessionFactory
 
+    async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
+        with _store_errors():
+            async with self.sessions() as session:
+                row = await session.scalar(
+                    sa.select(McpApiKeyRow).where(McpApiKeyRow.key_id == key_id)
+                )
+        return _to_record(row) if row is not None else None
+
     async def create(self, record: ApiKeyRecord) -> None:
         with _store_errors():
             async with self.sessions.begin() as session:
