@@ -27,6 +27,9 @@ from .task_results import (
     TaskDocumentResultsMixin,
 )
 
+# Submission markers of PENDING rows that the outbox must leave alone.
+_NOT_AWAITING_SUBMISSION = ("submitted", "executor")
+
 __all__ = [
     "IngestionTaskRepository",
     "StoredTaskDocumentResult",
@@ -165,7 +168,13 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             return _task_from_row(row) if row is not None else None
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
-        """Return durable PENDING tasks whose Temporal start is not confirmed."""
+        """Return durable PENDING tasks whose Temporal start is not confirmed.
+
+        Rows marked ``submitted`` already started, and rows marked ``executor``
+        were created by an execution in progress (an inline run or a worker), so
+        neither is awaiting submission. ``NOT IN`` is NULL for an unmarked row,
+        hence the explicit ``IS NULL`` arm.
+        """
 
         if not 1 <= limit <= 1_000:
             raise ValueError("pending submission limit must be between 1 and 1000")
@@ -177,7 +186,7 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
                     INGESTION_TASKS.c.status == IngestionTaskState.PENDING.value,
                     or_(
                         submission_state.is_(None),
-                        submission_state != "submitted",
+                        submission_state.not_in(_NOT_AWAITING_SUBMISSION),
                     ),
                 )
                 .order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id)

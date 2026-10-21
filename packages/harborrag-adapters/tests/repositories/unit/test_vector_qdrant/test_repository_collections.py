@@ -295,3 +295,22 @@ async def test_delete_collection_when_absent_only_clears_cache() -> None:
 
     assert raw.delete_collection_calls == []
     assert repository._queries.spec_key("docs", context) not in repository._specs
+
+
+@pytest.mark.asyncio
+async def test_ensure_collection_mismatch_names_dimensions() -> None:
+    raw = ExtendedRawQdrant()
+    raw.exists = True
+    raw.existing_dimension = 5
+    raw.existing_distance = Distance.COSINE
+    repository = QdrantVectorRepository(make_config(), client=FakeQdrantClient(raw))  # type: ignore[arg-type]
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    spec = VectorIndexSpec(index_name="docs", dimension=3)
+
+    with pytest.raises(HarborStorageValidationError) as caught:
+        await repository.ensure_index(spec, context=context)
+
+    message = str(caught.value)
+    assert "existing_dimension=5" in message
+    assert "configured_dimension=3" in message
+    assert caught.value.context.metadata == {"existing_dimension": 5, "configured_dimension": 3}

@@ -98,6 +98,17 @@ class StatusSource:
         response = await self._service.ingestion_status(self._run_id)
         if not response.ok:
             raise ProgressUnavailable(response.error or "Unable to load ingestion status.")
+        if response.data.get("execution_status") == "not_found":
+            # Temporal has no execution: only the control-plane record speaks for the
+            # run, and nothing will move a non-terminal one, so stop following it.
+            snapshot = ProgressSnapshot.from_task_payload(mapping(response.data.get("task")))
+            if not snapshot.terminal:
+                raise ProgressUnavailable(
+                    f"Ingestion run {self._run_id!r} has no workflow execution; the control "
+                    f"plane records it as {snapshot.status}. Check again with: "
+                    f"harborrag ingest status {self._run_id}"
+                )
+            return snapshot
         return ProgressSnapshot.from_status_payload(response.data)
 
 

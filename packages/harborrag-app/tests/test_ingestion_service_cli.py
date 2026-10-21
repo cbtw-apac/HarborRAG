@@ -12,6 +12,7 @@ from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control import AppResponse
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
@@ -77,8 +78,19 @@ class FakeTemporalClient:
 
 
 class FakeTaskRegistry:
-    async def register(self, source: SourceIngestionInput) -> None:
-        del source
+    async def register(self, source: SourceIngestionInput) -> TaskRegistration:
+        return TaskRegistration(
+            IngestionTask(
+                task_id=source.task_id,
+                source_scope_id=source.source_scope_id,
+                status=IngestionTaskState.PENDING,
+                request={"tenant_id": source.tenant_id},
+            ),
+            created=True,
+        )
+
+    async def update_summary(self, task_id: str, values: object) -> None:
+        del task_id, values
 
     async def append_task_event(self, task_id: str, event: object) -> object:
         return event

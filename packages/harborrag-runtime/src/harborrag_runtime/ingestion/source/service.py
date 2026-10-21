@@ -10,8 +10,10 @@ from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.repositories.database import (
     IngestionControlPlaneDatabase,
 )
+from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
 
+from ...errors import VectorIndexSchemaError
 from ..document.service import DocumentReleaseService
 from ..maintenance.relation_repair import GraphRelationRepairService
 from .discovery import SourceDiscoveryPlanner
@@ -108,6 +110,10 @@ class SourceIngestionService(SourceDocumentOperations):
                 )
             raise
         except Exception as error:
+            if isinstance(error, VectorIndexSchemaError):
+                # Provisioning runs inside discovery's first step, but a schema
+                # mismatch is a configuration fault, not a source-discovery one.
+                stage = "provision"
             logger.error(
                 "Source %s failed task_id=%s connector_type=%s error_type=%s",
                 stage,
@@ -336,9 +342,42 @@ class SourceIngestionService(SourceDocumentOperations):
             connection_id=request.connection_id,
             configuration_fingerprint=request.configuration_fingerprint,
         )
-        await self._control.tasks.create(pending_source_task(request))
+        # The task executes here, so it is never awaiting submission: the marker
+        # keeps the API outbox from re-submitting it if it stops while PENDING.
+        # A row a durable start registered already exists and keeps its summary.
+        await self._control.tasks.create(
+            pending_source_task(request).model_copy(
+                update={"summary": {"submission_state": "executor"}}
+            )
+        )
         await self._control.tasks.transition(
             request.task_id,
             IngestionTaskState.RUNNING,
         )
-        await self._documents.provision(tenant_id=request.tenant_id)
+        # After the task exists and runs, so a provisioning failure can be recorded.
+        try:
+            await self._documents.provision(tenant_id=request.tenant_id)
+        except HarborStorageValidationError as error:
+            raise VectorIndexSchemaError(_schema_mismatch_message(error)) from error
+
+
+def _schema_mismatch_message(error: HarborStorageValidationError) -> str:
+    """Authored text plus the safe values the adapter attached, never its message."""
+
+    index = error.context.resource_name
+    subject = f"Vector index {index!r}" if isinstance(index, str) and index else "The vector index"
+    existing = error.context.metadata.get("existing_dimension")
+    configured = error.context.metadata.get("configured_dimension")
+    if isinstance(existing, int) and isinstance(configured, int):
+        detail = (
+            f" (existing dimension {existing}, configured dimension {configured})"
+            if existing != configured
+            else f" (dimension {existing}; the distance or vector names differ)"
+        )
+    else:
+        detail = ""
+    return (
+        f"{subject} already exists with a different vector schema{detail}. "
+        "Configure the embedding model and dimension to match it, or use a new "
+        "collection and re-ingest."
+    )

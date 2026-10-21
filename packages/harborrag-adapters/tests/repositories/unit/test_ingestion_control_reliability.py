@@ -360,3 +360,30 @@ async def test_pending_cleanup_selection_is_scope_isolated(tmp_path: Path) -> No
                 source_scope_id="scope-a",
                 document_ids=(str(cleanup_by_scope["scope-b"].document_id),),
             )
+
+
+@pytest.mark.asyncio
+async def test_pending_submissions_skip_executor_and_submitted(tmp_path: Path) -> None:
+    # Only a durable row whose Temporal start is unconfirmed belongs to the outbox:
+    # inline (executor) rows run in-process and submitted rows already started.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        markers: tuple[tuple[str, dict[str, object]], ...] = (
+            ("task-unmarked", {}),
+            ("task-submitted", {"submission_state": "submitted"}),
+            ("task-executor", {"submission_state": "executor"}),
+        )
+        for task_id, summary in markers:
+            await control_plane.tasks.create(
+                IngestionTask(
+                    task_id=task_id,
+                    source_scope_id="scope-engineering",
+                    status=IngestionTaskState.PENDING,
+                    request={"connector": "confluence", "task": task_id},
+                    summary=summary,
+                )
+            )
+
+        pending = await control_plane.tasks.pending_submissions()
+
+        assert [task.task_id for task in pending] == ["task-unmarked"]

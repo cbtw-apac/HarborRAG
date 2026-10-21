@@ -8,11 +8,17 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.repositories.errors import (
+    HarborStorageValidationError,
+    StorageErrorContext,
+)
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import (
     BindingKind,
     IngestionTaskState,
 )
+from harborrag_core.storage import StorageFamily
+from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.ingestion import (
     DocumentReleaseService,
     SourceIngestionService,
@@ -400,3 +406,80 @@ async def test_finalization_failure_preserves_discovery_and_dispatch_counts(
         assert task.summary["discovered"] == 2
         assert task.summary["admitted"] == 2
         assert task.summary["published"] == 2
+
+
+@pytest.mark.asyncio
+async def test_inline_tasks_are_never_outbox_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An inline run creates its task in-process; if it stops before RUNNING, the
+    # API outbox must not mistake the PENDING row for an unsubmitted durable run.
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        original = control.tasks.transition
+
+        async def refuse_running(task_id, target, **kwargs):
+            if target is IngestionTaskState.RUNNING:
+                raise RuntimeError("control plane went away")
+            return await original(task_id, target, **kwargs)
+
+        monkeypatch.setattr(control.tasks, "transition", refuse_running)
+
+        with pytest.raises(RuntimeError, match="control plane went away"):
+            await service.begin_discovery(source_request("task-inline-pending"))
+
+        task = await control.tasks.get("task-inline-pending")
+        assert task is not None
+        assert task.status == IngestionTaskState.PENDING
+        pending = await control.tasks.pending_submissions()
+        assert task.task_id not in {item.task_id for item in pending}
+
+
+@pytest.mark.asyncio
+async def test_vector_schema_mismatch_is_a_readable_provision_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def mismatched(spec, *, context):
+            del spec, context
+            raise HarborStorageValidationError(
+                "index 'evidence' already exists with another vector schema "
+                "(existing_dimension=5, configured_dimension=3) hunter2",
+                context=StorageErrorContext(
+                    family=StorageFamily.VECTOR,
+                    backend="qdrant",
+                    instance_name="default",
+                    operation="ensure_index",
+                    resource_name="evidence",
+                    metadata={"existing_dimension": 5, "configured_dimension": 3},
+                ),
+            )
+
+        monkeypatch.setattr(resources.vectors, "ensure_index", mismatched)
+
+        with pytest.raises(RuntimeConfigurationError) as caught:
+            await service.ingest(source_request("task-schema-mismatch"), DescriptorConnector())
+
+        message = str(caught.value)
+        assert "existing dimension 5" in message
+        assert "configured dimension 3" in message
+        assert "hunter2" not in message
+        assert isinstance(caught.value.__cause__, HarborStorageValidationError)
+        task = await control.tasks.get("task-schema-mismatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary["failed_stage"] == "provision"

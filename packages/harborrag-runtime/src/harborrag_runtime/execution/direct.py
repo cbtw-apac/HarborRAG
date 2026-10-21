@@ -3,13 +3,24 @@ from __future__ import annotations
 import asyncio
 import contextlib
 
+from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest, IngestionResult
+from harborrag_runtime.errors import WorkflowRunAlreadyStartedError
 from harborrag_runtime.execution.source_conversion import to_source_request
 from harborrag_runtime.execution.submission import build_ingestion_input
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.runtime_builder import build_ingestion_runtime
+
+_TERMINAL_TASK_STATES = frozenset(
+    {
+        IngestionTaskState.COMPLETED,
+        IngestionTaskState.PARTIAL,
+        IngestionTaskState.FAILED,
+        IngestionTaskState.CANCELLED,
+    }
+)
 
 
 class DirectIngestionExecutor:
@@ -52,6 +63,13 @@ class DirectIngestionExecutor:
                 raise
             if fresh:
                 await self._connect_runtime()
+        # A finished task cannot run again; without this the reused ID would surface
+        # as an invalid state transition from deep inside the run.
+        existing = await runtime.control.tasks.get(source.task_id)
+        if existing is not None and existing.status in _TERMINAL_TASK_STATES:
+            raise WorkflowRunAlreadyStartedError(
+                f"run id {source.task_id!r} already used ({existing.status.value})"
+            )
         source_request = to_source_request(source)
         outcome = await runtime.sources.ingest(source_request, connector)
         return IngestionResult(

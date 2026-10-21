@@ -64,6 +64,34 @@ def test_status_source_raises_when_the_service_fails() -> None:
         asyncio.run(source.snapshot())
 
 
+def _control_plane_status(status: str, public: str) -> AppResponse:
+    return AppResponse(
+        True,
+        {
+            "status": {"run_id": "r1", "status": status},
+            "execution_status": "not_found",
+            "source": "control_plane",
+            "progress": {"processed": 1},
+            "task": {"task_id": "r1", "status": public, "progress": {"processed": 1}},
+        },
+    )
+
+
+def test_status_source_stops_on_an_unsubmitted_control_plane_run() -> None:
+    # A PENDING run Temporal never saw would otherwise be watched forever.
+    source = StatusSource(_Service([_control_plane_status("PENDING", "PENDING")]), "r1")
+    with pytest.raises(ProgressUnavailable, match="no workflow execution"):
+        asyncio.run(source.snapshot())
+
+
+def test_status_source_reports_a_finished_control_plane_run() -> None:
+    source = StatusSource(_Service([_control_plane_status("PARTIAL", "PARTIAL")]), "r1")
+    snapshot = asyncio.run(source.snapshot())
+    assert snapshot is not None
+    assert snapshot.status == "completed"
+    assert snapshot.terminal is True
+
+
 class _Reader:
     def __init__(self, payloads):
         self.payloads = list(payloads)
