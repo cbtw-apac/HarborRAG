@@ -204,12 +204,12 @@ class DurableIngestionOperations:
             if isinstance(exc, WorkflowSubmissionError):
                 # The request may have reached Temporal before the call failed, so the
                 # run stays PENDING for the outbox and the operator learns how to check.
+                # Shared with HTTP, so no CLI command here; the CLI renderer adds one.
                 reason = str(failure.error or type(exc).__name__).rstrip(".")
                 failure = AppResponse(
                     False,
                     failure.data,
-                    f"{reason}. The run may still start; check with: "
-                    f"harborrag ingest status {run_id}",
+                    f"{reason}. The run may still start; check its status with run id {run_id}",
                 )
             return _run_failure(run_id, status, failure)
         try:

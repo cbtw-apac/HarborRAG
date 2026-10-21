@@ -9,7 +9,12 @@ from typing import Any
 import typer
 
 from harborrag_app.cli import runner
-from harborrag_app.cli.progress import ProgressUnavailable, StatusSource, TaskSource
+from harborrag_app.cli.progress import (
+    ProgressSnapshot,
+    ProgressUnavailable,
+    StatusSource,
+    TaskSource,
+)
 from harborrag_app.cli.progress_view import LiveProgress
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.cli.rendering_values import mapping
@@ -152,6 +157,117 @@ async def _start_and_follow(
         await runner.close(service)
 
 
+def invoke_wait(  # noqa: PLR0913 - one parameter per CLI presentation option
+    run_id: str,
+    *,
+    context: typer.Context,
+    action: str,
+    as_json: bool,
+    timeout: float | None = None,
+    submit: ResponseCall | None = None,
+) -> None:
+    """Wait for a durable run's result: ``ingest wait`` and ``ingest start --wait --json``.
+
+    ``submit`` starts the run first, outside the deadline: ``--timeout`` bounds only the
+    wait, so it can never cancel registration or the Temporal start half-way. The run
+    id is known up front, so a timeout and Ctrl-C both name it.
+    """
+
+    code = _run_to_exit_code(
+        _wait(
+            submit,
+            run_id=run_id,
+            action=action,
+            state=runner.state(context),
+            as_json=as_json,
+            timeout=timeout,
+        )
+    )
+    if code:
+        raise typer.Exit(code)
+
+
+async def _wait(  # noqa: PLR0913 - mirrors invoke_wait
+    submit: ResponseCall | None,
+    *,
+    run_id: str,
+    action: str,
+    state: runner.CliState,
+    as_json: bool,
+    timeout: float | None,
+) -> int:
+    renderer = CliRenderer(no_color=state.no_color)
+    service = await runner.build_service(renderer, command="ingest", action=action, as_json=as_json)
+    if service is None:
+        return 1
+    try:
+        unavailable = runner.control_plane_failure(service)
+        if unavailable is not None:
+            runner.emit(
+                unavailable, renderer=renderer, command="ingest", action=action, as_json=as_json
+            )
+            return 1
+        started: dict[str, Any] = {}
+        if submit is not None:
+            try:
+                submitted = await submit(service)
+            except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
+                submitted = runner.failure(exc)
+            if not submitted.ok:
+                runner.emit(
+                    submitted, renderer=renderer, command="ingest", action=action, as_json=as_json
+                )
+                return 1
+            started = dict(submitted.data)
+        result = await _await_result(
+            service, renderer, run_id=run_id, as_json=as_json, timeout=timeout
+        )
+        if result is None:
+            return runner.TIMEOUT_EXIT_CODE
+        # One envelope, shaped as before: the submission's `run`/`workflow`, then the
+        # result (or the failure's fields, as the service's own inline wait reports them).
+        response = AppResponse(result.ok, {**started, **result.data}, result.error)
+        runner.emit(response, renderer=renderer, command="ingest", action=action, as_json=as_json)
+        return 0 if response.ok and run_completed(response) else 1
+    finally:
+        await runner.close(service)
+
+
+async def _await_result(
+    service: BaseAppService,
+    renderer: CliRenderer,
+    *,
+    run_id: str,
+    as_json: bool,
+    timeout: float | None,
+) -> AppResponse | None:
+    """The run's result, or ``None`` once a timeout has been reported."""
+
+    try:
+        async with asyncio.timeout(timeout) as deadline:
+            with renderer.operation("Waiting for ingestion to finish…", enabled=not as_json):
+                return await service.ingestion_result(run_id)
+    except TimeoutError as exc:
+        if not deadline.expired():
+            return runner.failure(exc)
+        await runner.report_timeout(service, renderer, run_id, as_json=as_json)
+        return None
+    except asyncio.CancelledError:
+        _left_running(renderer, run_id)
+        raise
+    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
+        return runner.failure(exc)
+
+
+def _left_running(renderer: CliRenderer, run_id: str) -> None:
+    renderer.error_console.print(
+        f"Left run {run_id} running; re-attach with: harborrag ingest watch {run_id}",
+        markup=False,
+        soft_wrap=True,
+        highlight=False,
+    )
+
+
 def invoke_watch(
     run_id: str,
     *,
@@ -235,8 +351,14 @@ async def _follow_status(  # noqa: PLR0913 - one parameter per CLI presentation 
     )
     try:
         async with asyncio.timeout(timeout) as deadline:
-            await live.follow()
-            result = await service.ingestion_result(run_id)
+            final = await live.follow()
+            if final is not None and final.source == "control_plane":
+                # Temporal no longer knows the run (e.g. its history expired), so
+                # ingestion_result could only answer WorkflowNotFound; the terminal
+                # control-plane record is the outcome.
+                result = _control_plane_result(final)
+            else:
+                result = await service.ingestion_result(run_id)
     except ProgressUnavailable as exc:
         response = AppResponse(False, {"error_type": "ProgressUnavailable"}, str(exc))
         runner.emit(response, renderer=renderer, command="ingest", action="watch", as_json=events)
@@ -248,17 +370,28 @@ async def _follow_status(  # noqa: PLR0913 - one parameter per CLI presentation 
         await runner.report_timeout(service, renderer, run_id, status)
         return runner.TIMEOUT_EXIT_CODE
     except asyncio.CancelledError:
-        renderer.error_console.print(
-            f"Left run {run_id} running; re-attach with: harborrag ingest watch {run_id}",
-            markup=False,
-            soft_wrap=True,
-            highlight=False,
-        )
+        _left_running(renderer, run_id)
         raise
     runner.emit(result, renderer=renderer, command="ingest", action="wait", as_json=events)
     # Same rule as `ingest run`: a durable run that ended PARTIAL or CANCELLED did not
     # finish the requested work either.
     return 0 if result.ok and run_completed(result) else 1
+
+
+def _control_plane_result(snapshot: ProgressSnapshot) -> AppResponse:
+    """A result envelope for a run only the control plane still records."""
+
+    return AppResponse(
+        True,
+        {
+            "result": {
+                "task_id": snapshot.run_id,
+                "status": snapshot.status,
+                "progress": dict(snapshot.progress),
+            },
+            "source": "control_plane",
+        },
+    )
 
 
 def _run_to_exit_code(coroutine: Coroutine[Any, Any, int]) -> int:
@@ -271,4 +404,10 @@ def _run_to_exit_code(coroutine: Coroutine[Any, Any, int]) -> int:
         return INTERRUPTED_EXIT_CODE
 
 
-__all__ = ["invoke_run", "invoke_start_and_follow", "invoke_watch", "run_completed"]
+__all__ = [
+    "invoke_run",
+    "invoke_start_and_follow",
+    "invoke_wait",
+    "invoke_watch",
+    "run_completed",
+]

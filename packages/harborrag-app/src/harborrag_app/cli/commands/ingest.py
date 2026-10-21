@@ -9,9 +9,10 @@ import typer
 
 from harborrag_app.cli.commands.ingest_run import JsonOption, parse_filters, register_run
 from harborrag_app.cli.environment import refuse_checkout_write
-from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch, run_completed
+from harborrag_app.cli.following import invoke_start_and_follow, invoke_wait, invoke_watch
 from harborrag_app.cli.runner import invoke
 from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.workflow_control.ingestion.direct import new_run_id
 
 TimeoutOption = Annotated[
     float | None,
@@ -141,7 +142,10 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         typer.Option(
             "--filters-json",
             metavar="JSON",
-            help="Connector filters as a JSON object; unknown keys are rejected.",
+            help=(
+                "Connector filters as a JSON object; "
+                "unknown keys are rejected for local connectors."
+            ),
         ),
     ] = "{}",
     force_reprocess: Annotated[
@@ -198,12 +202,14 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         filters = parse_filters(filters_json)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--filters-json") from None
+    # Generated here, not by the service, so a timeout or Ctrl-C can always name it.
+    resolved_run_id = run_id or new_run_id()
 
-    def submit(service: BaseAppService, *, wait_inline: bool) -> Awaitable[AppResponse]:
+    def submit(service: BaseAppService) -> Awaitable[AppResponse]:
         return service.start_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,
-            run_id=run_id,
+            run_id=resolved_run_id,
             connection_id=connection_id,
             source_scope_id=source_scope_id,
             path=path,
@@ -216,28 +222,25 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             force_reprocess=force_reprocess,
             batch_size=batch_size,
             document_concurrency=document_concurrency,
-            wait=wait_inline,
+            wait=False,
         )
 
     if wait and not as_json:
-        # Human mode follows the run inline; --json keeps the single-envelope contract.
-        invoke_start_and_follow(
-            lambda service: submit(service, wait_inline=False),
+        # Human mode follows the run inline.
+        invoke_start_and_follow(submit, context=context, interval=_FOLLOW_INTERVAL, timeout=timeout)
+        return
+    if wait:
+        # --json keeps the single-envelope contract; --timeout bounds only the wait.
+        invoke_wait(
+            resolved_run_id,
             context=context,
-            interval=_FOLLOW_INTERVAL,
+            action="start",
+            as_json=True,
             timeout=timeout,
+            submit=submit,
         )
         return
-    invoke(
-        lambda service: submit(service, wait_inline=wait),
-        context=context,
-        command="ingest",
-        action="start",
-        as_json=as_json,
-        succeeded=run_completed if wait else None,
-        timeout=timeout if wait else None,
-        run_id=run_id,
-    )
+    invoke(submit, context=context, command="ingest", action="start", as_json=as_json)
 
 
 @app.command(help="Query a running ingestion.", rich_help_panel="Observe")
@@ -266,16 +269,7 @@ def wait(
 ) -> None:
     """Block until Temporal returns the terminal ingestion summary."""
 
-    invoke(
-        lambda service: service.ingestion_result(run_id),
-        context=context,
-        command="ingest",
-        action="wait",
-        as_json=as_json,
-        succeeded=run_completed,
-        timeout=timeout,
-        run_id=run_id,
-    )
+    invoke_wait(run_id, context=context, action="wait", as_json=as_json, timeout=timeout)
 
 
 @app.command(help="Follow a running ingestion inline.", rich_help_panel="Observe")

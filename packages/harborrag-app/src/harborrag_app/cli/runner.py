@@ -43,8 +43,6 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     as_json: bool = False,
     requires_control_plane: bool = True,
     succeeded: Callable[[AppResponse], bool] | None = None,
-    timeout: float | None = None,
-    run_id: str | None = None,
 ) -> None:
     """Execute one application-service call and render its stable response.
 
@@ -56,6 +54,8 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
 
     ``succeeded`` adds a command-specific test on an ``ok`` response before exiting 0:
     a wait that returns a FAILED run is a successful call but not a successful command.
+    Waiting on a durable run (with ``--timeout`` and Ctrl-C handling) lives in
+    ``cli.following``.
     """
 
     exit_code = asyncio.run(
@@ -67,8 +67,6 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
             as_json=as_json,
             requires_control_plane=requires_control_plane,
             succeeded=succeeded,
-            timeout=timeout,
-            run_id=run_id,
         )
     )
     if exit_code:
@@ -84,8 +82,6 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
     as_json: bool,
     requires_control_plane: bool = True,
     succeeded: Callable[[AppResponse], bool] | None = None,
-    timeout: float | None = None,
-    run_id: str | None = None,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     service = await build_service(renderer, command=command, action=action, as_json=as_json)
@@ -103,18 +99,11 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
             )
             return 1
         try:
-            async with asyncio.timeout(timeout) as deadline:
-                with renderer.operation(
-                    _operation_message(command, action),
-                    enabled=not as_json,
-                ):
-                    response = await call(service)
-        except TimeoutError as exc:
-            if not deadline.expired():
-                response = failure(exc)
-            else:
-                await report_timeout(service, renderer, run_id or "")
-                return TIMEOUT_EXIT_CODE
+            with renderer.operation(
+                _operation_message(command, action),
+                enabled=not as_json,
+            ):
+                response = await call(service)
         except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
             response = failure(exc)
         emit(
@@ -130,9 +119,19 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
 
 
 async def report_timeout(
-    service: BaseAppService, renderer: CliRenderer, run_id: str, status: str | None = None
+    service: BaseAppService,
+    renderer: CliRenderer,
+    run_id: str,
+    status: str | None = None,
+    *,
+    as_json: bool = False,
 ) -> None:
-    """Tell the operator the wait expired while the durable run carries on."""
+    """Tell the operator the wait expired while the durable run carries on.
+
+    With ``as_json`` stdout also gets one envelope: ``ok`` is true because the call
+    executed, ``timed_out`` and exit 3 say the wait gave up, and ``run`` says where
+    the run stands.
+    """
 
     if status is None:
         status = "running"
@@ -153,6 +152,15 @@ async def report_timeout(
         soft_wrap=True,
         highlight=False,
     )
+    if as_json:
+        timed_out = {"run": {"run_id": run_id, "status": status}, "timed_out": True}
+        emit(
+            AppResponse(True, timed_out),
+            renderer=renderer,
+            command="ingest",
+            action=None,
+            as_json=True,
+        )
 
 
 async def build_service(

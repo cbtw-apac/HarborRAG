@@ -100,7 +100,10 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
         typer.Option(
             "--filters-json",
             metavar="JSON",
-            help="Connector filters as a JSON object; unknown keys are rejected.",
+            help=(
+                "Connector filters as a JSON object; "
+                "unknown keys are rejected for local connectors."
+            ),
         ),
     ] = "{}",
     force_reprocess: Annotated[

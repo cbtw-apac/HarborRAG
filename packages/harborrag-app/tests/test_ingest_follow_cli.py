@@ -89,16 +89,19 @@ def test_start_wait_follows_then_prints_the_result(monkeypatch, capsys) -> None:
 
 
 def test_start_wait_json_keeps_the_single_envelope(monkeypatch, capsys) -> None:
-    class JsonService(FollowService):
-        async def start_ingestion(self, **kwargs):  # type: ignore[override]
-            assert kwargs["wait"] is True
-            return AppResponse(True, {"run": {"run_id": "r"}, "result": {"status": "completed"}})
+    """Submission and the wait are separate calls, but stdout still gets one envelope."""
 
-    monkeypatch.setattr(cli_runner, "runtime_app_service", JsonService)
+    services: list[FollowService] = []
+    monkeypatch.setattr(cli_runner, "runtime_app_service", _factory(services))
 
-    assert cli.main(["ingest", "start", "--connector-id", "ws", "--wait", "--json"]) == 0
+    argv = ["ingest", "start", "--connector-id", "ws", "--run-id", "run-42", "--wait", "--json"]
+    assert cli.main(argv) == 0
     payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert set(payload["data"]) == {"run", "workflow", "result"}
+    assert payload["data"]["run"]["run_id"] == "run-42"
     assert payload["data"]["result"]["status"] == "completed"
+    assert services[0].result_calls == ["run-42"]
 
 
 def test_watch_runs_to_terminal_and_prints_the_result(monkeypatch, capsys) -> None:
@@ -223,8 +226,8 @@ def test_start_wait_json_exits_one_when_the_run_did_not_complete(
     status, monkeypatch, capsys
 ) -> None:
     class Unfinished(FollowService):
-        async def start_ingestion(self, **kwargs):  # type: ignore[override]
-            return AppResponse(True, {"run": {"run_id": "r"}, "result": {"status": status}})
+        async def ingestion_result(self, run_id):
+            return AppResponse(True, {"result": {"task_id": run_id, "status": status}})
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Unfinished)
 
@@ -354,3 +357,251 @@ def test_wait_timeout_still_exits_three_when_the_status_lookup_hangs(monkeypatch
     assert code == 3
     assert time.monotonic() - started < 5
     assert "Run run-42 is still running" in capsys.readouterr().err
+
+
+def test_ambiguous_start_failure_points_the_cli_at_ingest_status(monkeypatch, capsys) -> None:
+    """The shared message is neutral; only the CLI rendering names the CLI command."""
+
+    class Ambiguous(FollowService):
+        async def start_ingestion(self, **kwargs):  # type: ignore[override]
+            return AppResponse(
+                False,
+                {
+                    "run": {"run_id": kwargs["run_id"], "status": "PENDING"},
+                    "error_type": "WorkflowSubmissionError",
+                },
+                f"Submission failed. The run may still start; check its status with run id "
+                f"{kwargs['run_id']}",
+            )
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Ambiguous)
+
+    argv = ["--no-color", "ingest", "start", "ws", "--run-id", "run-amb"]
+    assert cli.main(argv) == 1
+    err = " ".join(capsys.readouterr().err.split())
+    assert "harborrag ingest status run-amb" in err
+
+    assert cli.main([*argv, "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert "harborrag ingest status" not in payload["error"]
+
+
+@pytest.mark.parametrize("name", ["start", "run"])
+def test_filters_json_help_scopes_key_validation_to_local_connectors(name) -> None:
+    """Only the local connector validates filter keys; the help must not promise more."""
+
+    import typer
+
+    from harborrag_app.cli.commands import ingest
+
+    group = typer.main.get_command(ingest.app)
+    command = group.commands[name]  # type: ignore[attr-defined]
+    option = next(param for param in command.params if "--filters-json" in param.opts)
+    assert option.help.endswith("unknown keys are rejected for local connectors.")
+
+
+class _GeneratedRunService(FollowService):
+    """Echoes the run id the CLI submits, as the real service does."""
+
+    submitted: list[dict[str, object]]
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.submitted = []
+
+    async def start_ingestion(self, **kwargs):  # type: ignore[override]
+        assert kwargs["wait"] is False
+        self.submitted.append(kwargs)
+        return AppResponse(
+            True,
+            {"run": {"run_id": kwargs["run_id"], "status": "PENDING"}, "workflow": {}},
+        )
+
+    async def ingestion_status(self, run_id):
+        return AppResponse(
+            True,
+            {
+                "status": {"run_id": run_id, "status": "RUNNING"},
+                "execution_status": "running",
+                "progress": {"discovered": 3, "processed": 1},
+            },
+        )
+
+
+def test_start_wait_json_timeout_reports_the_generated_run_id(monkeypatch, capsys) -> None:
+    """Without --run-id the CLI generates the id up front, so a timeout can still name it."""
+
+    import asyncio
+
+    services: list[_GeneratedRunService] = []
+
+    class Slow(_GeneratedRunService):
+        async def ingestion_result(self, run_id):
+            await asyncio.sleep(30)
+
+    def make() -> Slow:
+        services.append(Slow())
+        return services[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", make)
+
+    code = cli.main(["ingest", "start", "ws", "--wait", "--json", "--timeout", "1"])
+
+    captured = capsys.readouterr()
+    run_id = services[0].submitted[0]["run_id"]
+    assert isinstance(run_id, str) and run_id.startswith("ingest-")
+    assert code == 3
+    assert json.loads(captured.out) == {
+        "ok": True,
+        "data": {"run": {"run_id": run_id, "status": "running"}, "timed_out": True},
+        "error": None,
+    }
+    assert f"Run {run_id} is still running" in captured.err
+
+
+def test_start_wait_timeout_never_bounds_the_submission(monkeypatch, capsys) -> None:
+    """The deadline covers waiting for the result only, never registration or the start."""
+
+    import asyncio
+
+    class SlowSubmit(_GeneratedRunService):
+        async def start_ingestion(self, **kwargs):  # type: ignore[override]
+            await asyncio.sleep(1.3)
+            return await super().start_ingestion(**kwargs)
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", SlowSubmit)
+
+    code = cli.main(
+        ["ingest", "start", "ws", "--run-id", "r-1", "--wait", "--json", "--timeout", "1"]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert code == 0
+    assert payload["data"]["result"]["status"] == "completed"
+
+
+def test_start_wait_json_result_failure_keeps_the_run(monkeypatch, capsys) -> None:
+    class Lost(_GeneratedRunService):
+        async def ingestion_result(self, run_id):
+            return AppResponse(False, {"error_type": "WorkflowNotFoundError"}, "not found")
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Lost)
+
+    assert cli.main(["ingest", "start", "ws", "--run-id", "r-2", "--wait", "--json"]) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["ok"] is False
+    assert payload["data"]["run"]["run_id"] == "r-2"
+    assert payload["data"]["error_type"] == "WorkflowNotFoundError"
+
+
+def test_wait_json_timeout_prints_the_timed_out_envelope(monkeypatch, capsys) -> None:
+    import asyncio
+
+    class Slow(_GeneratedRunService):
+        async def ingestion_result(self, run_id):
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Slow)
+
+    code = cli.main(["ingest", "wait", "run-42", "--json", "--timeout", "1"])
+
+    captured = capsys.readouterr()
+    assert code == 3
+    assert json.loads(captured.out) == {
+        "ok": True,
+        "data": {"run": {"run_id": "run-42", "status": "running"}, "timed_out": True},
+        "error": None,
+    }
+    assert "Run run-42 is still running" in captured.err
+
+
+@pytest.mark.parametrize("as_json", [False, True])
+def test_wait_ctrl_c_leaves_the_run_running(as_json, monkeypatch, capsys) -> None:
+    import asyncio
+
+    class Interrupted(FollowService):
+        async def ingestion_result(self, run_id):
+            raise asyncio.CancelledError
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Interrupted)
+
+    code = cli.main(["ingest", "wait", "run-42", *(["--json"] if as_json else [])])
+
+    err = capsys.readouterr().err
+    assert code == 130
+    assert "Left run run-42 running; re-attach with: harborrag ingest watch run-42" in err
+
+
+def test_start_wait_json_ctrl_c_names_the_generated_run(monkeypatch, capsys) -> None:
+    import asyncio
+
+    services: list[_GeneratedRunService] = []
+
+    class Interrupted(_GeneratedRunService):
+        async def ingestion_result(self, run_id):
+            raise asyncio.CancelledError
+
+    def make() -> Interrupted:
+        services.append(Interrupted())
+        return services[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", make)
+
+    code = cli.main(["ingest", "start", "ws", "--wait", "--json"])
+
+    run_id = services[0].submitted[0]["run_id"]
+    err = capsys.readouterr().err
+    assert code == 130
+    assert f"Left run {run_id} running; re-attach with: harborrag ingest watch {run_id}" in err
+
+
+@pytest.mark.parametrize(
+    ("task_status", "expected_code", "expected_status"),
+    [("SUCCESS", 0, "completed"), ("FAILED", 1, "failed"), ("PARTIAL", 1, "partial")],
+)
+def test_watch_settles_on_the_control_plane_record_when_temporal_forgot_the_run(
+    task_status, expected_code, expected_status, monkeypatch, capsys
+) -> None:
+    """Expired Temporal history: the terminal control-plane snapshot is the outcome.
+
+    `ingestion_result` would only answer WorkflowNotFound, turning a COMPLETED run
+    into exit 1, so it must not be called.
+    """
+
+    services: list[FollowService] = []
+
+    class Expired(FollowService):
+        async def ingestion_status(self, run_id):
+            return AppResponse(
+                True,
+                {
+                    "status": {"run_id": run_id, "status": task_status},
+                    "execution_status": "not_found",
+                    "source": "control_plane",
+                    "progress": {"discovered": 3, "processed": 3},
+                    "task": {
+                        "task_id": run_id,
+                        "status": task_status,
+                        "progress": {"discovered": 3, "processed": 3},
+                    },
+                },
+            )
+
+        async def ingestion_result(self, run_id):
+            self.result_calls.append(run_id)
+            return AppResponse(False, {"error_type": "WorkflowNotFoundError"}, "not found")
+
+    def make() -> Expired:
+        services.append(Expired())
+        return services[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", make)
+
+    code = cli.main(["ingest", "watch", "run-old", "--refresh", "0.25", "--events"])
+
+    final = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert code == expected_code
+    assert services[0].result_calls == []
+    assert final["ok"] is True
+    assert final["data"]["result"]["status"] == expected_status
+    assert final["data"]["source"] == "control_plane"

@@ -458,7 +458,9 @@ async def test_ambiguous_submission_failure_stays_pending_with_guidance() -> Non
     assert response.data["run"]["status"] == "PENDING"
     assert response.data["error_type"] == "WorkflowSubmissionError"
     assert "may still start" in str(response.error)
-    assert "harborrag ingest status run-ambiguous" in str(response.error)
+    assert "check its status with run id run-ambiguous" in str(response.error)
+    # Shared with HTTP: no CLI command in the message; the CLI renderer adds its own.
+    assert "harborrag" not in str(response.error)
     assert registry.tasks["run-ambiguous"].status is IngestionTaskState.PENDING
     assert registry.transitions == []
     assert registry.summaries == []
