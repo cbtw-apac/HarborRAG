@@ -259,8 +259,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   connectors catalog when a definition is invalid.
 - Startup failures are readable: a failed control DB, object store, vector or graph connect (or
   bucket provisioning) raises `RuntimeConnectionError` naming a credential-free target
-  (`scheme://host[:port]`, never userinfo, DSN or query) and a fix hint. A contradicting
-  `HARBORRAG_EMBEDDING_DIMENSIONS` fails fast, and requests are validated before any I/O.
+  (`scheme://host[:port]`, never userinfo, DSN or query) and a fix hint. A
+  `HARBORRAG_EMBEDDING_DIMENSIONS` that contradicts the deployments' `expected_dimensions` fails
+  fast (a model's `default_params.dimensions` alone does not pin it), and requests are validated
+  before any I/O.
 - Ingestion run lifecycle: Ctrl-C persists the run as `CANCELLED` and a failed dispatch persists
   `FAILED` with the stage, so a scan never stays `STARTED` and blocks its scope; a failed progress
   read no longer cancels an inline run. Reusing the id of a finished run is rejected with
@@ -268,18 +270,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fail.
 - `ingest wait` and `ingest start --wait --json` exit non-zero when the run did not complete.
   `ingest run`, `watch` and `start --wait` show `PARTIAL` runs as their own terminal status and
-  name the run (and how to re-attach) on Ctrl-C (exit 130). `--timeout SECONDS` on `watch`, `wait`
-  and `start --wait` exits 3 and keeps the run going; the status lookup behind it is bounded to
-  2 seconds. `ingest start` accepts `CONNECTOR` positionally and validates `--filters-json` up
-  front, and `--tenant` reads `HARBORRAG_INGESTION_TENANT_ID`.
+  name the run (and how to re-attach) on Ctrl-C (exit 130); so do `wait` and `start --wait --json`.
+  `--timeout SECONDS` on `watch`, `wait` and `start --wait` exits 3 and keeps the run going; it
+  bounds only the wait, never the submission, and the status lookup behind it is bounded to
+  2 seconds. With `--json` a timeout prints `{"run": {"run_id", "status"}, "timed_out": true}`
+  (`ok: true`). `ingest start` generates an omitted run id itself, so a timeout or Ctrl-C always
+  names it, accepts `CONNECTOR` positionally and validates `--filters-json` up front, and
+  `--tenant` reads `HARBORRAG_INGESTION_TENANT_ID`.
 - `ingest status` falls back to the control-plane record (`execution_status: "not_found"`,
   `source: "control_plane"`) when Temporal does not know the run, and `ingest watch` stops
-  instead of following such a run that is not terminal.
+  instead of following such a run that is not terminal. When such a run is terminal (e.g. its
+  Temporal history expired), `watch` takes its outcome from the control-plane record, so a
+  completed run exits 0.
 - Legacy `POST /ingestions`: when Temporal cannot be reached at connect time, the run is now
-  marked `FAILED` (`failed_stage` `submission`, run id in the response) instead of staying
-  `PENDING` and starting later unannounced. An ambiguous submission failure
-  (`WorkflowSubmissionError`) still leaves the run `PENDING`. The run is failed only while it is
-  still unsubmitted, so a run the outbox or worker started in the meantime keeps its real status.
+  marked `FAILED` (`failed_stage` `submission`) instead of staying `PENDING` and starting later
+  unannounced; the error `details` carry `run` (`run_id`, `status`). An ambiguous submission
+  failure (`WorkflowSubmissionError`) still leaves the run `PENDING`, and its message names the
+  run id to check (transport-neutral; the CLI adds `harborrag ingest status RUN_ID`). The run is
+  failed only while it is still unsubmitted, so a run the outbox or worker started in the meantime
+  keeps its real status.
 - Legacy `GET /ingestions/{id}`: returns 200 with the control-plane view
   (`execution_status: "not_found"`, `source: "control_plane"`) when the run exists in the
   database but Temporal does not know it, where it previously returned 404. It still returns 404
@@ -293,10 +302,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   warning per document and the traceback only at `DEBUG`. A Qdrant vector-schema mismatch names
   the existing and configured dimensions and fails the run as non-retryable
   `VectorIndexSchemaError` (`failed_stage` `provision`).
-- Local connector queries reject unknown filter keys at submission, listing the allowed keys, and
-  out-of-scope path errors name the configured source root. Scans narrowed with `--limit` or
-  `--updated-after` no longer retire documents they did not visit; full scans, including empty
-  ones, reconcile as before.
+- Local connector queries reject unknown filter keys at submission, listing the allowed keys (other
+  connectors do not validate filter keys), and out-of-scope path errors name the configured source
+  root. Scans narrowed with `--limit` or `--updated-after` no longer retire documents they did not
+  visit; full scans, including empty ones, reconcile as before.
 - `harborrag auth keys`: `create` reports a database behind the packaged head and names both
   revisions and `--migrate` (which upgrades it); `list` and `revoke` only need the table. A
   constraint rejection is reported without SQL parameters, `revoke --key-id` distinguishes

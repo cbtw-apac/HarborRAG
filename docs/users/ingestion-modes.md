@@ -56,8 +56,8 @@ change tokens are not sufficiently reliable. Narrow a run with `--path` (a path
 inside the connector's source root; for the local connector, relative to
 `source_path`), `--pattern` (a case-insensitive substring, or a glob matched
 against the path relative to the source root) and `--filters-json` (connector
-filters as a JSON object; unknown keys are rejected). Attachment/comment behavior
-remains in `config/connectors.yaml`.
+filters as a JSON object; unknown keys are rejected for local connectors).
+Attachment/comment behavior remains in `config/connectors.yaml`.
 
 There are two change checkpoints. Descriptor admission runs before content is
 loaded and can skip a source item cheaply. Canonical admission runs after parsing
@@ -116,7 +116,7 @@ unset. Values in the project `.env` win. Nothing else is loaded, so the control 
 sqlite unless you export `HARBORRAG_CONTROL_DB_URL`. `ingest run` and `ingest start` refuse to run
 from a checkout on the default sqlite database; read-only commands still work.
 
-Every CLI command runs the control-database migrations. Rebuild the images
+CLI commands that open the control database run its migrations. Rebuild the images
 (`scripts/deployment/dev.sh up --build`) before pointing the CLI at the stack's Postgres, or the
 CLI can migrate the database ahead of the running services.
 

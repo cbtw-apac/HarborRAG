@@ -166,7 +166,10 @@ artifacts after a terminal failure.
 `ingest start --wait` and `ingest watch RUN_ID` show the same inline progress block as
 `ingest run`, polling Temporal every `--refresh` seconds (0.25–60, default 1) until the run
 settles, then print the final summary. `--timeout SECONDS` (also on `wait`) stops following
-after that long and exits 3; the run keeps going. Ctrl-C leaves the run untouched (exit 130); use
+after that long and exits 3; the run keeps going. The timeout bounds only the wait, never the
+submission, and with `--json` it prints
+`{"ok":true,"data":{"run":{"run_id":"…","status":"running"},"timed_out":true},"error":null}`.
+Ctrl-C (also on `wait`) leaves the run untouched and names it (exit 130); use
 `ingest pause|resume|cancel` to control it. `--events` (on `watch`) streams NDJSON instead.
 
 JSON output uses a stable envelope:
