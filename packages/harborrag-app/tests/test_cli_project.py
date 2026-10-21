@@ -333,3 +333,49 @@ def test_tracebacks_are_debug_only(
     assert "call failed" in output
     assert ("Traceback" in output) is expect_traceback
     assert ("set HARBORRAG_LOG_LEVEL=DEBUG for the traceback" in output) is not expect_traceback
+
+
+def test_quiet_tracebacks_do_not_strip_exc_info_from_other_handlers(
+    _pristine_harborrag_logger, monkeypatch, capsys
+) -> None:
+    """The quiet filter shortens only its own handler's output, never the shared record.
+
+    Another handler on the same logger (pytest's caplog, a second sink) must still see
+    ``exc_info`` after ``cli.main`` has configured logging in the process.
+    """
+
+    import io
+    import logging
+
+    from harborrag_app.cli import main as cli
+    from harborrag_core.observability import process_logging
+
+    stream = io.StringIO()
+    monkeypatch.setattr(process_logging.sys, "stderr", stream)
+    monkeypatch.setenv("HARBORRAG_LOG_LEVEL", "WARNING")
+    assert cli.main(["--help"]) == 0
+    capsys.readouterr()
+
+    seen: list[logging.LogRecord] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append(record)
+
+    capture = Capture(level=logging.DEBUG)
+    # On the same logger, after the managed handler: the order that used to lose exc_info.
+    _pristine_harborrag_logger.addHandler(capture)
+    try:
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            logging.getLogger("harborrag.mcp.tools").error("call failed", exc_info=True)
+    finally:
+        _pristine_harborrag_logger.removeHandler(capture)
+
+    assert len(seen) == 1
+    assert seen[0].exc_info is not None and seen[0].exc_info[0] is RuntimeError
+    assert seen[0].getMessage() == "call failed"
+    output = stream.getvalue()
+    assert "call failed" in output and "Traceback" not in output
+    assert "set HARBORRAG_LOG_LEVEL=DEBUG for the traceback" in output

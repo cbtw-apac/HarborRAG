@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 import logging
 import os
 import sys
@@ -201,14 +202,20 @@ _TRACEBACK_HINT = " (set HARBORRAG_LOG_LEVEL=DEBUG for the traceback)"
 
 
 class _QuietTracebackFilter(logging.Filter):
-    """Drop `exc_info` above DEBUG so a failure is one line, not a stack dump."""
+    """Drop `exc_info` above DEBUG so a failure is one line, not a stack dump.
 
-    def filter(self, record: logging.LogRecord) -> bool:
+    Returns a shortened copy instead of editing the record: every handler sees the
+    same LogRecord, and the others (a second sink, pytest's caplog) keep the traceback.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool | logging.LogRecord:
         if record.exc_info and logging.getLogger("harborrag").getEffectiveLevel() > logging.DEBUG:
-            record.msg = record.getMessage() + _TRACEBACK_HINT
-            record.args = None
-            record.exc_info = None
-            record.exc_text = None
+            quiet = copy.copy(record)
+            quiet.msg = record.getMessage() + _TRACEBACK_HINT
+            quiet.args = None
+            quiet.exc_info = None
+            quiet.exc_text = None
+            return quiet
         return True
 
 
