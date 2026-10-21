@@ -270,8 +270,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   scripts that read `already_revoked` or `error_code`.
 - Starting a run with the id of a run that already finished is rejected with
   `WorkflowRunAlreadyStartedError`, for `harborrag ingest run`, `ingest start` and
-  `POST /ingestions` (409, `ingestion_run_already_started`); a durable start used to launch a
-  workflow that the control plane then refused. Use a new run id for every run.
+  `POST /ingestions` (409, `ingestion_run_already_started`); previously `ingest start` reported
+  "Ingestion started" while silently reattaching to the finished workflow, and `ingest run`
+  failed with a bare `HarborConflictError`. Use a new run id for every run.
 - `POST /ingestions` (and `harborrag ingest start`): when Temporal cannot be reached at connect
   time, the registered run is marked `FAILED` (`failed_stage: submission`,
   `error_code: submission_failed`) instead of staying `PENDING` and being started later,
