@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -99,19 +100,17 @@ def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None
         )
 
 
-def _origin(url: str) -> tuple[str, str, int | None] | None:
-    """(scheme, host, port) of a clean http(s) URL, else ``None``.
+def _authority(url: str, *, schemes: Callable[[str], bool]) -> tuple[str, str, int | None] | None:
+    """(scheme, host, port) of a cleanly parsed URL, else ``None``.
 
-    Never the path, query or userinfo: an unencoded ``/`` in a password moves
-    part of it into the path, so anything that does not parse cleanly is
-    treated as unrenderable rather than partially shown.
+    Never the path, query or userinfo: an unencoded ``/``, ``?`` or ``#`` in a
+    password splits it, so what looks like a host or port may be a credential
+    fragment. Anything that does not parse cleanly is treated as unrenderable.
     """
 
     parts = urlsplit(url)
-    if parts.scheme not in {"http", "https"}:
+    if not schemes(parts.scheme):
         return None
-    # An "@" beyond the netloc means a "/", "?" or "#" split the userinfo, so
-    # what looks like a host or port may be a password fragment.
     if "@" in url.replace(parts.netloc, "", 1):
         return None
     try:
@@ -122,6 +121,10 @@ def _origin(url: str) -> tuple[str, str, int | None] | None:
     if not host:
         return None
     return parts.scheme, f"[{host}]" if ":" in host else host, port
+
+
+def _origin(url: str) -> tuple[str, str, int | None] | None:
+    return _authority(url, schemes=lambda scheme: scheme in {"http", "https"})
 
 
 def _display_url(url: str) -> str | None:
@@ -139,13 +142,12 @@ def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
     if control_url.lower().startswith("sqlite"):
         control = "sqlite"
     else:
-        parts = urlsplit(control_url)
-        try:
-            port = parts.port
-        except ValueError:
-            port = None
-        host = parts.hostname or "unknown-host"
-        control = f"postgresql {host}:{port}" if port else f"postgresql {host}"
+        authority = _authority(control_url, schemes=lambda scheme: scheme.startswith("postgres"))
+        if authority is None:
+            control = "postgresql (configured URL)"
+        else:
+            _, host, port = authority
+            control = f"postgresql {host}:{port}" if port is not None else f"postgresql {host}"
     if settings.object_store_provider == "s3" and settings.object_store_endpoint_url:
         object_store = (
             _display_url(settings.object_store_endpoint_url) or "object store (configured URL)"

@@ -298,3 +298,44 @@ def test_qdrant_target_never_renders_unparseable_userinfo(
     assert vector == expected
     for fragment in ("secret", "pa", "ss", "u:", "api_key", "12", "tok", "65535"):
         assert fragment not in vector
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql+asyncpg://postgres:12/x@db:5432/h",
+        "postgresql+asyncpg://postgres:pa/ss@db:5432/h",
+        "postgresql+asyncpg://postgres:se#cret@db:5432/h",
+    ],
+)
+def test_control_target_hides_split_userinfo(dsn: str) -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        control_db_url=SecretStr(dsn),
+        qdrant_url="http://localhost:6333",
+        qdrant_prefer_grpc=True,
+        object_store_provider="memory",
+    )
+    control = resource_targets(settings)["control"]
+
+    assert control == "postgresql (configured URL)"
+    for fragment in ("postgres:", "12", "pa", "ss", "cret"):
+        assert fragment not in control.replace("postgresql", "")
+
+
+def test_control_target_renders_a_valid_dsn_host_and_port() -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        control_db_url=SecretStr("postgresql+asyncpg://postgres:p%2Fw@db:5432/h"),
+        qdrant_url="http://localhost:6333",
+        qdrant_prefer_grpc=True,
+        object_store_provider="memory",
+    )
+
+    assert resource_targets(settings)["control"] == "postgresql db:5432"
