@@ -107,6 +107,22 @@ documents are unchanged but vector or graph projections must be rebuilt, such
 as after changing Qdrant collection names. See
 [Projection rebuild](../developers/architecture/projection-rebuild.md).
 
+## Running the CLI from a checkout
+
+From a repo checkout the CLI reads only `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` from
+`env/.env.database` (honouring `DATABASE_ENV_FILE`) and maps them to
+`HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` / `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` when those are
+unset. Values in the project `.env` win. Nothing else is loaded, so the control database stays
+sqlite unless you export `HARBORRAG_CONTROL_DB_URL`. `ingest run` and `ingest start` refuse to run
+from a checkout on the default sqlite database; read-only commands still work.
+
+Every CLI command runs the control-database migrations. Rebuild the images
+(`scripts/deployment/dev.sh up --build`) before pointing the CLI at the stack's Postgres, or the
+CLI can migrate the database ahead of the running services.
+
+`ingest start CONNECTOR` takes the connector positionally, and `--timeout SECONDS` on
+`--wait`, `watch` and `wait` exits 3 while the run keeps going.
+
 ## Choosing a mode
 
 | Situation | Use |

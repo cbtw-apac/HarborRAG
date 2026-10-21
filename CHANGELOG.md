@@ -241,6 +241,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.
+- CLI: unknown top-level commands now report "No such command" (exit 2) instead of "no project
+  found"; the `auth` help text describes `auth keys create|list|revoke`; a `HarborConfigurationError`
+  is shown with its message instead of the bare class name; Pydantic validation errors list
+  `field: reason` pairs and never the offending input; the log handler hides tracebacks above
+  `DEBUG` and points at `HARBORRAG_LOG_LEVEL=DEBUG`; and importing the CLI no longer loads the
+  storage clients.
+- CLI from a repo checkout: the CLI reads only `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
+  `env/.env.database` (honouring `DATABASE_ENV_FILE`), mapped to
+  `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` / `_SECRET_ACCESS_KEY` when unset, so project `.env`
+  values still win. An unreadable env file is skipped. `ingest run` and `ingest start` refuse
+  to run from a checkout on the default sqlite control DB (export `HARBORRAG_CONTROL_DB_URL`).
+- `harborrag doctor`: signs a real `ListBuckets` call for the object store (`AccessDenied` counts
+  as authenticated) and reports only the S3 error code, probes Qdrant's gRPC port when preferred,
+  warns on the checkout sqlite control DB fallback, names the checkout env files and `dev.sh` in
+  its hints, ignores `${VAR}` references in commented-out `models.yaml` lines, and fails the
+  connectors catalog when a definition is invalid.
+- Startup failures are readable: a failed control DB, object store, vector or graph connect (or
+  bucket provisioning) raises `RuntimeConnectionError` naming a credential-free target
+  (`scheme://host[:port]`, never userinfo, DSN or query) and a fix hint. A contradicting
+  `HARBORRAG_EMBEDDING_DIMENSIONS` fails fast, and requests are validated before any I/O.
+- Ingestion run lifecycle: Ctrl-C persists the run as `CANCELLED` and a failed dispatch persists
+  `FAILED` with the stage, so a scan never stays `STARTED` and blocks its scope; a failed progress
+  read no longer cancels an inline run. Reusing the id of a finished run is rejected with
+  `WorkflowRunAlreadyStartedError`. Control actions on a run without a local task row no longer
+  fail.
+- `ingest wait` and `ingest start --wait --json` exit non-zero when the run did not complete.
+  `ingest run`, `watch` and `start --wait` show `PARTIAL` runs as their own terminal status and
+  name the run (and how to re-attach) on Ctrl-C (exit 130). `--timeout SECONDS` on `watch`, `wait`
+  and `start --wait` exits 3 and keeps the run going; the status lookup behind it is bounded to
+  2 seconds. `ingest start` accepts `CONNECTOR` positionally and validates `--filters-json` up
+  front, and `--tenant` reads `HARBORRAG_INGESTION_TENANT_ID`.
+- `ingest status` falls back to the control-plane record (`execution_status: "not_found"`,
+  `source: "control_plane"`) when Temporal does not know the run, and `ingest watch` stops
+  instead of following such a run that is not terminal.
+- Legacy `POST /ingestions`: when Temporal cannot be reached at connect time, the run is now
+  marked `FAILED` (`failed_stage` `submission`, run id in the response) instead of staying
+  `PENDING` and starting later unannounced. An ambiguous submission failure
+  (`WorkflowSubmissionError`) still leaves the run `PENDING`. The run is failed only while it is
+  still unsubmitted, so a run the outbox or worker started in the meantime keeps its real status.
+- Legacy `GET /ingestions/{id}`: returns 200 with the control-plane view
+  (`execution_status: "not_found"`, `source: "control_plane"`) when the run exists in the
+  database but Temporal does not know it, where it previously returned 404. It still returns 404
+  when there is no such run.
+- Inline and worker-created tasks carry submission state `executor`, so the API outbox only
+  re-submits genuinely unsubmitted durable runs.
+- Failed runs are readable: Temporal workflow, child and activity failures are translated to the
+  safe error type and code (with a hint when a worker lacks the connector configuration), the
+  source workflow query status is `FAILED` after a discovery failure, and per-document failures
+  record the real failing stage and classifier code (parser rejections are non-retryable) with one
+  warning per document and the traceback only at `DEBUG`. A Qdrant vector-schema mismatch names
+  the existing and configured dimensions and fails the run as non-retryable
+  `VectorIndexSchemaError` (`failed_stage` `provision`).
+- Local connector queries reject unknown filter keys at submission, listing the allowed keys, and
+  out-of-scope path errors name the configured source root. Scans narrowed with `--limit` or
+  `--updated-after` no longer retire documents they did not visit; full scans, including empty
+  ones, reconcile as before.
+- `harborrag auth keys`: `create` reports a database behind the packaged head and names both
+  revisions and `--migrate` (which upgrades it); `list` and `revoke` only need the table. A
+  constraint rejection is reported without SQL parameters, `revoke --key-id` distinguishes
+  `revoked`, `already_revoked` and `not_found` (exit 1), and revoking by owner with nothing
+  active reports `active_keys: 0`.
 
 ### Security
 

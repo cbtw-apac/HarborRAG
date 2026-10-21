@@ -142,7 +142,8 @@ harborrag ingest resume RUN_ID [--json]
 harborrag ingest cancel RUN_ID [--json]
 ```
 
-`--connector-id` is the only required option; `--connector` is an accepted alias for it.
+`--connector-id` is the only required option; `--connector` is an accepted alias for it, and
+`CONNECTOR` is also accepted positionally (`harborrag ingest start local`).
 The value is a connection name from `config/connectors.yaml`, not a source type, so
 `--connector-id local` fails with the list of valid IDs. `--tenant` defaults to `DEFAULT`.
 
@@ -164,7 +165,8 @@ artifacts after a terminal failure.
 
 `ingest start --wait` and `ingest watch RUN_ID` show the same inline progress block as
 `ingest run`, polling Temporal every `--refresh` seconds (0.25–60, default 1) until the run
-settles, then print the final summary. Ctrl-C leaves the run untouched; use
+settles, then print the final summary. `--timeout SECONDS` (also on `wait`) stops following
+after that long and exits 3; the run keeps going. Ctrl-C leaves the run untouched (exit 130); use
 `ingest pause|resume|cancel` to control it. `--events` (on `watch`) streams NDJSON instead.
 
 JSON output uses a stable envelope:
@@ -174,5 +176,7 @@ JSON output uses a stable envelope:
 ```
 
 Successful commands exit with 0 and failed runtime operations exit with 1.
+`ok` means the command executed; `data.result.status` and the exit code report the run outcome
+(0 completed, 1 not completed, 3 timeout, 130 interrupted).
 JSON mode suppresses all Rich spinners, color, and decorative output, making it
 safe to pipe directly to `jq` or another automation tool.
