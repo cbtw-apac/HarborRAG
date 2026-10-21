@@ -105,6 +105,39 @@ async def test_document_failures_mark_the_source_outcome_failed(
 
 
 @pytest.mark.asyncio
+async def test_parse_failure_is_recorded_with_stage_and_non_retryable_code(
+    tmp_path: Path,
+) -> None:
+    from harborrag_adapters.parsers.errors import ParseError
+
+    from ...fixtures.connectors import TextParser
+
+    class RejectingParser(TextParser):
+        def parse(self, raw):
+            raise ParseError("bad")
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    resources.parser = RejectingParser()
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        await service.ingest(source_request("task-parse"), DescriptorConnector())
+
+        results = await control.tasks.document_results("task-parse")
+        assert results
+        for result in results:
+            assert result.status == "failed"
+            assert result.result["failure_stage"] == "ParseAndNormalize"
+            assert "parser_rejected_document" in str(result.result["safe_error_code"])
+            assert result.result["retryable"] is False
+            assert "bad" not in str(result.result)
+
+
+@pytest.mark.asyncio
 async def test_mixed_document_results_mark_the_source_outcome_partial(
     tmp_path: Path,
 ) -> None:
