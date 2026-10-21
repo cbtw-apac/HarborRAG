@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 
 import pytest
 from app_test_fixtures import MockAppService
@@ -211,3 +212,23 @@ def test_run_exits_one_when_the_run_did_not_complete(status, monkeypatch, capsys
 
     assert cli.main(["ingest", "run", "workspace", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["data"]["result"]["status"] == status
+
+
+def test_close_failure_does_not_replace_the_envelope(monkeypatch, capsys) -> None:
+    class Service(_service()):
+        async def aclose(self) -> None:
+            raise ExceptionGroup("close", [RuntimeError("x")])
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Service)
+    # Earlier tests leave a verbose level and a handler bound to a closed stderr behind.
+    # The trace is DEBUG-only by design, and the warning must land on this test's stderr.
+    monkeypatch.setenv("HARBORRAG_LOG_LEVEL", "WARNING")
+    monkeypatch.setattr(logging.getLogger("harborrag"), "handlers", [])
+    monkeypatch.setattr(cli_runner.logger, "level", logging.NOTSET)
+
+    code = cli.main(["ingest", "run", "workspace", "--tenant", "t1", "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0
+    assert json.loads(captured.out.strip().splitlines()[-1])["ok"] is True
+    assert "Traceback" not in captured.err

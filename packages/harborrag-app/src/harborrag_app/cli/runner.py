@@ -124,7 +124,8 @@ async def build_service(
         logger.debug("Building the runtime application service")
         return await asyncio.to_thread(runtime_app_service)
     except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-        logger.exception("Failed to build the runtime application service")
+        logger.error("Failed to build the runtime application service: %s", type(exc).__name__)
+        logger.debug("Failed to build the runtime application service", exc_info=True)
         emit(failure(exc), renderer=renderer, command=command, action=action, as_json=as_json)
         return None
 
@@ -152,9 +153,16 @@ async def close(service: BaseAppService) -> None:
     aclose = getattr(service, "aclose", None)
     if aclose is None:
         return
-    result = aclose()
-    if inspect.isawaitable(result):
-        await result
+    try:
+        result = aclose()
+        if inspect.isawaitable(result):
+            await result
+    except Exception:
+        # Closing happens after the envelope was emitted; a teardown failure must not
+        # replace it with a traceback or change the exit code.
+        logger.warning(
+            "Closing the application service failed", exc_info=logger.isEnabledFor(logging.DEBUG)
+        )
 
 
 def failure(exc: Exception) -> AppResponse:

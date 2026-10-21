@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from logging import Logger
 
+from pydantic import ValidationError
+
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborNotFoundError,
@@ -103,6 +105,19 @@ _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
 )
 
 
+def validation_error_detail(exc: ValidationError) -> str:
+    """Summarise a ValidationError as ``loc: msg`` pairs, without input values."""
+
+    errors = exc.errors(include_input=False, include_url=False)
+    if not errors:
+        return "invalid settings"
+    details = []
+    for error in errors:
+        loc = ".".join(str(part) for part in error["loc"])
+        details.append(f"{loc}: {error['msg']}" if loc else str(error["msg"]))
+    return "; ".join(details)
+
+
 def public_error_message(exc: Exception) -> str:
     """Expose reviewed local messages, never arbitrary provider messages.
 
@@ -113,6 +128,10 @@ def public_error_message(exc: Exception) -> str:
     full detail stays available to whoever operates the process.
     """
 
+    # ValidationError is a ValueError, but its text embeds the offending input values
+    # (DSNs, keys). Report only where and why each field failed.
+    if isinstance(exc, ValidationError):
+        return validation_error_detail(exc)
     if isinstance(exc, _PUBLIC_MESSAGE_TYPES):
         return str(exc) or type(exc).__name__
     return type(exc).__name__
