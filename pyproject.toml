@@ -324,6 +324,9 @@ package = false
 environments = [
     "python_version == '3.12' and sys_platform != 'emscripten'",
 ]
+override-dependencies = [
+    "pillow>=13.0.0",
+]
 
 [tool.uv.workspace]
 members = [
