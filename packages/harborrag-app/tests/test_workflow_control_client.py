@@ -568,3 +568,38 @@ async def test_status_of_a_run_unknown_everywhere_stays_not_found() -> None:
 
     assert response.ok is False
     assert response.data["error_type"] == "WorkflowNotFoundError"
+
+
+@pytest.mark.asyncio
+async def test_app_service_fails_the_run_when_the_temporal_connect_fails() -> None:
+    # The production chain: AppService -> AppResources.runtime_client -> client factory.
+    registry = FakeTaskRegistry()
+
+    async def unreachable(_settings: RuntimeSettings) -> FakeRuntimeClient:
+        raise RuntimeConnectionError("Could not connect to Temporal gRPC frontend 'h:7233'")
+
+    async def registry_factory(_settings: RuntimeSettings) -> FakeTaskRegistry:
+        return registry
+
+    service = AppService(
+        FakeComposition({"runtime": {"ready": True}}),
+        factories=AppServiceFactories(
+            client=unreachable,
+            source_input_builder=source_input,
+            task_registry=registry_factory,
+        ),
+    )
+
+    response = await service.start_ingestion(
+        tenant_id="tenant-1", connector_name="local", run_id="run-offline"
+    )
+
+    assert response.ok is False
+    assert response.data["run"] == {"run_id": "run-offline", "status": "FAILED"}
+    assert registry.transitions == [
+        (
+            "run-offline",
+            IngestionTaskState.FAILED,
+            {"failed_stage": "submission", "error_code": "submission_failed"},
+        )
+    ]
