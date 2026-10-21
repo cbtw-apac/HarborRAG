@@ -8,6 +8,7 @@ import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.security import AccessContext
+from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import ExecutionMode, IngestionRequest
 from harborrag_runtime.execution import build_ingestion_executor
@@ -414,3 +415,48 @@ def test_submission_maps_public_request_without_losing_query_controls(
     assert captured.discovery_page_size == 25
     assert captured.discovery_concurrency == 2
     assert captured.document_concurrency == 3
+
+
+@pytest.mark.asyncio
+async def test_direct_validates_request_before_connecting(monkeypatch) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    runtime = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
+    builder = Mock(return_value=runtime)
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", builder)
+    monkeypatch.setattr(
+        direct_module,
+        "build_ingestion_input",
+        Mock(side_effect=ConnectorConfigurationError("Unknown configured connector: 'x'")),
+    )
+    executor = DirectIngestionExecutor(RuntimeSettings())
+
+    with pytest.raises(ConnectorConfigurationError, match="Unknown configured connector"):
+        await executor.run(_request())
+
+    runtime.start.assert_not_called()
+    builder.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_direct_resolves_connector_before_connecting(monkeypatch) -> None:
+    from harborrag_runtime.execution import direct as direct_module
+
+    runtime = SimpleNamespace(
+        start=AsyncMock(),
+        close=AsyncMock(),
+        connector=Mock(side_effect=ConnectorConfigurationError("source_path is missing")),
+    )
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
+    monkeypatch.setattr(
+        direct_module,
+        "build_ingestion_input",
+        Mock(return_value=SimpleNamespace(configuration_fingerprint="f")),
+    )
+    executor = DirectIngestionExecutor(RuntimeSettings())
+
+    with pytest.raises(ConnectorConfigurationError, match="source_path"):
+        await executor.run(_request())
+
+    runtime.start.assert_not_called()
+    runtime.close.assert_awaited_once_with()

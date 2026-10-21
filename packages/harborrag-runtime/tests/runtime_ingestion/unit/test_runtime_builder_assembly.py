@@ -33,6 +33,14 @@ class _Sentinel:
 @dataclass
 class _FakeEmbedConfig:
     default_model: str = "embed-default"
+    expected_dimensions: int = 16
+
+    def model_for(self, name: str) -> tuple[str, SimpleNamespace]:
+        model = SimpleNamespace(
+            deployments=[SimpleNamespace(expected_dimensions=self.expected_dimensions)],
+            default_params=SimpleNamespace(dimensions=None),
+        )
+        return name, model
 
 
 class _FakeEmbedClient:
@@ -225,3 +233,29 @@ def test_connector_kwargs_map_registry_dependencies_to_runtime_objects() -> None
 def test_connector_kwargs_reject_a_provider_whose_dependencies_are_unavailable() -> None:
     with pytest.raises(ValueError, match=r"'jira' requires .*attachment_parser, rate_limiter"):
         IngestionRuntimeBuilder._connector_kwargs("jira", {})
+
+
+def test_resource_targets_never_render_credentials() -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings(
+        control_db_url=SecretStr("postgresql+asyncpg://app:hunter2@db.internal:5432/harbor"),
+        qdrant_url="http://u:hunter2@localhost:6333/prefix?api-key=hunter2",
+        qdrant_prefer_grpc=False,
+        object_store_endpoint_url="http://k:hunter2@localhost:9000",
+        object_store_provider="s3",
+    )
+
+    targets = resource_targets(settings)
+
+    assert targets["control"] == "postgresql db.internal:5432"
+    assert targets["vector"] == "Qdrant http://localhost:6333/prefix"
+    assert targets["object_store"] == "http://localhost:9000"
+    assert targets["graph"] == "FalkorDB localhost:6379"
+    assert all("hunter2" not in value for value in targets.values())
+    grpc = resource_targets(settings.model_copy(update={"qdrant_prefer_grpc": True}))
+    assert grpc["vector"] == "Qdrant gRPC localhost:6334"
+    sqlite = resource_targets(RuntimeSettings())
+    assert sqlite["control"] == "sqlite"

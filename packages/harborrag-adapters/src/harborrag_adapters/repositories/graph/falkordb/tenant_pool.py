@@ -101,6 +101,14 @@ class TenantGraphClientPool:
             await self._legacy.connect()
             if provision:
                 await self._provisioner(self._legacy)
+            return
+        # Tenant graphs are opened lazily, so the only way to learn the server
+        # is down at startup is one throwaway connection. It is never cached.
+        probe = self._factory.create(self._config.graph_name, readonly=False)
+        try:
+            await probe.connect()
+        finally:
+            await probe.close()
 
     async def provision(self, context: StorageOperationContext | None = None) -> None:
         if self._legacy is not None:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from urllib.parse import urlsplit
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -20,6 +21,7 @@ from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 
 from ..config.settings import RuntimeSettings
+from ..errors import RuntimeConfigurationError
 from .storage_providers import (
     RuntimeKnowledgeGraphPort,
     RuntimeTopologyPort,
@@ -77,6 +79,70 @@ def embedding_dimensions(config: Any, model_name: str) -> int:
         f"embedding model {model_name!r} has no unambiguous expected_dimensions; "
         "set HARBORRAG_EMBEDDING_DIMENSIONS"
     )
+
+
+def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None:
+    """Fail fast when an explicit dimension contradicts the model catalog.
+
+    An unresolvable catalog entry is not a conflict: the explicit value is
+    then the only source of truth.
+    """
+
+    try:
+        expected = embedding_dimensions(config, model)
+    except Exception:  # noqa: BLE001 - nothing in the catalog to contradict
+        return
+    if expected != dimensions:
+        raise RuntimeConfigurationError(
+            f"HARBORRAG_EMBEDDING_DIMENSIONS={dimensions} but model {model!r} "
+            f"deployments expect {expected}"
+        )
+
+
+def _display_url(url: str) -> str:
+    """Scheme, host, port and path; never userinfo, query or fragment."""
+
+    parts = urlsplit(url)
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    try:
+        port = parts.port
+    except ValueError:
+        port = None
+    netloc = f"{host}:{port}" if port else host
+    return f"{parts.scheme}://{netloc}{parts.path}" if parts.scheme else netloc
+
+
+def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
+    """Credential-free display strings for the resources startup connects to."""
+
+    control_url = settings.control_db_url.get_secret_value()
+    if control_url.lower().startswith("sqlite"):
+        control = "sqlite"
+    else:
+        parts = urlsplit(control_url)
+        try:
+            port = parts.port
+        except ValueError:
+            port = None
+        host = parts.hostname or "unknown-host"
+        control = f"postgresql {host}:{port}" if port else f"postgresql {host}"
+    if settings.object_store_provider == "s3" and settings.object_store_endpoint_url:
+        object_store = _display_url(settings.object_store_endpoint_url)
+    else:
+        object_store = f"object store ({settings.object_store_provider})"
+    qdrant = urlsplit(settings.qdrant_url)
+    if settings.qdrant_prefer_grpc:
+        vector = f"Qdrant gRPC {qdrant.hostname or 'localhost'}:6334"
+    else:
+        vector = f"Qdrant {_display_url(settings.qdrant_url)}"
+    return {
+        "control": control,
+        "object_store": object_store,
+        "vector": vector,
+        "graph": f"FalkorDB {settings.falkordb_host}:{settings.falkordb_port}",
+    }
 
 
 def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:

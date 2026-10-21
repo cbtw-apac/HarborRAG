@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -24,34 +25,35 @@ class DirectIngestionExecutor:
         async with self._lifecycle_lock:
             if self._runtime_started:
                 return
-            await self._close_runtime()
-            self._runtime = build_ingestion_runtime(self._settings)
-            try:
-                await self._runtime.start()
-            except BaseException as startup_error:
-                try:
-                    await self._close_runtime()
-                except BaseException as cleanup_error:
-                    raise BaseExceptionGroup(
-                        "direct ingestion startup and cleanup failed",
-                        [startup_error, cleanup_error],
-                    ) from None
-                raise
-            self._runtime_started = True
+            await self._rebuild_runtime()
+            await self._connect_runtime()
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
-        await self.start()
-        if self._runtime is None:
-            raise HarborInvariantError("self._runtime must not be None here")
+        # Everything that can be rejected from configuration alone happens
+        # before the first connection, so a bad request never waits on I/O.
         source = build_ingestion_input(self._settings, request)
+        async with self._lifecycle_lock:
+            fresh = not self._runtime_started
+            if fresh:
+                await self._rebuild_runtime()
+            runtime = self._runtime
+            if runtime is None:
+                raise HarborInvariantError("self._runtime must not be None here")
+            try:
+                connector = runtime.connector(
+                    request.connector_name,
+                    configuration_fingerprint=source.configuration_fingerprint,
+                )
+            except Exception:
+                if fresh:
+                    # Best effort: the configuration error is the one to report.
+                    with contextlib.suppress(Exception):
+                        await self._close_runtime()
+                raise
+            if fresh:
+                await self._connect_runtime()
         source_request = to_source_request(source)
-        outcome = await self._runtime.sources.ingest(
-            source_request,
-            self._runtime.connector(
-                request.connector_name,
-                configuration_fingerprint=source.configuration_fingerprint,
-            ),
-        )
+        outcome = await runtime.sources.ingest(source_request, connector)
         return IngestionResult(
             task_id=outcome.task_id,
             status=outcome.status.value,
@@ -60,6 +62,26 @@ class DirectIngestionExecutor:
             unchanged=outcome.unchanged,
             failed=outcome.failed,
         )
+
+    async def _rebuild_runtime(self) -> None:
+        await self._close_runtime()
+        self._runtime = build_ingestion_runtime(self._settings)
+
+    async def _connect_runtime(self) -> None:
+        if self._runtime is None:
+            raise HarborInvariantError("self._runtime must not be None here")
+        try:
+            await self._runtime.start()
+        except BaseException as startup_error:
+            try:
+                await self._close_runtime()
+            except BaseException as cleanup_error:
+                raise BaseExceptionGroup(
+                    "direct ingestion startup and cleanup failed",
+                    [startup_error, cleanup_error],
+                ) from None
+            raise
+        self._runtime_started = True
 
     async def aclose(self) -> None:
         async with self._lifecycle_lock:

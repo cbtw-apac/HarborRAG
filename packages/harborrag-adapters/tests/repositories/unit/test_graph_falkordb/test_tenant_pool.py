@@ -59,7 +59,11 @@ async def test_read_connection_never_provisions_and_writer_is_separate():
     provisioner = AsyncMock()
     pool = TenantGraphClientPool(configuration(), provisioner=provisioner, factory=factory)
     await pool.connect()
-    assert not factory.created
+    # Only the throwaway startup probe exists; it is closed and never cached.
+    assert [(readonly, client.connected) for _, readonly, client in factory.created] == [
+        (False, False)
+    ]
+    factory.created.clear()
     reader = await pool.database_for(context())
     assert factory.created[0][1] is True
     provisioner.assert_not_called()
@@ -197,3 +201,28 @@ def test_factory_uses_separate_reader_credentials_without_writer_password_fallba
     assert reader._connection["password"] == "read-password"
     assert writer._connection["username"] == "indexer"
     assert writer._connection["password"] == "index-password"
+
+
+class _UnreachableFactory:
+    def __init__(self):
+        self.clients = []
+
+    def create(self, graph_name, *, readonly):
+        client = FakeFalkorDBClient()
+        client.connect = AsyncMock(side_effect=ConnectionError("down"))
+        client.close = AsyncMock()
+        self.clients.append(client)
+        return client
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_pings_once_under_tenant_isolation():
+    factory = _UnreachableFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+
+    with pytest.raises(ConnectionError, match="down"):
+        await pool.connect()
+
+    assert len(factory.clients) == 1
+    factory.clients[0].close.assert_awaited_once_with()
+    assert not pool._clients

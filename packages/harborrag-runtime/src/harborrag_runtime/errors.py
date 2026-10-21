@@ -12,7 +12,7 @@ class MissingOptionalDependencyError(RuntimeConfigurationError):
 
 
 class RuntimeConnectionError(ConnectionError):
-    """Raised when the runtime cannot connect to Temporal."""
+    """Raised when the runtime cannot reach Temporal or a storage backend."""
 
 
 class WorkflowSubmissionError(RuntimeError):
