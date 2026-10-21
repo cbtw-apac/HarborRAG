@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 from pathlib import Path
@@ -14,7 +15,11 @@ from harborrag_app.cli.commands import auth, chat, doctor, ingest, init, retriev
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
-from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
+from harborrag_core.observability.process_logging import (
+    LEVEL_ENV_VAR,
+    _ManagedStreamHandler,
+    configure_logging,
+)
 
 _HELP_FLAGS = ("-h", "--help")
 # Global options declared by `configure()` that consume the following argv item. main()
@@ -90,7 +95,7 @@ app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
 app.add_typer(
     auth.app,
     name="auth",
-    help="Issue and revoke MCP reader keys.",
+    help="Manage MCP reader keys (auth keys create|list|revoke).",
     rich_help_panel="Operations",
 )
 app.command(
@@ -139,7 +144,7 @@ def main(argv: list[str] | None = None) -> int:
             print(_NO_PROJECT_MESSAGE, file=sys.stderr)
             return 1
     load_project_environment()
-    configure_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
+    _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
         # runs, so the banner can't live in configure(); print it here instead.
@@ -174,7 +179,49 @@ def _requires_project(args: list[str]) -> bool:
     """True for a real command invocation that needs catalogs (not help, init, or doctor)."""
 
     command = _command_name(args)
-    return command is not None and command not in _PROJECT_OPTIONAL_COMMANDS
+    return (
+        command is not None
+        and command not in _PROJECT_OPTIONAL_COMMANDS
+        and command in _registered_names()
+    )
+
+
+def _registered_names() -> frozenset[str]:
+    """Names of every top-level command and group, so unknown ones skip project lookup."""
+
+    names = {
+        command.name or getattr(command.callback, "__name__", "")
+        for command in app.registered_commands
+    }
+    names.update(group.name for group in app.registered_groups if group.name)
+    return frozenset(names)
+
+
+_TRACEBACK_HINT = " (set HARBORRAG_LOG_LEVEL=DEBUG for the traceback)"
+
+
+class _QuietTracebackFilter(logging.Filter):
+    """Drop `exc_info` above DEBUG so a failure is one line, not a stack dump."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.exc_info and logging.getLogger("harborrag").getEffectiveLevel() > logging.DEBUG:
+            record.msg = record.getMessage() + _TRACEBACK_HINT
+            record.args = None
+            record.exc_info = None
+            record.exc_text = None
+        return True
+
+
+_QUIET_TRACEBACKS = _QuietTracebackFilter()
+
+
+def _configure_cli_logging(level: str) -> logging.Logger:
+    logger = configure_logging(level)
+    for handler in logger.handlers:
+        # Only the handler configure_logging owns; others (e.g. a test's capture) keep tracebacks.
+        if isinstance(handler, _ManagedStreamHandler):
+            handler.addFilter(_QUIET_TRACEBACKS)  # a no-op when already installed
+    return logger
 
 
 def _exit_code(value: Any) -> int:

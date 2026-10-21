@@ -38,7 +38,7 @@ _PROVIDER_CHOICES = sorted(PRESETS)
 def command(  # noqa: PLR0913 - Typer requires one parameter per public option
     directory: Annotated[
         Path,
-        typer.Argument(metavar="DIR", help="Project directory to create or fill (default: .)."),
+        typer.Argument(metavar="DIR", help="Project directory to create or fill."),
     ] = Path(),
     provider: Annotated[
         str | None,
