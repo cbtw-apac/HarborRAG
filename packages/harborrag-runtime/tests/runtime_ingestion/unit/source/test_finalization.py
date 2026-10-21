@@ -77,7 +77,7 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
         task_id="task-1",
         tenant_id="tenant-1",
         missing_threshold=1,
-        query=SimpleNamespace(include_attachments=True),
+        query=SimpleNamespace(include_attachments=True, limit=None, updated_after=None),
         processing=SimpleNamespace(graph_projection_version="graph-v2"),
     )
 
@@ -118,7 +118,7 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
         task_id="task-1",
         tenant_id="tenant-1",
         missing_threshold=1,
-        query=SimpleNamespace(include_attachments=True),
+        query=SimpleNamespace(include_attachments=True, limit=None, updated_after=None),
         processing=SimpleNamespace(graph_projection_version="graph-v2"),
     )
     progress = RelationRepairProgress(
@@ -152,3 +152,38 @@ def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
     # Earlier attempts heartbeated a plain string; anything malformed starts over.
     assert RelationRepairProgress.resume("finalize-source") == RelationRepairProgress()
     assert RelationRepairProgress.resume({"next_page": -1}) == RelationRepairProgress()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "query_values",
+    [{"limit": 5}, {"updated_after": "2026-01-01T00:00:00+00:00"}],
+)
+async def test_partial_scan_skips_removal_reconciliation(
+    query_values: dict[str, object],
+) -> None:
+    scans = _Recorder(reconcile_removals=("gone",))
+    publisher = _Recorder()
+    control = SimpleNamespace(tasks=_Recorder(), source_scans=scans, publisher=publisher)
+    finalization = SourceFinalizationService(
+        control=cast(Any, control), relations=cast(Any, _PageRepair())
+    )
+    request = SimpleNamespace(
+        task_id="task-1",
+        tenant_id="tenant-1",
+        missing_threshold=1,
+        query=SimpleNamespace(
+            **{"include_attachments": True, "limit": None, "updated_after": None, **query_values}
+        ),
+        processing=SimpleNamespace(graph_projection_version="graph-v2"),
+    )
+
+    await finalization.finish(
+        cast(Any, request),
+        scan_id="scan-1",
+        planned=_paged_plan(("a",)),
+        summary=SourceDispatchSummary(published=1),
+    )
+
+    assert not [call for call in scans.calls if call[0] == "reconcile_removals"]
+    assert not publisher.calls

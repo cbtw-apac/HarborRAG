@@ -178,6 +178,14 @@ class SourceFinalizationService:
         planned: PlannedDocuments,
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
+        if request.query.limit is not None or request.query.updated_after is not None:
+            # A deliberately partial scan cannot tell "not in scope" from "gone".
+            logger.info(
+                "Skipping removal reconciliation for a partial scan task_id=%s "
+                "(limit/updated_after set)",
+                request.task_id,
+            )
+            return ()
         try:
             removals = await self._control.source_scans.reconcile_removals(
                 scan_id,

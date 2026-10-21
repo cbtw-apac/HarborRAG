@@ -74,7 +74,9 @@ class LocalFileConnector(BaseConnector):
         record_path = path_from_record(record)
         path = record_path if record_path.is_absolute() else self.root_path / record_path
         if not path.is_relative_to(self.root_path):
-            raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope {self.root_path}: {path}"
+            )
 
         logger.info("Loading local file %s", path)
         try:
