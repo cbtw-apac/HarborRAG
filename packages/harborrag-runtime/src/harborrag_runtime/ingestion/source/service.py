@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from harborrag_adapters.connectors.base import BaseConnector
@@ -70,37 +71,56 @@ class SourceIngestionService(SourceDocumentOperations):
             request.connector_type.value,
             request.document_concurrency,
         )
+        stage = "discovery"
         try:
             discovery = await self.discover(request, connector)
+            logger.info(
+                "Source discovery completed task_id=%s scan_id=%s documents=%d",
+                request.task_id,
+                discovery.scan_id,
+                len(discovery.planned),
+            )
+            stage = "dispatch"
+            results = await self._dispatch(
+                request,
+                connector,
+                discovery.planned,
+            )
+            stage = "finalization"
+            outcome = await self.finish(
+                request,
+                scan_id=discovery.scan_id,
+                planned=PlannedDocuments.of(discovery.planned),
+                summary=SourceDispatchSummary.from_results(results),
+            )
+        except asyncio.CancelledError:
+            # A direct run interrupted with Ctrl-C arrives here, not in the handler
+            # below. Left RUNNING, its scan would block every later scan of the scope,
+            # and a still-PENDING task would look like an unsubmitted durable run.
+            logger.warning(
+                "Source ingestion interrupted task_id=%s stage=%s", request.task_id, stage
+            )
+            try:
+                await self.cancel(request.task_id)
+            except Exception:  # noqa: BLE001 - never mask the cancellation itself
+                logger.exception(
+                    "Source cancellation could not be persisted task_id=%s", request.task_id
+                )
+            raise
         except Exception as error:
             logger.error(
-                "Source discovery failed task_id=%s connector_type=%s error_type=%s",
+                "Source %s failed task_id=%s connector_type=%s error_type=%s",
+                stage,
                 request.task_id,
                 request.connector_type.value,
                 type(error).__name__,
             )
             await self.fail(
                 request.task_id,
-                error_code=f"discovery_{type(error).__name__.lower()}",
+                error_code=f"{stage}_{type(error).__name__.lower()}",
+                stage=stage,
             )
             raise
-        logger.info(
-            "Source discovery completed task_id=%s scan_id=%s documents=%d",
-            request.task_id,
-            discovery.scan_id,
-            len(discovery.planned),
-        )
-        results = await self._dispatch(
-            request,
-            connector,
-            discovery.planned,
-        )
-        outcome = await self.finish(
-            request,
-            scan_id=discovery.scan_id,
-            planned=PlannedDocuments.of(discovery.planned),
-            summary=SourceDispatchSummary.from_results(results),
-        )
         logger.info(
             "Source ingestion completed task_id=%s scan_id=%s status=%s "
             "discovered=%d published=%d unchanged=%d failed=%d removals=%d",
@@ -160,7 +180,7 @@ class SourceIngestionService(SourceDocumentOperations):
         if task.status == IngestionTaskState.PAUSED:
             await self._control.tasks.transition(task_id, IngestionTaskState.RUNNING)
 
-    async def fail(self, task_id: str, *, error_code: str) -> None:
+    async def fail(self, task_id: str, *, error_code: str, stage: str = "discovery") -> None:
         """Persist one terminal source-workflow failure without runtime details."""
 
         await self._control.source_scans.fail_if_started(
@@ -184,7 +204,7 @@ class SourceIngestionService(SourceDocumentOperations):
             task_id,
             IngestionTaskState.FAILED,
             summary={
-                "failed_stage": "discovery",
+                "failed_stage": stage,
                 "error_code": error_code,
             },
         )

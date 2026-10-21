@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
@@ -211,6 +212,93 @@ async def test_direct_source_ingestion_persists_terminal_discovery_failure(
         }
         next_scan = await control.source_scans.start("docs")
         assert next_scan != source_scan_id("task-failed-discovery")
+
+
+@pytest.mark.asyncio
+async def test_direct_ingestion_cancelled_during_discovery_releases_task_and_scan(
+    tmp_path: Path,
+) -> None:
+    # Ctrl-C on `harborrag ingest run` reaches the run as CancelledError, which an
+    # `except Exception` never sees; the scan must not stay STARTED and block the scope.
+    class InterruptedConnector(DescriptorConnector):
+        def discover(self, query):
+            del query
+            raise asyncio.CancelledError
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        request = source_request("task-interrupted-discovery")
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.ingest(request, InterruptedConnector())
+
+        task = await control.tasks.get("task-interrupted-discovery")
+        assert task is not None
+        assert task.status == IngestionTaskState.CANCELLED
+        assert await control.source_scans.has_running_scan(request.source_scope_id) is False
+
+
+@pytest.mark.asyncio
+async def test_direct_ingestion_cancelled_during_dispatch_converges_task_state(
+    tmp_path: Path,
+) -> None:
+    class InterruptedConnector(DescriptorConnector):
+        def load(self, record):
+            del record
+            raise asyncio.CancelledError
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.ingest(
+                source_request("task-interrupted-dispatch"), InterruptedConnector()
+            )
+
+        task = await control.tasks.get("task-interrupted-dispatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_direct_ingestion_persists_a_failure_that_escapes_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def broken_dispatch(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("control plane write failed")
+
+        monkeypatch.setattr(service, "_dispatch", broken_dispatch)
+
+        with pytest.raises(RuntimeError, match="control plane write failed"):
+            await service.ingest(source_request("task-failed-dispatch"), DescriptorConnector())
+
+        task = await control.tasks.get("task-failed-dispatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary == {
+            "failed_stage": "dispatch",
+            "error_code": "dispatch_runtimeerror",
+        }
 
 
 @pytest.mark.asyncio

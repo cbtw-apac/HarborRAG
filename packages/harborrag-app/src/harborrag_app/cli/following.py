@@ -96,7 +96,7 @@ async def _run(  # noqa: PLR0913 - mirrors invoke_run
             await _settle(task)
             response = runner.failure(exc)
         runner.emit(response, renderer=renderer, command="ingest", action="run", as_json=machine)
-        return 0 if response.ok and _succeeded(response) else 1
+        return 0 if response.ok and run_completed(response) else 1
     finally:
         await runner.close(service)
 
@@ -196,7 +196,7 @@ async def _settle(task: asyncio.Future[AppResponse]) -> None:
     await asyncio.gather(task, return_exceptions=True)
 
 
-def _succeeded(response: AppResponse) -> bool:
+def run_completed(response: AppResponse) -> bool:
     """Only a fully completed run is a success.
 
     ``IngestionTaskState`` also carries PARTIAL and CANCELLED; both mean the requested
@@ -237,7 +237,7 @@ async def _follow_status(
     runner.emit(result, renderer=renderer, command="ingest", action="wait", as_json=events)
     # Same rule as `ingest run`: a durable run that ended PARTIAL or CANCELLED did not
     # finish the requested work either.
-    return 0 if result.ok and _succeeded(result) else 1
+    return 0 if result.ok and run_completed(result) else 1
 
 
-__all__ = ["invoke_run", "invoke_start_and_follow", "invoke_watch"]
+__all__ = ["invoke_run", "invoke_start_and_follow", "invoke_watch", "run_completed"]

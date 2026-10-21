@@ -204,3 +204,29 @@ def test_watch_exits_one_when_the_durable_run_did_not_complete(status, monkeypat
     assert (
         json.loads(capsys.readouterr().out.splitlines()[-1])["data"]["result"]["status"] == status
     )
+
+
+@pytest.mark.parametrize("status", ["partial", "failed", "cancelled"])
+def test_wait_exits_one_when_the_durable_run_did_not_complete(status, monkeypatch, capsys) -> None:
+    class Unfinished(FollowService):
+        async def ingestion_result(self, run_id):
+            return AppResponse(True, {"result": {"task_id": run_id, "status": status}})
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Unfinished)
+
+    assert cli.main(["ingest", "wait", "run-42", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["data"]["result"]["status"] == status
+
+
+@pytest.mark.parametrize("status", ["partial", "failed", "cancelled"])
+def test_start_wait_json_exits_one_when_the_run_did_not_complete(
+    status, monkeypatch, capsys
+) -> None:
+    class Unfinished(FollowService):
+        async def start_ingestion(self, **kwargs):  # type: ignore[override]
+            return AppResponse(True, {"run": {"run_id": "r"}, "result": {"status": status}})
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Unfinished)
+
+    assert cli.main(["ingest", "start", "--connector-id", "ws", "--wait", "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["data"]["result"]["status"] == status

@@ -15,6 +15,7 @@ from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.composition.selection import runtime_app_service
 from harborrag_app.workflow_control.errors import public_error_message
+from harborrag_core.contracts.errors import HarborConfigurationError
 
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 
@@ -36,6 +37,7 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     action: str | None = None,
     as_json: bool = False,
     requires_control_plane: bool = True,
+    succeeded: Callable[[AppResponse], bool] | None = None,
 ) -> None:
     """Execute one application-service call and render its stable response.
 
@@ -44,6 +46,9 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     cannot reach its schema is still returned; a command that then does real work fails
     much later with an opaque error such as a missing column. Diagnostic commands set
     this to ``False`` -- a degraded control plane is exactly when they are run.
+
+    ``succeeded`` adds a command-specific test on an ``ok`` response before exiting 0:
+    a wait that returns a FAILED run is a successful call but not a successful command.
     """
 
     exit_code = asyncio.run(
@@ -54,6 +59,7 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
             action=action,
             as_json=as_json,
             requires_control_plane=requires_control_plane,
+            succeeded=succeeded,
         )
     )
     if exit_code:
@@ -68,6 +74,7 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
     action: str | None,
     as_json: bool,
     requires_control_plane: bool = True,
+    succeeded: Callable[[AppResponse], bool] | None = None,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     service = await build_service(renderer, command=command, action=action, as_json=as_json)
@@ -99,7 +106,7 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
             action=action,
             as_json=as_json,
         )
-        return 0 if response.ok else 1
+        return 0 if response.ok and (succeeded is None or succeeded(response)) else 1
     finally:
         await close(service)
 
@@ -151,11 +158,15 @@ async def close(service: BaseAppService) -> None:
 
 
 def failure(exc: Exception) -> AppResponse:
-    return AppResponse(
-        False,
-        data={"error_type": type(exc).__name__},
-        error=public_error_message(exc),
-    )
+    # HarborConfigurationError messages are authored in this repository and name
+    # HARBORRAG_* variables, never their values; they are the operator's whole
+    # diagnostic. Forwarded here, not via _PUBLIC_MESSAGE_TYPES, which also feeds HTTP
+    # responses (see doctor.environment.check_error_detail).
+    if isinstance(exc, HarborConfigurationError):
+        error = str(exc) or type(exc).__name__
+    else:
+        error = public_error_message(exc)
+    return AppResponse(False, data={"error_type": type(exc).__name__}, error=error)
 
 
 def control_plane_failure(service: BaseAppService) -> AppResponse | None:

@@ -31,6 +31,7 @@ logger = logging.getLogger("harborrag.app.cli.doctor.suite")
 
 _COMPOSE_HINT = "Start the local services: docker compose up -d"
 _INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
+_CONNECTORS_HINT = "Fix or remove the connector named above in config/connectors.yaml."
 _TEMPORAL_HINT = (
     "Durable mode needs the Temporal stack (scripts/deployment/dev.sh up in a checkout)."
 )
@@ -102,14 +103,25 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
     try:
         catalog = load_connector_catalog(settings.connector_config_path)
         enabled = catalog.names(enabled_only=True)
-        checks.append(
-            Check(
-                "connectors catalog",
-                "config",
-                "ok",
-                f"{len(enabled)} enabled: {', '.join(enabled) or 'none'}",
+        detail = f"{len(enabled)} enabled: {', '.join(enabled) or 'none'}"
+        # The loader keeps an invalid definition out of `connectors` and only raises
+        # when it is looked up, so it would otherwise vanish from this report.
+        if catalog.errors:
+            invalid = "; ".join(
+                f"{name}: {check_error_detail(error)}"
+                for name, error in sorted(catalog.errors.items())
             )
-        )
+            checks.append(
+                Check(
+                    "connectors catalog",
+                    "config",
+                    "fail",
+                    f"{detail}; invalid: {invalid}",
+                    hint=_CONNECTORS_HINT,
+                )
+            )
+        else:
+            checks.append(Check("connectors catalog", "config", "ok", detail))
     except Exception as exc:  # noqa: BLE001
         checks.append(Check("connectors catalog", "config", "fail", str(exc), hint=_INIT_HINT))
     try:

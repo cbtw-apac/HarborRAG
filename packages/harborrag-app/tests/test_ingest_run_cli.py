@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
@@ -79,6 +80,29 @@ def test_run_events_streams_ndjson_then_the_envelope(monkeypatch, capsys) -> Non
     assert code == 0
     assert lines[0]["event"] == "progress"
     assert lines[-1]["ok"] is True and "result" in lines[-1]["data"]
+
+
+def test_a_failed_progress_read_does_not_cancel_the_run(monkeypatch, capsys) -> None:
+    finished: list[bool] = []
+
+    class FlakyReader(MockAppService):
+        async def get_task(self, task_id: str) -> dict[str, object]:
+            raise RuntimeError("database is locked")
+
+        async def run_ingestion(self, **kwargs):  # type: ignore[override]
+            await asyncio.sleep(0.2)
+            response = await super().run_ingestion(**kwargs)
+            finished.append(True)
+            return response
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", FlakyReader)
+
+    code = cli.main(["ingest", "run", "workspace", "--events"])
+
+    last = json.loads(capsys.readouterr().out.splitlines()[-1])
+    assert finished == [True]
+    assert code == 0
+    assert last["ok"] is True and last["data"]["result"]["status"] == "completed"
 
 
 def test_run_exits_one_when_the_run_failed(monkeypatch, capsys) -> None:

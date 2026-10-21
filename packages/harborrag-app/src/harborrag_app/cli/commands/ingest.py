@@ -8,7 +8,7 @@ from typing import Annotated
 import typer
 
 from harborrag_app.cli.commands.ingest_run import JsonOption, parse_filters, register_run
-from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch
+from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch, run_completed
 from harborrag_app.cli.runner import invoke
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 
@@ -191,6 +191,7 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         command="ingest",
         action="start",
         as_json=as_json,
+        succeeded=run_completed if wait else None,
     )
 
 
@@ -225,6 +226,7 @@ def wait(
         command="ingest",
         action="wait",
         as_json=as_json,
+        succeeded=run_completed,
     )
 
 

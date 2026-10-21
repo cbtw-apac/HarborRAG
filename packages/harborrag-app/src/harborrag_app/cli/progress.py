@@ -118,6 +118,10 @@ class TaskSource:
         except IngestionNotFoundError:
             # Registration happens inside the run; until then there is nothing to show.
             return None
+        except Exception as exc:
+            # The run executes in this process; a failed read must stop the display,
+            # never surface as the run's own error (the caller would cancel the run).
+            raise ProgressUnavailable(type(exc).__name__) from exc
         return ProgressSnapshot.from_task_payload(data)
 
 

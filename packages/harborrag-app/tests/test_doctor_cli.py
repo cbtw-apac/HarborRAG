@@ -72,6 +72,67 @@ def test_doctor_flags_a_blank_provider_key(tmp_path: Path, monkeypatch, capsys) 
     assert "OPENAI_API_KEY" in checks["models catalog"]["detail"]
 
 
+def test_doctor_ignores_variables_in_commented_out_model_config(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    models = tmp_path / "config" / "models.yaml"
+    models.write_text(
+        models.read_text(encoding="utf-8")
+        + "# memory:\n#   deployments:\n#     - api_key: ${HARBOR_MEMORY_API_KEY}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("HARBOR_MEMORY_API_KEY", raising=False)
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    assert checks["models catalog"]["status"] == "ok"
+
+
+def test_doctor_scans_model_config_the_way_the_model_loader_reads_it(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    # The model loader uses yaml.safe_load, which accepts a repeated key (last wins).
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    models = tmp_path / "config" / "models.yaml"
+    models.write_text(
+        models.read_text(encoding="utf-8") + "notes: first\nnotes: second\n",
+        encoding="utf-8",
+    )
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    assert checks["models catalog"]["status"] == "ok"
+
+
+def test_doctor_fails_the_connector_catalog_when_one_definition_is_invalid(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    connectors = tmp_path / "config" / "connectors.yaml"
+    connectors.write_text(
+        connectors.read_text(encoding="utf-8")
+        + "  broken:\n    provider: jira\n    settings:\n      not_a_field: 1\n",
+        encoding="utf-8",
+    )
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    catalog = checks["connectors catalog"]
+    assert catalog["status"] == "fail"
+    assert "broken" in catalog["detail"]
+    assert "workspace" in catalog["detail"]
+
+
 def test_doctor_temporal_flag_runs_the_runtime_health_check(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:

@@ -6,8 +6,10 @@ import importlib.util
 import logging
 import os
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
+import yaml
 from pydantic import ValidationError
 
 from harborrag_app.workflow_control.errors import public_error_message
@@ -131,6 +133,17 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
     )
 
 
+def _string_values(value: object) -> Iterator[str]:
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for item in value.values():
+            yield from _string_values(item)
+    elif isinstance(value, list):
+        for item in value:
+            yield from _string_values(item)
+
+
 def models_check(path: Path) -> Check:
     try:
         summary = describe_model_catalog(path)
@@ -140,10 +153,15 @@ def models_check(path: Path) -> Check:
         return Check("models catalog", "config", "fail", detail, hint=_MODELS_HINT)
     # The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only
     # surface as an authentication failure mid-ingestion. Name the blank variable now.
+    # Scan the parsed values, not the raw text: a `${VAR}` in a commented-out example
+    # section is never expanded, so it must not fail the check. safe_load matches the
+    # model loader, which the catalog has just passed.
+    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     blank = sorted(
         {
             name
-            for name in _ENV_REFERENCE.findall(path.read_text(encoding="utf-8"))
+            for value in _string_values(raw)
+            for name in _ENV_REFERENCE.findall(value)
             if not os.environ.get(name, "").strip()
         }
     )
