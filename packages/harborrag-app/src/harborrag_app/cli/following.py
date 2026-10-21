@@ -266,7 +266,8 @@ def _run_to_exit_code(coroutine: Coroutine[Any, Any, int]) -> int:
 
     try:
         return asyncio.run(coroutine)
-    except asyncio.CancelledError:
+    except (asyncio.CancelledError, KeyboardInterrupt):
+        # SIGINT surfaces as KeyboardInterrupt once asyncio.run has cancelled the task.
         return INTERRUPTED_EXIT_CODE
 
 

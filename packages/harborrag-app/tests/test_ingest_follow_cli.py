@@ -332,3 +332,25 @@ def test_completed_uppercase_status_still_exits_zero(monkeypatch, capsys) -> Non
     monkeypatch.setattr(cli_runner, "runtime_app_service", Upper)
 
     assert cli.main(["ingest", "wait", "run-42", "--json"]) == 0
+
+
+def test_wait_timeout_still_exits_three_when_the_status_lookup_hangs(monkeypatch, capsys) -> None:
+    import asyncio
+    import time
+
+    class Hung(FollowService):
+        async def ingestion_result(self, run_id):
+            await asyncio.sleep(30)
+
+        async def ingestion_status(self, run_id):
+            await asyncio.sleep(30)
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Hung)
+    monkeypatch.setattr(cli_runner, "_STATUS_LOOKUP_SECONDS", 0.2)
+
+    started = time.monotonic()
+    code = cli.main(["ingest", "wait", "run-42", "--timeout", "1"])
+
+    assert code == 3
+    assert time.monotonic() - started < 5
+    assert "Run run-42 is still running" in capsys.readouterr().err

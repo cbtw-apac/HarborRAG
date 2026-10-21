@@ -23,6 +23,8 @@ logger = logging.getLogger("harborrag.app.cli.runner")
 
 # Exit status for "gave up waiting, the run keeps going" (1 = not completed, 130 = Ctrl-C).
 TIMEOUT_EXIT_CODE = 3
+# Bound on the best-effort status read behind the timeout message.
+_STATUS_LOOKUP_SECONDS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -138,10 +140,11 @@ async def report_timeout(
             # Best effort: a paused run should not be reported as running.
             from harborrag_app.cli.progress import ProgressSnapshot  # noqa: PLC0415
 
-            reply = await service.ingestion_status(run_id)
+            async with asyncio.timeout(_STATUS_LOOKUP_SECONDS):
+                reply = await service.ingestion_status(run_id)
             if reply.ok:
                 status = ProgressSnapshot.from_status_payload(reply.data).status
-        except Exception:
+        except Exception:  # includes the lookup's own TimeoutError
             logger.debug("Could not read the run status after a timeout", exc_info=True)
     renderer.error_console.print(
         f"Run {run_id} is still {status}; it keeps running. "

@@ -307,3 +307,57 @@ def test_tenant_defaults_from_environment(monkeypatch) -> None:
     cli.main(["ingest", "run", "workspace", "--json"])
 
     assert instances[0].direct_runs[0]["tenant_id"] == "acme"
+
+
+_SIGINT_SCRIPT = """
+import asyncio, sys
+from pathlib import Path
+sys.path.insert(0, {tests_dir!r})
+from app_test_fixtures import MockAppService
+from harborrag_app.cli import main as cli
+from harborrag_app.cli import runner
+
+marker = Path({marker!r})
+
+class SlowRun(MockAppService):
+    async def run_ingestion(self, **kwargs):
+        marker.write_text("started")
+        await asyncio.sleep(60)
+
+runner.runtime_app_service = SlowRun
+sys.exit(cli.main(["ingest", "run", "workspace", "--run-id", "run-sig"]))
+"""
+
+
+@pytest.mark.smoke
+def test_real_sigint_exits_130_and_names_the_run(cli_project, tmp_path) -> None:
+    import os
+    import signal
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    marker = tmp_path / "started"
+    script = _SIGINT_SCRIPT.format(tests_dir=str(Path(__file__).parent), marker=str(marker))
+    env = {**os.environ, "HARBORRAG_PROJECT": str(cli_project)}
+    proc = subprocess.Popen(
+        [sys.executable, "-c", script],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        deadline = time.monotonic() + 20
+        while not marker.exists():
+            assert proc.poll() is None and time.monotonic() < deadline, "run never started"
+            time.sleep(0.05)
+        time.sleep(0.3)
+        proc.send_signal(signal.SIGINT)
+        _, err = proc.communicate(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+    assert proc.returncode == 130, err
+    assert "Cancelled inline run run-sig" in err
