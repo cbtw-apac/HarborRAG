@@ -268,6 +268,19 @@ def test_resource_targets_never_render_credentials() -> None:
         ("u:secret@h:6333", False, "Qdrant (configured URL)"),
         ("u:secret@h:6333", True, "Qdrant (configured URL)"),
         ("http://u:p@h:6333/?api_key=x", False, "Qdrant http://h:6333"),
+        *[
+            (leaky, grpc, "Qdrant (configured URL)")
+            for leaky in (
+                "http://u:12/ss@h:6333",
+                "http://u:12?x@h:6333",
+                "http://u:12#x@h:6333",
+                "http://tok:65535/rest@h",
+                "http://secret:0/x@h",
+            )
+            for grpc in (False, True)
+        ],
+        ("http://u:p@h:6333", False, "Qdrant http://h:6333"),
+        ("http://h:0", False, "Qdrant http://h:0"),
         ("http://[::1]:6333", False, "Qdrant http://[::1]:6333"),
         ("http://[::1]:6333", True, "Qdrant gRPC [::1]:6334"),
     ],
@@ -283,5 +296,5 @@ def test_qdrant_target_never_renders_unparseable_userinfo(
     vector = resource_targets(settings)["vector"]
 
     assert vector == expected
-    for fragment in ("secret", "pa", "ss", "u:", "api_key"):
+    for fragment in ("secret", "pa", "ss", "u:", "api_key", "12", "tok", "65535"):
         assert fragment not in vector

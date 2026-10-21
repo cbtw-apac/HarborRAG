@@ -110,6 +110,10 @@ def _origin(url: str) -> tuple[str, str, int | None] | None:
     parts = urlsplit(url)
     if parts.scheme not in {"http", "https"}:
         return None
+    # An "@" beyond the netloc means a "/", "?" or "#" split the userinfo, so
+    # what looks like a host or port may be a password fragment.
+    if "@" in url.replace(parts.netloc, "", 1):
+        return None
     try:
         port = parts.port
     except ValueError:
@@ -125,7 +129,7 @@ def _display_url(url: str) -> str | None:
     if origin is None:
         return None
     scheme, host, port = origin
-    return f"{scheme}://{host}:{port}" if port else f"{scheme}://{host}"
+    return f"{scheme}://{host}:{port}" if port is not None else f"{scheme}://{host}"
 
 
 def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
