@@ -97,33 +97,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Temporal worker now hands its vector repository and embed client to the summary
   projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
   not only on the standalone `topology summaries worker` CLI.
-- `harborrag ingest watch`, `ingest wait` and `ingest start --wait` take `--timeout SECONDS` (at
-  least 1). When it expires the command prints the run id, its status and how to re-attach
-  (`harborrag ingest watch RUN_ID`), and exits 3 while the run keeps going. It bounds only the
-  wait, never the submission. With `--json` (`wait`, `start --wait`) the timeout prints one
-  envelope: `ok: true`, `data.run` (`run_id`, `status`) and `data.timed_out: true`.
-- `harborrag ingest start` takes the connector positionally (`ingest start CONNECTOR`), like
-  `ingest run`; `--connector-id` still works, and two different names are a usage error (exit 2).
-  A malformed `--filters-json` is now reported before anything connects.
-- `--tenant` on `harborrag ingest run` and `ingest start` reads `HARBORRAG_INGESTION_TENANT_ID`
-  when the option is not given.
-- Running the CLI from a repository checkout maps the stack's MinIO credentials: only
-  `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` are read from `env/.env.database` (or the file
-  `DATABASE_ENV_FILE` names) and used as `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` /
-  `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` when those are unset; values from a project `.env` or
-  the shell still win. The control DB stays the local sqlite default unless
-  `HARBORRAG_CONTROL_DB_URL` is set.
-- `harborrag doctor` checks more of what a run needs: it signs a real `ListBuckets` call against
-  the object store and reports only the S3 error code (`AccessDenied` counts as authenticated),
-  where it used to check reachability only; it probes Qdrant's gRPC port 6334 when the client
-  prefers gRPC (`HARBORRAG_QDRANT_PREFER_GRPC`, on by default), so a stack that publishes only the
-  HTTP port now fails the Qdrant check; it warns when a checkout falls back to the sqlite control
-  DB; and it fails the connectors catalog with each invalid connector definition named, instead of
-  silently leaving it out.
-- Runtime startup probes FalkorDB once when the graph store connects, so an unreachable FalkorDB
-  fails at startup with a readable error instead of on first use.
-- `harborrag auth keys` settings errors carry a `detail` naming each offending `HARBORRAG_*`
-  variable and the rule it broke, never its value; they used to print only the error type.
+- `harborrag ingest watch`, `wait` and `start --wait` take `--timeout SECONDS`; on expiry they
+  print the run id and how to re-attach, and exit 3 while the run keeps going (`--json` prints an
+  envelope with `data.run` and `timed_out: true`).
+- `harborrag ingest start` takes the connector positionally, like `ingest run`, and `--tenant` on
+  both reads `HARBORRAG_INGESTION_TENANT_ID`.
+- From a repository checkout the CLI uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
+  `env/.env.database` as the object-store credentials when they are not set.
+- `harborrag doctor` authenticates against the object store, probes Qdrant's gRPC port, warns
+  when a checkout falls back to the sqlite control DB and names invalid connector definitions;
+  runtime startup also probes FalkorDB.
 
 ### Changed
 
@@ -224,69 +207,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
   Deployments that already wrote digest-named graphs must rename them or reindex, and
   projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
-- `harborrag ingest wait` and `ingest start --wait --json` exit 1 when the run ends `PARTIAL`,
-  `FAILED` or `CANCELLED`; they used to exit 0 whenever the call itself succeeded. `ingest run`,
-  `watch` and `start --wait` already followed this rule. The CLI exit codes are now: 0 the run
-  completed, 1 it did not or the command failed, 2 usage error (an unknown command, which used to
-  exit 1 outside a project, or conflicting connector arguments), 3 `--timeout` expired with the
-  run still going, 130 interrupted (Ctrl-C). In `--json` output `ok` means only that the command
-  executed, not that the run succeeded. Scripts that took exit 0 or `ok: true` from `wait` as
-  success must check the exit code or `data.result.status`.
-- `harborrag ingest start` without `--run-id` now generates `ingest-<hex>` run ids, as
-  `ingest run` does, instead of `ingestion-<hex>`: the CLI generates the id so a timeout or Ctrl-C
-  can always name the run. `POST /ingestions` still generates `ingestion-<hex>`. Scripts that
-  match on the prefix must accept both, or pass `--run-id`.
-- Run from a repository checkout (not a `harborrag init` project), `harborrag ingest run` and
-  `ingest start` refuse to ingest (exit 1) while the control DB is the default local sqlite file:
-  the stores are the stack's, but its run state would not be. Read-only commands still work.
-  Export `HARBORRAG_CONTROL_DB_URL` pointing at the stack's Postgres, or run from a project
-  created with `harborrag init`.
-- Ingestion requests for a local connector reject unknown filter keys at submission and list the
-  allowed keys (CLI `--filters-json` and the API's `filters` alike); the connector used to ignore
-  them. Other connectors still do not validate filter keys. Remove or rename the keys the error
-  names.
-- Scans narrowed with `--limit` or `--updated-after` (`limit` / `updated_after` in the query) no
-  longer retire documents they did not visit; full scans, including empty ones, reconcile removals
-  as before. To retire documents deleted at the source, run a full scan.
-- A failed document's result records the failure classifier's code in `safe_error_code` (for
-  example `document_release_parser_rejected_document` instead of the exception-name form
-  `document_release_parseerror`) and the stage that actually failed in `failure_stage`, which used
-  to be `FetchAndCaptureRaw` for every failure. Parser rejections are recorded with
-  `retryable: false`, so a retry of failed documents skips them. Update dashboards and scripts
-  that match the old codes or stage.
-- Ingestion, retrieval and the topology embedding profile fail at startup when
-  `HARBORRAG_EMBEDDING_DIMENSIONS` contradicts the `expected_dimensions` that the embedding
-  model's deployments declare in `config/models.yaml`
-  (`HARBORRAG_EMBEDDING_DIMENSIONS=N but model '...' deployments expect M`). A model that only
-  sets `default_params.dimensions` accepts the override. Make the two agree before upgrading.
-- `harborrag auth keys create` requires the control DB at the packaged migration head: on an older
-  database it fails with `SchemaBehind`, naming both revisions; `--migrate` upgrades it. `list`
-  and `revoke` only need the keys table. `revoke --key-id` with an unknown id fails with
-  `KeyNotFound` (exit 1) instead of reporting `already_revoked: true`, and revoking by `--tenant`
-  / `--owner` with no active key reports `active_keys: 0` instead of `already_revoked: true`. A
-  database constraint rejection is reported as `ConstraintRejected` with fixed text, never the SQL
-  parameters (it was `IntegrityError`), and an unavailable key store prints its
-  `AuthStoreUnavailable` message. Run `create` with `--migrate` once after upgrading, and update
-  scripts that read `already_revoked` or `error_code`.
-- Starting a run with the id of a run that already finished is rejected with
-  `WorkflowRunAlreadyStartedError`, for `harborrag ingest run`, `ingest start` and
-  `POST /ingestions` (409, `ingestion_run_already_started`); previously `ingest start` reported
-  "Ingestion started" while silently reattaching to the finished workflow, and `ingest run`
-  failed with a bare `HarborConflictError`. Use a new run id for every run.
-- `POST /ingestions` (and `harborrag ingest start`): when Temporal cannot be reached at connect
-  time, the registered run is marked `FAILED` (`failed_stage: submission`,
-  `error_code: submission_failed`) instead of staying `PENDING` and being started later,
-  unannounced, by the API outbox. Only a still-unsubmitted run is failed; one that the outbox or a
-  worker started in the meantime keeps its real status. The error `details` carry `run` (`run_id`,
-  `status`). An ambiguous submission failure (`WorkflowSubmissionError`) still leaves the run
-  `PENDING`, and its message names the run id to check (the CLI adds
-  `harborrag ingest status RUN_ID`). After a connect failure, submit again with a new run id:
-  retrying the same id now returns 409 `ingestion_run_already_started`.
-- `GET /ingestions/{id}` returns 200 with the control-plane view (`execution_status: "not_found"`,
-  `source: "control_plane"`) when the run exists in the database but Temporal does not know it,
-  where it used to return 404. It still returns 404 when there is no such run. Clients that used
-  a 404 to detect a run Temporal does not know (never submitted, or its history expired) must
-  check for `execution_status: "not_found"` in the 200 response instead.
+- CLI exit codes: 0 completed, 1 not completed or failed, 2 usage error, 3 `--timeout` expired,
+  130 interrupted. `ingest wait` and `start --wait --json` now exit 1 for `PARTIAL`, `FAILED` or
+  `CANCELLED` runs, and `ok` in `--json` output only means the command ran: check the exit code
+  or `data.result.status`.
+- `harborrag ingest start` without `--run-id` generates `ingest-<hex>` ids (the API still uses
+  `ingestion-<hex>`); scripts matching the prefix must accept both.
+- From a repository checkout, `ingest run` and `ingest start` refuse to run on the default sqlite
+  control DB. Set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres, or use a `harborrag init`
+  project.
+- Local connectors reject unknown filter keys, and `--limit` / `--updated-after` scans no longer
+  retire documents; run a full scan to retire deleted ones.
+- Failed documents record the classifier code (e.g. `document_release_parser_rejected_document`)
+  and the stage that failed, and parser rejections are no longer retried; update scripts that
+  match the old codes.
+- Startup fails when `HARBORRAG_EMBEDDING_DIMENSIONS` contradicts a deployment's
+  `expected_dimensions` in `config/models.yaml`.
+- `harborrag auth keys create` needs the control DB at the migration head (run it once with
+  `--migrate`); an unknown `--key-id` fails with `KeyNotFound`, revoking by owner with nothing
+  active reports `active_keys: 0`, and constraint errors report `ConstraintRejected`.
+- Reusing the id of a finished run is rejected (`WorkflowRunAlreadyStartedError`, HTTP 409); use a
+  new run id for every run.
+- `POST /ingestions`: when Temporal is unreachable at connect time, a still-unsubmitted run is
+  marked `FAILED` (`submission_failed`) and named in `details.run`, instead of being started
+  later by the outbox. Submit again with a new run id.
+- `GET /ingestions/{id}` returns 200 with `execution_status: "not_found"` when Temporal no longer
+  knows the run (it used to return 404); 404 now only means there is no such run.
 
 ### Removed
 
@@ -311,13 +257,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
   user and not world-writable; `--project` opts in explicitly. The CLI announces the project
   it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
-- Validation errors no longer echo the offending input: a Pydantic validation error is reported as
-  `field: reason` pairs in CLI output and API error messages, so a malformed setting such as a DSN
-  no longer prints its password.
-- At the default log level the CLI no longer prints tracebacks, whose exception text can carry a
-  connection URL with credentials: a failure to build the runtime service logs only the error
-  type, and the CLI's log handler drops tracebacks above `DEBUG` and points at
-  `HARBORRAG_LOG_LEVEL=DEBUG` instead.
+- Validation errors no longer echo input values, so a malformed DSN no longer prints its password
+  in CLI output or API errors.
+- The CLI no longer prints tracebacks, which can contain credentials, above `DEBUG`; set
+  `HARBORRAG_LOG_LEVEL=DEBUG` to see them.
 
 ### Fixed
 
@@ -338,52 +281,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.
-- `harborrag ingest run` no longer leaves a run `STARTED` that blocks every later scan of its
-  scope: Ctrl-C at any stage persists the run as `CANCELLED`, and a failure after discovery
-  persists `FAILED` with the failing stage (`dispatch`, `finalization`). A failed progress read no
-  longer cancels the inline run.
-- The API's submission outbox no longer starts duplicate durable workflows for runs that were
-  never meant for it: runs executed inline by `harborrag ingest run` and runs created by a worker
-  are no longer re-submitted.
-- `harborrag ingest pause`, `resume` and `cancel` applied the action but reported `NotFound` when
-  the run had no local control-plane row (another database, or a purged task); they now succeed,
-  and the audit event is skipped with a warning.
-- `harborrag ingest status` on a run Temporal does not know (never submitted, or its history
-  expired) shows the control-plane record (`execution_status: "not_found"`,
-  `source: "control_plane"`) instead of failing. `ingest watch` stops on such a run when it is not
-  terminal, instead of following it forever, and takes the outcome of a terminal one from that
-  record, so a completed run exits 0.
-- `harborrag ingest run`, `watch` and `start --wait` show `PARTIAL` runs as `partial`, a terminal
-  status of its own, instead of `completed`.
-- Ctrl-C on `harborrag ingest run`, `watch`, `wait` and `start --wait` names the run (and, for
-  durable runs, how to re-attach with `harborrag ingest watch RUN_ID`) and exits 130.
-- Startup failures are readable: a failed control DB, object store, Qdrant or FalkorDB connection,
-  or bucket provisioning, reports `Could not connect to or initialise <target>` with a fix hint.
-  The target is `scheme://host[:port]` only, or a generic label when the URL does not parse
-  cleanly, so it never includes userinfo, a password, a path or a query. `ingest run` builds the
-  request and resolves the connector before connecting, so a bad argument fails without waiting on
-  the stores.
-- Failed durable runs are readable: `harborrag ingest wait`, `watch` and `start --wait` (and
-  `GET /ingestions/{id}/result`) report `the run failed (error_code=...)` with a hint, plus a
-  specific one when the worker lacks the connector's configuration, instead of a bare
-  `WorkflowFailureError`. The code is the error type found in the failure chain, never the
-  failure's message text. After a discovery failure the source workflow reports `FAILED`.
-- Per-document failures log one warning each, naming the document, stage and code, with the
-  traceback only at `DEBUG`.
-- A Qdrant collection whose vector size differs from the configured embedding dimensions fails the
-  run at `provision` as a non-retryable `VectorIndexSchemaError` that names both dimensions.
-- Local connector errors for a path outside the source name the configured source root.
-- CLI messages and help: `harborrag <unknown command>` reports "No such command" (exit 2) instead
-  of "no project found"; a configuration error shows its message instead of the bare
-  `HarborConfigurationError` class name; the control-plane hints name the shell environment, and
-  doctor's hints name the checkout env files and `dev.sh`, when run from a checkout; the `auth`,
-  `init`, `--path`, `--pattern` and `--filters-json` help texts are accurate; and
-  `harborrag --help` takes about 0.9 s instead of 2.0 s because importing the CLI no longer loads
-  the storage clients.
-- `harborrag doctor` no longer fails on `${VAR}` references in commented-out `config/models.yaml`
-  lines.
-- A CLI command whose service fails to close after printing its result no longer adds a
-  traceback or changes its exit code; the close failure is logged as a warning.
+- Ctrl-C or a failure during `harborrag ingest run` no longer leaves the run stuck and its scope
+  blocked: the run ends `CANCELLED` or `FAILED` with the failing stage. Ctrl-C on `run`, `watch`,
+  `wait` and `start --wait` names the run and exits 130.
+- The API outbox no longer re-submits runs executed inline or created by a worker.
+- `harborrag ingest pause`, `resume` and `cancel` no longer report `NotFound` after applying the
+  action.
+- `harborrag ingest status` and `watch` fall back to the control-plane record when Temporal no
+  longer knows the run, and `PARTIAL` runs show as `partial` instead of `completed`.
+- Startup failures, failed durable runs and Qdrant vector-size mismatches report readable
+  messages (the target, `error_code` or both dimensions) instead of a bare class name, never
+  credentials or exception text; bad arguments fail before any store connects.
+- Each failed document logs one warning with its stage and code, with the traceback at `DEBUG`.
+- CLI: unknown commands report "No such command"; configuration errors show their message;
+  `doctor` ignores commented-out `${VAR}` lines and its hints name the right files;
+  `harborrag --help` takes about 0.9 s instead of 2.0 s; a close failure after the output no
+  longer changes the exit code.
 
 ### Security
 
