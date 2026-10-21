@@ -85,14 +85,25 @@ def embedding_dimensions(config: Any, model_name: str) -> int:
 def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None:
     """Fail fast when an explicit dimension contradicts the model catalog.
 
-    An unresolvable catalog entry is not a conflict: the explicit value is
-    then the only source of truth.
+    Only the deployments' ``expected_dimensions`` can contradict it: a model's
+    ``default_params.dimensions`` is merely what is requested when nothing overrides
+    it, so a configurable-dimension model accepts the override. An unknown model, or
+    deployments that disagree among themselves, are not a conflict either: the
+    explicit value is then the only source of truth.
     """
 
     try:
-        expected = embedding_dimensions(config, model)
+        _, entry = config.model_for(model)
+        pinned = {
+            int(deployment.expected_dimensions)
+            for deployment in entry.deployments
+            if deployment.expected_dimensions is not None
+        }
     except Exception:  # noqa: BLE001 - nothing in the catalog to contradict
         return
+    if len(pinned) != 1:
+        return
+    expected = pinned.pop()
     if expected != dimensions:
         raise RuntimeConfigurationError(
             f"HARBORRAG_EMBEDDING_DIMENSIONS={dimensions} but model {model!r} "

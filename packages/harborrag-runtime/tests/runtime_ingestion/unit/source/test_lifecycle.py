@@ -341,6 +341,47 @@ async def test_direct_ingestion_persists_a_failure_that_escapes_dispatch(
 
 
 @pytest.mark.asyncio
+async def test_a_failure_to_persist_the_failure_does_not_mask_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With the control DB down, the run's own error is still the one raised."""
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def broken_dispatch(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("dispatch exploded")
+
+        async def control_db_down(*args, **kwargs):
+            del args, kwargs
+            raise ConnectionError("control database unreachable")
+
+        monkeypatch.setattr(service, "_dispatch", broken_dispatch)
+        monkeypatch.setattr(service, "fail", control_db_down)
+
+        with (
+            caplog.at_level(logging.ERROR, logger="harborrag.runtime.ingestion.source"),
+            pytest.raises(RuntimeError, match="dispatch exploded"),
+        ):
+            await service.ingest(source_request("task-fail-unpersisted"), DescriptorConnector())
+
+    persisted = [
+        record for record in caplog.records if "could not be persisted" in record.getMessage()
+    ]
+    assert len(persisted) == 1
+    assert persisted[0].exc_info is not None
+    assert persisted[0].exc_info[0] is ConnectionError
+
+
+@pytest.mark.asyncio
 async def test_retried_discovery_reuses_its_open_scan(
     tmp_path: Path,
 ) -> None:

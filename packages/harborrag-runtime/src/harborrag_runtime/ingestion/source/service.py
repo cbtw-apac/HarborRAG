@@ -121,12 +121,17 @@ class SourceIngestionService(SourceDocumentOperations):
                 request.connector_type.value,
                 type(error).__name__,
             )
-            await self.fail(
-                request.task_id,
-                error_code=f"{stage}_{type(error).__name__.lower()}",
-                stage=stage,
-            )
-            raise
+            try:
+                await self.fail(
+                    request.task_id,
+                    error_code=f"{stage}_{type(error).__name__.lower()}",
+                    stage=stage,
+                )
+            except Exception:  # noqa: BLE001 - never mask the run's own error
+                logger.exception(
+                    "Source failure could not be persisted task_id=%s", request.task_id
+                )
+            raise error
         logger.info(
             "Source ingestion completed task_id=%s scan_id=%s status=%s "
             "discovered=%d published=%d unchanged=%d failed=%d removals=%d",
