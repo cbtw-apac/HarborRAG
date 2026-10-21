@@ -26,6 +26,7 @@ def unreachable(monkeypatch) -> None:
     monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: "connection refused")
     monkeypatch.setattr(probes, "http_ok", lambda *a, **k: "connection refused")
     monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: "connection refused")
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "unreachable")
 
 
 __all__ = ["project", "unreachable"]

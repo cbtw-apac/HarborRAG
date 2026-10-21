@@ -332,3 +332,42 @@ def test_an_unreportable_health_check_does_not_block_the_command(monkeypatch, ca
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["ok"] is True
+
+
+def _checkout(tmp_path, monkeypatch) -> None:
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+    # conftest's autouse fixture sets a per-test sqlite URL; the fallback means "unset".
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+
+
+def test_checkout_refuses_ingestion_on_the_sqlite_fallback(tmp_path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch)
+    built: list[int] = []
+
+    def factory() -> MockAppService:
+        built.append(1)
+        return MockAppService()
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    code = cli.main(["ingest", "start", "--connector", "workspace"])
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "HARBORRAG_CONTROL_DB_URL" in err and "harborrag init" in err
+    assert built == []
+
+
+def test_checkout_guard_stays_quiet_when_the_control_db_is_set(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _checkout(tmp_path, monkeypatch)
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "postgresql+asyncpg://u@db.example/harbor")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["ingest", "start", "--connector", "workspace"])
+
+    assert "Refusing to ingest" not in capsys.readouterr().err

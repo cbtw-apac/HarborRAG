@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 
+from harborrag_app.cli.environment import refuse_checkout_write
 from harborrag_app.cli.following import invoke_run
 from harborrag_app.workflow_control.ingestion.direct import new_run_id
 
@@ -96,6 +97,7 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
 ) -> None:
     """Execute the ingestion in this process with live inline progress."""
 
+    refuse_checkout_write()
     resolved_run_id = run_id or new_run_id()
     # Parsed here, not in the lambda: the lambda only runs after the runtime service is
     # built and the control plane probed, so a typo would cost that work and then escape

@@ -73,3 +73,59 @@ def test_service_only_files_are_never_loaded(tmp_path: Path, monkeypatch) -> Non
     assert load_project_environment(tmp_path) == ()
     assert "HARBORRAG_CONTROL_DB_URL" not in os.environ
     assert "POSTGRES_PASSWORD" not in os.environ
+
+
+_ACCESS = "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"
+_SECRET = "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"  # noqa: S105 - a variable name
+
+
+def _clear_object_store(monkeypatch) -> None:
+    for name in (_ACCESS, _SECRET, "POSTGRES_PASSWORD", "DATABASE_ENV_FILE"):
+        # setenv first so teardown restores "absent" even though the loader sets it.
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
+def test_checkout_maps_minio_credentials_only(tmp_path: Path, monkeypatch) -> None:
+    _write(
+        tmp_path,
+        "env/.env.database",
+        "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\nPOSTGRES_PASSWORD=x\n",
+    )
+    _clear_object_store(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "u"
+    assert os.environ[_SECRET] == "p"
+    assert "POSTGRES_PASSWORD" not in os.environ
+    assert [path.name for path in loaded] == [".env.database"]
+
+
+def test_project_object_store_values_win(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
+    _clear_object_store(monkeypatch)
+    monkeypatch.setenv(_ACCESS, "proj")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "proj"
+
+
+def test_database_env_file_override_is_honoured(tmp_path: Path, monkeypatch) -> None:
+    custom = _write(tmp_path, "elsewhere/db.env", "MINIO_ROOT_USER=alt\nMINIO_ROOT_PASSWORD=altp\n")
+    _clear_object_store(monkeypatch)
+    monkeypatch.setenv("DATABASE_ENV_FILE", str(custom))
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "alt"
+    assert os.environ[_SECRET] == "altp"
+
+
+def test_partial_minio_credentials_are_ignored(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\n")
+    _clear_object_store(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ

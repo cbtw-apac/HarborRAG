@@ -302,6 +302,7 @@ def test_unrequested_temporal_stays_non_blocking(tmp_path: Path, monkeypatch, ca
     monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
     monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
     monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: None)
     monkeypatch.setenv("LOCAL_SOURCE_PATH", str(tmp_path / "docs"))
 
     assert cli.main(["doctor", "--json"]) == 0
@@ -361,3 +362,107 @@ def test_doctor_inside_an_unsafe_directory_fails_cleanly(
 
     captured = capsys.readouterr()
     assert "world-writable" in captured.err and "Traceback" not in captured.err
+
+
+def _reachable(monkeypatch) -> None:
+    monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: None)
+
+
+def _doctor_checks(capsys) -> dict[str, dict]:
+    return {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+
+
+def _checkout(tmp_path: Path, monkeypatch, capsys, *, api_key: str | None) -> None:
+    """A repository checkout: scaffolded catalogs, but no harborrag.yaml."""
+
+    project(tmp_path, monkeypatch, capsys, api_key=api_key)
+    (tmp_path / "harborrag.yaml").unlink()
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+
+
+def test_doctor_fails_object_store_with_bad_credentials(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "InvalidAccessKeyId")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "fail"
+    assert "InvalidAccessKeyId" in store["detail"]
+    assert "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID" in store["hint"]
+
+
+def test_doctor_probes_qdrant_grpc_when_preferred(tmp_path: Path, monkeypatch, capsys) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setenv("HARBORRAG_QDRANT_PREFER_GRPC", "true")
+    monkeypatch.setattr(
+        probes,
+        "tcp_reachable",
+        lambda host, port, **k: f"{host}:{port} unreachable" if port == 6334 else None,
+    )
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    qdrant = _doctor_checks(capsys)["qdrant"]
+    assert qdrant["status"] == "fail"
+    assert "6334" in qdrant["detail"]
+    assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in qdrant["hint"]
+
+
+def test_doctor_warns_on_checkout_sqlite_fallback(tmp_path: Path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    control = _doctor_checks(capsys)["control db"]
+    assert control["status"] == "warn"
+    assert control["required"] is False
+    assert "env/.env.database" in control["hint"]
+
+
+def test_doctor_has_no_control_db_check_in_project_mode(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    assert "control db" not in _doctor_checks(capsys)
+
+
+def test_doctor_hints_name_the_checkout_files(tmp_path: Path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch, capsys, api_key=None)
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = _doctor_checks(capsys)
+    assert "env/.env.models" in checks["models catalog"]["hint"]
+    assert "scripts/deployment/dev.sh data" in checks["qdrant"]["hint"]
+    assert "docker compose up -d" not in checks["qdrant"]["hint"]
+
+
+def test_s3_credentials_probe_reports_only_a_code_for_an_unreachable_endpoint() -> None:
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    result = probes.s3_credentials(f"http://127.0.0.1:{port}", None, "AKIDSECRET", "hunter2", None)
+
+    assert result == "unreachable"

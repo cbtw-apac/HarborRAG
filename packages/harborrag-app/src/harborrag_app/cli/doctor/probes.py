@@ -6,6 +6,8 @@ into a check without importing a provider client that may not be installed.
 
 from __future__ import annotations
 
+import importlib.util
+import re
 import socket
 import urllib.error
 import urllib.request
@@ -13,6 +15,7 @@ from urllib.parse import urlparse
 
 DEFAULT_TIMEOUT = 3.0
 _HTTP_OK_UPPER_BOUND = 400
+_S3_CODE = re.compile(r"[A-Za-z0-9]{1,64}")
 
 
 def tcp_reachable(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
@@ -69,9 +72,64 @@ def redis_ping(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str
     return f"{host}:{port} answered {reply[:32]!r} instead of PONG"
 
 
+def s3_credentials(
+    endpoint: str,
+    region: str | None,
+    key: str | None,
+    secret: str | None,
+    token: str | None,
+) -> str | None:
+    """Sign a real ``ListBuckets`` call; ``None`` is OK, else only the S3 error code.
+
+    The code is the whole answer: botocore's message can echo the access key id, and the
+    caller must never see the credentials or the endpoint's userinfo.
+    """
+
+    if importlib.util.find_spec("botocore") is None:
+        return None
+    import botocore.session
+    from botocore.config import Config
+    from botocore.exceptions import (
+        ClientError,
+        NoCredentialsError,
+    )
+
+    try:
+        client = botocore.session.get_session().create_client(
+            "s3",
+            endpoint_url=endpoint,
+            region_name=region or "us-east-1",
+            aws_access_key_id=key,
+            aws_secret_access_key=secret,
+            aws_session_token=token,
+            config=Config(
+                connect_timeout=DEFAULT_TIMEOUT,
+                read_timeout=DEFAULT_TIMEOUT,
+                retries={"max_attempts": 1},
+            ),
+        )
+        client.list_buckets()
+    except NoCredentialsError:
+        return "NoCredentials"
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        return code if _S3_CODE.fullmatch(code) else "S3Error"
+    except Exception:  # noqa: BLE001 - a probe reports, it never raises
+        return "unreachable"
+    return None
+
+
 def host_port(url: str, *, default_port: int) -> tuple[str, int]:
     parsed = urlparse(url)
     return parsed.hostname or "localhost", parsed.port or default_port
 
 
-__all__ = ["DEFAULT_TIMEOUT", "host_port", "http_ok", "redis_ping", "safe_url", "tcp_reachable"]
+__all__ = [
+    "DEFAULT_TIMEOUT",
+    "host_port",
+    "http_ok",
+    "redis_ping",
+    "s3_credentials",
+    "safe_url",
+    "tcp_reachable",
+]

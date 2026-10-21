@@ -17,13 +17,20 @@ import logging
 import os
 from pathlib import Path
 
+import typer
+
+from harborrag_runtime.config.checkout import checkout_object_store_credentials
+from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL
+
 logger = logging.getLogger("harborrag.app.cli.environment")
 
 # Mirrors the files scripts/deployment/dev.sh manages and compose mounts into the worker,
 # and honours the same override variables so a non-default layout stays consistent
 # between the CLI and the containers. env/.env.api and env/.env.database are deliberately
-# absent: they point services at in-cluster hostnames and at the API's own control-plane
-# DSN, which would silently repoint a host CLI at addresses it cannot reach.
+# not loaded wholesale: they point services at in-cluster hostnames and at the API's own
+# control-plane DSN, which would silently repoint a host CLI at addresses it cannot reach.
+# Only the MinIO root pair is read from env/.env.database (see
+# load_project_environment): the host reaches the same MinIO on localhost.
 _ENV_FILES: tuple[tuple[str, str], ...] = (
     ("CONNECTOR_ENV_FILE", "env/.env.connector"),
     ("PARSER_ENV_FILE", "env/.env.parser"),
@@ -50,9 +57,59 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
         # command, is being explicit and must outrank the file.
         load_dotenv(path, override=False)
         loaded.append(path)
+    database = Path(os.environ.get("DATABASE_ENV_FILE", "env/.env.database"))
+    database_path = database if database.is_absolute() else base / database
+    try:
+        credentials = checkout_object_store_credentials(database_path)
+    except ValueError:
+        logger.debug("Ignoring unreadable %s", database_path)
+        credentials = {}
+    applied = False
+    for name, value in credentials.items():
+        # setdefault: a project's own .env or an exported variable outranks the checkout.
+        if name not in os.environ:
+            os.environ[name] = value
+            applied = True
+    if applied:
+        loaded.append(database_path)
     if loaded:
         logger.debug("Loaded project environment files: %s", ", ".join(str(p) for p in loaded))
     return tuple(loaded)
 
 
-__all__ = ["load_project_environment"]
+_REFUSAL = (
+    "Refusing to ingest from a repo checkout into the local sqlite control DB: the stores "
+    "are shared with the stack but run state would not be. Set HARBORRAG_CONTROL_DB_URL to "
+    "the stack's Postgres (rebuild the images first: scripts/deployment/dev.sh up --build) "
+    "or run from a project created with `harborrag init`."
+)
+
+
+def checkout_write_refusal() -> str | None:
+    """Why a checkout may not ingest into the default sqlite control DB, if it may not."""
+
+    from harborrag_app.cli.project import UnsafeProjectError, active_project, find_legacy_checkout
+
+    if active_project() is not None:
+        return None
+    try:
+        if find_legacy_checkout() is None:
+            return None
+    except UnsafeProjectError:
+        return None
+    configured = os.environ.get("HARBORRAG_CONTROL_DB_URL")
+    if configured and configured != DEFAULT_CONTROL_DB_URL:
+        return None
+    return _REFUSAL
+
+
+def refuse_checkout_write() -> None:
+    """Exit 1 with the refusal on stderr; the first statement of every ingest write."""
+
+    message = checkout_write_refusal()
+    if message is not None:
+        typer.echo(message, err=True)
+        raise typer.Exit(1)
+
+
+__all__ = ["checkout_write_refusal", "load_project_environment", "refuse_checkout_write"]

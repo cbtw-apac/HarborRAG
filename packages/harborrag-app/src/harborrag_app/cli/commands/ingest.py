@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from harborrag_app.cli.commands.ingest_run import JsonOption, parse_filters, register_run
+from harborrag_app.cli.environment import refuse_checkout_write
 from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch, run_completed
 from harborrag_app.cli.runner import invoke
 from harborrag_app.workflow_control import AppResponse, BaseAppService
@@ -156,6 +157,8 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     as_json: JsonOption = False,
 ) -> None:
     """Submit one canonical ingestion workflow to Temporal."""
+
+    refuse_checkout_write()
 
     def submit(service: BaseAppService, *, wait_inline: bool) -> Awaitable[AppResponse]:
         return service.start_ingestion(

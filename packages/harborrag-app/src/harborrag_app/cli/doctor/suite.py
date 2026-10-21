@@ -7,20 +7,30 @@ import importlib.util
 import logging
 from collections.abc import Callable
 
-from harborrag_app.cli.project import PROJECT_FILE, ProjectError, active_project, find_project
+from pydantic import SecretStr
+
+from harborrag_app.cli.project import (
+    PROJECT_FILE,
+    ProjectError,
+    UnsafeProjectError,
+    active_project,
+    find_legacy_checkout,
+    find_project,
+)
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_runtime.config import (
     ConnectorCatalog,
     load_connector_catalog,
     load_parser_catalog,
 )
-from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
 from . import probes
 from .checks import Check, DoctorReport
 from .environment import (
     check_error_detail,
     credentials_check,
+    env_hint,
     models_check,
     packages_check,
     settings_error_detail,
@@ -29,7 +39,9 @@ from .environment import (
 
 logger = logging.getLogger("harborrag.app.cli.doctor.suite")
 
-_COMPOSE_HINT = "Start the local services: docker compose up -d"
+_QDRANT_HTTP_PORT = 6333
+_QDRANT_GRPC_PORT = 6334
+
 _INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
 _CONNECTORS_HINT = "Fix or remove the connector named above in config/connectors.yaml."
 _TEMPORAL_HINT = (
@@ -50,6 +62,9 @@ async def run_doctor(
     if settings is None:
         return DoctorReport(tuple(checks))
     checks.extend(_configuration_checks(settings))
+    control_db = _control_db_check(settings)
+    if control_db is not None:
+        checks.append(control_db)
     checks.extend(await asyncio.to_thread(_service_checks, settings))
     control_checks, diagnostics = await _control_plane_checks(service_factory, temporal=temporal)
     checks.extend(control_checks)
@@ -91,7 +106,7 @@ def _settings(checks: list[Check]) -> RuntimeSettings | None:
                 "config",
                 "fail",
                 settings_error_detail(exc),
-                hint="Fix the HARBORRAG_* variable named above in .env.",
+                hint=f"Fix the HARBORRAG_* variable named above in {env_hint('settings')}.",
             )
         )
         return None
@@ -138,12 +153,56 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
     return checks
 
 
+def _control_db_check(settings: RuntimeSettings) -> Check | None:
+    """Warn when a checkout would silently keep its run state in a local sqlite file."""
+
+    if active_project() is not None:
+        return None
+    try:
+        if find_legacy_checkout() is None:
+            return None
+    except UnsafeProjectError:
+        return None
+    if settings.control_db_url.get_secret_value() != DEFAULT_CONTROL_DB_URL:
+        return None
+    return Check(
+        "control db",
+        "config",
+        "warn",
+        "using the local sqlite fallback, not the stack's Postgres",
+        hint=(
+            f"Set HARBORRAG_CONTROL_DB_URL to the stack's Postgres ({env_hint('database')}) "
+            "before ingesting; ingest run/start refuse the fallback in a checkout."
+        ),
+        required=False,
+    )
+
+
+def _qdrant_error(settings: RuntimeSettings) -> str | None:
+    error = probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz")
+    if error is not None or not settings.qdrant_prefer_grpc:
+        return error
+    host, _ = probes.host_port(settings.qdrant_url, default_port=_QDRANT_HTTP_PORT)
+    grpc_error = probes.tcp_reachable(host, _QDRANT_GRPC_PORT)
+    if grpc_error is None:
+        return None
+    return (
+        f"{grpc_error}; the client prefers gRPC (port {_QDRANT_GRPC_PORT}) "
+        "and HTTP alone is not enough"
+    )
+
+
 def _service_checks(settings: RuntimeSettings) -> list[Check]:
     checks = [
         _service_check(
             "qdrant",
             probes.safe_url(settings.qdrant_url),
-            probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz"),
+            _qdrant_error(settings),
+            hint_extra=(
+                "or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP only"
+                if settings.qdrant_prefer_grpc
+                else None
+            ),
         ),
         _service_check(
             "falkordb",
@@ -162,16 +221,52 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
         # Not every S3-compatible store serves MinIO's health route; fall back to the port.
         host, port = probes.host_port(endpoint, default_port=9000)
         error = probes.tcp_reachable(host, port)
+    if error is None:
+        code = probes.s3_credentials(
+            endpoint,
+            settings.object_store_region,
+            _secret(settings.object_store_access_key_id),
+            _secret(settings.object_store_secret_access_key),
+            _secret(settings.object_store_session_token),
+        )
+        if code is not None:
+            # Only the S3 error code: never the key, the secret or botocore's message.
+            checks.append(
+                Check(
+                    "object store",
+                    "services",
+                    "fail",
+                    (
+                        f"{probes.safe_url(endpoint)} could not list buckets ({code})"
+                        if code == "unreachable"
+                        else f"{probes.safe_url(endpoint)} rejected the credentials ({code})"
+                    ),
+                    hint=(
+                        "Set HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID/SECRET_ACCESS_KEY "
+                        "(checkout: MINIO_ROOT_* in env/.env.database)"
+                    ),
+                )
+            )
+            return checks
     checks.append(_service_check("object store", probes.safe_url(endpoint), error))
     return checks
 
 
-def _service_check(name: str, target: str, error: str | None) -> Check:
+def _secret(value: SecretStr | None) -> str | None:
+    return value.get_secret_value() if value is not None else None
+
+
+def _service_check(
+    name: str, target: str, error: str | None, *, hint_extra: str | None = None
+) -> Check:
     """``target`` is shown verbatim on success, so callers pass an already-safe string."""
 
     if error is None:
         return Check(name, "services", "ok", target)
-    return Check(name, "services", "fail", error, hint=_COMPOSE_HINT)
+    hint = f"Start the local services: {env_hint('services')}"
+    if hint_extra:
+        hint = f"{hint} ({hint_extra})"
+    return Check(name, "services", "fail", error, hint=hint)
 
 
 async def _control_plane_checks(
@@ -188,7 +283,7 @@ async def _control_plane_checks(
         # HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
         logger.debug("Control-plane service could not be built", exc_info=True)
         detail = check_error_detail(exc)
-        hint = "Check HARBORRAG_CONTROL_DB_URL in .env."
+        hint = f"Check HARBORRAG_CONTROL_DB_URL in {env_hint('database')}."
         failed = [
             Check("control plane", "services", "fail", detail, hint=hint),
             _temporal_skipped(),

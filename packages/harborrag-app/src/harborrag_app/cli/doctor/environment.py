@@ -8,11 +8,13 @@ import os
 import re
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import ValidationError
 
-from harborrag_app.workflow_control.errors import public_error_message
+from harborrag_app.cli.project import UnsafeProjectError, active_project, find_legacy_checkout
+from harborrag_app.workflow_control.errors import public_error_message, validation_error_detail
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
 
@@ -20,7 +22,37 @@ from .checks import Check
 
 logger = logging.getLogger("harborrag.app.cli.doctor.environment")
 
-_MODELS_HINT = "Set the provider key in .env (it is referenced as ${VAR} in config/models.yaml)."
+
+def _in_checkout() -> bool:
+    try:
+        return active_project() is None and find_legacy_checkout() is not None
+    except UnsafeProjectError:
+        return False
+
+
+def env_hint(kind: Literal["models", "connector", "database", "services", "settings"]) -> str:
+    """The file (or command) that supplies ``kind`` in the current mode.
+
+    A project keeps everything in its ``.env`` and its compose file; a repository checkout
+    splits the same values across ``env/.env.*`` and starts services with dev.sh.
+    """
+
+    if not _in_checkout():
+        return "docker compose up -d" if kind == "services" else ".env"
+    return {
+        "models": "env/.env.models",
+        "connector": "env/.env.connector",
+        "database": "env/.env.database",
+        "services": "scripts/deployment/dev.sh data",
+        "settings": "your shell environment",
+    }[kind]
+
+
+def _models_hint() -> str:
+    return (
+        f"Set the provider key in {env_hint('models')} "
+        "(it is referenced as ${VAR} in config/models.yaml)."
+    )
 
 
 _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -88,12 +120,7 @@ def check_error_detail(exc: Exception) -> str:
     """
 
     if isinstance(exc, ValidationError):
-        parts = [
-            f"{'.'.join(str(item) for item in error.get('loc', ())) or 'catalog'}: "
-            f"{error.get('msg', 'invalid')}"
-            for error in exc.errors(include_input=False, include_url=False)
-        ]
-        return "; ".join(parts) or "invalid catalog"
+        return validation_error_detail(exc)
     if isinstance(exc, HarborConfigurationError):
         return f"{type(exc).__name__}: {exc}"
     return public_error_message(exc)
@@ -126,7 +153,7 @@ def credentials_check(catalog: ConnectorCatalog) -> Check | None:
             "environment",
             "fail",
             detail,
-            hint="Set the variables named above in .env.",
+            hint=f"Set the variables named above in {env_hint('connector')}.",
         )
     return Check(
         "connector credentials", "environment", "ok", f"{remote} remote connector(s) configured"
@@ -150,7 +177,7 @@ def models_check(path: Path) -> Check:
     except Exception as exc:  # noqa: BLE001
         logger.debug("Model catalog %s could not be described", path, exc_info=True)
         detail = f"{path}: {check_error_detail(exc)}"
-        return Check("models catalog", "config", "fail", detail, hint=_MODELS_HINT)
+        return Check("models catalog", "config", "fail", detail, hint=_models_hint())
     # The loader expands ``${VAR}`` eagerly but accepts an empty value, which would only
     # surface as an authentication failure mid-ingestion. Name the blank variable now.
     # Scan the parsed values, not the raw text: a `${VAR}` in a commented-out example
@@ -167,7 +194,7 @@ def models_check(path: Path) -> Check:
     )
     if blank:
         detail = f"{', '.join(blank)} is blank"
-        return Check("models catalog", "config", "fail", detail, hint=_MODELS_HINT)
+        return Check("models catalog", "config", "fail", detail, hint=_models_hint())
     detail = f"chat={summary.chat_default} embed={summary.embed_default}"
     return Check("models catalog", "config", "ok", detail)
 
@@ -180,14 +207,14 @@ def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
             continue
         value = os.environ.get(variable, "")
         if not value:
-            hint = f"Set {variable} in .env to the folder to ingest."
+            hint = f"Set {variable} in {env_hint('connector')} to the folder to ingest."
             checks.append(
                 Check("source path", "environment", "fail", f"{variable} is not set", hint=hint)
             )
         elif not Path(value).expanduser().is_dir():
             # Never echo the value: a catalog can name any variable here.
             detail = f"{variable} does not point to an existing directory"
-            hint = f"Check {variable} in .env."
+            hint = f"Check {variable} in {env_hint('connector')}."
             checks.append(Check("source path", "environment", "fail", detail, hint=hint))
         else:
             # Never echo the value, in this branch either: a catalog can name any
@@ -199,6 +226,7 @@ def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
 
 __all__ = [
     "check_error_detail",
+    "env_hint",
     "credentials_check",
     "models_check",
     "packages_check",
