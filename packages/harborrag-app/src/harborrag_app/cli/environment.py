@@ -61,7 +61,7 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
     database_path = database if database.is_absolute() else base / database
     try:
         credentials = checkout_object_store_credentials(database_path)
-    except ValueError:
+    except (ValueError, OSError):
         logger.debug("Ignoring unreadable %s", database_path)
         credentials = {}
     applied = False

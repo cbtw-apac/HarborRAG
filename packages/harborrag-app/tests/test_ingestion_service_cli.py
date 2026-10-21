@@ -5,6 +5,7 @@ import threading
 
 import pytest
 from app_test_fixtures import MockAppService
+from doctor_test_support import unreachable
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
@@ -282,6 +283,7 @@ def test_ingest_start_refuses_to_run_against_an_unmigrated_control_plane(
     """Doing the work anyway defers the failure to an opaque missing-column error."""
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", DegradedControlPlaneService)
+    unreachable(monkeypatch)
 
     exit_code = cli.main(
         ["ingest", "start", "--tenant", "tenant-1", "--connector", "local-docs", "--json"]

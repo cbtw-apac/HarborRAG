@@ -466,3 +466,55 @@ def test_s3_credentials_probe_reports_only_a_code_for_an_unreachable_endpoint() 
     result = probes.s3_credentials(f"http://127.0.0.1:{port}", None, "AKIDSECRET", "hunter2", None)
 
     assert result == "unreachable"
+
+
+def test_s3_access_denied_counts_as_authenticated(monkeypatch) -> None:
+    import botocore.session
+    from botocore.exceptions import ClientError
+
+    class Client:
+        def list_buckets(self):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "ListBuckets")
+
+    class Session:
+        def create_client(self, *a, **k):
+            return Client()
+
+    monkeypatch.setattr(botocore.session, "get_session", lambda: Session())
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) is None
+
+
+def test_s3_rejected_credentials_report_the_code(monkeypatch) -> None:
+    import botocore.session
+    from botocore.exceptions import ClientError
+
+    class Client:
+        def list_buckets(self):
+            raise ClientError({"Error": {"Code": "SignatureDoesNotMatch"}}, "ListBuckets")
+
+    class Session:
+        def create_client(self, *a, **k):
+            return Client()
+
+    monkeypatch.setattr(botocore.session, "get_session", lambda: Session())
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) == "SignatureDoesNotMatch"
+
+
+def test_doctor_control_plane_hint_says_shell_in_checkout_mode(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    class Broken:
+        def __init__(self) -> None:
+            raise RuntimeError("boom")
+
+    _checkout(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Broken)
+
+    cli.main(["doctor", "--json"])
+
+    plane = _doctor_checks(capsys)["control plane"]
+    assert "shell" in plane["hint"]
+    assert "env/.env.database" not in plane["hint"]

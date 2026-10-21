@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
+from doctor_test_support import unreachable
 from project_test_support import scaffold as _scaffold
 
 from harborrag_app.cli.project import (
@@ -97,6 +98,7 @@ def test_main_activates_the_enclosing_project_before_running(
 
     # A marker-only project has no catalogs, so doctor itself reports failures (exit 1);
     # this test only cares that the project was found and activated before it ran.
+    unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
 
     import json
@@ -236,6 +238,7 @@ def test_main_announces_activation_when_it_leaves_the_current_directory(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
+    unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
 
     assert f"using project {root.resolve()}" in capsys.readouterr().err

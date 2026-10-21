@@ -171,8 +171,8 @@ def _control_db_check(settings: RuntimeSettings) -> Check | None:
         "warn",
         "using the local sqlite fallback, not the stack's Postgres",
         hint=(
-            f"Set HARBORRAG_CONTROL_DB_URL to the stack's Postgres ({env_hint('database')}) "
-            "before ingesting; ingest run/start refuse the fallback in a checkout."
+            "Export HARBORRAG_CONTROL_DB_URL to the stack's Postgres before ingesting "
+            f"(credentials: {env_hint('database')}); ingest run/start refuse the fallback in a checkout."
         ),
         required=False,
     )
@@ -283,7 +283,7 @@ async def _control_plane_checks(
         # HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
         logger.debug("Control-plane service could not be built", exc_info=True)
         detail = check_error_detail(exc)
-        hint = f"Check HARBORRAG_CONTROL_DB_URL in {env_hint('database')}."
+        hint = f"Check HARBORRAG_CONTROL_DB_URL in {env_hint('settings')}."
         failed = [
             Check("control plane", "services", "fail", detail, hint=hint),
             _temporal_skipped(),

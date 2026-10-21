@@ -131,8 +131,6 @@ module = [
     "odf.*",
     "olefile",
     "boto3",
-    "botocore",
-    "botocore.*",
     "google.cloud",
     "google.cloud.*",
     "langchain_text_splitters",

@@ -87,12 +87,9 @@ def s3_credentials(
 
     if importlib.util.find_spec("botocore") is None:
         return None
-    import botocore.session
-    from botocore.config import Config
-    from botocore.exceptions import (
-        ClientError,
-        NoCredentialsError,
-    )
+    import botocore.session  # type: ignore
+    from botocore.config import Config  # type: ignore
+    from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore
 
     try:
         client = botocore.session.get_session().create_client(
@@ -113,6 +110,9 @@ def s3_credentials(
         return "NoCredentials"
     except ClientError as exc:
         code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code == "AccessDenied":
+            # The key authenticated; it is merely scoped to buckets, not the account.
+            return None
         return code if _S3_CODE.fullmatch(code) else "S3Error"
     except Exception:  # noqa: BLE001 - a probe reports, it never raises
         return "unreachable"

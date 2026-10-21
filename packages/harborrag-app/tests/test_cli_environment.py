@@ -129,3 +129,18 @@ def test_partial_minio_credentials_are_ignored(tmp_path: Path, monkeypatch) -> N
 
     assert load_project_environment(tmp_path) == ()
     assert _ACCESS not in os.environ
+
+
+def test_unreadable_database_env_file_is_skipped(tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli import environment
+
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
+    _clear_object_store(monkeypatch)
+
+    def denied(path: Path) -> dict[str, str]:
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(environment, "checkout_object_store_credentials", denied)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ
