@@ -35,7 +35,7 @@ def test_status_payload_uses_the_temporal_headline() -> None:
     assert snapshot.failed_artifacts == ("a.pdf",)
 
 
-def test_task_payload_maps_public_names_to_run_vocabulary() -> None:
+def test_partial_task_maps_to_partial() -> None:
     snapshot = ProgressSnapshot.from_task_payload(
         {
             "task_id": "t1",
@@ -45,7 +45,7 @@ def test_task_payload_maps_public_names_to_run_vocabulary() -> None:
             "message": "done",
         }
     )
-    assert snapshot.status == "completed"
+    assert snapshot.status == "partial"
     assert snapshot.terminal is True
     assert snapshot.as_dict()["progress"]["failed"] == 1
 
@@ -88,7 +88,7 @@ def test_status_source_reports_a_finished_control_plane_run() -> None:
     source = StatusSource(_Service([_control_plane_status("PARTIAL", "PARTIAL")]), "r1")
     snapshot = asyncio.run(source.snapshot())
     assert snapshot is not None
-    assert snapshot.status == "completed"
+    assert snapshot.status == "partial"
     assert snapshot.terminal is True
 
 

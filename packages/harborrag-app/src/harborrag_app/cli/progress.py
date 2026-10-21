@@ -17,13 +17,14 @@ from harborrag_app.cli.stages import headline_status
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_app.workflow_control.errors import IngestionNotFoundError
 
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "partial"})
 # Public task names (presenters.STATUS_NAMES) -> the run vocabulary stages.py renders.
 _TASK_STATUSES = {
     "PENDING": "pending",
     "RUNNING": "running",
     "SUCCESS": "completed",
-    "PARTIAL": "completed",
+    "PARTIAL": "partial",
+    "PAUSED": "paused",
     "FAILED": "failed",
     "CANCELLED": "cancelled",
 }

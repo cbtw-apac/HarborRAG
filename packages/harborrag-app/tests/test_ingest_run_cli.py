@@ -271,3 +271,39 @@ def test_checkout_guard_stays_quiet_when_the_control_db_is_set(
     cli.main(["ingest", "run", "workspace"])
 
     assert "Refusing to ingest" not in capsys.readouterr().err
+
+
+def test_ctrl_c_prints_the_run_id(monkeypatch, capsys) -> None:
+    import asyncio
+
+    class SlowRun(MockAppService):
+        async def run_ingestion(self, **kwargs):  # type: ignore[override]
+            await asyncio.sleep(30)
+            raise AssertionError("the run should have been cancelled")
+
+    def interrupted(self, until=None):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", SlowRun)
+    monkeypatch.setattr("harborrag_app.cli.progress_view.LiveProgress.follow", interrupted)
+
+    code = cli.main(["ingest", "run", "workspace", "--run-id", "run-7"])
+
+    err = capsys.readouterr().err
+    assert code == 130
+    assert "Cancelled inline run run-7" in err
+
+
+def test_tenant_defaults_from_environment(monkeypatch) -> None:
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(_service()())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
+
+    cli.main(["ingest", "run", "workspace", "--json"])
+
+    assert instances[0].direct_runs[0]["tenant_id"] == "acme"

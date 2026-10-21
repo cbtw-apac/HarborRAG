@@ -21,6 +21,9 @@ type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 
 logger = logging.getLogger("harborrag.app.cli.runner")
 
+# Exit status for "gave up waiting, the run keeps going" (1 = not completed, 130 = Ctrl-C).
+TIMEOUT_EXIT_CODE = 3
+
 
 @dataclass(frozen=True, slots=True)
 class CliState:
@@ -38,6 +41,8 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
     as_json: bool = False,
     requires_control_plane: bool = True,
     succeeded: Callable[[AppResponse], bool] | None = None,
+    timeout: float | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Execute one application-service call and render its stable response.
 
@@ -60,6 +65,8 @@ def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation op
             as_json=as_json,
             requires_control_plane=requires_control_plane,
             succeeded=succeeded,
+            timeout=timeout,
+            run_id=run_id,
         )
     )
     if exit_code:
@@ -75,6 +82,8 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
     as_json: bool,
     requires_control_plane: bool = True,
     succeeded: Callable[[AppResponse], bool] | None = None,
+    timeout: float | None = None,
+    run_id: str | None = None,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     service = await build_service(renderer, command=command, action=action, as_json=as_json)
@@ -92,11 +101,18 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
             )
             return 1
         try:
-            with renderer.operation(
-                _operation_message(command, action),
-                enabled=not as_json,
-            ):
-                response = await call(service)
+            async with asyncio.timeout(timeout) as deadline:
+                with renderer.operation(
+                    _operation_message(command, action),
+                    enabled=not as_json,
+                ):
+                    response = await call(service)
+        except TimeoutError as exc:
+            if not deadline.expired():
+                response = failure(exc)
+            else:
+                await report_timeout(service, renderer, run_id or "")
+                return TIMEOUT_EXIT_CODE
         except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
             response = failure(exc)
         emit(
@@ -109,6 +125,31 @@ async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
         return 0 if response.ok and (succeeded is None or succeeded(response)) else 1
     finally:
         await close(service)
+
+
+async def report_timeout(
+    service: BaseAppService, renderer: CliRenderer, run_id: str, status: str | None = None
+) -> None:
+    """Tell the operator the wait expired while the durable run carries on."""
+
+    if status is None:
+        status = "running"
+        try:
+            # Best effort: a paused run should not be reported as running.
+            from harborrag_app.cli.progress import ProgressSnapshot  # noqa: PLC0415
+
+            reply = await service.ingestion_status(run_id)
+            if reply.ok:
+                status = ProgressSnapshot.from_status_payload(reply.data).status
+        except Exception:
+            logger.debug("Could not read the run status after a timeout", exc_info=True)
+    renderer.error_console.print(
+        f"Run {run_id} is still {status}; it keeps running. "
+        f"Re-attach with: harborrag ingest watch {run_id}",
+        markup=False,
+        soft_wrap=True,
+        highlight=False,
+    )
 
 
 async def build_service(

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
+from typing import Any
 
 import typer
 
@@ -17,6 +18,7 @@ from harborrag_app.workflow_control import AppResponse, BaseAppService
 type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
 
 _DIRECT_INTERVAL = 0.5
+INTERRUPTED_EXIT_CODE = 130
 
 
 def invoke_run(  # noqa: PLR0913 - one parameter per CLI presentation option
@@ -31,7 +33,7 @@ def invoke_run(  # noqa: PLR0913 - one parameter per CLI presentation option
 ) -> None:
     """Execute a direct ingestion while following its task-store progress."""
 
-    code = asyncio.run(
+    code = _run_to_exit_code(
         _run(
             call,
             run_id=run_id,
@@ -83,14 +85,14 @@ async def _run(  # noqa: PLR0913 - mirrors invoke_run
                 except ProgressUnavailable:
                     pass  # the final envelope below still reports the outcome
             response = await task
-        except KeyboardInterrupt:
-            # The ingestion runs in this process, so Ctrl-C must stop it rather than
-            # leave it writing underneath a closing service.
-            await _settle(task)
-            renderer.error_console.print("Cancelled the inline ingestion run.")
-            return 130
         except asyncio.CancelledError:
+            # Ctrl-C reaches an `asyncio.run` program as a cancelled main task. The
+            # ingestion runs in this process, so it must stop rather than keep writing
+            # underneath a closing service.
             await _settle(task)
+            renderer.error_console.print(
+                f"Cancelled inline run {run_id}.", markup=False, highlight=False
+            )
             raise
         except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
             await _settle(task)
@@ -106,10 +108,13 @@ def invoke_start_and_follow(
     *,
     context: typer.Context,
     interval: float,
+    timeout: float | None = None,
 ) -> None:
     """Submit a durable run, follow its status inline, then print the final result."""
 
-    code = asyncio.run(_start_and_follow(call, state=runner.state(context), interval=interval))
+    code = _run_to_exit_code(
+        _start_and_follow(call, state=runner.state(context), interval=interval, timeout=timeout)
+    )
     if code:
         raise typer.Exit(code)
 
@@ -119,6 +124,7 @@ async def _start_and_follow(
     *,
     state: runner.CliState,
     interval: float,
+    timeout: float | None,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     service = await runner.build_service(renderer, command="ingest", action="start", as_json=False)
@@ -140,7 +146,7 @@ async def _start_and_follow(
             return 1
         run_id = str(mapping(started.data.get("run")).get("run_id", ""))
         return await _follow_status(
-            service, renderer, run_id=run_id, interval=interval, events=False
+            service, renderer, run_id=run_id, interval=interval, events=False, timeout=timeout
         )
     finally:
         await runner.close(service)
@@ -152,11 +158,14 @@ def invoke_watch(
     context: typer.Context,
     interval: float,
     events: bool,
+    timeout: float | None = None,
 ) -> None:
     """Follow an existing durable run inline until it settles (Ctrl-C leaves it running)."""
 
-    code = asyncio.run(
-        _watch(run_id, state=runner.state(context), interval=interval, events=events)
+    code = _run_to_exit_code(
+        _watch(
+            run_id, state=runner.state(context), interval=interval, events=events, timeout=timeout
+        )
     )
     if code:
         raise typer.Exit(code)
@@ -168,6 +177,7 @@ async def _watch(
     state: runner.CliState,
     interval: float,
     events: bool,
+    timeout: float | None,
 ) -> int:
     renderer = CliRenderer(no_color=state.no_color)
     service = await runner.build_service(renderer, command="ingest", action="watch", as_json=events)
@@ -183,7 +193,7 @@ async def _watch(
             )
             return 1
         return await _follow_status(
-            service, renderer, run_id=run_id, interval=interval, events=events
+            service, renderer, run_id=run_id, interval=interval, events=events, timeout=timeout
         )
     finally:
         await runner.close(service)
@@ -207,13 +217,14 @@ def run_completed(response: AppResponse) -> bool:
     return status == "completed"
 
 
-async def _follow_status(
+async def _follow_status(  # noqa: PLR0913 - one parameter per CLI presentation option
     service: BaseAppService,
     renderer: CliRenderer,
     *,
     run_id: str,
     interval: float,
     events: bool,
+    timeout: float | None = None,
 ) -> int:
     live = LiveProgress(
         renderer.console,
@@ -223,21 +234,40 @@ async def _follow_status(
         events=events,
     )
     try:
-        await live.follow()
+        async with asyncio.timeout(timeout) as deadline:
+            await live.follow()
+            result = await service.ingestion_result(run_id)
     except ProgressUnavailable as exc:
         response = AppResponse(False, {"error_type": "ProgressUnavailable"}, str(exc))
         runner.emit(response, renderer=renderer, command="ingest", action="watch", as_json=events)
         return 1
-    except KeyboardInterrupt:
+    except TimeoutError:
+        if not deadline.expired():
+            raise
+        status = live.last.status if live.last is not None else None
+        await runner.report_timeout(service, renderer, run_id, status)
+        return runner.TIMEOUT_EXIT_CODE
+    except asyncio.CancelledError:
         renderer.error_console.print(
-            "Left the run in place; use 'harborrag ingest status|cancel RUN_ID'."
+            f"Left run {run_id} running; re-attach with: harborrag ingest watch {run_id}",
+            markup=False,
+            soft_wrap=True,
+            highlight=False,
         )
-        return 130
-    result = await service.ingestion_result(run_id)
+        raise
     runner.emit(result, renderer=renderer, command="ingest", action="wait", as_json=events)
     # Same rule as `ingest run`: a durable run that ended PARTIAL or CANCELLED did not
     # finish the requested work either.
     return 0 if result.ok and run_completed(result) else 1
+
+
+def _run_to_exit_code(coroutine: Coroutine[Any, Any, int]) -> int:
+    """Run a follow coroutine; an un-signalled cancellation still means "interrupted"."""
+
+    try:
+        return asyncio.run(coroutine)
+    except asyncio.CancelledError:
+        return INTERRUPTED_EXIT_CODE
 
 
 __all__ = ["invoke_run", "invoke_start_and_follow", "invoke_watch", "run_completed"]

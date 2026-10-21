@@ -13,6 +13,16 @@ from harborrag_app.cli.following import invoke_start_and_follow, invoke_watch, r
 from harborrag_app.cli.runner import invoke
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 
+TimeoutOption = Annotated[
+    float | None,
+    typer.Option(
+        "--timeout",
+        min=1,
+        metavar="SECONDS",
+        help="Stop waiting after this long (exit 3); the run itself keeps going.",
+    ),
+]
+
 # Status polling cadence while `start --wait` follows a run inline.
 _FOLLOW_INTERVAL = 1.0
 
@@ -30,8 +40,15 @@ register_run(app)
 @app.command(help="Start a new ingestion run.", rich_help_panel="Submit")
 def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     context: typer.Context,
-    connector_name: Annotated[
-        str,
+    connector: Annotated[
+        str | None,
+        typer.Argument(
+            metavar="[CONNECTOR]",
+            help="Connector name; same as --connector-id.",
+        ),
+    ] = None,
+    connector_option: Annotated[
+        str | None,
         typer.Option(
             # --connector-id is the truer name: the value is a key under `connectors:`
             # in config/connectors.yaml, which that file documents as the public
@@ -44,12 +61,13 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
                 "(for example jira-main), not a provider type."
             ),
         ),
-    ],
+    ] = None,
     tenant_id: Annotated[
         str,
         typer.Option(
             "--tenant",
             metavar="TENANT_ID",
+            envvar="HARBORRAG_INGESTION_TENANT_ID",
             help="Tenant that owns the ingestion run.",
         ),
     ] = "DEFAULT",
@@ -73,11 +91,20 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     ] = None,
     path: Annotated[
         str | None,
-        typer.Option("--path", help="Connector-specific discovery path."),
+        typer.Option(
+            "--path",
+            help="Path inside the connector's source root (local: relative to source_path).",
+        ),
     ] = None,
     pattern: Annotated[
         str | None,
-        typer.Option("--pattern", help="Connector-specific discovery pattern."),
+        typer.Option(
+            "--pattern",
+            help=(
+                "Case-insensitive substring, or a glob matched against the path "
+                "relative to the source root."
+            ),
+        ),
     ] = None,
     recursive: Annotated[
         bool,
@@ -114,7 +141,7 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         typer.Option(
             "--filters-json",
             metavar="JSON",
-            help="Connector-specific discovery filters as a JSON object.",
+            help="Connector filters as a JSON object; unknown keys are rejected.",
         ),
     ] = "{}",
     force_reprocess: Annotated[
@@ -154,11 +181,23 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         bool,
         typer.Option("--wait", help="Wait for completion and display the final summary."),
     ] = False,
+    timeout: TimeoutOption = None,
     as_json: JsonOption = False,
 ) -> None:
     """Submit one canonical ingestion workflow to Temporal."""
 
     refuse_checkout_write()
+    if connector and connector_option and connector != connector_option:
+        raise typer.BadParameter(
+            f"CONNECTOR {connector!r} conflicts with --connector-id {connector_option!r}."
+        )
+    connector_name = connector or connector_option
+    if not connector_name:
+        raise typer.BadParameter("Give the connector as CONNECTOR or --connector-id NAME.")
+    try:
+        filters = parse_filters(filters_json)
+    except ValueError as exc:
+        raise typer.BadParameter(str(exc), param_hint="--filters-json") from None
 
     def submit(service: BaseAppService, *, wait_inline: bool) -> Awaitable[AppResponse]:
         return service.start_ingestion(
@@ -173,7 +212,7 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             updated_after=updated_after,
             max_artifacts=max_artifacts,
             include_attachments=include_attachments,
-            filters=parse_filters(filters_json),
+            filters=filters,
             force_reprocess=force_reprocess,
             batch_size=batch_size,
             document_concurrency=document_concurrency,
@@ -186,6 +225,7 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             lambda service: submit(service, wait_inline=False),
             context=context,
             interval=_FOLLOW_INTERVAL,
+            timeout=timeout,
         )
         return
     invoke(
@@ -195,6 +235,8 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
         action="start",
         as_json=as_json,
         succeeded=run_completed if wait else None,
+        timeout=timeout if wait else None,
+        run_id=run_id,
     )
 
 
@@ -219,6 +261,7 @@ def status(
 def wait(
     context: typer.Context,
     run_id: Annotated[str, typer.Argument(metavar="RUN_ID", help="Ingestion run ID.")],
+    timeout: TimeoutOption = None,
     as_json: JsonOption = False,
 ) -> None:
     """Block until Temporal returns the terminal ingestion summary."""
@@ -230,6 +273,8 @@ def wait(
         action="wait",
         as_json=as_json,
         succeeded=run_completed,
+        timeout=timeout,
+        run_id=run_id,
     )
 
 
@@ -251,10 +296,11 @@ def watch(
         bool,
         typer.Option("--events", help="Stream NDJSON progress events instead of the live view."),
     ] = False,
+    timeout: TimeoutOption = None,
 ) -> None:
     """Poll the run and redraw progress in place until it settles."""
 
-    invoke_watch(run_id, context=context, interval=refresh_seconds, events=events)
+    invoke_watch(run_id, context=context, interval=refresh_seconds, events=events, timeout=timeout)
 
 
 @app.command(help="Pause an ingestion run.", rich_help_panel="Control")

@@ -230,3 +230,105 @@ def test_start_wait_json_exits_one_when_the_run_did_not_complete(
 
     assert cli.main(["ingest", "start", "--connector-id", "ws", "--wait", "--json"]) == 1
     assert json.loads(capsys.readouterr().out)["data"]["result"]["status"] == status
+
+
+def test_watch_ctrl_c_leaves_run_running_with_id(monkeypatch, capsys) -> None:
+    import asyncio
+
+    def interrupted(self, until=None):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", FollowService)
+    monkeypatch.setattr("harborrag_app.cli.progress_view.LiveProgress.follow", interrupted)
+
+    code = cli.main(["ingest", "watch", "run-42"])
+
+    err = capsys.readouterr().err
+    assert code == 130
+    assert "run-42" in err and "harborrag ingest watch run-42" in err
+
+
+def test_start_wait_ctrl_c_names_the_started_run(monkeypatch, capsys) -> None:
+    import asyncio
+
+    def interrupted(self, until=None):
+        raise asyncio.CancelledError
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", FollowService)
+    monkeypatch.setattr("harborrag_app.cli.progress_view.LiveProgress.follow", interrupted)
+
+    code = cli.main(["ingest", "start", "--connector-id", "ws", "--wait"])
+
+    assert code == 130
+    assert "harborrag ingest watch run-42" in capsys.readouterr().err
+
+
+def test_wait_timeout_exits_three_and_names_the_run(monkeypatch, capsys) -> None:
+    import asyncio
+
+    class Slow(FollowService):
+        async def ingestion_result(self, run_id):
+            await asyncio.sleep(5)
+            return await super().ingestion_result(run_id)
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Slow)
+
+    code = cli.main(["ingest", "wait", "run-42", "--timeout", "1"])
+
+    err = capsys.readouterr().err
+    assert code == 3
+    assert "run-42" in err and "it keeps running" in err
+    assert "harborrag ingest watch run-42" in err
+
+
+def test_watch_ends_on_paused_with_timeout(monkeypatch, capsys) -> None:
+    class Paused(FollowService):
+        async def ingestion_status(self, run_id):
+            return AppResponse(
+                True,
+                {
+                    "status": {"run_id": run_id, "status": "PAUSED"},
+                    "execution_status": "running",
+                    "progress": {"discovered": 3, "processed": 1},
+                },
+            )
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Paused)
+
+    code = cli.main(["ingest", "watch", "run-42", "--refresh", "0.25", "--timeout", "1"])
+
+    err = capsys.readouterr().err
+    assert code == 3
+    assert "run-42" in err and "paused" in err
+
+
+def test_start_wait_timeout_exits_three(monkeypatch, capsys) -> None:
+    class Running(FollowService):
+        async def ingestion_status(self, run_id):
+            return AppResponse(
+                True,
+                {
+                    "status": {"run_id": run_id, "status": "RUNNING"},
+                    "execution_status": "running",
+                    "progress": {"discovered": 3, "processed": 1},
+                },
+            )
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Running)
+    monkeypatch.setattr("harborrag_app.cli.commands.ingest._FOLLOW_INTERVAL", 0.05)
+
+    code = cli.main(["ingest", "start", "--connector-id", "ws", "--wait", "--timeout", "1"])
+
+    err = capsys.readouterr().err
+    assert code == 3
+    assert "run-42" in err and "running" in err
+
+
+def test_completed_uppercase_status_still_exits_zero(monkeypatch, capsys) -> None:
+    class Upper(FollowService):
+        async def ingestion_result(self, run_id):
+            return AppResponse(True, {"result": {"task_id": run_id, "status": "COMPLETED"}})
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Upper)
+
+    assert cli.main(["ingest", "wait", "run-42", "--json"]) == 0

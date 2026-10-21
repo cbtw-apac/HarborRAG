@@ -385,3 +385,44 @@ def test_checkout_guard_stays_quiet_when_the_control_db_is_set(
     cli.main(["ingest", "start", "--connector", "workspace"])
 
     assert "Refusing to ingest" not in capsys.readouterr().err
+
+
+def test_start_accepts_positional_connector(monkeypatch, capsys) -> None:
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(MockAppService())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    assert cli.main(["ingest", "start", "ws", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"]["run"]["connector_name"] == "ws"
+
+
+def test_start_positional_agreeing_with_option_is_accepted(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    assert cli.main(["ingest", "start", "ws", "--connector-id", "ws", "--json"]) == 0
+
+
+def test_start_rejects_conflicting_or_missing_connector(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    assert cli.main(["ingest", "start", "ws", "--connector-id", "other", "--json"]) == 2
+    assert cli.main(["ingest", "start", "--json"]) == 2
+
+
+def test_start_rejects_malformed_filters_before_building_a_service(monkeypatch, capsys) -> None:
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(MockAppService())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    assert cli.main(["ingest", "start", "ws", "--filters-json", "{oops"]) == 2
+
+    assert instances == []
+    assert "Traceback" not in capsys.readouterr().err

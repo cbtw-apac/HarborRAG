@@ -41,7 +41,12 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
     ],
     tenant_id: Annotated[
         str,
-        typer.Option("--tenant", metavar="TENANT_ID", help="Tenant that owns the run."),
+        typer.Option(
+            "--tenant",
+            metavar="TENANT_ID",
+            envvar="HARBORRAG_INGESTION_TENANT_ID",
+            help="Tenant that owns the run.",
+        ),
     ] = "DEFAULT",
     run_id: Annotated[
         str | None,
@@ -59,11 +64,20 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
     ] = None,
     path: Annotated[
         str | None,
-        typer.Option("--path", help="Connector-specific discovery path."),
+        typer.Option(
+            "--path",
+            help="Path inside the connector's source root (local: relative to source_path).",
+        ),
     ] = None,
     pattern: Annotated[
         str | None,
-        typer.Option("--pattern", help="Connector-specific discovery pattern."),
+        typer.Option(
+            "--pattern",
+            help=(
+                "Case-insensitive substring, or a glob matched against the path "
+                "relative to the source root."
+            ),
+        ),
     ] = None,
     recursive: Annotated[
         bool,
@@ -83,7 +97,11 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
     ] = True,
     filters_json: Annotated[
         str,
-        typer.Option("--filters-json", metavar="JSON", help="Connector filters as a JSON object."),
+        typer.Option(
+            "--filters-json",
+            metavar="JSON",
+            help="Connector filters as a JSON object; unknown keys are rejected.",
+        ),
     ] = "{}",
     force_reprocess: Annotated[
         bool,

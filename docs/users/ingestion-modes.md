@@ -52,8 +52,12 @@ record with the active document version. The engine then applies these rules:
 - Missing record: apply the configured consecutive-miss policy before retiring it.
 
 This means `incremental` still detects removals and supports connectors whose
-change tokens are not sufficiently reliable. Connector-specific discovery
-filters and attachment/comment behavior remain in `config/connectors.yaml`.
+change tokens are not sufficiently reliable. Narrow a run with `--path` (a path
+inside the connector's source root; for the local connector, relative to
+`source_path`), `--pattern` (a case-insensitive substring, or a glob matched
+against the path relative to the source root) and `--filters-json` (connector
+filters as a JSON object; unknown keys are rejected). Attachment/comment behavior
+remains in `config/connectors.yaml`.
 
 There are two change checkpoints. Descriptor admission runs before content is
 loaded and can skip a source item cheaply. Canonical admission runs after parsing
