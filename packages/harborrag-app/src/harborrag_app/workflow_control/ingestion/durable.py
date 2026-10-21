@@ -185,14 +185,15 @@ class DurableIngestionOperations:
             client = await self._runtime_client()
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             failure = failure_response(logger, exc, "connect to start ingestion run %r", run_id)
-            if (
-                isinstance(exc, RuntimeConnectionError)
-                and task.status is IngestionTaskState.PENDING
-                and await self._fail_unsubmitted(registry, run_id)
-            ):
-                # Nothing was submitted, so the run can never start on its own; left
-                # PENDING it would look queued forever and later start unasked.
-                status = IngestionTaskState.FAILED.value
+            if isinstance(exc, RuntimeConnectionError):
+                # Nothing was submitted, so an unsubmitted run can never start on its
+                # own; left PENDING it would look queued forever and later start
+                # unasked. The store decides atomically, because ``task`` is a
+                # snapshot: the outbox may have started the run since, or an earlier
+                # start may already have been confirmed.
+                current = await self._fail_unsubmitted(registry, run_id)
+                if current is not None:
+                    status = current.value
             return _run_failure(run_id, status, failure)
         try:
             reference = await client.start_ingestion(request)
@@ -220,21 +221,22 @@ class DurableIngestionOperations:
         return client, reference
 
     @staticmethod
-    async def _fail_unsubmitted(registry: TaskRegistry, run_id: str) -> bool:
-        """Mark a never-submitted run FAILED; the connect error stays the one reported."""
+    async def _fail_unsubmitted(registry: TaskRegistry, run_id: str) -> IngestionTaskState | None:
+        """Fail a still-unsubmitted run; the connect error stays the one reported.
+
+        Returns the run's status afterwards, or None when it could not be read.
+        """
 
         try:
-            await registry.transition(
+            return await registry.fail_if_unsubmitted(
                 run_id,
-                IngestionTaskState.FAILED,
                 summary={"failed_stage": "submission", "error_code": "submission_failed"},
             )
         except Exception:  # noqa: BLE001 - best effort; the outbox can still submit it
             logger.warning(
                 "Could not mark unsubmitted ingestion run %r failed", run_id, exc_info=True
             )
-            return False
-        return True
+            return None
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
         try:

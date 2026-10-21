@@ -42,6 +42,9 @@ _TASK_TRANSITIONS = {
     IngestionTaskState.CANCELLED: frozenset(),
 }
 _RETRYABLE_FINALIZATION_STAGES = frozenset({"relation_repair", "removal_reconciliation"})
+# Submission markers of PENDING rows that are not awaiting a Temporal start: the
+# start was confirmed, or the row belongs to an execution already in progress.
+NOT_AWAITING_SUBMISSION = ("submitted", "executor")
 
 
 class TaskLifecycleMixin:
@@ -91,6 +94,50 @@ class TaskLifecycleMixin:
             await session.execute(
                 update(INGESTION_TASKS).where(INGESTION_TASKS.c.task_id == task_id).values(**values)
             )
+
+    async def fail_if_unsubmitted(
+        self,
+        task_id: str,
+        *,
+        summary: Mapping[str, object],
+    ) -> IngestionTaskState | None:
+        """Fail a PENDING task whose start was never submitted, atomically.
+
+        A caller that could not reach the execution provider decides from a stale
+        snapshot; meanwhile another submitter may have started the run, or an
+        earlier start may already have been confirmed. The check and the write
+        share one locked transaction, so only a still-unsubmitted PENDING task
+        fails. Returns the task's status afterwards, or None when it is missing.
+        """
+
+        safe_summary = dict(summary)
+        reject_runtime_fields(safe_summary)
+        async with self._client.sessions.begin() as session:
+            result = await session.execute(
+                select(INGESTION_TASKS)
+                .where(INGESTION_TASKS.c.task_id == task_id)
+                .with_for_update()
+            )
+            row = result.mappings().one_or_none()
+            if row is None:
+                return None
+            current = IngestionTaskState(row["status"])
+            submission_state = required_mapping(row, "summary").get("submission_state")
+            if (
+                current is not IngestionTaskState.PENDING
+                or submission_state in NOT_AWAITING_SUBMISSION
+            ):
+                return current
+            await session.execute(
+                update(INGESTION_TASKS)
+                .where(INGESTION_TASKS.c.task_id == task_id)
+                .values(
+                    status=IngestionTaskState.FAILED.value,
+                    summary=safe_summary,
+                    completed_at=utc_now(),
+                )
+            )
+            return IngestionTaskState.FAILED
 
     async def update_summary(
         self,

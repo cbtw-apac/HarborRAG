@@ -603,3 +603,64 @@ async def test_app_service_fails_the_run_when_the_temporal_connect_fails() -> No
             {"failed_stage": "submission", "error_code": "submission_failed"},
         )
     ]
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_leaves_a_run_started_meanwhile_alone(
+    service_resources: tuple[object, IngestionControlPlaneDatabase, object],
+) -> None:
+    # While this caller waits out the connect timeout, the API outbox submits the
+    # PENDING row and the worker starts it: the stale snapshot must not fail it.
+    _, control, _ = service_resources
+
+    async def started_elsewhere_then_unreachable() -> FakeRuntimeClient:
+        await control.tasks.transition("run-raced", IngestionTaskState.RUNNING)
+        await control.tasks.update_summary("run-raced", {"stage": "DISCOVERING"})
+        raise RuntimeConnectionError("down")
+
+    async def task_registry() -> IngestionTaskRegistry:
+        return IngestionTaskRegistry(control)
+
+    operations = DurableIngestionOperations(
+        RuntimeSettings(),
+        runtime_client=started_elsewhere_then_unreachable,
+        task_registry=task_registry,
+        source_input_builder=source_input,
+    )
+
+    response = await operations.start_ingestion(
+        tenant_id="tenant-1", connector_name="local", run_id="run-raced"
+    )
+
+    assert response.ok is False
+    assert response.data["run"] == {"run_id": "run-raced", "status": "RUNNING"}
+    assert response.error == "down"
+    task = await control.tasks.get("run-raced")
+    assert task is not None
+    assert task.status is IngestionTaskState.RUNNING
+    assert task.summary == {"stage": "DISCOVERING"}
+
+
+@pytest.mark.asyncio
+async def test_connect_failure_does_not_fail_an_already_submitted_run(
+    service_resources: tuple[object, IngestionControlPlaneDatabase, object],
+) -> None:
+    # Re-issuing `start --run-id X` while Temporal is down must not fail a run whose
+    # earlier start was confirmed; its workflow would later hit FAILED -> RUNNING.
+    _, control, _ = service_resources
+    registry = IngestionTaskRegistry(control)
+    first = await _durable(registry, FakeRuntimeClient()).start_ingestion(
+        tenant_id="tenant-1", connector_name="local", run_id="run-submitted"
+    )
+    assert first.ok is True
+
+    response = await _durable(registry, RuntimeConnectionError("down")).start_ingestion(
+        tenant_id="tenant-1", connector_name="local", run_id="run-submitted"
+    )
+
+    assert response.ok is False
+    assert response.data["run"] == {"run_id": "run-submitted", "status": "PENDING"}
+    task = await control.tasks.get("run-submitted")
+    assert task is not None
+    assert task.status is IngestionTaskState.PENDING
+    assert task.summary == {"submission_state": "submitted"}

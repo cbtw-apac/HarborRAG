@@ -387,3 +387,54 @@ async def test_pending_submissions_skip_executor_and_submitted(tmp_path: Path) -
         pending = await control_plane.tasks.pending_submissions()
 
         assert [task.task_id for task in pending] == ["task-unmarked"]
+
+
+@pytest.mark.asyncio
+async def test_fail_if_unsubmitted_only_fails_unsubmitted_pending_tasks(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    failure = {"failed_stage": "submission", "error_code": "submission_failed"}
+    async with control_plane:
+        markers: tuple[tuple[str, dict[str, object]], ...] = (
+            ("task-unsubmitted", {}),
+            ("task-submitted", {"submission_state": "submitted"}),
+            ("task-executor", {"submission_state": "executor"}),
+            ("task-running", {}),
+        )
+        for task_id, summary in markers:
+            await control_plane.tasks.create(
+                IngestionTask(
+                    task_id=task_id,
+                    source_scope_id="scope-engineering",
+                    status=IngestionTaskState.PENDING,
+                    request={"connector": "confluence", "task": task_id},
+                    summary=summary,
+                )
+            )
+        await control_plane.tasks.transition("task-running", IngestionTaskState.RUNNING)
+        await control_plane.tasks.update_summary("task-running", {"stage": "DISCOVERING"})
+
+        outcomes = {
+            task_id: await control_plane.tasks.fail_if_unsubmitted(task_id, summary=failure)
+            for task_id, _ in markers
+        }
+        missing = await control_plane.tasks.fail_if_unsubmitted("task-missing", summary=failure)
+
+        assert outcomes == {
+            "task-unsubmitted": IngestionTaskState.FAILED,
+            "task-submitted": IngestionTaskState.PENDING,
+            "task-executor": IngestionTaskState.PENDING,
+            "task-running": IngestionTaskState.RUNNING,
+        }
+        assert missing is None
+        failed = await control_plane.tasks.get("task-unsubmitted")
+        assert failed is not None
+        assert failed.summary == failure
+        assert failed.completed_at is not None
+        running = await control_plane.tasks.get("task-running")
+        assert running is not None
+        assert running.summary == {"stage": "DISCOVERING"}
+        submitted = await control_plane.tasks.get("task-submitted")
+        assert submitted is not None
+        assert submitted.summary == {"submission_state": "submitted"}

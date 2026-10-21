@@ -131,18 +131,24 @@ class FakeTaskRegistry:
     async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
         self.summaries.append((task_id, dict(values)))
 
-    async def transition(
+    async def fail_if_unsubmitted(
         self,
         task_id: str,
-        target: IngestionTaskState,
         *,
-        summary: dict[str, object] | None = None,
-    ) -> None:
-        self.transitions.append((task_id, target, dict(summary or {})))
-        task = self.tasks[task_id]
+        summary: dict[str, object],
+    ) -> IngestionTaskState | None:
+        task = self.tasks.get(task_id)
+        if task is None:
+            return None
+        if task.status is not IngestionTaskState.PENDING or task.summary.get(
+            "submission_state"
+        ) in {"submitted", "executor"}:
+            return task.status
+        self.transitions.append((task_id, IngestionTaskState.FAILED, dict(summary)))
         self.tasks[task_id] = task.model_copy(
-            update={"status": target, "summary": dict(summary or {})}
+            update={"status": IngestionTaskState.FAILED, "summary": dict(summary)}
         )
+        return IngestionTaskState.FAILED
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
         self.events.append((task_id, event))

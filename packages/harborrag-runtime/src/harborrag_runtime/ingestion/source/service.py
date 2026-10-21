@@ -358,26 +358,42 @@ class SourceIngestionService(SourceDocumentOperations):
         try:
             await self._documents.provision(tenant_id=request.tenant_id)
         except HarborStorageValidationError as error:
-            raise VectorIndexSchemaError(_schema_mismatch_message(error)) from error
+            dimensions = _schema_mismatch_dimensions(error)
+            if dimensions is None:
+                raise
+            raise VectorIndexSchemaError(_schema_mismatch_message(error, *dimensions)) from error
 
 
-def _schema_mismatch_message(error: HarborStorageValidationError) -> str:
+def _schema_mismatch_dimensions(error: HarborStorageValidationError) -> tuple[int, int] | None:
+    """Both dimensions when ``error`` is the existing-index schema mismatch, else None.
+
+    Only that mismatch is a configuration verdict the operator can act on; other
+    validation failures (an invalid tenant or index name, say) keep their type.
+    """
+
+    if error.context.operation != "ensure_index":
+        return None
+    existing = error.context.metadata.get("existing_dimension")
+    configured = error.context.metadata.get("configured_dimension")
+    if isinstance(existing, int) and isinstance(configured, int):
+        return existing, configured
+    return None
+
+
+def _schema_mismatch_message(
+    error: HarborStorageValidationError, existing: int, configured: int
+) -> str:
     """Authored text plus the safe values the adapter attached, never its message."""
 
     index = error.context.resource_name
     subject = f"Vector index {index!r}" if isinstance(index, str) and index else "The vector index"
-    existing = error.context.metadata.get("existing_dimension")
-    configured = error.context.metadata.get("configured_dimension")
-    if isinstance(existing, int) and isinstance(configured, int):
-        detail = (
-            f" (existing dimension {existing}, configured dimension {configured})"
-            if existing != configured
-            else f" (dimension {existing}; the distance or vector names differ)"
-        )
-    else:
-        detail = ""
+    detail = (
+        f"existing dimension {existing}, configured dimension {configured}"
+        if existing != configured
+        else f"dimension {existing}; the distance or vector names differ"
+    )
     return (
-        f"{subject} already exists with a different vector schema{detail}. "
+        f"{subject} already exists with a different vector schema ({detail}). "
         "Configure the embedding model and dimension to match it, or use a new "
         "collection and re-ingest."
     )

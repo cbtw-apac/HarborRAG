@@ -53,13 +53,12 @@ type EventBusFactory = Callable[[], EventBusPort]
 
 
 class TaskRegistry(PublicTaskStore, Protocol):
-    async def transition(
+    async def fail_if_unsubmitted(
         self,
         task_id: str,
-        target: IngestionTaskState,
         *,
-        summary: Mapping[str, object] | None = None,
-    ) -> None: ...
+        summary: Mapping[str, object],
+    ) -> IngestionTaskState | None: ...
 
     async def close(self) -> None: ...
 

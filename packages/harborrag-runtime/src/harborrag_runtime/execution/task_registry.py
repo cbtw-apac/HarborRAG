@@ -148,14 +148,13 @@ class IngestionTaskRegistry:
     ) -> None:
         await self._control.tasks.update_summary(task_id, values)
 
-    async def transition(
+    async def fail_if_unsubmitted(
         self,
         task_id: str,
-        target: IngestionTaskState,
         *,
-        summary: Mapping[str, object] | None = None,
-    ) -> None:
-        await self._control.tasks.transition(task_id, target, summary=summary)
+        summary: Mapping[str, object],
+    ) -> IngestionTaskState | None:
+        return await self._control.tasks.fail_if_unsubmitted(task_id, summary=summary)
 
     async def progress(self, task_id: str) -> dict[str, int]:
         return await self._control.tasks.progress(task_id)

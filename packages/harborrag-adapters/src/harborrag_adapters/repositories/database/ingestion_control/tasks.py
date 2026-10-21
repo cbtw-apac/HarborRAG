@@ -20,15 +20,12 @@ from harborrag_core.invariants import HarborInvariantError
 
 from .row_values import DatabaseRow, optional_datetime, required_mapping, required_text
 from .schema import INGESTION_TASKS
-from .task_lifecycle import TaskLifecycleMixin
+from .task_lifecycle import NOT_AWAITING_SUBMISSION, TaskLifecycleMixin
 from .task_results import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
     TaskDocumentResultsMixin,
 )
-
-# Submission markers of PENDING rows that the outbox must leave alone.
-_NOT_AWAITING_SUBMISSION = ("submitted", "executor")
 
 __all__ = [
     "IngestionTaskRepository",
@@ -186,7 +183,7 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
                     INGESTION_TASKS.c.status == IngestionTaskState.PENDING.value,
                     or_(
                         submission_state.is_(None),
-                        submission_state.not_in(_NOT_AWAITING_SUBMISSION),
+                        submission_state.not_in(NOT_AWAITING_SUBMISSION),
                     ),
                 )
                 .order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id)

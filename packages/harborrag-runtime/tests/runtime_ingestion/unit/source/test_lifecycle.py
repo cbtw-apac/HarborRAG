@@ -483,3 +483,44 @@ async def test_vector_schema_mismatch_is_a_readable_provision_failure(
         assert task is not None
         assert task.status == IngestionTaskState.FAILED
         assert task.summary["failed_stage"] == "provision"
+
+
+@pytest.mark.asyncio
+async def test_other_provision_validation_errors_propagate_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Only the ensure_index schema mismatch is a configuration verdict; other
+    # validation failures (e.g. an invalid tenant or index name) keep their type.
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        invalid_name = HarborStorageValidationError(
+            "Qdrant tenant name must use 1-128 ASCII letters, digits, '.', '_' or '-'",
+            context=StorageErrorContext(
+                family=StorageFamily.VECTOR,
+                backend="qdrant",
+                instance_name="default",
+                operation="collection_name",
+                resource_name="evidence",
+            ),
+        )
+
+        async def rejected(spec, *, context):
+            del spec, context
+            raise invalid_name
+
+        monkeypatch.setattr(resources.vectors, "ensure_index", rejected)
+
+        with pytest.raises(HarborStorageValidationError) as caught:
+            await service.ingest(source_request("task-invalid-name"), DescriptorConnector())
+
+        assert caught.value is invalid_name
+        task = await control.tasks.get("task-invalid-name")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary["failed_stage"] == "discovery"
