@@ -17,7 +17,7 @@ import stat
 from collections.abc import Coroutine
 from datetime import timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -83,9 +83,19 @@ def write_secret_file(path: Path, secret: str) -> None:
         handle.write(secret + "\n")
 
 
+def _fail(code: str, detail: str) -> NoReturn:
+    typer.echo(json.dumps({"ok": False, "error_code": code, "detail": detail}), err=True)
+    raise typer.Exit(1) from None
+
+
 def _run(operation: Coroutine[Any, Any, Any]) -> Any:
+    from harborrag_core.ports.api_keys import AuthStoreUnavailable
     from harborrag_engine.security import ApiKeyPolicyError
-    from harborrag_runtime.security.api_key_operations import ApiKeySchemaMissing
+    from harborrag_runtime.security.api_key_operations import (
+        ApiKeyRejected,
+        ApiKeySchemaBehind,
+        ApiKeySchemaMissing,
+    )
 
     try:
         return asyncio.run(operation)
@@ -102,7 +112,19 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
             json.dumps({"ok": False, "error_code": "SchemaMissing", "detail": str(error)}), err=True
         )
         raise typer.Exit(1) from None
+    except ApiKeySchemaBehind as error:
+        _fail("SchemaBehind", str(error))
+    except ApiKeyRejected as error:
+        _fail("ConstraintRejected", str(error))
+    except AuthStoreUnavailable as error:
+        # The port's message is authored ("MCP key store is unavailable"); the cause is chained.
+        _fail("AuthStoreUnavailable", str(error))
     except Exception as error:
+        from sqlalchemy.exc import IntegrityError
+
+        if isinstance(error, IntegrityError):
+            # str(IntegrityError) carries the bound parameters, secret_hash included.
+            _fail("ConstraintRejected", str(ApiKeyRejected()))
         # The type alone: a message could carry a DSN or a policy detail with input.
         typer.echo(json.dumps({"ok": False, "error_code": type(error).__name__}), err=True)
         raise typer.Exit(1) from None
@@ -147,7 +169,15 @@ def _settings() -> Any:
         settings = RuntimeSettings(**settings_overrides(find_legacy_checkout()))
     except Exception as error:
         # A settings error would otherwise print the model, values included.
-        typer.echo(json.dumps({"ok": False, "error_code": type(error).__name__}), err=True)
+        from pydantic import ValidationError
+
+        failure: dict[str, Any] = {"ok": False, "error_code": type(error).__name__}
+        if isinstance(error, ValidationError):
+            # Variable names and rules only; settings_error_detail drops the input values.
+            from harborrag_app.cli.doctor.environment import settings_error_detail
+
+            failure["detail"] = settings_error_detail(error)
+        typer.echo(json.dumps(failure), err=True)
         raise typer.Exit(1) from None
     if settings.control_db_url.get_secret_value().lower().startswith("sqlite"):
         # Almost always a mistake: no MCP server reads a SQLite file from the
@@ -258,7 +288,7 @@ def list_keys(tenant: Tenant) -> None:
     from harborrag_runtime.security import api_key_operations
 
     settings = _settings()
-    _run(api_key_operations.ensure_key_schema(settings, migrate=False))
+    _run(api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False))
     _emit({"keys": _run(api_key_operations.list_keys(settings, tenant))})
 
 
@@ -281,12 +311,19 @@ def revoke(
         raise typer.BadParameter("pass either --key-id, or --tenant together with --owner")
     operator = operator_identity()
     settings = _settings()
-    _run(api_key_operations.ensure_key_schema(settings, migrate=False))
+    _run(api_key_operations.ensure_key_schema(settings, migrate=False, require_head=False))
     if key_id is not None:
-        changed = _run(
+        outcome = _run(
             api_key_operations.revoke_key(settings, operator=operator, key_id=key_id, reason=reason)
         )
-        _emit({"revoked": [key_id] if changed else [], "already_revoked": not changed})
+        if outcome == "not_found":
+            _fail("KeyNotFound", "no key has that id; list the tenant's keys to find it")
+        _emit(
+            {
+                "revoked": [key_id] if outcome == "revoked" else [],
+                "already_revoked": outcome == "already_revoked",
+            }
+        )
         return
     if tenant is None or owner is None:  # pragma: no cover - excluded by the selector check
         raise HarborInvariantError("revoke selectors must have been validated")
@@ -295,4 +332,9 @@ def revoke(
             settings, operator=operator, tenant_id=tenant, owner=owner, reason=reason
         )
     )
-    _emit({"revoked": revoked, "already_revoked": not revoked})
+    if not revoked:
+        # Expired keys are not active and are left alone, so "nothing changed" is not
+        # "already revoked"; say how many keys the owner has that can still be used.
+        _emit({"revoked": [], "active_keys": 0})
+        return
+    _emit({"revoked": revoked, "already_revoked": False})
