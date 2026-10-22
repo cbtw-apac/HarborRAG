@@ -186,8 +186,9 @@ def _qdrant_error(settings: RuntimeSettings) -> str | None:
     grpc_error = probes.tcp_reachable(host, _QDRANT_GRPC_PORT)
     if grpc_error is None:
         return None
+    # The runtime has no gRPC-port setting either: the client uses Qdrant's default.
     return (
-        f"{grpc_error}; the client prefers gRPC (port {_QDRANT_GRPC_PORT}) "
+        f"{grpc_error}; the client prefers Qdrant gRPC (default port {_QDRANT_GRPC_PORT}) "
         "and HTTP alone is not enough"
     )
 
@@ -229,6 +230,20 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
             _secret(settings.object_store_secret_access_key),
             _secret(settings.object_store_session_token),
         )
+        if code == probes.UNVERIFIED:
+            # Reachable, but nothing could sign a request: never report that as verified.
+            checks.append(
+                Check(
+                    "object store",
+                    "services",
+                    "warn",
+                    f"{probes.safe_url(endpoint)} reachable; "
+                    "credentials not verified: botocore not installed",
+                    hint="Install botocore to let doctor verify the object-store credentials.",
+                    required=False,
+                )
+            )
+            return checks
         if code is not None:
             # Only the S3 error code: never the key, the secret or botocore's message.
             checks.append(

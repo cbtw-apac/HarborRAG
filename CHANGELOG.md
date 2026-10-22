@@ -102,11 +102,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   envelope with `data.run` and `timed_out: true`).
 - `harborrag ingest start` takes the connector positionally, like `ingest run`, and `--tenant` on
   both reads `HARBORRAG_INGESTION_TENANT_ID`.
-- From a repository checkout the CLI uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
-  `env/.env.database` as the object-store credentials when they are not set.
-- `harborrag doctor` authenticates against the object store, probes Qdrant's gRPC port, warns
-  when a checkout falls back to the sqlite control DB and names invalid connector definitions;
-  runtime startup also probes FalkorDB.
+- In repository-checkout mode only, the CLI uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
+  `env/.env.database` as the object-store credentials when they are not set; an explicit
+  `DATABASE_ENV_FILE` is honoured in any mode.
+- `harborrag doctor` authenticates against the object store (a non-blocking "credentials not
+  verified" warning when botocore is missing), probes Qdrant's gRPC port, warns when a checkout
+  falls back to the sqlite control DB and names invalid connector definitions; runtime startup
+  also probes FalkorDB.
 
 ### Changed
 
@@ -224,8 +226,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Startup fails when `HARBORRAG_EMBEDDING_DIMENSIONS` contradicts a deployment's
   `expected_dimensions` in `config/models.yaml`.
 - `harborrag auth keys create` needs the control DB at the migration head (run it once with
-  `--migrate`); an unknown `--key-id` fails with `KeyNotFound`, revoking by owner with nothing
-  active reports `active_keys: 0`, and constraint errors report `ConstraintRejected`.
+  `--migrate`); an unknown `--key-id` fails with `KeyNotFound`, revoking by owner always returns
+  `{"revoked": [...], "active_keys": N}` (N = the active keys found and revoked, `0` when
+  nothing was active), and constraint errors report `ConstraintRejected`.
 - Reusing the id of a finished run is rejected (`WorkflowRunAlreadyStartedError`, HTTP 409); use a
   new run id for every run.
 - `POST /ingestions`: when Temporal is unreachable at connect time, a still-unsubmitted run is

@@ -57,24 +57,54 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
         # command, is being explicit and must outrank the file.
         load_dotenv(path, override=False)
         loaded.append(path)
-    database = Path(os.environ.get("DATABASE_ENV_FILE", "env/.env.database"))
-    database_path = database if database.is_absolute() else base / database
+    database_path = _database_env_file(base)
+    if database_path is not None and _apply_object_store_credentials(database_path):
+        logger.info("Applied the MinIO credentials from %s", database_path)
+        loaded.append(database_path)
+    if loaded:
+        logger.debug("Loaded project environment files: %s", ", ".join(str(p) for p in loaded))
+    return tuple(loaded)
+
+
+def _database_env_file(base: Path) -> Path | None:
+    """The env/.env.database whose MinIO pair the CLI may use, if any.
+
+    Only a repo checkout runs the dev stack that file describes; a ``harborrag init``
+    project, or any other directory, that happens to hold one is not that stack. An
+    explicit ``DATABASE_ENV_FILE`` is the operator's choice and is honoured anywhere.
+    """
+
+    explicit = os.environ.get("DATABASE_ENV_FILE", "").strip()
+    if explicit:
+        database = Path(explicit)
+        return database if database.is_absolute() else base / database
+    from harborrag_app.cli.project import UnsafeProjectError, active_project, find_legacy_checkout
+
+    if active_project() is not None:
+        return None
     try:
-        credentials = checkout_object_store_credentials(database_path)
+        checkout = find_legacy_checkout(base)
+    except UnsafeProjectError:
+        return None
+    # The checkout's own file: base may be a directory below the checkout root.
+    return None if checkout is None else checkout / "env/.env.database"
+
+
+def _apply_object_store_credentials(path: Path) -> bool:
+    """Export the MinIO pair from ``path`` where unset; True when anything was set."""
+
+    try:
+        credentials = checkout_object_store_credentials(path)
     except (ValueError, OSError):
-        logger.debug("Ignoring unreadable %s", database_path)
-        credentials = {}
+        logger.debug("Ignoring unreadable %s", path)
+        return False
     applied = False
     for name, value in credentials.items():
         # setdefault: a project's own .env or an exported variable outranks the checkout.
         if name not in os.environ:
             os.environ[name] = value
             applied = True
-    if applied:
-        loaded.append(database_path)
-    if loaded:
-        logger.debug("Loaded project environment files: %s", ", ".join(str(p) for p in loaded))
-    return tuple(loaded)
+    return applied
 
 
 _REFUSAL = (
@@ -98,9 +128,33 @@ def checkout_write_refusal() -> str | None:
     except UnsafeProjectError:
         return None
     configured = os.environ.get("HARBORRAG_CONTROL_DB_URL")
-    if configured and configured != DEFAULT_CONTROL_DB_URL:
+    if configured and not _is_default_control_db(configured):
         return None
     return _REFUSAL
+
+
+def _sqlite_file(url: str) -> Path | None:
+    """The database file a sqlite URL names, resolved against the CWD; else None.
+
+    A hand parse: sqlalchemy's URL parser would load sqlalchemy into every CLI start.
+    """
+
+    scheme, separator, rest = url.partition(":///")
+    if not separator or not scheme.lower().startswith("sqlite"):
+        return None
+    database = rest.split("?", 1)[0]
+    if not database or database == ":memory:":
+        return None
+    return Path(database).resolve()
+
+
+def _is_default_control_db(url: str) -> bool:
+    """Whether ``url`` is the default sqlite control DB, however it is spelled."""
+
+    if url == DEFAULT_CONTROL_DB_URL:
+        return True
+    configured = _sqlite_file(url)
+    return configured is not None and configured == _sqlite_file(DEFAULT_CONTROL_DB_URL)
 
 
 def refuse_checkout_write() -> None:

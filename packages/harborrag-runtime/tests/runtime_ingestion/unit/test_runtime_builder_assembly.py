@@ -261,6 +261,24 @@ def test_resource_targets_never_render_credentials() -> None:
     assert sqlite["control"] == "sqlite"
 
 
+def test_resource_hints_follow_the_configured_transport_and_provider() -> None:
+    from harborrag_runtime.composition.resources import resource_hints
+
+    grpc = resource_hints(RuntimeSettings(qdrant_prefer_grpc=True))
+    http = resource_hints(RuntimeSettings(qdrant_prefer_grpc=False))
+    s3 = resource_hints(RuntimeSettings(object_store_provider="s3"))
+    filesystem = resource_hints(RuntimeSettings(object_store_provider="filesystem"))
+
+    assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in grpc["vector"]
+    # Already on HTTP: telling the operator to switch to HTTP would be wrong.
+    assert "PREFER_GRPC" not in http["vector"]
+    assert "HARBORRAG_QDRANT_URL" in http["vector"]
+    assert "HARBORRAG_OBJECT_STORE_" in s3["object_store"] and "MinIO" in s3["object_store"]
+    assert "MinIO" not in filesystem["object_store"]
+    assert "HARBORRAG_OBJECT_STORE_ROOT" in filesystem["object_store"]
+    assert set(grpc) == {"control", "object_store", "vector", "graph"}
+
+
 @pytest.mark.parametrize(
     ("url", "grpc", "expected"),
     [

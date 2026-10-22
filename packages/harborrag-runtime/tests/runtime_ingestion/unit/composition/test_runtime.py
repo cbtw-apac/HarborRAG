@@ -220,6 +220,20 @@ async def test_start_wraps_bucket_provisioning_failures() -> None:
 
 
 @pytest.mark.asyncio
+async def test_start_uses_the_configured_hint_over_the_fixed_text() -> None:
+    vector = SimpleNamespace(connect=AsyncMock(side_effect=OSError("x")), close=AsyncMock())
+    runtime = _startable_runtime(vector_repository=vector)
+    runtime.resource_targets = {"vector": "Qdrant http://localhost:6333"}
+    runtime.resource_hints = {"vector": "start Qdrant and check HARBORRAG_QDRANT_URL"}
+
+    with pytest.raises(RuntimeConnectionError) as failure:
+        await runtime.start()
+
+    assert str(failure.value).endswith("start Qdrant and check HARBORRAG_QDRANT_URL")
+    assert "PREFER_GRPC" not in str(failure.value)
+
+
+@pytest.mark.asyncio
 async def test_start_names_the_resource_without_targets() -> None:
     graph = SimpleNamespace(connect=AsyncMock(side_effect=OSError("x")), close=AsyncMock())
     runtime = _startable_runtime(graph_repository=graph)

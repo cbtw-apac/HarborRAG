@@ -110,11 +110,13 @@ as after changing Qdrant collection names. See
 ## Running the CLI from a checkout
 
 From a repo checkout the CLI reads only `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` from
-`env/.env.database` (honouring `DATABASE_ENV_FILE`) and maps them to
+`env/.env.database` and maps them to
 `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` / `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` when those are
-unset. Values in the project `.env` win. Nothing else is loaded, so the control database stays
-sqlite unless you export `HARBORRAG_CONTROL_DB_URL`. `ingest run` and `ingest start` refuse to run
-from a checkout on the default sqlite database; read-only commands still work.
+unset. A `harborrag init` project never reads that file; an explicit `DATABASE_ENV_FILE` is
+honoured in either mode. Values in the project `.env` win. Nothing else is loaded, so the control
+database stays sqlite unless you export `HARBORRAG_CONTROL_DB_URL`. `ingest run` and
+`ingest start` refuse to run from a checkout on the default sqlite database (for the usual
+spellings of the default file path); read-only commands still work.
 
 CLI commands that open the control database run its migrations. Rebuild the images
 (`scripts/deployment/dev.sh up --build`) before pointing the CLI at the stack's Postgres, or the

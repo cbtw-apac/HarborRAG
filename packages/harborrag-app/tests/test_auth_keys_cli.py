@@ -177,7 +177,8 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
         ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
     )  # fmt: skip
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["data"]["revoked"] == ["a" * 24, "b" * 24]
+    # Same shape as the empty case: the revoked ids and how many active keys they were.
+    assert json.loads(result.stdout)["data"] == {"revoked": ["a" * 24, "b" * 24], "active_keys": 2}
     assert by_owner.call_args.kwargs["operator"] == "op@host"
 
 
@@ -394,6 +395,27 @@ def test_constraint_rejection_is_explained_without_values(monkeypatch):
         assert payload["error_code"] == "ConstraintRejected"
         assert "--migrate" in payload["detail"]
         assert "hunter2" not in result.output
+
+
+def test_unstamped_schema_is_reported_with_the_fix(monkeypatch):
+    from harborrag_runtime.security.api_key_operations import ApiKeySchemaUnstamped
+
+    monkeypatch.setattr(
+        api_key_operations,
+        "ensure_key_schema",
+        AsyncMock(side_effect=ApiKeySchemaUnstamped("sqlite:///x")),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-x", "--name", "k",
+         "--expires-in", "1d", "--migrate"],
+    )  # fmt: skip
+
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert result.exit_code == 1
+    assert payload["error_code"] == "SchemaUnstamped"
+    assert "no migration stamp" in payload["detail"] and "alembic" in payload["detail"]
 
 
 def test_schema_behind_head_is_reported_with_the_fix(monkeypatch):

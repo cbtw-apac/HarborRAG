@@ -119,8 +119,8 @@ final envelope; `--events` streams one NDJSON progress object per change and end
 envelope.
 
 ```bash
-harborrag ingest start \
-  --connector-id CONNECTOR_ID \
+harborrag ingest start [CONNECTOR] \
+  [--connector-id CONNECTOR_ID] \
   [--tenant TENANT_ID] \
   [--run-id RUN_ID] \
   [--connection-id CONNECTION_ID] \
@@ -132,18 +132,19 @@ harborrag ingest start \
   [--filters-json JSON] [--force-reprocess] \
   [--limit COUNT] \
   [--batch-size COUNT] [--document-concurrency COUNT] \
-  [--wait] [--json]
+  [--wait] [--timeout SECONDS] [--json]
 
 harborrag ingest status RUN_ID [--json]
-harborrag ingest wait RUN_ID [--json]
-harborrag ingest watch RUN_ID [--refresh SECONDS] [--events]
+harborrag ingest wait RUN_ID [--timeout SECONDS] [--json]
+harborrag ingest watch RUN_ID [--refresh SECONDS] [--events] [--timeout SECONDS]
 harborrag ingest pause RUN_ID [--json]
 harborrag ingest resume RUN_ID [--json]
 harborrag ingest cancel RUN_ID [--json]
 ```
 
-`--connector-id` is the only required option; `--connector` is an accepted alias for it, and
-`CONNECTOR` is also accepted positionally (`harborrag ingest start local`).
+The connector is the only required input: give it positionally (`harborrag ingest start local`)
+or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
+is an error.
 The value is a connection name from `config/connectors.yaml`, not a source type, so
 `--connector-id local` fails with the list of valid IDs. `--tenant` defaults to `DEFAULT`.
 

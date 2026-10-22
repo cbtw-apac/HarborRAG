@@ -16,6 +16,8 @@ from urllib.parse import urlparse
 DEFAULT_TIMEOUT = 3.0
 _HTTP_OK_UPPER_BOUND = 400
 _S3_CODE = re.compile(r"[A-Za-z0-9]{1,64}")
+# s3_credentials could not sign a request at all (botocore is not installed).
+UNVERIFIED = "unverified"
 
 
 def tcp_reachable(host: str, port: int, *, timeout: float = DEFAULT_TIMEOUT) -> str | None:
@@ -82,11 +84,12 @@ def s3_credentials(
     """Sign a real ``ListBuckets`` call; ``None`` is OK, else only the S3 error code.
 
     The code is the whole answer: botocore's message can echo the access key id, and the
-    caller must never see the credentials or the endpoint's userinfo.
+    caller must never see the credentials or the endpoint's userinfo. Without botocore
+    nothing can be signed, so the answer is ``UNVERIFIED``, never OK.
     """
 
     if importlib.util.find_spec("botocore") is None:
-        return None
+        return UNVERIFIED
     import botocore.session  # type: ignore
     from botocore.config import Config  # type: ignore
     from botocore.exceptions import ClientError, NoCredentialsError  # type: ignore
@@ -126,6 +129,7 @@ def host_port(url: str, *, default_port: int) -> tuple[str, int]:
 
 __all__ = [
     "DEFAULT_TIMEOUT",
+    "UNVERIFIED",
     "host_port",
     "http_ok",
     "redis_ping",

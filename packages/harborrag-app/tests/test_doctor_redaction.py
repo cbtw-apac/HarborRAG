@@ -136,3 +136,30 @@ def test_foreign_exception_text_is_still_collapsed() -> None:
 
     assert detail == "RuntimeError"
     assert "hunter2" not in detail
+
+
+@pytest.mark.parametrize("body", [None, "chat: [unclosed\n"])
+def test_model_catalog_rescan_failure_is_a_failed_check(
+    body: str | None, tmp_path: Path, monkeypatch
+) -> None:
+    """The blank-variable rescan reads and parses the file again; that must not escape."""
+
+    from types import SimpleNamespace
+
+    from harborrag_app.cli.doctor import environment
+
+    catalog = tmp_path / "models.yaml"
+    if body is not None:
+        catalog.write_text(body, encoding="utf-8")
+    # The catalog loader accepted the file; the second read or parse is what fails.
+    monkeypatch.setattr(
+        environment,
+        "describe_model_catalog",
+        lambda path: SimpleNamespace(chat_default="c", embed_default="e"),
+    )
+
+    check = environment.models_check(catalog)
+
+    assert check.status == "fail"
+    assert check.name == "models catalog"
+    assert str(catalog) in check.detail

@@ -226,3 +226,38 @@ async def test_pool_connect_pings_once_under_tenant_isolation():
     assert len(factory.clients) == 1
     factory.clients[0].close.assert_awaited_once_with()
     assert not pool._clients
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_keeps_the_connect_error_when_the_probe_close_fails(caplog):
+    factory = _UnreachableFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+    original = factory.create
+    factory.create = lambda graph_name, *, readonly: _failing_close(
+        original(graph_name, readonly=readonly)
+    )
+
+    with caplog.at_level("WARNING"), pytest.raises(ConnectionError, match="down"):
+        await pool.connect()
+
+    factory.clients[0].close.assert_awaited_once_with()
+    # Only the type is logged: the driver's text may carry connection details.
+    assert "OSError" in caplog.text and "u:hunter2" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_still_raises_a_close_failure_after_a_good_probe():
+    factory = FakeFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+    original = factory.create
+    factory.create = lambda graph_name, *, readonly: _failing_close(
+        original(graph_name, readonly=readonly)
+    )
+
+    with pytest.raises(OSError, match="u:hunter2"):
+        await pool.connect()
+
+
+def _failing_close(client):
+    client.close = AsyncMock(side_effect=OSError("close failed for u:hunter2"))
+    return client

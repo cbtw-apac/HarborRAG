@@ -142,7 +142,7 @@ class FakeTaskRegistry:
             return None
         if task.status is not IngestionTaskState.PENDING or task.summary.get(
             "submission_state"
-        ) in {"submitted", "executor"}:
+        ) in {"submitted", "executor", "submitting"}:
             return task.status
         self.transitions.append((task_id, IngestionTaskState.FAILED, dict(summary)))
         self.tasks[task_id] = task.model_copy(

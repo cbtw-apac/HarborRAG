@@ -95,6 +95,7 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
         ApiKeyRejected,
         ApiKeySchemaBehind,
         ApiKeySchemaMissing,
+        ApiKeySchemaUnstamped,
     )
 
     try:
@@ -114,6 +115,8 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
         raise typer.Exit(1) from None
     except ApiKeySchemaBehind as error:
         _fail("SchemaBehind", str(error))
+    except ApiKeySchemaUnstamped as error:
+        _fail("SchemaUnstamped", str(error))
     except ApiKeyRejected as error:
         _fail("ConstraintRejected", str(error))
     except AuthStoreUnavailable as error:
@@ -332,9 +335,7 @@ def revoke(
             settings, operator=operator, tenant_id=tenant, owner=owner, reason=reason
         )
     )
-    if not revoked:
-        # Expired keys are not active and are left alone, so "nothing changed" is not
-        # "already revoked"; say how many keys the owner has that can still be used.
-        _emit({"revoked": [], "active_keys": 0})
-        return
-    _emit({"revoked": revoked, "already_revoked": False})
+    # One shape whether or not anything was revoked: ``active_keys`` counts the owner's
+    # active keys this call found, all of which it revoked. Expired keys are not active
+    # and are left alone, so an empty result is not "already revoked".
+    _emit({"revoked": revoked, "active_keys": len(revoked)})

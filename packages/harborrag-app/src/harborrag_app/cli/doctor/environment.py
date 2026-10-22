@@ -183,7 +183,13 @@ def models_check(path: Path) -> Check:
     # Scan the parsed values, not the raw text: a `${VAR}` in a commented-out example
     # section is never expanded, so it must not fail the check. safe_load matches the
     # model loader, which the catalog has just passed.
-    raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001 - a check reports, it never raises
+        # The file can change or vanish between the two reads.
+        logger.debug("Model catalog %s could not be re-read", path, exc_info=True)
+        detail = f"{path}: {check_error_detail(exc)}"
+        return Check("models catalog", "config", "fail", detail, hint=_models_hint())
     blank = sorted(
         {
             name

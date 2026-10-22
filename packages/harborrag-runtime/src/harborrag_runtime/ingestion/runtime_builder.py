@@ -46,6 +46,7 @@ from harborrag_runtime.composition.resources import (
     build_vector_repository,
     check_embedding_dimensions,
     embedding_dimensions,
+    resource_hints,
     resource_targets,
 )
 from harborrag_runtime.config import (
@@ -241,6 +242,7 @@ class IngestionRuntimeBuilder:
             connector_rate_limiter=rate_limiter,
             telemetry=telemetry,
             resource_targets=resource_targets(settings),
+            resource_hints=resource_hints(settings),
         )
 
     def build_document_normalizer(self) -> BaseDocumentNormalizer:

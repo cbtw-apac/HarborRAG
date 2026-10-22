@@ -44,6 +44,7 @@ _FALLBACK_TARGETS = {
     "vector": "the vector store",
     "graph": "the graph store",
 }
+# Fallbacks for runtimes built without resource_hints (tests, embedders).
 _START_HINTS = {
     "control": "check HARBORRAG_CONTROL_DB_URL",
     "object_store": "check HARBORRAG_OBJECT_STORE_* credentials and that MinIO is running",
@@ -78,6 +79,8 @@ class IngestionRuntime:
     retention: RetiredVersionPurgeService | None = None
     # Safe display strings per resource label; read only on the failure path.
     resource_targets: Mapping[str, str] = field(default_factory=dict)
+    # What to check per resource label for the configured providers; same path.
+    resource_hints: Mapping[str, str] = field(default_factory=dict)
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
@@ -137,14 +140,14 @@ class IngestionRuntime:
         """Authored message only: the driver's text may carry credentials."""
         targets = getattr(self, "resource_targets", None) or {}
         target = targets.get(label) or _FALLBACK_TARGETS[label]
+        hints = getattr(self, "resource_hints", None) or {}
+        hint = hints.get(label) or _START_HINTS[label]
         logger.error(
             "Ingestion runtime resource unreachable resource=%s error_type=%s",
             label,
             type(error).__name__,
         )
-        return RuntimeConnectionError(
-            f"Could not connect to or initialise {target}; {_START_HINTS[label]}"
-        )
+        return RuntimeConnectionError(f"Could not connect to or initialise {target}; {hint}")
 
     async def close(self) -> None:
         if not self._started:

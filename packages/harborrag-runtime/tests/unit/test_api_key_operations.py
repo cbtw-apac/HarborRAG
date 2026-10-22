@@ -98,6 +98,25 @@ async def test_ensure_key_schema_reports_or_applies_missing_migrations(tmp_path:
     assert created.key_id
 
 
+@pytest.mark.asyncio
+async def test_migrate_refuses_a_key_table_without_a_migration_stamp(tmp_path: Path) -> None:
+    # A key table created outside alembic: upgrading from "no revision" would try to
+    # create it again and fail with a raw driver error the CLI can only name by type.
+    import sqlite3
+
+    path = tmp_path / "unstamped.db"
+    with sqlite3.connect(path) as connection:
+        connection.execute("CREATE TABLE mcp_api_keys (key_id TEXT PRIMARY KEY)")
+    unstamped = RuntimeSettings(control_db_url=f"sqlite+aiosqlite:///{path}")
+
+    with pytest.raises(api_key_operations.ApiKeySchemaUnstamped) as failure:
+        await api_key_operations.ensure_key_schema(unstamped, migrate=True)
+
+    message = str(failure.value)
+    assert "mcp_api_keys" in message and "no migration stamp" in message
+    assert "alembic" in message and "--migrate" in message
+
+
 @pytest.fixture
 def behind_head(tmp_path: Path) -> tuple[RuntimeSettings, str]:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/behind.db"

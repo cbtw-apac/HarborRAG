@@ -40,6 +40,7 @@ from .schemas import (
 )
 
 _DISCOVER_FAILURE_STATUS_PATCH = "discover-failure-status"
+_RUN_FAILURE_STATUS_PATCH = "run-failure-status"
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
 
 
@@ -274,26 +275,39 @@ class SourceIngestionWorkflow:
             await self._record_hard_cancellation(request)
             raise
         except (ActivityError, ChildWorkflowError) as error:
-            # A child batch, or finalization itself, can exhaust its retries
-            # and fail hard. Without this, the failure propagated straight
-            # out of the workflow with no `record_source_failure` call, so
-            # the control-plane task row stayed RUNNING forever even though
-            # Temporal itself considered the run failed.
-            error_code, _ = durable_failure(error)
-            await workflow.execute_activity(
-                "harborrag.record_source_failure",
-                SourceFailureInput(
-                    task_id=request.task_id,
-                    error_code=error_code,
-                ),
-                task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
-            )
+            await self._record_run_failure(request, error)
             raise
         self._status = result.status
         await self._cleanup_source(request)
         return cast(SourceIngestionResult, result)
+
+    async def _record_run_failure(
+        self,
+        request: SourceIngestionInput,
+        error: ActivityError | ChildWorkflowError,
+    ) -> None:
+        """Persist a hard batch or finalization failure before it closes the run.
+
+        A child batch, or finalization itself, can exhaust its retries and fail
+        hard. Without this, the failure propagated straight out of the workflow
+        with no `record_source_failure` call, so the control-plane task row stayed
+        RUNNING forever even though Temporal itself considered the run failed.
+        """
+
+        if workflow.patched(_RUN_FAILURE_STATUS_PATCH):
+            # Like discovery: the closed workflow's get_status must say FAILED.
+            self._status = "FAILED"
+        error_code, _ = durable_failure(error)
+        await workflow.execute_activity(
+            "harborrag.record_source_failure",
+            SourceFailureInput(
+                task_id=request.task_id,
+                error_code=error_code,
+            ),
+            task_queue=request.workflow_options.task_queues.discovery,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+        )
 
     async def _initial_state(
         self, request: SourceIngestionInput

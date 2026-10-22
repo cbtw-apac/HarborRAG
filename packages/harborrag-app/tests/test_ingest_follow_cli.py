@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 
 import pytest
 from app_test_fixtures import MockAppService
 
+from harborrag_app.cli import following
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control import AppResponse
@@ -14,6 +16,16 @@ from harborrag_app.workflow_control import AppResponse
 # Every command below goes through the CLI's project gate; give each test its own
 # project instead of inheriting whatever directory pytest was started from.
 pytestmark = pytest.mark.usefixtures("cli_project")
+
+# Deadline tests run the follow coroutines directly: the CLI's --timeout has a 1 s floor.
+_DEADLINE = 0.05
+_STATE = cli_runner.CliState()
+
+
+async def _never() -> None:
+    """Block until cancelled; a deadline, not a long sleep, ends the wait."""
+
+    await asyncio.Event().wait()
 
 
 class FollowService(MockAppService):
@@ -266,17 +278,17 @@ def test_start_wait_ctrl_c_names_the_started_run(monkeypatch, capsys) -> None:
     assert "harborrag ingest watch run-42" in capsys.readouterr().err
 
 
-def test_wait_timeout_exits_three_and_names_the_run(monkeypatch, capsys) -> None:
-    import asyncio
-
+@pytest.mark.asyncio
+async def test_wait_timeout_exits_three_and_names_the_run(monkeypatch, capsys) -> None:
     class Slow(FollowService):
         async def ingestion_result(self, run_id):
-            await asyncio.sleep(5)
-            return await super().ingestion_result(run_id)
+            await _never()
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Slow)
 
-    code = cli.main(["ingest", "wait", "run-42", "--timeout", "1"])
+    code = await following._wait(
+        None, run_id="run-42", action="wait", state=_STATE, as_json=False, timeout=_DEADLINE
+    )
 
     err = capsys.readouterr().err
     assert code == 3
@@ -284,7 +296,8 @@ def test_wait_timeout_exits_three_and_names_the_run(monkeypatch, capsys) -> None
     assert "harborrag ingest watch run-42" in err
 
 
-def test_watch_ends_on_paused_with_timeout(monkeypatch, capsys) -> None:
+@pytest.mark.asyncio
+async def test_watch_ends_on_paused_with_timeout(monkeypatch, capsys) -> None:
     class Paused(FollowService):
         async def ingestion_status(self, run_id):
             return AppResponse(
@@ -298,14 +311,17 @@ def test_watch_ends_on_paused_with_timeout(monkeypatch, capsys) -> None:
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Paused)
 
-    code = cli.main(["ingest", "watch", "run-42", "--refresh", "0.25", "--timeout", "1"])
+    code = await following._watch(
+        "run-42", state=_STATE, interval=0.01, events=False, timeout=_DEADLINE
+    )
 
     err = capsys.readouterr().err
     assert code == 3
     assert "run-42" in err and "paused" in err
 
 
-def test_start_wait_timeout_exits_three(monkeypatch, capsys) -> None:
+@pytest.mark.asyncio
+async def test_start_wait_timeout_exits_three(monkeypatch, capsys) -> None:
     class Running(FollowService):
         async def ingestion_status(self, run_id):
             return AppResponse(
@@ -318,9 +334,11 @@ def test_start_wait_timeout_exits_three(monkeypatch, capsys) -> None:
             )
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Running)
-    monkeypatch.setattr("harborrag_app.cli.commands.ingest._FOLLOW_INTERVAL", 0.05)
 
-    code = cli.main(["ingest", "start", "--connector-id", "ws", "--wait", "--timeout", "1"])
+    def submit(service):
+        return service.start_ingestion(tenant_id="DEFAULT", connector_name="ws", wait=False)
+
+    code = await following._start_and_follow(submit, state=_STATE, interval=0.01, timeout=_DEADLINE)
 
     err = capsys.readouterr().err
     assert code == 3
@@ -337,25 +355,27 @@ def test_completed_uppercase_status_still_exits_zero(monkeypatch, capsys) -> Non
     assert cli.main(["ingest", "wait", "run-42", "--json"]) == 0
 
 
-def test_wait_timeout_still_exits_three_when_the_status_lookup_hangs(monkeypatch, capsys) -> None:
-    import asyncio
-    import time
-
+@pytest.mark.asyncio
+async def test_wait_timeout_still_exits_three_when_the_status_lookup_hangs(
+    monkeypatch, capsys
+) -> None:
     class Hung(FollowService):
         async def ingestion_result(self, run_id):
-            await asyncio.sleep(30)
+            await _never()
 
         async def ingestion_status(self, run_id):
-            await asyncio.sleep(30)
+            await _never()
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Hung)
-    monkeypatch.setattr(cli_runner, "_STATUS_LOOKUP_SECONDS", 0.2)
+    monkeypatch.setattr(cli_runner, "_STATUS_LOOKUP_SECONDS", _DEADLINE)
 
-    started = time.monotonic()
-    code = cli.main(["ingest", "wait", "run-42", "--timeout", "1"])
+    # The outer bound only turns a regression into a failure instead of a hang.
+    async with asyncio.timeout(5):
+        code = await following._wait(
+            None, run_id="run-42", action="wait", state=_STATE, as_json=False, timeout=_DEADLINE
+        )
 
     assert code == 3
-    assert time.monotonic() - started < 5
     assert "Run run-42 is still running" in capsys.readouterr().err
 
 
@@ -429,15 +449,18 @@ class _GeneratedRunService(FollowService):
 
 
 def test_start_wait_json_timeout_reports_the_generated_run_id(monkeypatch, capsys) -> None:
-    """Without --run-id the CLI generates the id up front, so a timeout can still name it."""
+    """The one CLI-level timeout test: option wiring, exit 3, the generated run id.
 
-    import asyncio
+    Without --run-id the CLI generates the id up front, so a timeout can still name it.
+    ``--timeout`` has a 1 s floor, so this test is the only one that waits that long;
+    the deadline logic itself is tested on the coroutines with a short timeout.
+    """
 
     services: list[_GeneratedRunService] = []
 
     class Slow(_GeneratedRunService):
         async def ingestion_result(self, run_id):
-            await asyncio.sleep(30)
+            await _never()
 
     def make() -> Slow:
         services.append(Slow())
@@ -459,20 +482,28 @@ def test_start_wait_json_timeout_reports_the_generated_run_id(monkeypatch, capsy
     assert f"Run {run_id} is still running" in captured.err
 
 
-def test_start_wait_timeout_never_bounds_the_submission(monkeypatch, capsys) -> None:
-    """The deadline covers waiting for the result only, never registration or the start."""
+@pytest.mark.asyncio
+async def test_start_wait_timeout_never_bounds_the_submission(monkeypatch, capsys) -> None:
+    """The deadline covers waiting for the result only, never registration or the start.
 
-    import asyncio
+    The submission outlasts the deadline several times over, so a deadline that covered
+    it would always expire: the margin can only make this test pass, never flake.
+    """
 
     class SlowSubmit(_GeneratedRunService):
         async def start_ingestion(self, **kwargs):  # type: ignore[override]
-            await asyncio.sleep(1.3)
+            await asyncio.sleep(_DEADLINE * 4)
             return await super().start_ingestion(**kwargs)
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", SlowSubmit)
 
-    code = cli.main(
-        ["ingest", "start", "ws", "--run-id", "r-1", "--wait", "--json", "--timeout", "1"]
+    def submit(service):
+        return service.start_ingestion(
+            tenant_id="DEFAULT", connector_name="ws", run_id="r-1", wait=False
+        )
+
+    code = await following._wait(
+        submit, run_id="r-1", action="start", state=_STATE, as_json=True, timeout=_DEADLINE
     )
 
     payload = json.loads(capsys.readouterr().out)
@@ -494,16 +525,17 @@ def test_start_wait_json_result_failure_keeps_the_run(monkeypatch, capsys) -> No
     assert payload["data"]["error_type"] == "WorkflowNotFoundError"
 
 
-def test_wait_json_timeout_prints_the_timed_out_envelope(monkeypatch, capsys) -> None:
-    import asyncio
-
+@pytest.mark.asyncio
+async def test_wait_json_timeout_prints_the_timed_out_envelope(monkeypatch, capsys) -> None:
     class Slow(_GeneratedRunService):
         async def ingestion_result(self, run_id):
-            await asyncio.sleep(30)
+            await _never()
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", Slow)
 
-    code = cli.main(["ingest", "wait", "run-42", "--json", "--timeout", "1"])
+    code = await following._wait(
+        None, run_id="run-42", action="wait", state=_STATE, as_json=True, timeout=_DEADLINE
+    )
 
     captured = capsys.readouterr()
     assert code == 3

@@ -177,29 +177,63 @@ class IngestionApplicationService(TaskListingMixin):
         return task_response(task, counts)
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
-        """Restart durable tasks left between database commit and execution start."""
+        """Restart durable tasks left between database commit and execution start.
+
+        Each task is claimed under its row lock before the start, so the submit path
+        cannot fail it in between (a started run would then hit FAILED -> RUNNING).
+        The claim is released only when nothing can have started (no client, or a
+        failure before the start call). A start call that fails is ambiguous: the
+        workflow may exist. Its claim, like that of a pass that dies mid-start,
+        stays until it is stale; the store then hands the task out again, and the
+        retry is idempotent because a start treats an existing workflow id as success.
+        """
 
         store = await self._task_store_provider()
         recovered = 0
         for task in await store.pending_submissions(limit=limit):
             try:
+                claim = await store.claim_submission(task.task_id)
+                if claim is None:
+                    continue  # another pass owns it, or it started or settled meanwhile
+            except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
+                logger.exception(
+                    "Pending ingestion submission claim failed task_id=%s", task.task_id
+                )
+                continue
+            start_called = False
+            try:
                 client = await self._client_provider()
                 if "retry_of" in task.request:
-                    await client.start_retry_failures(retry_from_task(task))
+                    retry = retry_from_task(task)
+                    start_called = True
+                    await client.start_retry_failures(retry)
                 else:
-                    await client.start_ingestion(source_from_task(task))
-                await store.update_summary(
-                    task.task_id,
-                    {_SUBMISSION_STATE_KEY: _SUBMITTED},
-                )
+                    source = source_from_task(task)
+                    start_called = True
+                    await client.start_ingestion(source)
             except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
                 logger.exception(
                     "Pending ingestion submission recovery failed task_id=%s",
                     task.task_id,
                 )
+                if not start_called:
+                    await self._release_claim(store, task.task_id, claim)
                 continue
+            try:
+                await store.update_summary(task.task_id, {_SUBMISSION_STATE_KEY: _SUBMITTED})
+            except Exception:  # noqa: BLE001 - the run started; a stale claim is re-tried
+                logger.exception(
+                    "Could not confirm the recovered submission task_id=%s", task.task_id
+                )
             recovered += 1
         return recovered
+
+    @staticmethod
+    async def _release_claim(store: PublicTaskStore, task_id: str, claim: str) -> None:
+        try:
+            await store.release_submission_claim(task_id, claim)
+        except Exception:  # noqa: BLE001 - the claim goes stale and is retried anyway
+            logger.exception("Could not release the submission claim task_id=%s", task_id)
 
     async def list_documents(
         self,

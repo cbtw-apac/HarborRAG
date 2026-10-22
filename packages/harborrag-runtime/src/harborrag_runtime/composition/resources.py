@@ -180,6 +180,41 @@ def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
     }
 
 
+def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
+    """What to check when a resource is unreachable, for the configured provider.
+
+    Hints name settings, never their values: they end up in a RuntimeConnectionError.
+    """
+
+    provider = settings.object_store_provider
+    if provider == "s3":
+        object_store = (
+            "check HARBORRAG_OBJECT_STORE_* credentials and that the S3 endpoint "
+            "(MinIO locally) is running"
+        )
+    elif provider == "filesystem":
+        object_store = "check that HARBORRAG_OBJECT_STORE_ROOT is a writable directory"
+    else:
+        object_store = "check the configuration of HARBORRAG_OBJECT_STORE_PROVIDER"
+    if settings.vector_provider != "qdrant":
+        vector = "check the configuration of HARBORRAG_VECTOR_PROVIDER"
+    elif settings.qdrant_prefer_grpc:
+        vector = "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+    else:
+        vector = "start Qdrant and check HARBORRAG_QDRANT_URL"
+    graph = (
+        "start FalkorDB"
+        if settings.graph_provider == "falkordb"
+        else "check the configuration of HARBORRAG_GRAPH_PROVIDER"
+    )
+    return {
+        "control": "check HARBORRAG_CONTROL_DB_URL",
+        "object_store": object_store,
+        "vector": vector,
+        "graph": graph,
+    }
+
+
 def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:
     """Resolve the configured immutable artifact provider."""
 

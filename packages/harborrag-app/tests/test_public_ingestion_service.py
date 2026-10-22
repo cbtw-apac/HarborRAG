@@ -26,7 +26,12 @@ from harborrag_app.workflow_control.ingestion.presenters import task_id as gener
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
-from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
+from harborrag_runtime.errors import (
+    RuntimeConnectionError,
+    WorkflowOperationError,
+    WorkflowSubmissionError,
+)
+from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
@@ -125,6 +130,140 @@ async def test_recovery_submits_pending_task_without_client_idempotency_key(
     assert pending is not None
     assert pending.summary["submission_state"] == "submitted"
     assert [source.task_id for source in temporal.started] == [pending.task_id]
+
+
+async def _unsubmitted_task(
+    service: IngestionApplicationService, temporal: FakeTemporalClient
+) -> str:
+    """Register a run whose first start failed, leaving it PENDING for the outbox."""
+
+    original_start = temporal.start_ingestion
+
+    async def failing_start(source: SourceIngestionInput) -> RuntimeWorkflowRef:
+        raise WorkflowSubmissionError("temporarily unavailable")
+
+    temporal.start_ingestion = failing_start  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.submit(_command(), idempotency_key=None)
+    temporal.start_ingestion = original_start  # type: ignore[method-assign]
+    return "00000000-0000-4000-8000-000000000001"
+
+
+@pytest.mark.asyncio
+async def test_recovery_claims_the_task_before_starting_it(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # The race: recovery starts the workflow, then a connect failure on the original
+    # submit path fails the still-PENDING row, and the started run hits FAILED -> RUNNING.
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+    original_start = temporal.start_ingestion
+    concurrent_outcomes: list[IngestionTaskState | None] = []
+
+    async def start_while_the_submit_path_gives_up(
+        source: SourceIngestionInput,
+    ) -> RuntimeWorkflowRef:
+        concurrent_outcomes.append(
+            await control.tasks.fail_if_unsubmitted(
+                task_id, summary={"failed_stage": "submission", "error_code": "submission_failed"}
+            )
+        )
+        return await original_start(source)
+
+    temporal.start_ingestion = start_while_the_submit_path_gives_up  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 1
+
+    assert concurrent_outcomes == [IngestionTaskState.PENDING]
+    task = await control.tasks.get(task_id)
+    assert task is not None
+    assert task.status == IngestionTaskState.PENDING
+    assert task.summary["submission_state"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_recovery_releases_the_claim_when_it_cannot_connect(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # No client means nothing was started, so the next pass may retry at once.
+    service, control, _temporal = service_resources
+    task_id = await _unsubmitted_task(service, _temporal)
+    connect = service._client_provider
+
+    async def unreachable() -> FakeTemporalClient:
+        raise RuntimeConnectionError("Temporal is unreachable")
+
+    service._client_provider = unreachable  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 0
+
+    released = await control.tasks.get(task_id)
+    assert released is not None
+    assert "submission_state" not in released.summary
+    assert "submission_claimed_at" not in released.summary
+    assert [task.task_id for task in await control.tasks.pending_submissions()] == [task_id]
+
+    service._client_provider = connect  # type: ignore[method-assign]
+    assert await service.recover_pending_submissions() == 1
+    submitted = await control.tasks.get(task_id)
+    assert submitted is not None
+    assert submitted.summary["submission_state"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_recovery_keeps_the_claim_when_the_start_is_ambiguous(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # A failed start call may still have created the workflow: the claim stays until it
+    # goes stale, so the submit path cannot fail a run that is starting.
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+
+    async def ambiguous_start(source: SourceIngestionInput) -> RuntimeWorkflowRef:
+        raise WorkflowSubmissionError("deadline exceeded after the request was sent")
+
+    temporal.start_ingestion = ambiguous_start  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 0
+
+    claimed = await control.tasks.get(task_id)
+    assert claimed is not None
+    assert claimed.status == IngestionTaskState.PENDING
+    assert claimed.summary["submission_state"] == "submitting"
+    assert await control.tasks.pending_submissions() == ()
+    outcome = await control.tasks.fail_if_unsubmitted(
+        task_id, summary={"failed_stage": "submission", "error_code": "submission_failed"}
+    )
+    assert outcome == IngestionTaskState.PENDING
+
+
+@pytest.mark.asyncio
+async def test_recovery_skips_a_task_another_pass_has_claimed(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+    store = IngestionTaskRegistry(control)
+
+    assert await store.claim_submission(task_id) is not None
+    assert await service.recover_pending_submissions() == 0
+    assert temporal.started == []
 
 
 @pytest.mark.asyncio

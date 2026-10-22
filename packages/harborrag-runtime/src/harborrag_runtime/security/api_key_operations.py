@@ -39,6 +39,18 @@ class ApiKeySchemaBehind(RuntimeError):
         )
 
 
+class ApiKeySchemaUnstamped(RuntimeError):
+    """The key table exists but alembic never stamped the database, so it cannot migrate."""
+
+    def __init__(self, target: str | None = None) -> None:
+        where = f" in {target}" if target else ""
+        super().__init__(
+            f"the {KEY_TABLE} table exists{where} but the database has no migration stamp: "
+            "stamp it with alembic at the revision its schema matches, then re-run with "
+            "--migrate"
+        )
+
+
 class ApiKeyRejected(RuntimeError):
     """The database refused a key row; the SQL error is dropped, it carries bound values."""
 
@@ -114,6 +126,8 @@ async def ensure_key_schema(
     """Check the control database; with ``migrate`` apply pending migrations instead.
 
     Returns True when migrations were applied (the database was behind head).
+    With ``migrate``, a key table in a database alembic never stamped raises
+    ``ApiKeySchemaUnstamped``: there is no revision to upgrade from.
     Without ``migrate`` nothing is ever changed: a missing key table raises
     ``ApiKeySchemaMissing`` and, when ``require_head``, a database stamped older
     than head raises ``ApiKeySchemaBehind``. ``list`` and ``revoke`` pass
@@ -146,6 +160,10 @@ async def ensure_key_schema(
         await engine.dispose()
     behind = current != head
     if migrate:
+        if present and current is None:
+            # Upgrading from "no revision" would re-create the existing table and fail
+            # with a raw driver error; name the actual problem instead.
+            raise ApiKeySchemaUnstamped(describe_target(dsn))
         if behind:
             run_migrations(dsn)
         return behind
@@ -221,6 +239,7 @@ async def revoke_owner(
 __all__ = [
     "ApiKeyRejected",
     "ApiKeySchemaBehind",
+    "ApiKeySchemaUnstamped",
     "ApiKeySchemaMissing",
     "create_key",
     "describe",

@@ -6,6 +6,7 @@ import json
 import socket
 from pathlib import Path
 
+import pytest
 from app_test_fixtures import MockAppService
 from doctor_test_support import project, unreachable
 
@@ -414,7 +415,8 @@ def test_doctor_probes_qdrant_grpc_when_preferred(tmp_path: Path, monkeypatch, c
 
     qdrant = _doctor_checks(capsys)["qdrant"]
     assert qdrant["status"] == "fail"
-    assert "6334" in qdrant["detail"]
+    # The gRPC port is not configurable, so the detail says it assumed the default.
+    assert "Qdrant gRPC (default port 6334)" in qdrant["detail"]
     assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in qdrant["hint"]
 
 
@@ -457,7 +459,37 @@ def test_doctor_hints_name_the_checkout_files(tmp_path: Path, monkeypatch, capsy
     assert "docker compose up -d" not in checks["qdrant"]["hint"]
 
 
+def test_doctor_warns_when_the_object_store_credentials_cannot_be_verified(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "unverified")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "warn"
+    assert store["required"] is False
+    assert "credentials not verified: botocore not installed" in store["detail"]
+
+
+def test_s3_credentials_probe_without_botocore_is_unverified(monkeypatch) -> None:
+    import importlib.util
+
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **k: None if name == "botocore" else real_find_spec(name, *a, **k),
+    )
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) == "unverified"
+
+
 def test_s3_credentials_probe_reports_only_a_code_for_an_unreachable_endpoint() -> None:
+    pytest.importorskip("botocore")
     sock = socket.socket()
     sock.bind(("127.0.0.1", 0))
     port = sock.getsockname()[1]
@@ -469,6 +501,7 @@ def test_s3_credentials_probe_reports_only_a_code_for_an_unreachable_endpoint() 
 
 
 def test_s3_access_denied_counts_as_authenticated(monkeypatch) -> None:
+    pytest.importorskip("botocore")
     import botocore.session
     from botocore.exceptions import ClientError
 
@@ -486,6 +519,7 @@ def test_s3_access_denied_counts_as_authenticated(monkeypatch) -> None:
 
 
 def test_s3_rejected_credentials_report_the_code(monkeypatch) -> None:
+    pytest.importorskip("botocore")
     import botocore.session
     from botocore.exceptions import ClientError
 
