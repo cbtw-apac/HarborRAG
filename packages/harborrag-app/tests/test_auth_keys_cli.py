@@ -35,6 +35,7 @@ def _management_dsn(tmp_path: Path, monkeypatch) -> Path:
 
     dsn_file = tmp_path / "management.dsn"
     dsn_file.write_text("sqlite+aiosqlite:///:memory:\n", encoding="utf-8")
+    dsn_file.chmod(0o600)  # the CLI refuses a DSN file other users can read
     monkeypatch.setenv(auth_keys.MANAGEMENT_DSN_FILE_ENV, str(dsn_file))
     monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
     return dsn_file
@@ -416,6 +417,19 @@ def test_an_empty_dsn_file_refuses_to_start(_management_dsn: Path):
 
     assert result.exit_code == 1
     assert json.loads(result.stderr.strip().splitlines()[-1])["error_code"] == "ManagementDsnEmpty"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows reports a synthetic st_mode")
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660])
+def test_a_dsn_file_readable_by_other_users_refuses_to_start(_management_dsn: Path, mode: int):
+    _management_dsn.chmod(mode)
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload["error_code"] == "ManagementDsnFileNotPrivate"
+    assert "sqlite" not in result.stderr  # the credential is never echoed
 
 
 def test_an_unreadable_dsn_file_reports_only_the_error_type(tmp_path: Path, monkeypatch):

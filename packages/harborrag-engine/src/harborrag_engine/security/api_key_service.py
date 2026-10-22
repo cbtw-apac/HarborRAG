@@ -193,7 +193,7 @@ class ApiKeyManagementService:
             raise ApiKeyPolicyError("tenant_id must name one tenant, not the '*' wildcard")
         if not _OWNER_RE.fullmatch(owner):
             raise ApiKeyPolicyError(
-                "owner must look like user-<name>, svc-<name> or team-<name> (lowercase, digits, '-')"
+                "owner must look like user-<name>, svc-<name> (lowercase, digits, '-')"
             )
         if not _NAME_RE.fullmatch(name):
             raise ApiKeyPolicyError("name must be 1-128 lowercase letters, digits or '-'")

@@ -2,42 +2,25 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator, Sequence
-from contextlib import contextmanager
+from collections.abc import Sequence
+from contextlib import AbstractContextManager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
+from harborrag_core.ports.api_keys import ApiKeyRecord
 
 from .schemas import ActivityRow, McpApiKeyRow
 from .session import SessionFactory
+from .store_errors import store_errors
 
 
-@contextmanager
-def _store_errors() -> Generator[None]:
-    """Turn any failure to reach or query the key store into ``AuthStoreUnavailable``.
-
-    ``IntegrityError`` passes through: a rejected row is a bad write (a duplicate
-    key id, a value outside the constraints), not an outage, and must not be
-    retried as one.
-    """
-
-    try:
-        yield
-    except IntegrityError:
-        raise
-    except Exception as exc:  # noqa: BLE001 - every other failure here means "cannot decide"
-        # SQLAlchemyError covers query failures, but a refused connection or a
-        # rejected password surfaces as OSError/asyncpg errors that SQLAlchemy
-        # re-raises raw. Whatever it was, the answer is the same: deny, and let
-        # the caller tell an outage from a bad key by the exception type.
-        raise AuthStoreUnavailable("MCP key store is unavailable") from exc
+def _store_errors() -> AbstractContextManager[None]:
+    return store_errors("MCP key store is unavailable")
 
 
 def _to_record(row: McpApiKeyRow) -> ApiKeyRecord:
@@ -70,6 +53,13 @@ def _audit(*, tenant_id: str, actor: str, verb: str, key_id: str, summary: str) 
     )
 
 
+async def _fetch_record(sessions: SessionFactory, key_id: str) -> ApiKeyRecord | None:
+    with _store_errors():
+        async with sessions() as session:
+            row = await session.scalar(sa.select(McpApiKeyRow).where(McpApiKeyRow.key_id == key_id))
+    return _to_record(row) if row is not None else None
+
+
 @dataclass(slots=True)
 class SqlApiKeyReader:
     """ApiKeyReader over ``mcp_api_keys``: one primary-key lookup, never cached."""
@@ -77,12 +67,7 @@ class SqlApiKeyReader:
     sessions: SessionFactory
 
     async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
-        with _store_errors():
-            async with self.sessions() as session:
-                row = await session.scalar(
-                    sa.select(McpApiKeyRow).where(McpApiKeyRow.key_id == key_id)
-                )
-        return _to_record(row) if row is not None else None
+        return await _fetch_record(self.sessions, key_id)
 
 
 @dataclass(slots=True)
@@ -96,12 +81,7 @@ class SqlApiKeyManager:
     sessions: SessionFactory
 
     async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
-        with _store_errors():
-            async with self.sessions() as session:
-                row = await session.scalar(
-                    sa.select(McpApiKeyRow).where(McpApiKeyRow.key_id == key_id)
-                )
-        return _to_record(row) if row is not None else None
+        return await _fetch_record(self.sessions, key_id)
 
     async def create(self, record: ApiKeyRecord) -> None:
         with _store_errors():

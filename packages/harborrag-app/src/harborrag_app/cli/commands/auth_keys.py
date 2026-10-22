@@ -102,8 +102,11 @@ def read_management_dsn() -> str:
     location = os.environ.get(MANAGEMENT_DSN_FILE_ENV, "").strip()
     if not location:
         _fail("ManagementDsnFileNotSet", f"set {MANAGEMENT_DSN_FILE_ENV} to a file holding the DSN")
+    path = Path(location).expanduser()
     try:
-        dsn = Path(location).expanduser().read_text(encoding="utf-8").strip()
+        if os.name != "nt" and path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            _fail("ManagementDsnFileNotPrivate", "restrict the file to mode 0600")
+        dsn = path.read_text(encoding="utf-8").strip()
     except OSError as error:
         _fail("ManagementDsnFileUnreadable", type(error).__name__)  # type only: no path or value
     if not dsn:
