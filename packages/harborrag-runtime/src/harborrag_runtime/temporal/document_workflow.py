@@ -8,7 +8,7 @@ from temporalio.exceptions import ActivityError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
-from harborrag_runtime.temporal.failure_handling import durable_failure
+from harborrag_runtime.temporal.failure_handling import durable_failure, durable_skip_reason
 
 from .policies import temporal_retry_policy
 from .schemas import (
@@ -97,6 +97,7 @@ class DocumentIngestionWorkflow:
                     prepared=prepared,
                     failed_stage=failed_stage,
                     error_type=error_type,
+                    skip_reason=durable_skip_reason(error),
                 ),
                 task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=2),

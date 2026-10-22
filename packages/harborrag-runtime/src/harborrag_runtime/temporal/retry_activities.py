@@ -98,6 +98,7 @@ class RetryActivitiesMixin:
                 original_task_id=request.document.original_task_id,
                 planned=planned,
                 error_type=request.error_type,
+                skip_reason=request.skip_reason,
             )
 
     @activity.defn(name="harborrag.record_retry_failures_task_failure")

@@ -134,6 +134,7 @@ connectors:
   #     request_timeout_seconds: 60
   #     max_retries: 3
   #     backoff_factor: 0.5
+  #     # graph_api_url: https://graph.microsoft.com/v1.0  # national clouds differ
   #   secrets:
   #     tenant_id_env: MICROSOFT_TENANT_ID
   #     client_id_env: MICROSOFT_CLIENT_ID

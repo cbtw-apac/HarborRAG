@@ -52,12 +52,14 @@ class SourceDocumentOperations:
         *,
         error_type: str,
         failed_stage: str = "FetchAndCaptureRaw",
+        skip_reason: str | None = None,
     ) -> None:
         await self._document_results.record_failed_document(
             task_id,
             planned,
             error_type=error_type,
             failed_stage=failed_stage,
+            skip_reason=skip_reason,
         )
 
     async def begin_retry(self, task_id: str, *, selected: int) -> None:
@@ -88,12 +90,14 @@ class SourceDocumentOperations:
         original_task_id: str,
         planned: PlannedDocumentRelease,
         error_type: str,
+        skip_reason: str | None = None,
     ) -> None:
         await self._retries.record_retry_failure(
             retry_task_id=retry_task_id,
             original_task_id=original_task_id,
             planned=planned,
             error_type=error_type,
+            skip_reason=skip_reason,
         )
 
     async def finish_retry(

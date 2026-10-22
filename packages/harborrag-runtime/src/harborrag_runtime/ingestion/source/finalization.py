@@ -16,6 +16,7 @@ from .models import (
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+from .skips import run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
@@ -68,6 +69,7 @@ class SourceFinalizationService:
         unresolved_relations = (
             relation_repair.unresolved_relations if relation_repair is not None else 0
         )
+        skips = await run_skip_summary(self._control, request.task_id)
         await self._control.tasks.finalize(
             request.task_id,
             summary.task_state(),
@@ -78,6 +80,7 @@ class SourceFinalizationService:
                 "published": summary.published,
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
+                **skips,
                 "removal_candidates": len(removals),
                 "unresolved_relations": unresolved_relations,
             },
@@ -94,10 +97,17 @@ class SourceFinalizationService:
             unresolved_relations=unresolved_relations,
         )
         logger.info(
-            "Source finalization completed task_id=%s status=%s removals=%d "
-            "unresolved_relations=%d",
+            "Source finalization completed task_id=%s status=%s discovered=%d "
+            "published=%d unchanged=%d failed=%d skipped=%s skipped_by_reason=%s "
+            "removals=%d unresolved_relations=%d",
             request.task_id,
             outcome.status.value,
+            planned.document_count,
+            summary.published,
+            summary.unchanged,
+            summary.failed,
+            skips["skipped"],
+            skips["skipped_by_reason"],
             len(removals),
             unresolved_relations,
         )

@@ -55,3 +55,14 @@ def terminal_failure_code(error: BaseException) -> str:
         cause = getattr(current, "cause", None)
         current = cause if isinstance(cause, BaseException) else None
     return "unknown"
+
+
+def durable_skip_reason(error: BaseException) -> str | None:
+    """Return the skip reason an activity attached to its failure, if any."""
+
+    cause = getattr(error, "cause", None)
+    failure = cause if isinstance(cause, BaseException) else error
+    details = getattr(failure, "details", ())
+    if details and isinstance(details[0], str) and details[0].strip():
+        return details[0]
+    return None

@@ -47,6 +47,12 @@ class HarborConnector:
             page_size=page_size,
         )
 
+    def bind_run_id(self, run_id: str) -> None:
+        """Tag the provider's structured logs with a run ID, when it supports one."""
+        bind = getattr(self.provider, "bind_run_id", None)
+        if callable(bind):
+            bind(run_id)
+
     def connect(self) -> None:
         """Open resources owned by the selected provider."""
         self.provider.connect()

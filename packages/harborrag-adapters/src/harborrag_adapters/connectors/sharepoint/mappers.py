@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from harborrag_core.domain.source import SourceRecord
@@ -14,13 +14,20 @@ PAGE_RECORD_KIND = "page"
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse Microsoft Graph timestamp strings into datetimes."""
+    """Parse a Microsoft Graph timestamp into a UTC datetime.
+
+    Graph sends ISO 8601 UTC (``...Z``); an offset or a naive value is still
+    normalized to UTC so stored timestamps always serialize as ISO 8601 UTC.
+    """
     if not value:
         return None
     try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except (TypeError, ValueError):
         return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC)
 
 
 def drive_item_id_from_record(record: SourceRecord) -> str:
@@ -73,6 +80,7 @@ def build_page_source_record(page: dict[str, Any], *, site_id: str) -> SourceRec
             "publishing_version": publishing.get("versionId"),
             "etag": page.get("eTag"),
             "created_at": parse_timestamp(page.get("createdDateTime")),
+            "author": _identity_name(page.get("createdBy")),
             "created_by": _identity_name(page.get("createdBy")),
             "updated_by": _identity_name(page.get("lastModifiedBy")),
         },
@@ -101,6 +109,7 @@ def build_page_document_metadata(
         item_name=str(page.get("name") or ""),
         page_layout=page.get("pageLayout"),
         etag=page.get("eTag"),
+        author=_identity_name(page.get("createdBy")),
         created_by=_identity_name(page.get("createdBy")),
         updated_by=_identity_name(page.get("lastModifiedBy")),
         has_text_content=has_text_content,
@@ -136,6 +145,7 @@ def build_source_record(
             "etag": item.get("eTag"),
             "ctag": item.get("cTag"),
             "created_at": parse_timestamp(item.get("createdDateTime")),
+            "author": _identity_name(item.get("createdBy")),
             "created_by": _identity_name(item.get("createdBy")),
             "updated_by": _identity_name(item.get("lastModifiedBy")),
             "parent_id": item.get("parentReference", {}).get("id"),
@@ -172,6 +182,7 @@ def build_document_metadata(
         size=int(item.get("size") or 0),
         etag=item.get("eTag"),
         ctag=item.get("cTag"),
+        author=_identity_name(item.get("createdBy")),
         created_by=_identity_name(item.get("createdBy")),
         updated_by=_identity_name(item.get("lastModifiedBy")),
         parent=SharePointParentReference(
@@ -203,9 +214,16 @@ def _hashes(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _identity_name(identity_set: Any) -> str | None:
+    """Return a display name from a Graph identitySet, preferring the user.
+
+    An identitySet can also name the ``application`` or ``device`` that acted;
+    those are only used when no user identity is present.
+    """
     if not isinstance(identity_set, dict):
         return None
-    for value in identity_set.values():
+    preferred = identity_set.get("user")
+    candidates = [preferred, *(v for k, v in identity_set.items() if k != "user")]
+    for value in candidates:
         if isinstance(value, dict):
             display_name = value.get("displayName") or value.get("email")
             if display_name:

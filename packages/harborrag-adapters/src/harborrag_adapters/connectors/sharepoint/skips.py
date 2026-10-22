@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
+from collections import Counter
 
 from harborrag_adapters.connectors.exceptions import (
     AuthorizationError,
@@ -70,14 +72,19 @@ def skip_reason_for_error(error: Exception) -> str | None:
 class SharePointSkipRecorder:
     """Collect and log the items one discovery traversal declined."""
 
-    def __init__(self) -> None:
-        """Start with no recorded skips."""
+    def __init__(self, run_id: str | None = None) -> None:
+        """Start with no recorded skips; ``run_id`` tags every skip log entry."""
+        self.run_id = run_id
         self._skips: dict[tuple[str, str], ConnectorSkip] = {}
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
         """Return skips in the order they were recorded."""
         return tuple(self._skips.values())
+
+    def counts_by_reason(self) -> dict[str, int]:
+        """Return how many items were skipped for each standard reason."""
+        return dict(Counter(skip.reason for skip in self._skips.values()))
 
     def reset(self) -> None:
         """Forget skips from a previous traversal."""
@@ -104,7 +111,7 @@ class SharePointSkipRecorder:
             item_id=item_id,
             url=url,
         )
-        log_skip(reason, detail, item_id=item_id, url=url)
+        log_skip(reason, detail, item_id=item_id, url=url, run_id=self.run_id)
 
 
 def log_skip(
@@ -113,18 +120,29 @@ def log_skip(
     *,
     item_id: str | None = None,
     url: str | None = None,
+    run_id: str | None = None,
 ) -> None:
     """Emit one skip log entry with its reason, item identity, and detail."""
-    logger.warning(
-        "SharePoint item skipped reason=%s item_id=%s url=%s detail=%s",
-        reason,
-        item_id,
-        url,
-        detail,
-        extra={
-            "skip_reason": reason,
-            "item_id": item_id,
-            "url": url,
-            "detail": detail,
-        },
+    log_event(
+        logging.WARNING,
+        "sharepoint.item_skipped",
+        run_id=run_id,
+        skip_reason=reason,
+        item_id=item_id,
+        url=url,
+        detail=detail,
     )
+
+
+def log_event(level: int, event: str, *, run_id: str | None, **fields: object) -> None:
+    """Emit one structured SharePoint log entry as a single JSON object.
+
+    The message itself is JSON so the entry stays machine-readable whatever
+    formatter the host process installs; the same fields are attached as
+    ``extra`` for handlers that read record attributes.
+    """
+    payload = {"event": event, "run_id": run_id, **fields}
+    # ``logging`` refuses ``extra`` keys that collide with LogRecord attributes,
+    # so every attached field carries a provider prefix.
+    extra = {f"sharepoint_{key}": value for key, value in payload.items()}
+    logger.log(level, json.dumps(payload, default=str, sort_keys=True), extra=extra)

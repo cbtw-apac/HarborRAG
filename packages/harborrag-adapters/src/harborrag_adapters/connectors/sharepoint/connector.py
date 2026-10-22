@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import time
+import uuid
 from collections.abc import Iterator
 from typing import Any
 
@@ -38,11 +39,11 @@ from .skips import (
     NOT_IN_ALLOWLIST,
     SharePointItemSkippedError,
     SharePointSkipRecorder,
+    log_event,
     log_skip,
     skip_reason_for_error,
 )
 
-logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 _TIME_FOR_SHAREPOINT_CONNECTOR_TESTS = time
 
 
@@ -61,6 +62,10 @@ class SharePointConnector(BaseConnector):
     access denied, retries exhausted) are reported through ``skipped`` and
     logged; they never stop the run. Only authentication failure, a site the
     app cannot reach, and invalid config are fatal.
+
+    Every structured log entry carries ``run_id``. It defaults to a fresh ID
+    per connector instance; the ingestion runtime binds its task ID through
+    :meth:`bind_run_id` so connector logs join the task's own.
     """
 
     provider_name = "sharepoint"
@@ -80,13 +85,24 @@ class SharePointConnector(BaseConnector):
         """Initialize drive operations with an optional client override."""
         self.config = config
         self.client = client or _RequestsGraphClient(config)
-        self._skips = SharePointSkipRecorder()
+        self.run_id = uuid.uuid4().hex
+        self._skips = SharePointSkipRecorder(self.run_id)
         self._drive = SharePointDriveAPI(self.client, config, skips=self._skips)
         self._pages = SharePointPagesAPI(self.client, config)
 
+    def bind_run_id(self, run_id: str) -> None:
+        """Tag this connector's structured logs with the caller's run ID."""
+        self.run_id = run_id
+        self._skips.run_id = run_id
+
     def connect(self) -> None:
-        """Authenticate and resolve the site up front so bad credentials fail fast."""
-        self._drive.resolve_site()
+        """Authenticate and resolve the site up front so bad credentials fail fast.
+
+        A configured ``site_id`` needs no lookup to resolve, so the site is
+        read once anyway: that both obtains a token and proves the app is
+        granted the site before any traversal starts.
+        """
+        self._drive.verify_site_access(self._drive.resolve_site())
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
@@ -110,16 +126,20 @@ class SharePointConnector(BaseConnector):
         most once per discovery, even when two selectors reach the same item.
         """
         query = query or ConnectorQuery()
+        self._ensure_connected()
         self._skips.reset()
         site = self._drive.resolve_site()
         if not self._site_allowed(site):
+            self._log_discovery_summary(0)
             return
         drives = self._drive.resolve_drives(site)
-        logger.info(
-            "Discovering SharePoint files in site=%s drives=%s include_pages=%s",
-            site.get("id"),
-            [drive.get("id") for drive in drives],
-            self.config.include_pages,
+        log_event(
+            logging.INFO,
+            "sharepoint.discovery_started",
+            run_id=self.run_id,
+            site_id=site.get("id"),
+            drive_ids=[drive.get("id") for drive in drives],
+            include_pages=self.config.include_pages,
         )
 
         seen: set[str] = set()
@@ -129,7 +149,20 @@ class SharePointConnector(BaseConnector):
             seen.add(record.id)
             yield record
             if query.limit is not None and len(seen) >= query.limit:
-                return
+                break
+        self._log_discovery_summary(len(seen))
+
+    def _log_discovery_summary(self, discovered: int) -> None:
+        """Log what one completed traversal found and declined, by reason."""
+        skips = self._skips.counts_by_reason()
+        log_event(
+            logging.INFO,
+            "sharepoint.discovery_summary",
+            run_id=self.run_id,
+            discovered=discovered,
+            skipped=sum(skips.values()),
+            skipped_by_reason=skips,
+        )
 
     def _iter_records(
         self,
@@ -202,7 +235,7 @@ class SharePointConnector(BaseConnector):
             rejected = allowlist.rejected_site(site)
             detail = f"site {rejected!r} is not in allowed_sites"
         if rejected is not None:
-            log_skip(NOT_IN_ALLOWLIST, detail, item_id=record.locator)
+            log_skip(NOT_IN_ALLOWLIST, detail, item_id=record.locator, run_id=self.run_id)
             raise SharePointItemSkippedError(NOT_IN_ALLOWLIST, detail, item_id=record.locator)
 
     def _load_page(self, record: SourceRecord, site: dict[str, Any]) -> RawDocument:
@@ -227,8 +260,22 @@ class SharePointConnector(BaseConnector):
         html, has_text = render_page_html(page)
         title = page_title(page)
         if not has_text:
-            logger.info("SharePoint page %s has no text web parts; loading title only", page_id)
-        logger.info("Loading SharePoint page page=%s site=%s title=%s", page_id, site_id, title)
+            log_event(
+                logging.INFO,
+                "sharepoint.page_title_only",
+                run_id=self.run_id,
+                page_id=page_id,
+                detail="page has no text web parts; loading its title only",
+            )
+        log_event(
+            logging.INFO,
+            "sharepoint.page_loading",
+            run_id=self.run_id,
+            page_id=page_id,
+            site_id=site_id,
+            title=title,
+            url=page.get("webUrl"),
+        )
         metadata = build_page_document_metadata(
             page,
             site=site,
@@ -268,14 +315,17 @@ class SharePointConnector(BaseConnector):
         if declined is not None:
             reason, detail = declined
             url = item.get("webUrl")
-            log_skip(reason, detail, item_id=item_id, url=url)
+            log_skip(reason, detail, item_id=item_id, url=url, run_id=self.run_id)
             raise SharePointItemSkippedError(reason, detail, item_id=item_id, url=url)
 
-        logger.info(
-            "Loading SharePoint file item=%s drive=%s name=%s",
-            item_id,
-            drive_id,
-            item_name(item),
+        log_event(
+            logging.INFO,
+            "sharepoint.file_loading",
+            run_id=self.run_id,
+            item_id=item_id,
+            drive_id=drive_id,
+            name=item_name(item),
+            url=item.get("webUrl"),
         )
         content = self._fetch_or_skip(
             lambda: self.client.get_bytes(f"drives/{drive_id}/items/{item_id}/content"),
@@ -322,8 +372,7 @@ class SharePointConnector(BaseConnector):
             )
         return drive
 
-    @staticmethod
-    def _fetch_or_skip(fetch: Any, *, item_id: str, url: str | None = None) -> Any:
+    def _fetch_or_skip(self, fetch: Any, *, item_id: str, url: str | None = None) -> Any:
         """Run one item-level Graph call, turning item failures into skips."""
         try:
             return fetch()
@@ -331,7 +380,7 @@ class SharePointConnector(BaseConnector):
             reason = skip_reason_for_error(exc)
             if reason is None:
                 raise
-            log_skip(reason, str(exc), item_id=item_id, url=url)
+            log_skip(reason, str(exc), item_id=item_id, url=url, run_id=self.run_id)
             raise SharePointItemSkippedError(reason, str(exc), item_id=item_id, url=url) from exc
 
     def load_by_ids(self, item_ids: list[str]) -> Iterator[RawDocument]:

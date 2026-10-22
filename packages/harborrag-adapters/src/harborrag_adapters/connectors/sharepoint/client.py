@@ -25,7 +25,7 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
 )
 
-from .config import AUTH_ACCESS_TOKEN, AUTH_DEVICE_CODE, SharePointSiteConfig
+from .config import SharePointAuthMode, SharePointSiteConfig
 from .delegated import DELEGATED_SCOPE, LOGIN_HINT, DelegatedTokenCache, identity_url
 from .permissions import reject_broad_delegated_scopes, reject_broad_permissions
 
@@ -160,7 +160,7 @@ class _RequestsGraphClient:
         Client credentials request an app-only token; device code redeems the
         signed-in user's cached refresh token and stores the rotated one.
         """
-        if self.config.auth_mode == AUTH_ACCESS_TOKEN and self.config.access_token:
+        if self.config.auth_mode == SharePointAuthMode.ACCESS_TOKEN and self.config.access_token:
             reject_broad_permissions(self.config.access_token)
             return self.config.access_token
         if self._token and time.monotonic() < self._token_expires_at - 60:
@@ -213,7 +213,7 @@ class _RequestsGraphClient:
 
     def _delegated_cache(self) -> DelegatedTokenCache | None:
         """Return the refresh token cache for device code auth, else ``None``."""
-        if self.config.auth_mode != AUTH_DEVICE_CODE:
+        if self.config.auth_mode != SharePointAuthMode.DEVICE_CODE:
             return None
         return DelegatedTokenCache(
             path=Path(str(self.config.token_cache_path)),
