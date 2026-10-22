@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -601,7 +602,8 @@ def _commit_before_the_update(control_plane, database: Path, task_id: str, summa
         if fired or not statement.lstrip().upper().startswith("UPDATE INGESTION_TASKS"):
             return
         fired.append(statement)
-        with sqlite3.connect(database) as other:
+        # ``with connection`` only commits; ``closing`` also releases the handle.
+        with closing(sqlite3.connect(database)) as other, other:
             other.execute(
                 "UPDATE ingestion_tasks SET summary = ? WHERE task_id = ?",
                 (json.dumps(summary), task_id),

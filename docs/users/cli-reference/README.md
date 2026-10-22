@@ -142,7 +142,7 @@ harborrag ingest resume RUN_ID [--json]
 harborrag ingest cancel RUN_ID [--json]
 ```
 
-The connector is the only required input: give it positionally (`harborrag ingest start local`)
+The connector is the only required input: give it positionally (`harborrag ingest start workspace`)
 or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
 is an error.
 The value is a connection name from `config/connectors.yaml`, not a source type, so

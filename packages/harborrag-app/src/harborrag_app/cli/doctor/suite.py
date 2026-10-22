@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import logging
+import os
 from collections.abc import Callable
+from pathlib import Path
 
 from pydantic import SecretStr
 
@@ -211,6 +213,11 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
             probes.redis_ping(settings.falkordb_host, settings.falkordb_port),
         ),
     ]
+    if settings.object_store_provider != "s3":
+        # The runtime never touches the S3 endpoint for these providers, so probing it
+        # could only report a false failure (or a false pass).
+        checks.append(_local_object_store_check(settings))
+        return checks
     endpoint = settings.object_store_endpoint_url
     if endpoint is None:
         checks.append(
@@ -265,6 +272,39 @@ def _service_checks(settings: RuntimeSettings) -> list[Check]:
             return checks
     checks.append(_service_check("object store", probes.safe_url(endpoint), error))
     return checks
+
+
+def _local_object_store_check(settings: RuntimeSettings) -> Check:
+    provider = settings.object_store_provider
+    if provider != "filesystem":
+        detail = f"provider {provider!r} is not checked"
+        return Check("object store", "services", "skip", detail, required=False)
+    root = Path(settings.object_store_root).expanduser()
+    error = _writable_directory_error(root)
+    if error is not None:
+        return Check(
+            "object store",
+            "services",
+            "fail",
+            f"filesystem {root}: {error}",
+            hint="Set HARBORRAG_OBJECT_STORE_ROOT to a directory this user can write.",
+        )
+    return Check("object store", "services", "ok", f"filesystem {root}")
+
+
+def _writable_directory_error(root: Path) -> str | None:
+    """Whether ``root`` exists as, or can be created as, a writable directory."""
+
+    candidate = root.absolute()
+    while not candidate.exists():
+        if candidate.parent == candidate:
+            return "no existing parent directory"
+        candidate = candidate.parent
+    if not candidate.is_dir():
+        return f"{candidate} is not a directory"
+    if not os.access(candidate, os.W_OK | os.X_OK):
+        return f"{candidate} is not writable"
+    return None
 
 
 def _secret(value: SecretStr | None) -> str | None:

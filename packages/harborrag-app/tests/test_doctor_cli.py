@@ -400,6 +400,57 @@ def test_doctor_fails_object_store_with_bad_credentials(
     assert "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID" in store["hint"]
 
 
+def test_doctor_checks_a_filesystem_object_store_without_probing_s3(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    probed: list[object] = []
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: probed.append(a) or "Denied")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "filesystem")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_ROOT", str(tmp_path / "objects"))
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert probed == []
+    assert store["status"] == "ok"
+    assert "filesystem" in store["detail"]
+
+
+def test_doctor_fails_a_filesystem_object_store_it_cannot_write(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "filesystem")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_ROOT", str(blocker / "objects"))
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "fail"
+    assert "HARBORRAG_OBJECT_STORE_ROOT" in store["hint"]
+
+
+def test_doctor_skips_an_in_memory_object_store(tmp_path: Path, monkeypatch, capsys) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "Denied")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "memory")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "skip"
+    assert store["required"] is False
+
+
 def test_doctor_probes_qdrant_grpc_when_preferred(tmp_path: Path, monkeypatch, capsys) -> None:
     project(tmp_path, monkeypatch, capsys, api_key="sk-test")
     _reachable(monkeypatch)
