@@ -302,9 +302,10 @@ def list_keys(tenant: Tenant) -> None:
 
     from harborrag_runtime.security import api_key_operations
 
+    operator = operator_identity()
     settings = _settings()
     _run(api_key_operations.ensure_key_schema(settings, migrate=False))
-    keys = _run(api_key_operations.list_keys(settings, tenant))
+    keys = _run(api_key_operations.list_keys(settings, operator=operator, tenant_id=tenant))
     typer.echo(render_key_table(keys) if keys else f"no keys for tenant {tenant}")
 
 

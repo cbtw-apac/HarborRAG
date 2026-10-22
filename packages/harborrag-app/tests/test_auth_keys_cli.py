@@ -378,7 +378,7 @@ def test_the_management_dsn_comes_from_the_file_and_beats_the_control_db_env(mon
     monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "postgresql+asyncpg://other:x@db/other")
     seen: dict[str, str] = {}
 
-    async def fake_list(settings, tenant):
+    async def fake_list(settings, *, operator, tenant_id):
         seen["dsn"] = settings.control_db_url.get_secret_value()
         return []
 

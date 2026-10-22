@@ -57,7 +57,9 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
     verified = await verifier.verify_key(created.raw_key)
     assert verified is not None and verified.tenant_id == "engineering"
 
-    listed = await api_key_operations.list_keys(settings, "engineering")
+    listed = await api_key_operations.list_keys(
+        settings, operator="op@host", tenant_id="engineering"
+    )
     assert [(k["key_id"], k["state"], k["created_by"]) for k in listed] == [
         (created.key_id, "active", "op@host")
     ]
@@ -67,7 +69,9 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
         settings, operator="op@host", key_id=created.key_id, reason="lost"
     )
     assert await verifier.verify_key(created.raw_key) is None  # next request is refused
-    assert (await api_key_operations.list_keys(settings, "engineering"))[0]["state"] == "revoked"
+    assert (
+        await api_key_operations.list_keys(settings, operator="op@host", tenant_id="engineering")
+    )[0]["state"] == "revoked"
 
 
 @pytest.mark.asyncio

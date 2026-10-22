@@ -142,10 +142,13 @@ async def create_key(  # noqa: PLR0913 - one argument per CLI option
         await engine.dispose()
 
 
-async def list_keys(settings: RuntimeSettings, tenant_id: str) -> list[dict[str, Any]]:
+async def list_keys(
+    settings: RuntimeSettings, *, operator: str, tenant_id: str
+) -> list[dict[str, Any]]:
     service, engine = await _service(settings)
     try:
-        return [describe(record) for record in await service.list_keys(tenant_id)]
+        records = await service.list_keys(operator=operator, tenant_id=tenant_id)
+        return [describe(record) for record in records]
     finally:
         await engine.dispose()
 

@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
+from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.security.api_keys import generate_key, hash_key
 from harborrag_engine.security import (
     ApiKeyManagementService,
@@ -25,8 +26,10 @@ class FakeTenants:
 
     def __init__(self, *known: str) -> None:
         self.known = set(known)
+        self.contexts: list[StorageOperationContext] = []
 
-    async def exists(self, tenant_id: str) -> bool:
+    async def exists(self, tenant_id: str, *, context: StorageOperationContext) -> bool:
+        self.contexts.append(context)
         return tenant_id in self.known
 
 
@@ -36,18 +39,26 @@ class FakeStore:
     def __init__(self) -> None:
         self.records: dict[str, ApiKeyRecord] = {}
         self.lookups: list[str] = []
+        self.contexts: list[tuple[str, StorageOperationContext]] = []
         self.unavailable = False
 
-    async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
+    async def get_by_key_id(
+        self, key_id: str, *, context: StorageOperationContext
+    ) -> ApiKeyRecord | None:
         self.lookups.append(key_id)
+        self.contexts.append(("get_by_key_id", context))
         if self.unavailable:
             raise AuthStoreUnavailable("down")
         return self.records.get(key_id)
 
-    async def create(self, record: ApiKeyRecord) -> None:
+    async def create(self, record: ApiKeyRecord, *, context: StorageOperationContext) -> None:
+        self.contexts.append(("create", context))
         self.records[record.key_id] = record
 
-    async def revoke(self, key_id: str, *, at: datetime, by: str, reason: str) -> bool:
+    async def revoke(
+        self, key_id: str, *, at: datetime, by: str, reason: str, context: StorageOperationContext
+    ) -> bool:
+        self.contexts.append(("revoke", context))
         record = self.records.get(key_id)
         if record is None or record.revoked_at is not None:
             return False
@@ -56,17 +67,28 @@ class FakeStore:
         )
         return True
 
-    async def revoke_by_owner(
-        self, tenant_id: str, owner: str, *, at: datetime, by: str, reason: str
+    async def revoke_by_owner(  # noqa: PLR0913 - the tenant, owner, audit fields and the storage context
+        self,
+        tenant_id: str,
+        owner: str,
+        *,
+        at: datetime,
+        by: str,
+        reason: str,
+        context: StorageOperationContext,
     ) -> list[str]:
+        self.contexts.append(("revoke_by_owner", context))
         revoked = []
         for key_id, record in self.records.items():
             if (record.tenant_id, record.owner) == (tenant_id, owner) and record.revoked_at is None:
-                await self.revoke(key_id, at=at, by=by, reason=reason)
+                await self.revoke(key_id, at=at, by=by, reason=reason, context=context)
                 revoked.append(key_id)
         return revoked
 
-    async def list_for_tenant(self, tenant_id: str) -> list[ApiKeyRecord]:
+    async def list_for_tenant(
+        self, tenant_id: str, *, context: StorageOperationContext
+    ) -> list[ApiKeyRecord]:
+        self.contexts.append(("list_for_tenant", context))
         return [r for r in self.records.values() if r.tenant_id == tenant_id]
 
 
@@ -297,3 +319,40 @@ async def test_a_wildcard_tenant_is_refused_at_issue_and_at_verification(
 
     raw, _ = _issued(store, tenant_id="*")  # a row written by other means
     assert await verifier.verify_key(raw) is None
+
+
+@pytest.mark.asyncio
+async def test_each_operation_runs_under_the_scope_its_contract_names(store, management) -> None:
+    raw, record = _issued(store)
+    await ApiKeyVerificationService(store, environment="prod", clock=lambda: NOW).verify_key(raw)
+    await management.create_key(
+        operator="op",
+        tenant_id="engineering",
+        owner="user-huy",
+        name="k",
+        lifetime=timedelta(days=1),
+    )
+    await management.list_keys(operator="op", tenant_id="engineering")
+    await management.revoke_owner(
+        operator="op", tenant_id="engineering", owner="user-huy", reason="r"
+    )
+    await management.revoke_key(operator="op", key_id=record.key_id, reason="r")
+
+    scopes = {name: (ctx.access.scope, str(ctx.tenant_id)) for name, ctx in store.contexts}
+
+    assert scopes["get_by_key_id"][0] == "platform"  # verification and revoke look up globally
+    assert scopes["revoke"][0] == "platform"
+    assert scopes["create"] == ("tenant", "engineering")
+    assert scopes["list_for_tenant"] == ("tenant", "engineering")
+    assert scopes["revoke_by_owner"] == ("tenant", "engineering")
+    assert [ctx.access.scope for ctx in management._tenants.contexts] == ["platform"]
+    assert all(ctx.access.principal_id == "op" for _, ctx in store.contexts if _ != "get_by_key_id")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tenant", ["", "  ", " engineering"])
+async def test_a_tenant_scoped_operation_refuses_a_blank_or_padded_tenant(
+    management, tenant
+) -> None:
+    with pytest.raises(ApiKeyPolicyError):
+        await management.list_keys(operator="op", tenant_id=tenant)

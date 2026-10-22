@@ -13,6 +13,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_core.ports.api_keys import ApiKeyRecord
+from harborrag_core.schemas.storage import StorageOperationContext
 
 from .schemas import ActivityRow, McpApiKeyRow
 from .session import SessionFactory
@@ -62,11 +63,18 @@ async def _fetch_record(sessions: SessionFactory, key_id: str) -> ApiKeyRecord |
 
 @dataclass(slots=True)
 class SqlApiKeyReader:
-    """ApiKeyReader over ``mcp_api_keys``: one primary-key lookup, never cached."""
+    """ApiKeyReader over ``mcp_api_keys``: one primary-key lookup, never cached.
+
+    The lookup is global by nature: the tenant is read from the record it finds,
+    so it demands a platform-scoped context rather than a tenant's.
+    """
 
     sessions: SessionFactory
 
-    async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
+    async def get_by_key_id(
+        self, key_id: str, *, context: StorageOperationContext
+    ) -> ApiKeyRecord | None:
+        context.require_platform()
         return await _fetch_record(self.sessions, key_id)
 
 
@@ -75,15 +83,21 @@ class SqlApiKeyManager:
     """ApiKeyManager over ``mcp_api_keys``; every write carries its audit row.
 
     Store failures raise ``AuthStoreUnavailable`` like the reader; a row the
-    database rejects still raises ``IntegrityError``.
+    database rejects still raises ``IntegrityError``. Operations on one tenant's
+    keys need a context scoped to that tenant; those addressed by key id alone
+    (``get_by_key_id``, ``revoke``) need a platform-scoped one.
     """
 
     sessions: SessionFactory
 
-    async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
+    async def get_by_key_id(
+        self, key_id: str, *, context: StorageOperationContext
+    ) -> ApiKeyRecord | None:
+        context.require_platform()
         return await _fetch_record(self.sessions, key_id)
 
-    async def create(self, record: ApiKeyRecord) -> None:
+    async def create(self, record: ApiKeyRecord, *, context: StorageOperationContext) -> None:
+        context.require_tenant(record.tenant_id)
         with _store_errors():
             async with self.sessions.begin() as session:
                 session.add(
@@ -112,7 +126,10 @@ class SqlApiKeyManager:
                     )
                 )
 
-    async def revoke(self, key_id: str, *, at: datetime, by: str, reason: str) -> bool:
+    async def revoke(
+        self, key_id: str, *, at: datetime, by: str, reason: str, context: StorageOperationContext
+    ) -> bool:
+        context.require_platform()
         with _store_errors():
             async with self.sessions.begin() as session:
                 revoked = (
@@ -125,9 +142,17 @@ class SqlApiKeyManager:
                 self._audit_revocations(session, revoked, by=by, reason=reason)
         return bool(revoked)
 
-    async def revoke_by_owner(
-        self, tenant_id: str, owner: str, *, at: datetime, by: str, reason: str
+    async def revoke_by_owner(  # noqa: PLR0913 - the tenant, owner, audit fields and the storage context
+        self,
+        tenant_id: str,
+        owner: str,
+        *,
+        at: datetime,
+        by: str,
+        reason: str,
+        context: StorageOperationContext,
     ) -> list[str]:
+        context.require_tenant(tenant_id)
         with _store_errors():
             async with self.sessions.begin() as session:
                 result = await session.execute(
@@ -142,7 +167,10 @@ class SqlApiKeyManager:
                 self._audit_revocations(session, revoked, by=by, reason=reason)
         return [row.key_id for row in revoked]
 
-    async def list_for_tenant(self, tenant_id: str) -> list[ApiKeyRecord]:
+    async def list_for_tenant(
+        self, tenant_id: str, *, context: StorageOperationContext
+    ) -> list[ApiKeyRecord]:
+        context.require_tenant(tenant_id)
         with _store_errors():
             async with self.sessions() as session:
                 rows = await session.scalars(

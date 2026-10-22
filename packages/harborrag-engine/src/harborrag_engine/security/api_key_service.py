@@ -13,7 +13,10 @@ from datetime import UTC, datetime, timedelta
 
 from harborrag_core.ports.api_keys import ApiKeyManager, ApiKeyReader, ApiKeyRecord
 from harborrag_core.ports.tenants import TenantDirectory
+from harborrag_core.schemas.ids import TenantId
+from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.security.api_keys import generate_key, hash_matches, parse_key
+from harborrag_core.security.context import AccessContext
 
 MIN_LIFETIME = timedelta(hours=1)
 MAX_LIFETIME: dict[str, timedelta] = {
@@ -24,6 +27,7 @@ MAX_LIFETIME: dict[str, timedelta] = {
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,127}$")
 _OWNER_RE = re.compile(r"^(user|svc)-[a-z0-9][a-z0-9-]{0,120}$")
 _MAX_REASON = 256
+_VERIFIER = "harborrag-mcp-server"
 
 
 def _utc_now() -> datetime:
@@ -70,7 +74,10 @@ class ApiKeyVerificationService:
         parsed = parse_key(raw_key)
         if parsed is None or parsed.environment != self._environment:
             return None  # malformed or from another environment: no lookup at all
-        record = await self._reader.get_by_key_id(parsed.key_id)
+        # The key id is all a request carries: its tenant is read from the record,
+        # so the lookup runs under the explicit platform scope.
+        context = StorageOperationContext.platform(_VERIFIER, operation_kind="mcp_key.verify")
+        record = await self._reader.get_by_key_id(parsed.key_id, context=context)
         if record is None:
             return None
         if not hash_matches(raw_key, record.secret_hash):
@@ -130,7 +137,8 @@ class ApiKeyManagementService:
         self, *, operator: str, tenant_id: str, owner: str, name: str, lifetime: timedelta
     ) -> CreatedKey:
         self._validate(tenant_id=tenant_id, owner=owner, name=name, lifetime=lifetime)
-        if not await self._tenants.exists(tenant_id):
+        discovery = StorageOperationContext.platform(operator, operation_kind="tenant.discover")
+        if not await self._tenants.exists(tenant_id, context=discovery):
             # Names no value: the CLI echoes this message to the operator.
             raise TenantNotFound(
                 "tenant_id names no known tenant; submit an ingestion for it first"
@@ -148,7 +156,9 @@ class ApiKeyManagementService:
             created_by=operator,
             expires_at=now + lifetime,
         )
-        await self._manager.create(record)
+        await self._manager.create(
+            record, context=self._tenant_context(operator, tenant_id, "mcp_key.create")
+        )
         return CreatedKey(
             key_id=new.key_id,
             tenant_id=tenant_id,
@@ -160,10 +170,14 @@ class ApiKeyManagementService:
 
     async def revoke_key(self, *, operator: str, key_id: str, reason: str) -> bool:
         self._validate_reason(reason)
-        revoked = await self._manager.revoke(key_id, at=self._clock(), by=operator, reason=reason)
+        # A key id names its own tenant, so revoking by id is a platform operation.
+        context = StorageOperationContext.platform(operator, operation_kind="mcp_key.revoke")
+        revoked = await self._manager.revoke(
+            key_id, at=self._clock(), by=operator, reason=reason, context=context
+        )
         # False means unknown or already revoked; keys are never deleted, so a
         # lookup after the fact tells the two apart without a race.
-        if not revoked and await self._manager.get_by_key_id(key_id) is None:
+        if not revoked and await self._manager.get_by_key_id(key_id, context=context) is None:
             raise KeyNotFound("no key with this id")  # no input echoed
         return revoked
 
@@ -171,14 +185,25 @@ class ApiKeyManagementService:
         self, *, operator: str, tenant_id: str, owner: str, reason: str
     ) -> list[str]:
         self._validate_reason(reason)
-        if not tenant_id.strip():
-            raise ApiKeyPolicyError("tenant_id must not be empty")
+        context = self._tenant_context(operator, tenant_id, "mcp_key.revoke_owner")
         return await self._manager.revoke_by_owner(
-            tenant_id, owner, at=self._clock(), by=operator, reason=reason
+            tenant_id, owner, at=self._clock(), by=operator, reason=reason, context=context
         )
 
-    async def list_keys(self, tenant_id: str) -> list[ApiKeyRecord]:
-        return await self._manager.list_for_tenant(tenant_id)
+    async def list_keys(self, *, operator: str, tenant_id: str) -> list[ApiKeyRecord]:
+        context = self._tenant_context(operator, tenant_id, "mcp_key.list")
+        return await self._manager.list_for_tenant(tenant_id, context=context)
+
+    @staticmethod
+    def _tenant_context(
+        operator: str, tenant_id: str, operation_kind: str
+    ) -> StorageOperationContext:
+        if not tenant_id.strip():
+            raise ApiKeyPolicyError("tenant_id must not be empty")
+        if tenant_id != tenant_id.strip():
+            raise ApiKeyPolicyError("tenant_id must not have surrounding whitespace")
+        access = AccessContext(principal_id=operator, tenant_id=TenantId(tenant_id))
+        return StorageOperationContext.for_access(access, operation_kind=operation_kind)
 
     def _validate(self, *, tenant_id: str, owner: str, name: str, lifetime: timedelta) -> None:
         if (

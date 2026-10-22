@@ -7,6 +7,7 @@ from typing import Any
 from pydantic import Field
 
 from harborrag_core.base import StrictModel, utc_now
+from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId, TenantId
 from harborrag_core.security.context import AccessContext
 
@@ -80,11 +81,35 @@ class StorageOperationContext(StrictModel):
             document_version_id=document_version_id,
         )
 
+    @classmethod
+    def platform(
+        cls, principal_id: str, *, operation_kind: str = "unspecified"
+    ) -> StorageOperationContext:
+        """Create the explicit administrative context for operations with no tenant."""
+
+        return cls(access=AccessContext.platform(principal_id), operation_kind=operation_kind)
+
     @property
     def tenant_id(self) -> TenantId:
         """Expose the enforced tenant to repository implementations."""
 
         return self.access.tenant_id
+
+    @property
+    def is_platform(self) -> bool:
+        return self.access.scope == "platform"
+
+    def require_platform(self) -> None:
+        """Refuse a tenant-scoped context for an operation that is global by nature."""
+
+        if not self.is_platform:
+            raise HarborInvariantError("this operation needs a platform-scoped context")
+
+    def require_tenant(self, tenant_id: str) -> None:
+        """Refuse any context that is not scoped to exactly ``tenant_id``."""
+
+        if self.is_platform or self.tenant_id != tenant_id:
+            raise HarborInvariantError("the context is not scoped to this tenant")
 
 
 class RepositoryHealth(StrictModel):
