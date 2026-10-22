@@ -29,6 +29,18 @@ def _schema_present(monkeypatch):
     monkeypatch.setattr(api_key_operations, "ensure_key_schema", AsyncMock(return_value=False))
 
 
+@pytest.fixture(autouse=True)
+def _management_dsn(tmp_path: Path, monkeypatch) -> Path:
+    """Every command refuses to start without a management DSN file."""
+
+    dsn_file = tmp_path / "management.dsn"
+    dsn_file.write_text("sqlite+aiosqlite:///:memory:\n", encoding="utf-8")
+    dsn_file.chmod(0o600)  # the CLI refuses a DSN file other users can read
+    monkeypatch.setenv(auth_keys.MANAGEMENT_DSN_FILE_ENV, str(dsn_file))
+    monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
+    return dsn_file
+
+
 def _created() -> CreatedKey:
     return CreatedKey(
         key_id="0123456789abcdef01234567",
@@ -83,8 +95,16 @@ def test_create_writes_the_secret_to_a_private_file_and_prints_only_safe_fields(
     )  # fmt: skip
 
     assert result.exit_code == 0, result.stderr
-    payload = json.loads(result.stdout)
-    assert payload["ok"] and payload["data"]["key_id"] == "0123456789abcdef01234567"
+    expires = EXPIRES.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    assert result.stdout.splitlines() == [
+        "Credential created.",
+        "Key ID:   0123456789abcdef01234567",
+        "Tenant:   engineering",
+        "Owner:    user-huy",
+        "Name:     huy-laptop",
+        f"Expires:  {expires}",
+        f"Secret written to {output} (mode 0600)",
+    ]
     assert "hrk_" not in result.stdout
     assert stat.S_IMODE(output.stat().st_mode) == 0o600
     written = output.read_text(encoding="ascii").strip()
@@ -143,16 +163,35 @@ def test_a_failed_secret_write_revokes_the_key_it_just_created(tmp_path: Path, m
 
 def test_list_delegates_and_shows_no_secret_material(monkeypatch):
     rows = [
-        {"key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active"},
-        {"key_id": "1" * 24, "name": "old", "owner": "user-huy", "state": "revoked"},
-    ]
+        {
+            "key_id": "0" * 24, "name": "laptop", "owner": "user-huy", "state": "active",
+            "expires_at": "2026-12-01T00:00:00+00:00", "secret_hash": "should-not-appear",
+        },
+        {
+            "key_id": "1" * 24, "name": "old", "owner": "user-huy", "state": "revoked",
+            "expires_at": "2026-11-01T00:00:00+00:00", "secret_hash": "should-not-appear",
+        },
+    ]  # fmt: skip
     monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=rows))
 
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "engineering"])
 
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["data"]["keys"] == rows
-    assert "secret_hash" not in result.stdout
+    lines = result.stdout.splitlines()
+    assert [cell.strip() for cell in lines[0].split("|")] == [
+        "KEY ID", "NAME", "OWNER", "STATE", "EXPIRES",
+    ]  # fmt: skip
+    assert "active" in lines[1] and "revoked" in lines[2]
+    assert "should-not-appear" not in result.stdout
+
+
+def test_list_with_no_keys_says_so(monkeypatch):
+    monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=[]))
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "engineering"])
+
+    assert result.exit_code == 0
+    assert "no keys for tenant engineering" in result.stdout
 
 
 def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
@@ -167,8 +206,8 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
         app, ["auth", "keys", "revoke", "--key-id", "0" * 24, "--reason", "lost"]
     )
 
-    assert first.exit_code == 0 and json.loads(first.stdout)["data"]["revoked"] == ["0" * 24]
-    assert second.exit_code == 0 and json.loads(second.stdout)["data"]["already_revoked"] is True
+    assert first.exit_code == 0 and first.stdout.strip() == f"revoked {'0' * 24}"
+    assert second.exit_code == 0 and second.stdout.strip() == "already revoked"
 
     by_owner = AsyncMock(return_value=["a" * 24, "b" * 24])
     monkeypatch.setattr(api_key_operations, "revoke_owner", by_owner)
@@ -177,8 +216,15 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
         ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
     )  # fmt: skip
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["data"]["revoked"] == ["a" * 24, "b" * 24]
+    assert result.stdout.splitlines() == [f"revoked {'a' * 24}", f"revoked {'b' * 24}"]
     assert by_owner.call_args.kwargs["operator"] == "op@host"
+
+    by_owner.return_value = []
+    empty = CliRunner().invoke(
+        app,
+        ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
+    )  # fmt: skip
+    assert empty.exit_code == 0 and empty.stdout.strip() == "already revoked"
 
 
 def test_revoke_requires_exactly_one_selector():
@@ -252,7 +298,7 @@ def test_create_defaults_to_a_private_key_directory_it_creates(tmp_path: Path, m
     assert result.exit_code == 0, result.stderr
     key_dir = tmp_path / ".harborrag" / "keys"
     key_file = key_dir / "huy-laptop.key"
-    assert json.loads(result.stdout)["data"]["secret_written_to"] == str(key_file)
+    assert f"Secret written to {key_file} (mode 0600)" in result.stdout
     assert stat.S_IMODE(key_dir.stat().st_mode) == 0o700
     assert stat.S_IMODE(key_file.stat().st_mode) == 0o600
     assert key_file.read_text(encoding="ascii").strip() == _created().raw_key
@@ -328,16 +374,77 @@ def test_settings_come_from_the_checkout_unless_exported(tmp_path: Path, monkeyp
     assert auth_keys.settings_overrides(tmp_path) == {}
 
 
-def test_a_sqlite_fallback_is_warned_about(monkeypatch):
-    monkeypatch.setattr("harborrag_app.cli.project.find_legacy_checkout", lambda *a, **k: None)
-    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
-    monkeypatch.setattr(api_key_operations, "list_keys", AsyncMock(return_value=[]))
+def test_the_management_dsn_comes_from_the_file_and_beats_the_control_db_env(monkeypatch):
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "postgresql+asyncpg://other:x@db/other")
+    seen: dict[str, str] = {}
+
+    async def fake_list(settings, *, operator, tenant_id):
+        seen["dsn"] = settings.control_db_url.get_secret_value()
+        return []
+
+    monkeypatch.setattr(api_key_operations, "list_keys", fake_list)
 
     result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
 
     assert result.exit_code == 0, result.stderr
-    assert "local SQLite default" in result.stderr
-    assert json.loads(result.stdout)["data"] == {"keys": []}
+    assert seen["dsn"] == "sqlite+aiosqlite:///:memory:"
+
+
+def test_a_missing_dsn_variable_refuses_to_start(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv(auth_keys.MANAGEMENT_DSN_FILE_ENV)
+    create = AsyncMock(return_value=_created())
+    monkeypatch.setattr(api_key_operations, "create_key", create)
+    output = tmp_path / "private" / "k.key"
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-huy", "--name", "k",
+         "--expires-in", "1d", "--secret-output", str(output)],
+    )  # fmt: skip
+
+    assert result.exit_code == 1
+    assert json.loads(result.stderr.strip().splitlines()[-1])["error_code"] == (
+        "ManagementDsnFileNotSet"
+    )
+    create.assert_not_called()
+    assert not output.parent.exists()  # refused before any filesystem work
+
+
+def test_an_empty_dsn_file_refuses_to_start(_management_dsn: Path):
+    _management_dsn.write_text("  \n", encoding="utf-8")
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    assert result.exit_code == 1
+    assert json.loads(result.stderr.strip().splitlines()[-1])["error_code"] == "ManagementDsnEmpty"
+
+
+@pytest.mark.skipif(os.name == "nt", reason="Windows reports a synthetic st_mode")
+@pytest.mark.parametrize("mode", [0o640, 0o604, 0o644, 0o660])
+def test_a_dsn_file_readable_by_other_users_refuses_to_start(_management_dsn: Path, mode: int):
+    _management_dsn.chmod(mode)
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload["error_code"] == "ManagementDsnFileNotPrivate"
+    assert "sqlite" not in result.stderr  # the credential is never echoed
+
+
+def test_an_unreadable_dsn_file_reports_only_the_error_type(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv(auth_keys.MANAGEMENT_DSN_FILE_ENV, str(tmp_path / "absent.dsn"))
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload == {
+        "ok": False,
+        "error_code": "ManagementDsnFileUnreadable",
+        "detail": "FileNotFoundError",
+    }
+    assert "absent.dsn" not in result.stderr
 
 
 def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
@@ -362,4 +469,24 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
         "error_code": "ApiKeyPolicyError",
         "detail": "lifetime must not exceed 7 days in dev",
     }
+    assert not (tmp_path / "k.key").exists()
+
+
+def test_an_unknown_tenant_is_reported_by_its_own_code(tmp_path: Path, monkeypatch):
+    from harborrag_engine.security import TenantNotFound
+
+    message = "tenant_id names no known tenant; submit an ingestion for it first"
+    monkeypatch.setattr(
+        api_key_operations, "create_key", AsyncMock(side_effect=TenantNotFound(message))
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "typo", "--owner", "user-huy", "--name", "k",
+         "--expires-in", "1d", "--secret-output", str(tmp_path / "k.key")],
+    )  # fmt: skip
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload == {"ok": False, "error_code": "TenantNotFound", "detail": message}
     assert not (tmp_path / "k.key").exists()

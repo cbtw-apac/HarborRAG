@@ -2,21 +2,43 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
+import sqlalchemy as sa
 
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_adapters.repositories.database.ingestion_control.schema import INGESTION_TASKS
 from harborrag_runtime.composition.mcp_auth import build_api_key_verification
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.security import api_key_operations
+
+
+def _seed_tenant(database: Path, tenant_id: str) -> None:
+    """Keys are only issued for a known tenant: one submitted ingestion makes it known."""
+
+    engine = sa.create_engine(f"sqlite:///{database}")
+    with engine.begin() as connection:
+        connection.execute(
+            INGESTION_TASKS.insert().values(
+                task_id=f"task-{tenant_id}",
+                tenant_id=tenant_id,
+                source_scope_id="scope-1",
+                status="COMPLETED",
+                submitted_at=datetime.now(UTC),
+                request={},
+                summary={},
+            )
+        )
+    engine.dispose()
 
 
 @pytest.fixture
 def settings(tmp_path: Path) -> RuntimeSettings:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
+    _seed_tenant(tmp_path / "control.db", "engineering")
     return RuntimeSettings(control_db_url=dsn)
 
 
@@ -35,7 +57,9 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
     verified = await verifier.verify_key(created.raw_key)
     assert verified is not None and verified.tenant_id == "engineering"
 
-    listed = await api_key_operations.list_keys(settings, "engineering")
+    listed = await api_key_operations.list_keys(
+        settings, operator="op@host", tenant_id="engineering"
+    )
     assert [(k["key_id"], k["state"], k["created_by"]) for k in listed] == [
         (created.key_id, "active", "op@host")
     ]
@@ -45,7 +69,9 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
         settings, operator="op@host", key_id=created.key_id, reason="lost"
     )
     assert await verifier.verify_key(created.raw_key) is None  # next request is refused
-    assert (await api_key_operations.list_keys(settings, "engineering"))[0]["state"] == "revoked"
+    assert (
+        await api_key_operations.list_keys(settings, operator="op@host", tenant_id="engineering")
+    )[0]["state"] == "revoked"
 
 
 @pytest.mark.asyncio
@@ -81,6 +107,7 @@ async def test_ensure_key_schema_reports_or_applies_missing_migrations(tmp_path:
 
     assert await api_key_operations.ensure_key_schema(empty, migrate=True) is True
     assert await api_key_operations.ensure_key_schema(empty, migrate=False) is False
+    _seed_tenant(tmp_path / "fresh.db", "t")
     created = await api_key_operations.create_key(
         empty, operator="op", tenant_id="t", owner="user-x", name="k", lifetime=timedelta(hours=1)
     )

@@ -80,10 +80,16 @@ async def _service(settings: RuntimeSettings) -> tuple[ApiKeyManagementService, 
     from harborrag_adapters.repositories.database.control_plane.mcp_api_keys import (
         SqlApiKeyManager,
     )
+    from harborrag_adapters.repositories.database.control_plane.tenants import (
+        SqlTenantDirectory,
+    )
 
     engine = create_control_plane_engine(settings.control_db_url.get_secret_value())
-    manager = SqlApiKeyManager(create_session_factory(engine))
-    return ApiKeyManagementService(manager, environment=settings.env), engine
+    sessions = create_session_factory(engine)
+    service = ApiKeyManagementService(
+        SqlApiKeyManager(sessions), SqlTenantDirectory(sessions), environment=settings.env
+    )
+    return service, engine
 
 
 async def ensure_key_schema(settings: RuntimeSettings, *, migrate: bool) -> bool:
@@ -136,10 +142,13 @@ async def create_key(  # noqa: PLR0913 - one argument per CLI option
         await engine.dispose()
 
 
-async def list_keys(settings: RuntimeSettings, tenant_id: str) -> list[dict[str, Any]]:
+async def list_keys(
+    settings: RuntimeSettings, *, operator: str, tenant_id: str
+) -> list[dict[str, Any]]:
     service, engine = await _service(settings)
     try:
-        return [describe(record) for record in await service.list_keys(tenant_id)]
+        records = await service.list_keys(operator=operator, tenant_id=tenant_id)
+        return [describe(record) for record in records]
     finally:
         await engine.dispose()
 

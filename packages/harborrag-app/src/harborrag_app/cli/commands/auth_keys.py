@@ -15,9 +15,9 @@ import re
 import socket
 import stat
 from collections.abc import Coroutine
-from datetime import timedelta
+from datetime import UTC, timedelta
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, NoReturn
 
 import typer
 
@@ -72,7 +72,9 @@ def check_secret_output(path: Path) -> None:
             raise typer.BadParameter(f"cannot create {parent}: {type(error).__name__}") from None
     elif not parent.is_dir():
         raise typer.BadParameter(f"{parent} is not a directory")
-    if parent.stat().st_mode & stat.S_IWOTH:
+    # Windows reports a synthetic st_mode (directories look 0o777), so the POSIX
+    # world-writable test is meaningless there; access is governed by NTFS ACLs.
+    if os.name != "nt" and parent.stat().st_mode & stat.S_IWOTH:
         raise typer.BadParameter(f"{parent} is world-writable; use a private directory")
 
 
@@ -83,6 +85,35 @@ def write_secret_file(path: Path, secret: str) -> None:
         handle.write(secret + "\n")
 
 
+MANAGEMENT_DSN_FILE_ENV = "HARBORRAG_MANAGEMENT_DATABASE_DSN_FILE"
+
+
+def _fail(error_code: str, detail: str | None = None) -> NoReturn:
+    payload: dict[str, Any] = {"ok": False, "error_code": error_code}
+    if detail:
+        payload["detail"] = detail
+    typer.echo(json.dumps(payload), err=True)
+    raise typer.Exit(1)
+
+
+def read_management_dsn() -> str:
+    """The management DSN lives in a file so it never appears in argv or shell history."""
+
+    location = os.environ.get(MANAGEMENT_DSN_FILE_ENV, "").strip()
+    if not location:
+        _fail("ManagementDsnFileNotSet", f"set {MANAGEMENT_DSN_FILE_ENV} to a file holding the DSN")
+    path = Path(location).expanduser()
+    try:
+        if os.name != "nt" and path.stat().st_mode & (stat.S_IRWXG | stat.S_IRWXO):
+            _fail("ManagementDsnFileNotPrivate", "restrict the file to mode 0600")
+        dsn = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        _fail("ManagementDsnFileUnreadable", type(error).__name__)  # type only: no path or value
+    if not dsn:
+        _fail("ManagementDsnEmpty", "the management DSN file is empty")
+    return dsn
+
+
 def _run(operation: Coroutine[Any, Any, Any]) -> Any:
     from harborrag_engine.security import ApiKeyPolicyError
     from harborrag_runtime.security.api_key_operations import ApiKeySchemaMissing
@@ -91,8 +122,9 @@ def _run(operation: Coroutine[Any, Any, Any]) -> Any:
         return asyncio.run(operation)
     except ApiKeyPolicyError as error:
         # Authored in-repo and never echoes input, so the operator gets the rule.
+        # The type tells TenantNotFound apart from the other policy rejections.
         typer.echo(
-            json.dumps({"ok": False, "error_code": "ApiKeyPolicyError", "detail": str(error)}),
+            json.dumps({"ok": False, "error_code": type(error).__name__, "detail": str(error)}),
             err=True,
         )
         raise typer.Exit(1) from None
@@ -143,30 +175,52 @@ def _settings() -> Any:
     from harborrag_app.cli.project import find_legacy_checkout
     from harborrag_runtime.config.settings import RuntimeSettings
 
+    dsn = read_management_dsn()
     try:
-        settings = RuntimeSettings(**settings_overrides(find_legacy_checkout()))
+        overrides = settings_overrides(find_legacy_checkout())
+        overrides["control_db_url"] = dsn  # wins over HARBORRAG_CONTROL_DB_URL and the checkout
+        return RuntimeSettings(**overrides)
     except Exception as error:
         # A settings error would otherwise print the model, values included.
-        typer.echo(json.dumps({"ok": False, "error_code": type(error).__name__}), err=True)
-        raise typer.Exit(1) from None
-    if settings.control_db_url.get_secret_value().lower().startswith("sqlite"):
-        # Almost always a mistake: no MCP server reads a SQLite file from the
-        # operator's working directory. Say so, but let a deliberate local setup proceed.
-        typer.echo(
-            json.dumps(
-                {
-                    "warning": "control database is the local SQLite default; run from the "
-                    "checkout root (env/.env.database) or export HARBORRAG_CONTROL_DB_URL "
-                    "so keys land in the database the MCP server reads"
-                }
-            ),
-            err=True,
+        _fail(type(error).__name__)
+
+
+_LIST_COLUMNS = (
+    ("KEY ID", "key_id"),
+    ("NAME", "name"),
+    ("OWNER", "owner"),
+    ("STATE", "state"),
+    ("EXPIRES", "expires_at"),
+)
+
+
+def render_key_table(keys: list[dict[str, Any]]) -> str:
+    """Only the five operator-facing columns, so a hash or secret cannot leak into the table."""
+
+    header = [title for title, _ in _LIST_COLUMNS]
+    rows = [[str(key[field]) for _, field in _LIST_COLUMNS] for key in keys]
+    widths = [max(len(cell) for cell in column) for column in zip(header, *rows, strict=True)]
+    return "\n".join(
+        " | ".join(cell.ljust(width) for cell, width in zip(row, widths, strict=True)).rstrip()
+        for row in (header, *rows)
+    )
+
+
+def render_created_key(created: Any, secret_output: Path) -> str:
+    """Operator-facing summary; the secret itself never appears, only where it was written."""
+
+    expires = created.expires_at.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return "\n".join(
+        (
+            "Credential created.",
+            f"Key ID:   {created.key_id}",
+            f"Tenant:   {created.tenant_id}",
+            f"Owner:    {created.owner}",
+            f"Name:     {created.name}",
+            f"Expires:  {expires}",
+            f"Secret written to {secret_output} (mode 0600)",
         )
-    return settings
-
-
-def _emit(data: dict[str, Any]) -> None:
-    typer.echo(json.dumps({"ok": True, "data": data}, default=str))
+    )
 
 
 @app.command("create")
@@ -197,11 +251,11 @@ def create(  # noqa: PLR0913 - one parameter per documented option
     from harborrag_runtime.security import api_key_operations
 
     lifetime = parse_duration(expires_in)
+    settings = _settings()  # refuse to start before touching the filesystem
     if secret_output is None:
         secret_output = default_secret_output(name)
     check_secret_output(secret_output)
     operator = operator_identity()
-    settings = _settings()
     if _run(api_key_operations.ensure_key_schema(settings, migrate=migrate)):
         typer.echo(json.dumps({"ok": True, "data": {"migrated": True}}), err=True)
     created = _run(
@@ -239,16 +293,7 @@ def create(  # noqa: PLR0913 - one parameter per documented option
             err=True,
         )
         raise typer.Exit(1) from None
-    _emit(
-        {
-            "key_id": created.key_id,
-            "tenant_id": created.tenant_id,
-            "owner": created.owner,
-            "name": created.name,
-            "expires_at": created.expires_at.isoformat(),
-            "secret_written_to": str(secret_output),
-        }
-    )
+    typer.echo(render_created_key(created, secret_output))
 
 
 @app.command("list")
@@ -257,9 +302,11 @@ def list_keys(tenant: Tenant) -> None:
 
     from harborrag_runtime.security import api_key_operations
 
+    operator = operator_identity()
     settings = _settings()
     _run(api_key_operations.ensure_key_schema(settings, migrate=False))
-    _emit({"keys": _run(api_key_operations.list_keys(settings, tenant))})
+    keys = _run(api_key_operations.list_keys(settings, operator=operator, tenant_id=tenant))
+    typer.echo(render_key_table(keys) if keys else f"no keys for tenant {tenant}")
 
 
 @app.command("revoke")
@@ -286,7 +333,7 @@ def revoke(
         changed = _run(
             api_key_operations.revoke_key(settings, operator=operator, key_id=key_id, reason=reason)
         )
-        _emit({"revoked": [key_id] if changed else [], "already_revoked": not changed})
+        typer.echo(f"revoked {key_id}" if changed else "already revoked")
         return
     if tenant is None or owner is None:  # pragma: no cover - excluded by the selector check
         raise HarborInvariantError("revoke selectors must have been validated")
@@ -295,4 +342,4 @@ def revoke(
             settings, operator=operator, tenant_id=tenant, owner=owner, reason=reason
         )
     )
-    _emit({"revoked": revoked, "already_revoked": not revoked})
+    typer.echo("\n".join(f"revoked {revoked_id}" for revoked_id in revoked) or "already revoked")

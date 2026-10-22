@@ -8,14 +8,29 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from harborrag_core.ports.api_keys import ApiKeyRecord, AuthStoreUnavailable
+from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.security.api_keys import generate_key, hash_key
 from harborrag_engine.security import (
     ApiKeyManagementService,
     ApiKeyPolicyError,
     ApiKeyVerificationService,
+    KeyNotFound,
+    TenantNotFound,
 )
 
 NOW = datetime(2026, 9, 29, 12, 0, tzinfo=UTC)
+
+
+class FakeTenants:
+    """TenantDirectory over a fixed set of tenant ids."""
+
+    def __init__(self, *known: str) -> None:
+        self.known = set(known)
+        self.contexts: list[StorageOperationContext] = []
+
+    async def exists(self, tenant_id: str, *, context: StorageOperationContext) -> bool:
+        self.contexts.append(context)
+        return tenant_id in self.known
 
 
 class FakeStore:
@@ -24,18 +39,26 @@ class FakeStore:
     def __init__(self) -> None:
         self.records: dict[str, ApiKeyRecord] = {}
         self.lookups: list[str] = []
+        self.contexts: list[tuple[str, StorageOperationContext]] = []
         self.unavailable = False
 
-    async def get_by_key_id(self, key_id: str) -> ApiKeyRecord | None:
+    async def get_by_key_id(
+        self, key_id: str, *, context: StorageOperationContext
+    ) -> ApiKeyRecord | None:
         self.lookups.append(key_id)
+        self.contexts.append(("get_by_key_id", context))
         if self.unavailable:
             raise AuthStoreUnavailable("down")
         return self.records.get(key_id)
 
-    async def create(self, record: ApiKeyRecord) -> None:
+    async def create(self, record: ApiKeyRecord, *, context: StorageOperationContext) -> None:
+        self.contexts.append(("create", context))
         self.records[record.key_id] = record
 
-    async def revoke(self, key_id: str, *, at: datetime, by: str, reason: str) -> bool:
+    async def revoke(
+        self, key_id: str, *, at: datetime, by: str, reason: str, context: StorageOperationContext
+    ) -> bool:
+        self.contexts.append(("revoke", context))
         record = self.records.get(key_id)
         if record is None or record.revoked_at is not None:
             return False
@@ -44,17 +67,28 @@ class FakeStore:
         )
         return True
 
-    async def revoke_by_owner(
-        self, tenant_id: str, owner: str, *, at: datetime, by: str, reason: str
+    async def revoke_by_owner(  # noqa: PLR0913 - the tenant, owner, audit fields and the storage context
+        self,
+        tenant_id: str,
+        owner: str,
+        *,
+        at: datetime,
+        by: str,
+        reason: str,
+        context: StorageOperationContext,
     ) -> list[str]:
+        self.contexts.append(("revoke_by_owner", context))
         revoked = []
         for key_id, record in self.records.items():
             if (record.tenant_id, record.owner) == (tenant_id, owner) and record.revoked_at is None:
-                await self.revoke(key_id, at=at, by=by, reason=reason)
+                await self.revoke(key_id, at=at, by=by, reason=reason, context=context)
                 revoked.append(key_id)
         return revoked
 
-    async def list_for_tenant(self, tenant_id: str) -> list[ApiKeyRecord]:
+    async def list_for_tenant(
+        self, tenant_id: str, *, context: StorageOperationContext
+    ) -> list[ApiKeyRecord]:
+        self.contexts.append(("list_for_tenant", context))
         return [r for r in self.records.values() if r.tenant_id == tenant_id]
 
 
@@ -150,8 +184,13 @@ async def test_store_outage_propagates_rather_than_looking_like_a_bad_key(store,
 
 
 @pytest.fixture
-def management(store: FakeStore) -> ApiKeyManagementService:
-    return ApiKeyManagementService(store, environment="prod", clock=lambda: NOW)
+def tenants() -> FakeTenants:
+    return FakeTenants("engineering", "t")
+
+
+@pytest.fixture
+def management(store: FakeStore, tenants: FakeTenants) -> ApiKeyManagementService:
+    return ApiKeyManagementService(store, tenants, environment="prod", clock=lambda: NOW)
 
 
 @pytest.mark.asyncio
@@ -181,16 +220,29 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
     [
         ("prod", timedelta(days=91), "90 days"),
         ("dev", timedelta(days=8), "7 days"),
-        ("staging", timedelta(days=31), "30 days"),
+        ("staging", timedelta(days=91), "90 days"),
         ("prod", timedelta(minutes=59), "at least 1 hour"),
     ],
 )
-async def test_lifetime_limits(store, environment, lifetime, message) -> None:
-    service = ApiKeyManagementService(store, environment=environment, clock=lambda: NOW)
+async def test_lifetime_limits(store, tenants, environment, lifetime, message) -> None:
+    service = ApiKeyManagementService(store, tenants, environment=environment, clock=lambda: NOW)
 
     with pytest.raises(ApiKeyPolicyError, match=message):
         await service.create_key(
             operator="op", tenant_id="t", owner="user-x", name="k", lifetime=lifetime
+        )
+    assert store.records == {}
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_tenant_is_refused_and_nothing_is_stored(store, management) -> None:
+    with pytest.raises(TenantNotFound):
+        await management.create_key(
+            operator="op",
+            tenant_id="never-ingested",
+            owner="user-huy",
+            name="laptop",
+            lifetime=timedelta(days=1),
         )
     assert store.records == {}
 
@@ -218,12 +270,25 @@ async def test_bad_identifiers_are_rejected(store, management, owner, name, tena
 async def test_revoke_requires_a_reason_and_is_idempotent(store, management) -> None:
     _, record = _issued(store)
 
-    with pytest.raises(ApiKeyPolicyError, match="reason"):
-        await management.revoke_key(operator="op", key_id=record.key_id, reason="  ")
+    for empty in ("", "  "):
+        with pytest.raises(ApiKeyPolicyError, match="reason"):
+            await management.revoke_key(operator="op", key_id=record.key_id, reason=empty)
 
     assert await management.revoke_key(operator="op", key_id=record.key_id, reason="lost")
     assert not await management.revoke_key(operator="op", key_id=record.key_id, reason="again")
     assert store.records[record.key_id].revocation_reason == "lost"
+
+
+@pytest.mark.asyncio
+async def test_revoke_of_an_unknown_key_id_is_not_reported_as_already_revoked(
+    store, management
+) -> None:
+    unknown = "0" * 24
+
+    with pytest.raises(KeyNotFound) as raised:
+        await management.revoke_key(operator="op", key_id=unknown, reason="typo")
+
+    assert unknown not in str(raised.value)
 
 
 @pytest.mark.asyncio
@@ -254,3 +319,40 @@ async def test_a_wildcard_tenant_is_refused_at_issue_and_at_verification(
 
     raw, _ = _issued(store, tenant_id="*")  # a row written by other means
     assert await verifier.verify_key(raw) is None
+
+
+@pytest.mark.asyncio
+async def test_each_operation_runs_under_the_scope_its_contract_names(store, management) -> None:
+    raw, record = _issued(store)
+    await ApiKeyVerificationService(store, environment="prod", clock=lambda: NOW).verify_key(raw)
+    await management.create_key(
+        operator="op",
+        tenant_id="engineering",
+        owner="user-huy",
+        name="k",
+        lifetime=timedelta(days=1),
+    )
+    await management.list_keys(operator="op", tenant_id="engineering")
+    await management.revoke_owner(
+        operator="op", tenant_id="engineering", owner="user-huy", reason="r"
+    )
+    await management.revoke_key(operator="op", key_id=record.key_id, reason="r")
+
+    scopes = {name: (ctx.access.scope, str(ctx.tenant_id)) for name, ctx in store.contexts}
+
+    assert scopes["get_by_key_id"][0] == "platform"  # verification and revoke look up globally
+    assert scopes["revoke"][0] == "platform"
+    assert scopes["create"] == ("tenant", "engineering")
+    assert scopes["list_for_tenant"] == ("tenant", "engineering")
+    assert scopes["revoke_by_owner"] == ("tenant", "engineering")
+    assert [ctx.access.scope for ctx in management._tenants.contexts] == ["platform"]
+    assert all(ctx.access.principal_id == "op" for _, ctx in store.contexts if _ != "get_by_key_id")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("tenant", ["", "  ", " engineering"])
+async def test_a_tenant_scoped_operation_refuses_a_blank_or_padded_tenant(
+    management, tenant
+) -> None:
+    with pytest.raises(ApiKeyPolicyError):
+        await management.list_keys(operator="op", tenant_id=tenant)
