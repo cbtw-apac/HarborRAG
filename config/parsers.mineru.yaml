@@ -1,0 +1,33 @@
+version: 1
+
+# PDFs go through the MinerU CLI in a child process, so parse traces include a
+# separate harborrag-parser service. Build the worker with
+# HARBORRAG_WORKER_PDF_EXTRAS=pdf-liteparse,pdf-mineru and select this file with
+# HARBORRAG_WORKER_PARSER_CONFIG_PATH=/app/config/parsers.mineru.yaml.
+# The first parse downloads MinerU's models into the worker's model cache.
+parsers:
+  pdf-mineru:
+    parser: pdf
+    enabled: true
+    settings:
+      min_content_chars: 20
+    engines:
+      - backend: mineru
+        settings:
+          backend: pipeline
+          executable: mineru
+          timeout_seconds: 1800
+          method: auto
+          language: null
+          effort: medium
+          keep_output: false
+          extra_args: []
+
+  image-liteparse:
+    parser: image
+    enabled: true
+    settings:
+      ocr_engine: liteparse
+      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
+      lang: en
+      max_pixels: 100000000

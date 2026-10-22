@@ -7,6 +7,10 @@ import logging
 
 import pytest
 
+from harborrag_core.observability.execution_context import (
+    TemporalExecutionContext,
+    bound_execution,
+)
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     ROOT_LOGGER_NAME,
@@ -75,6 +79,30 @@ def test_propagation_stays_off_so_hosts_do_not_double_log() -> None:
     configure_logging("INFO", stream=io.StringIO())
 
     assert logging.getLogger(ROOT_LOGGER_NAME).propagate is False
+
+
+def test_records_inside_an_activity_carry_its_temporal_identity() -> None:
+    stream = io.StringIO()
+    configure_logging("INFO", stream=stream)
+    logger = logging.getLogger("harborrag.runtime.example")
+    execution = TemporalExecutionContext(
+        namespace="harborrag",
+        workflow_id="harborrag-document:task-1:0:3",
+        run_id="run-1",
+        activity_id="7",
+        attempt=2,
+    )
+
+    with bound_execution(execution):
+        logger.info("inside")
+    logger.info("outside")
+
+    inside, outside = stream.getvalue().splitlines()
+    assert inside.endswith(
+        "inside temporal.namespace=harborrag temporal.workflow_id=harborrag-document:task-1:0:3 "
+        "temporal.run_id=run-1 temporal.activity_id=7 temporal.attempt=2"
+    )
+    assert outside.endswith("outside")
 
 
 def test_level_comes_from_the_environment_when_unspecified(monkeypatch) -> None:

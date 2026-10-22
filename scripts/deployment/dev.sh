@@ -22,11 +22,13 @@ Commands:
   bootstrap          Create missing protected env files, then stop for review
   up [--no-worker] [--build] [--device cpu|gpu]
                      Start data, Temporal, worker (default), and API
-  down [--volumes]   Stop API, Temporal/worker, and data services
+  down [--volumes]   Stop API, Temporal/worker, monitoring, and data services
   data               Start only PostgreSQL, Qdrant, FalkorDB, Redis, and MinIO
   temporal           Start only Temporal server services; never starts a worker
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
+  monitoring         Start Prometheus, Grafana, Loki, and Tempo (needs GRAFANA_ADMIN_PASSWORD)
+  metrics            Show live queue and Temporal slot metrics from each worker
   api [--build]      Start only the API; reuse its image and never start a worker
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
@@ -158,6 +160,13 @@ validate_device() {
     [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
 }
 
+monitoring_compose() {
+    docker compose \
+        --env-file "${ROOT_DIR}/${MONITORING_ENV_FILE}" \
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml" \
+        "$@"
+}
+
 api_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
@@ -263,6 +272,58 @@ start_worker() {
         temporal-worker
 }
 
+start_monitoring() {
+    [[ "$#" -eq 0 ]] || fail "monitoring accepts no options."
+    # bootstrap never creates this file; Grafana needs an admin password set first.
+    [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]] ||
+        fail "Missing ${MONITORING_ENV_FILE}. Copy env-example/.env.monitoring.example and set GRAFANA_ADMIN_PASSWORD."
+    require_data_network
+    monitoring_compose up --detach
+}
+
+show_worker_metrics() {
+    [[ "$#" -eq 0 ]] || fail "metrics accepts no options."
+    local containers
+    containers="$(temporal_compose --profile worker ps -q temporal-worker)"
+    [[ -n "${containers}" ]] || fail "No Temporal worker containers are running. Start them with '$0 worker'."
+    local container
+    while IFS= read -r container; do
+        [[ -n "${container}" ]] || continue
+        docker exec -i "${container}" python - <<'PY'
+import urllib.request
+
+metrics = (
+    (9464, (
+        "harborrag_ingestion_documents_pending",
+        "harborrag_ingestion_pending_oldest_age_seconds",
+        "harborrag_ingestion_documents_in_progress",
+        "harborrag_ingestion_enrichment_pending",
+        "harborrag_ingestion_queue_collected_timestamp_seconds",
+        "harborrag_ingestion_backlog_capacity_ratio",
+        "harborrag_ingestion_enrichment_lag_seconds",
+    )),
+    (9465, (
+        "temporal_worker_task_slots_used",
+        "temporal_worker_task_slots_available",
+    )),
+)
+for port, names in metrics:
+    print(f"--- {port} ---")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=3) as response:
+            lines = response.read().decode().splitlines()
+    except Exception as error:
+        print(f"unavailable: {type(error).__name__}: {error}")
+        continue
+    matched = [
+        line for line in lines
+        if any(line.startswith(name + " ") or line.startswith(name + "{") for name in names)
+    ]
+    print("\n".join(matched) if matched else "no samples yet")
+PY
+    done <<< "${containers}"
+}
+
 start_api() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
@@ -323,6 +384,14 @@ stop_stack() {
         temporal_compose --profile worker "${down_args[@]}"
     else
         echo "Skipping Temporal teardown because environment files are missing." >&2
+    fi
+
+    # Monitoring joins the data network, so it must go down before data services.
+    echo "Stopping monitoring services..."
+    if [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]]; then
+        monitoring_compose "${down_args[@]}"
+    else
+        echo "Skipping monitoring teardown because the environment file is missing." >&2
     fi
 
     echo "Stopping HarborRAG data services..."
@@ -416,6 +485,12 @@ case "${command}" in
             shift
         done
         start_worker "${rebuild_image}"
+        ;;
+    monitoring)
+        start_monitoring "$@"
+        ;;
+    metrics)
+        show_worker_metrics "$@"
         ;;
     api)
         rebuild_image="${global_rebuild}"

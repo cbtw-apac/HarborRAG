@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import shutil
 import signal
 import stat
 import subprocess
+import sys
 import tempfile
 import uuid
 from pathlib import Path
@@ -24,8 +26,56 @@ from harborrag_adapters.parsers.pdf.normalization import (
 from harborrag_adapters.parsers.pdf.resources import materialized_pdf_path
 from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
 from harborrag_core.domain.parser import ParseInput
+from harborrag_core.observability.execution_context import current_execution
 
 MinerUBackendOptions = MinerUPDFConfig
+# Launcher that opens the harborrag-parser span around the CLI. It lives in
+# harborrag-runtime, so adapters-only installs run the CLI directly.
+_TRACED_LAUNCHER = "harborrag_runtime.parser_subprocess"
+
+
+def _traced_launcher_available() -> bool:
+    """Whether the launcher and the optional OpenTelemetry SDK it needs are installed."""
+
+    try:
+        return (
+            importlib.util.find_spec("harborrag_runtime") is not None
+            and importlib.util.find_spec("opentelemetry.sdk") is not None
+        )
+    except ModuleNotFoundError:
+        # find_spec raises, rather than returning None, when a parent package is missing.
+        return False
+
+
+def _owns_process_group() -> bool:
+    """Whether MinerU runs in its own session that a timeout kills as a whole.
+
+    Without one, a kill reaches only the direct child, so a launcher in between
+    would orphan MinerU; the CLI then runs directly and only inherits TRACEPARENT.
+    """
+
+    return os.name == "posix" and os.environ.get("HARBORRAG_ISOLATED_PROCESS") != "1"
+
+
+def trace_environment() -> dict[str, str]:
+    """Hand the caller's trace and document execution to a child process."""
+
+    carrier: dict[str, str] = {}
+    try:
+        from opentelemetry import propagate
+    except ImportError:
+        pass
+    else:
+        propagate.inject(carrier)
+    environment = {
+        name: carrier[key]
+        for key, name in (("traceparent", "TRACEPARENT"), ("tracestate", "TRACESTATE"))
+        if carrier.get(key)
+    }
+    execution = current_execution()
+    if execution is not None:
+        environment["HARBORRAG_DOCUMENT_EXECUTION_ID"] = execution.workflow_id
+    return environment
 
 
 class MinerUPDFEngine(HarborPDFEngine):
@@ -175,9 +225,22 @@ class MinerUPDFEngine(HarborPDFEngine):
                 "HF_HOME",
                 "TORCH_HOME",
                 "XDG_CACHE_HOME",
+                "OTEL_EXPORTER_OTLP_ENDPOINT",
+                "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+                "OTEL_EXPORTER_OTLP_HEADERS",
+                "OTEL_EXPORTER_OTLP_TRACES_HEADERS",
+                "OTEL_EXPORTER_OTLP_PROTOCOL",
+                "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
             }
         }
         env.update(self.options.env)
+        env.update(trace_environment())
+        owns_process_group = _owns_process_group()
+        traced_command = (
+            [sys.executable, "-m", _TRACED_LAUNCHER, "--", *command]
+            if owns_process_group and _traced_launcher_available()
+            else command
+        )
         cwd = (
             Path(self.options.working_directory)
             if self.options.working_directory is not None
@@ -185,14 +248,12 @@ class MinerUPDFEngine(HarborPDFEngine):
         )
         with tempfile.TemporaryFile() as stdout, tempfile.TemporaryFile() as stderr:
             process = subprocess.Popen(
-                command,
+                traced_command,
                 stdout=stdout,
                 stderr=stderr,
                 cwd=cwd,
                 env=env,
-                start_new_session=(
-                    os.name == "posix" and os.environ.get("HARBORRAG_ISOLATED_PROCESS") != "1"
-                ),
+                start_new_session=owns_process_group,
             )
             try:
                 return_code = process.wait(timeout=self.options.timeout_seconds)
@@ -214,7 +275,7 @@ class MinerUPDFEngine(HarborPDFEngine):
 
         if process.poll() is not None:
             return
-        if os.name == "posix" and os.environ.get("HARBORRAG_ISOLATED_PROCESS") != "1":
+        if _owns_process_group():
             os.killpg(process.pid, signal.SIGKILL)
         else:
             process.kill()

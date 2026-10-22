@@ -160,7 +160,11 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
         "project"
     ]["version"]
     assert f"harborrag-adapters[{adapter_extras}]=={release_version}" in runtime_project
-    assert f"harborrag-adapters[{adapter_extras}]'" in dockerfile
+    # The image takes its PDF parser extras from a build argument; the default must
+    # still match the runtime package's pdf-liteparse requirement.
+    assert "ARG HARBORRAG_PDF_EXTRAS=pdf-liteparse\n" in dockerfile
+    image_extras = adapter_extras.replace("pdf-liteparse", "${HARBORRAG_PDF_EXTRAS}")
+    assert f'harborrag-adapters[{image_extras}]"' in dockerfile
 
 
 def test_mcp_compose_does_not_opt_into_plaintext_remote_backends() -> None:

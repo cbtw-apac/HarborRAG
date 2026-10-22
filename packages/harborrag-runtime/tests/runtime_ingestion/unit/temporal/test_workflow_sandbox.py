@@ -48,6 +48,7 @@ def test_runner_keeps_workflow_modules_and_their_parents_sandboxed() -> None:
         "harborrag_core.ingestion",
         "harborrag_runtime.ingestion_contracts",
         "harborrag_runtime.temporal.schemas",
+        "opentelemetry",
     }
     for sandboxed in (
         "harborrag_runtime",

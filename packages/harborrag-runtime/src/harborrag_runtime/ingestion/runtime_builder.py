@@ -131,6 +131,7 @@ class IngestionRuntimeBuilder:
         telemetry = IngestionTelemetry(
             metrics_port=settings.metrics_port,
             metrics_bind_address=settings.metrics_bind_address,
+            queue_collect_interval_seconds=settings.queue_collect_interval,
         )
         parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
         rate_limiter = self._rate_limiter(telemetry)

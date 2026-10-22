@@ -3,13 +3,16 @@ from __future__ import annotations
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
 from time import perf_counter
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_core.observability.execution_context import (
+    TemporalExecutionContext,
+    bound_execution,
+)
 from harborrag_engine.ingestion import IngestionFailureClassifier
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
 from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
@@ -80,16 +83,24 @@ class ActivityObservability:
                 f"activity stage {stage!r} has no entry in _ACTIVITY_STAGES; "
                 "add it before wiring this boundary() call"
             ) from None
-        context = _activity_log_context()
+        execution = _activity_execution()
+        context = execution or _OUTSIDE_TEMPORAL
         started_at = perf_counter()
-        logger.debug(
-            "Activity started stage=%s workflow_id=%s activity_id=%s attempt=%d",
-            stage,
-            context.workflow_id,
-            context.activity_id,
-            context.attempt,
-        )
-        with self._telemetry.stage(metric_stage, attempt=context.attempt):
+        with (
+            bound_execution(execution),
+            self._telemetry.stage(
+                metric_stage,
+                attempt=context.attempt,
+                attributes=execution.span_attributes() if execution is not None else None,
+            ),
+        ):
+            logger.debug(
+                "Activity started stage=%s workflow_id=%s activity_id=%s attempt=%d",
+                stage,
+                context.workflow_id,
+                context.activity_id,
+                context.attempt,
+            )
             try:
                 yield
             except ApplicationError as error:
@@ -254,24 +265,25 @@ class ActivityObservability:
             self._telemetry.record_verification_failure()
 
 
-@dataclass(frozen=True, slots=True)
-class _ActivityLogContext:
-    workflow_id: str
-    activity_id: str
-    attempt: int
+# Log-only identity for boundaries exercised outside a Temporal activity.
+_OUTSIDE_TEMPORAL = TemporalExecutionContext(
+    namespace="outside-temporal",
+    workflow_id="outside-temporal",
+    run_id="outside-temporal",
+    activity_id="outside-temporal",
+    attempt=1,
+)
 
 
-def _activity_log_context() -> _ActivityLogContext:
+def _activity_execution() -> TemporalExecutionContext | None:
     try:
         info = activity.info()
     except RuntimeError:
-        return _ActivityLogContext(
-            workflow_id="outside-temporal",
-            activity_id="outside-temporal",
-            attempt=1,
-        )
-    return _ActivityLogContext(
+        return None
+    return TemporalExecutionContext(
+        namespace=info.namespace,
         workflow_id=info.workflow_id or "outside-workflow",
+        run_id=info.workflow_run_id or "outside-workflow",
         activity_id=info.activity_id,
         attempt=info.attempt,
     )

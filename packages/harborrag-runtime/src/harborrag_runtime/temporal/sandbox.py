@@ -9,6 +9,9 @@ from types import ModuleType
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
 _HARBORRAG_PACKAGE_PREFIX = "harborrag_"
+# TracingInterceptor's workflow side needs the host's OpenTelemetry context, as
+# temporalio's own OpenTelemetryPlugin configures.
+TRACING_PASSTHROUGH_MODULES = ("opentelemetry",)
 
 
 def workflow_sandbox_runner(
@@ -48,5 +51,7 @@ def workflow_sandbox_runner(
         if name.startswith(_HARBORRAG_PACKAGE_PREFIX) and name not in sandboxed
     )
     return SandboxedWorkflowRunner(
-        restrictions=SandboxRestrictions.default.with_passthrough_modules(*passthrough)
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            *TRACING_PASSTHROUGH_MODULES, *passthrough
+        )
     )

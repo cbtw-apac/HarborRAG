@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from temporalio.contrib.opentelemetry import TracingInterceptor
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import (
@@ -20,6 +21,16 @@ from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal import connection as connection_module
 from harborrag_runtime.temporal import worker as worker_module
 from harborrag_runtime.temporal_models import TaskQueueConfig
+
+_SDK_RUNTIME = object()
+_REAL_SDK_RUNTIME = worker_module.temporal_sdk_runtime
+
+
+@pytest.fixture(autouse=True)
+def no_sdk_metrics_port(monkeypatch) -> None:
+    """A real SDK runtime binds its Prometheus port; one per test would collide."""
+
+    monkeypatch.setattr(worker_module, "temporal_sdk_runtime", lambda _address: _SDK_RUNTIME)
 
 
 class _Worker:
@@ -62,10 +73,13 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
         "build_ingestion_runtime",
         lambda _settings: runtime,
     )
-    connect = AsyncMock(side_effect=lambda _config: lifecycle.append("temporal-connect"))
+    connect = AsyncMock(
+        side_effect=lambda _config, **_options: lifecycle.append("temporal-connect")
+    )
     monkeypatch.setattr(worker_module, "connect_temporal_client", connect)
     monkeypatch.setattr(worker_module, "_build_worker", build_worker)
     monkeypatch.setattr(worker_module, "_wait_for_shutdown", wait)
+    monkeypatch.setattr(worker_module, "_queue_metrics_loop", AsyncMock())
 
     stop = asyncio.Event()
     await worker_module.run_workers(SimpleNamespace(), stop_event=stop)
@@ -84,6 +98,53 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
     runtime.close.assert_awaited_once()
     wait.assert_awaited_once()
     assert lifecycle[:2] == ["temporal-connect", "runtime-start"]
+    options = connect.await_args.kwargs
+    assert options["runtime"] is _SDK_RUNTIME
+    assert [type(item) for item in options["interceptors"]] == [TracingInterceptor]
+
+
+def test_sdk_runtime_exports_prometheus_on_its_own_port_in_seconds(monkeypatch) -> None:
+    constructor = Mock()
+    monkeypatch.setattr(worker_module, "Runtime", constructor)
+
+    _REAL_SDK_RUNTIME("0.0.0.0:9465")
+
+    metrics = constructor.call_args.kwargs["telemetry"].metrics
+    assert metrics.bind_address == "0.0.0.0:9465"
+    assert metrics.durations_as_seconds is True
+
+
+@pytest.mark.asyncio
+async def test_queue_metrics_loop_refreshes_until_stopped_and_survives_failures(
+    monkeypatch,
+) -> None:
+    stop = asyncio.Event()
+    counts = object()
+    calls = 0
+
+    async def read_counts():
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise ConnectionError("database down")
+        stop.set()
+        return counts
+
+    telemetry = Mock()
+    runtime = SimpleNamespace(
+        telemetry=telemetry,
+        control=SimpleNamespace(queue_metrics=SimpleNamespace(counts=read_counts)),
+    )
+    emit = AsyncMock()
+    monkeypatch.setattr(worker_module, "_emit_queue_metrics", emit)
+
+    await worker_module._queue_metrics_loop(
+        runtime, object(), TemporalRuntimeConfig(), stop, interval=0.01
+    )
+
+    assert calls == 2
+    assert emit.await_count == 2
+    telemetry.record_queue_counts.assert_called_once_with(counts)
 
 
 @pytest.mark.asyncio
@@ -116,6 +177,7 @@ async def test_schedule_metrics_loop_follows_its_interval_setting(
     monkeypatch.setattr(worker_module, "_build_worker", lambda *_args, **_kwargs: _Worker())
     monkeypatch.setattr(worker_module, "_wait_for_shutdown", wait_for_shutdown)
     monkeypatch.setattr(worker_module, "_schedule_metrics_loop", metrics_loop)
+    monkeypatch.setattr(worker_module, "_queue_metrics_loop", AsyncMock())
 
     await worker_module.run_workers(
         SimpleNamespace(schedule_metrics_interval_seconds=interval),
@@ -206,7 +268,7 @@ def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_emit_queue_metrics_records_depth_and_saturation(monkeypatch) -> None:
+async def test_emit_queue_metrics_records_depth_and_backlog_capacity(monkeypatch) -> None:
     telemetry = Mock()
     monkeypatch.setattr(
         worker_module,
@@ -219,7 +281,7 @@ async def test_emit_queue_metrics_records_depth_and_saturation(monkeypatch) -> N
 
     assert telemetry.record_temporal_worker_slots.call_count == 6
     assert telemetry.record_temporal_queue_depth.call_count == 6
-    assert telemetry.record_temporal_worker_slot_saturation.call_count == 6
+    assert telemetry.record_backlog_capacity_ratio.call_count == 6
     telemetry.record_temporal_worker_slots.assert_any_call("harborrag-discovery", 4)
     telemetry.record_temporal_queue_depth.assert_any_call("harborrag-discovery", 12)
 
@@ -257,9 +319,7 @@ async def test_emit_queue_metrics_continues_when_depth_lookup_times_out(monkeypa
 
     telemetry.record_temporal_queue_depth.assert_any_call("queue-timeout", None)
     telemetry.record_temporal_queue_depth.assert_any_call("queue-ok", 5)
-    telemetry.record_temporal_worker_slot_saturation.assert_any_call(
-        "queue-timeout", slots=4, depth=None
-    )
+    telemetry.record_backlog_capacity_ratio.assert_any_call("queue-timeout", slots=4, depth=None)
 
 
 @pytest.mark.asyncio
