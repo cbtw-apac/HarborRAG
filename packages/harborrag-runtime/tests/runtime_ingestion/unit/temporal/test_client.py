@@ -13,7 +13,9 @@ from temporalio.client import (
     SchedulePolicy,
     ScheduleSpec,
     ScheduleState,
+    WorkflowFailureError,
 )
+from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_runtime.config.temporal import (
@@ -638,3 +640,63 @@ async def test_schedule_backend_gives_up_after_repeated_conflicts() -> None:
     with pytest.raises(WorkflowOperationError):
         await backend.update(_schedule_definition(), desired_paused=False)
     assert sdk.schedule_handle.update.await_count == 3
+
+
+def _workflow_failure(code: str) -> WorkflowFailureError:
+    application = ApplicationError("hunter2", type=code)
+    activity = ActivityError(
+        "activity failed",
+        scheduled_event_id=1,
+        started_event_id=2,
+        identity="worker",
+        activity_type="harborrag.discover_source_items",
+        activity_id="1",
+        retry_state=None,
+    )
+    activity.__cause__ = application
+    failure = WorkflowFailureError(cause=activity)
+    failure.__cause__ = activity
+    return failure
+
+
+@pytest.mark.asyncio
+async def test_result_translates_workflow_failure_to_error_code() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.result.side_effect = _workflow_failure("parser_rejected_document")
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError) as raised:
+        await client.result("task-1")
+
+    message = str(raised.value)
+    assert "parser_rejected_document" in message
+    assert "task-1" in message
+    assert "hunter2" not in message
+
+
+@pytest.mark.asyncio
+async def test_result_names_unconfigured_worker_connector() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.result.side_effect = _workflow_failure("discoversourceitems_keyerror")
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError) as raised:
+        await client.result("task-1")
+
+    message = str(raised.value)
+    assert "not configured on the worker" in message
+    assert "config/connectors.yaml" in message
+    assert "hunter2" not in message
+
+
+@pytest.mark.asyncio
+async def test_reindex_result_translates_workflow_failure() -> None:
+    sdk = _SdkClient()
+    sdk.reindex_handle.result.side_effect = _workflow_failure("boom")
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError) as raised:
+        await client.reindex_result("reindex-1")
+
+    assert "boom" in str(raised.value)
+    assert "hunter2" not in str(raised.value)

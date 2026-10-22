@@ -104,6 +104,10 @@ async def test_revoke_by_owner_returns_only_the_keys_it_changed(sessions: Sessio
     await manager.create(_record("b" * 24, created_at=NOW - timedelta(minutes=1)))
     await manager.create(_record("c" * 24, revoked_at=NOW - timedelta(days=1)))
     await manager.create(_record("d" * 24, owner="user-other"))
+    # Expired keys are not "active": revoke-by-owner leaves them (and their audit) alone.
+    await manager.create(
+        _record("e" * 24, created_at=NOW - timedelta(days=3), expires_at=NOW - timedelta(days=1))
+    )
 
     revoked = await manager.revoke_by_owner(
         "engineering", "user-huy", at=NOW, by="op", reason="left team"
@@ -112,8 +116,8 @@ async def test_revoke_by_owner_returns_only_the_keys_it_changed(sessions: Sessio
     assert revoked == ["a" * 24, "b" * 24]
     listed = await manager.list_for_tenant("engineering")
     # Newest first; c and d share created_at, so key_id breaks the tie.
-    assert [r.key_id for r in listed] == ["c" * 24, "d" * 24, "b" * 24, "a" * 24]
-    assert {r.key_id for r in listed if r.revoked_at is None} == {"d" * 24}
+    assert [r.key_id for r in listed] == ["c" * 24, "d" * 24, "b" * 24, "a" * 24, "e" * 24]
+    assert {r.key_id for r in listed if r.revoked_at is None} == {"d" * 24, "e" * 24}
 
 
 @pytest.mark.asyncio

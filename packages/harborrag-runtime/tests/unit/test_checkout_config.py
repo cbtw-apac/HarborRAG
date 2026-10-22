@@ -9,6 +9,7 @@ import pytest
 from harborrag_runtime.config.checkout import (
     checkout_control_db_url,
     checkout_environment_name,
+    checkout_object_store_credentials,
     control_db_url_from_compose,
     missing_control_db_values,
     read_compose_env_file,
@@ -61,3 +62,21 @@ def test_checkout_helpers_return_none_without_the_files(tmp_path: Path) -> None:
 
     assert checkout_control_db_url(tmp_path) == "postgresql+asyncpg://o:p@localhost:5432/d"
     assert checkout_environment_name(tmp_path) == "prod"
+
+
+def test_object_store_credentials_take_only_the_minio_pair(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD='p w'\nPOSTGRES_PASSWORD=x\n")
+
+    assert checkout_object_store_credentials(path) == {
+        "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID": "u",
+        "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY": "p w",
+    }
+
+
+def test_object_store_credentials_are_empty_when_missing_or_partial(tmp_path: Path) -> None:
+    partial = tmp_path / "partial.env"
+    partial.write_text("MINIO_ROOT_USER=u\n")
+
+    assert checkout_object_store_credentials(tmp_path / "absent.env") == {}
+    assert checkout_object_store_credentials(partial) == {}

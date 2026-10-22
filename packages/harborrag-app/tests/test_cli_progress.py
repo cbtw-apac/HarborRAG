@@ -35,7 +35,7 @@ def test_status_payload_uses_the_temporal_headline() -> None:
     assert snapshot.failed_artifacts == ("a.pdf",)
 
 
-def test_task_payload_maps_public_names_to_run_vocabulary() -> None:
+def test_partial_task_maps_to_partial() -> None:
     snapshot = ProgressSnapshot.from_task_payload(
         {
             "task_id": "t1",
@@ -45,7 +45,7 @@ def test_task_payload_maps_public_names_to_run_vocabulary() -> None:
             "message": "done",
         }
     )
-    assert snapshot.status == "completed"
+    assert snapshot.status == "partial"
     assert snapshot.terminal is True
     assert snapshot.as_dict()["progress"]["failed"] == 1
 
@@ -62,6 +62,34 @@ def test_status_source_raises_when_the_service_fails() -> None:
     source = StatusSource(_Service([AppResponse(False, error="boom")]), "r1")
     with pytest.raises(ProgressUnavailable, match="boom"):
         asyncio.run(source.snapshot())
+
+
+def _control_plane_status(status: str, public: str) -> AppResponse:
+    return AppResponse(
+        True,
+        {
+            "status": {"run_id": "r1", "status": status},
+            "execution_status": "not_found",
+            "source": "control_plane",
+            "progress": {"processed": 1},
+            "task": {"task_id": "r1", "status": public, "progress": {"processed": 1}},
+        },
+    )
+
+
+def test_status_source_stops_on_an_unsubmitted_control_plane_run() -> None:
+    # A PENDING run Temporal never saw would otherwise be watched forever.
+    source = StatusSource(_Service([_control_plane_status("PENDING", "PENDING")]), "r1")
+    with pytest.raises(ProgressUnavailable, match="no workflow execution"):
+        asyncio.run(source.snapshot())
+
+
+def test_status_source_reports_a_finished_control_plane_run() -> None:
+    source = StatusSource(_Service([_control_plane_status("PARTIAL", "PARTIAL")]), "r1")
+    snapshot = asyncio.run(source.snapshot())
+    assert snapshot is not None
+    assert snapshot.status == "partial"
+    assert snapshot.terminal is True
 
 
 class _Reader:

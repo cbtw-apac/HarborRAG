@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 
 import pytest
+from doctor_test_support import unreachable
 
 from harborrag_app.cli.project import activate_project, find_project
 
@@ -134,6 +135,7 @@ def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
 
+    unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
 
     assert Path.cwd() == nested.resolve()

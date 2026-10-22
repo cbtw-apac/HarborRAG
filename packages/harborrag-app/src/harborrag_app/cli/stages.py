@@ -44,7 +44,7 @@ _STATE_PRESENTATION = {
 }
 
 _RUN_STATUSES = frozenset(
-    {"pending", "running", "paused", "cancelling", "cancelled", "completed", "failed"}
+    {"pending", "running", "paused", "cancelling", "cancelled", "completed", "failed", "partial"}
 )
 
 # Temporal execution statuses that settle a run, mapped onto the run vocabulary
@@ -68,7 +68,7 @@ def headline_status(workflow_status: str, execution_status: str) -> str:
     is the only one that distinguishes paused and cancelling from running.
     """
 
-    if workflow_status in {"cancelled", "completed", "failed"}:
+    if workflow_status in {"cancelled", "completed", "failed", "partial"}:
         return workflow_status
     terminal = _TERMINAL_EXECUTION_STATUSES.get(execution_status)
     if terminal is None or workflow_status == terminal:
@@ -138,7 +138,8 @@ def stage_views(
     processed = _count(progress.get("processed"))
     if status not in _RUN_STATUSES:
         states = ("unknown",) * len(_STAGES)
-    elif status == "completed":
+    elif status in {"completed", "partial"}:
+        # PARTIAL finished every stage; it is the per-document outcomes that fell short.
         states = ("complete",) * len(_STAGES)
     elif status == "failed":
         # The public status exposes failed artifacts, but not the stage where

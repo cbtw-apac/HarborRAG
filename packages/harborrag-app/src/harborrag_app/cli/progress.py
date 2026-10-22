@@ -9,7 +9,7 @@ inline renderer understands, so a new source only has to build a snapshot.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from harborrag_app.cli.rendering_values import mapping, sequence
@@ -17,13 +17,14 @@ from harborrag_app.cli.stages import headline_status
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_app.workflow_control.errors import IngestionNotFoundError
 
-TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled"})
+TERMINAL_STATUSES = frozenset({"completed", "failed", "cancelled", "partial"})
 # Public task names (presenters.STATUS_NAMES) -> the run vocabulary stages.py renders.
 _TASK_STATUSES = {
     "PENDING": "pending",
     "RUNNING": "running",
     "SUCCESS": "completed",
-    "PARTIAL": "completed",
+    "PARTIAL": "partial",
+    "PAUSED": "paused",
     "FAILED": "failed",
     "CANCELLED": "cancelled",
 }
@@ -37,6 +38,8 @@ class ProgressSnapshot:
     stage: str | None = None
     message: str | None = None
     failed_artifacts: tuple[str, ...] = ()
+    # "control_plane" when Temporal no longer knows the run and the task row speaks for it.
+    source: str | None = None
 
     @property
     def terminal(self) -> bool:
@@ -98,6 +101,20 @@ class StatusSource:
         response = await self._service.ingestion_status(self._run_id)
         if not response.ok:
             raise ProgressUnavailable(response.error or "Unable to load ingestion status.")
+        if response.data.get("execution_status") == "not_found":
+            # Temporal has no execution: only the control-plane record speaks for the
+            # run, and nothing will move a non-terminal one, so stop following it.
+            snapshot = replace(
+                ProgressSnapshot.from_task_payload(mapping(response.data.get("task"))),
+                source="control_plane",
+            )
+            if not snapshot.terminal:
+                raise ProgressUnavailable(
+                    f"Ingestion run {self._run_id!r} has no workflow execution; the control "
+                    f"plane records it as {snapshot.status}. Check again with: "
+                    f"harborrag ingest status {self._run_id}"
+                )
+            return snapshot
         return ProgressSnapshot.from_status_payload(response.data)
 
 
@@ -118,6 +135,10 @@ class TaskSource:
         except IngestionNotFoundError:
             # Registration happens inside the run; until then there is nothing to show.
             return None
+        except Exception as exc:
+            # The run executes in this process; a failed read must stop the display,
+            # never surface as the run's own error (the caller would cancel the run).
+            raise ProgressUnavailable(type(exc).__name__) from exc
         return ProgressSnapshot.from_task_payload(data)
 
 

@@ -42,7 +42,7 @@ def test_tracked_temporal_configuration_loads_all_runtime_sections() -> None:
     assert config.workflow_options().timeouts == config.timeouts
     assert config.workflow_execution_timeout_seconds == 2_592_000
     assert config.health_timeout_seconds == 5
-    assert config.ingestion.batch_size == 300
+    assert config.ingestion.batch_size == 200
     assert config.ingestion.document_concurrency == 8
 
 

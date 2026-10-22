@@ -222,10 +222,12 @@ class CliRenderer:
 
     def _error(self, response: AppResponse) -> None:
         error_type = response.data.get("error_type", "operation_failed")
-        body = Group(
-            Text(str(response.error or "The operation failed."), style="red"),
-            Text(f"Type: {error_type}", style="dim"),
-        )
+        lines = [Text(str(response.error or "The operation failed."), style="red")]
+        run_id = mapping(response.data.get("run")).get("run_id")
+        if error_type == "WorkflowSubmissionError" and run_id:
+            # The shared message stays transport-neutral; the CLI names its own command.
+            lines.append(Text(f"Check with: harborrag ingest status {run_id}"))
+        body = Group(*lines, Text(f"Type: {error_type}", style="dim"))
         self.error_console.print(
             Panel(body, title="[bold red]✗ HarborRAG error[/]", border_style="red")
         )

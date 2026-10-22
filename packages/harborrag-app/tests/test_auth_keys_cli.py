@@ -157,7 +157,7 @@ def test_list_delegates_and_shows_no_secret_material(monkeypatch):
 
 def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
     monkeypatch.setattr(auth_keys, "operator_identity", lambda: "op@host")
-    revoke = AsyncMock(side_effect=[True, False])
+    revoke = AsyncMock(side_effect=["revoked", "already_revoked"])
     monkeypatch.setattr(api_key_operations, "revoke_key", revoke)
 
     first = CliRunner().invoke(
@@ -177,7 +177,8 @@ def test_revoke_by_id_is_idempotent_and_by_owner_reports_ids(monkeypatch):
         ["auth", "keys", "revoke", "--tenant", "engineering", "--owner", "user-huy", "--reason", "left"],
     )  # fmt: skip
     assert result.exit_code == 0
-    assert json.loads(result.stdout)["data"]["revoked"] == ["a" * 24, "b" * 24]
+    # Same shape as the empty case: the revoked ids and how many active keys they were.
+    assert json.loads(result.stdout)["data"] == {"revoked": ["a" * 24, "b" * 24], "active_keys": 2}
     assert by_owner.call_args.kwargs["operator"] == "op@host"
 
 
@@ -363,3 +364,135 @@ def test_policy_violations_show_the_rule(tmp_path: Path, monkeypatch):
         "detail": "lifetime must not exceed 7 days in dev",
     }
     assert not (tmp_path / "k.key").exists()
+
+
+def test_constraint_rejection_is_explained_without_values(monkeypatch):
+    from sqlalchemy.exc import IntegrityError
+
+    from harborrag_runtime.security.api_key_operations import ApiKeyRejected
+
+    # The runtime wraps IntegrityError; the CLI must also survive a raw one.
+    monkeypatch.setattr(
+        api_key_operations,
+        "list_keys",
+        AsyncMock(side_effect=ApiKeyRejected()),
+    )
+    wrapped = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+    monkeypatch.setattr(
+        api_key_operations,
+        "list_keys",
+        AsyncMock(
+            side_effect=IntegrityError(
+                "INSERT ... hunter2", {"secret_hash": "hunter2"}, Exception("hunter2")
+            )
+        ),
+    )
+    raw = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    for result in (wrapped, raw):
+        assert result.exit_code == 1
+        payload = json.loads(result.stderr.strip().splitlines()[-1])
+        assert payload["error_code"] == "ConstraintRejected"
+        assert "--migrate" in payload["detail"]
+        assert "hunter2" not in result.output
+
+
+def test_unstamped_schema_is_reported_with_the_fix(monkeypatch):
+    from harborrag_runtime.security.api_key_operations import ApiKeySchemaUnstamped
+
+    monkeypatch.setattr(
+        api_key_operations,
+        "ensure_key_schema",
+        AsyncMock(side_effect=ApiKeySchemaUnstamped("sqlite:///x")),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-x", "--name", "k",
+         "--expires-in", "1d", "--migrate"],
+    )  # fmt: skip
+
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert result.exit_code == 1
+    assert payload["error_code"] == "SchemaUnstamped"
+    assert "no migration stamp" in payload["detail"] and "alembic" in payload["detail"]
+
+
+def test_schema_behind_head_is_reported_with_the_fix(monkeypatch):
+    from harborrag_runtime.security.api_key_operations import ApiKeySchemaBehind
+
+    monkeypatch.setattr(
+        api_key_operations,
+        "ensure_key_schema",
+        AsyncMock(side_effect=ApiKeySchemaBehind("sqlite:///x", "0039", "0040")),
+    )
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "create", "--tenant", "t", "--owner", "user-x", "--name", "k",
+         "--expires-in", "1d"],
+    )  # fmt: skip
+
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert result.exit_code == 1
+    assert payload["error_code"] == "SchemaBehind"
+    assert "0039" in payload["detail"] and "--migrate" in payload["detail"]
+
+
+def test_an_unavailable_key_store_is_named_without_its_cause(monkeypatch):
+    from harborrag_core.ports.api_keys import AuthStoreUnavailable
+
+    monkeypatch.setattr(
+        api_key_operations,
+        "list_keys",
+        AsyncMock(side_effect=AuthStoreUnavailable("MCP key store is unavailable")),
+    )
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert result.exit_code == 1
+    assert payload == {
+        "ok": False,
+        "error_code": "AuthStoreUnavailable",
+        "detail": "MCP key store is unavailable",
+    }
+
+
+def test_revoking_an_unknown_key_is_an_error(monkeypatch):
+    monkeypatch.setattr(api_key_operations, "revoke_key", AsyncMock(return_value="not_found"))
+
+    result = CliRunner().invoke(
+        app, ["auth", "keys", "revoke", "--key-id", "f" * 24, "--reason", "lost"]
+    )
+
+    assert result.exit_code == 1
+    assert json.loads(result.stderr.strip().splitlines()[-1])["error_code"] == "KeyNotFound"
+
+
+def test_revoke_by_owner_with_only_expired_keys_says_so(monkeypatch):
+    monkeypatch.setattr(api_key_operations, "revoke_owner", AsyncMock(return_value=[]))
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "keys", "revoke", "--tenant", "t", "--owner", "user-huy", "--reason", "left"],
+    )
+
+    assert result.exit_code == 0
+    data = json.loads(result.stdout)["data"]
+    assert data["revoked"] == [] and data["active_keys"] == 0
+    assert "already_revoked" not in data
+
+
+def test_settings_validation_detail_names_the_variable(monkeypatch):
+    # A real validation failure: names the variable, never the value.
+    monkeypatch.setenv("HARBORRAG_ENV", "staging")
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "sqlite+aiosqlite:///hunter2.db")
+
+    result = CliRunner().invoke(app, ["auth", "keys", "list", "--tenant", "t"])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stderr.strip().splitlines()[-1])
+    assert payload["error_code"] == "ValidationError"
+    assert "HARBORRAG_" in payload["detail"]
+    assert "hunter2" not in result.output

@@ -9,8 +9,17 @@ from uuid import uuid4
 
 from pydantic_core import to_jsonable_python
 
+from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.errors import (
+    RuntimeConnectionError,
+    WorkflowNotFoundError,
+    WorkflowRunAlreadyStartedError,
+    WorkflowSubmissionError,
+)
 from harborrag_runtime.ingestion_contracts import (
+    IngestionExecutionReference,
     IngestionGateway,
     PreparedSourceSubmission,
     SourceSubmission,
@@ -19,6 +28,7 @@ from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import failure_response
 from ..schemas import AppResponse
+from .presenters import TERMINAL_STATES, task_response
 from .service import record_control_action
 
 if TYPE_CHECKING:
@@ -114,11 +124,14 @@ class DurableIngestionOperations:
                     document_concurrency=document_concurrency,
                 ),
             )
-            await (await self._source_task_registry()).register(request)
-            client = await self._runtime_client()
-            reference = await client.start_ingestion(request)
+            registry = await self._source_task_registry()
+            registration = await registry.register(request)
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             return failure_response(logger, exc, "start ingestion run %r", run_id)
+        submitted = await self._submit(registry, registration.task, request)
+        if isinstance(submitted, AppResponse):
+            return submitted
+        client, reference = submitted
         logger.info(
             "Started ingestion run %r for tenant %r using connector %r as workflow %r",
             run_id,
@@ -147,6 +160,84 @@ class DurableIngestionOperations:
             return AppResponse(False, {**data, **failure.data}, failure.error)
         return AppResponse(True, data)
 
+    async def _submit(
+        self,
+        registry: TaskRegistry,
+        task: IngestionTask,
+        request: PreparedSourceSubmission,
+    ) -> tuple[IngestionGateway, IngestionExecutionReference] | AppResponse:
+        """Start a registered run, or answer why it did not start and where it stands."""
+
+        run_id = task.task_id
+        if task.status in TERMINAL_STATES:
+            # A finished run cannot start again; Temporal would accept the ID and run
+            # a workflow whose first task transition the control plane then refuses.
+            return failure_response(
+                logger,
+                WorkflowRunAlreadyStartedError(
+                    f"run id {run_id!r} already used ({task.status.value})"
+                ),
+                "start ingestion run %r",
+                run_id,
+            )
+        status = task.status.value
+        try:
+            client = await self._runtime_client()
+        except Exception as exc:  # noqa: BLE001 - stable error envelope
+            failure = failure_response(logger, exc, "connect to start ingestion run %r", run_id)
+            if isinstance(exc, RuntimeConnectionError):
+                # Nothing was submitted, so an unsubmitted run can never start on its
+                # own; left PENDING it would look queued forever and later start
+                # unasked. The store decides atomically, because ``task`` is a
+                # snapshot: the outbox may have started the run since, or an earlier
+                # start may already have been confirmed.
+                current = await self._fail_unsubmitted(registry, run_id)
+                if current is not None:
+                    status = current.value
+            return _run_failure(run_id, status, failure)
+        try:
+            reference = await client.start_ingestion(request)
+        except WorkflowRunAlreadyStartedError as exc:
+            return failure_response(logger, exc, "start ingestion run %r", run_id)
+        except Exception as exc:  # noqa: BLE001 - stable error envelope
+            failure = failure_response(logger, exc, "start ingestion run %r", run_id)
+            if isinstance(exc, WorkflowSubmissionError):
+                # The request may have reached Temporal before the call failed, so the
+                # run stays PENDING for the outbox and the operator learns how to check.
+                # Shared with HTTP, so no CLI command here; the CLI renderer adds one.
+                reason = str(failure.error or type(exc).__name__).rstrip(".")
+                failure = AppResponse(
+                    False,
+                    failure.data,
+                    f"{reason}. The run may still start; check its status with run id {run_id}",
+                )
+            return _run_failure(run_id, status, failure)
+        try:
+            await registry.update_summary(run_id, {"submission_state": "submitted"})
+        except Exception:  # noqa: BLE001 - the run started; the outbox re-submit is harmless
+            logger.warning(
+                "Could not record the submission of ingestion run %r", run_id, exc_info=True
+            )
+        return client, reference
+
+    @staticmethod
+    async def _fail_unsubmitted(registry: TaskRegistry, run_id: str) -> IngestionTaskState | None:
+        """Fail a still-unsubmitted run; the connect error stays the one reported.
+
+        Returns the run's status afterwards, or None when it could not be read.
+        """
+
+        try:
+            return await registry.fail_if_unsubmitted(
+                run_id,
+                summary={"failed_stage": "submission", "error_code": "submission_failed"},
+            )
+        except Exception:  # noqa: BLE001 - best effort; the outbox can still submit it
+            logger.warning(
+                "Could not mark unsubmitted ingestion run %r failed", run_id, exc_info=True
+            )
+            return None
+
     async def ingestion_status(self, run_id: str) -> AppResponse:
         try:
             client = await self._runtime_client()
@@ -174,8 +265,46 @@ class DurableIngestionOperations:
                     },
                 },
             )
+        except WorkflowNotFoundError as exc:
+            fallback = await self._control_plane_status(run_id)
+            if fallback is not None:
+                return AppResponse(True, fallback)
+            return failure_response(logger, exc, "read status for ingestion run %r", run_id)
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             return failure_response(logger, exc, "read status for ingestion run %r", run_id)
+
+    async def _control_plane_status(self, run_id: str) -> dict[str, object] | None:
+        """The recorded state of a run Temporal does not know, e.g. one never submitted.
+
+        Shaped like the Temporal status envelope so status renderers keep working;
+        ``execution_status`` says there is no execution behind it.
+        """
+
+        try:
+            registry = await self._source_task_registry()
+            task = await registry.get(run_id)
+            if task is None:
+                return None
+            payload = task_response(task, await registry.progress(run_id))
+        except Exception:  # noqa: BLE001 - fall back to the original not-found answer
+            logger.warning(
+                "Could not read the control-plane record of ingestion run %r",
+                run_id,
+                exc_info=True,
+            )
+            return None
+        return {
+            "status": {
+                "run_id": task.task_id,
+                "status": task.status.value,
+                "paused": task.status is IngestionTaskState.PAUSED,
+                "cancel_requested": False,
+            },
+            "execution_status": "not_found",
+            "source": "control_plane",
+            "progress": payload["progress"],
+            "task": payload,
+        }
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
         try:
@@ -195,9 +324,18 @@ class DurableIngestionOperations:
                 await client.cancel(run_id)
             else:
                 raise ValueError(f"unsupported ingestion action: {action!r}")
-            await record_control_action(
-                await self._source_task_registry(), run_id, action=action, actor=_operator()
-            )
+            try:
+                await record_control_action(
+                    await self._source_task_registry(), run_id, action=action, actor=_operator()
+                )
+            except HarborNotFoundError:
+                # The event trail is audit only; a run with no local control-plane
+                # row (another database, or a purged task) still took the action.
+                logger.warning(
+                    "Recorded no %r event for ingestion run %r: no local task row",
+                    action,
+                    run_id,
+                )
             logger.info("Applied %r to ingestion run %r", action, run_id)
             return AppResponse(True, {"run_id": run_id, "action": action})
         except Exception as exc:  # noqa: BLE001 - stable error envelope
@@ -208,3 +346,13 @@ class DurableIngestionOperations:
                 action,
                 run_id,
             )
+
+
+def _run_failure(run_id: str, status: str, failure: AppResponse) -> AppResponse:
+    """A start failure that still names the run and the state it was left in."""
+
+    return AppResponse(
+        False,
+        {"run": {"run_id": run_id, "status": status}, **failure.data},
+        failure.error,
+    )

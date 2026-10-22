@@ -18,6 +18,7 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from ..document.models import DocumentReleaseOutcome
 from ..document.service import DocumentReleaseService
+from ..failure_classification import ingestion_failure_classifier
 from .models import PlannedDocumentRelease
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")
@@ -44,10 +45,23 @@ class SourceDocumentService:
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
+            stage = getattr(error, "harborrag_stage", None)
+            if not isinstance(stage, str) or not stage:
+                stage = "FetchAndCaptureRaw"
+            code = ingestion_failure_classifier().classify(stage, error).code
+            logger.warning(
+                "Document release failed task_id=%s document=%s stage=%s code=%s",
+                task_id,
+                planned.document_id,
+                stage,
+                code,
+                exc_info=error if logger.isEnabledFor(logging.DEBUG) else None,
+            )
             await self.record_failed_document(
                 task_id,
                 planned,
-                error_type=type(error).__name__,
+                error_type=code,
+                failed_stage=stage,
             )
             return DocumentIngestionOutcome.FAILED
 

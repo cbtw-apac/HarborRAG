@@ -98,6 +98,12 @@ class IngestionTaskRegistry:
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
         return await self._control.tasks.pending_submissions(limit=limit)
 
+    async def claim_submission(self, task_id: str) -> str | None:
+        return await self._control.tasks.claim_submission(task_id)
+
+    async def release_submission_claim(self, task_id: str, token: str) -> bool:
+        return await self._control.tasks.release_submission_claim(task_id, token)
+
     async def list_tasks(
         self,
         *,
@@ -147,6 +153,14 @@ class IngestionTaskRegistry:
         values: Mapping[str, object],
     ) -> None:
         await self._control.tasks.update_summary(task_id, values)
+
+    async def fail_if_unsubmitted(
+        self,
+        task_id: str,
+        *,
+        summary: Mapping[str, object],
+    ) -> IngestionTaskState | None:
+        return await self._control.tasks.fail_if_unsubmitted(task_id, summary=summary)
 
     async def progress(self, task_id: str) -> dict[str, int]:
         return await self._control.tasks.progress(task_id)

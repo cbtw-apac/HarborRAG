@@ -44,7 +44,10 @@ from harborrag_runtime.composition.resources import (
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
+    check_embedding_dimensions,
     embedding_dimensions,
+    resource_hints,
+    resource_targets,
 )
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
@@ -238,6 +241,8 @@ class IngestionRuntimeBuilder:
             embed_client=embed_client,
             connector_rate_limiter=rate_limiter,
             telemetry=telemetry,
+            resource_targets=resource_targets(settings),
+            resource_hints=resource_hints(settings),
         )
 
     def build_document_normalizer(self) -> BaseDocumentNormalizer:
@@ -318,7 +323,11 @@ class IngestionRuntimeBuilder:
         settings = self._settings
         config = HarborEmbedClientConfig.from_file(settings.model_config_path)
         model = settings.embedding_model or config.default_model
-        dimensions = settings.embedding_dimensions or embedding_dimensions(config, model)
+        if settings.embedding_dimensions:
+            dimensions = settings.embedding_dimensions
+            check_embedding_dimensions(config, model, dimensions)
+        else:
+            dimensions = embedding_dimensions(config, model)
         client = HarborEmbedClient.from_config(
             config,
             telemetry=build_model_telemetry(

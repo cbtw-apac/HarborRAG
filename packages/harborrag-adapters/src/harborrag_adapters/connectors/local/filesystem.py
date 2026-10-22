@@ -288,10 +288,14 @@ class LocalFileSystem:
         if not candidate.is_absolute():
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
-            raise DocumentProcessingError(f"Local symlinks are disabled for source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local symlinks are disabled for source scope {self.root_path}: {value}"
+            )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
-            raise DocumentProcessingError(f"Local path is outside configured source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope {self.root_path}: {value}"
+            )
         return resolved
 
     def within_source_scope(self, path: Path) -> bool:

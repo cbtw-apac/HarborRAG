@@ -299,3 +299,60 @@ def test_neutral_preparation_uses_injected_defaults_without_reading_temporal_con
     assert source.batch_size == 12
     assert source.document_concurrency == 3
     assert not hasattr(source, "workflow_options")
+
+
+def _local_settings(tmp_path: Path) -> RuntimeSettings:
+    source = tmp_path / "docs"
+    source.mkdir()
+    connectors = tmp_path / "local-connectors.yaml"
+    connectors.write_text(
+        f"""
+version: 1
+connectors:
+  files:
+    provider: local
+    enabled: true
+    settings:
+      source_path: {source}
+""".strip(),
+        encoding="utf-8",
+    )
+    parsers = tmp_path / "parsers.yaml"
+    parsers.write_text("version: 1\n", encoding="utf-8")
+    return RuntimeSettings(connector_config_path=connectors, parser_config_path=parsers)
+
+
+def test_unknown_local_filter_keys_are_rejected(tmp_path: Path) -> None:
+    settings = _local_settings(tmp_path)
+
+    with pytest.raises(ConnectorConfigurationError) as raised:
+        prepare_source_submission(
+            settings,
+            _submission(
+                connector_name="files",
+                query=SourceQuery(filters_json='{"bogus": 1}'),
+            ),
+            environment={},
+        )
+
+    message = str(raised.value)
+    assert "bogus" in message
+    assert "allowed_extensions" in message
+    assert "include_globs" in message
+
+
+def test_known_local_filter_keys_are_accepted(tmp_path: Path) -> None:
+    settings = _local_settings(tmp_path)
+
+    prepared = prepare_source_submission(
+        settings,
+        _submission(
+            connector_name="files",
+            query=SourceQuery(
+                filters_json='{"extensions": [".md"], "include_comments": false, "files": []}'
+            ),
+        ),
+        environment={},
+    )
+
+    assert prepared.connector_type == "local"

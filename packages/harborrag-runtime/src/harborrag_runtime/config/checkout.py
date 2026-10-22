@@ -36,6 +36,26 @@ def read_compose_env_file(path: Path) -> dict[str, str]:
     return values
 
 
+def checkout_object_store_credentials(path: Path) -> dict[str, str]:
+    """Only the MinIO root pair, mapped to the object-store settings a host CLI reads.
+
+    The rest of ``env/.env.database`` (Postgres passwords above all) stays unread: the
+    control database remains whatever ``HARBORRAG_CONTROL_DB_URL`` says. A missing file,
+    or one without both values, yields ``{}``.
+    """
+
+    if not path.is_file():
+        return {}
+    values = read_compose_env_file(path)
+    user, password = values.get("MINIO_ROOT_USER"), values.get("MINIO_ROOT_PASSWORD")
+    if not user or not password:
+        return {}
+    return {
+        "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID": user,
+        "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY": password,
+    }
+
+
 def missing_control_db_values(
     values: Mapping[str, str], *, user_name: str = OWNER_USER, password_name: str = OWNER_PASSWORD
 ) -> list[str]:

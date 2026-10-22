@@ -1,10 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.repositories.database.ingestion_control.task_lifecycle import (
+    SUBMISSION_CLAIM_STALE_AFTER,
+)
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     CleanupJobState,
@@ -360,3 +365,299 @@ async def test_pending_cleanup_selection_is_scope_isolated(tmp_path: Path) -> No
                 source_scope_id="scope-a",
                 document_ids=(str(cleanup_by_scope["scope-b"].document_id),),
             )
+
+
+@pytest.mark.asyncio
+async def test_pending_submissions_skip_executor_and_submitted(tmp_path: Path) -> None:
+    # Only a durable row whose Temporal start is unconfirmed belongs to the outbox:
+    # inline (executor) rows run in-process and submitted rows already started.
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        markers: tuple[tuple[str, dict[str, object]], ...] = (
+            ("task-unmarked", {}),
+            ("task-submitted", {"submission_state": "submitted"}),
+            ("task-executor", {"submission_state": "executor"}),
+        )
+        for task_id, summary in markers:
+            await control_plane.tasks.create(
+                IngestionTask(
+                    task_id=task_id,
+                    source_scope_id="scope-engineering",
+                    status=IngestionTaskState.PENDING,
+                    request={"connector": "confluence", "task": task_id},
+                    summary=summary,
+                )
+            )
+
+        pending = await control_plane.tasks.pending_submissions()
+
+        assert [task.task_id for task in pending] == ["task-unmarked"]
+
+
+@pytest.mark.asyncio
+async def test_fail_if_unsubmitted_only_fails_unsubmitted_pending_tasks(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    failure = {"failed_stage": "submission", "error_code": "submission_failed"}
+    async with control_plane:
+        markers: tuple[tuple[str, dict[str, object]], ...] = (
+            ("task-unsubmitted", {}),
+            ("task-submitted", {"submission_state": "submitted"}),
+            ("task-executor", {"submission_state": "executor"}),
+            ("task-running", {}),
+        )
+        for task_id, summary in markers:
+            await control_plane.tasks.create(
+                IngestionTask(
+                    task_id=task_id,
+                    source_scope_id="scope-engineering",
+                    status=IngestionTaskState.PENDING,
+                    request={"connector": "confluence", "task": task_id},
+                    summary=summary,
+                )
+            )
+        await control_plane.tasks.transition("task-running", IngestionTaskState.RUNNING)
+        await control_plane.tasks.update_summary("task-running", {"stage": "DISCOVERING"})
+
+        outcomes = {
+            task_id: await control_plane.tasks.fail_if_unsubmitted(task_id, summary=failure)
+            for task_id, _ in markers
+        }
+        missing = await control_plane.tasks.fail_if_unsubmitted("task-missing", summary=failure)
+
+        assert outcomes == {
+            "task-unsubmitted": IngestionTaskState.FAILED,
+            "task-submitted": IngestionTaskState.PENDING,
+            "task-executor": IngestionTaskState.PENDING,
+            "task-running": IngestionTaskState.RUNNING,
+        }
+        assert missing is None
+        failed = await control_plane.tasks.get("task-unsubmitted")
+        assert failed is not None
+        assert failed.summary == failure
+        assert failed.completed_at is not None
+        running = await control_plane.tasks.get("task-running")
+        assert running is not None
+        assert running.summary == {"stage": "DISCOVERING"}
+        submitted = await control_plane.tasks.get("task-submitted")
+        assert submitted is not None
+        assert submitted.summary == {"submission_state": "submitted"}
+
+
+async def _pending(control_plane, task_id: str, summary: dict[str, object]) -> None:
+    await control_plane.tasks.create(
+        IngestionTask(
+            task_id=task_id,
+            source_scope_id="scope-engineering",
+            status=IngestionTaskState.PENDING,
+            request={"connector": "confluence", "task": task_id},
+            summary=summary,
+        )
+    )
+
+
+def _claimed_at(age: timedelta) -> str:
+    return (datetime.now(UTC) - age).isoformat(timespec="microseconds")
+
+
+@pytest.mark.asyncio
+async def test_a_claimed_submission_is_not_failed_by_fail_if_unsubmitted(
+    tmp_path: Path,
+) -> None:
+    # Recovery claims the row before it starts the workflow, so a connect failure on
+    # the original submit path can no longer fail a run that is about to start.
+    control_plane = make_control_plane(tmp_path)
+    failure = {"failed_stage": "submission", "error_code": "submission_failed"}
+    async with control_plane:
+        await _pending(control_plane, "task-a", {})
+
+        assert await control_plane.tasks.claim_submission("task-a") is not None
+        outcome = await control_plane.tasks.fail_if_unsubmitted("task-a", summary=failure)
+
+        assert outcome is IngestionTaskState.PENDING
+        claimed = await control_plane.tasks.get("task-a")
+        assert claimed is not None
+        assert claimed.status is IngestionTaskState.PENDING
+        assert claimed.summary["submission_state"] == "submitting"
+        claimed_at = datetime.fromisoformat(str(claimed.summary["submission_claimed_at"]))
+        assert claimed_at.tzinfo is not None
+
+
+@pytest.mark.asyncio
+async def test_claim_submission_is_exclusive_until_the_claim_goes_stale(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        await _pending(control_plane, "task-fresh", {})
+        await _pending(
+            control_plane,
+            "task-stale",
+            {
+                "submission_state": "submitting",
+                "submission_claimed_at": _claimed_at(
+                    SUBMISSION_CLAIM_STALE_AFTER + timedelta(minutes=1)
+                ),
+            },
+        )
+        await _pending(control_plane, "task-submitted", {"submission_state": "submitted"})
+        await _pending(control_plane, "task-executor", {"submission_state": "executor"})
+        await _pending(control_plane, "task-running", {})
+        await control_plane.tasks.transition("task-running", IngestionTaskState.RUNNING)
+
+        token = await control_plane.tasks.claim_submission("task-fresh")
+        assert isinstance(token, str)
+        claimed = await control_plane.tasks.get("task-fresh")
+        assert claimed is not None and claimed.summary["submission_claimed_at"] == token
+        assert await control_plane.tasks.claim_submission("task-fresh") is None
+        assert await control_plane.tasks.claim_submission("task-stale") is not None
+        assert await control_plane.tasks.claim_submission("task-submitted") is None
+        assert await control_plane.tasks.claim_submission("task-executor") is None
+        assert await control_plane.tasks.claim_submission("task-running") is None
+        assert await control_plane.tasks.claim_submission("task-missing") is None
+
+
+@pytest.mark.asyncio
+async def test_pending_submissions_skip_fresh_claims_but_return_stale_ones(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        await _pending(control_plane, "task-unclaimed", {})
+        await _pending(
+            control_plane,
+            "task-fresh",
+            {
+                "submission_state": "submitting",
+                "submission_claimed_at": _claimed_at(timedelta(seconds=5)),
+            },
+        )
+        await _pending(
+            control_plane,
+            "task-stale",
+            {
+                "submission_state": "submitting",
+                "submission_claimed_at": _claimed_at(
+                    SUBMISSION_CLAIM_STALE_AFTER + timedelta(seconds=1)
+                ),
+            },
+        )
+        # A claim without a timestamp cannot age out by comparison; treat it as stale
+        # rather than stranding the task.
+        await _pending(control_plane, "task-undated", {"submission_state": "submitting"})
+
+        pending = await control_plane.tasks.pending_submissions()
+
+        assert sorted(task.task_id for task in pending) == [
+            "task-stale",
+            "task-unclaimed",
+            "task-undated",
+        ]
+
+
+@pytest.mark.asyncio
+async def test_releasing_a_claim_only_clears_an_unconfirmed_claim(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        await _pending(control_plane, "task-a", {"discovered": 0})
+        await _pending(control_plane, "task-b", {"submission_state": "submitted"})
+
+        token = await control_plane.tasks.claim_submission("task-a")
+        assert token is not None
+        # Only the claim's owner may release it: a stale token is someone else's.
+        assert await control_plane.tasks.release_submission_claim("task-a", "stale") is False
+        assert await control_plane.tasks.release_submission_claim("task-a", token) is True
+        # The other submit path may have confirmed the start meanwhile; keep that.
+        assert await control_plane.tasks.release_submission_claim("task-b", token) is False
+        assert await control_plane.tasks.release_submission_claim("task-missing", token) is False
+
+        released = await control_plane.tasks.get("task-a")
+        confirmed = await control_plane.tasks.get("task-b")
+        assert released is not None and confirmed is not None
+        assert released.summary == {"discovered": 0}
+        assert confirmed.summary == {"submission_state": "submitted"}
+        assert [task.task_id for task in await control_plane.tasks.pending_submissions()] == [
+            "task-a"
+        ]
+
+
+def _commit_before_the_update(control_plane, database: Path, task_id: str, summary: dict):
+    """Commit ``summary`` from another connection just before the next task UPDATE.
+
+    That is the window between a read and its write: a decision taken on the read
+    must not survive the concurrent change. sqlite ignores FOR UPDATE, so only the
+    UPDATE's own predicate can notice it.
+    """
+
+    import json
+    import sqlite3
+
+    from sqlalchemy import event
+
+    engine = control_plane._client.raw.sync_engine
+    fired: list[str] = []
+
+    def before_cursor_execute(*event_args: object) -> None:
+        # (conn, cursor, statement, parameters, context, executemany)
+        statement = str(event_args[2])
+        if fired or not statement.lstrip().upper().startswith("UPDATE INGESTION_TASKS"):
+            return
+        fired.append(statement)
+        # ``with connection`` only commits; ``closing`` also releases the handle.
+        with closing(sqlite3.connect(database)) as other, other:
+            other.execute(
+                "UPDATE ingestion_tasks SET summary = ? WHERE task_id = ?",
+                (json.dumps(summary), task_id),
+            )
+
+    event.listen(engine, "before_cursor_execute", before_cursor_execute)
+    return fired
+
+
+@pytest.mark.asyncio
+async def test_fail_if_unsubmitted_does_not_fail_a_row_claimed_after_its_read(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    failure = {"failed_stage": "submission", "error_code": "submission_failed"}
+    async with control_plane:
+        await _pending(control_plane, "task-a", {})
+        claim = {
+            "submission_state": "submitting",
+            "submission_claimed_at": _claimed_at(timedelta(seconds=0)),
+        }
+        fired = _commit_before_the_update(
+            control_plane, tmp_path / "control-plane.db", "task-a", claim
+        )
+
+        outcome = await control_plane.tasks.fail_if_unsubmitted("task-a", summary=failure)
+
+        assert fired
+        assert outcome is IngestionTaskState.PENDING
+        task = await control_plane.tasks.get("task-a")
+        assert task is not None
+        assert task.status is IngestionTaskState.PENDING
+        assert task.summary == claim
+
+
+@pytest.mark.asyncio
+async def test_claim_submission_loses_to_a_claim_committed_after_its_read(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        await _pending(control_plane, "task-a", {})
+        rival = {
+            "submission_state": "submitting",
+            "submission_claimed_at": _claimed_at(timedelta(seconds=0)),
+        }
+        fired = _commit_before_the_update(
+            control_plane, tmp_path / "control-plane.db", "task-a", rival
+        )
+
+        token = await control_plane.tasks.claim_submission("task-a")
+
+        assert fired
+        assert token is None
+        task = await control_plane.tasks.get("task-a")
+        assert task is not None
+        assert task.summary == rival
