@@ -22,14 +22,34 @@ from harborrag_core.storage import StorageFamily, StorageOperationContext
 
 _BUCKET = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$")
 _META_SUFFIX = ".harbor-meta.json"
+# Characters Windows rejects in path segments, plus ``%`` so encoding stays reversible.
+_WINDOWS_UNSAFE = re.compile(r'[<>:"|?*%\x00-\x1f]')
+_ESCAPE = re.compile(r"%([0-9A-F]{2})")
+
+
+def encode_key_segment(segment: str) -> str:
+    """Percent-encode characters Windows forbids in file and directory names."""
+    return _WINDOWS_UNSAFE.sub(lambda match: f"%{ord(match.group()):02X}", segment)
+
+
+def decode_key_segment(segment: str) -> str:
+    """Reverse ``encode_key_segment``."""
+    return _ESCAPE.sub(lambda match: chr(int(match.group(1), 16)), segment)
 
 
 class FilesystemAccessMixin:
-    """Authorize tenant paths and coordinate filesystem write locks."""
+    """Authorize tenant paths and coordinate filesystem write locks.
+
+    Object keys such as ``raw/sharepoint/document:<hash>/...`` contain ``:``,
+    which Windows forbids in names. On Windows each key segment is therefore
+    percent-encoded on disk; elsewhere segments map one-to-one so existing
+    stores keep their layout.
+    """
 
     _root: Path
     _namespace_prefix: str
     _instance_name: str
+    _encode_key_segments: bool = os.name == "nt"
 
     def _ensure_private_directory(self, path: Path) -> None:
         """Create and lock down directories beneath the configured root."""
@@ -110,6 +130,8 @@ class FilesystemAccessMixin:
         parts = key.replace("\\", "/").split("/")
         if any(part in {"", ".", ".."} for part in parts):
             raise ValueError("invalid object key")
+        if self._encode_key_segments:
+            parts = [encode_key_segment(part) for part in parts]
         tenant_root = self._tenant_root(bucket, context)
         target = tenant_root / Path(*parts)
         resolved_root = tenant_root.resolve()
@@ -142,6 +164,13 @@ class FilesystemAccessMixin:
             current /= part
             if current.is_symlink():
                 raise ValueError("filesystem object-store paths cannot contain symbolic links")
+
+    def _key_for_path(self, target: Path, tenant_root: Path) -> str:
+        """Return the object key stored at ``target`` under ``tenant_root``."""
+        parts = target.relative_to(tenant_root).parts
+        if self._encode_key_segments:
+            parts = tuple(decode_key_segment(part) for part in parts)
+        return "/".join(parts)
 
     @staticmethod
     def _meta_path(target: Path) -> Path:

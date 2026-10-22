@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 
+from harborrag_core.ingestion.task_query_contracts import (
+    StoredTaskDocumentResult,
+    TaskDocumentPage,
+)
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
 from harborrag_runtime.ingestion.source.models import (
@@ -16,6 +21,7 @@ from harborrag_runtime.ingestion.source.models import (
     RelationRepairProgress,
     SourceDispatchSummary,
 )
+from harborrag_runtime.ingestion.source.skips import discovery_skip_summary, run_skip_summary
 
 
 class _Recorder:
@@ -29,6 +35,9 @@ class _Recorder:
             return self.results.get(name)
 
         return call
+
+
+_NO_RESULTS = TaskDocumentPage(items=(), has_more=False)
 
 
 class _PageRepair:
@@ -63,7 +72,7 @@ def _paged_plan(*pages: tuple[str, ...]) -> PlannedDocuments:
 
 @pytest.mark.asyncio
 async def test_finalization_repairs_relations_page_by_page_and_sums_the_results() -> None:
-    tasks = _Recorder()
+    tasks = _Recorder(document_results_page=_NO_RESULTS)
     control = SimpleNamespace(
         tasks=tasks,
         source_scans=_Recorder(reconcile_removals=()),
@@ -106,7 +115,7 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
     # A retry must not repeat hours of repair: pages a prior attempt finished are
     # skipped, and their totals still count toward the outcome.
     control = SimpleNamespace(
-        tasks=_Recorder(),
+        tasks=_Recorder(document_results_page=_NO_RESULTS),
         source_scans=_Recorder(reconcile_removals=()),
         publisher=_Recorder(),
     )
@@ -140,6 +149,107 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
     )
 
 
+@pytest.mark.asyncio
+async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
+    # Discovery skips are already on the task; a document that failed while
+    # parsing is an extraction skip, and one that failed elsewhere is not.
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="ParseAndNormalize"),
+            _failed_result("doc-2", stage="FetchAndCaptureRaw"),
+        ),
+        has_more=False,
+    )
+    task = SimpleNamespace(
+        summary={
+            "skipped": 3,
+            "skipped_by_reason": {"NOT_IN_ALLOWLIST": 2, "EXCEEDS_SIZE_LIMIT": 1},
+            "discovery_skipped_by_reason": {"NOT_IN_ALLOWLIST": 2, "EXCEEDS_SIZE_LIMIT": 1},
+        }
+    )
+    tasks = _Recorder(get=task, document_results_page=failed)
+    control = SimpleNamespace(
+        tasks=tasks,
+        source_scans=_Recorder(reconcile_removals=()),
+        publisher=_Recorder(),
+    )
+    finalization = SourceFinalizationService(control=cast(Any, control))
+    request = SimpleNamespace(
+        task_id="task-1",
+        tenant_id="tenant-1",
+        missing_threshold=1,
+        query=SimpleNamespace(include_attachments=True, limit=None, updated_after=None),
+        processing=SimpleNamespace(graph_projection_version="graph-v2"),
+    )
+
+    await finalization.finish(
+        cast(Any, request),
+        scan_id="scan-1",
+        planned=_paged_plan(
+            ("a", "b", "c"),
+        ),
+        summary=SourceDispatchSummary(published=1, failed=2),
+    )
+
+    stored = cast(
+        dict[str, object],
+        next(kwargs["summary"] for name, _, kwargs in tasks.calls if name == "finalize"),
+    )
+    assert stored["skipped"] == 4
+    assert stored["skipped_by_reason"] == {
+        "EXCEEDS_SIZE_LIMIT": 1,
+        "EXTRACTION_FAILED": 1,
+        "NOT_IN_ALLOWLIST": 2,
+    }
+
+
+@pytest.mark.asyncio
+async def test_run_skip_summary_counts_item_load_skips_once() -> None:
+    failed = TaskDocumentPage(
+        items=(
+            _failed_result("doc-1", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
+            _failed_result("doc-2", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
+            _failed_result("doc-3", stage="ParseAndNormalize"),
+        ),
+        has_more=False,
+    )
+    task = SimpleNamespace(summary={"discovery_skipped_by_reason": {"DELETED": 1}})
+    control = SimpleNamespace(tasks=_Recorder(get=task, document_results_page=failed))
+
+    first = await run_skip_summary(cast(Any, control), "task-1")
+    # A retried finalization sees the same task summary and must not double count.
+    second = await run_skip_summary(cast(Any, control), "task-1")
+
+    assert first == second
+    assert first["skipped_by_reason"] == {
+        "ACCESS_DENIED": 2,
+        "DELETED": 1,
+        "EXTRACTION_FAILED": 1,
+    }
+
+
+def test_discovery_skip_summary_clears_counts_for_a_traversal_without_skips() -> None:
+    assert discovery_skip_summary(cast(Any, SimpleNamespace(skipped=()))) == {
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "discovery_skipped_by_reason": {},
+    }
+    assert discovery_skip_summary(cast(Any, SimpleNamespace())) is None
+
+
+def _failed_result(
+    document_id: str, *, stage: str, skip_reason: str | None = None
+) -> StoredTaskDocumentResult:
+    return StoredTaskDocumentResult(
+        task_id="task-1",
+        document_id=document_id,
+        document_version_id=None,
+        status="failed",
+        result={"failure_stage": stage, **({"skip_reason": skip_reason} if skip_reason else {})},
+        updated_at=datetime(2026, 1, 1, tzinfo=UTC),
+    )
+
+
 def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
     assert RelationRepairProgress.resume(
         {
@@ -164,7 +274,11 @@ async def test_partial_scan_skips_removal_reconciliation(
 ) -> None:
     scans = _Recorder(reconcile_removals=("gone",))
     publisher = _Recorder()
-    control = SimpleNamespace(tasks=_Recorder(), source_scans=scans, publisher=publisher)
+    control = SimpleNamespace(
+        tasks=_Recorder(document_results_page=_NO_RESULTS),
+        source_scans=scans,
+        publisher=publisher,
+    )
     finalization = SourceFinalizationService(
         control=cast(Any, control), relations=cast(Any, _PageRepair())
     )

@@ -208,6 +208,7 @@ class DocumentFailureInput:
     prepared: PreparedDocument | None
     failed_stage: str
     error_type: str
+    skip_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not self.failed_stage.strip() or not self.error_type.strip():
@@ -385,6 +386,7 @@ class RetryDocumentInput:
 class RetryDocumentFailureInput:
     document: RetryDocumentInput
     error_type: str
+    skip_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

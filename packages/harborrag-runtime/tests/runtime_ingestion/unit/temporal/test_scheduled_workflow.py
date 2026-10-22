@@ -108,10 +108,20 @@ async def _run(
                 await asyncio.sleep(0.05)
             await asyncio.sleep(0.2)
             await handle.cancel()
-        try:
-            return activities, await handle.result()
-        except WorkflowFailureError as error:
-            return activities, error
+            # Time skipping would jump past the 10s metric-activity timeout while a
+            # slow runner is still executing it, losing the "cancelled" outcome.
+            with environment.auto_time_skipping_disabled():
+                return await _outcome(activities, handle)
+        return await _outcome(activities, handle)
+
+
+async def _outcome(
+    activities: _Activities, handle: Any
+) -> tuple[_Activities, ScheduledSourceIngestionResult | BaseException]:
+    try:
+        return activities, await handle.result()
+    except WorkflowFailureError as error:
+        return activities, error
 
 
 @pytest.mark.asyncio
