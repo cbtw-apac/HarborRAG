@@ -49,7 +49,11 @@ class FakeStore:
     ) -> list[str]:
         revoked = []
         for key_id, record in self.records.items():
-            if (record.tenant_id, record.owner) == (tenant_id, owner) and record.revoked_at is None:
+            if (
+                (record.tenant_id, record.owner) == (tenant_id, owner)
+                and record.revoked_at is None
+                and record.expires_at > at  # like the SQL: an expired key is not active
+            ):
                 await self.revoke(key_id, at=at, by=by, reason=reason)
                 revoked.append(key_id)
         return revoked
@@ -181,6 +185,7 @@ async def test_create_stores_only_the_hash_and_returns_the_key_once(store, manag
     [
         ("prod", timedelta(days=91), "90 days"),
         ("dev", timedelta(days=8), "7 days"),
+        ("staging", timedelta(days=31), "30 days"),
         ("prod", timedelta(minutes=59), "at least 1 hour"),
     ],
 )

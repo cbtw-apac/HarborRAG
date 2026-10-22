@@ -11,12 +11,18 @@ from __future__ import annotations
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
 
 try:
     from alembic import command
     from alembic.config import Config
+    from alembic.runtime.migration import MigrationContext
+    from alembic.script import ScriptDirectory
 except ImportError as exc:  # pragma: no cover - exercised by the bare install check
     raise MissingOptionalDependencyError("alembic") from exc
 
@@ -32,6 +38,19 @@ def _build_config(dsn: str) -> Config:
     # boundary; reading the option in env.py restores the original DSN.
     config.set_main_option("sqlalchemy.url", dsn.replace("%", "%%"))
     return config
+
+
+def head_revision(dsn: str) -> str:
+    """The newest packaged revision; read from the scripts, no database needed."""
+    head = ScriptDirectory.from_config(_build_config(dsn)).get_current_head()
+    if head is None:  # pragma: no cover - the package always ships migrations
+        raise MissingOptionalDependencyError("alembic migrations")
+    return head
+
+
+def current_revision(sync_connection: Connection) -> str | None:
+    """The revision the connected database is stamped at; None when never migrated."""
+    return MigrationContext.configure(sync_connection).get_current_revision()
 
 
 def run_migrations(dsn: str) -> None:

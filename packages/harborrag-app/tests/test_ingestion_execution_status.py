@@ -73,3 +73,7 @@ def test_status_renderer_shows_both_views_and_headlines_the_truth() -> None:
     assert "Ingestion failed" in rendered
     assert "RUNNING" in rendered
     assert "FAILED" in rendered
+
+
+def test_headline_keeps_partial() -> None:
+    assert headline_status("partial", "completed") == "partial"

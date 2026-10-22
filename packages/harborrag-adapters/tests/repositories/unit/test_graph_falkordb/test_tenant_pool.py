@@ -59,7 +59,11 @@ async def test_read_connection_never_provisions_and_writer_is_separate():
     provisioner = AsyncMock()
     pool = TenantGraphClientPool(configuration(), provisioner=provisioner, factory=factory)
     await pool.connect()
-    assert not factory.created
+    # Only the throwaway startup probe exists; it is closed and never cached.
+    assert [(readonly, client.connected) for _, readonly, client in factory.created] == [
+        (False, False)
+    ]
+    factory.created.clear()
     reader = await pool.database_for(context())
     assert factory.created[0][1] is True
     provisioner.assert_not_called()
@@ -197,3 +201,63 @@ def test_factory_uses_separate_reader_credentials_without_writer_password_fallba
     assert reader._connection["password"] == "read-password"
     assert writer._connection["username"] == "indexer"
     assert writer._connection["password"] == "index-password"
+
+
+class _UnreachableFactory:
+    def __init__(self):
+        self.clients = []
+
+    def create(self, graph_name, *, readonly):
+        client = FakeFalkorDBClient()
+        client.connect = AsyncMock(side_effect=ConnectionError("down"))
+        client.close = AsyncMock()
+        self.clients.append(client)
+        return client
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_pings_once_under_tenant_isolation():
+    factory = _UnreachableFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+
+    with pytest.raises(ConnectionError, match="down"):
+        await pool.connect()
+
+    assert len(factory.clients) == 1
+    factory.clients[0].close.assert_awaited_once_with()
+    assert not pool._clients
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_keeps_the_connect_error_when_the_probe_close_fails(caplog):
+    factory = _UnreachableFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+    original = factory.create
+    factory.create = lambda graph_name, *, readonly: _failing_close(
+        original(graph_name, readonly=readonly)
+    )
+
+    with caplog.at_level("WARNING"), pytest.raises(ConnectionError, match="down"):
+        await pool.connect()
+
+    factory.clients[0].close.assert_awaited_once_with()
+    # Only the type is logged: the driver's text may carry connection details.
+    assert "OSError" in caplog.text and "u:hunter2" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_pool_connect_still_raises_a_close_failure_after_a_good_probe():
+    factory = FakeFactory()
+    pool = TenantGraphClientPool(configuration(), provisioner=AsyncMock(), factory=factory)
+    original = factory.create
+    factory.create = lambda graph_name, *, readonly: _failing_close(
+        original(graph_name, readonly=readonly)
+    )
+
+    with pytest.raises(OSError, match="u:hunter2"):
+        await pool.connect()
+
+
+def _failing_close(client):
+    client.close = AsyncMock(side_effect=OSError("close failed for u:hunter2"))
+    return client

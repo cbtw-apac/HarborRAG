@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 
 import pytest
+from doctor_test_support import unreachable
 from project_test_support import scaffold as _scaffold
 
 from harborrag_app.cli.project import (
@@ -97,6 +98,7 @@ def test_main_activates_the_enclosing_project_before_running(
 
     # A marker-only project has no catalogs, so doctor itself reports failures (exit 1);
     # this test only cares that the project was found and activated before it ran.
+    unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
 
     import json
@@ -236,6 +238,7 @@ def test_main_announces_activation_when_it_leaves_the_current_directory(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
+    unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
 
     assert f"using project {root.resolve()}" in capsys.readouterr().err
@@ -253,3 +256,126 @@ def test_help_does_not_activate_a_project(tmp_path: Path, monkeypatch, capsys) -
 
     assert Path.cwd() == (root / "sub").resolve()
     assert "using project" not in capsys.readouterr().err
+
+
+def test_unknown_command_is_reported_as_such(tmp_path: Path, monkeypatch, capsys) -> None:
+    from harborrag_app.cli import main as cli
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+
+    assert cli.main(["bogus"]) == 2
+
+    err = capsys.readouterr().err
+    assert "No such command" in err
+    assert "no project" not in err
+
+
+def test_root_help_describes_auth_keys(capsys) -> None:
+    from harborrag_app.cli import main as cli
+
+    assert cli.main(["--help"]) == 0
+
+    assert "auth keys" in " ".join(capsys.readouterr().out.split())
+
+
+def test_init_help_shows_default_once(capsys) -> None:
+    from harborrag_app.cli import main as cli
+
+    assert cli.main(["init", "--help"]) == 0
+
+    import re
+
+    text = " ".join(capsys.readouterr().out.split())
+    # `default: ./docs` (another option) is not the DIR default.
+    assert len(re.findall(r"default: \.(?![\w/])", text)) == 1
+
+
+@pytest.fixture
+def _pristine_harborrag_logger():
+    import logging
+
+    logger = logging.getLogger("harborrag")
+    saved = (list(logger.handlers), list(logger.filters), logger.level, logger.propagate)
+    logger.handlers = []
+    logger.filters = []
+    logger.setLevel(logging.NOTSET)
+    try:
+        yield logger
+    finally:
+        logger.handlers, logger.filters = saved[0], saved[1]
+        logger.setLevel(saved[2])
+        logger.propagate = saved[3]
+
+
+@pytest.mark.parametrize(("level", "expect_traceback"), [("WARNING", False), ("DEBUG", True)])
+def test_tracebacks_are_debug_only(
+    _pristine_harborrag_logger, level: str, expect_traceback: bool, monkeypatch
+) -> None:
+    import io
+    import logging
+
+    from harborrag_app.cli import main as cli
+    from harborrag_core.observability import process_logging
+
+    stream = io.StringIO()
+    monkeypatch.setattr(process_logging.sys, "stderr", stream)
+    logger = cli._configure_cli_logging(level)
+    assert cli._configure_cli_logging(level) is logger  # idempotent, no stacked filters
+    assert sum(len(handler.filters) for handler in logger.handlers) == 1
+
+    try:
+        raise RuntimeError("boom")
+    except RuntimeError:
+        logging.getLogger("harborrag.app.cli").warning("call failed", exc_info=True)
+
+    output = stream.getvalue()
+    assert "call failed" in output
+    assert ("Traceback" in output) is expect_traceback
+    assert ("set HARBORRAG_LOG_LEVEL=DEBUG for the traceback" in output) is not expect_traceback
+
+
+def test_quiet_tracebacks_do_not_strip_exc_info_from_other_handlers(
+    _pristine_harborrag_logger, monkeypatch, capsys
+) -> None:
+    """The quiet filter shortens only its own handler's output, never the shared record.
+
+    Another handler on the same logger (pytest's caplog, a second sink) must still see
+    ``exc_info`` after ``cli.main`` has configured logging in the process.
+    """
+
+    import io
+    import logging
+
+    from harborrag_app.cli import main as cli
+    from harborrag_core.observability import process_logging
+
+    stream = io.StringIO()
+    monkeypatch.setattr(process_logging.sys, "stderr", stream)
+    monkeypatch.setenv("HARBORRAG_LOG_LEVEL", "WARNING")
+    assert cli.main(["--help"]) == 0
+    capsys.readouterr()
+
+    seen: list[logging.LogRecord] = []
+
+    class Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            seen.append(record)
+
+    capture = Capture(level=logging.DEBUG)
+    # On the same logger, after the managed handler: the order that used to lose exc_info.
+    _pristine_harborrag_logger.addHandler(capture)
+    try:
+        try:
+            raise RuntimeError("boom")
+        except RuntimeError:
+            logging.getLogger("harborrag.mcp.tools").error("call failed", exc_info=True)
+    finally:
+        _pristine_harborrag_logger.removeHandler(capture)
+
+    assert len(seen) == 1
+    assert seen[0].exc_info is not None and seen[0].exc_info[0] is RuntimeError
+    assert seen[0].getMessage() == "call failed"
+    output = stream.getvalue()
+    assert "call failed" in output and "Traceback" not in output
+    assert "set HARBORRAG_LOG_LEVEL=DEBUG for the traceback" in output

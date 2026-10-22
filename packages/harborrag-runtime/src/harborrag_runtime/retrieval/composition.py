@@ -20,6 +20,7 @@ from ..composition.resources import (
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
+    check_embedding_dimensions,
     embedding_dimensions,
 )
 from ..config.graph_build import GraphBuildConfig
@@ -40,10 +41,11 @@ async def connect_retrieval_service(
     settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model
-    dimensions = settings.embedding_dimensions or embedding_dimensions(
-        embed_config,
-        model,
-    )
+    if settings.embedding_dimensions:
+        dimensions = settings.embedding_dimensions
+        check_embedding_dimensions(embed_config, model, dimensions)
+    else:
+        dimensions = embedding_dimensions(embed_config, model)
     contextual_profile = build_contextual_profile(settings, embed_config)
     telemetry = IngestionTelemetry(
         metrics_port=settings.metrics_port,

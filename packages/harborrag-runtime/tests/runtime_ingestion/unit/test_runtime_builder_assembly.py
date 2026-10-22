@@ -33,6 +33,14 @@ class _Sentinel:
 @dataclass
 class _FakeEmbedConfig:
     default_model: str = "embed-default"
+    expected_dimensions: int = 16
+
+    def model_for(self, name: str) -> tuple[str, SimpleNamespace]:
+        model = SimpleNamespace(
+            deployments=[SimpleNamespace(expected_dimensions=self.expected_dimensions)],
+            default_params=SimpleNamespace(dimensions=None),
+        )
+        return name, model
 
 
 class _FakeEmbedClient:
@@ -225,3 +233,127 @@ def test_connector_kwargs_map_registry_dependencies_to_runtime_objects() -> None
 def test_connector_kwargs_reject_a_provider_whose_dependencies_are_unavailable() -> None:
     with pytest.raises(ValueError, match=r"'jira' requires .*attachment_parser, rate_limiter"):
         IngestionRuntimeBuilder._connector_kwargs("jira", {})
+
+
+def test_resource_targets_never_render_credentials() -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings(
+        control_db_url=SecretStr("postgresql+asyncpg://app:hunter2@db.internal:5432/harbor"),
+        qdrant_url="http://u:hunter2@localhost:6333/prefix?api-key=hunter2",
+        qdrant_prefer_grpc=False,
+        object_store_endpoint_url="http://k:hunter2@localhost:9000",
+        object_store_provider="s3",
+    )
+
+    targets = resource_targets(settings)
+
+    assert targets["control"] == "postgresql db.internal:5432"
+    assert targets["vector"] == "Qdrant http://localhost:6333"
+    assert targets["object_store"] == "http://localhost:9000"
+    assert targets["graph"] == "FalkorDB localhost:6379"
+    assert all("hunter2" not in value for value in targets.values())
+    grpc = resource_targets(settings.model_copy(update={"qdrant_prefer_grpc": True}))
+    assert grpc["vector"] == "Qdrant gRPC localhost:6334"
+    sqlite = resource_targets(RuntimeSettings())
+    assert sqlite["control"] == "sqlite"
+
+
+def test_resource_hints_follow_the_configured_transport_and_provider() -> None:
+    from harborrag_runtime.composition.resources import resource_hints
+
+    grpc = resource_hints(RuntimeSettings(qdrant_prefer_grpc=True))
+    http = resource_hints(RuntimeSettings(qdrant_prefer_grpc=False))
+    s3 = resource_hints(RuntimeSettings(object_store_provider="s3"))
+    filesystem = resource_hints(RuntimeSettings(object_store_provider="filesystem"))
+
+    assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in grpc["vector"]
+    # Already on HTTP: telling the operator to switch to HTTP would be wrong.
+    assert "PREFER_GRPC" not in http["vector"]
+    assert "HARBORRAG_QDRANT_URL" in http["vector"]
+    assert "HARBORRAG_OBJECT_STORE_" in s3["object_store"] and "MinIO" in s3["object_store"]
+    assert "MinIO" not in filesystem["object_store"]
+    assert "HARBORRAG_OBJECT_STORE_ROOT" in filesystem["object_store"]
+    assert set(grpc) == {"control", "object_store", "vector", "graph"}
+
+
+@pytest.mark.parametrize(
+    ("url", "grpc", "expected"),
+    [
+        ("http://u:pa/ss@h:6333", False, "Qdrant (configured URL)"),
+        ("u:secret@h:6333", False, "Qdrant (configured URL)"),
+        ("u:secret@h:6333", True, "Qdrant (configured URL)"),
+        ("http://u:p@h:6333/?api_key=x", False, "Qdrant http://h:6333"),
+        *[
+            (leaky, grpc, "Qdrant (configured URL)")
+            for leaky in (
+                "http://u:12/ss@h:6333",
+                "http://u:12?x@h:6333",
+                "http://u:12#x@h:6333",
+                "http://tok:65535/rest@h",
+                "http://secret:0/x@h",
+            )
+            for grpc in (False, True)
+        ],
+        ("http://u:p@h:6333", False, "Qdrant http://h:6333"),
+        ("http://h:0", False, "Qdrant http://h:0"),
+        ("http://[::1]:6333", False, "Qdrant http://[::1]:6333"),
+        ("http://[::1]:6333", True, "Qdrant gRPC [::1]:6334"),
+    ],
+)
+def test_qdrant_target_never_renders_unparseable_userinfo(
+    url: str, grpc: bool, expected: str
+) -> None:
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        qdrant_url=url, qdrant_prefer_grpc=grpc, object_store_provider="memory"
+    )
+    vector = resource_targets(settings)["vector"]
+
+    assert vector == expected
+    for fragment in ("secret", "pa", "ss", "u:", "api_key", "12", "tok", "65535"):
+        assert fragment not in vector
+
+
+@pytest.mark.parametrize(
+    "dsn",
+    [
+        "postgresql+asyncpg://postgres:12/x@db:5432/h",
+        "postgresql+asyncpg://postgres:pa/ss@db:5432/h",
+        "postgresql+asyncpg://postgres:se#cret@db:5432/h",
+    ],
+)
+def test_control_target_hides_split_userinfo(dsn: str) -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        control_db_url=SecretStr(dsn),
+        qdrant_url="http://localhost:6333",
+        qdrant_prefer_grpc=True,
+        object_store_provider="memory",
+    )
+    control = resource_targets(settings)["control"]
+
+    assert control == "postgresql (configured URL)"
+    for fragment in ("postgres:", "12", "pa", "ss", "cret"):
+        assert fragment not in control.replace("postgresql", "")
+
+
+def test_control_target_renders_a_valid_dsn_host_and_port() -> None:
+    from pydantic import SecretStr
+
+    from harborrag_runtime.composition.resources import resource_targets
+
+    settings = RuntimeSettings.model_construct(
+        control_db_url=SecretStr("postgresql+asyncpg://postgres:p%2Fw@db:5432/h"),
+        qdrant_url="http://localhost:6333",
+        qdrant_prefer_grpc=True,
+        object_store_provider="memory",
+    )
+
+    assert resource_targets(settings)["control"] == "postgresql db:5432"

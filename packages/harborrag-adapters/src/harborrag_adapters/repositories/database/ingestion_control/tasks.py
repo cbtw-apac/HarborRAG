@@ -20,7 +20,12 @@ from harborrag_core.invariants import HarborInvariantError
 
 from .row_values import DatabaseRow, optional_datetime, required_mapping, required_text
 from .schema import INGESTION_TASKS
-from .task_lifecycle import TaskLifecycleMixin
+from .task_lifecycle import (
+    SUBMISSION_CLAIM_STALE_AFTER,
+    TaskLifecycleMixin,
+    awaiting_submission,
+    stale_submission_claim,
+)
 from .task_results import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
@@ -165,20 +170,26 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             return _task_from_row(row) if row is not None else None
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]:
-        """Return durable PENDING tasks whose Temporal start is not confirmed."""
+        """Return durable PENDING tasks whose Temporal start is not confirmed.
+
+        Rows marked ``submitted`` already started, and rows marked ``executor``
+        were created by an execution in progress (an inline run or a worker), so
+        neither is awaiting submission. A ``submitting`` claim is a recovery pass
+        mid-start and is skipped until it is older than
+        ``SUBMISSION_CLAIM_STALE_AFTER`` (or carries no timestamp), when its
+        claimer is presumed dead. The predicates are the ones the claim's
+        compare-and-set UPDATE uses, so both agree on what is claimable.
+        """
 
         if not 1 <= limit <= 1_000:
             raise ValueError("pending submission limit must be between 1 and 1000")
-        submission_state = INGESTION_TASKS.c.summary["submission_state"].as_string()
+        stale_before = utc_now() - SUBMISSION_CLAIM_STALE_AFTER
         async with self._client.sessions() as session:
             result = await session.execute(
                 select(INGESTION_TASKS)
                 .where(
                     INGESTION_TASKS.c.status == IngestionTaskState.PENDING.value,
-                    or_(
-                        submission_state.is_(None),
-                        submission_state != "submitted",
-                    ),
+                    or_(awaiting_submission(), stale_submission_claim(stale_before)),
                 )
                 .order_by(INGESTION_TASKS.c.submitted_at, INGESTION_TASKS.c.task_id)
                 .limit(limit)

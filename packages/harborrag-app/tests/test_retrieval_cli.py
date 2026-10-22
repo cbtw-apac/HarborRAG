@@ -11,6 +11,7 @@ from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.retrieval.presentation import retrieval_response
+from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
@@ -328,3 +329,46 @@ def test_unexpected_provider_error_message_is_not_public(monkeypatch, capsys) ->
     assert exit_code == 1
     assert payload["error"] == "RuntimeError"
     assert "private" not in str(payload)
+
+
+def test_configuration_error_message_reaches_the_cli_user(monkeypatch, capsys) -> None:
+    def fail_to_build():
+        raise HarborConfigurationError(
+            "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
+            "is not SQLite"
+        )
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", fail_to_build)
+
+    exit_code = cli.main(["retrieve", "query", "--tenant", "tenant-1", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 1
+    assert payload["data"]["error_type"] == "HarborConfigurationError"
+    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set" in payload["error"]
+
+
+def test_validation_error_message_omits_input_values(monkeypatch, capsys) -> None:
+    from pydantic import SecretStr, ValidationError
+
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    with pytest.raises(ValidationError) as caught:
+        RuntimeSettings(
+            control_db_url=SecretStr("postgresql+asyncpg://u:hunter2@db/x"),
+            corpus_access_mode="tenant_shared",
+            corpus_shared_tenant_id=None,
+        )
+    error = caught.value
+
+    def factory() -> None:
+        raise error
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    code = cli.main(["retrieve", "q", "--tenant", "t", "--json"])
+
+    out = capsys.readouterr().out
+    assert code == 1
+    assert "hunter2" not in out
+    assert "corpus_shared_tenant_id" in json.loads(out)["error"].lower()

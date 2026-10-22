@@ -98,9 +98,18 @@ class QdrantCollectionMixin:
             spec.sparse_idf,
         )
         if persisted_shape != requested_shape:
+            error_context = self._queries.error_context("ensure_index", spec.index_name)
+            # Both dimensions are plain integers, so callers may surface them to the
+            # operator; they are the usual reason a re-configured run cannot start.
+            error_context.metadata.update(
+                existing_dimension=persisted.dimension,
+                configured_dimension=spec.dimension,
+            )
             raise HarborStorageValidationError(
-                f"index {spec.index_name!r} already exists with another vector schema",
-                context=self._queries.error_context("ensure_index", spec.index_name),
+                f"index {spec.index_name!r} already exists with another vector schema "
+                f"(existing_dimension={persisted.dimension}, "
+                f"configured_dimension={spec.dimension})",
+                context=error_context,
             )
         info = await self._database.raw.get_collection(name)
         existing_indexes = getattr(info, "payload_schema", {}) or {}

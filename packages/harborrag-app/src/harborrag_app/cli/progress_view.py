@@ -127,6 +127,7 @@ class LiveProgress:
         self._clock = clock
         self._last_key: object = object()
         self._last_plain_at = float("-inf")
+        self.last: ProgressSnapshot | None = None
 
     async def follow(self, until: asyncio.Future[Any] | None = None) -> ProgressSnapshot | None:
         started = self._clock()
@@ -145,6 +146,7 @@ class LiveProgress:
         with context as live:
             while True:
                 snapshot = await self._source.snapshot()
+                self.last = snapshot
                 self._emit(snapshot, live, elapsed=self._clock() - started)
                 if snapshot is not None and snapshot.terminal:
                     return snapshot

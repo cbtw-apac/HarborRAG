@@ -98,6 +98,19 @@ def test_discover_rejects_paths_outside_source_scope(tmp_path: Path):
         list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
 
 
+def test_out_of_scope_path_names_the_root(tmp_path: Path):
+    source_root = tmp_path / "scope"
+    source_root.mkdir()
+    outside = write_file(tmp_path / "outside.md")
+    connector = LocalFileConnector(config(source_root))
+
+    with pytest.raises(DocumentProcessingError) as raised:
+        list(connector.discover(ConnectorQuery(filters={"file_paths": [str(outside)]})))
+
+    assert "outside configured source scope" in str(raised.value)
+    assert str(source_root.resolve()) in str(raised.value)
+
+
 def test_discover_rejects_direct_symlink_when_symlinks_disabled(tmp_path: Path, monkeypatch):
     target = write_file(tmp_path / "target.md")
     link = tmp_path / "link.md"

@@ -5,12 +5,14 @@ import threading
 
 import pytest
 from app_test_fixtures import MockAppService
+from doctor_test_support import unreachable
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control import AppResponse
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
@@ -76,8 +78,19 @@ class FakeTemporalClient:
 
 
 class FakeTaskRegistry:
-    async def register(self, source: SourceIngestionInput) -> None:
-        del source
+    async def register(self, source: SourceIngestionInput) -> TaskRegistration:
+        return TaskRegistration(
+            IngestionTask(
+                task_id=source.task_id,
+                source_scope_id=source.source_scope_id,
+                status=IngestionTaskState.PENDING,
+                request={"tenant_id": source.tenant_id},
+            ),
+            created=True,
+        )
+
+    async def update_summary(self, task_id: str, values: object) -> None:
+        del task_id, values
 
     async def append_task_event(self, task_id: str, event: object) -> object:
         return event
@@ -282,6 +295,7 @@ def test_ingest_start_refuses_to_run_against_an_unmigrated_control_plane(
     """Doing the work anyway defers the failure to an opaque missing-column error."""
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", DegradedControlPlaneService)
+    unreachable(monkeypatch)
 
     exit_code = cli.main(
         ["ingest", "start", "--tenant", "tenant-1", "--connector", "local-docs", "--json"]
@@ -332,3 +346,83 @@ def test_an_unreportable_health_check_does_not_block_the_command(monkeypatch, ca
     payload = json.loads(capsys.readouterr().out)
     assert exit_code == 0
     assert payload["ok"] is True
+
+
+def _checkout(tmp_path, monkeypatch) -> None:
+    (tmp_path / "config").mkdir()
+    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
+    # conftest's autouse fixture sets a per-test sqlite URL; the fallback means "unset".
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+
+
+def test_checkout_refuses_ingestion_on_the_sqlite_fallback(tmp_path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch)
+    built: list[int] = []
+
+    def factory() -> MockAppService:
+        built.append(1)
+        return MockAppService()
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    code = cli.main(["ingest", "start", "--connector", "workspace"])
+
+    err = capsys.readouterr().err
+    assert code == 1
+    assert "HARBORRAG_CONTROL_DB_URL" in err and "harborrag init" in err
+    assert built == []
+
+
+def test_checkout_guard_stays_quiet_when_the_control_db_is_set(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    _checkout(tmp_path, monkeypatch)
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", "postgresql+asyncpg://u@db.example/harbor")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["ingest", "start", "--connector", "workspace"])
+
+    assert "Refusing to ingest" not in capsys.readouterr().err
+
+
+def test_start_accepts_positional_connector(monkeypatch, capsys) -> None:
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(MockAppService())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    assert cli.main(["ingest", "start", "ws", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["data"]["run"]["connector_name"] == "ws"
+
+
+def test_start_positional_agreeing_with_option_is_accepted(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    assert cli.main(["ingest", "start", "ws", "--connector-id", "ws", "--json"]) == 0
+
+
+def test_start_rejects_conflicting_or_missing_connector(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    assert cli.main(["ingest", "start", "ws", "--connector-id", "other", "--json"]) == 2
+    assert cli.main(["ingest", "start", "--json"]) == 2
+
+
+def test_start_rejects_malformed_filters_before_building_a_service(monkeypatch, capsys) -> None:
+    instances: list[MockAppService] = []
+
+    def factory() -> MockAppService:
+        instances.append(MockAppService())
+        return instances[-1]
+
+    monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
+
+    assert cli.main(["ingest", "start", "ws", "--filters-json", "{oops"]) == 2
+
+    assert instances == []
+    assert "Traceback" not in capsys.readouterr().err

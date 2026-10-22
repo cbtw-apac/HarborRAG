@@ -6,6 +6,7 @@ import json
 import socket
 from pathlib import Path
 
+import pytest
 from app_test_fixtures import MockAppService
 from doctor_test_support import project, unreachable
 
@@ -70,6 +71,67 @@ def test_doctor_flags_a_blank_provider_key(tmp_path: Path, monkeypatch, capsys) 
     checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
     assert checks["models catalog"]["status"] == "fail"
     assert "OPENAI_API_KEY" in checks["models catalog"]["detail"]
+
+
+def test_doctor_ignores_variables_in_commented_out_model_config(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    models = tmp_path / "config" / "models.yaml"
+    models.write_text(
+        models.read_text(encoding="utf-8")
+        + "# memory:\n#   deployments:\n#     - api_key: ${HARBOR_MEMORY_API_KEY}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("HARBOR_MEMORY_API_KEY", raising=False)
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    assert checks["models catalog"]["status"] == "ok"
+
+
+def test_doctor_scans_model_config_the_way_the_model_loader_reads_it(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    # The model loader uses yaml.safe_load, which accepts a repeated key (last wins).
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    models = tmp_path / "config" / "models.yaml"
+    models.write_text(
+        models.read_text(encoding="utf-8") + "notes: first\nnotes: second\n",
+        encoding="utf-8",
+    )
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    assert checks["models catalog"]["status"] == "ok"
+
+
+def test_doctor_fails_the_connector_catalog_when_one_definition_is_invalid(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    connectors = tmp_path / "config" / "connectors.yaml"
+    connectors.write_text(
+        connectors.read_text(encoding="utf-8")
+        + "  broken:\n    provider: jira\n    settings:\n      not_a_field: 1\n",
+        encoding="utf-8",
+    )
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+    catalog = checks["connectors catalog"]
+    assert catalog["status"] == "fail"
+    assert "broken" in catalog["detail"]
+    assert "workspace" in catalog["detail"]
 
 
 def test_doctor_temporal_flag_runs_the_runtime_health_check(
@@ -241,6 +303,7 @@ def test_unrequested_temporal_stays_non_blocking(tmp_path: Path, monkeypatch, ca
     monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
     monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
     monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: None)
     monkeypatch.setenv("LOCAL_SOURCE_PATH", str(tmp_path / "docs"))
 
     assert cli.main(["doctor", "--json"]) == 0
@@ -300,3 +363,243 @@ def test_doctor_inside_an_unsafe_directory_fails_cleanly(
 
     captured = capsys.readouterr()
     assert "world-writable" in captured.err and "Traceback" not in captured.err
+
+
+def _reachable(monkeypatch) -> None:
+    monkeypatch.setattr(probes, "tcp_reachable", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "http_ok", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "redis_ping", lambda *a, **k: None)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: None)
+
+
+def _doctor_checks(capsys) -> dict[str, dict]:
+    return {c["name"]: c for c in json.loads(capsys.readouterr().out)["data"]["checks"]}
+
+
+def _checkout(tmp_path: Path, monkeypatch, capsys, *, api_key: str | None) -> None:
+    """A repository checkout: scaffolded catalogs, but no harborrag.yaml."""
+
+    project(tmp_path, monkeypatch, capsys, api_key=api_key)
+    (tmp_path / "harborrag.yaml").unlink()
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+
+
+def test_doctor_fails_object_store_with_bad_credentials(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "InvalidAccessKeyId")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "fail"
+    assert "InvalidAccessKeyId" in store["detail"]
+    assert "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID" in store["hint"]
+
+
+def test_doctor_checks_a_filesystem_object_store_without_probing_s3(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    probed: list[object] = []
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: probed.append(a) or "Denied")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "filesystem")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_ROOT", str(tmp_path / "objects"))
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert probed == []
+    assert store["status"] == "ok"
+    assert "filesystem" in store["detail"]
+
+
+def test_doctor_fails_a_filesystem_object_store_it_cannot_write(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    blocker = tmp_path / "not-a-directory"
+    blocker.write_text("x", encoding="utf-8")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "filesystem")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_ROOT", str(blocker / "objects"))
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "fail"
+    assert "HARBORRAG_OBJECT_STORE_ROOT" in store["hint"]
+
+
+def test_doctor_skips_an_in_memory_object_store(tmp_path: Path, monkeypatch, capsys) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "Denied")
+    monkeypatch.setenv("HARBORRAG_OBJECT_STORE_PROVIDER", "memory")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "skip"
+    assert store["required"] is False
+
+
+def test_doctor_probes_qdrant_grpc_when_preferred(tmp_path: Path, monkeypatch, capsys) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setenv("HARBORRAG_QDRANT_PREFER_GRPC", "true")
+    monkeypatch.setattr(
+        probes,
+        "tcp_reachable",
+        lambda host, port, **k: f"{host}:{port} unreachable" if port == 6334 else None,
+    )
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    qdrant = _doctor_checks(capsys)["qdrant"]
+    assert qdrant["status"] == "fail"
+    # The gRPC port is not configurable, so the detail says it assumed the default.
+    assert "Qdrant gRPC (default port 6334)" in qdrant["detail"]
+    assert "HARBORRAG_QDRANT_PREFER_GRPC=false" in qdrant["hint"]
+
+
+def test_doctor_warns_on_checkout_sqlite_fallback(tmp_path: Path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    control = _doctor_checks(capsys)["control db"]
+    assert control["status"] == "warn"
+    assert control["required"] is False
+    assert "env/.env.database" in control["hint"]
+
+
+def test_doctor_has_no_control_db_check_in_project_mode(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    assert "control db" not in _doctor_checks(capsys)
+
+
+def test_doctor_hints_name_the_checkout_files(tmp_path: Path, monkeypatch, capsys) -> None:
+    _checkout(tmp_path, monkeypatch, capsys, api_key=None)
+    unreachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    checks = _doctor_checks(capsys)
+    assert "env/.env.models" in checks["models catalog"]["hint"]
+    assert "scripts/deployment/dev.sh data" in checks["qdrant"]["hint"]
+    assert "docker compose up -d" not in checks["qdrant"]["hint"]
+
+
+def test_doctor_warns_when_the_object_store_credentials_cannot_be_verified(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    project(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(probes, "s3_credentials", lambda *a, **k: "unverified")
+    monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+
+    cli.main(["doctor", "--json"])
+
+    store = _doctor_checks(capsys)["object store"]
+    assert store["status"] == "warn"
+    assert store["required"] is False
+    assert "credentials not verified: botocore not installed" in store["detail"]
+
+
+def test_s3_credentials_probe_without_botocore_is_unverified(monkeypatch) -> None:
+    import importlib.util
+
+    real_find_spec = importlib.util.find_spec
+    monkeypatch.setattr(
+        importlib.util,
+        "find_spec",
+        lambda name, *a, **k: None if name == "botocore" else real_find_spec(name, *a, **k),
+    )
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) == "unverified"
+
+
+def test_s3_credentials_probe_reports_only_a_code_for_an_unreachable_endpoint() -> None:
+    pytest.importorskip("botocore")
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    result = probes.s3_credentials(f"http://127.0.0.1:{port}", None, "AKIDSECRET", "hunter2", None)
+
+    assert result == "unreachable"
+
+
+def test_s3_access_denied_counts_as_authenticated(monkeypatch) -> None:
+    pytest.importorskip("botocore")
+    import botocore.session
+    from botocore.exceptions import ClientError
+
+    class Client:
+        def list_buckets(self):
+            raise ClientError({"Error": {"Code": "AccessDenied"}}, "ListBuckets")
+
+    class Session:
+        def create_client(self, *a, **k):
+            return Client()
+
+    monkeypatch.setattr(botocore.session, "get_session", lambda: Session())
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) is None
+
+
+def test_s3_rejected_credentials_report_the_code(monkeypatch) -> None:
+    pytest.importorskip("botocore")
+    import botocore.session
+    from botocore.exceptions import ClientError
+
+    class Client:
+        def list_buckets(self):
+            raise ClientError({"Error": {"Code": "SignatureDoesNotMatch"}}, "ListBuckets")
+
+    class Session:
+        def create_client(self, *a, **k):
+            return Client()
+
+    monkeypatch.setattr(botocore.session, "get_session", lambda: Session())
+
+    assert probes.s3_credentials("http://x:9000", None, "k", "s", None) == "SignatureDoesNotMatch"
+
+
+def test_doctor_control_plane_hint_says_shell_in_checkout_mode(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    class Broken:
+        def __init__(self) -> None:
+            raise RuntimeError("boom")
+
+    _checkout(tmp_path, monkeypatch, capsys, api_key="sk-test")
+    _reachable(monkeypatch)
+    monkeypatch.setattr(cli_runner, "runtime_app_service", Broken)
+
+    cli.main(["doctor", "--json"])
+
+    plane = _doctor_checks(capsys)["control plane"]
+    assert "shell" in plane["hint"]
+    assert "env/.env.database" not in plane["hint"]

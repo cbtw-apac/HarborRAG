@@ -11,7 +11,10 @@ from harborrag_adapters.topology.descriptions import (
 from harborrag_core.topology.derived import ContextualIndexProfile, DescriptionOutput
 from harborrag_core.topology.extraction import digest
 from harborrag_engine.topology.parent_builder import PARENT_BUILDER_VERSION, ParentDescriptionPolicy
-from harborrag_runtime.composition.resources import embedding_dimensions
+from harborrag_runtime.composition.resources import (
+    check_embedding_dimensions,
+    embedding_dimensions,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .summary_policy import build_summary_policy
@@ -24,7 +27,11 @@ def build_contextual_profile(
     selected = config or HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or selected.default_model
     canonical, logical = selected.model_for(model)
-    dimensions = settings.embedding_dimensions or embedding_dimensions(selected, canonical)
+    if settings.embedding_dimensions:
+        dimensions = settings.embedding_dimensions
+        check_embedding_dimensions(selected, canonical, dimensions)
+    else:
+        dimensions = embedding_dimensions(selected, canonical)
     parent_policy = ParentDescriptionPolicy(
         max_fan_in=settings.topology_parent_max_fan_in,
         max_input_bytes=settings.topology_parent_max_input_bytes,

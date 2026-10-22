@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlsplit
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -20,6 +22,7 @@ from harborrag_adapters.repositories.vector.qdrant import QdrantVectorConfig
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 
 from ..config.settings import RuntimeSettings
+from ..errors import RuntimeConfigurationError
 from .storage_providers import (
     RuntimeKnowledgeGraphPort,
     RuntimeTopologyPort,
@@ -77,6 +80,139 @@ def embedding_dimensions(config: Any, model_name: str) -> int:
         f"embedding model {model_name!r} has no unambiguous expected_dimensions; "
         "set HARBORRAG_EMBEDDING_DIMENSIONS"
     )
+
+
+def check_embedding_dimensions(config: Any, model: str, dimensions: int) -> None:
+    """Fail fast when an explicit dimension contradicts the model catalog.
+
+    Only the deployments' ``expected_dimensions`` can contradict it: a model's
+    ``default_params.dimensions`` is merely what is requested when nothing overrides
+    it, so a configurable-dimension model accepts the override. An unknown model, or
+    deployments that disagree among themselves, are not a conflict either: the
+    explicit value is then the only source of truth.
+    """
+
+    try:
+        _, entry = config.model_for(model)
+        pinned = {
+            int(deployment.expected_dimensions)
+            for deployment in entry.deployments
+            if deployment.expected_dimensions is not None
+        }
+    except Exception:  # noqa: BLE001 - nothing in the catalog to contradict
+        return
+    if len(pinned) != 1:
+        return
+    expected = pinned.pop()
+    if expected != dimensions:
+        raise RuntimeConfigurationError(
+            f"HARBORRAG_EMBEDDING_DIMENSIONS={dimensions} but model {model!r} "
+            f"deployments expect {expected}"
+        )
+
+
+def _authority(url: str, *, schemes: Callable[[str], bool]) -> tuple[str, str, int | None] | None:
+    """(scheme, host, port) of a cleanly parsed URL, else ``None``.
+
+    Never the path, query or userinfo: an unencoded ``/``, ``?`` or ``#`` in a
+    password splits it, so what looks like a host or port may be a credential
+    fragment. Anything that does not parse cleanly is treated as unrenderable.
+    """
+
+    parts = urlsplit(url)
+    if not schemes(parts.scheme):
+        return None
+    if "@" in url.replace(parts.netloc, "", 1):
+        return None
+    try:
+        port = parts.port
+    except ValueError:
+        return None
+    host = parts.hostname
+    if not host:
+        return None
+    return parts.scheme, f"[{host}]" if ":" in host else host, port
+
+
+def _origin(url: str) -> tuple[str, str, int | None] | None:
+    return _authority(url, schemes=lambda scheme: scheme in {"http", "https"})
+
+
+def _display_url(url: str) -> str | None:
+    origin = _origin(url)
+    if origin is None:
+        return None
+    scheme, host, port = origin
+    return f"{scheme}://{host}:{port}" if port is not None else f"{scheme}://{host}"
+
+
+def resource_targets(settings: RuntimeSettings) -> dict[str, str]:
+    """Credential-free display strings for the resources startup connects to."""
+
+    control_url = settings.control_db_url.get_secret_value()
+    if control_url.lower().startswith("sqlite"):
+        control = "sqlite"
+    else:
+        authority = _authority(control_url, schemes=lambda scheme: scheme.startswith("postgres"))
+        if authority is None:
+            control = "postgresql (configured URL)"
+        else:
+            _, host, port = authority
+            control = f"postgresql {host}:{port}" if port is not None else f"postgresql {host}"
+    if settings.object_store_provider == "s3" and settings.object_store_endpoint_url:
+        object_store = (
+            _display_url(settings.object_store_endpoint_url) or "object store (configured URL)"
+        )
+    else:
+        object_store = f"object store ({settings.object_store_provider})"
+    origin = _origin(settings.qdrant_url)
+    if origin is None:
+        vector = "Qdrant (configured URL)"
+    elif settings.qdrant_prefer_grpc:
+        vector = f"Qdrant gRPC {origin[1]}:6334"
+    else:
+        vector = f"Qdrant {_display_url(settings.qdrant_url)}"
+    return {
+        "control": control,
+        "object_store": object_store,
+        "vector": vector,
+        "graph": f"FalkorDB {settings.falkordb_host}:{settings.falkordb_port}",
+    }
+
+
+def resource_hints(settings: RuntimeSettings) -> dict[str, str]:
+    """What to check when a resource is unreachable, for the configured provider.
+
+    Hints name settings, never their values: they end up in a RuntimeConnectionError.
+    """
+
+    provider = settings.object_store_provider
+    if provider == "s3":
+        object_store = (
+            "check HARBORRAG_OBJECT_STORE_* credentials and that the S3 endpoint "
+            "(MinIO locally) is running"
+        )
+    elif provider == "filesystem":
+        object_store = "check that HARBORRAG_OBJECT_STORE_ROOT is a writable directory"
+    else:
+        object_store = "check the configuration of HARBORRAG_OBJECT_STORE_PROVIDER"
+    if settings.vector_provider != "qdrant":
+        vector = "check the configuration of HARBORRAG_VECTOR_PROVIDER"
+    elif settings.qdrant_prefer_grpc:
+        vector = "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP"
+    else:
+        vector = "start Qdrant and check HARBORRAG_QDRANT_URL"
+    graph = (
+        "start FalkorDB"
+        if settings.graph_provider == "falkordb"
+        else "check the configuration of HARBORRAG_GRAPH_PROVIDER"
+    )
+    return {
+        "control": "check HARBORRAG_CONTROL_DB_URL",
+        "object_store": object_store,
+        "vector": vector,
+        "graph": graph,
+    }
 
 
 def build_object_store(settings: RuntimeSettings) -> ObjectStorePort:

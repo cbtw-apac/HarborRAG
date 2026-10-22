@@ -78,7 +78,7 @@ ingestion:
   # and concurrent DocumentIngestionWorkflow children per wave. A CLI/API
   # caller may override either per submission; these apply when they don't.
   # Per-document latency is roughly document_concurrency / throughput.
-  batch_size: 300
+  batch_size: 200
   document_concurrency: 8
 
 workflow:

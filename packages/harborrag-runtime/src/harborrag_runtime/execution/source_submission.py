@@ -47,6 +47,8 @@ def prepare_source_submission(
         raise ConnectorConfigurationError(
             f"Configured connector {submission.connector_name!r} is disabled"
         )
+    if definition.provider == "local":
+        _require_known_local_filters(submission.query)
     source_environment = os.environ if environment is None else environment
     effective_connection_id = submission.connection_id or submission.connector_name
     configuration_fingerprint = connector_fingerprint(
@@ -99,6 +101,22 @@ def prepare_source_submission(
         batch_size=batch_size,
         continue_after_batches=submission.continue_after_batches,
     )
+
+
+def _require_known_local_filters(query: SourceQuery) -> None:
+    """Reject filter keys the local connector would silently ignore."""
+
+    from harborrag_adapters.connectors.local.filters import LOCAL_QUERY_FILTER_KEYS
+
+    filters = json.loads(query.filters_json)
+    if not isinstance(filters, dict):
+        return
+    unknown = sorted(str(key) for key in filters if key not in LOCAL_QUERY_FILTER_KEYS)
+    if unknown:
+        raise ConnectorConfigurationError(
+            f"Unknown filter keys for a local connector: {', '.join(unknown)}. "
+            f"Allowed keys: {', '.join(sorted(LOCAL_QUERY_FILTER_KEYS))}"
+        )
 
 
 def _source_scope_id(

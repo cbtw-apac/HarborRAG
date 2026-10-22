@@ -119,8 +119,8 @@ final envelope; `--events` streams one NDJSON progress object per change and end
 envelope.
 
 ```bash
-harborrag ingest start \
-  --connector-id CONNECTOR_ID \
+harborrag ingest start [CONNECTOR] \
+  [--connector-id CONNECTOR_ID] \
   [--tenant TENANT_ID] \
   [--run-id RUN_ID] \
   [--connection-id CONNECTION_ID] \
@@ -132,17 +132,19 @@ harborrag ingest start \
   [--filters-json JSON] [--force-reprocess] \
   [--limit COUNT] \
   [--batch-size COUNT] [--document-concurrency COUNT] \
-  [--wait] [--json]
+  [--wait] [--timeout SECONDS] [--json]
 
 harborrag ingest status RUN_ID [--json]
-harborrag ingest wait RUN_ID [--json]
-harborrag ingest watch RUN_ID [--refresh SECONDS] [--events]
+harborrag ingest wait RUN_ID [--timeout SECONDS] [--json]
+harborrag ingest watch RUN_ID [--refresh SECONDS] [--events] [--timeout SECONDS]
 harborrag ingest pause RUN_ID [--json]
 harborrag ingest resume RUN_ID [--json]
 harborrag ingest cancel RUN_ID [--json]
 ```
 
-`--connector-id` is the only required option; `--connector` is an accepted alias for it.
+The connector is the only required input: give it positionally (`harborrag ingest start workspace`)
+or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
+is an error.
 The value is a connection name from `config/connectors.yaml`, not a source type, so
 `--connector-id local` fails with the list of valid IDs. `--tenant` defaults to `DEFAULT`.
 
@@ -164,7 +166,11 @@ artifacts after a terminal failure.
 
 `ingest start --wait` and `ingest watch RUN_ID` show the same inline progress block as
 `ingest run`, polling Temporal every `--refresh` seconds (0.25–60, default 1) until the run
-settles, then print the final summary. Ctrl-C leaves the run untouched; use
+settles, then print the final summary. `--timeout SECONDS` (also on `wait`) stops following
+after that long and exits 3; the run keeps going. The timeout bounds only the wait, never the
+submission, and with `--json` it prints
+`{"ok":true,"data":{"run":{"run_id":"…","status":"running"},"timed_out":true},"error":null}`.
+Ctrl-C (also on `wait`) leaves the run untouched and names it (exit 130); use
 `ingest pause|resume|cancel` to control it. `--events` (on `watch`) streams NDJSON instead.
 
 JSON output uses a stable envelope:
@@ -174,5 +180,7 @@ JSON output uses a stable envelope:
 ```
 
 Successful commands exit with 0 and failed runtime operations exit with 1.
+`ok` means the command executed; `data.result.status` and the exit code report the run outcome
+(0 completed, 1 not completed, 3 timeout, 130 interrupted).
 JSON mode suppresses all Rich spinners, color, and decorative output, making it
 safe to pipe directly to `jq` or another automation tool.

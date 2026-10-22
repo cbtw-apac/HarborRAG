@@ -25,6 +25,14 @@ def test_a_generated_key_parses_and_verifies() -> None:
     assert hash_matches(key.raw_key, key.secret_hash.upper())  # stored case is irrelevant
 
 
+@pytest.mark.parametrize("environment", ["dev", "staging", "prod"])
+def test_every_key_environment_round_trips(environment: str) -> None:
+    parsed = parse_key(generate_key(environment).raw_key)
+
+    assert parsed is not None
+    assert parsed.environment == environment
+
+
 def test_one_changed_secret_character_fails_verification() -> None:
     key = generate_key("dev")
     head, secret = key.raw_key.rsplit(".", 1)
@@ -38,7 +46,7 @@ def test_one_changed_secret_character_fails_verification() -> None:
     [
         "",
         "hrk_prod_v1_xyz.abc",
-        "hrk_staging_v1_" + "0" * 24 + "." + "a" * 43,  # unknown environment
+        "hrk_qa_v1_" + "0" * 24 + "." + "a" * 43,  # unknown environment
         "hrk_prod_v2_" + "0" * 24 + "." + "a" * 43,  # unknown format version
         "hrk_prod_v1_" + "0" * 24 + "." + "a" * 42,  # secret too short
         "x" * 500,

@@ -97,6 +97,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Temporal worker now hands its vector repository and embed client to the summary
   projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
   not only on the standalone `topology summaries worker` CLI.
+- `harborrag ingest watch`, `wait` and `start --wait` take `--timeout SECONDS`; on expiry they
+  print the run id and how to re-attach, and exit 3 while the run keeps going (`--json` prints an
+  envelope with `data.run` and `timed_out: true`).
+- `harborrag ingest start` takes the connector positionally, like `ingest run`, and `--tenant` on
+  both reads `HARBORRAG_INGESTION_TENANT_ID`.
+- In repository-checkout mode only, the CLI uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
+  `env/.env.database` as the object-store credentials when they are not set; an explicit
+  `DATABASE_ENV_FILE` is honoured in any mode.
+- `harborrag doctor` authenticates against the object store (a non-blocking "credentials not
+  verified" warning when botocore is missing), probes Qdrant's gRPC port, warns when a checkout
+  falls back to the sqlite control DB and names invalid connector definitions; runtime startup
+  also probes FalkorDB.
 
 ### Changed
 
@@ -197,6 +209,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
   Deployments that already wrote digest-named graphs must rename them or reindex, and
   projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
+- CLI exit codes: 0 completed, 1 not completed or failed, 2 usage error, 3 `--timeout` expired,
+  130 interrupted. `ingest wait` and `start --wait --json` now exit 1 for `PARTIAL`, `FAILED` or
+  `CANCELLED` runs, and `ok` in `--json` output only means the command ran: check the exit code
+  or `data.result.status`.
+- `harborrag ingest start` without `--run-id` generates `ingest-<hex>` ids (the API still uses
+  `ingestion-<hex>`); scripts matching the prefix must accept both.
+- From a repository checkout, `ingest run` and `ingest start` refuse to run on the default sqlite
+  control DB. Set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres, or use a `harborrag init`
+  project.
+- Local connectors reject unknown filter keys, and `--limit` / `--updated-after` scans no longer
+  retire documents; run a full scan to retire deleted ones.
+- Failed documents record the classifier code (e.g. `document_release_parser_rejected_document`)
+  and the stage that failed, and parser rejections are no longer retried; update scripts that
+  match the old codes.
+- Startup fails when `HARBORRAG_EMBEDDING_DIMENSIONS` contradicts a deployment's
+  `expected_dimensions` in `config/models.yaml`.
+- `harborrag auth keys create` needs the control DB at the migration head (run it once with
+  `--migrate`); an unknown `--key-id` fails with `KeyNotFound`, revoking by owner always returns
+  `{"revoked": [...], "active_keys": N}` (N = the active keys found and revoked, `0` when
+  nothing was active), and constraint errors report `ConstraintRejected`.
+- Reusing the id of a finished run is rejected (`WorkflowRunAlreadyStartedError`, HTTP 409); use a
+  new run id for every run.
+- `POST /ingestions`: when Temporal is unreachable at connect time, a still-unsubmitted run is
+  marked `FAILED` (`submission_failed`) and named in `details.run`, instead of being started
+  later by the outbox. Submit again with a new run id.
+- `GET /ingestions/{id}` returns 200 with `execution_status: "not_found"` when Temporal no longer
+  knows the run (it used to return 404); 404 now only means there is no such run.
 
 ### Removed
 
@@ -221,6 +260,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
   user and not world-writable; `--project` opts in explicitly. The CLI announces the project
   it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
+- Validation errors no longer echo input values, so a malformed DSN no longer prints its password
+  in CLI output or API errors.
+- The CLI no longer prints tracebacks, which can contain credentials, above `DEBUG`; set
+  `HARBORRAG_LOG_LEVEL=DEBUG` to see them.
 
 ### Fixed
 
@@ -241,6 +284,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.
+- Ctrl-C or a failure during `harborrag ingest run` no longer leaves the run stuck and its scope
+  blocked: the run ends `CANCELLED` or `FAILED` with the failing stage. Ctrl-C on `run`, `watch`,
+  `wait` and `start --wait` names the run and exits 130.
+- The API outbox no longer re-submits runs executed inline or created by a worker.
+- `harborrag ingest pause`, `resume` and `cancel` no longer report `NotFound` after applying the
+  action.
+- `harborrag ingest status` and `watch` fall back to the control-plane record when Temporal no
+  longer knows the run, and `PARTIAL` runs show as `partial` instead of `completed`.
+- Startup failures, failed durable runs and Qdrant vector-size mismatches report readable
+  messages (the target, `error_code` or both dimensions) instead of a bare class name, never
+  credentials or exception text; bad arguments fail before any store connects.
+- Each failed document logs one warning with its stage and code, with the traceback at `DEBUG`.
+- CLI: unknown commands report "No such command"; configuration errors show their message;
+  `doctor` ignores commented-out `${VAR}` lines and its hints name the right files;
+  `harborrag --help` takes about 0.9 s instead of 2.0 s; a close failure after the output no
+  longer changes the exit code.
 
 ### Security
 

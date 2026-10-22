@@ -42,43 +42,24 @@ task_queues:
   model: harborrag-model
   index: harborrag-index
 
-# Per-attempt budgets of the two source-level activities whose work grows with
-# the source. Discovery resumes each retry from its last persisted page, so this
-# bounds one attempt, not the whole listing; both heartbeat every 30s, so a dead
-# worker is still caught within 2 minutes. A Jira project lists at roughly 50
-# issues per 10s, so 12h covers about 200k issues in one attempt. Embedded in
-# each root workflow input like the retries below.
 timeouts:
   discovery_seconds: 43200
   finalization_seconds: 21600
 
-# These policies are embedded in each root workflow input so an in-flight run
-# keeps replaying with the policy it started with, even if this file changes.
 retries:
   discovery:
     initial_interval_seconds: 2
     backoff_coefficient: 2
     maximum_interval_seconds: 60
     maximum_attempts: 8
-  # ~23 minutes of retries (2s doubling to a 5-minute cap). Storage, database
-  # and network errors are retried in every stage, so this is what rides out a
-  # MinIO, Postgres or OCR blip; at 5 attempts any outage over ~30s failed the
-  # document for good. A longer outage trips the batch circuit breaker instead.
   document:
     initial_interval_seconds: 2
     backoff_coefficient: 2
     maximum_interval_seconds: 300
     maximum_attempts: 12
 
-# Default per-run source batching (documents per SourceBatchWorkflow child,
-# and DocumentIngestionWorkflow children kept in flight at once). A CLI/API
-# caller may override either per submission; these apply when they don't.
-# Per-document latency is roughly document_concurrency / throughput, so on a
-# host that finishes ~1 document/s, 32 in flight meant ~32s each with no gain
-# in throughput. 8 keeps every stage busy without piling up work in memory;
-# watch worker memory (docker stats) through the first hour of a large run.
 ingestion:
-  batch_size: 300
+  batch_size: 200
   document_concurrency: 8
 
 workflow:

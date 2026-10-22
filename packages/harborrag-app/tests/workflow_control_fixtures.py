@@ -12,6 +12,7 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import (
@@ -92,12 +93,62 @@ class FakeComposition:
 
 
 class FakeTaskRegistry:
+    """In-memory task store covering what durable start, status and control need."""
+
     def __init__(self) -> None:
         self.registered: list[PreparedSourceSubmission] = []
         self.events: list[tuple[str, HarborEvent]] = []
+        self.tasks: dict[str, IngestionTask] = {}
+        self.summaries: list[tuple[str, dict[str, object]]] = []
+        self.transitions: list[tuple[str, IngestionTaskState, dict[str, object]]] = []
+        self.counts: dict[str, dict[str, int]] = {}
 
-    async def register(self, source: PreparedSourceSubmission) -> None:
+    async def register(self, source: PreparedSourceSubmission) -> TaskRegistration:
         self.registered.append(source)
+        existing = self.tasks.get(source.task_id)
+        if existing is not None:
+            return TaskRegistration(existing, created=False)
+        task = IngestionTask(
+            task_id=source.task_id,
+            source_scope_id=source.source_scope_id,
+            status=IngestionTaskState.PENDING,
+            request={
+                "tenant_id": source.tenant_id,
+                "connector_name": source.connector_name,
+                "connector_type": source.connector_type,
+                "connection_id": source.connection_id,
+            },
+        )
+        self.tasks[task.task_id] = task
+        return TaskRegistration(task, created=True)
+
+    async def get(self, task_id: str) -> IngestionTask | None:
+        return self.tasks.get(task_id)
+
+    async def progress(self, task_id: str) -> dict[str, int]:
+        return dict(self.counts.get(task_id, {}))
+
+    async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
+        self.summaries.append((task_id, dict(values)))
+
+    async def fail_if_unsubmitted(
+        self,
+        task_id: str,
+        *,
+        summary: dict[str, object],
+    ) -> IngestionTaskState | None:
+        task = self.tasks.get(task_id)
+        if task is None:
+            return None
+        if task.status is not IngestionTaskState.PENDING or task.summary.get(
+            "submission_state"
+        ) in {"submitted", "executor", "submitting"}:
+            return task.status
+        self.transitions.append((task_id, IngestionTaskState.FAILED, dict(summary)))
+        self.tasks[task_id] = task.model_copy(
+            update={"status": IngestionTaskState.FAILED, "summary": dict(summary)}
+        )
+        return IngestionTaskState.FAILED
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
         self.events.append((task_id, event))

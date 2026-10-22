@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -12,6 +13,8 @@ from harborrag_core.storage import StorageOperationContext, tenant_namespace
 
 from .client import FalkorDBClient
 from .config import FalkorDBGraphConfig
+
+logger = logging.getLogger("harborrag.adapters.graph.falkordb.tenant_pool")
 
 # Mirrors the Qdrant collection charset so one tenant reads the same way in
 # both projection stores and operators can recognize a graph without a lookup.
@@ -101,6 +104,26 @@ class TenantGraphClientPool:
             await self._legacy.connect()
             if provision:
                 await self._provisioner(self._legacy)
+            return
+        # Tenant graphs are opened lazily, so the only way to learn the server
+        # is down at startup is one throwaway connection. It is never cached.
+        probe = self._factory.create(self._config.graph_name, readonly=False)
+        connected = False
+        try:
+            await probe.connect()
+            connected = True
+        finally:
+            if connected:
+                await probe.close()
+            else:
+                # The connect error is the diagnosis; a close failure must not replace it.
+                try:
+                    await probe.close()
+                except Exception as close_error:  # noqa: BLE001 - connect error propagates
+                    logger.warning(
+                        "Graph probe close failed after a failed connect error_type=%s",
+                        type(close_error).__name__,
+                    )
 
     async def provision(self, context: StorageOperationContext | None = None) -> None:
         if self._legacy is not None:

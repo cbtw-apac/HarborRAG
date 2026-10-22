@@ -48,6 +48,10 @@ class PublicTaskStore(Protocol):
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
 
+    async def claim_submission(self, task_id: str) -> str | None: ...
+
+    async def release_submission_claim(self, task_id: str, token: str) -> bool: ...
+
     async def list_tasks(
         self,
         *,

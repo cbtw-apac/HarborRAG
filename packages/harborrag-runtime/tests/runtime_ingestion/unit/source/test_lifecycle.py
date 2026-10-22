@@ -2,16 +2,23 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.repositories.errors import (
+    HarborStorageValidationError,
+    StorageErrorContext,
+)
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import (
     BindingKind,
     IngestionTaskState,
 )
+from harborrag_core.storage import StorageFamily
+from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.ingestion import (
     DocumentReleaseService,
     SourceIngestionService,
@@ -101,6 +108,39 @@ async def test_document_failures_mark_the_source_outcome_failed(
         assert outcome.status == IngestionTaskState.FAILED
         assert task is not None
         assert task.status == IngestionTaskState.FAILED
+
+
+@pytest.mark.asyncio
+async def test_parse_failure_is_recorded_with_stage_and_non_retryable_code(
+    tmp_path: Path,
+) -> None:
+    from harborrag_adapters.parsers.errors import ParseError
+
+    from ...fixtures.connectors import TextParser
+
+    class RejectingParser(TextParser):
+        def parse(self, raw):
+            raise ParseError("bad")
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    resources.parser = RejectingParser()
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        await service.ingest(source_request("task-parse"), DescriptorConnector())
+
+        results = await control.tasks.document_results("task-parse")
+        assert results
+        for result in results:
+            assert result.status == "failed"
+            assert result.result["failure_stage"] == "ParseAndNormalize"
+            assert "parser_rejected_document" in str(result.result["safe_error_code"])
+            assert result.result["retryable"] is False
+            assert "bad" not in str(result.result)
 
 
 @pytest.mark.asyncio
@@ -214,6 +254,134 @@ async def test_direct_source_ingestion_persists_terminal_discovery_failure(
 
 
 @pytest.mark.asyncio
+async def test_direct_ingestion_cancelled_during_discovery_releases_task_and_scan(
+    tmp_path: Path,
+) -> None:
+    # Ctrl-C on `harborrag ingest run` reaches the run as CancelledError, which an
+    # `except Exception` never sees; the scan must not stay STARTED and block the scope.
+    class InterruptedConnector(DescriptorConnector):
+        def discover(self, query):
+            del query
+            raise asyncio.CancelledError
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        request = source_request("task-interrupted-discovery")
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.ingest(request, InterruptedConnector())
+
+        task = await control.tasks.get("task-interrupted-discovery")
+        assert task is not None
+        assert task.status == IngestionTaskState.CANCELLED
+        assert await control.source_scans.has_running_scan(request.source_scope_id) is False
+
+
+@pytest.mark.asyncio
+async def test_direct_ingestion_cancelled_during_dispatch_converges_task_state(
+    tmp_path: Path,
+) -> None:
+    class InterruptedConnector(DescriptorConnector):
+        def load(self, record):
+            del record
+            raise asyncio.CancelledError
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        with pytest.raises(asyncio.CancelledError):
+            await service.ingest(
+                source_request("task-interrupted-dispatch"), InterruptedConnector()
+            )
+
+        task = await control.tasks.get("task-interrupted-dispatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.CANCELLED
+
+
+@pytest.mark.asyncio
+async def test_direct_ingestion_persists_a_failure_that_escapes_dispatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def broken_dispatch(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("control plane write failed")
+
+        monkeypatch.setattr(service, "_dispatch", broken_dispatch)
+
+        with pytest.raises(RuntimeError, match="control plane write failed"):
+            await service.ingest(source_request("task-failed-dispatch"), DescriptorConnector())
+
+        task = await control.tasks.get("task-failed-dispatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary == {
+            "failed_stage": "dispatch",
+            "error_code": "dispatch_runtimeerror",
+        }
+
+
+@pytest.mark.asyncio
+async def test_a_failure_to_persist_the_failure_does_not_mask_the_original_error(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With the control DB down, the run's own error is still the one raised."""
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def broken_dispatch(*args, **kwargs):
+            del args, kwargs
+            raise RuntimeError("dispatch exploded")
+
+        async def control_db_down(*args, **kwargs):
+            del args, kwargs
+            raise ConnectionError("control database unreachable")
+
+        monkeypatch.setattr(service, "_dispatch", broken_dispatch)
+        monkeypatch.setattr(service, "fail", control_db_down)
+
+        with (
+            caplog.at_level(logging.ERROR, logger="harborrag.runtime.ingestion.source"),
+            pytest.raises(RuntimeError, match="dispatch exploded"),
+        ):
+            await service.ingest(source_request("task-fail-unpersisted"), DescriptorConnector())
+
+    persisted = [
+        record for record in caplog.records if "could not be persisted" in record.getMessage()
+    ]
+    assert len(persisted) == 1
+    assert persisted[0].exc_info is not None
+    assert persisted[0].exc_info[0] is ConnectionError
+
+
+@pytest.mark.asyncio
 async def test_retried_discovery_reuses_its_open_scan(
     tmp_path: Path,
 ) -> None:
@@ -279,3 +447,121 @@ async def test_finalization_failure_preserves_discovery_and_dispatch_counts(
         assert task.summary["discovered"] == 2
         assert task.summary["admitted"] == 2
         assert task.summary["published"] == 2
+
+
+@pytest.mark.asyncio
+async def test_inline_tasks_are_never_outbox_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # An inline run creates its task in-process; if it stops before RUNNING, the
+    # API outbox must not mistake the PENDING row for an unsubmitted durable run.
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        original = control.tasks.transition
+
+        async def refuse_running(task_id, target, **kwargs):
+            if target is IngestionTaskState.RUNNING:
+                raise RuntimeError("control plane went away")
+            return await original(task_id, target, **kwargs)
+
+        monkeypatch.setattr(control.tasks, "transition", refuse_running)
+
+        with pytest.raises(RuntimeError, match="control plane went away"):
+            await service.begin_discovery(source_request("task-inline-pending"))
+
+        task = await control.tasks.get("task-inline-pending")
+        assert task is not None
+        assert task.status == IngestionTaskState.PENDING
+        pending = await control.tasks.pending_submissions()
+        assert task.task_id not in {item.task_id for item in pending}
+
+
+@pytest.mark.asyncio
+async def test_vector_schema_mismatch_is_a_readable_provision_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+
+        async def mismatched(spec, *, context):
+            del spec, context
+            raise HarborStorageValidationError(
+                "index 'evidence' already exists with another vector schema "
+                "(existing_dimension=5, configured_dimension=3) hunter2",
+                context=StorageErrorContext(
+                    family=StorageFamily.VECTOR,
+                    backend="qdrant",
+                    instance_name="default",
+                    operation="ensure_index",
+                    resource_name="evidence",
+                    metadata={"existing_dimension": 5, "configured_dimension": 3},
+                ),
+            )
+
+        monkeypatch.setattr(resources.vectors, "ensure_index", mismatched)
+
+        with pytest.raises(RuntimeConfigurationError) as caught:
+            await service.ingest(source_request("task-schema-mismatch"), DescriptorConnector())
+
+        message = str(caught.value)
+        assert "existing dimension 5" in message
+        assert "configured dimension 3" in message
+        assert "hunter2" not in message
+        assert isinstance(caught.value.__cause__, HarborStorageValidationError)
+        task = await control.tasks.get("task-schema-mismatch")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary["failed_stage"] == "provision"
+
+
+@pytest.mark.asyncio
+async def test_other_provision_validation_errors_propagate_unchanged(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Only the ensure_index schema mismatch is a configuration verdict; other
+    # validation failures (e.g. an invalid tenant or index name) keep their type.
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    async with control, resources.store:
+        service = SourceIngestionService(
+            control=control,
+            documents=build_release_service(resources),
+        )
+        invalid_name = HarborStorageValidationError(
+            "Qdrant tenant name must use 1-128 ASCII letters, digits, '.', '_' or '-'",
+            context=StorageErrorContext(
+                family=StorageFamily.VECTOR,
+                backend="qdrant",
+                instance_name="default",
+                operation="collection_name",
+                resource_name="evidence",
+            ),
+        )
+
+        async def rejected(spec, *, context):
+            del spec, context
+            raise invalid_name
+
+        monkeypatch.setattr(resources.vectors, "ensure_index", rejected)
+
+        with pytest.raises(HarborStorageValidationError) as caught:
+            await service.ingest(source_request("task-invalid-name"), DescriptorConnector())
+
+        assert caught.value is invalid_name
+        task = await control.tasks.get("task-invalid-name")
+        assert task is not None
+        assert task.status == IngestionTaskState.FAILED
+        assert task.summary["failed_stage"] == "discovery"
