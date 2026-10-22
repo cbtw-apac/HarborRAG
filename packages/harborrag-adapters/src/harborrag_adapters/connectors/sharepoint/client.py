@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import threading
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -23,6 +22,11 @@ from harborrag_adapters.connectors.policies.http import (
     require_same_origin_url,
     retry_delay_seconds,
     safe_response_error_detail,
+)
+from harborrag_adapters.connectors.rate_limiting import (
+    ConnectorRateLimiter,
+    LocalIntervalRateLimiter,
+    RateLimitIdentity,
 )
 
 from .config import SharePointAuthMode, SharePointSiteConfig
@@ -57,13 +61,24 @@ class SharePointClient(Protocol):
 class _RequestsGraphClient:
     """Authenticated, rate-limited Microsoft Graph client."""
 
-    def __init__(self, config: SharePointSiteConfig) -> None:
+    def __init__(
+        self,
+        config: SharePointSiteConfig,
+        *,
+        rate_limiter: ConnectorRateLimiter | None = None,
+    ) -> None:
         self.config = config
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
-        self._min_interval = 60.0 / config.requests_per_minute
-        self._last_request_at = 0.0
-        self._rate_lock = threading.Lock()
+        # Graph throttles per app registration and tenant, so every worker
+        # sharing them draws from one lane of the shared limiter.
+        self._rate_limit_identity = RateLimitIdentity.from_http_source(
+            connector_type="sharepoint",
+            deployment_type=str(config.auth_mode),
+            base_url=config.graph_api_url,
+            credential_parts=(str(config.tenant_id or ""), str(config.client_id or "")),
+        )
+        self._rate_limiter = rate_limiter or LocalIntervalRateLimiter()
         self._token: str | None = None
         self._token_expires_at = 0.0
 
@@ -97,21 +112,21 @@ class _RequestsGraphClient:
             raise FetchError(str(exc)) from exc
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one Graph request with auth, local rate limiting, and retries."""
+        """Send one Graph request with auth, shared rate limiting, and retries."""
         last_error: Exception | None = None
         headers = dict(kwargs.pop("headers", {}) or {})
-        headers["Authorization"] = f"Bearer {self._access_token()}"
+        refreshed = False
 
         for attempt in range(self.config.max_retries + 1):
-            self._acquire()
             try:
-                response = self.session.request(
-                    method,
-                    url,
-                    headers=headers,
-                    timeout=self.config.request_timeout_seconds,
-                    **kwargs,
-                )
+                response = self._send(method, url, headers, **kwargs)
+                if response.status_code == 401 and not refreshed and self._can_refresh_token():
+                    # The cached token expired during a retry wait or was revoked
+                    # early; one fresh token tells that apart from bad credentials.
+                    refreshed = True
+                    response.close()
+                    self._discard_token()
+                    response = self._send(method, url, headers, **kwargs)
             except requests.RequestException as exc:
                 last_error = exc
                 if attempt == self.config.max_retries:
@@ -129,6 +144,32 @@ class _RequestsGraphClient:
             self._sleep(attempt, last_error, retry_headers)
 
         raise FetchError("Microsoft Graph request failed") from last_error
+
+    def _send(
+        self,
+        method: str,
+        url: str,
+        headers: dict[str, str],
+        **kwargs: Any,
+    ) -> requests.Response:
+        """Send one attempt with the current token; a retry may outlive the last one."""
+        headers["Authorization"] = f"Bearer {self._access_token()}"
+        self._acquire()
+        return self.session.request(
+            method,
+            url,
+            headers=headers,
+            timeout=self.config.request_timeout_seconds,
+            **kwargs,
+        )
+
+    def _can_refresh_token(self) -> bool:
+        """Whether a new token can be obtained; a configured one is used as-is."""
+        return self.config.auth_mode != SharePointAuthMode.ACCESS_TOKEN
+
+    def _discard_token(self) -> None:
+        self._token = None
+        self._token_expires_at = 0.0
 
     @staticmethod
     def _raise_for_final_status(response: requests.Response, *, final_attempt: bool) -> None:
@@ -259,8 +300,7 @@ class _RequestsGraphClient:
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool and discard its token."""
 
-        self._token = None
-        self._token_expires_at = 0.0
+        self._discard_token()
         self.session.close()
 
     def _api_url(self, endpoint: str) -> str:
@@ -277,13 +317,11 @@ class _RequestsGraphClient:
         return f"{self.config.graph_api_url}/{endpoint.lstrip('/')}"
 
     def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
-        with self._rate_lock:
-            now = time.monotonic()
-            wait = self._min_interval - (now - self._last_request_at)
-            if wait > 0:
-                time.sleep(wait)
-            self._last_request_at = time.monotonic()
+        """Throttle requests through the shared limiter's Graph lane."""
+        self._rate_limiter.acquire(
+            self._rate_limit_identity.scope("graph"),
+            requests_per_minute=self.config.requests_per_minute,
+        )
 
     def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
         """Sleep before retrying, honoring provider retry headers when present."""

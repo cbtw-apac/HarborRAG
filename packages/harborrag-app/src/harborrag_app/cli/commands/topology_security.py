@@ -5,10 +5,13 @@ from typing import Annotated
 
 import typer
 
+from harborrag_app.cli.project import invocation_path
+
 app = typer.Typer(
     no_args_is_help=True, help="Tenant mode, spending limits and trusted resolved ACL imports."
 )
-File = Annotated[Path, typer.Argument(exists=True, dir_okay=False)]
+# Relative to where the user ran the command, not the project root main() moved into.
+File = Annotated[Path, typer.Argument(callback=invocation_path(exists=True, dir_okay=False))]
 
 
 def read_bounded(path: Path) -> str:

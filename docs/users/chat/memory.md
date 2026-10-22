@@ -101,5 +101,26 @@ Existing long-term memory can still be inspected or erased through
 `/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance
 operations are separate from completion context.
 
+## SDK memory settings
+
+These variables configure the SDK memory facade (`HarborRAG.memory.*`) and
+the opt-in agent memory tools. They do not change the public
+three-exchange policy above.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `HARBORRAG_MEMORY_ENABLED` | `true` | Off restores a short verbatim window with no summary, recall, rewriting, or extraction. |
+| `HARBORRAG_MEMORY_EXTRACTION_ENABLED` | `true` | Distils durable facts from an exchange passed to the SDK `extract` call. |
+| `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | `false` | Allows extraction and the agent memory tools to store facts at project scope, where every user of the project recalls them. Off, a project write is kept to its session. One user's extraction never supersedes a project memory another user wrote. |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION` | `90` | Expiry for session memories and rolling summaries. A summary's expiry restarts at each refresh. |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_USER` | `365` | Expiry for user memories. |
+| `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` | `0` | Expiry for project memories. |
+
+Retention is applied as an expiry time when a memory is written; `0` means
+the memory never expires automatically. Expired memories are no longer
+recalled, searched, or returned, but no background job deletes them: the
+rows stay in the control database until they are erased. Changing a
+retention value affects only memories written afterwards.
+
 See [Chat](README.md#migration) for the `0033`/`0034` database migration
 requirement and endpoint replacements.

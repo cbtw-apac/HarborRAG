@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
@@ -11,6 +12,7 @@ from harborrag_core.contracts import HarborNotFoundError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DocumentFailure,
+    DocumentVersionState,
     ProjectionCleanupJob,
     ProjectionManifest,
 )
@@ -19,6 +21,7 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from .row_mapping import cleanup_job_from_row
 from .schema import (
     DOCUMENT_FAILURES,
+    DOCUMENT_VERSIONS,
     PROJECTION_CLEANUP_JOBS,
     PROJECTION_MANIFESTS,
     SOURCE_ITEMS,
@@ -127,7 +130,7 @@ class IngestionReliabilityRepository:
             if row["status"] in {
                 CleanupJobState.CANCELLED.value,
                 CleanupJobState.COMPLETED.value,
-            }:
+            } and not await _held_by_retention(session, document_version_id):
                 await session.execute(
                     update(PROJECTION_CLEANUP_JOBS)
                     .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup_id)
@@ -318,3 +321,18 @@ class IngestionReliabilityRepository:
                 .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup_job_id)
                 .values(**values)
             )
+
+
+async def _held_by_retention(session: AsyncSession, document_version_id: str) -> bool:
+    """Whether the retention purge owns the version, so its completed cleanup stays.
+
+    The purge selects only versions whose cleanup COMPLETED. Re-opening that job for
+    a PURGING version would hide an interrupted purge from every later run.
+    """
+
+    status = await session.scalar(
+        select(DOCUMENT_VERSIONS.c.status).where(
+            DOCUMENT_VERSIONS.c.document_version_id == document_version_id
+        )
+    )
+    return status in {DocumentVersionState.PURGING.value, DocumentVersionState.PURGED.value}

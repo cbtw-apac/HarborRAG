@@ -15,6 +15,7 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
+from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorQuery,
@@ -39,6 +40,7 @@ from .skips import (
     NOT_IN_ALLOWLIST,
     SharePointItemSkippedError,
     SharePointSkipRecorder,
+    item_load_error,
     log_event,
     log_skip,
     skip_reason_for_error,
@@ -61,7 +63,9 @@ class SharePointConnector(BaseConnector):
     Items declined for a standard reason (allowlist, size, extension, deleted,
     access denied, retries exhausted) are reported through ``skipped`` and
     logged; they never stop the run. Only authentication failure, a site the
-    app cannot reach, and invalid config are fatal.
+    app cannot reach, and invalid config are fatal. On a direct load, a deleted
+    item fails as a missing source item and exhausted retries as a retryable
+    source-unavailable failure; the other reasons are non-retryable declines.
 
     Every structured log entry carries ``run_id``. It defaults to a fresh ID
     per connector instance; the ingestion runtime binds its task ID through
@@ -69,8 +73,10 @@ class SharePointConnector(BaseConnector):
     """
 
     provider_name = "sharepoint"
+    # No native discover_page: the inherited fallback re-walks the tree from
+    # the start for every page, so the runtime streams discover() once instead.
     capabilities = ConnectorCapabilities(
-        pagination=True,
+        pagination=False,
         incremental_sync=True,
         full_sync=True,
         relationships=True,
@@ -81,10 +87,15 @@ class SharePointConnector(BaseConnector):
         config: SharePointSiteConfig,
         *,
         client: SharePointClient | None = None,
+        rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize drive operations with an optional client override."""
+        """Initialize drive operations with an optional client override.
+
+        ``rate_limiter`` is the runtime's shared limiter, so every worker
+        throttles one Graph app registration together and reports its waits.
+        """
         self.config = config
-        self.client = client or _RequestsGraphClient(config)
+        self.client = client or _RequestsGraphClient(config, rate_limiter=rate_limiter)
         self.run_id = uuid.uuid4().hex
         self._skips = SharePointSkipRecorder(self.run_id)
         self._drive = SharePointDriveAPI(self.client, config, skips=self._skips)
@@ -381,7 +392,7 @@ class SharePointConnector(BaseConnector):
             if reason is None:
                 raise
             log_skip(reason, str(exc), item_id=item_id, url=url, run_id=self.run_id)
-            raise SharePointItemSkippedError(reason, str(exc), item_id=item_id, url=url) from exc
+            raise item_load_error(reason, exc, item_id=item_id, url=url) from exc
 
     def load_by_ids(self, item_ids: list[str]) -> Iterator[RawDocument]:
         """Load files for callers that already have drive item IDs."""

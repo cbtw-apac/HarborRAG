@@ -20,7 +20,13 @@ class MemoryAdminService(Protocol):
         limit: int = 20,
     ) -> AppResponse: ...
 
-    async def delete_memory(self, access: MemoryAccess, memory_id: str) -> AppResponse: ...
+    async def delete_memory(
+        self,
+        access: MemoryAccess,
+        memory_id: str,
+        *,
+        shared_scopes: frozenset[MemoryScope] = frozenset(),
+    ) -> AppResponse: ...
 
     async def erase_memory_session(self, access: MemoryAccess) -> AppResponse: ...
 

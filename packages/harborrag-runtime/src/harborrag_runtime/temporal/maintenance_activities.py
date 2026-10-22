@@ -67,9 +67,9 @@ class MaintenanceActivities:
     ) -> RetiredVersionPurgeBatch:
         """Apply the retired-version retention TTL to the scope just cleaned.
 
-        A version whose purge fails stays RETIRED for the next run, so it is
-        reported but does not fail the activity: a retry would only redo the
-        cleanup for nothing.
+        A version whose purge fails stays PURGING under its lease, and a later
+        run resumes it once the lease lapses, so it is reported but does not
+        fail the activity: a retry would only redo the cleanup for nothing.
         """
 
         retention = self._runtime.retention
@@ -79,6 +79,12 @@ class MaintenanceActivities:
             tenant_id=source.tenant_id,
             source_scope_id=source.source_scope_id,
             limit=1_000,
+        )
+        self._telemetry.record_retention_purge(
+            purged=purge.purged,
+            skipped=purge.skipped,
+            failed=purge.failed,
+            deleted_objects=purge.deleted_objects,
         )
         if purge.failed:
             logger.warning(

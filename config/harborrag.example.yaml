@@ -1,4 +1,4 @@
-# SDK/runtime facade configuration for HarborRAG 2.0.0 Alpha 1 (2.0.0a1).
+# SDK/runtime facade configuration for HarborRAG 2.0.0 Alpha 2 (2.0.0a2).
 execution_mode: direct
 discover_plugins: false
 

@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
 from harborrag_core.contracts.reader import ENTITY_FIND_LIMIT, EntityFindRequest
 from harborrag_core.contracts.tools import ToolBehavior, ToolInvocationContext, ToolSpec
+from harborrag_core.summaries import FACET_NAME_PATTERN
 
 from .reader_base import ReaderTool
 from .reader_support import failure, success
@@ -68,7 +69,9 @@ FIND_ENTITIES_SPEC = ToolSpec(
     "Reason entity_index_unavailable means no entity index has been built for this tenant "
     "yet, and entities_without_released_evidence means some ranked entities have no "
     "current summary yet (withheld_entity_count says how many): in both cases answer "
-    "with vector_search instead of concluding that nothing matches.",
+    "with vector_search instead of concluding that nothing matches. Reason unknown_facet "
+    "means a facet name no source declares: check list_sources and retry with a declared "
+    "name.",
     {
         "type": "object",
         "required": ["tenant_id", "query"],
@@ -77,6 +80,9 @@ FIND_ENTITIES_SPEC = ToolSpec(
             "query": {"type": "string", "minLength": 1, "maxLength": 4000},
             "facets": {
                 "type": "object",
+                # The facet name as a source declares it (``skill_set``), never the
+                # connector field it is copied from (``Skill Set``).
+                "propertyNames": {"pattern": FACET_NAME_PATTERN},
                 "additionalProperties": _FACET_VALUE,
                 "maxProperties": 12,
                 "default": {},

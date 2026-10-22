@@ -28,7 +28,11 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.permissions import reject_broad_permissions
 from harborrag_adapters.connectors.sharepoint.skips import SharePointItemSkippedError
 from harborrag_core.domain.source import SourceRecord
-from harborrag_core.ingestion import UnsupportedDocumentError
+from harborrag_core.ingestion import (
+    SourceItemNotFoundError,
+    SourceUnavailableError,
+    UnsupportedDocumentError,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -341,35 +345,44 @@ def test_direct_item_failures_are_skipped_and_the_run_continues(error, reason):
 
 
 @pytest.mark.parametrize(
-    ("endpoint", "error", "reason"),
+    ("endpoint", "error", "reason", "error_type"),
     [
-        ("drives/drive1/items/file1", FetchError("gone", status_code=404), "DELETED"),
+        (
+            "drives/drive1/items/file1",
+            FetchError("gone", status_code=404),
+            "DELETED",
+            SourceItemNotFoundError,
+        ),
         (
             "drives/drive1/items/file1",
             AuthorizationError("forbidden", status_code=403),
             "ACCESS_DENIED",
+            UnsupportedDocumentError,
         ),
         (
             "drives/drive1/items/file1/content",
             FetchError("boom", status_code=503),
             "TRANSIENT_ERROR_MAX_RETRIES",
+            SourceUnavailableError,
         ),
     ],
 )
-def test_load_turns_item_failures_into_non_fatal_skips(endpoint, error, reason):
+def test_load_turns_item_failures_into_non_fatal_skips(endpoint, error, reason, error_type):
     client = RaisingGraphClient()
     add_site_and_default_drive(client)
     client.add("drives/drive1/items/file1", file_item("file1", "Guide.docx"))
     client.errors[endpoint] = error
     connector = SharePointConnector(config(), client=client)
 
-    with pytest.raises(SharePointItemSkippedError) as excinfo:
+    with pytest.raises(error_type) as excinfo:
         connector.load(_file_record())
 
     assert excinfo.value.skip_reason == reason
     assert excinfo.value.item_id == "file1"
-    # Non-retryable and not an auth failure: the engine records one failed item.
-    assert isinstance(excinfo.value, UnsupportedDocumentError)
+    # A per-item failure, never an auth failure: the engine records one failed item.
+    # Only a decline is classified unsupported; a deleted item is missing, and
+    # exhausted retries stay retryable.
+    assert isinstance(excinfo.value, UnsupportedDocumentError) is (reason == "ACCESS_DENIED")
     assert not isinstance(excinfo.value, AuthenticationError)
 
 

@@ -16,6 +16,7 @@ permission validation and loading as every other candidate.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 
@@ -37,12 +38,14 @@ from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.storage import StorageOperationContext
-from harborrag_core.summaries import SummaryCard
+from harborrag_core.summaries import FACET_NAME_PATTERN, SummaryCard
 from harborrag_core.topology.derived import (
     ENTITY_SUMMARY_RECORD_KIND,
     ContextualIndexProfile,
 )
 from harborrag_engine.retrieval.fusion import fuse_candidates
+
+from .source_fields import PayloadIndexCatalog
 
 _MAX_ENTITIES = 8
 _MAX_CHUNKS_PER_ENTITY = 8
@@ -50,6 +53,10 @@ _MAX_CHUNKS_PER_ENTITY = 8
 # said which entities count, so the ceiling is how many of them we will rank.
 _MAX_SELECTED_ENTITIES = 50
 FACET_FILTER_PREFIX = "facet."
+# A facet named that no source scope declared: the filter cannot match anything,
+# so the empty answer it produces is not a conclusive one.
+UNKNOWN_FACET = "unknown_facet"
+_FACET_NAME = re.compile(FACET_NAME_PATTERN)
 
 
 _RANGE_OPERATORS = {
@@ -66,11 +73,17 @@ def facet_filter_from_mapping(
     """Turn ``{"stage": "round 2", "years": {"gte": 5}}`` into entity-point conditions.
 
     Text facet values are matched case-folded, the way they were stored, so a
-    caller's ``Java`` finds a card's ``java``.
+    caller's ``Java`` finds a card's ``java``. A name that no scope could have
+    declared (``Skill Set`` instead of ``skill_set``) is refused, not searched.
     """
 
     must: list[VectorFilterCondition] = []
     for name, value in sorted(facets.items()):
+        if not _FACET_NAME.fullmatch(name):
+            raise ValueError(
+                f"facet {name!r} is not a facet name; use the names list_sources gives "
+                "as entity_facets"
+            )
         field = f"{FACET_FILTER_PREFIX}{name}"
         if isinstance(value, Mapping):
             for bound, raw in value.items():
@@ -101,6 +114,16 @@ def _folded(value: object) -> object:
     return value.strip().casefold() if isinstance(value, str) else value
 
 
+def _folded_condition(condition: VectorFilterCondition) -> VectorFilterCondition:
+    """Fold a ``facet.*`` condition's text the way ``facet_filter_from_mapping`` does."""
+
+    value = condition.value
+    folded = (
+        [_folded(item) for item in value] if isinstance(value, list | tuple) else _folded(value)
+    )
+    return condition.model_copy(update={"value": folded})
+
+
 @dataclass(frozen=True)
 class EntityHit:
     node_key: str
@@ -117,7 +140,9 @@ def split_facet_filters(
     The two address different points -- an entity's facets live on its summary
     point, everything else on chunks -- so one filter object has to be routed to
     two searches. Returns ``(facet_filter, remaining_filter)``, each ``None`` when
-    it has no conditions.
+    it has no conditions. Facet text is case-folded on the way, as it was stored,
+    so ``facet.stage == "Round 2"`` matches here exactly as it does in
+    ``find_entities``.
     """
 
     if filters is None:
@@ -126,8 +151,10 @@ def split_facet_filters(
     rest: dict[str, list[VectorFilterCondition]] = {"must": [], "should": [], "must_not": []}
     for clause in facet:
         for condition in getattr(filters, clause):
-            target = facet if condition.field.startswith(FACET_FILTER_PREFIX) else rest
-            target[clause].append(condition)
+            if condition.field.startswith(FACET_FILTER_PREFIX):
+                facet[clause].append(_folded_condition(condition))
+            else:
+                rest[clause].append(condition)
     return (
         VectorFilter(**facet) if any(facet.values()) else None,
         VectorFilter(**rest) if any(rest.values()) else None,
@@ -153,6 +180,7 @@ class EntitySummarySearch:
         *,
         context: StorageOperationContext,
         facet_filter: VectorFilter | None = None,
+        chunk_filter: VectorFilter | None = None,
     ) -> tuple[VectorSearchResult, ...]:
         """Fuse entity-reached evidence into the candidate set -- or replace it.
 
@@ -161,6 +189,11 @@ class EntitySummarySearch:
         which entities qualify, so only evidence from qualifying entities may be
         returned, and the chunk candidates are set aside.
 
+        ``chunk_filter`` is the rest of the caller's filter -- scope, type, dates,
+        the items a ``fields.*`` filter traced. Entity-reached evidence must meet
+        it like every other candidate: reaching a chunk through its entity is not
+        a way around what the caller asked for.
+
         Returns the input unchanged on every path that cannot be served safely,
         so a missing index, an empty vector or an unreadable binding degrades to
         plain chunk retrieval instead of failing the request.
@@ -168,8 +201,19 @@ class EntitySummarySearch:
 
         if dense_vector is None or len(dense_vector) != self.profile.dimension:
             return candidates if facet_filter is None else ()
-        node_keys = await self.matching_entities(dense_vector, context, facet_filter)
-        reached = await self._evidence_for(node_keys, context)
+        node_keys = await self.matching_entities(
+            dense_vector,
+            context,
+            _with_scope_conditions(facet_filter, chunk_filter),
+            # The scope conditions narrow the ranking; they do not turn
+            # enrichment into selection, so the mode's own ceiling stays.
+            limit=_MAX_SELECTED_ENTITIES if facet_filter is not None else self.max_entities,
+        )
+        reached = tuple(
+            item
+            for item in await self._evidence_for(node_keys, context)
+            if chunk_filter is None or payload_matches(item.payload, chunk_filter)
+        )
         if facet_filter is not None:
             return reached
         if not reached:
@@ -240,7 +284,8 @@ class EntitySummarySearch:
         if hits is None:
             return EntityFindResponse(request_id, (), reasons=(ENTITY_INDEX_UNAVAILABLE,))
         if not hits:
-            return EntityFindResponse(request_id, ())
+            unknown = await self._undeclared_facets(request.facets, context)
+            return EntityFindResponse(request_id, (), reasons=(UNKNOWN_FACET,) if unknown else ())
         tenant_id = str(request.access.tenant_id)
         keys = tuple(hit.node_key for hit in hits)
         evidence, views = await asyncio.gather(
@@ -297,6 +342,28 @@ class EntitySummarySearch:
             ),
             evidence_chunk_ids=chunks[: self.max_chunks_per_entity],
         )
+
+    async def _undeclared_facets(
+        self, facets: Mapping[str, object], context: StorageOperationContext
+    ) -> tuple[str, ...]:
+        """The facet names the entity index has no payload index for.
+
+        Every facet any scope declares is indexed when its cards are published,
+        so a name missing from the index was declared nowhere: a filter on it can
+        only match nothing, which is not the same answer as "no entity qualifies".
+        The cached index list is refreshed once before calling a name unknown.
+        """
+
+        if not facets or not isinstance(self.vectors, PayloadIndexCatalog):
+            return ()
+        index = self.profile.entity_index_name
+        wanted = {f"{FACET_FILTER_PREFIX}{name}" for name in facets}
+        indexed = await self.vectors.indexed_payload_fields(index, context=context)
+        if not wanted <= indexed:
+            indexed = await self.vectors.indexed_payload_fields(
+                index, refresh=True, context=context
+            )
+        return tuple(sorted(wanted - indexed))
 
     async def _rank(
         self,
@@ -391,3 +458,97 @@ class EntitySummarySearch:
             for chunk in chunks
             if (row := by_point.get(identity.point_id(chunk_id=chunk))) is not None
         )
+
+
+def _with_scope_conditions(
+    facet_filter: VectorFilter | None, chunk_filter: VectorFilter | None
+) -> VectorFilter | None:
+    """Carry the caller's ``source_scope_id`` conditions onto the entity search.
+
+    Entity points carry their scope, so ranking within it is a lookup. Without
+    it, selection ranked the top entities of every scope and then dropped the
+    ones outside the caller's, which could leave nothing although entities of
+    the requested scope qualified.
+    """
+
+    def scoped(conditions: list[VectorFilterCondition]) -> list[VectorFilterCondition]:
+        return [
+            item
+            for item in conditions
+            if item.field == "source_scope_id"
+            and item.operator in {FilterOperator.EQUALS, FilterOperator.IN}
+        ]
+
+    if chunk_filter is None:
+        return facet_filter
+    must, must_not = scoped(chunk_filter.must), scoped(chunk_filter.must_not)
+    if not must and not must_not:
+        return facet_filter
+    base = facet_filter or VectorFilter()
+    return VectorFilter(
+        must=[*base.must, *must], should=list(base.should), must_not=[*base.must_not, *must_not]
+    )
+
+
+def payload_matches(payload: Mapping[str, object], filters: VectorFilter) -> bool:
+    """Whether an evidence payload satisfies a filter, read the way Qdrant reads it.
+
+    Entity-reached chunks are fetched by id, not searched, so the caller's filter
+    is checked here instead. A dotted field walks nested objects, a list-valued
+    field matches when any member does, and ``should`` needs one of its
+    conditions when it has any. An operator this cannot evaluate fails closed.
+    """
+
+    return (
+        all(_condition_matches(payload, item) for item in filters.must)
+        and (not filters.should or any(_condition_matches(payload, i) for i in filters.should))
+        and not any(_condition_matches(payload, item) for item in filters.must_not)
+    )
+
+
+_COMPARISONS = {
+    FilterOperator.GREATER_THAN: lambda value, bound: value > bound,
+    FilterOperator.GREATER_THAN_OR_EQUAL: lambda value, bound: value >= bound,
+    FilterOperator.LESS_THAN: lambda value, bound: value < bound,
+    FilterOperator.LESS_THAN_OR_EQUAL: lambda value, bound: value <= bound,
+}
+
+
+def _condition_matches(payload: Mapping[str, object], condition: VectorFilterCondition) -> bool:
+    values = _payload_values(payload, condition.field)
+    operator, wanted = condition.operator, condition.value
+    if operator == FilterOperator.EXISTS:
+        return bool(values) is (wanted is not False)
+    if operator in {FilterOperator.EQUALS, FilterOperator.NOT_EQUALS}:
+        found = any(_same(value, wanted) for value in values)
+        return found if operator == FilterOperator.EQUALS else not found
+    if operator in {FilterOperator.IN, FilterOperator.NOT_IN}:
+        options = wanted if isinstance(wanted, list | tuple) else ()
+        found = any(_same(value, option) for value in values for option in options)
+        return found if operator == FilterOperator.IN else not found
+    compare = _COMPARISONS.get(operator)
+    if compare is None or not _is_number(wanted):
+        return False
+    return any(_is_number(value) and compare(value, wanted) for value in values)
+
+
+def _payload_values(payload: Mapping[str, object], field: str) -> tuple[object, ...]:
+    value: object = payload
+    for part in field.split("."):
+        if not isinstance(value, Mapping):
+            return ()
+        value = value.get(part)
+    if value is None:
+        return ()
+    return tuple(value) if isinstance(value, list | tuple) else (value,)
+
+
+def _is_number(value: object) -> bool:
+    return isinstance(value, int | float) and not isinstance(value, bool)
+
+
+def _same(value: object, wanted: object) -> bool:
+    # ``True == 1`` in Python, never in a payload match.
+    if isinstance(value, bool) or isinstance(wanted, bool):
+        return isinstance(value, bool) and isinstance(wanted, bool) and value is wanted
+    return value == wanted

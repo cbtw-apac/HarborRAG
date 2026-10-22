@@ -196,7 +196,28 @@ class AgentRunLifecycle:
                 AgentEvent("run.cancelled", context.identity.run_id, {"step": state.step}),
             )
 
-    async def complete(
+    async def commit_completion(
+        self,
+        context: RunContext,
+        state: LoopState,
+        stop_reason: AgentStopReason,
+        final_response: HarborChatResponse,
+    ) -> None:
+        """Persist the authoritative COMPLETED checkpoint.
+
+        Kept apart from :meth:`publish_completion` so the caller knows when
+        the run became terminal: a cancellation or error arriving after this
+        returns must not record CANCELLED or FAILED over a committed answer.
+        """
+
+        await self.persist(
+            context,
+            state,
+            AgentRunStatus.COMPLETED,
+            CheckpointOutcome(stop_reason=stop_reason, response=final_response),
+        )
+
+    async def publish_completion(
         self,
         context: RunContext,
         state: LoopState,
@@ -204,7 +225,7 @@ class AgentRunLifecycle:
         final_response: HarborChatResponse,
         calls_made: int,
     ) -> AgentRunResult:
-        """Commit completion before updating advisory memory and event sinks."""
+        """Update advisory memory and event sinks for an already committed run."""
 
         run_id = context.identity.run_id
         citation_assessment = assess_answer_citations(final_response.text, state.executions)
@@ -221,12 +242,6 @@ class AgentRunLifecycle:
                 "marker": reference.marker,
             }
             for reference in citation_assessment.citations
-        )
-        await self.persist(
-            context,
-            state,
-            AgentRunStatus.COMPLETED,
-            CheckpointOutcome(stop_reason=stop_reason, response=final_response),
         )
         memory_persisted = False
         try:

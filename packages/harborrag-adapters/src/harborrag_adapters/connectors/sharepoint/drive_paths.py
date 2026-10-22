@@ -119,7 +119,9 @@ def item_path(item: dict[str, Any]) -> str:
     if "root:" not in parent_path:
         return name
 
-    folder_path = parent_path.split("root:", 1)[1].strip("/")
+    # Graph percent-encodes itemReference.path ("root:/HR%20Policies"), while
+    # names, allowlist prefixes, and root_path are plain text.
+    folder_path = unquote(parent_path.split("root:", 1)[1]).strip("/")
     if not folder_path:
         return name
     return f"{folder_path}/{name}".strip("/")

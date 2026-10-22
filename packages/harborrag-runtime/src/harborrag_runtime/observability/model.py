@@ -114,6 +114,22 @@ class IngestionTelemetry:
             "Projection cleanup jobs left unresolved by the latest batch.",
             registry=self.registry,
         )
+        self._retention_versions = Counter(
+            "harborrag_retention_purge_versions_total",
+            "Retired document versions handled by the retention purge, by outcome.",
+            ("outcome",),
+            registry=self.registry,
+        )
+        self._retention_deleted_objects = Counter(
+            "harborrag_retention_purge_deleted_objects_total",
+            "Object-store objects deleted by the retention purge.",
+            registry=self.registry,
+        )
+        self._retention_backlog = Gauge(
+            "harborrag_retention_purge_backlog",
+            "Retired versions still eligible for purging when the latest sweep stopped.",
+            registry=self.registry,
+        )
         self._stale_rejections = Counter(
             "harborrag_retrieval_stale_candidates_rejected_total",
             "Stale vector candidates rejected by Postgres active-version validation.",
@@ -248,6 +264,25 @@ class IngestionTelemetry:
 
     def record_cleanup_backlog(self, count: int) -> None:
         self._cleanup_backlog.set(max(0, count))
+
+    def record_retention_purge(
+        self,
+        *,
+        purged: int,
+        skipped: int,
+        failed: int,
+        deleted_objects: int,
+        backlog: int | None = None,
+    ) -> None:
+        """Count one purge batch; only a full sweep knows the backlog."""
+
+        for outcome, count in (("purged", purged), ("skipped", skipped), ("failed", failed)):
+            if count > 0:
+                self._retention_versions.labels(outcome=outcome).inc(count)
+        if deleted_objects > 0:
+            self._retention_deleted_objects.inc(deleted_objects)
+        if backlog is not None:
+            self._retention_backlog.set(max(0, backlog))
 
     def record_stale_candidate_rejections(self, count: int) -> None:
         if count > 0:

@@ -20,7 +20,7 @@ from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.policy import McpToolPolicy
 
 from .models import McpConfiguration, ToolConfiguration
-from .validation import validate_tools
+from .validation import clamp_to_safety_maxima, validate_tools
 
 _RESULT_LIMIT_FIELDS = frozenset({"top_k", "limit", "max_paths", "max_nodes", "max_hops"})
 _POLICY_ENVIRONMENT = {
@@ -72,7 +72,11 @@ class McpConfigurationStore:
         environment: Mapping[str, str] | None = None,
     ) -> McpConfigurationStore:
         source = Path(path)
-        configuration = _read_configuration(source)
+        # A file written for an older, looser safety maximum loads with its values
+        # lowered and a WARNING, rather than stopping the server; replace() stays strict.
+        configuration = clamp_to_safety_maxima(
+            _read_configuration(source), {spec.name: spec for spec in specs}
+        )
         return cls(
             path=source,
             configuration=configuration,
@@ -150,7 +154,9 @@ class McpConfigurationStore:
         with self._lock:
             # Read under the same lock as replace(). Reading first lets a stale reload
             # overwrite a concurrently persisted replacement in process memory.
-            loaded = self._validate_and_copy(_read_configuration(self.path))
+            loaded = self._validate_and_copy(
+                clamp_to_safety_maxima(_read_configuration(self.path), self._specs)
+            )
             previous_revision = _revision(self._configuration)
             self._configuration = loaded
             self._effective = None

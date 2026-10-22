@@ -42,7 +42,7 @@ authoritative. Do not delete them. Qdrant and FalkorDB are rebuildable projectio
 
 Chunk text is stored only as `content` in the evidence payload. FalkorDB stores
 no content preview. Each evidence `chunk_id` is also an exact-key `Chunk` node
-linked to document structure by `SUPPORTS`, which enables the retrieval flow:
+linked from document structure by `HAS_CHUNK`, which enables the retrieval flow:
 vector search, exact `chunk_id` graph seed, then bounded subgraph expansion.
 
 ## Entering the graph
@@ -53,14 +53,19 @@ lowercased `title` - nothing partial, and `title` is null on every `Chunk` node.
 bridge that makes the graph reachable is that a vector payload's `chunk_id` *is* the
 `Chunk` node key, so `vector_search` resolves selectors for the graph tools.
 
-Two traversal defaults follow from the spine not being uniformly directed -
-`(:Chunk)-[:SUPPORTS]->(:Structure)` points *into* it while
-`(:DocumentVersion)-[:CONTAINS]->(:Structure)` points down it:
+Two traversal defaults follow from the spine pointing down, parent to child -
+`(:DocumentVersion)-[:CONTAINS]->(:Structure)-[:HAS_CHUNK]->(:Chunk)` - so a walk from
+a chunk to its document runs against every edge:
 
-- Path and subgraph queries default to `both`. A directed default cannot walk from a
+- Path and subgraph queries default to `both`. An `outgoing` default cannot walk from a
   chunk to its own document, which is the most common question asked of this graph.
 - Graph observation traverses undirected at depth 2, which is exactly far enough to
   reach a chunk's `Structure` and then its `DocumentVersion`.
+
+Before 2.0.0a2 the chunk edge was `(:Chunk)-[:SUPPORTS]->(:Structure)`. A graph
+written by 2.0.0a1 still holds `SUPPORTS` edges until it is reset and re-ingested, and
+the graph tools no longer accept `supports` as a relation filter: use `has_chunk`, and
+note that it points the other way.
 
 Version filtering happens after the store answers, so every graph read widens its
 request before rejecting stale records; otherwise a neighborhood dominated by superseded
@@ -89,7 +94,7 @@ of the chain to its own hierarchy:
 
 ```text
 (:Tenant)-[:HAS_DATA_SOURCE]->(:DataSource)-[:CONTAINS]->(:SourceEntity)
-    -[:HAS_VERSION]->(:DocumentVersion)-[:CONTAINS]->(:Structure)<-[:SUPPORTS]-(:Chunk)
+    -[:HAS_VERSION]->(:DocumentVersion)-[:CONTAINS]->(:Structure)-[:HAS_CHUNK]->(:Chunk)
 ```
 
 | Connector | `DataSource` expands to |

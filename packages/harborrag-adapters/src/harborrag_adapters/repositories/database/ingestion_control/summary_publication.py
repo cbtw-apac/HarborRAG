@@ -29,7 +29,7 @@ class SummaryPublicationOperations(SummaryAuthority):
             await lock_summary_tenant(session, lease.tenant_id)
             immutable = binding.manifest.kind in {"Structure", "DocumentVersion"}
             await self._require(session, lease, check_revision=not immutable)
-            current = await self._snapshot(session, lease.tenant_id, lease.source_scope_id)
+            current = await self._current_snapshot(session, lease, binding, node)
             self._validate_snapshot(current, snapshot, binding, node)
             if (
                 binding.revision != lease.revision
@@ -116,6 +116,30 @@ class SummaryPublicationOperations(SummaryAuthority):
                 .values(**values)
                 .on_conflict_do_update(index_elements=["tenant_id", "node_key"], set_=values)
             )
+
+    async def _current_snapshot(
+        self,
+        session: AsyncSession,
+        lease: SummaryLease,
+        binding: SummaryBinding,
+        node: GraphNodeRecord,
+    ) -> SummarySnapshot:
+        """Read only what ``_validate_snapshot`` compares for this card.
+
+        A section or document card is checked against its own document version and
+        permissions alone, so it reads that one document. Re-reading the whole
+        scope here made a run cost cards x documents, all under the tenant lock.
+        """
+
+        document_id = (
+            str(node.document_id)
+            if binding.manifest.kind in {"Structure", "DocumentVersion"}
+            and node.document_id is not None
+            else None
+        )
+        return await self._snapshot(
+            session, lease.tenant_id, lease.source_scope_id, document_id=document_id
+        )
 
     @staticmethod
     def _validate_snapshot(

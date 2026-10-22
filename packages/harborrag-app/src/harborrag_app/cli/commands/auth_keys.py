@@ -21,6 +21,7 @@ from typing import Annotated, Any, NoReturn
 
 import typer
 
+from harborrag_app.cli.project import invocation_path
 from harborrag_core.invariants import HarborInvariantError
 
 app = typer.Typer(no_args_is_help=True, help="Hashed, tenant-bound MCP reader keys with a TTL.")
@@ -214,6 +215,9 @@ def create(  # noqa: PLR0913 - one parameter per documented option
         Path | None,
         typer.Option(
             "--secret-output",
+            # Relative to where the user ran the command, not the project root main()
+            # moved into; the reported path is absolute so nobody has to guess which.
+            callback=invocation_path(),
             help="New file to receive the key (mode 0600); default ~/.harborrag/keys/<name>.key.",
         ),
     ] = None,

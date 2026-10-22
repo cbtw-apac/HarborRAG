@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from uuid import uuid4
 
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
+from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_core.contracts.reader import (
     EntityFindRequest,
     EntityFindResponse,
@@ -18,6 +19,7 @@ from harborrag_core.contracts.reader import (
     SemanticPathRequest,
     SemanticPathResponse,
 )
+from harborrag_core.indexing import VectorFilter
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -245,23 +247,20 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         traced: tuple[str, ...] | None = None
         try:
             if field_filter is not None:
-                traced = await self._fields.matching_items(
-                    await self._permissions.scope_filter(field_filter, context),
-                    context=context,
-                )
+                traced = await self._traced_items(field_filter, context)
                 chunk_filter = SourceFieldTrace.scope(traced, chunk_filter)
                 selected = replace(selected, filters=chunk_filter)
             search = (
-                await self._search.search(
+                await self._readable_search(
                     AuthoritativeSearchRequest(
                         lane=selected.lane,
                         top_k=top_k,
                         dense_vector=dense_vector,
                         sparse_vector=sparse_vector,
-                        filters=await self._permissions.scope_filter(chunk_filter, context),
+                        filters=chunk_filter,
                         dense_weight=self._policy.dense_weight,
                     ),
-                    context=context,
+                    context,
                 )
                 if traced != ()
                 # No item has those field values: nothing can qualify, and an empty
@@ -275,16 +274,22 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             )
             raise no_indexed_content() from exc
         candidates = search.candidates
-        # Enrichment fuses entity evidence in without the chunk filter, which would
-        # readmit evidence of items the fields filter just excluded.
-        if self._entities is not None and (facet_filter is not None or field_filter is None):
+        # When no item has the fields filter's values, no entity's evidence can
+        # qualify either; ``traced`` is then empty and the lane has nothing to add.
+        if self._entities is not None and traced != ():
             # Entity-reached chunks join the authoritative set before validation,
             # so they face exactly the permission and active-version checks every
             # other candidate faces -- reaching them differently is not a reason
-            # to serve them differently. With a facet filter the lane selects
-            # instead of enriching: only qualifying entities' evidence remains.
+            # to serve them differently. They must also meet the rest of the
+            # caller's filter (scope, type, the traced fields items). With a facet
+            # filter the lane selects instead of enriching: only qualifying
+            # entities' evidence remains.
             candidates = await self._entities.expand(
-                candidates, dense_vector, context=context, facet_filter=facet_filter
+                candidates,
+                dense_vector,
+                context=context,
+                facet_filter=facet_filter,
+                chunk_filter=chunk_filter,
             )
         topology = await self._topology.prepare(
             query,
@@ -299,7 +304,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         observation = (
             await self._observer.observe(
-                search.candidates,
+                await self._permissions.validate(search.candidates, context),
                 context=context,
                 request_id=request_id,
                 memory_seeds=selected.graph_seeds,
@@ -374,6 +379,50 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 topology=topology_diagnostics,
                 duplicates_collapsed=diagnostics.collapsed_count + late_duplicates,
             ),
+        )
+
+    async def _traced_items(
+        self, field_filter: VectorFilter, context: StorageOperationContext
+    ) -> tuple[str, ...]:
+        """The items a ``fields.*`` filter matches, among documents the caller may read.
+
+        Over the enumeration budget the pre-query ACL is the readable source
+        scopes, which can hold documents the caller may not read. Whether any item
+        matched -- and whether more than the trace limit did -- would then answer
+        a question about hidden documents' field values. Authorizing every traced
+        item first costs a lookup per item, so the request is refused instead,
+        exactly as such a principal's every request was before the scope fallback.
+        """
+
+        scoped = await self._permissions.scoped(field_filter, context)
+        if not scoped.exact:
+            logger.info("Fields filter refused: readable documents exceed the enumeration budget")
+            raise HarborAuthorizationUnavailableError("AUTHORIZATION_UNAVAILABLE")
+        return await self._fields.matching_items(scoped.filters, context=context)
+
+    async def _readable_search(
+        self, request: AuthoritativeSearchRequest, context: StorageOperationContext
+    ) -> AuthoritativeSearchResult:
+        """Search under the caller's ACL; report only what they may read.
+
+        With the exact readable-document condition every search candidate and
+        count already lies within the caller's documents. Under the source-scope
+        fallback they need not: the hit count, the stale, unpublished and
+        malformed counts, the window and the collapsed duplicates would each say
+        something about documents the caller cannot read. So the candidates are
+        permission-checked here, and the counts describe only those.
+        """
+
+        scoped = await self._permissions.scoped(request.filters, context)
+        search = await self._search.search(
+            replace(request, filters=scoped.filters), context=context
+        )
+        if scoped.exact:
+            return search
+        visible = await self._permissions.validate(search.candidates, context)
+        return AuthoritativeSearchResult(
+            visible,
+            replace(_NO_CANDIDATES, candidate_count=len(visible), accepted_count=len(visible)),
         )
 
     async def fetch_evidence(

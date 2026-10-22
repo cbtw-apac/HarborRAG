@@ -242,8 +242,19 @@ class FakeKnowledgeGraphRepository:
         context: StorageOperationContext,
     ) -> None:
         del context
+        # Like the FalkorDB store: an external stub is shared by every scope linking its
+        # item, so only this scope's relations to it go, and an orphan is left for
+        # ``prune_external_stubs``.
+        self.relations = {
+            key: relation
+            for key, relation in self.relations.items()
+            if relation.source_scope_id != source_scope_id
+        }
         removed = {
-            key for key, node in self.nodes.items() if node.source_scope_id == source_scope_id
+            key
+            for key, node in self.nodes.items()
+            if node.source_scope_id == source_scope_id
+            and node.attributes.get("external") is not True
         }
         self.nodes = {key: node for key, node in self.nodes.items() if key not in removed}
         self._drop_relations_touching(removed)

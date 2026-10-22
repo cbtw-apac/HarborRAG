@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.exceptions import (
     AuthorizationError,
     DocumentProcessingError,
     FetchError,
+    ItemNotFoundError,
     RateLimitError,
 )
 from harborrag_adapters.connectors.schemas import ConnectorSkip
@@ -32,8 +33,10 @@ class SharePointItemSkippedError(DocumentProcessingError, UnsupportedDocumentErr
     """Raised when a direct load declines one item for a standard skip reason.
 
     The run treats it as a per-item, non-retryable failure, never a fatal one:
-    the connector has already retried transient errors up to ``max_retries``.
-    The ``skip_reason`` attribute carries the machine-readable reason code.
+    re-running the load cannot change an allowlist, size, extension, or access
+    decision. A deleted item and exhausted retries raise
+    :class:`SharePointItemMissingError` and :class:`SharePointItemUnavailableError`
+    instead. The ``skip_reason`` attribute carries the machine-readable reason code.
     """
 
     def __init__(
@@ -49,6 +52,68 @@ class SharePointItemSkippedError(DocumentProcessingError, UnsupportedDocumentErr
         self.skip_reason = reason
         self.item_id = item_id
         self.url = url
+
+
+class SharePointItemMissingError(ItemNotFoundError):
+    """Raised when a direct load finds the item gone (Graph answered HTTP 404).
+
+    Classified as a missing source item, like Jira and Confluence, rather than
+    as an unsupported document: it was deleted or moved after discovery listed it.
+    """
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        item_id: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Keep the DELETED reason and item identity next to the human message."""
+        super().__init__(f"{DELETED}: {detail}", status_code=404)
+        self.skip_reason = DELETED
+        self.item_id = item_id
+        self.url = url
+
+
+class SharePointItemUnavailableError(FetchError):
+    """Raised when Graph still throttles or fails one item after ``max_retries``.
+
+    A 429 or 5xx outlasting a few seconds of backoff says nothing about the
+    document, so this stays a retryable source-unavailable failure.
+    """
+
+    def __init__(
+        self,
+        detail: str,
+        *,
+        status_code: int | None = None,
+        item_id: str | None = None,
+        url: str | None = None,
+    ) -> None:
+        """Keep the TRANSIENT_ERROR_MAX_RETRIES reason and item identity."""
+        super().__init__(f"{TRANSIENT_ERROR_MAX_RETRIES}: {detail}", status_code=status_code)
+        self.skip_reason = TRANSIENT_ERROR_MAX_RETRIES
+        self.item_id = item_id
+        self.url = url
+
+
+def item_load_error(
+    reason: str,
+    error: Exception,
+    *,
+    item_id: str | None = None,
+    url: str | None = None,
+) -> Exception:
+    """Return the typed error a direct load raises for one item-level failure."""
+    detail = str(error)
+    if reason == DELETED:
+        return SharePointItemMissingError(detail, item_id=item_id, url=url)
+    if reason == TRANSIENT_ERROR_MAX_RETRIES:
+        status_code = getattr(error, "status_code", None)
+        return SharePointItemUnavailableError(
+            detail, status_code=status_code, item_id=item_id, url=url
+        )
+    return SharePointItemSkippedError(reason, detail, item_id=item_id, url=url)
 
 
 def skip_reason_for_error(error: Exception) -> str | None:

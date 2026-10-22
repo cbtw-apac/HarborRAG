@@ -62,8 +62,16 @@ class MemoryAdminClientMixin:
         )
         return AppResponse(True, {"memories": [memory_data(memory) for memory in memories]})
 
-    async def delete_memory(self, access: MemoryAccess, memory_id: str) -> AppResponse:
-        await self._memory_admin.delete_memory(access.owner(), memory_id)
+    async def delete_memory(
+        self,
+        access: MemoryAccess,
+        memory_id: str,
+        *,
+        shared_scopes: frozenset[MemoryScope] = frozenset(),
+    ) -> AppResponse:
+        await self._memory_admin.delete_memory(
+            access.owner(), memory_id, shared_scopes=shared_scopes
+        )
         return AppResponse(True, {"memory_id": memory_id, "deleted": True})
 
     async def erase_memory_session(self, access: MemoryAccess) -> AppResponse:

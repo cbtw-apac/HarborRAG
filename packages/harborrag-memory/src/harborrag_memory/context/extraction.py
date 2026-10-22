@@ -56,6 +56,15 @@ EXISTING_LIMIT = 50
 REFERENCE_LENGTH = 12
 """Content-hash prefix length used as the model-facing memory reference."""
 
+INDEX_PENDING_KEY = "index_pending"
+"""Metadata flag on a row saved before its index write, cleared once it is indexed.
+
+The canonical row is saved first, so a failed or cancelled index write leaves
+it durable but invisible to index-led recall. The flag is what lets a later
+extraction of the same fact repair exactly those rows, instead of re-embedding
+every duplicate it meets.
+"""
+
 
 def reference_token(memory: Memory) -> str:
     """Return the short, stable reference the prompt shows for ``memory``."""
@@ -166,9 +175,11 @@ class MemoryExtractor:
         if scope is None:
             return None
         digest = content_hash(fact.content, scope)
-        if digest in plan.hashes:
+        stored = await self._stored_duplicate(owner, scope, digest, fact.content, plan)
+        if stored is not None:
+            await self._repair(owner, fact, stored, plan)
             return None
-        if await self._already_stored(owner, scope, digest, fact.content):
+        if digest in plan.hashes:
             return None
         if await self._is_restatement(owner, scope, fact.content):
             return None
@@ -179,10 +190,64 @@ class MemoryExtractor:
             confidence_floor=self._policy.entity_confidence_floor,
         )
         memory = self._memory(owner, anchored, scope=scope, digest=digest, messages=plan.messages)
-        await self._memories.save(memory)
-        await self._index_memory(memory)
-        await self._supersede(fact, memory, plan.existing)
+        indexed = self._index is not None
+        await self._memories.save(_index_pending(memory) if indexed else memory)
+        try:
+            await self._index_memory(memory)
+        finally:
+            # A failed index write must not leave the contradicted fact valid
+            # beside its replacement; a retry re-indexes through ``_repair``.
+            await self._supersede(owner, fact, memory, plan.existing)
+        if indexed:
+            await self._memories.save(memory)
         return memory
+
+    async def _stored_duplicate(
+        self,
+        owner: MemoryOwner,
+        scope: MemoryScope,
+        digest: str,
+        content: str,
+        plan: _WritePlan,
+    ) -> Memory | None:
+        """Return the already-stored row for this exact fact, if one exists.
+
+        A row this extraction saved itself is not returned: it was just indexed
+        and needs no repair, and ``plan.hashes`` skips it.
+        """
+
+        listed = plan.existing.get(digest[:REFERENCE_LENGTH])
+        if listed is not None and listed.content_hash == digest:
+            return listed
+        if digest in plan.hashes:
+            return None
+        return await self._already_stored(owner, scope, digest, content)
+
+    async def _repair(
+        self,
+        owner: MemoryOwner,
+        fact: ExtractedFact,
+        stored: Memory,
+        plan: _WritePlan,
+    ) -> None:
+        """Finish an earlier write of ``stored``: index it and apply its supersession.
+
+        Saving happens before indexing, so an attempt whose embedder or index
+        failed left a durable row with no vector -- and, where an index is
+        wired, recall never finds it. A retry proposing the same fact lands
+        here instead of being a silent no-op. Only a row still carrying
+        ``INDEX_PENDING_KEY`` is re-embedded; an indexed duplicate costs
+        nothing beyond the supersession check.
+        """
+
+        if self._index is not None and stored.metadata.get(INDEX_PENDING_KEY) is True:
+            settled = _index_settled(stored)
+            try:
+                await self._index_memory(settled)
+                await self._memories.save(settled)
+            except Exception:
+                logger.warning("re-indexing an already-stored memory failed", exc_info=True)
+        await self._supersede(owner, fact, stored, plan.existing)
 
     def _scope(self, owner: MemoryOwner, requested: MemoryScope) -> MemoryScope | None:
         """Return the scope this owner can actually be written at, never wider.
@@ -190,9 +255,13 @@ class MemoryExtractor:
         A project fact proposed by an owner with no ``project_id`` degrades to
         the session rather than being stored where a whole project would read
         it; an owner that cannot even address its session stores nothing.
+        Project-scope extraction is also opt-in: a PROJECT fact is recalled
+        into every project member's turns, and the exchange it came from
+        restates retrieved, untrusted content, so ``policy.write_scope``
+        degrades it the same way unless ``extraction_project_scope`` is on.
         """
 
-        for candidate in (requested, MemoryScope.SESSION):
+        for candidate in (self._policy.write_scope(requested), MemoryScope.SESSION):
             if scope_query_owner(owner, candidate) is not None:
                 return candidate
         return None
@@ -224,6 +293,7 @@ class MemoryExtractor:
             importance=fact.importance,
             created_at=now,
             updated_at=now,
+            expires_at=self._policy.retention.expires_at(scope, now),
             valid_from=now,
             source_session_id=resolved.session_id,
             source_message_ids=tuple(message.message_id for message in messages),
@@ -278,8 +348,8 @@ class MemoryExtractor:
         scope: MemoryScope,
         digest: str,
         content: str,
-    ) -> bool:
-        """Whether this exact fact is already stored, asked directly.
+    ) -> Memory | None:
+        """Return this exact fact's stored row, asked directly, or ``None``.
 
         ``plan.hashes`` is built from at most ``EXISTING_LIMIT`` rows per scope
         with no ordering guarantee, so past that many memories the "add-only,
@@ -291,7 +361,7 @@ class MemoryExtractor:
 
         scoped = scope_query_owner(owner, scope)
         if scoped is None:
-            return False
+            return None
         query = MemoryQuery(
             owner=scoped,
             scopes=(scope,),
@@ -303,8 +373,8 @@ class MemoryExtractor:
             matches = await self._memories.search(query)
         except Exception:
             logger.warning("checking for an existing memory failed", exc_info=True)
-            return False
-        return any(memory.content_hash == digest for memory in matches)
+            return None
+        return next((memory for memory in matches if memory.content_hash == digest), None)
 
     async def _is_restatement(self, owner: MemoryOwner, scope: MemoryScope, content: str) -> bool:
         """Whether the index already holds a near-identical memory in ``scope``."""
@@ -329,6 +399,7 @@ class MemoryExtractor:
 
     async def _supersede(
         self,
+        owner: MemoryOwner,
         fact: ExtractedFact,
         memory: Memory,
         existing: dict[str, Memory],
@@ -337,14 +408,24 @@ class MemoryExtractor:
 
         The prior row is amended, never deleted: its content stays readable
         with ``invalid_at`` set and ``superseded_by`` pointing at the new row.
-        An unrecognised reference, a cross-scope reference, or a row already
-        superseded is ignored.
+        An unrecognised reference, a cross-scope reference, a row already
+        superseded, a self-reference, and a PROJECT row another user wrote are
+        ignored: one user's conversation must not retire a shared fact that a
+        colleague recorded.
         """
 
         if fact.replaces is None:
             return
         prior = existing.get(fact.replaces)
-        if prior is None or prior.scope is not memory.scope or prior.invalid_at is not None:
+        if (
+            prior is None
+            or prior.memory_id == memory.memory_id
+            or prior.scope is not memory.scope
+            or prior.invalid_at is not None
+        ):
+            return
+        if prior.scope is MemoryScope.PROJECT and not _same_author(prior, owner):
+            logger.debug("skipping supersession of a project memory another user wrote")
             return
         now = self._clock()
         if prior.valid_from is not None and now <= prior.valid_from:
@@ -355,9 +436,30 @@ class MemoryExtractor:
         )
 
 
+def _index_pending(memory: Memory) -> Memory:
+    """``memory`` flagged as saved but not yet indexed."""
+
+    return replace(memory, metadata={**memory.metadata, INDEX_PENDING_KEY: True})
+
+
+def _index_settled(memory: Memory) -> Memory:
+    """``memory`` without the not-yet-indexed flag."""
+
+    metadata = {key: value for key, value in memory.metadata.items() if key != INDEX_PENDING_KEY}
+    return replace(memory, metadata=metadata)
+
+
+def _same_author(memory: Memory, owner: MemoryOwner) -> bool:
+    """Whether ``owner`` is the user who wrote ``memory``; unknown never matches."""
+
+    author = recall_owner(memory.owner).user_id
+    return author is not None and author == recall_owner(owner).user_id
+
+
 __all__ = [
     "EXISTING_LIMIT",
     "EXTRACTION_SCOPE_ORDER",
+    "INDEX_PENDING_KEY",
     "ExtractedFact",
     "MemoryExtractor",
     "reference_token",

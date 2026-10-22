@@ -72,7 +72,8 @@ async def test_a_configured_tenant_gets_its_own_client_with_resolved_secrets() -
 
     resolution = await clients.resolve("acme")
 
-    assert resolution.client is built[0]
+    # Wrapped so a retired client closes only once no turn still uses it.
+    assert getattr(resolution.client, "wrapped", None) is built[0]
     assert resolution.catalog is not None
     assert resolution.catalog.allows("tenant-primary")
     # The key came from the encrypted store, scoped to the owning tenant --
@@ -227,7 +228,7 @@ async def test_a_routing_strategy_hint_is_dropped_rather_than_rejected() -> None
     )
     clients, built = _clients(catalog, FakeSecrets())
 
-    assert (await clients.resolve("acme")).client is built[0]
+    assert getattr((await clients.resolve("acme")).client, "wrapped", None) is built[0]
 
 
 @pytest.mark.asyncio

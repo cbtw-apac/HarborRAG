@@ -212,8 +212,9 @@ async def test_recall_promotes_an_anchored_memory_over_a_more_important_one(
         importance=0.5,
         entity_ids=("node-ingest",),
     )
+    # Both share the same query terms, so only importance and anchoring differ.
     plain = memory_row(
-        "Ravi owns search",
+        "Ravi owns ingest",
         scope=MemoryScope.USER,
         owner=MemoryOwner(tenant_id="tenant-1", user_id="user-1"),
         memory_id="mem-search",

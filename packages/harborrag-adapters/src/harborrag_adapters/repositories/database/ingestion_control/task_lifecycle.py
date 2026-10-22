@@ -110,8 +110,16 @@ class TaskLifecycleMixin:
         *,
         summary: Mapping[str, object] | None = None,
     ) -> None:
-        safe_summary = dict(summary or {})
-        reject_runtime_fields(safe_summary)
+        """Move a task to ``target``; ``summary`` replaces the stored one if given.
+
+        Without a summary the stored one is kept: pause and resume are mid-run
+        moves, and replacing it with ``{}`` erased discovery's stage, counts and
+        skips for the rest of the run.
+        """
+
+        safe_summary = None if summary is None else dict(summary)
+        if safe_summary is not None:
+            reject_runtime_fields(safe_summary)
         now = utc_now()
         async with self._client.sessions.begin() as session:
             result = await session.execute(
@@ -129,11 +137,12 @@ class TaskLifecycleMixin:
                 raise HarborConflictError(
                     f"invalid ingestion task transition: {current.value} -> {target.value}"
                 )
-            values: dict[str, object] = {
-                "status": target.value,
-                "summary": safe_summary,
-            }
-            if target == IngestionTaskState.RUNNING:
+            values: dict[str, object] = {"status": target.value}
+            if safe_summary is not None:
+                values["summary"] = safe_summary
+            # A resume continues the run that started earlier; only the first
+            # move to RUNNING starts it.
+            if target == IngestionTaskState.RUNNING and current != IngestionTaskState.PAUSED:
                 values["started_at"] = now
             if target in {
                 IngestionTaskState.COMPLETED,

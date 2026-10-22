@@ -31,6 +31,9 @@ from .reader_resources import ReaderResources
 from .summary_views import apply_summary_views
 
 _READ_DEADLINE_SECONDS = 10
+# ``external_source_entity_node_key``'s domain prefix: a shared source entity is stored
+# without attributes, so the key, not the ``external`` flag, marks a stub on read-back.
+_EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
 _RESOLUTION_CANDIDATE_LIMIT = 100
 
 
@@ -91,7 +94,13 @@ class ReaderRetrieval:
             if query is None:
                 return GraphNodeResolveResponse(request_id, ())
             raw = await self._resources.graph.resolve_nodes(query, context=context)
-            visible = await self._visible_nodes(raw.candidates, request.access)
+            visible = await self._visible_nodes(
+                raw.candidates,
+                request.access,
+                # The reader's own grants, not the batch's: the query is only issued at
+                # all when the principal can read something in the tenant.
+                tenant_readable=query.access_scope is None or query.access_scope.tenant_visible,
+            )
             visible = await apply_summary_views(visible, self._resources.summaries, request.access)
         candidates = visible[: request.query.limit]
         return GraphNodeResolveResponse(
@@ -123,7 +132,11 @@ class ReaderRetrieval:
         )
 
     async def _visible_nodes(
-        self, nodes: tuple[GraphNodeRecord, ...], access: AccessContext
+        self,
+        nodes: tuple[GraphNodeRecord, ...],
+        access: AccessContext,
+        *,
+        tenant_readable: bool,
     ) -> tuple[GraphNodeRecord, ...]:
         topology = self._resources.topology
         if topology is None:
@@ -144,7 +157,9 @@ class ReaderRetrieval:
         )
         tenant_visible = bool(documents or sources)
         return tuple(
-            node for node in nodes if _node_visible(node, documents, sources, tenant_visible)
+            node
+            for node in nodes
+            if _node_visible(node, documents, sources, tenant_visible, tenant_readable)
         )
 
 
@@ -153,11 +168,17 @@ def _node_visible(
     documents: set[str],
     sources: set[str],
     tenant_visible: bool,
+    tenant_readable: bool,
 ) -> bool:
     if node.ownership_scope == GraphOwnershipScope.TENANT:
         return tenant_visible
     if node.document_id is not None:
         return str(node.document_id) in documents
+    if node.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX):
+        # A shared external stub's source_scope_id is just the declarer projected last;
+        # checked against it, the stub flipped with ingestion order. Same rule as
+        # graph_visibility._record_authorized and the FalkorDB access predicate.
+        return tenant_readable
     return node.source_scope_id in sources
 
 

@@ -1,13 +1,13 @@
 [project]
 name = "harborrag-memory"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "Scope-aware short-term, working, and long-term memory for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "harborrag-core==2.0.0a1",
+    "harborrag-core==2.0.0a2",
     "langchain-core>=1.5,<2",
     "pydantic>=2.13,<3",
 ]
