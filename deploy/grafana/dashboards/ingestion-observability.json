@@ -123,12 +123,12 @@
     },
     {
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": { "defaults": { "min": 0, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 20 }, { "color": "red", "value": 30 }] } }, "overrides": [] },
+      "fieldConfig": { "defaults": { "min": 0, "unit": "s", "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 50 }, { "color": "red", "value": 60 }] } }, "overrides": [] },
       "gridPos": { "h": 8, "w": 12, "x": 12, "y": 32 },
       "id": 11,
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "colorMode": "value", "graphMode": "area", "justifyMode": "center", "textMode": "auto" },
       "targets": [{ "expr": "time() - max(harborrag_ingestion_queue_collected_timestamp_seconds)", "refId": "A" }],
-      "title": "Queue collection age (target < 30s)",
+      "title": "Queue collection age (stale after 2 intervals)",
       "type": "stat"
     }
   ],

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import signal
+import functools
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -44,6 +45,7 @@ QUEUE_COLLECT_INTERVAL_SECONDS = 30.0
 TEMPORAL_SDK_METRICS_BIND_ADDRESS = "0.0.0.0:9465"
 
 
+@functools.cache
 def temporal_sdk_runtime(bind_address: str) -> Runtime:
     """The process's one SDK runtime; its metrics stay off HarborRAG's own port."""
 
@@ -301,10 +303,13 @@ async def _queue_metrics_loop(
     *,
     interval: float,
 ) -> None:
+    telemetry = getattr(runtime, "telemetry", None)
+    if telemetry is None:
+        return
     while True:
         try:
-            await _emit_queue_metrics(runtime.telemetry, client, config)
-            runtime.telemetry.record_queue_counts(await runtime.control.queue_metrics.counts())
+            await _emit_queue_metrics(telemetry, client, config)
+            telemetry.record_queue_counts(await runtime.control.queue_metrics.counts())
         except asyncio.CancelledError:
             raise
         except Exception as error:

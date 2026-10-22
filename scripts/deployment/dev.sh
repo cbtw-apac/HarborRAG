@@ -9,7 +9,6 @@ PARSER_ENV_FILE="${PARSER_ENV_FILE:-env/.env.parser}"
 MODEL_ENV_FILE="${MODEL_ENV_FILE:-env/.env.models}"
 API_ENV_FILE="${API_ENV_FILE:-env/.env.api}"
 MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
-MONITORING_ENV_FILE="${MONITORING_ENV_FILE:-env/.env.monitoring}"
 API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
@@ -23,12 +22,12 @@ Commands:
   bootstrap          Create missing protected env files, then stop for review
   up [--no-worker] [--build] [--device cpu|gpu]
                      Start data, Temporal, worker (default), and API
-  down [--volumes]   Stop API, Temporal/worker, and data services
+  down [--volumes]   Stop API, Temporal/worker, monitoring, and data services
   data               Start only PostgreSQL, Qdrant, FalkorDB, Redis, and MinIO
   temporal           Start only Temporal server services; never starts a worker
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
-  monitoring         Start Prometheus, Grafana, Loki, and Tempo (needs env/.env.monitoring)
+  monitoring         Start Prometheus, Grafana, Loki, and Tempo (needs GRAFANA_ADMIN_PASSWORD)
   metrics            Show live queue and Temporal slot metrics from each worker
   api [--build]      Start only the API; reuse its image and never start a worker
 
@@ -161,6 +160,13 @@ validate_device() {
     [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
 }
 
+monitoring_compose() {
+    docker compose \
+        --env-file "${ROOT_DIR}/${MONITORING_ENV_FILE}" \
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml" \
+        "$@"
+}
+
 api_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
@@ -272,7 +278,7 @@ start_monitoring() {
     [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]] ||
         fail "Missing ${MONITORING_ENV_FILE}. Copy env-example/.env.monitoring.example and set GRAFANA_ADMIN_PASSWORD."
     require_data_network
-    docker compose         --env-file "${ROOT_DIR}/${MONITORING_ENV_FILE}"         --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml"         up --detach
+    monitoring_compose up --detach
 }
 
 show_worker_metrics() {
@@ -378,6 +384,14 @@ stop_stack() {
         temporal_compose --profile worker "${down_args[@]}"
     else
         echo "Skipping Temporal teardown because environment files are missing." >&2
+    fi
+
+    # Monitoring joins the data network, so it must go down before data services.
+    echo "Stopping monitoring services..."
+    if [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]]; then
+        monitoring_compose "${down_args[@]}"
+    else
+        echo "Skipping monitoring teardown because the environment file is missing." >&2
     fi
 
     echo "Stopping HarborRAG data services..."

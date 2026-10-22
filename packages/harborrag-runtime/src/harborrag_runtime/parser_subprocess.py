@@ -40,8 +40,13 @@ def main(argv: Sequence[str] | None = None) -> int:
                 ),
                 "process.executable.name": os.path.basename(arguments[0]),
             },
-        ):
-            return subprocess.run(arguments, check=False).returncode
+        ) as span:
+            returncode =  subprocess.run(arguments, check=False).returncode
+            span.set_attribute("process.exit.code", returncode)
+            if returncode != 0:
+                span.set_status(trace.Status(trace.StatusCode.ERROR, f"exit code {returncode}"))
+            return returncode
+        
     finally:
         provider.force_flush()
         provider.shutdown()

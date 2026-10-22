@@ -72,6 +72,7 @@ def _captured_command(monkeypatch: pytest.MonkeyPatch, *, owns_group: bool) -> l
 
     monkeypatch.setattr(mineru_engine.subprocess, "Popen", popen)
     monkeypatch.setattr(mineru_engine, "_owns_process_group", lambda: owns_group)
+    monkeypatch.setattr(mineru_engine.importlib.util, "find_spec", lambda nam: object())
     MinerUPDFEngine()._run(["mineru", "-p", "doc.pdf"])
     assert captured["start_new_session"] is owns_group
     return captured["command"]

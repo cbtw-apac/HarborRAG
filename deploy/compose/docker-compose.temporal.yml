@@ -185,7 +185,8 @@ services:
       HARBORRAG_METRICS_BIND_ADDRESS: 0.0.0.0
       HARBORRAG_TEMPORAL_SDK_METRICS_BIND_ADDRESS: 0.0.0.0:9465
       HARBORRAG_QUEUE_COLLECT_INTERVAL: ${HARBORRAG_QUEUE_COLLECT_INTERVAL:-30}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://tempo:4318}
+      # Empty disables trace export; set http://tempo:4318 with the monitoring stack.
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
       OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
       HARBORRAG_LANGFUSE_ENABLED: ${HARBORRAG_LANGFUSE_ENABLED:-false}
       # Pin image-internal paths. Host-relative values from env files are not

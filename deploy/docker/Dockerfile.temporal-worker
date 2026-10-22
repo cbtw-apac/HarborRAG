@@ -13,7 +13,7 @@ RUN apt-get update \
         libxcb1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Comma-separated PDF parser extras. Add pdf-mineru (large: torch and models)
+# Comma-separated PDF parser extras. Add pdf-mineru (large ML dependencies and models)
 # to parse PDFs in the MinerU subprocess with config/parsers.mineru.yaml.
 ARG HARBORRAG_PDF_EXTRAS=pdf-liteparse
 

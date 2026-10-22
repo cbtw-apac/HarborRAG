@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import TYPE_CHECKING
 
 from opentelemetry import trace
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+if TYPE_CHECKING:
+    from opentelemetry.sdk.trace import TracerProvider
 
 logger = logging.getLogger("harborrag.runtime.observability.tracing")
 
@@ -21,6 +22,11 @@ def bootstrap_tracing(service_name: str) -> TracerProvider:
     Call from process entry points only. A repeated call returns the installed
     provider, because OpenTelemetry refuses to replace a global provider.
     """
+
+    # The SDK is optional; import it only when an entry point opts into tracing.
+    from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
     installed = trace.get_tracer_provider()
     if isinstance(installed, TracerProvider):

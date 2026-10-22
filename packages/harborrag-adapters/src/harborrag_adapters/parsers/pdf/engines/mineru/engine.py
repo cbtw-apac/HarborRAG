@@ -34,6 +34,19 @@ MinerUBackendOptions = MinerUPDFConfig
 _TRACED_LAUNCHER = "harborrag_runtime.parser_subprocess"
 
 
+def _traced_launcher_available() -> bool:
+    """Whether the launcher and the optional OpenTelemetry SDK it needs are installed."""
+
+    try:
+        return (
+            importlib.util.find_spec("harborrag_runtime") is not None
+            and importlib.util.find_spec("opentelemetry.sdk") is not None
+        )
+    except ModuleNotFoundError:
+        # find_spec raises, rather than returning None, when a parent package is missing.
+        return False
+
+
 def _owns_process_group() -> bool:
     """Whether MinerU runs in its own session that a timeout kills as a whole.
 
@@ -225,7 +238,7 @@ class MinerUPDFEngine(HarborPDFEngine):
         owns_process_group = _owns_process_group()
         traced_command = (
             [sys.executable, "-m", _TRACED_LAUNCHER, "--", *command]
-            if owns_process_group and importlib.util.find_spec("harborrag_runtime") is not None
+            if owns_process_group and _traced_launcher_available()
             else command
         )
         cwd = (

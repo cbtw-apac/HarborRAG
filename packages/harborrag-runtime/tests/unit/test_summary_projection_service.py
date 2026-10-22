@@ -1,6 +1,7 @@
 """Publish canonical artifacts, generate independently, re-ingest, and read safely."""
 
 import asyncio
+from datetime import timedelta
 from decimal import Decimal
 
 import pytest
@@ -10,7 +11,7 @@ from harborrag_adapters.topology.descriptions import DescriptionRun
 from harborrag_core.base import utc_now
 from harborrag_core.ingestion import DocumentIdentityBuilder
 from harborrag_core.models.chat import HarborChatUsage
-from harborrag_core.summaries import SummaryPolicy
+from harborrag_core.summaries import SummaryLease, SummaryPolicy
 from harborrag_core.topology.derived import DescriptionOutput
 from harborrag_engine.topology.summary_reducer import SummaryBudgetDeferred
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -91,34 +92,62 @@ async def test_published_content_summarizes_without_extraction_and_reuses_across
         assert all(view.status == "current" for view in views.values())
 
 
+class LagRepository:
+    """The slice of ``SummaryExecutionRepositoryPort`` a finished run touches."""
+
+    def __init__(self, published_at):
+        self.lease = SummaryLease(
+            tenant_id="DEFAULT",
+            source_scope_id="scope",
+            revision=1,
+            fence=1,
+            policy=SummaryPolicy(model_fingerprint="model", debounce_seconds=0),
+            lease_until=utc_now() + timedelta(minutes=5),
+        )
+        self.published_at = published_at
+        self.lookups = []
+
+    async def claim(self, tenant_id, *, lease_seconds=300, source_scope_id=None):
+        lease, self.lease = self.lease, None
+        return lease
+
+    async def renew(self, lease, *, lease_seconds=300):
+        return None
+
+    async def pending_published_at(self, lease):
+        self.lookups.append(lease)
+        return self.published_at
+
+    async def finish(self, lease, *, error_code=None, blocked=False):
+        return error_code is None
+
+
 @pytest.mark.asyncio
-async def test_current_summary_records_lag_since_publication(tmp_path):
-    async with Harness(tmp_path) as harness:
-        harness.include_graph = True
-        await harness.publish(content=LONG)
-        await harness.control.summaries.configure(
-            "DEFAULT", "scope", SummaryPolicy(model_fingerprint="model", debounce_seconds=0)
-        )
-        lags: list[tuple[str, float]] = []
-        settings = RuntimeSettings(topology_llm_operation_cost_usd=Decimal("0.1"))
-        loader = SummaryInputLoader(
-            harness.control.summaries, harness.reader, harness.writer, settings
-        )
-        runner = SummaryProjectionService(
-            harness.control.summaries,
-            harness.control.topology,
-            settings,
-            lambda lease: Model(),
-            loader.load,
-            record_enrichment_lag=lambda kind, seconds: lags.append((kind, seconds)),
-        )
+async def test_current_summary_records_lag_since_publication(monkeypatch):
+    async def complete(self, lease):
+        return None
 
-        assert await runner.run_once("DEFAULT") == "current"
-        assert await runner.run_once("DEFAULT") == "idle"
+    # Card generation is covered above; this pins the lag path to the port.
+    monkeypatch.setattr(SummaryProjectionService, "_complete", complete)
+    repository = LagRepository(utc_now() - timedelta(seconds=30))
+    lease = repository.lease
+    lags: list[tuple[str, float]] = []
+    runner = SummaryProjectionService(
+        repository,
+        None,
+        RuntimeSettings(),
+        lambda lease: Model(),
+        None,
+        record_enrichment_lag=lambda kind, seconds: lags.append((kind, seconds)),
+    )
 
+    assert await runner.run_once("DEFAULT") == "current"
+    assert await runner.run_once("DEFAULT") == "idle"
+
+    assert repository.lookups == [lease]
     assert len(lags) == 1
     kind, seconds = lags[0]
-    assert kind == "summary" and 0 <= seconds < 60
+    assert kind == "summary" and 30 <= seconds < 60
 
 
 @pytest.mark.asyncio

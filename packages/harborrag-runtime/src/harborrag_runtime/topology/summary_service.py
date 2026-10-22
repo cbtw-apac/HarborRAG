@@ -172,8 +172,8 @@ class SummaryProjectionService:
                         renewal.cancel()
             published_at = await self._published_at(lease)
             current = await self.repository.finish(lease)
-            if current and published_at is not None and self.record_enrichment_lag is not None:
-                self.record_enrichment_lag("summary", (utc_now() - published_at).total_seconds())
+            if current and published_at is not None:
+                self._report_lag(published_at)
             return "current" if current else "superseded"
         except asyncio.CancelledError:
             # Lease expiry allows another worker to reuse completed reductions.
@@ -192,6 +192,15 @@ class SummaryProjectionService:
                 logger.warning("Summary projection attempt failed", exc_info=True, extra=details)
             await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
             return "blocked" if blocked else "failed"
+
+
+    def _report_lag(self, published_at: datetime) -> None:
+        if self.record_enrichment_lag is None:
+            return
+        try:
+            self.record_enrichment_lag("summary", (utc_now() - published_at).total_seconds())
+        except Exception as error:
+            logger.warning("Enrichment lag reporting failed error_type=%s", type(error).__name__)
 
     async def _published_at(self, lease: SummaryLease) -> datetime | None:
         if self.record_enrichment_lag is None:
