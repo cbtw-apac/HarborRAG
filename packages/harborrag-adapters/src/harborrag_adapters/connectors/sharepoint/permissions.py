@@ -1,17 +1,12 @@
-"""Classify SharePoint drive-item permissions against the document library.
+"""SharePoint drive-item permission classification against the document library.
 
-The library (drive root) is the connector's source scope, governed by the
-operator's source snapshot. An item is ``inherited`` only when every non-link
-grant carries ``inheritedFrom`` *and* its grant ids equal the library root's:
-comparing ids also catches a folder that broke inheritance and whose children
-"inherit" a narrower set. Sharing links only widen access beyond the library,
-which the library's snapshot already bounds, so they do not affect the result.
+Handles:
+- Identity realms for Entra and SharePoint principals
+- Classification of an item as inherited, restricted or unknown
+- Cached permission reads per drive and item
 
-An empty grant list, an empty library root, grants naming no identifiable
-principal, or a ``FetchError``, ``AuthorizationError`` or HTTP 403 while reading
-permissions all give ``unknown`` (fail closed). The SharePoint client reports 403
-as ``AuthenticationError(status_code=403)``; any other ``AuthenticationError``
-(401, token failures) still propagates and aborts the run.
+Unreadable or empty permissions classify as ``unknown`` (fail closed); sharing links
+are ignored.
 """
 
 from __future__ import annotations
@@ -45,7 +40,7 @@ _SITE_LOCAL_KINDS = frozenset({"site_user", "site_group"})
 
 
 def entra_realm(tenant_id: str) -> str:
-    """Return ``entra:<tenant id>``, the identity realm of a Microsoft Entra tenant."""
+    """Return ``entra:<tenant id>``. Raises ``ValueError`` for a blank tenant id."""
 
     tenant = str(tenant_id).strip()
     if not tenant:
@@ -54,7 +49,7 @@ def entra_realm(tenant_id: str) -> str:
 
 
 def sharepoint_realm(host: str) -> str:
-    """Return ``sharepoint:<lowercase host>``, a placeholder realm for a SharePoint site."""
+    """Return ``sharepoint:<lowercase host>``. Raises ``ValueError`` for a blank host."""
 
     name = str(host).strip().lower()
     if not name:
@@ -63,18 +58,11 @@ def sharepoint_realm(host: str) -> str:
 
 
 def site_realm(config: SharePointSiteConfig) -> str:
-    """Choose the identity realm for the principals a site's permissions name.
+    """Return the identity realm for the principals a site's permissions name.
 
-    With a configured tenant id (``tenant_id`` or its ``MICROSOFT_TENANT_ID``
-    fallback) the realm is ``entra:<tenant id>``, the namespace an Entra directory
-    resolves. Token-only configs have no tenant id, so the realm falls back to
-    ``sharepoint:<host>``: the host of the configured site (``hostname``, which
-    ``site_url`` fills in), else the host a Graph ``site_id`` leads with
-    (``contoso.sharepoint.com,<guid>,<guid>``).
-
-    A ``sharepoint:`` realm is a placeholder that no Entra directory resolves, so
-    its principals match nobody once SharePoint access is enforced (fail closed)
-    until the connector is configured with a tenant id. It never grants anything.
+    ``entra:<tenant id>`` when a tenant id is configured, else ``sharepoint:<host>`` from
+    ``hostname`` or the host at the start of ``site_id``. The ``sharepoint:`` realm
+    matches no Entra principal.
     """
 
     tenant = str(config.tenant_id or "").strip()
@@ -85,7 +73,7 @@ def site_realm(config: SharePointSiteConfig) -> str:
 
 
 def grant_ids(permissions: Sequence[Mapping[str, Any]]) -> frozenset[str]:
-    """Ids of the non-link grants in a Graph permission list."""
+    """Return the ids of the non-link grants in a Graph permission list."""
 
     return frozenset(
         str(permission["id"])
@@ -104,13 +92,18 @@ def classify_item_permissions(
 ) -> SourceAcl:
     """Classify one item's Graph permissions relative to its library root grants.
 
-    ``scope`` is the library (``sharepoint-drive:<drive id>``) the root grants
-    belong to; ``realm`` is the namespace of the principals the grants name.
-    ``site_key`` is the stable identity of the site the item was read from: the
-    ids of site-local principals (``site_user``, ``site_group``) are only unique
-    within one site collection, so they are qualified as ``<site_key>/<local id>``.
-    Without that, ``site_group:3`` on two sites would be one principal. A blank
-    ``site_key`` raises ``ValueError``.
+    ``inherited`` only when every non-link grant has ``inheritedFrom`` and the grant ids
+    equal the root's. Empty grants, an empty root or unidentifiable grantees give ``unknown``.
+
+    Args:
+        permissions: Graph permission list of the item; sharing links are ignored.
+        root_grant_ids: Grant ids on the library root.
+        realm: Identity realm of the principals the grants name.
+        scope: Library scope, ``sharepoint-drive:<drive id>``.
+        site_key: Site id; site-local principal ids are qualified as ``<site_key>/<id>``.
+
+    Raises:
+        ValueError: If ``site_key`` is blank.
     """
 
     site = site_key.strip()
@@ -132,6 +125,10 @@ def classify_item_permissions(
 
 
 def _grantees(permission: Mapping[str, Any], *, realm: str, site: str) -> list[SourcePrincipal]:
+    """Return the principals one permission names, preferring ``grantedToV2``.
+
+    Site-local ids are qualified with ``site``; entries without an id are ignored.
+    """
     identities = permission.get("grantedToV2") or permission.get("grantedTo")
     if not isinstance(identities, Mapping):
         return []
@@ -150,35 +147,47 @@ def _grantees(permission: Mapping[str, Any], *, realm: str, site: str) -> list[S
 
 
 class SharePointPermissionResolver:
-    """Read Graph permissions for drive items; cache the library root per drive.
+    """Resolver that reads Graph permissions for drive items and caches the results.
 
-    Item results are cached per ``(site, drive, item, cTag)``, because paged
-    discovery replays the whole traversal once per page. The site is part of the
-    key because site-local principals are qualified with it. Calls without a
-    version (loads) are never cached. The connector calls ``reset`` when a new
-    scan starts: permission changes rarely change an item's ``cTag``, so a cache
-    that outlived the scan would keep serving an item after its access narrowed.
+    Caches the library root grants per drive and item ACLs per ``(site, drive, item, cTag)``.
+    Calls without a version are not cached; ``reset`` clears both caches at scan start.
     """
 
     def __init__(self, client: SharePointClient, *, realm: str) -> None:
+        """Bind the Graph client and principal realm.
+
+        Args:
+            client: Graph client used for permission reads.
+            realm: Identity realm of the principals.
+        """
         self._client = client
         self._realm = realm
         self._root_grants: dict[str, frozenset[str]] = {}
         self._items: dict[tuple[str, str, str, str], SourceAcl] = {}
 
     def reset(self) -> None:
-        """Forget cached library-root and item permissions before a new scan."""
+        """Clear the cached root grants and item ACLs."""
 
+        # Permission changes rarely change an item's cTag, so a cache that outlived the
+        # scan would keep serving an item after its access narrowed.
         self._root_grants.clear()
         self._items.clear()
 
     def item_acl(
         self, drive_id: str, item_id: str, *, site_key: str, version: str | None = None
     ) -> SourceAcl:
-        """Return the item's ACL, or ``unknown`` when Graph cannot tell us.
+        """Return the item's ACL, or ``unknown`` when permissions cannot be read.
 
-        ``site_key`` identifies the site the item was read from; see
-        :func:`classify_item_permissions`.
+        A ``FetchError``, ``AuthorizationError`` or HTTP 403 gives ``unknown``.
+
+        Args:
+            drive_id: Drive id.
+            item_id: Drive item id.
+            site_key: Site id used to qualify site-local principals.
+            version: Item ``cTag``; enables caching when set.
+
+        Raises:
+            AuthenticationError: If the credentials are rejected with a status other than 403.
         """
 
         key = (site_key, drive_id, item_id, version) if version else None
@@ -187,6 +196,7 @@ class SharePointPermissionResolver:
             cached = self._items.get(key)
             if cached is not None:
                 return cached
+        # TODO: URL-encode item ids in Graph endpoints.
         try:
             acl = classify_item_permissions(
                 self._permissions(f"drives/{drive_id}/items/{item_id}/permissions"),
@@ -213,6 +223,7 @@ class SharePointPermissionResolver:
         )
 
     def _root_grant_ids(self, drive_id: str) -> frozenset[str]:
+        """Return the grant ids on the drive root, fetched once per drive until ``reset``."""
         cached = self._root_grants.get(drive_id)
         if cached is not None:
             return cached
@@ -221,6 +232,11 @@ class SharePointPermissionResolver:
         return grants
 
     def _permissions(self, endpoint: str) -> list[dict[str, Any]]:
+        """Return every permission on an endpoint, following ``@odata.nextLink`` pages.
+
+        Raises:
+            FetchError: If a page is malformed or the page cap is exceeded.
+        """
         values: list[dict[str, Any]] = []
         next_endpoint = endpoint
         for _ in range(_MAX_PERMISSION_PAGES):

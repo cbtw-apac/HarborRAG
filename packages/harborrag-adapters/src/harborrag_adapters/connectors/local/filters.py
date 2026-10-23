@@ -14,7 +14,11 @@ def extension_filter(
     query: ConnectorQuery,
     key: str,
 ) -> set[str]:
-    """Read and normalize an extension filter from query or config."""
+    """Return the extension set for ``key`` from the query, else from the config.
+
+    The ``extensions`` query key is an alias for ``allowed_extensions``.
+    """
+    # TODO: narrow the config filter with the query filter instead of replacing it.
     values = query.filters.get(key)
     if values is None and key == "allowed_extensions":
         values = query.filters.get("extensions")
@@ -37,7 +41,8 @@ def path_filter(
     query: ConnectorQuery,
     key: str,
 ) -> list[str]:
-    """Read and normalize a path or glob filter from query or config."""
+    """Return the path or glob list for ``key`` from the query, else from the config."""
+    # TODO: narrow the config filter with the query filter instead of replacing it.
     values = query.filters.get(key)
     if values is None:
         return list(getattr(config, key))
@@ -47,7 +52,7 @@ def path_filter(
 
 
 def file_paths_from_query(query: ConnectorQuery) -> list[str | Path]:
-    """Return explicit file paths from supported query-filter aliases."""
+    """Return the explicit file paths from the ``file_paths``, ``paths`` or ``files`` filter."""
     values = (
         query.filters.get("file_paths") or query.filters.get("paths") or query.filters.get("files")
     )

@@ -1,4 +1,11 @@
-"""Confluence discovery and raw-document loading orchestration."""
+"""Confluence connector for discovery, description and document loading.
+
+Handles:
+- CQL and explicit-ID discovery over Cloud cursors and Data Center offsets
+- Admission descriptors through ``ConfluenceDescriptorBuilder``
+- Page loading as HTML raw documents with comments and relations
+- Attachment loading gated on the parent page's ACL, re-read before download
+"""
 
 from __future__ import annotations
 
@@ -56,10 +63,10 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
-    """Connector for Confluence Cloud and Data Center REST APIs.
+    """Connector for Confluence Cloud and Data Center content.
 
-    Discovery returns page/blogpost records from CQL search. Loading fetches the expanded
-    body and optional comments/attachments so parsing receives one complete document.
+    Discovery returns page and blogpost records; loading fetches the expanded body and optional
+    comments and attachments as one document.
     """
 
     provider_name = "confluence"
@@ -83,7 +90,14 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize provider APIs and shared attachment processing."""
+        """Wire the content API, attachment handling and ACL collaborators.
+
+        Args:
+            config: Validated space configuration.
+            client: HTTP client; a requests-based client is built when omitted.
+            parser: Parser registry for attachments.
+            rate_limiter: Limiter for the default client.
+        """
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsConfluenceClient(
@@ -129,7 +143,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         self._titles = PageTitleResolver(self._content)
 
     def close(self) -> None:
-        """Release the client session when the connector owns one."""
+        """Close the client when it exposes ``close``."""
 
         close = getattr(self.client, "close", None)
         if callable(close):
@@ -138,15 +152,14 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     def connect(self) -> None:
         """Verify Confluence credentials once before the first discovery request.
 
-        See `verify_credentials` for how a 403 is remapped the same way a
-        bare 401 already is, so a bad credential looks the same shape on
-        Confluence and Jira.
+        Raises ``AuthenticationError`` for a 401 and ``AuthorizationError`` for a 403,
+        with a uniform provider message.
         """
         verify_credentials(lambda: self.client.get_json("user/current"), provider="Confluence")
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
-        """Pages the most recent discovery call withheld because of source access."""
+        """Return pages the latest discovery withheld because of source access."""
 
         return self._gate.skipped
 
@@ -154,11 +167,18 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         """Search Confluence content or materialize explicitly requested IDs.
 
         Each call starts a new scan, so cached ancestor restrictions are dropped.
+
+        Args:
+            query: Filters and limit; ``None`` searches the configured space.
+
+        Returns:
+            Iterator of source records.
         """
         self._access.reset()
         return self._discover_records(query)
 
     def _discover_records(self, query: ConnectorQuery | None) -> Iterator[SourceRecord]:
+        """Yield records for explicit IDs or a CQL search, honoring ``query.limit``."""
         self._ensure_connected()
         query = query or ConnectorQuery()
         self._gate.reset()
@@ -212,10 +232,18 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         cursor: str | None,
         page_size: int,
     ) -> ConnectorPage:
-        """Use Confluence's Cloud cursor or Data Center offset directly.
+        """Return one discovery page using Cloud cursors or Data Center offsets.
 
-        ``cursor=None`` starts a new scan and drops cached ancestor restrictions;
-        later pages, including explicit-ID replays, reuse them.
+        ``cursor=None`` starts a new scan and drops cached ancestor restrictions; later pages,
+        including explicit-ID replays, reuse them.
+
+        Args:
+            query: Filters; ``None`` searches the configured space.
+            cursor: Cursor from the previous page, or None to start.
+            page_size: Number of records wanted.
+
+        Returns:
+            Page of records with the next cursor, or None on the last page.
         """
 
         self._ensure_connected()
@@ -268,7 +296,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     def _explicit_records(
         self, content_ids: list[str], query: ConnectorQuery
     ) -> Iterator[SourceRecord]:
-        """Resolve requested IDs (and children) to records, withholding restricted pages."""
+        """Resolve requested IDs and their children to records, withholding restricted pages."""
 
         if query.limit is not None and query.limit <= 0:
             return
@@ -283,24 +311,21 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             yield record
             admitted += 1
             # Stop before pulling the next ID: `with_children` fetches child pages
-            # lazily, and `test_direct_id_discovery_stops_before_child_traversal_at_limit`
-            # pins that no child request is made once the limit is met.
+            # lazily.
             if query.limit is not None and admitted >= query.limit:
                 return
 
     def _discoverable(self, content: dict[str, Any], content_id: str) -> bool:
-        """Apply label/live-doc filters, then the restricted-content policy."""
+        """Return whether content passes the label, live-doc and restricted-content checks."""
 
         return self._should_process_content(content) and self._gate.admit(
             self._access.page_acl(content), path=content_id
         )
 
     def _require_parent_access(self, record: SourceRecord) -> SourceAcl:
-        """Re-check the parent page's access before downloading an attachment.
+        """Re-read the parent page's ACL before an attachment download and return it.
 
-        The page (or an ancestor) may have been restricted since discovery; one
-        descriptor read tells, and the attachment is refused exactly as the page
-        would be.
+        Ancestor restrictions come from the scan cache when present.
         """
 
         parent_id = attachment_parent_locator(record)
@@ -309,7 +334,23 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         return acl
 
     def load(self, record: SourceRecord) -> RawDocument:
-        """Load one expanded Confluence content item as an HTML raw document."""
+        """Load one Confluence page, or one attachment, as a raw document.
+
+        Pages become HTML documents with comments, relations and attachments unless deferred.
+        Attachments re-read their parent page's ACL first.
+
+        Args:
+            record: Page or attachment record.
+
+        Returns:
+            Raw document carrying the ACL metadata of the page.
+
+        Raises:
+            DocumentProcessingError: If attachment loading is disabled, or the page is
+                malformed, outside the configured space or no longer matches the content
+                filters.
+            SourceRestrictedError: If restricted-content policy withholds the page.
+        """
 
         if is_attachment_record(record):
             if (
@@ -392,7 +433,7 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
-        """Discover comment/attachment versions and structural relations."""
+        """Return the admission descriptor for a page (versions, relations, bound attachments)."""
 
         descriptor = self._descriptors.describe(record)
         logger.info(
@@ -407,6 +448,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         return descriptor
 
     def load_by_ids(self, content_ids: list[str]) -> Iterator[RawDocument]:
-        """Load content for callers that already have Confluence IDs."""
+        """Yield raw documents for Confluence IDs the caller already has."""
         for content_id in content_ids:
             yield self.load(self._record_for_id(content_id, ConnectorQuery()))

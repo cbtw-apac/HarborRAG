@@ -1,3 +1,10 @@
+"""Registry of connector providers.
+
+Handles:
+- Provider definitions with aliases, config factories and dependencies
+- Registration, lookup and removal by name or alias
+"""
+
 from __future__ import annotations
 
 import logging
@@ -18,7 +25,18 @@ _PROVIDER_NAME_PATTERN = re.compile(r"[a-z][a-z0-9_-]{0,63}")
 
 @dataclass(frozen=True, slots=True)
 class ConnectorProviderDefinition:
-    """One connector plugin and the metadata needed to compose it."""
+    """Connector plugin definition: provider class plus composition metadata.
+
+    Attributes:
+        name: Canonical provider name.
+        provider_cls: Connector class to instantiate.
+        aliases: Alternative names that resolve to this provider.
+        config_factory: Builds the provider's config object.
+        constructor_dependencies: Constructor argument name to runtime dependency name.
+        config_path_fields: Config fields that hold filesystem paths.
+        document_kind: Kind label for the provider's documents.
+        document_transform_factory: Builds the provider's document transform.
+    """
 
     name: str
     provider_cls: type[BaseConnector]
@@ -30,6 +48,10 @@ class ConnectorProviderDefinition:
     document_transform_factory: ConnectorDocumentTransformFactory | None = None
 
     def __post_init__(self) -> None:
+        """Validate the definition and freeze ``constructor_dependencies`` as read-only.
+
+        Names, aliases and ``document_kind`` must be lowercase identifiers.
+        """
         dependencies = dict(self.constructor_dependencies)
         if _PROVIDER_NAME_PATTERN.fullmatch(self.name) is None:
             raise ValueError("connector provider name must be a normalized identifier")
@@ -49,10 +71,10 @@ class ConnectorProviderDefinition:
 
 
 class ConnectorRegistry:
-    """In-process provider registry used by ``HarborConnector``."""
+    """In-process provider registry behind ``HarborConnector``."""
 
     def __init__(self) -> None:
-        """Create an empty provider mapping."""
+        """Create an empty registry."""
         self._providers: dict[str, ConnectorProviderDefinition] = {}
 
     def register(
@@ -63,11 +85,16 @@ class ConnectorRegistry:
         aliases: list[str] | None = None,
         replace: bool = False,
     ) -> None:
-        """Register one connector class under a canonical name and aliases.
+        """Register a connector class under a name and aliases.
 
-        A key already owned by a *different* provider is a misconfiguration
-        (e.g. two providers sharing an alias) and is rejected unless
-        ``replace=True`` so silent shadowing cannot occur.
+        Args:
+            name: Canonical provider name.
+            provider_cls: Connector class to instantiate.
+            aliases: Alternative names for the provider.
+            replace: Allow overriding keys owned by a different provider.
+
+        Raises:
+            ValueError: If a key belongs to a different provider and ``replace`` is false.
         """
         definition = ConnectorProviderDefinition(
             name=name,
@@ -82,8 +109,15 @@ class ConnectorRegistry:
         *,
         replace: bool = False,
     ) -> None:
-        """Register a complete connector plugin definition."""
+        """Register a provider definition under its name and aliases.
 
+        Args:
+            definition: Provider definition to register.
+            replace: Allow overriding keys owned by a different definition.
+
+        Raises:
+            ValueError: If a key belongs to a different definition and ``replace`` is false.
+        """
         keys = (definition.name, *definition.aliases)
         for key in keys:
             existing = self._providers.get(key)
@@ -96,51 +130,55 @@ class ConnectorRegistry:
             self._providers[key] = definition
 
     def get_class(self, name: str) -> type[BaseConnector]:
-        """Return a registered connector class by name (canonical or alias)."""
+        """Return the connector class for a name or alias.
+
+        Raises:
+            ConnectorNotFoundError: If the name is not registered.
+        """
         try:
             return self._providers[name].provider_cls
         except KeyError as exc:
             raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
 
     def get_definition(self, name: str) -> ConnectorProviderDefinition:
-        """Return plugin metadata by canonical name or alias."""
+        """Return the provider definition for a name or alias.
 
+        Raises:
+            ConnectorNotFoundError: If the name is not registered.
+        """
         try:
             return self._providers[name]
         except KeyError as exc:
             raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
 
     def canonical_name(self, name: str) -> str:
-        """Resolve a registered alias to its canonical provider name."""
-
+        """Return the canonical provider name for a name or alias."""
         return self.get_definition(name).name
 
     def canonical_names(self) -> list[str]:
-        """Return canonical provider names without aliases."""
-
+        """Return sorted canonical provider names, without aliases."""
         return sorted({definition.name for definition in self._providers.values()})
 
     def unregister(self, name: str) -> None:
-        """Remove one canonical connector name or alias from the registry."""
+        """Remove one name or alias. Raises ``ConnectorNotFoundError`` if not registered."""
         try:
             del self._providers[name]
         except KeyError as exc:
             raise ConnectorNotFoundError(f"Unsupported connector provider: {name}") from exc
 
     def unregister_provider(self, name: str) -> None:
-        """Remove a provider and every alias owned by its definition."""
-
+        """Remove a provider and all its aliases. Raises ``ConnectorNotFoundError`` if unknown."""
         definition = self.get_definition(name)
         for key in tuple(self._providers):
             if self._providers[key] is definition:
                 del self._providers[key]
 
     def create(self, name: str, **kwargs: Any) -> BaseConnector:
-        """Instantiate a registered connector by name."""
+        """Instantiate a connector by name or alias, passing ``kwargs`` to its constructor."""
         return self.get_class(name)(**kwargs)
 
     def names(self) -> list[str]:
-        """Return all registered canonical names and aliases."""
+        """Return all registered names and aliases, sorted."""
         return sorted(self._providers)
 
 

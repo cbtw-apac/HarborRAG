@@ -1,11 +1,12 @@
 """Confluence read restrictions captured as source ACL evidence.
 
-Confluence view restrictions are inherited: a reader must pass the page's own
-read restriction *and* every restricted ancestor's. Each restricted level becomes
-one ``SourceAcl`` level. Anything the payload cannot prove (missing block,
-truncated list, entry without an id, unreadable ancestor) resolves to ``unknown``.
-Space permissions are the connector's source scope and are governed by the
-operator's source snapshot, not here.
+Handles:
+- Read-restriction principals of one page or ancestor
+- Restricted levels combined into one ``SourceAcl``
+- Ancestor restrictions cached for the duration of a scan
+
+Anything the payload cannot prove resolves to ``unknown``. Does NOT evaluate space permissions;
+the operator's source snapshot governs the space scope.
 """
 
 from __future__ import annotations
@@ -31,9 +32,15 @@ def read_restriction_principals(
 ) -> tuple[SourcePrincipal, ...] | None:
     """Return one item's read-restriction principals.
 
-    ``()`` means the item adds no read restriction; ``None`` means the payload
-    cannot prove that, which callers must treat as unresolved. Every principal
-    belongs to the site's ``realm``.
+    ``()`` means no read restriction; ``None`` means the payload cannot prove that, which callers
+    must treat as unresolved.
+
+    Args:
+        holder: Content payload expanded with ``restrictions.read.restrictions``.
+        realm: Identity realm assigned to every principal.
+
+    Returns:
+        The principals, ``()`` for none, or ``None`` when unprovable.
     """
 
     restrictions = _mapping(
@@ -55,6 +62,7 @@ def read_restriction_principals(
 
 
 def _complete_results(block: Mapping[str, Any]) -> list[Mapping[str, Any]] | None:
+    """Return a block's entries, or None when the list may be truncated or malformed."""
     results = block.get("results")
     if not isinstance(results, list) or _mapping(block.get("_links")).get("next"):
         return None
@@ -69,6 +77,7 @@ def _complete_results(block: Mapping[str, Any]) -> list[Mapping[str, Any]] | Non
 def _principal(
     kind: str, entry: Mapping[str, Any], id_fields: tuple[str, ...], *, realm: str
 ) -> SourcePrincipal | None:
+    """Build a principal from a restriction entry, or None when it has no usable id."""
     identifier = next(
         (str(entry[name]).strip() for name in id_fields if str(entry.get(name) or "").strip()),
         "",
@@ -80,17 +89,10 @@ def _principal(
 
 
 class ConfluenceAccessResolver:
-    """Combine a page's read restrictions with its ancestors', caching ancestors.
+    """Resolver combining a page's read restrictions with its ancestors'.
 
-    Ancestor restrictions are not part of the page payload, so each ancestor is
-    fetched once per scan: the connector calls ``reset`` when a scan starts, so a
-    parent restricted after it was first seen is re-read by the next scan. A
-    failed fetch is never cached. Concurrent describes may race on the cache; a
-    duplicate fetch is harmless.
-
-    Every ACL it returns is in ``realm`` (the site's identity namespace) and
-    relative to ``scope`` (``confluence-space:<KEY>``, the space the connector
-    reads).
+    Caches ancestor restrictions until ``reset``; a failed fetch is never cached. Returned ACLs
+    are in ``realm`` and relative to ``scope`` (``confluence-space:<KEY>``).
     """
 
     def __init__(self, content: ConfluenceContentAPI, *, realm: str, scope: str) -> None:
@@ -105,6 +107,18 @@ class ConfluenceAccessResolver:
         self._ancestors.clear()
 
     def page_acl(self, content: Mapping[str, Any]) -> SourceAcl:
+        """Return the page's ACL: its own read restriction plus every restricted ancestor's.
+
+        Resolves to ``unknown`` when the page's, the ancestor list's or any ancestor's restrictions
+        cannot be proven. With no restricted level the ACL is inherited from the space scope.
+
+        Args:
+            content: Page payload expanded with restrictions and ancestors.
+
+        Returns:
+            Restricted ACL with one level per restricted page or ancestor, an inherited ACL, or an
+            ``unknown`` ACL.
+        """
         own = read_restriction_principals(content, realm=self._realm)
         ancestors = content.get("ancestors")
         if own is None or not isinstance(ancestors, list):
@@ -129,9 +143,11 @@ class ConfluenceAccessResolver:
         return SourceAcl.unknown(reason=reason, realm=self._realm, scope=self._scope)
 
     def _ancestor_level(self, ancestor: Mapping[str, Any]) -> tuple[SourcePrincipal, ...] | None:
+        """Return an ancestor's principals from its expansion, the scan cache or one fetch."""
         if "restrictions" in ancestor:
             return read_restriction_principals(ancestor, realm=self._realm)
         ancestor_id = str(ancestor.get("id") or "").strip()
+        # TODO: re-read ancestor restrictions at describe/load time instead of the scan cache.
         # One read: a concurrent reset() must not empty the cache between check and use.
         cached = self._ancestors.get(ancestor_id, _MISSING)
         if cached is not _MISSING:

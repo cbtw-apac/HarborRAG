@@ -1,3 +1,13 @@
+"""Confluence page descriptors for ingestion admission.
+
+Handles:
+- Page, comment and attachment version tokens
+- Attachment child records bound to their page
+- Page relations (``child_of`` the nearest ancestor, ``has_attachment``)
+
+Does NOT download page bodies or attachment bytes; loading does that.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -32,7 +42,11 @@ DISCOVERY_DESCRIPTOR_KEY = "_confluence_discovery_descriptor"
 
 
 class ConfluenceDescriptorBuilder:
-    """Build page admission data and attachment records without downloading bytes."""
+    """Builder for page admission descriptors and bound attachment records.
+
+    Holds no state of its own; ``access`` and ``gate`` are shared with the connector so discovery,
+    describe and load apply the same ACL rules.
+    """
 
     def __init__(
         self,
@@ -43,6 +57,15 @@ class ConfluenceDescriptorBuilder:
         access: ConfluenceAccessResolver,
         gate: RestrictedContentGate,
     ) -> None:
+        """Bind the collaborators.
+
+        Args:
+            content: Content API for descriptors, comments and attachments.
+            attachments: Gateway describing attachment payloads.
+            config: Space configuration.
+            access: ACL resolver shared with the connector.
+            gate: Restricted-content gate shared with the connector; only discovery records skips.
+        """
         self._content = content
         self._attachments = attachments
         self._config = config
@@ -53,6 +76,23 @@ class ConfluenceDescriptorBuilder:
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
+        """Build the admission descriptor for one Confluence page.
+
+        Reuses the payload cached on the record at discovery, else fetches a descriptor. The page's
+        ACL is required first and inherited by its admitted attachment records.
+
+        Args:
+            record: Page record produced by discovery.
+
+        Returns:
+            Descriptor with page, comment and attachment versions, relations, and one bound record
+            per admitted attachment. Its source record sets ``defer_attachments``.
+
+        Raises:
+            SourceRestrictedError: If restricted-content policy withholds the page.
+            DocumentProcessingError: If the page is malformed or outside the configured space.
+            ValueError: If the page has no source version.
+        """
         content_id = content_id_from_record(record)
         cached = record.metadata.get(DISCOVERY_DESCRIPTOR_KEY)
         content = (
@@ -154,6 +194,7 @@ class ConfluenceDescriptorBuilder:
 
     @staticmethod
     def _source_version(content: dict[str, Any]) -> str:
+        """Return the version number, else its timestamp; raise ``ValueError`` if neither exists."""
         version = content.get("version") or {}
         value = version.get("number") or version.get("when")
         if value is None or not str(value).strip():
@@ -162,6 +203,7 @@ class ConfluenceDescriptorBuilder:
 
     @staticmethod
     def _comment_version(comment: dict[str, Any]) -> str:
+        """Return a comment's version from its version or timestamps, else a hash."""
         version = comment.get("version") or {}
         history = comment.get("history") or {}
         updated = history.get("lastUpdated") or {}
@@ -193,6 +235,7 @@ class ConfluenceDescriptorBuilder:
         attachments: tuple[SourceRecord, ...],
         source_version: str,
     ) -> tuple[SourceRelationDescriptor, ...]:
+        """Build ``child_of`` (last ancestor) and ``has_attachment`` relations."""
         values: list[SourceRelationDescriptor] = []
         ancestors = content.get("ancestors") or []
         if ancestors:
@@ -223,16 +266,10 @@ class ConfluenceDescriptorBuilder:
         *,
         titles: dict[str, str],
     ) -> dict[str, object]:
+        """Build the stored relation dict, adding ``target_title`` when it is known."""
         metadata: dict[str, object] = {"source_relation_version": relation.source_relation_version}
-        # Carried on the payload, never on the descriptor: the descriptor feeds
-        # admission_change_key, so adding a field there would re-admit every document.
-        # The payload is not free either -- SourceAdmissionPolicy.retrieval_metadata_view
-        # hashes document.relations, so adding this key re-versions every page that has a
-        # relation, once. Measured on a live re-run: 84 of 98 pages took a second version
-        # whose canonical_content_hash, processing_fingerprint and admission_change_key
-        # were all unchanged. That is the intended trade -- it is what republished the
-        # graph with resolved target titles -- but it is a re-embed, so do not add
-        # cosmetic keys here.
+        # Relations are hashed into retrieval metadata: any new key re-versions every
+        # page with a relation, so add no cosmetic keys.
         title = titles.get(relation.target_source_item_id)
         if title:
             metadata["target_title"] = title
@@ -245,7 +282,7 @@ class ConfluenceDescriptorBuilder:
 
     @staticmethod
     def _ancestor_titles(content: dict[str, Any]) -> dict[str, str]:
-        """Map each ancestor's canonical source id to its human title."""
+        """Map each ancestor's canonical source id to its title."""
 
         space_key = str((content.get("space") or {}).get("key") or "").strip()
         titles: dict[str, str] = {}

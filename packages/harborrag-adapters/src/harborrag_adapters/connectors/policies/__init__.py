@@ -1,3 +1,5 @@
+"""Connector HTTP and config policies public API."""
+
 from .http import (
     DEFAULT_ERROR_BODY_LIMIT,
     DEFAULT_JSON_BODY_LIMIT,

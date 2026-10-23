@@ -1,4 +1,13 @@
-"""Microsoft Graph client protocol and requests-based implementation."""
+"""Microsoft Graph client protocol and its requests-based implementation.
+
+Handles:
+- Bearer token from config or client-credentials flow, cached until near expiry
+- Authenticated, rate-limited GET requests with retries
+- Capped JSON and file-byte reads
+
+References:
+- https://learn.microsoft.com/graph/overview
+"""
 
 from __future__ import annotations
 
@@ -30,7 +39,7 @@ _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 class SharePointClient(Protocol):
-    """Small Microsoft Graph API surface needed by ``SharePointConnector``."""
+    """API surface ``SharePointConnector`` needs from a Microsoft Graph client."""
 
     def get_json(
         self,
@@ -38,11 +47,25 @@ class SharePointClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a decoded Microsoft Graph response object."""
+        """GET an endpoint and return the decoded JSON object.
+
+        Args:
+            endpoint: Graph path relative to the API URL, or a same-origin absolute URL.
+            params: Query parameters.
+
+        Raises:
+            FetchError: If the request fails or the body is not a JSON object.
+            AuthenticationError: If Graph answers 401 or 403.
+        """
         pass
 
     def get_bytes(self, endpoint: str) -> bytes:
-        """Return bytes downloaded from a Microsoft Graph endpoint."""
+        """GET an endpoint and return its body, capped by ``max_file_size_bytes``.
+
+        Raises:
+            FetchError: If the request fails or the body exceeds the cap.
+            AuthenticationError: If Graph answers 401 or 403.
+        """
         pass
 
     def close(self) -> None:
@@ -51,9 +74,17 @@ class SharePointClient(Protocol):
 
 
 class _RequestsGraphClient:
-    """Authenticated, rate-limited Microsoft Graph client."""
+    """Requests-based Graph client with local rate limiting, retries and token caching.
+
+    Owns its HTTP session; ``close`` releases it and drops the cached token.
+    """
 
     def __init__(self, config: SharePointSiteConfig) -> None:
+        """Create the HTTP session and throttle state. Makes no request.
+
+        Args:
+            config: Validated site config.
+        """
         self.config = config
         self.session = requests.Session()
         self.session.headers.update({"Accept": "application/json"})
@@ -69,7 +100,18 @@ class _RequestsGraphClient:
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """GET a Graph endpoint and decode its JSON body."""
+        """GET an endpoint and return the decoded JSON object.
+
+        Args:
+            endpoint: Graph path relative to the API URL, or a same-origin absolute URL.
+            params: Query parameters.
+
+        Raises:
+            FetchError: If the request fails, the URL is cross-origin, or the body is too
+                large or not a JSON object.
+            AuthenticationError: If Graph answers 401 or 403.
+            RateLimitError: If throttling persists after the retries.
+        """
         response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
             payload = read_capped_json(response)
@@ -80,7 +122,12 @@ class _RequestsGraphClient:
         return payload
 
     def get_bytes(self, endpoint: str) -> bytes:
-        """GET a Graph endpoint that returns file bytes, capped by size limit."""
+        """GET a file endpoint and return its bytes, capped by ``max_file_size_bytes``.
+
+        Raises:
+            FetchError: If the request fails or the body exceeds the cap.
+            AuthenticationError: If Graph answers 401 or 403.
+        """
         response = self._request(
             "GET",
             self._api_url(endpoint),
@@ -93,7 +140,7 @@ class _RequestsGraphClient:
             raise FetchError(str(exc)) from exc
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one Graph request with auth, local rate limiting, and retries."""
+        """Send an authenticated request with local throttling, retrying 429 and 5xx."""
         last_error: Exception | None = None
         headers = dict(kwargs.pop("headers", {}) or {})
         headers["Authorization"] = f"Bearer {self._access_token()}"
@@ -137,7 +184,7 @@ class _RequestsGraphClient:
         raise FetchError("Microsoft Graph request failed") from last_error
 
     def _access_token(self) -> str:
-        """Return a configured token or obtain/cache one by client credentials."""
+        """Return the configured token, or a cached client-credentials token renewed near expiry."""
         if self.config.access_token:
             return self.config.access_token
         if self._token and time.monotonic() < self._token_expires_at - 60:
@@ -159,7 +206,8 @@ class _RequestsGraphClient:
         return self._token
 
     def _request_token(self) -> requests.Response:
-        """POST for an OAuth token, retrying transient failures and 429/5xx."""
+        """POST for an OAuth token, retrying network errors, 429 and 5xx."""
+        # TODO: derive the token authority and scope from graph_api_url for national clouds.
         token_url = f"https://login.microsoftonline.com/{self.config.tenant_id}/oauth2/v2.0/token"
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
@@ -199,14 +247,14 @@ class _RequestsGraphClient:
         raise AuthenticationError("Microsoft identity request failed") from last_error
 
     def close(self) -> None:
-        """Close the connector-owned HTTP connection pool and discard its token."""
+        """Close the HTTP session and discard the cached token."""
 
         self._token = None
         self._token_expires_at = 0.0
         self.session.close()
 
     def _api_url(self, endpoint: str) -> str:
-        """Build a Graph API URL while rejecting cross-origin absolute URLs."""
+        """Return the full Graph URL. Raises ``FetchError`` for a cross-origin absolute URL."""
         if endpoint.startswith(("http://", "https://")):
             try:
                 return require_same_origin_url(
@@ -219,7 +267,7 @@ class _RequestsGraphClient:
         return f"{self.config.graph_api_url}/{endpoint.lstrip('/')}"
 
     def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
+        """Sleep so requests stay at least ``60 / requests_per_minute`` seconds apart."""
         with self._rate_lock:
             now = time.monotonic()
             wait = self._min_interval - (now - self._last_request_at)
@@ -228,7 +276,7 @@ class _RequestsGraphClient:
             self._last_request_at = time.monotonic()
 
     def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
-        """Sleep before retrying, honoring provider retry headers when present."""
+        """Sleep before a retry, preferring provider retry headers over exponential backoff."""
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay)
         logger.warning(

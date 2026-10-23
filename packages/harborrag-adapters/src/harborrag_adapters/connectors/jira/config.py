@@ -1,4 +1,10 @@
-"""Validated configuration for JIRA project connectors."""
+"""Validated configuration for Jira project connectors.
+
+Handles:
+- Deployment type detection and credential defaults from the environment
+- JQL defaults and nested-item limits
+- Attachment parsing controls and HTTP tuning
+"""
 
 from __future__ import annotations
 
@@ -24,7 +30,7 @@ from .query import is_cloud_hostname
 
 
 class JiraDeploymentType(StrEnum):
-    """Supported JIRA auth/API deployment modes."""
+    """Jira deployment modes, each with its own auth and API version."""
 
     CLOUD = "cloud"
     DATACENTER = "datacenter"
@@ -58,10 +64,10 @@ DEFAULT_ISSUE_FIELDS = (
 
 @dataclass(slots=True)
 class JiraProjectConfig:
-    """Configuration for one JIRA source scope.
+    """Configuration for one Jira source scope.
 
-    The config collects auth, JQL defaults, nested issue-data limits, and
-    attachment parsing controls so the connector can stay mostly procedural.
+    Validated in ``__post_init__``: the token falls back to ``JIRA_TOKEN`` or
+    ``JIRA_API_TOKEN`` and the email to ``JIRA_EMAIL``.
     """
 
     base_url: str
@@ -94,7 +100,6 @@ class JiraProjectConfig:
     allow_private_network: bool = False
 
     def __post_init__(self) -> None:
-        """Normalize env-backed credentials and validate query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url(
             "base_url", self.base_url, allow_private_network=self.allow_private_network
@@ -140,12 +145,10 @@ class JiraProjectConfig:
             raise ValueError("page_size must be between 1 and 100")
 
     def requested_fields(self) -> tuple[str, ...]:
-        """Return the JIRA field selector for search and issue loads.
+        """Return the field selector for issue loads.
 
-        ``security`` is always requested: without it a security-level issue is
-        indistinguishable from an open one, and the access gate would fail open.
-        ``project`` is always requested too: it names the scope an issue's ACL is
-        relative to, and an issue without it is withheld as ``unknown``.
+        ``security`` and ``project`` are always included, since the issue ACL is
+        built from them. ``("*all",)`` when ``include_all_fields`` is set.
         """
         if self.include_all_fields:
             return ("*all",)
@@ -153,7 +156,6 @@ class JiraProjectConfig:
 
     @staticmethod
     def _string_list(value: list[str] | str) -> list[str]:
-        """Accept lists from Python/YAML and comma-separated dotenv values."""
-
+        """Split comma-separated strings and return stripped, de-duplicated items."""
         values = value.split(",") if isinstance(value, str) else value
         return list(dict.fromkeys(str(item).strip() for item in values if str(item).strip()))

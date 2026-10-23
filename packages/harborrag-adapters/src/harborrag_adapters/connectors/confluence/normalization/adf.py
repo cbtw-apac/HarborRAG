@@ -1,3 +1,13 @@
+"""Atlassian Document Format parser producing ``ConfluenceNode`` trees.
+
+Handles:
+- ADF node types mapped onto the shared node kinds
+- Macro, link, heading and list attributes
+- Inline atoms such as mentions and dates
+
+Does NOT parse storage-format XML; the markup parser does.
+"""
+
 from __future__ import annotations
 
 import json
@@ -49,7 +59,7 @@ _KIND_MAP = {
 
 
 class _AdfFrame:
-    """One pending node in the iterative post-order ADF build."""
+    """Pending node in the iterative post-order ADF build."""
 
     __slots__ = ("value", "path", "children_raw", "next_index", "built")
 
@@ -62,9 +72,25 @@ class _AdfFrame:
 
 
 class AdfDocumentParser:
-    """Convert Atlassian Document Format into the shared structural node tree."""
+    """Converter from ADF to the shared node tree.
+
+    Stateless; each ``parse`` call builds a fresh tree.
+    """
 
     def parse(self, value: Mapping[str, Any] | str) -> ConfluenceNode:
+        """Parse an ADF document into a node tree.
+
+        Args:
+            value: ADF document as a mapping or a JSON string.
+
+        Returns:
+            Root node of the parsed tree.
+
+        Raises:
+            ConfluenceNormalizationError: If the value is not valid JSON or the root node
+                is not of type ``doc``.
+        """
+
         try:
             document = json.loads(value) if isinstance(value, str) else dict(value)
         except (TypeError, ValueError, json.JSONDecodeError) as exc:
@@ -74,13 +100,8 @@ class AdfDocumentParser:
         return self._node(document, path=(0,))
 
     def _node(self, value: Mapping[str, Any], *, path: tuple[int, ...]) -> ConfluenceNode:
-        """Build the node tree post-order with an explicit stack.
+        """Build the node tree post-order with an explicit stack."""
 
-        A deeply nested ADF document (panels/expands/lists nested dozens of
-        levels deep) must not grow the Python call stack, mirroring the
-        explicit-stack traversal already used for page hierarchies in
-        content.py.
-        """
         root = _AdfFrame(value, path)
         stack: list[_AdfFrame] = [root]
         while True:
@@ -104,6 +125,12 @@ class AdfDocumentParser:
         path: tuple[int, ...],
         children: tuple[ConfluenceNode, ...],
     ) -> ConfluenceNode:
+        """Build one node from its raw ADF value and its already built children.
+
+        The source id is ``localId`` or ``id``, else ``adf:<path>``. Inline atoms and hard
+        breaks become text nodes.
+        """
+
         source_type = str(value.get("type") or "unsupported")
         attributes = dict(_mapping(value.get("attrs")))
         source_id = str(
@@ -123,6 +150,7 @@ class AdfDocumentParser:
             attributes["ordered"] = source_type == "orderedList"
         if kind == "heading":
             attributes["level"] = _integer(attributes.get("level"), 1)
+        # TODO: set include_target_* for ADF include macros so blocks carry the target and relation.
         if kind == "macro":
             attributes["macro_name"] = str(
                 attributes.get("extensionKey") or attributes.get("extensionType") or source_type
@@ -139,6 +167,8 @@ class AdfDocumentParser:
 
     @staticmethod
     def _text_node(value: Mapping[str, Any], source_id: str) -> ConfluenceNode:
+        """Build a text node, or a link node if the text carries a ``link`` mark."""
+
         text = str(value.get("text") or "")
         marks = _mapping_sequence(value.get("marks"))
         link = next(
@@ -156,10 +186,9 @@ class AdfDocumentParser:
 
 
 def _macro_parameters(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
-    """Unwrap a legacy macro's ``macroParams.<name>.value`` into plain parameters.
+    """Unwrap ``macroParams.<name>.value`` into plain parameters, dropping ``macroMetadata``.
 
-    Native extensions keep plain parameters; ``macroMetadata`` is editor
-    bookkeeping, not a parameter.
+    Without ``macroParams`` the parameters are returned unchanged.
     """
 
     macro_params = _mapping(parameters.get("macroParams"))
@@ -178,7 +207,7 @@ def _macro_parameters(parameters: Mapping[str, Any]) -> Mapping[str, Any]:
 
 
 def _inline_atom_text(source_type: str, attributes: Mapping[str, Any]) -> str | None:
-    """Text of an inline node that keeps it in ``attrs``, or None for other nodes."""
+    """Return the text of an inline atom kept in ``attrs``, or None for other nodes."""
 
     if source_type in {"mention", "status"}:
         return str(attributes.get("text") or "")
@@ -190,7 +219,7 @@ def _inline_atom_text(source_type: str, attributes: Mapping[str, Any]) -> str | 
 
 
 def _date_text(value: object) -> str:
-    """An ADF date's epoch-millisecond timestamp as an ISO calendar date (UTC)."""
+    """Return an epoch-millisecond timestamp as a UTC ISO date, or empty if invalid."""
 
     try:
         milliseconds = int(str(value))

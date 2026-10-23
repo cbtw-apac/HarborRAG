@@ -1,3 +1,12 @@
+"""Validation shared by connector configs and clients.
+
+Handles:
+- HTTPS URL validation with a private-network check
+- HTTP tuning bounds
+- Optional size and count limits
+- Nested collection limits while paging
+"""
+
 from __future__ import annotations
 
 import itertools
@@ -13,7 +22,7 @@ DEFAULT_MAX_NESTED_ITEMS = 1000
 
 
 def validate_non_negative_limit(name: str, value: int | None) -> None:
-    """Validate optional size/count limits shared by connector configs."""
+    """Raise ``ValueError`` unless ``value`` is ``None`` or an integer of at least 0."""
     if value is None:
         return
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
@@ -21,12 +30,11 @@ def validate_non_negative_limit(name: str, value: int | None) -> None:
 
 
 class _DeferredResolution(Exception):
-    """A DNS name did not resolve during config validation; the request fails later anyway."""
+    """DNS name did not resolve during validation; the decision is deferred."""
 
 
 def _numeric_addresses(hostname: str, port: int) -> tuple[str, ...]:
-    """Parse literal IP syntax (including legacy numeric forms) without touching DNS."""
-
+    """Return addresses for a literal IP host, including legacy numeric forms, without DNS."""
     try:
         infos = socket.getaddrinfo(
             hostname, port, type=socket.SOCK_STREAM, flags=socket.AI_NUMERICHOST
@@ -37,8 +45,7 @@ def _numeric_addresses(hostname: str, port: int) -> tuple[str, ...]:
 
 
 def _system_resolve_host(hostname: str, port: int) -> tuple[str, ...]:
-    """Resolve a DNS name, deferring the decision when resolution fails."""
-
+    """Resolve a DNS name. Raises ``_DeferredResolution`` if it does not resolve."""
     try:
         infos = socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM)
     except (socket.gaierror, UnicodeError) as exc:
@@ -46,22 +53,27 @@ def _system_resolve_host(hostname: str, port: int) -> tuple[str, ...]:
     return tuple(sorted({str(info[4][0]) for info in infos}))
 
 
-# Test suites replace this seam with a hermetic stub (see tests/conftest.py).
+# Test suites replace this seam with a hermetic stub.
 _resolve_host = _system_resolve_host
 
 
 def _config_resolver(hostname: str, port: int) -> Iterable[str]:
+    """Resolve a host for URL policy checks: literal IPs without DNS, else system DNS."""
     return _numeric_addresses(hostname, port) or _resolve_host(hostname, port)
 
 
 def validate_https_url(name: str, value: str, *, allow_private_network: bool = False) -> None:
-    """Require an HTTPS origin without credentials that targets a public host.
+    """Require an HTTPS URL without credentials whose host resolves only to public addresses.
 
-    The host policy is core ``URLPolicy``: local hostnames and every resolved
-    address must be public. Literal IPs never touch DNS. A DNS name that does not
-    resolve is deferred, because nothing can connect to it either. DNS rebinding
-    between validation and connection is not covered here. ``allow_private_network``
-    opts an on-premises deployment out of the host policy only.
+    Literal IPs are checked without DNS; a name that does not resolve is accepted.
+
+    Args:
+        name: Config field name used in error messages.
+        value: URL to validate.
+        allow_private_network: Skip the host check for on-premises sources.
+
+    Raises:
+        ValueError: If the URL is not HTTPS, embeds credentials, or targets a non-public host.
     """
     parsed = urlparse(value)
     if (
@@ -73,6 +85,7 @@ def validate_https_url(name: str, value: str, *, allow_private_network: bool = F
         raise ValueError(f"{name} must be an HTTPS URL without embedded credentials")
     if allow_private_network:
         return
+    # TODO: re-check the resolved address at connection time to cover DNS rebinding.
     try:
         URLPolicy(allowed_schemes={"https"}, resolver=_config_resolver).validate(value)
     except _DeferredResolution:
@@ -91,7 +104,17 @@ def validate_http_tuning(
     max_retries: int,
     backoff_factor: float,
 ) -> None:
-    """Validate the shared operational controls used by HTTP connectors."""
+    """Validate shared HTTP tuning values.
+
+    Args:
+        requests_per_minute: Integer from 1 to 6000.
+        request_timeout_seconds: Finite number greater than 0.
+        max_retries: Integer of at least 0.
+        backoff_factor: Finite number of at least 0.
+
+    Raises:
+        ValueError: If any value is out of range or not of the expected type.
+    """
     if (
         isinstance(requests_per_minute, bool)
         or not isinstance(requests_per_minute, int)
@@ -124,13 +147,22 @@ def extend_with_limit[T](
     label: str,
     setting_name: str,
 ) -> None:
-    """Append one page of nested API results while enforcing a max count."""
+    """Append a page of nested results to ``target``, raising when ``limit`` is exceeded.
+
+    Args:
+        target: List to extend.
+        values: Page of results; consumed at most one item past the allowance.
+        limit: Maximum total count, or ``None`` for no limit.
+        label: Collection name used in the error message.
+        setting_name: Config setting name used in the error message.
+
+    Raises:
+        DocumentProcessingError: If the combined count exceeds ``limit``.
+    """
     if limit is None:
         target.extend(values)
         return
-    # Consume at most one item past the remaining allowance so a hostile or
-    # accidental unbounded page can't be materialized in full before the
-    # limit check runs.
+    # Consume at most one item past the remaining allowance.
     remaining = max(limit - len(target), 0)
     page = list(itertools.islice(values, remaining + 1))
     enforce_collection_limit(
@@ -143,10 +175,15 @@ def extend_with_limit[T](
 
 
 def truncate_with_limit[T](target: list[T], values: Iterable[T], *, limit: int | None) -> bool:
-    """Append one page of nested API results, capping ``target`` at ``limit``.
+    """Append a page of nested results to ``target``, cutting it at ``limit``.
 
-    Returns whether ``values`` had to be truncated, so callers can stop
-    paginating once the cap is reached instead of fetching further pages.
+    Args:
+        target: List to extend.
+        values: Page of results; consumed at most one item past the allowance.
+        limit: Maximum total count, or ``None`` for no limit.
+
+    Returns:
+        ``True`` if ``values`` was truncated.
     """
     if limit is None:
         target.extend(values)
@@ -165,6 +202,13 @@ def enforce_collection_limit(
     label: str,
     setting_name: str,
 ) -> None:
-    """Raise when a nested collection would exceed its configured cap."""
+    """Raise ``DocumentProcessingError`` when ``count`` exceeds ``limit``.
+
+    Args:
+        count: Collection size.
+        limit: Maximum size, or ``None`` for no limit.
+        label: Collection name used in the message.
+        setting_name: Config setting name used in the message.
+    """
     if limit is not None and count > limit:
         raise DocumentProcessingError(f"{label} count {count} exceeds {setting_name} {limit}")

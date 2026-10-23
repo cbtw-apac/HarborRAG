@@ -1,3 +1,11 @@
+"""V1 synchronous connector contract and discovery paging helper.
+
+Handles:
+- ``BaseConnector`` discover, describe and load contract
+- Offset paging by replaying discovery
+- Per-record error isolation in ``load_raw_documents``
+"""
+
 from __future__ import annotations
 
 import logging
@@ -28,10 +36,20 @@ def replay_discovery_page(
 ) -> ConnectorPage:
     """Serve one page by replaying ``discover`` from the start up to a numeric offset.
 
-    Connectors that keep scan-scoped state pass their record generator here so a
-    replay for the next page is not mistaken for the start of a new scan.
-    """
+    Re-runs discovery for every page; the cursor is the count of records already served.
 
+    Args:
+        discover: Record generator, called with a query bounded to the page end.
+        query: Caller query, or ``None`` for defaults.
+        cursor: Numeric offset from a previous page, or ``None`` for the first page.
+        page_size: Maximum records in the page.
+
+    Returns:
+        Page with the next numeric cursor, or ``None`` when the page is not full.
+
+    Raises:
+        ValueError: If ``page_size`` is below 1, or the cursor is non-numeric or negative.
+    """
     if page_size < 1:
         raise ValueError("connector page_size must be positive")
     try:
@@ -47,11 +65,10 @@ def replay_discovery_page(
 
 
 class BaseConnector(ABC):
-    """Common sync connector contract.
+    """Base class for synchronous connectors.
 
-    Connectors are responsible for source-specific discovery and loading only.
-    They return core domain objects so runtime can handle orchestration,
-    concurrency, scheduling, checkpointing, and parsing independently.
+    Connectors own source-specific discovery and loading and return core domain
+    objects; the runtime owns orchestration and parsing.
     """
 
     provider_name: str = "base"
@@ -59,23 +76,18 @@ class BaseConnector(ABC):
     capabilities: ConnectorCapabilities = ConnectorCapabilities()
 
     def connect(self) -> None:
-        """Perform an optional eager connection check."""
+        """Check the connection eagerly. No-op by default."""
         return None
 
     def _ensure_connected(self) -> None:
-        """Run :meth:`connect` exactly once, memoized across repeated calls."""
+        """Run ``connect`` once; later calls do nothing."""
         if getattr(self, "_connected", False):
             return
         self.connect()
         self._connected = True
 
     def close(self) -> None:
-        """Release any connector-owned resources (HTTP sessions, handles, etc.).
-
-        Most providers hold nothing beyond a lazily-created HTTP session.
-        Override this when a connector needs deterministic teardown so callers
-        can dispose of it via ``with`` or an explicit ``close()`` call.
-        """
+        """Release connector-owned resources such as HTTP sessions. No-op by default."""
         return None
 
     def __enter__(self) -> BaseConnector:
@@ -86,32 +98,48 @@ class BaseConnector(ABC):
 
     @abstractmethod
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Yield lightweight records that identify loadable source items."""
+        """Yield lightweight records that identify loadable source items.
+
+        Args:
+            query: Discovery selectors, or ``None`` for the connector defaults.
+
+        Yields:
+            One ``SourceRecord`` per loadable item.
+        """
         raise NotImplementedError
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
-        """Items the most recent ``discover`` traversal dropped, with reasons.
+        """Return the items the latest ``discover`` traversal dropped, with reasons.
 
-        Discovery must not silently omit an item it declined for a reportable
-        reason such as a configured size limit. Providers that enforce those
-        limits override this so callers can distinguish a reported skip from a
-        silent omission; the default is empty for providers that do not report
-        skips yet.
+        Empty by default; providers that report skips override it.
         """
         return ()
 
     @abstractmethod
     def load(self, record: SourceRecord) -> RawDocument:
-        """Fetch one raw document for a previously discovered source record."""
+        """Fetch the raw document for a discovered source record.
+
+        Args:
+            record: Record produced by ``discover``.
+
+        Returns:
+            The raw document with source bytes and metadata.
+        """
         raise NotImplementedError
 
     def describe(
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
-        """Resolve admission descriptors without fetching large source bytes."""
+        """Build the admission descriptor for a record without fetching source bytes.
 
+        Args:
+            record: Record produced by ``discover``.
+
+        Returns:
+            Descriptor with a version derived from the record and no bound records.
+        """
         return default_document_descriptor(record)
 
     def discover_page(
@@ -121,13 +149,18 @@ class BaseConnector(ABC):
         cursor: str | None,
         page_size: int,
     ) -> ConnectorPage:
-        """Compatibility pagination for connectors without a native cursor.
+        """Serve one discovery page by replaying ``discover`` from offset 0.
 
-        Provider connectors should override this method. The fallback preserves
-        existing third-party connectors while making its numeric replay cursor
-        explicit instead of leaking offset logic into runtime.
+        Override for a native cursor.
+
+        Args:
+            query: Discovery selectors, or ``None`` for the connector defaults.
+            cursor: Numeric offset from a previous page, or ``None`` for the first page.
+            page_size: Maximum records in the page.
+
+        Returns:
+            Page of records with the next cursor, or ``None`` on the last page.
         """
-
         return replay_discovery_page(self.discover, query, cursor=cursor, page_size=page_size)
 
     def load_raw_documents(
@@ -136,16 +169,21 @@ class BaseConnector(ABC):
         *,
         on_error: str = "raise",
     ) -> Iterator[RawDocument]:
-        """Discover records and load them in order.
+        """Discover records and load them in order, then close the connector.
 
-        ``on_error`` controls per-record failure isolation, essential when
-        crawling large sources where a single restricted/deleted item must not
-        abort the whole sync:
+        ``AuthenticationError`` always propagates, even with ``on_error="skip"``.
 
-        * ``"raise"`` (default): propagate the first load failure.
-        * ``"skip"``: log and skip records that fail to load, but still
-          propagate :class:`AuthenticationError` (a bad credential is fatal for
-          the whole run, not a per-record condition).
+        Args:
+            query: Discovery selectors, or ``None`` for the connector defaults.
+            on_error: ``"raise"`` to propagate the first load failure, ``"skip"`` to
+                log and skip records that fail to load.
+
+        Yields:
+            One ``RawDocument`` per loaded record.
+
+        Raises:
+            ValueError: If ``on_error`` is not ``"raise"`` or ``"skip"``.
+            AuthenticationError: If the source rejects the credentials.
         """
         if on_error not in ("raise", "skip"):
             raise ValueError(f"Unknown on_error policy: {on_error!r}")

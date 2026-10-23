@@ -1,4 +1,4 @@
-"""Validated configuration for local filesystem connectors."""
+"""Configuration for local filesystem connectors."""
 
 from __future__ import annotations
 
@@ -19,9 +19,17 @@ DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
 class LocalFileConfig:
     """Configuration for one local file or directory source scope.
 
-    The local connector treats this path as a trust boundary. Direct loads and
-    discovery results must remain inside this scope, including when symlinks are
-    explicitly enabled.
+    ``source_path`` is the trust boundary for discovery and loads.
+
+    Attributes:
+        source_path: File or directory to read; resolved and required to exist.
+        excluded_dir_names: Directory names never entered during traversal.
+        follow_symlinks: Allow symlinks that resolve inside the source scope.
+        max_depth: Maximum directory depth below the start path, or ``None``.
+        checksum_mode: ``none``, ``stat`` (size and mtime) or ``sha256`` for change detection.
+        process_file_callback: Called with relative path, size and MIME type; returns
+            ``(should_process, reason)``.
+        fail_on_error: Raise on unreadable files and callback errors instead of skipping.
     """
 
     source_path: str | Path
@@ -41,7 +49,12 @@ class LocalFileConfig:
     fail_on_error: bool = False
 
     def __post_init__(self) -> None:
-        """Resolve paths and normalize filters before connector use."""
+        """Resolve ``source_path`` and normalize extension and directory-name filters.
+
+        Raises:
+            ValueError: If the path is missing or not a file or directory, or a limit
+                or ``checksum_mode`` is invalid.
+        """
         self.source_path = resolve_path(self.source_path)
         if not self.source_path.exists():
             raise ValueError(f"Local source path does not exist: {self.source_path}")

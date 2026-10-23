@@ -1,4 +1,13 @@
-"""Shared HTTP behavior for Jira and Confluence REST clients."""
+"""Rate-limited Atlassian REST client shared by Jira and Confluence.
+
+Handles:
+- Per-thread sessions behind one rate-limit identity
+- Retries with backoff on transient statuses, honoring retry headers
+- Typed errors for 401, 403, 404, 429 and other failures
+- Capped JSON and byte downloads with trusted media redirects
+
+Does NOT build endpoint URLs or set credentials; the Jira and Confluence clients do.
+"""
 
 from __future__ import annotations
 
@@ -34,16 +43,11 @@ from harborrag_adapters.connectors.rate_limiting import (
 )
 
 _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
-
-# Confluence/Jira Cloud attachment downloads redirect once to Atlassian's
-# media platform with a short-lived, file-scoped signed URL baked into the
-# query string. That single hop is safe to follow without our own Atlassian
-# credentials; every other cross-origin redirect target stays refused.
 _TRUSTED_MEDIA_REDIRECT_HOSTS = frozenset({"api.media.atlassian.com"})
 
 
 def _is_trusted_redirect(location: str, base_url: str) -> bool:
-    """Return whether a redirect target is safe to follow."""
+    """Return whether a redirect target is HTTPS and same-origin or on Atlassian's media host."""
     parsed = urlparse(location)
     if parsed.scheme.lower() != "https":
         return False
@@ -53,7 +57,7 @@ def _is_trusted_redirect(location: str, base_url: str) -> bool:
 
 
 class AtlassianHttpConfig(Protocol):
-    """Configuration fields shared by the two Atlassian HTTP clients."""
+    """HTTP tuning fields an Atlassian client reads from its config."""
 
     requests_per_minute: int
     request_timeout_seconds: float
@@ -64,7 +68,7 @@ class AtlassianHttpConfig(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class AtlassianClientContext:
-    """Stable HTTP and rate-limit identity for one Atlassian client."""
+    """Base URL, provider label, logger and rate-limit identity for one client."""
 
     base_url: str
     provider_label: str
@@ -73,7 +77,10 @@ class AtlassianClientContext:
 
 
 class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
-    """Rate-limited requests client with shared errors and download safety."""
+    """Rate-limited, retrying requests client with typed errors and capped downloads.
+
+    Owns the session it creates plus one per worker thread; ``close`` shuts them all down.
+    """
 
     def __init__(
         self,
@@ -82,6 +89,13 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         context: AtlassianClientContext,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
+        """Create the owner session; per-thread sessions are made lazily.
+
+        Args:
+            config: HTTP tuning shared by the Atlassian clients.
+            context: Base URL, provider label, logger and rate-limit identity.
+            rate_limiter: Limiter shared across clients; process-local when omitted.
+        """
         self.config = config
         self.base_url = context.base_url.rstrip("/")
         self.session = requests.Session()
@@ -152,14 +166,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         *,
         label: str,
     ) -> requests.Response:
-        """Follow a single validated redirect hop without forwarding our credentials.
-
-        The initial request already proved the origin trustworthy; the redirect
-        Location is server-issued, not attacker-supplied. Untrusted targets
-        (anything but the same origin or Atlassian's media platform) are still
-        refused, and the fetch to the trusted target is anonymous so our
-        session's Confluence/Jira credentials never reach a different origin.
-        """
+        """Follow one same-origin or Atlassian media redirect without sending credentials."""
         location = response.headers.get("Location") or ""
         response.close()
         if not location or not _is_trusted_redirect(location, self.base_url):
@@ -236,7 +243,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         raise FetchError(f"{self._provider_label} request failed") from last_error
 
     def close(self) -> None:
-        """Close the connector-owned HTTP connection pool."""
+        """Close every session the client created."""
 
         with self._sessions_lock:
             sessions = tuple(self._sessions)
@@ -245,7 +252,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             session.close()
 
     def _session_for_thread(self) -> requests.Session:
-        """Return an independently pooled session for concurrent descriptors."""
+        """Return the owner session, or a lazily created session for the current thread."""
 
         if get_ident() == self._owner_thread:
             return self.session
@@ -265,7 +272,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         return session
 
     def _acquire(self, url: str) -> None:
-        """Throttle requests in the source API-family lane."""
+        """Throttle on the REST or attachment rate-limit lane for the URL."""
 
         path = urlparse(url).path.lower()
         api_family = "rest" if "/rest/api/" in path else "attachment"

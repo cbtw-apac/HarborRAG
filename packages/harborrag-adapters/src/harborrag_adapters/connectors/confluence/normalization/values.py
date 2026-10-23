@@ -1,4 +1,4 @@
-"""Safe value coercion shared by Confluence normalization stages."""
+"""Safe value coercion for provider payloads."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import Any
 
 
 def mapping(value: object) -> Mapping[str, Any]:
-    """Return mapping values while replacing other provider values with an empty mapping."""
+    """Return ``value`` if it is a mapping, else an empty mapping."""
     return value if isinstance(value, Mapping) else {}
 
 
 def mapping_sequence(value: object) -> tuple[Mapping[str, Any], ...]:
-    """Keep only mapping items from a non-string provider sequence."""
+    """Return the mapping items of a non-string sequence, else an empty tuple."""
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         return ()
     return tuple(item for item in value if isinstance(item, Mapping))

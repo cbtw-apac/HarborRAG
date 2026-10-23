@@ -1,4 +1,4 @@
-"""Confluence client protocol and requests-based implementation."""
+"""Confluence REST client protocol and its requests-based implementation."""
 
 from __future__ import annotations
 
@@ -20,10 +20,9 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceClient(Protocol):
-    """Small API surface needed by ``ConfluenceConnector``.
+    """Protocol for the HTTP surface ``ConfluenceConnector`` needs.
 
-    Tests can provide this protocol without constructing a real authenticated
-    requests session.
+    Lets tests substitute a fake without an authenticated session.
     """
 
     def get_json(
@@ -32,10 +31,10 @@ class ConfluenceClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a decoded Confluence response object."""
+        """Return the decoded JSON object of a Confluence REST response."""
 
     def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
-        """Download bytes from a trusted Confluence URL."""
+        """Download bytes from a trusted Confluence URL. Returns None for an empty body."""
 
     def close(self) -> None:
         """Release connector-owned HTTP resources."""
@@ -50,6 +49,18 @@ class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
+        """Configure auth: basic ``email:token`` on Cloud, a bearer token on Data Center.
+
+        The rate-limit identity includes the credentials, so clients with different credentials do
+        not share a limit lane.
+
+        Args:
+            config: Validated space configuration.
+            rate_limiter: Limiter shared across clients; process-local when omitted.
+
+        Raises:
+            ValueError: If a Cloud config lacks an email or token.
+        """
         super().__init__(
             config,
             context=AtlassianClientContext(
@@ -95,5 +106,5 @@ class _RequestsConfluenceClient(AtlassianRestClient[ConfluenceSpaceConfig]):
         )
 
     def _api_url(self, endpoint: str) -> str:
-        """Build a Confluence REST API URL from a relative endpoint."""
+        """Build a REST API URL from a relative endpoint."""
         return f"{self.base_url}/rest/api/{endpoint.lstrip('/')}"

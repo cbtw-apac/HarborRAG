@@ -1,4 +1,11 @@
-"""Mappings from Confluence API payloads to Harbor domain objects."""
+"""Mappings from Confluence API payloads to Harbor domain objects.
+
+Handles:
+- Content validation against the configured space
+- Source records and loaded-document metadata
+- Display URLs for Cloud and Data Center
+- Body, label, comment and hierarchy extraction
+"""
 
 from __future__ import annotations
 
@@ -24,9 +31,16 @@ from .schemas import (
 def validate_content(content: dict[str, Any], content_id: str, *, space_key: str) -> None:
     """Fail fast when content is malformed or outside the configured space.
 
-    Shared by every path that fetches a content item -- discovery, load, and
-    the descriptor builder used by `describe()` -- so none of them can drift
-    out of sync with the others on what counts as valid, in-scope content.
+    Shared by discovery, load and describe so all agree on what counts as valid, in-scope content.
+
+    Args:
+        content: Content payload.
+        content_id: ID used in error messages.
+        space_key: Configured space key.
+
+    Raises:
+        DocumentProcessingError: If ``id``, ``title`` or ``space.key`` is missing, or the space
+            differs from ``space_key``.
     """
     content_space_key = content.get("space", {}).get("key")
     missing = [
@@ -50,7 +64,7 @@ def validate_content(content: dict[str, Any], content_id: str, *, space_key: str
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse Confluence timestamp strings into timezone-aware datetimes."""
+    """Parse an ISO timestamp (``Z`` allowed) into a datetime, or None if blank or invalid."""
     if not value:
         return None
     try:
@@ -66,7 +80,7 @@ def labels_from_content(content: dict[str, Any]) -> list[str]:
 
 
 def content_id_from_record(record: SourceRecord) -> str:
-    """Recover the Confluence content ID from a source record."""
+    """Return the content ID of a source record; raise ``ValueError`` if it has none."""
     content_id = record.metadata.get("content_id") or record.locator
     if not content_id:
         raise ValueError(f"SourceRecord {record.id!r} does not contain content_id")
@@ -80,21 +94,35 @@ def display_url(
     content_id: str,
     title: str,
 ) -> str:
-    """Build the user-facing Confluence URL for Cloud or Data Center."""
+    """Build the user-facing URL of a page.
+
+    Cloud uses ``spaces/<key>/pages/<id>``; Data Center uses ``display/<key>/<title>``.
+
+    Args:
+        base_url: Confluence base URL.
+        deployment_type: Cloud or Data Center.
+        space_key: Space the page belongs to.
+        content_id: Page ID.
+        title: Page title, used on Data Center.
+
+    Returns:
+        The page URL.
+    """
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     if deployment_type == ConfluenceDeploymentType.CLOUD:
         return urljoin(base, f"spaces/{space_key}/pages/{content_id}")
+    # TODO: percent-encode a literal ``+`` in the title instead of leaving it unencoded.
     return urljoin(base, f"display/{space_key}/{quote(title.replace(' ', '+'), safe='+')}")
 
 
 def body_html_from_content(content: dict[str, Any]) -> str:
-    """Extract the best HTML body representation from expanded content."""
+    """Return the storage body, else the rendered export view, else an empty string."""
     body = content.get("body", {})
     return body.get("storage", {}).get("value") or body.get("export_view", {}).get("value") or ""
 
 
 def body_representation_from_content(content: dict[str, Any]) -> str | None:
-    """Record which current connector-compatible body representation was selected."""
+    """Return ``storage`` or ``rendered_html`` for the selected body, else None."""
 
     body = content.get("body", {})
     if body.get("storage", {}).get("value"):
@@ -111,7 +139,17 @@ def build_source_record(
     deployment_type: ConfluenceDeploymentType,
     default_space_key: str,
 ) -> SourceRecord:
-    """Convert a Confluence search result into a lightweight source record."""
+    """Convert a Confluence search result into a lightweight source record.
+
+    Args:
+        content: Search result payload.
+        base_url: Confluence base URL.
+        deployment_type: Cloud or Data Center.
+        default_space_key: Space used when the payload names none.
+
+    Returns:
+        Record with ``confluence://<space>/<id>`` as its id and the page ID as locator.
+    """
     content_id = str(content.get("id") or "")
     content_type = str(content.get("type") or "page")
     title = str(content.get("title") or content_id)
@@ -142,7 +180,16 @@ def build_document_metadata(
     comments: list[dict[str, Any]] | None = None,
     attachments: list[AttachmentMetadata] | None = None,
 ) -> ConfluenceMetadata:
-    """Build parsed provenance metadata for a loaded Confluence page."""
+    """Build parsed provenance metadata for a loaded Confluence page.
+
+    Args:
+        content: Fully expanded content payload.
+        comments: Comment payloads to include.
+        attachments: Processed attachment metadata to include.
+
+    Returns:
+        Page metadata with checksum, hierarchy, comments and attachments.
+    """
     content_id = str(content.get("id") or "")
     content_type = str(content.get("type") or "page")
     title = str(content.get("title") or "")
@@ -181,6 +228,7 @@ def build_document_metadata(
 
 
 def _author(content: dict[str, Any]) -> str | None:
+    """Return the creator's display name, falling back to the last editor's."""
     value = content.get("history", {}).get("createdBy", {}).get("displayName") or content.get(
         "version", {}
     ).get("by", {}).get("displayName")
@@ -188,6 +236,7 @@ def _author(content: dict[str, Any]) -> str | None:
 
 
 def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:
+    """Map a comment payload to metadata; location ``inline`` marks an inline comment."""
     history = comment.get("history", {})
     version = comment.get("version") or {}
     extensions = comment.get("extensions") or {}
@@ -205,6 +254,7 @@ def _comment_metadata(comment: dict[str, Any]) -> ConfluenceCommentMetadata:
 
 
 def _parent_comment_id(comment: dict[str, Any]) -> str | None:
+    """Return the parent comment id from ``parentId``, else the nearest ``comment`` ancestor."""
     direct = comment.get("parentId") or comment.get("parent_id")
     if direct is not None and str(direct).strip():
         return str(direct)
@@ -223,6 +273,8 @@ def _parent_comment_id(comment: dict[str, Any]) -> str | None:
 
 
 def _hierarchy_metadata(content: dict[str, Any]) -> ConfluenceHierarchyMetadata:
+    """Build ancestor, child and breadcrumb metadata; children carry ids only."""
+    # Ancestors keep their titles: a restricted ancestor already restricts this page.
     ancestors = [
         ConfluencePageReference(
             id=item.get("id"),
@@ -233,8 +285,7 @@ def _hierarchy_metadata(content: dict[str, Any]) -> ConfluenceHierarchyMetadata:
     ]
     child_results = content.get("children", {}).get("page", {}).get("results", [])
     # Children carry no title: a child page may be restricted below this one, and
-    # its title would otherwise reach every reader of the parent. Ancestors keep
-    # theirs, because a restricted ancestor already restricts this page.
+    # its title would otherwise reach every reader of the parent.
     children = [
         ConfluencePageReference(id=item.get("id"), title=None, type=item.get("type", "page"))
         for item in child_results

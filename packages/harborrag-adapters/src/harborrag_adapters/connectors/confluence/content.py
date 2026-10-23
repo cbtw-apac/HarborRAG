@@ -1,4 +1,10 @@
-"""Confluence content search and nested-resource traversal."""
+"""Confluence content search and nested-resource traversal.
+
+Handles:
+- CQL search over Cloud cursor and Data Center offset paging
+- Summary, descriptor, full-content and read-restriction fetches
+- Comment, attachment and child-page listing
+"""
 
 from __future__ import annotations
 
@@ -27,15 +33,24 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceContentAPI:
-    """Confluence content traversal and child-resource pagination."""
+    """Gateway for Confluence content search and nested resources."""
 
     def __init__(self, client: ConfluenceClient, config: ConfluenceSpaceConfig) -> None:
-        """Bind content traversal to a client and validated config."""
         self.client = client
         self.config = config
 
     def search(self, cql: str) -> Iterator[dict[str, Any]]:
-        """Iterate CQL results across Cloud cursor and Data Center start paging."""
+        """Yield CQL results across Cloud cursor and Data Center offset paging.
+
+        Args:
+            cql: CQL expression.
+
+        Yields:
+            Content payloads expanded with the descriptor fields.
+
+        Raises:
+            FetchError: If the provider repeats a cursor so pagination does not advance.
+        """
         cursor: str | None = None
         seen_cursors: set[str] = set()
         while True:
@@ -59,7 +74,21 @@ class ConfluenceContentAPI:
         cursor: str | None,
         limit: int,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Fetch exactly one provider page using a durable opaque cursor."""
+        """Fetch exactly one provider page.
+
+        The cursor is opaque: ``cursor:<token>`` for Cloud, ``offset:<n>`` for Data Center.
+
+        Args:
+            cql: CQL expression.
+            cursor: Cursor returned by a previous call, or None for the first page.
+            limit: Maximum results, capped at the configured page size.
+
+        Returns:
+            The page's results and the next cursor, or None on the last page.
+
+        Raises:
+            ValueError: If ``limit`` is below 1 or the cursor is malformed.
+        """
 
         if limit < 1:
             raise ValueError("Confluence page limit must be positive")
@@ -84,8 +113,7 @@ class ConfluenceContentAPI:
             start=start,
             cursor=cursor_token,
             # Discovery needs the version and hierarchy fields later used by
-            # ConfluenceDescriptorBuilder. Returning them with the search page
-            # avoids one additional content/{id} request for every result.
+            # ConfluenceDescriptorBuilder.
             expand=DESCRIPTOR_EXPAND,
         )
         response = self.client.get_json("content/search", params=params)
@@ -107,7 +135,7 @@ class ConfluenceContentAPI:
         return results, None
 
     def get_content_summary(self, content_id: str) -> dict[str, Any]:
-        """Fetch lightweight content metadata for explicit-ID discovery."""
+        """Fetch descriptor-level metadata for explicit-ID discovery."""
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
@@ -115,7 +143,7 @@ class ConfluenceContentAPI:
         )
 
     def get_content(self, content_id: str) -> dict[str, Any]:
-        """Fetch the fully expanded page/blogpost needed for loading."""
+        """Fetch the fully expanded page or blogpost needed for loading."""
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
@@ -129,7 +157,7 @@ class ConfluenceContentAPI:
         )
 
     def get_content_descriptor(self, content_id: str) -> dict[str, Any]:
-        """Fetch source-version, hierarchy, and retrieval metadata without body."""
+        """Fetch version, hierarchy and restriction metadata without the body."""
 
         content_id = validate_content_id(content_id)
         return self.client.get_json(
@@ -147,7 +175,7 @@ class ConfluenceContentAPI:
         )
 
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch all comments for one content item, truncated to the configured cap."""
+        """Fetch all comments for one content item, truncated to ``max_comments``."""
 
         return self._fetch_comments(content_id, expand=COMMENT_EXPAND)
 
@@ -155,7 +183,7 @@ class ConfluenceContentAPI:
         self,
         content_id: str,
     ) -> list[dict[str, Any]]:
-        """Fetch comment identities and versions without requesting comment bodies."""
+        """Fetch comment IDs and versions without comment bodies."""
 
         return self._fetch_comments(content_id, expand="history,version")
 
@@ -165,6 +193,7 @@ class ConfluenceContentAPI:
         *,
         expand: str,
     ) -> list[dict[str, Any]]:
+        """Page through a content item's comments (all depths), stopping at ``max_comments``."""
         content_id = validate_content_id(content_id)
         comments: list[dict[str, Any]] = []
         start = 0
@@ -192,7 +221,7 @@ class ConfluenceContentAPI:
             start += len(results)
 
     def list_attachments(self, content_id: str) -> list[dict[str, Any]]:
-        """Fetch attachment metadata for one content item, truncated to the configured cap."""
+        """Fetch attachment metadata for one content item, truncated to ``max_attachments``."""
         content_id = validate_content_id(content_id)
         attachments: list[dict[str, Any]] = []
         start = 0
@@ -218,10 +247,17 @@ class ConfluenceContentAPI:
         content_ids: list[str],
         query: ConnectorQuery,
     ) -> Iterator[str]:
-        """Yield requested content IDs followed by their child pages.
+        """Yield requested content IDs, each followed by its child pages.
 
-        Requesting a parent page brings its children along;
-        ``include_children: false`` requests the listed pages alone.
+        ``include_children: false`` in the query filters yields the listed pages alone.
+
+        Args:
+            content_ids: Requested content IDs.
+            query: Query supplying the ``include_children`` filter and ``recursive``.
+
+        Yields:
+            Each content ID once, followed by its child pages (all descendants when
+            ``query.recursive``).
         """
         include_children = bool(query.filters.get("include_children", True))
         seen: set[str] = set()
@@ -245,13 +281,15 @@ class ConfluenceContentAPI:
         recursive: bool,
         seen: set[str],
     ) -> Iterator[str]:
-        """Traverse child page IDs iteratively.
+        """Yield child page IDs of a page, walking the tree with an explicit stack.
 
-        A page tree never leaves its space, so the configured space bounds the
-        walk; callers cap the total through ``ConnectorQuery.limit``. An
-        explicit stack replaces recursive generator delegation so a deep or
-        broad page hierarchy cannot grow the Python call stack or raise
-        RecursionError.
+        Args:
+            content_id: Page whose children to list.
+            recursive: Whether to descend into grandchildren.
+            seen: IDs already yielded; updated in place.
+
+        Yields:
+            Each unseen child page ID.
         """
         root_id = validate_content_id(content_id)
         stack = [root_id]
@@ -272,8 +310,13 @@ class ConfluenceContentAPI:
     def complete_children(self, content: dict[str, Any]) -> dict[str, Any]:
         """Extend the expanded ``children.page`` list with its remaining pages.
 
-        The expansion carries only the provider's first page of child pages,
-        so a page with more children would otherwise report a partial list.
+        The expansion carries only the provider's first page of child pages.
+
+        Args:
+            content: Content payload expanded with ``children.page``.
+
+        Returns:
+            Content with the complete child list, or unchanged when missing or already complete.
         """
         page = content.get("children", {}).get("page")
         if not isinstance(page, dict):
@@ -312,7 +355,7 @@ def _has_next_page(
     results: list[dict[str, Any]],
     requested_limit: int,
 ) -> bool:
-    """Honor provider paging metadata, including server-clamped limits."""
+    """Return whether more pages exist, honoring server-clamped limits."""
     if not results:
         return False
     next_url = response.get("_links", {}).get("next")
@@ -336,7 +379,7 @@ def _has_next_page(
 
 
 def _integer(value: object, *, default: int | None) -> int | None:
-    """Return integer pagination metadata without accepting booleans."""
+    """Return an integer from paging metadata, rejecting booleans."""
     if isinstance(value, bool):
         return default
     if isinstance(value, (int, str)):

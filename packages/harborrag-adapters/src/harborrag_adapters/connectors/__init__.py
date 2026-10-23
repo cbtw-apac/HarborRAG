@@ -1,4 +1,4 @@
-"""Connector provider registry and public connector imports."""
+"""Connector public API and built-in provider registrations."""
 
 from harborrag_adapters.connectors.confluence import (
     ConfluenceConnector,

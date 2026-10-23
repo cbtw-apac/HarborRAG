@@ -1,4 +1,4 @@
-"""Confluence-owned canonical document transformation."""
+"""Confluence canonical document transformation."""
 
 from __future__ import annotations
 
@@ -18,9 +18,14 @@ from .normalization import ConfluencePageNormalizer
 
 
 class ConfluenceDocumentTransform:
-    """Preserve page structure and synchronize comments as content units."""
+    """Transform of Confluence page payloads into canonical documents with a comments section."""
 
     def __init__(self, pages: ConfluencePageNormalizer | None = None) -> None:
+        """Bind the page normalizer.
+
+        Args:
+            pages: Page normalizer; ``ConfluencePageNormalizer`` when omitted.
+        """
         self._pages = pages or ConfluencePageNormalizer()
 
     def transform(
@@ -29,6 +34,23 @@ class ConfluenceDocumentTransform:
         parsed: ParsedDocument,
         document: Document,
     ) -> Document:
+        """Normalize the raw page payload and append its comments as a ``Comments`` section.
+
+        Structure comes from the Confluence normalizer; author, checksum, timestamps and tags come
+        from the generic ``document`` provenance. Relations from both are merged.
+
+        Args:
+            raw: Raw document whose ``raw`` is the source payload mapping.
+            parsed: Unused.
+            document: Generic document supplying provenance and relations.
+
+        Returns:
+            Canonical document with page structure and comment paragraphs.
+
+        Raises:
+            ConfluenceNormalizationError: If no body parses or a table cannot be extracted.
+            ValueError: If ``raw.raw`` is not the source payload mapping.
+        """
         del parsed
         if not isinstance(raw.raw, Mapping):
             raise ValueError("Confluence canonical normalization requires the source payload")
@@ -77,6 +99,7 @@ class ConfluenceDocumentTransform:
 
     @classmethod
     def _comment_elements(cls, value: object) -> list[DocumentElement]:
+        """Turn comment metadata into paragraph elements, skipping entries without an id or text."""
         if not isinstance(value, (list, tuple)):
             return []
         elements: list[DocumentElement] = []
@@ -114,6 +137,7 @@ class ConfluenceDocumentTransform:
 
     @staticmethod
     def _visible_text(value: str) -> str:
+        """Strip comment HTML to whitespace-collapsed text, treating block tags as separators."""
         parser = _VisibleTextParser()
         parser.feed(value)
         parser.close()
@@ -121,6 +145,7 @@ class ConfluenceDocumentTransform:
 
     @staticmethod
     def _merge_relations(*groups: list[DocumentRelation]) -> list[DocumentRelation]:
+        """Merge relation lists, keeping the first per (predicate, target id, target type)."""
         relations: dict[tuple[str, str, str], DocumentRelation] = {}
         for relation in (relation for group in groups for relation in group):
             key = (
@@ -133,6 +158,8 @@ class ConfluenceDocumentTransform:
 
 
 class _VisibleTextParser(HTMLParser):
+    """HTML parser that collects text, inserting a space at block tag boundaries."""
+
     _BLOCK_TAGS = frozenset(
         {
             "blockquote",

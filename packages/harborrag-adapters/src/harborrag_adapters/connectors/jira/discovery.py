@@ -1,3 +1,13 @@
+"""Jira issue descriptors for ingestion admission.
+
+Handles:
+- Issue, comment and attachment version tokens
+- Attachment child records bound to their issue
+- Issue relations (parent, subtasks, links, attachments)
+
+Does NOT download attachment bytes; loading does that.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -32,7 +42,7 @@ from .mappers import build_source_record, issue_key_from_record, project_identit
 
 
 class JiraDescriptorBuilder:
-    """Build issue admission data and attachment records without attachment bytes."""
+    """Builder of issue admission descriptors and bound attachment records."""
 
     def __init__(  # noqa: PLR0913 - keyword-only collaborators
         self,
@@ -55,6 +65,26 @@ class JiraDescriptorBuilder:
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
+        """Build the admission descriptor for one Jira issue.
+
+        Reuses the search payload cached on the record and fails
+        closed on restricted issues before reading anything else.
+
+        Args:
+            record: Issue record produced by discovery.
+
+        Returns:
+            Descriptor with issue, comment and attachment versions,
+            relations, and one bound record per admitted attachment.
+
+        Raises:
+            SourceRestrictedError: If restricted-content policy
+                withholds the issue.
+            DocumentProcessingError: If the issue has more than ``max_attachments``
+                attachments.
+            ValueError: If the issue has no ``updated`` timestamp.
+        """
+
         issue_key = issue_key_from_record(record)
         cached_issue = record.metadata.get(DISCOVERY_DESCRIPTOR_KEY)
         issue = (
@@ -84,6 +114,7 @@ class JiraDescriptorBuilder:
                     )
                 ),
             )
+        # TODO: truncate to ``max_attachments`` as ``load`` does instead of raising.
         enforce_collection_limit(
             count=len(raw_attachments),
             limit=self._config.max_attachments,
@@ -152,6 +183,8 @@ class JiraDescriptorBuilder:
 
     @staticmethod
     def _source_version(issue: dict[str, Any]) -> str:
+        """Return the issue's ``updated`` timestamp. Raises ``ValueError`` if missing."""
+
         value = issue.get("fields", {}).get("updated")
         if value is None or not str(value).strip():
             raise ValueError("JIRA descriptor has no source version")
@@ -159,6 +192,8 @@ class JiraDescriptorBuilder:
 
     @staticmethod
     def _comment_version(comment: dict[str, Any]) -> str:
+        """Return a comment's version: update time, creation time, else a hash."""
+
         value = comment.get("updated") or comment.get("created")
         if value is not None and str(value).strip():
             return str(value)
@@ -185,6 +220,8 @@ class JiraDescriptorBuilder:
         tuple[SourceRelationDescriptor, ...],
         list[dict[str, object]],
     ]:
+        """Return relation descriptors and matching record payloads for an issue."""
+
         fields = issue.get("fields") or {}
         values: list[tuple[SourceRelationDescriptor, str]] = []
         parent_issue = fields.get("parent")
@@ -200,9 +237,6 @@ class JiraDescriptorBuilder:
                     "child_of",
                 )
             )
-        # Declared from the parent's side too: the graph keeps one parent -> child edge
-        # (the subtask's own `child_of` owns it), and this side is what reaches a
-        # subtask that is never ingested, through an external stub.
         for subtask in fields.get("subtasks") or ():
             if isinstance(subtask, dict) and subtask.get("key"):
                 values.append(
@@ -249,6 +283,12 @@ class JiraDescriptorBuilder:
         *,
         source_version: str,
     ) -> tuple[SourceRelationDescriptor, str] | None:
+        """Map an issue link to a relation descriptor and predicate, or ``None`` without a key.
+
+        ``blocks`` and ``duplicate(s)`` link types keep their own relation type, others are
+        ``relates_to``; an inward ``blocks`` or ``duplicates`` link reverses the predicate.
+        """
+
         outward = link.get("outwardIssue")
         inward = link.get("inwardIssue")
         target = outward or inward
@@ -277,4 +317,6 @@ class JiraDescriptorBuilder:
 
     @staticmethod
     def _source_id(issue_key: str) -> str:
+        """Return the source item id, taking the project from the key prefix."""
+
         return f"jira://{issue_key.split('-', 1)[0]}/{issue_key}"

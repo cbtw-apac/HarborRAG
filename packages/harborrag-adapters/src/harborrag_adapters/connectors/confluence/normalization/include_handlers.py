@@ -1,3 +1,11 @@
+"""Table and include macro handling, the base layer of the block handler chain.
+
+Handles:
+- Table artifact creation and table reference blocks
+- Include target attributes and ``includes`` relations
+- Layout tables that only wrap an include macro
+"""
+
 from __future__ import annotations
 
 import abc
@@ -18,7 +26,10 @@ _INCLUDE_MACROS = frozenset({"include", "excerpt-include"})
 
 
 class ConfluenceIncludeTableHandlers:
-    """Handle include references and their common one-cell layout wrapper."""
+    """Base layer of the handler chain for tables and include macros.
+
+    Needs the subclass chain to provide ``_append_macro`` and ``_draft``.
+    """
 
     _space_key: str
     _tables: TableArtifactBuilder
@@ -32,7 +43,10 @@ class ConfluenceIncludeTableHandlers:
         parent: BlockDraft,
         node: ConfluenceNode,
         context: BlockContext,
-    ) -> None: ...
+    ) -> None:
+        """Append a block for a macro node under ``parent``; the block layer provides it."""
+
+        ...
 
     @abc.abstractmethod
     def _draft(
@@ -42,7 +56,10 @@ class ConfluenceIncludeTableHandlers:
         parent: BlockDraft,
         context: BlockContext,
         presentation: BlockPresentation,
-    ) -> BlockDraft: ...
+    ) -> BlockDraft:
+        """Create the draft for ``node`` as next child of ``parent``; the builder provides it."""
+
+        ...
 
     def _append_table(
         self,
@@ -50,6 +67,12 @@ class ConfluenceIncludeTableHandlers:
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Append a table reference block and register the table artifacts.
+
+        A layout table that only wraps an include macro becomes that macro instead. The block
+        references the outer table; nested tables are stored as artifacts too.
+        """
+
         include = self._macro_only_layout_include(node)
         if include is not None:
             self._append_macro(parent, include, context)
@@ -86,6 +109,11 @@ class ConfluenceIncludeTableHandlers:
         node: ConfluenceNode,
         macro_key: str,
     ) -> dict[str, object]:
+        """Return include target attributes, or ``{}`` for other macros.
+
+        The target space defaults to the page's own space.
+        """
+
         if normalize_macro_key(macro_key) not in _INCLUDE_MACROS:
             return {}
         return {
@@ -103,6 +131,8 @@ class ConfluenceIncludeTableHandlers:
         macro_key: str,
         attributes: Mapping[str, object],
     ) -> None:
+        """Record an ``includes`` relation for an include macro with a target page id."""
+
         if normalize_macro_key(macro_key) not in _INCLUDE_MACROS:
             return
         page_id = str(attributes.get("target_page_id") or "")
@@ -127,6 +157,8 @@ class ConfluenceIncludeTableHandlers:
 
     @classmethod
     def _macro_only_layout_include(cls, table: ConfluenceNode) -> ConfluenceNode | None:
+        """Return the include macro if the table is only a layout wrapper around it, else None."""
+
         rows = cls._descendants_before_nested_table(table, "table_row")
         if len(rows) != 1:
             return None
@@ -152,6 +184,8 @@ class ConfluenceIncludeTableHandlers:
         node: ConfluenceNode,
         kind: str,
     ) -> tuple[ConfluenceNode, ...]:
+        """Return descendants of ``kind``, not descending into nested tables or matches."""
+
         found: list[ConfluenceNode] = []
         for child in node.children:
             if child.kind == kind:

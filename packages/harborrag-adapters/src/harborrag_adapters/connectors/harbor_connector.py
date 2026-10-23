@@ -1,3 +1,5 @@
+"""Provider-name facade the runtime uses to build connectors."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -12,25 +14,30 @@ from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, Conne
 
 
 class HarborConnector:
-    """Factory facade that hides provider-class lookup from callers."""
+    """Facade that creates a provider connector by name and delegates to it."""
 
     def __init__(self, provider: str, **kwargs: Any) -> None:
-        """Create a concrete connector from the provider registry."""
+        """Create the provider connector from the registry.
+
+        Args:
+            provider: Registered provider name or alias.
+            **kwargs: Constructor arguments forwarded to the provider class.
+        """
         self.provider_name = provider
         self.provider = connector_registry.create(provider, **kwargs)
 
     @property
     def capabilities(self) -> ConnectorCapabilities:
-        """Expose the selected provider's advertised capabilities."""
+        """Return the provider's advertised capabilities."""
         return self.provider.capabilities
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
-        """Expose the provider's reported skips from its last traversal."""
+        """Return the provider's reported skips from its last traversal."""
         return self.provider.skipped
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Proxy discovery to the selected provider."""
+        """Delegate discovery to the provider."""
         return self.provider.discover(query)
 
     def discover_page(
@@ -40,7 +47,7 @@ class HarborConnector:
         cursor: str | None,
         page_size: int,
     ) -> ConnectorPage:
-        """Proxy cursor-aware discovery to the selected provider."""
+        """Delegate cursor-based paged discovery to the provider."""
         return self.provider.discover_page(
             query,
             cursor=cursor,
@@ -48,33 +55,32 @@ class HarborConnector:
         )
 
     def connect(self) -> None:
-        """Open resources owned by the selected provider."""
+        """Connect the provider."""
         self.provider.connect()
 
     def close(self) -> None:
-        """Release resources owned by the selected provider."""
+        """Close the provider."""
         self.provider.close()
 
     def load(self, record: SourceRecord) -> RawDocument:
-        """Proxy one-record loading to the selected provider."""
+        """Delegate loading of one record to the provider."""
         return self.provider.load(record)
 
     def describe(
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
-        """Proxy compact admission discovery to the selected provider."""
-
+        """Delegate building the admission descriptor to the provider."""
         return self.provider.describe(record)
 
     def load_raw_documents(
         self,
         query: ConnectorQuery | None = None,
     ) -> Iterator[RawDocument]:
-        """Proxy the provider's discover-then-load convenience stream."""
+        """Delegate the discover-then-load stream to the provider."""
         return self.provider.load_raw_documents(query)
 
     @classmethod
     def providers(cls) -> list[str]:
-        """List registered provider names and aliases."""
+        """Return registered provider names and aliases."""
         return connector_registry.names()

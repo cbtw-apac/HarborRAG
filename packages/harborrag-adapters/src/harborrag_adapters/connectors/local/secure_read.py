@@ -15,7 +15,7 @@ from .filesystem_paths import SUPPORTS_DIR_FD
 
 @dataclass(frozen=True, slots=True)
 class LocalFileSnapshot:
-    """Bytes and metadata captured from one already-authorized file descriptor."""
+    """Bytes, ``stat`` result and SHA-256 hex digest read from one file descriptor."""
 
     content: bytes
     stat: os.stat_result
@@ -24,7 +24,12 @@ class LocalFileSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class SecureReadScope:
-    """Trusted descriptor and path scope for one local connector."""
+    """Trusted root path, source path and root descriptor for secure reads.
+
+    Attributes:
+        root_fd: Descriptor of the root directory, or -1 without ``dir_fd`` support.
+        closed: Whether the owning filesystem is closed.
+    """
 
     root_path: Path
     source_path: Path
@@ -40,8 +45,22 @@ def read_snapshot_beneath(
     enforce_size_limit: Callable[[Path, int], None],
     read_descriptor: Callable[[Path, int, os.stat_result], LocalFileSnapshot],
 ) -> LocalFileSnapshot:
-    """Validate scope, then hand off to the platform-appropriate open strategy."""
+    """Open a file beneath the trusted root and read it through one descriptor.
 
+    Uses ``dir_fd`` with ``O_NOFOLLOW`` where supported, else a symlink-checked plain open.
+
+    Args:
+        path: Resolved file path.
+        scope: Trusted root and source scope.
+        enforce_size_limit: Called with the path and the descriptor's size before reading.
+        read_descriptor: Reads and hashes the open descriptor.
+
+    Raises:
+        DocumentProcessingError: If the path is outside scope, not a regular file, or
+            rejected by ``enforce_size_limit``.
+        FetchError: If the file cannot be opened.
+        RuntimeError: If the scope is closed.
+    """
     if scope.closed:
         raise RuntimeError("local filesystem connector is closed")
     try:
@@ -82,10 +101,7 @@ def _read_via_dir_fd(
     enforce_size_limit: Callable[[Path, int], None],
     read_descriptor: Callable[[Path, int, os.stat_result], LocalFileSnapshot],
 ) -> LocalFileSnapshot:
-    """Open every component without following links and read the bound inode.
-
-    Requires `dir_fd`/`openat()` support (POSIX only, see `SUPPORTS_DIR_FD`).
-    """
+    """Open every component with ``O_NOFOLLOW`` from the root descriptor and read the file."""
 
     directory_fd = os.dup(root_fd)
     file_fd = -1
@@ -130,15 +146,9 @@ def _read_via_plain_open(
     enforce_size_limit: Callable[[Path, int], None],
     read_descriptor: Callable[[Path, int, os.stat_result], LocalFileSnapshot],
 ) -> LocalFileSnapshot:
-    """Best-effort fallback for platforms without `dir_fd` support (Windows).
+    """Fallback without ``dir_fd`` support: check each component for a symlink, then open.
 
-    Windows has no `openat()`/per-component `O_NOFOLLOW` equivalent, so this
-    narrows rather than closes the TOCTOU window `_read_via_dir_fd` closes on
-    POSIX: every intermediate component is checked for a symlink immediately
-    before descending into it, then the final file is opened by plain path.
-    `O_BINARY` is required here -- without it Windows' C runtime applies
-    text-mode translation (CRLF rewriting, treating 0x1A as EOF) to reads
-    through this descriptor, silently corrupting binary files such as PDFs.
+    Opens in binary mode (``O_BINARY``) to avoid text translation on Windows.
     """
 
     current = root_path

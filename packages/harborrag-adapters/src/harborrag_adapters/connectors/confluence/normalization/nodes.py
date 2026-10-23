@@ -1,18 +1,25 @@
+"""Source-neutral structural node shared by the ADF and markup parsers."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 
-# Kinds whose text belongs to the block that holds them: text runs, inline
-# formatting, links and media. They join exactly as written; every other kind
-# is a block and starts its own line.
 INLINE_KINDS = frozenset({"text", "inline", "link", "media"})
 
 
 @dataclass(frozen=True, slots=True)
 class ConfluenceNode:
-    """Source-neutral structural node shared by ADF and markup traversal."""
+    """Immutable node of the parsed page tree.
+
+    Attributes:
+        kind: Node type; kinds in ``INLINE_KINDS`` are inline, all others are blocks.
+        source_id: Stable identifier of the node within the source body.
+        text: The node's own text, before its children.
+        attributes: Read-only parser attributes.
+        children: Child nodes in document order.
+    """
 
     kind: str
     source_id: str
@@ -31,18 +38,18 @@ class ConfluenceNode:
         exclude_kinds: frozenset[str] = frozenset(),
         verbatim: bool = False,
     ) -> str:
-        """Return visible text while allowing nested artifacts to stay separate.
+        """Return the node's visible text, leaving excluded descendants out.
 
-        The root node's own kind is always included even if it appears in
-        `exclude_kinds` — only descendants are pruned. This lets a caller
-        aggregate a container's own text via `exclude_kinds` while excluding
-        every independently-drafted descendant, including ones that share
-        the root's own kind (e.g. a list nested inside a list).
+        Inline children join as written; each block child starts a new line. Only
+        descendants are pruned by ``exclude_kinds``, never the root itself.
 
-        Inline children join exactly as written, so formatting never splits a
-        sentence; each block child starts a new line. ``verbatim`` (implied for
-        code blocks) keeps the first line's indentation and trims only blank
-        leading lines and trailing whitespace.
+        Args:
+            exclude_kinds: Descendant kinds to skip, including nested ones of the root's kind.
+            verbatim: Keep the first line's indentation and trim only blank leading lines
+                and trailing whitespace (implied for code blocks).
+
+        Returns:
+            The stripped text.
         """
 
         text = self._joined_text(exclude_kinds)
@@ -51,6 +58,8 @@ class ConfluenceNode:
         return text.strip()
 
     def _joined_text(self, exclude_kinds: frozenset[str]) -> str:
+        """Join the node's text and non-excluded descendants without final stripping."""
+
         run = [self.text]
         lines: list[str] = []
         for child in self.children:

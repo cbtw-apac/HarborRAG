@@ -1,3 +1,11 @@
+"""Value types exchanged between connectors and the runtime.
+
+Handles:
+- Document metadata base class
+- Capability flags
+- Discovery query, page and skip records
+"""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -9,7 +17,7 @@ from harborrag_core.domain.source import SourceRecord
 
 
 def _json_safe(value: Any) -> Any:
-    """Recursively convert connector metadata into JSON-safe values."""
+    """Recursively convert dates, enums and collections into JSON-safe values."""
     if isinstance(value, (date, datetime)):
         return value.isoformat()
     if isinstance(value, Enum):
@@ -23,12 +31,10 @@ def _json_safe(value: Any) -> Any:
 
 @dataclass(slots=True, kw_only=True)
 class ConnectorMetadata:
-    """Common metadata emitted for every loaded connector document.
+    """Base metadata emitted for every loaded connector document.
 
-    Provider schemas inherit this contract and add their source-specific
-    fields. ``source_system`` and ``metadata_schema_version`` are class-level
-    constants so callers cannot accidentally construct metadata for the wrong
-    provider. They are injected into the serialized payload by ``to_dict``.
+    Provider schemas subclass it and add source-specific fields. ``source_system`` and
+    ``metadata_schema_version`` are class constants added to the payload by ``to_dict``.
     """
 
     source_system: ClassVar[str] = "base"
@@ -41,7 +47,7 @@ class ConnectorMetadata:
     updated_at: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize common and provider metadata for ``RawDocument.metadata``."""
+        """Return the JSON-safe metadata dict for ``RawDocument.metadata``."""
         payload = {
             "source_system": self.source_system,
             "metadata_schema_version": self.metadata_schema_version,
@@ -52,7 +58,7 @@ class ConnectorMetadata:
 
 @dataclass(frozen=True)
 class ConnectorCapabilities:
-    """Feature flags advertised by a connector provider."""
+    """Feature flags a connector provider advertises."""
 
     sync: bool = True
     async_: bool = False
@@ -73,11 +79,10 @@ class ConnectorCapabilities:
 
 @dataclass
 class ConnectorQuery:
-    """Shared query envelope for discovery calls.
+    """Query envelope for discovery calls.
 
-    Provider-specific selectors belong in ``filters`` so the public connector
-    contract can stay stable while sources expose different concepts such as
-    page IDs, issue keys, repository paths, labels, or drive item IDs.
+    Provider-specific selectors, such as page IDs, issue keys or repository paths,
+    go in ``filters``.
     """
 
     path: str | None = None
@@ -91,7 +96,7 @@ class ConnectorQuery:
 
 @dataclass(frozen=True, slots=True)
 class ConnectorPage:
-    """One bounded discovery page plus an opaque provider continuation cursor."""
+    """One discovery page plus the opaque cursor for the next, or ``None`` on the last."""
 
     records: tuple[SourceRecord, ...]
     next_cursor: str | None
@@ -107,16 +112,14 @@ SKIP_REASON_ACCESS_UNRESOLVED = "access_unresolved"
 
 @dataclass(frozen=True, slots=True)
 class ConnectorSkip:
-    """One source item a traversal deliberately dropped, with its reason.
+    """One source item a traversal dropped, with its reason.
 
-    Skips are reported rather than silently omitted so callers can tell "the
-    source contains nothing else" apart from "an item was excluded by a
-    configured limit or a source-side condition". Intended filtering
-    (extension, glob, pattern, ``updated_after``) is *not* a skip; only
-    exclusions a caller would want to see named belong here.
+    Configured filtering (extension, glob, pattern, ``updated_after``) is not a skip.
 
-    ``reason`` is one of the ``SKIP_REASON_*`` constants and is meant for
-    machine handling; ``detail`` is the human-readable explanation.
+    Attributes:
+        path: Item path or identifier.
+        reason: One of the ``SKIP_REASON_*`` constants, for machine handling.
+        detail: Human-readable explanation.
     """
 
     path: str
@@ -124,5 +127,5 @@ class ConnectorSkip:
     detail: str
 
     def to_dict(self) -> dict[str, str]:
-        """Serialize one skip for logs, reports, or run summaries."""
+        """Return the skip as a plain dict for logs and reports."""
         return {"path": self.path, "reason": self.reason, "detail": self.detail}

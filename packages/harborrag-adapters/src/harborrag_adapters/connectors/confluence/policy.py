@@ -1,4 +1,4 @@
-"""Confluence query translation and content-policy helpers."""
+"""Confluence query translation and content filtering."""
 
 from __future__ import annotations
 
@@ -17,12 +17,10 @@ from .query import build_cql, validate_content_id
 
 
 class ConfluenceQueryPolicyMixin:
-    """Translate queries and enforce the configured Confluence scope.
+    """Mixin translating queries to CQL and enforcing the configured space and content filters.
 
-    The `self.config`/`self.base_url`/`self._content` reads below are the mixin's contract
-    with its host. Declaring them here is annotation-only — it creates no attribute at
-    runtime — but it makes the dependency explicit and type-checked instead of one the
-    host merely happens to satisfy.
+    Expects the host to provide ``config``, ``base_url`` and ``_content``; the annotations declare
+    that contract and create no attributes.
     """
 
     config: ConfluenceSpaceConfig
@@ -30,6 +28,7 @@ class ConfluenceQueryPolicyMixin:
     _content: ConfluenceContentAPI
 
     def _cql_from_query(self, query: ConnectorQuery) -> str:
+        """Translate a query into CQL, rejecting any space other than the configured one."""
         filters = query.filters
         requested_spaces = normalized_string_list(filters.get("space_keys"), default=[])
         if requested_spaces and set(requested_spaces) != {self.config.space_key}:
@@ -44,6 +43,7 @@ class ConfluenceQueryPolicyMixin:
             )
         return build_cql(
             space_key=space_key,
+            # TODO: validate the ``content_types`` filter against the page/blogpost allowlist.
             content_types=normalized_string_list(
                 filters.get("content_types"),
                 default=self.config.content_types,
@@ -59,6 +59,7 @@ class ConfluenceQueryPolicyMixin:
 
     @staticmethod
     def _content_ids_from_query(query: ConnectorQuery) -> list[str]:
+        """Return validated IDs from the ``content_ids`` or ``page_ids`` filter."""
         values = query.filters.get("content_ids") or query.filters.get("page_ids")
         if values is None:
             return []
@@ -71,6 +72,7 @@ class ConfluenceQueryPolicyMixin:
         record: SourceRecord,
         query: ConnectorQuery,
     ) -> SourceRecord:
+        """Copy per-query load options (attachments, comments, graph, selection) onto the record."""
         record.metadata["include_attachments"] = query.include_attachments
         record.metadata["include_comments"] = bool(query.filters.get("include_comments", True))
         record.metadata["build_graph"] = bool(query.filters.get("build_graph", True))
@@ -80,15 +82,7 @@ class ConfluenceQueryPolicyMixin:
         return record
 
     def _should_process_content(self, content: dict[str, Any]) -> bool:
-        """Apply include/exclude label filters and reject Confluence live docs.
-
-        Live docs report ``type: "page"`` like ordinary pages -- they're
-        differentiated only by ``subtype: "live"``, which CQL's
-        ``type in (...)`` clause can't see, so ``content_types`` alone can
-        never exclude them at the query level. There is currently no
-        supported way to opt into ingesting live docs, so they're rejected
-        unconditionally rather than gated by config.
-        """
+        """Apply include/exclude label filters and reject live docs unconditionally."""
         if content.get("subtype") == "live":
             return False
         labels = content.get("metadata", {}).get("labels", {}).get("results", [])
@@ -104,7 +98,7 @@ class ConfluenceQueryPolicyMixin:
         validate_content(content, content_id, space_key=self.config.space_key)
 
     def _record_for_id(self, content_id: str, query: ConnectorQuery) -> SourceRecord:
-        """Build a direct-load record when discovery is driven by explicit IDs."""
+        """Build a direct-load record for an explicit content ID."""
         content = self._content.get_content_summary(validate_content_id(content_id))
         self._validate_content(content, content_id)
         record = build_source_record(

@@ -1,4 +1,4 @@
-"""Structured metadata emitted by the GitHub connector."""
+"""Metadata types emitted by the GitHub connector."""
 
 from __future__ import annotations
 
@@ -20,7 +20,16 @@ class GitHubCommitIdentity:
 
 @dataclass(slots=True, kw_only=True)
 class GitHubMetadata(ConnectorMetadata):
-    """Structured metadata for one loaded GitHub repository file."""
+    """Metadata for one loaded GitHub file.
+
+    Attributes:
+        ref: Ref the commit was resolved from.
+        commit_sha: SHA of the anchoring commit.
+        tree_sha: SHA of the commit's root tree.
+        sha: Blob SHA.
+        mode: Git file mode.
+        size: Size in bytes.
+    """
 
     source_system: ClassVar[str] = "github"
 

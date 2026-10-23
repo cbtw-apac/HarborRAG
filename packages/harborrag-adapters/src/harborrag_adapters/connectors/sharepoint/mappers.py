@@ -1,4 +1,9 @@
-"""Mappings from Microsoft Graph payloads to Harbor domain objects."""
+"""Mappings from Microsoft Graph payloads to source records and metadata.
+
+Handles:
+- Source records and document metadata
+- Timestamps, checksums and identities
+"""
 
 from __future__ import annotations
 
@@ -12,7 +17,7 @@ from .schemas import SharePointMetadata, SharePointParentReference
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse Microsoft Graph timestamp strings into datetimes."""
+    """Parse a Graph ISO timestamp. Returns ``None`` if empty or invalid."""
     if not value:
         return None
     try:
@@ -22,7 +27,11 @@ def parse_timestamp(value: str | None) -> datetime | None:
 
 
 def drive_item_id_from_record(record: SourceRecord) -> str:
-    """Recover the Graph drive item ID from a source record."""
+    """Return the drive item id from a record's metadata or locator.
+
+    Raises:
+        ValueError: If the record has no item id.
+    """
     item_id = record.metadata.get("item_id") or record.locator
     if not item_id:
         raise ValueError(f"SourceRecord {record.id!r} does not contain item_id")
@@ -35,7 +44,13 @@ def build_source_record(
     site_id: str,
     drive_id: str,
 ) -> SourceRecord:
-    """Convert a Microsoft Graph drive item into a source record."""
+    """Build the source record for a drive item.
+
+    Args:
+        item: Graph drive item.
+        site_id: Id of the site the item belongs to.
+        drive_id: Id of the drive the item belongs to.
+    """
     item_id = str(item.get("id") or "")
     mime_type = item_mime_type(item)
     path = item_path(item)
@@ -73,7 +88,14 @@ def build_document_metadata(
     drive: dict[str, Any],
     checksum: str,
 ) -> SharePointMetadata:
-    """Build parsed provenance metadata for a loaded SharePoint file."""
+    """Build the metadata for a loaded drive file.
+
+    Args:
+        item: Graph drive item.
+        site: Resolved site payload.
+        drive: Resolved drive payload.
+        checksum: SHA-256 hex digest of the downloaded bytes.
+    """
     parent = item.get("parentReference", {})
     item_id = str(item.get("id") or "")
     title = item_name(item)
@@ -106,6 +128,7 @@ def build_document_metadata(
 
 
 def _item_checksum(item: dict[str, Any]) -> str | None:
+    """Return the quickXor, SHA-1 or SHA-256 hash, else ``eTag``, else ``cTag``."""
     hashes = _hashes(item)
     return (
         hashes.get("quickXorHash")
@@ -125,6 +148,7 @@ def _hashes(item: dict[str, Any]) -> dict[str, Any]:
 
 
 def _identity_name(identity_set: Any) -> str | None:
+    """Return the first display name or email in a Graph identity set, or ``None``."""
     if not isinstance(identity_set, dict):
         return None
     for value in identity_set.values():

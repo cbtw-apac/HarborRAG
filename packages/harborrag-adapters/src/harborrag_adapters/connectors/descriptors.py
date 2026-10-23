@@ -1,3 +1,5 @@
+"""Admission descriptors that connectors return for discovered source records."""
+
 from __future__ import annotations
 
 import hashlib
@@ -10,13 +12,20 @@ from harborrag_core.ingestion import AdmissionSnapshot
 
 @dataclass(frozen=True, slots=True)
 class ConnectorDocumentDescriptor:
-    """Compact admission data and independently dispatchable bound records."""
+    """Admission snapshot for one source record plus its bound child records.
+
+    Attributes:
+        source: The described record.
+        admission: Compact admission data for the record.
+        bound_records: Child records that are dispatched independently.
+    """
 
     source: SourceRecord
     admission: AdmissionSnapshot
     bound_records: tuple[SourceRecord, ...] = ()
 
     def __post_init__(self) -> None:
+        """Reject duplicate bound-record ids and a bound record that repeats the source."""
         bound_ids = [record.id for record in self.bound_records]
         if len(set(bound_ids)) != len(bound_ids):
             raise ValueError("connector bound-record identities must be unique")
@@ -27,8 +36,7 @@ class ConnectorDocumentDescriptor:
 def default_document_descriptor(
     source: SourceRecord,
 ) -> ConnectorDocumentDescriptor:
-    """Describe a connector that has no independently ingestible children."""
-
+    """Build a descriptor with no bound records, versioned by ``source_version``."""
     return ConnectorDocumentDescriptor(
         source=source,
         admission=AdmissionSnapshot(
@@ -38,8 +46,14 @@ def default_document_descriptor(
 
 
 def source_version(source: SourceRecord) -> str:
-    """Resolve an inexpensive stable version from a discovered source record."""
+    """Return a stable version string for a discovered record without fetching it.
 
+    Uses the first non-blank of the record's version, checksum or update time fields,
+    else a SHA-256 hash of its identity and metadata.
+
+    Args:
+        source: Record produced by discovery.
+    """
     metadata = source.metadata
     candidates = (
         metadata.get("source_version"),

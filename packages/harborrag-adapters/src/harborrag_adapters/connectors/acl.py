@@ -1,11 +1,11 @@
-"""Source access-control evidence captured by connectors, and the fail-closed gate.
+"""Source access-control evidence and the fail-closed restricted-content gate.
 
-Connectors only *capture* what a source says about who may read an item, relative
-to the connector's configured source scope (a Confluence space, a Jira project, a
-SharePoint library). They never turn that into HarborRAG grants: effective
-decisions are made elsewhere, from this evidence plus a directory of the source's
-own identities. The evidence types themselves live in
-``harborrag_core.sources.acl`` and are re-exported here for connector code.
+Handles:
+- Re-exported ACL evidence types from ``harborrag_core.sources.acl``
+- Validation of the ``restricted_content`` policy
+- Admission and skip recording for restricted or unresolved items
+
+Does NOT compute HarborRAG grants; that happens outside connectors.
 """
 
 from __future__ import annotations
@@ -40,8 +40,7 @@ RESTRICTED_CONTENT_POLICIES = frozenset({"skip", "include"})
 
 
 def validate_restricted_content_policy(value: str) -> str:
-    """Accept only the two supported ``restricted_content`` connector policies."""
-
+    """Return ``value`` if it is ``skip`` or ``include``, else raise ``ValueError``."""
     if value not in RESTRICTED_CONTENT_POLICIES:
         raise ValueError(
             f"restricted_content must be one of {sorted(RESTRICTED_CONTENT_POLICIES)}, "
@@ -51,11 +50,10 @@ def validate_restricted_content_policy(value: str) -> str:
 
 
 class RestrictedContentGate:
-    """Apply a connector's ``restricted_content`` policy to captured ACLs.
+    """Gate that applies a connector's ``restricted_content`` policy to captured ACLs.
 
-    ``skip`` withholds restricted and unknown items. ``include`` admits restricted
-    items (for ``source_acl`` corpora that import per-document snapshots) but still
-    withholds unknown ones, because there is no evidence to import.
+    ``skip`` withholds restricted and unknown items; ``include`` admits restricted
+    items but still withholds unknown ones.
     """
 
     def __init__(self, policy: str) -> None:
@@ -64,14 +62,23 @@ class RestrictedContentGate:
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
+        """Return the skips recorded by ``admit`` since the last ``reset``."""
         return tuple(self._skips)
 
     def reset(self) -> None:
+        """Forget recorded skips. Call at the start of each discovery traversal."""
         self._skips.clear()
 
     def admit(self, acl: SourceAcl, *, path: str) -> bool:
-        """Return whether discovery may yield the item; record a skip otherwise."""
+        """Return whether discovery may yield the item, recording a skip otherwise.
 
+        Args:
+            acl: Captured access evidence for the item.
+            path: Item path used in the recorded skip.
+
+        Returns:
+            ``True`` if the item is admitted, ``False`` if it was withheld.
+        """
         decision = self._decision(acl)
         if decision is None:
             return True
@@ -80,13 +87,21 @@ class RestrictedContentGate:
         return False
 
     def require(self, acl: SourceAcl, *, path: str) -> None:
-        """Raise when describe/load reaches an item discovery would withhold."""
+        """Raise when describe or load reaches an item discovery would withhold.
 
+        Args:
+            acl: Captured access evidence for the item.
+            path: Item path used in the error message.
+
+        Raises:
+            SourceRestrictedError: If the policy withholds the item.
+        """
         decision = self._decision(acl)
         if decision is not None:
             raise SourceRestrictedError(f"{path}: {decision[1]}")
 
     def _decision(self, acl: SourceAcl) -> tuple[str, str] | None:
+        """Return ``(reason, detail)`` if the item must be withheld, else ``None``."""
         if acl.status == "inherited":
             return None
         if acl.status == "unknown":

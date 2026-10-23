@@ -1,3 +1,5 @@
+"""Shared attachment handling for source connectors."""
+
 from .loading import AttachmentDocumentLoader
 from .processing import (
     AttachmentMetadata,

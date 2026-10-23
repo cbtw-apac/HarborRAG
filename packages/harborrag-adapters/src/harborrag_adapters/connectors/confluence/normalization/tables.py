@@ -1,3 +1,11 @@
+"""Table node conversion into canonical ``TableArtifact`` objects.
+
+Handles:
+- Logical grid placement with row and column spans
+- Nested tables as artifacts linked to their parent cell
+- Header, unit and key column analysis through ``TableArtifactAnalyzer``
+"""
+
 from __future__ import annotations
 
 from collections.abc import Sequence
@@ -22,7 +30,10 @@ from .table_analysis import TableArtifactAnalyzer
 
 
 class TableArtifactBuilder:
-    """Build one canonical table and any nested table artifacts."""
+    """Builder of a canonical table and its nested table artifacts.
+
+    Shares the page's identity builder so ids stay consistent across tables and sections.
+    """
 
     def __init__(
         self,
@@ -33,6 +44,16 @@ class TableArtifactBuilder:
         source_url: str,
         identity: CanonicalIdentityBuilder | None = None,
     ) -> None:
+        """Store the page identity values.
+
+        Args:
+            document_id: Document id of the page.
+            document_version_id: Document version id of the page.
+            source_version: Source version of the page.
+            source_url: Canonical URL of the page.
+            identity: Identity builder for ids; a new one if omitted.
+        """
+
         self._document_id = document_id
         self._document_version_id = document_version_id
         self._source_version = source_version
@@ -48,7 +69,21 @@ class TableArtifactBuilder:
         tab_path: tuple[str, ...],
         parent_cell: ParentTableCellLocator | None = None,
     ) -> tuple[TableArtifact, ...]:
-        """Return the parent artifact first, followed by nested artifacts."""
+        """Build a table artifact and the artifacts of its nested tables.
+
+        Args:
+            node: Table node.
+            ordinal: Position of the table among its siblings.
+            section_path: Enclosing section path.
+            tab_path: Enclosing tab path.
+            parent_cell: Cell holding this table, for a nested table.
+
+        Returns:
+            The table artifact first, followed by nested artifacts.
+
+        Raises:
+            TableExtractionError: If the table has no rows or cells, or cell spans overlap.
+        """
 
         rows = self._table_rows(node)
         if not rows:
@@ -158,6 +193,13 @@ class TableArtifactBuilder:
         section_path: tuple[str, ...],
         tab_path: tuple[str, ...],
     ) -> tuple[list[TableCell], list[list[TableGridSlot | None]], list[TableArtifact]]:
+        """Place every cell on the logical grid and build the cells and nested tables.
+
+        Each cell starts at the first free column of its row. Covered slots point to the
+        cell and only the anchor slot is not inherited. Raises ``TableExtractionError`` if
+        spans overlap.
+        """
+
         cells: list[TableCell] = []
         grid: list[list[TableGridSlot | None]] = []
         nested: list[TableArtifact] = []
@@ -165,6 +207,7 @@ class TableArtifactBuilder:
             self._ensure_grid(grid, row_index + 1, 1)
             for cell_node in self._row_cells(row):
                 column_index = self._next_open_column(grid[row_index])
+                # TODO: cap rowspan and colspan; huge values allocate an oversized grid.
                 row_span = self._span(cell_node, "rowspan", "rowSpan")
                 column_span = self._span(cell_node, "colspan", "colSpan")
                 self._ensure_grid(
@@ -183,6 +226,7 @@ class TableArtifactBuilder:
                 )
                 nested_nodes = self._nested_tables(cell_node)
                 nested_ids: list[str] = []
+                # TODO: bound table nesting depth; deep nesting raises RecursionError.
                 for nested_ordinal, nested_node in enumerate(nested_nodes):
                     artifacts = self.build(
                         nested_node,
@@ -240,6 +284,8 @@ class TableArtifactBuilder:
         rows: int,
         columns: int,
     ) -> None:
+        """Grow the grid to ``rows`` rows and pad every row with None to ``columns`` slots."""
+
         while len(grid) < rows:
             grid.append([])
         for row in grid:
@@ -247,6 +293,8 @@ class TableArtifactBuilder:
 
     @staticmethod
     def _next_open_column(row: list[TableGridSlot | None]) -> int:
+        """Return the first unfilled column of a row, appending one if the row is full."""
+
         try:
             return row.index(None)
         except ValueError:
@@ -255,10 +303,14 @@ class TableArtifactBuilder:
 
     @classmethod
     def _table_rows(cls, table: ConfluenceNode) -> tuple[ConfluenceNode, ...]:
+        """Return the table's rows, excluding rows of nested tables."""
+
         return tuple(cls._descendants(table, {"table_row"}, stop={"table"}))
 
     @classmethod
     def _row_cells(cls, row: ConfluenceNode) -> tuple[ConfluenceNode, ...]:
+        """Return a row's header and data cells, excluding cells of nested tables."""
+
         return tuple(
             cls._descendants(
                 row,
@@ -269,6 +321,8 @@ class TableArtifactBuilder:
 
     @classmethod
     def _nested_tables(cls, cell: ConfluenceNode) -> tuple[ConfluenceNode, ...]:
+        """Return the tables directly nested in a cell."""
+
         return tuple(cls._descendants(cell, {"table"}, stop={"table"}))
 
     @classmethod
@@ -279,6 +333,8 @@ class TableArtifactBuilder:
         *,
         stop: set[str],
     ) -> list[ConfluenceNode]:
+        """Return descendants of ``kinds`` in document order, not entering ``stop`` kinds."""
+
         found: list[ConfluenceNode] = []
         for child in node.children:
             if child.kind in kinds:
@@ -290,6 +346,8 @@ class TableArtifactBuilder:
 
     @staticmethod
     def _span(node: ConfluenceNode, *keys: str) -> int:
+        """Return the first present span attribute as an integer of at least 1, else 1."""
+
         value = next((node.attributes[key] for key in keys if key in node.attributes), 1)
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
             return 1
@@ -300,6 +358,8 @@ class TableArtifactBuilder:
 
     @staticmethod
     def _caption(node: ConfluenceNode) -> str | None:
+        """Return the ``caption`` attribute, else the text of a caption child, else None."""
+
         value = node.attributes.get("caption")
         if value and str(value).strip():
             return str(value).strip()
@@ -308,6 +368,8 @@ class TableArtifactBuilder:
 
     @classmethod
     def _leading_header_rows(cls, rows: Sequence[ConfluenceNode]) -> tuple[int, ...]:
+        """Return the indices of the leading rows made only of header cells."""
+
         header_rows: list[int] = []
         for row_index, row in enumerate(rows):
             cells = cls._row_cells(row)

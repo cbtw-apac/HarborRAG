@@ -1,4 +1,4 @@
-"""Mappings from local files to Harbor domain objects."""
+"""Mappings from local files to source records and metadata."""
 
 from __future__ import annotations
 
@@ -16,7 +16,11 @@ from .schemas import LocalFileMetadata
 
 
 def path_from_record(record: SourceRecord) -> Path:
-    """Recover the filesystem path from a local source record."""
+    """Return the path from a record's metadata or locator.
+
+    Raises:
+        ValueError: If the record has no path.
+    """
     path = record.metadata.get("path") or record.locator
     if not path:
         raise ValueError(f"SourceRecord {record.id!r} does not contain path")
@@ -30,11 +34,13 @@ def build_source_record(
     checksum: str | None,
     is_symlink: bool,
 ) -> SourceRecord:
-    """Convert a local file path into a lightweight source record.
+    """Build the source record for a local file.
 
-    ``is_symlink`` must be captured by the caller before ``path`` is resolved —
-    traversal resolves symlinks to their real target, so ``path.is_symlink()``
-    here would always be ``False``.
+    Args:
+        path: Resolved file path.
+        root_path: Trusted root; the record id is the path relative to it.
+        checksum: Change-detection signature, or ``None``.
+        is_symlink: Whether the path was a symlink before resolution.
     """
     stat = path.stat()
     relative = relative_path(path, root_path)
@@ -68,10 +74,14 @@ def build_document_metadata(
     is_symlink: bool,
     stat_result: os.stat_result | None = None,
 ) -> LocalFileMetadata:
-    """Build parsed provenance metadata for a loaded local file.
+    """Build the metadata for a loaded local file.
 
-    ``is_symlink`` must be captured by the caller before ``path`` is resolved;
-    see :func:`build_source_record`.
+    Args:
+        path: Resolved file path.
+        root_path: Trusted root for the relative path.
+        checksum: Checksum of the loaded bytes.
+        is_symlink: Whether the path was a symlink before resolution.
+        stat_result: ``stat`` taken from the read descriptor; read from ``path`` if ``None``.
     """
     stat = stat_result or path.stat()
     relative = relative_path(path, root_path)

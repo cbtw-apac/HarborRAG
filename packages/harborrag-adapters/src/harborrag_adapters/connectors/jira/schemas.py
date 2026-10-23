@@ -1,4 +1,4 @@
-"""Structured metadata emitted by the JIRA connector."""
+"""Structured metadata emitted by the Jira connector."""
 
 from __future__ import annotations
 
@@ -13,10 +13,9 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 @dataclass(slots=True)
 class JiraIssueReference:
-    """Compact issue reference used for relationships.
+    """Compact issue reference (id and key only) used for relationships.
 
-    Only identifiers: a related issue may be one the connector withholds, and its
-    summary or status would otherwise reach readers of the visible issue.
+    Carries identifiers only, since a related issue may be withheld.
     """
 
     id: Any
@@ -25,7 +24,7 @@ class JiraIssueReference:
 
 @dataclass(slots=True)
 class JiraIssueLinkMetadata:
-    """Normalized linked issue relationship."""
+    """Normalized issue link with its direction."""
 
     id: Any
     type: str | None
@@ -35,7 +34,7 @@ class JiraIssueLinkMetadata:
 
 @dataclass(slots=True)
 class JiraCommentMetadata:
-    """Normalized JIRA comment metadata."""
+    """Normalized comment metadata."""
 
     id: Any
     author: str | None
@@ -57,7 +56,7 @@ class JiraChangelogItemMetadata:
 
 @dataclass(slots=True)
 class JiraChangelogMetadata:
-    """Normalized JIRA changelog entry."""
+    """Normalized changelog entry."""
 
     id: Any
     author: str | None
@@ -89,7 +88,7 @@ class JiraCustomFieldKind(StrEnum):
 
 @dataclass(slots=True)
 class JiraCustomFieldMetadata:
-    """Custom field value preserved with JIRA field metadata."""
+    """Custom field value with its Jira schema, rendered text and kind."""
 
     field_id: str
     name: str
@@ -102,14 +101,14 @@ class JiraCustomFieldMetadata:
 
     @property
     def is_searchable_prose(self) -> bool:
-        """Return whether the field belongs in independent dense evidence."""
+        """Return whether the field is prose, which becomes its own evidence element."""
 
         return self.value_kind == JiraCustomFieldKind.PROSE
 
 
 @dataclass(slots=True, kw_only=True)
 class JiraMetadata(ConnectorMetadata):
-    """Structured metadata for one loaded JIRA issue."""
+    """Structured metadata for one loaded issue."""
 
     source_system: ClassVar[str] = "jira"
 

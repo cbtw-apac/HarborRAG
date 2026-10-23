@@ -1,3 +1,11 @@
+"""Intermediate block, context and result types for page hierarchy building.
+
+Handles:
+- Mutable block drafts and their frozen models
+- Section, tab and container position
+- Page identity and build result values
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -14,6 +22,13 @@ from harborrag_core.domain import (
 
 @dataclass(slots=True)
 class BlockDraft:
+    """Mutable block under construction, later converted to a ``DocumentBlock``.
+
+    Attributes:
+        ordinal: Index among the parent's children, set when the draft is created.
+        children: Child drafts, appended while the tree is populated.
+    """
+
     block_id: str
     kind: DocumentBlockKind
     ordinal: int
@@ -31,6 +46,8 @@ class BlockDraft:
     children: list[BlockDraft] = field(default_factory=list)
 
     def model(self, source_url: str) -> DocumentBlock:
+        """Return the frozen ``DocumentBlock`` for this draft and its children."""
+
         return DocumentBlock(
             block_id=self.block_id,
             kind=self.kind,
@@ -56,6 +73,12 @@ class BlockDraft:
 
 @dataclass(frozen=True, slots=True)
 class BlockContext:
+    """Immutable position of a node: enclosing section, tab and container.
+
+    Attributes:
+        container_ids: Enclosing container block ids, outermost first.
+    """
+
     section_path: tuple[str, ...] = ()
     section_id: str | None = None
     parent_section_id: str | None = None
@@ -68,6 +91,8 @@ class BlockContext:
 
 @dataclass(frozen=True, slots=True)
 class BlockPresentation:
+    """Text, title, heading level and attributes a handler gives to a new draft."""
+
     text: str | None = None
     title: str | None = None
     heading_level: int | None = None
@@ -76,6 +101,8 @@ class BlockPresentation:
 
 @dataclass(frozen=True, slots=True)
 class ConfluenceBuildContext:
+    """Page identity values for deriving block ids and locators."""
+
     document_id: str
     document_version_id: str
     source_version: str
@@ -86,6 +113,8 @@ class ConfluenceBuildContext:
 
 @dataclass(frozen=True, slots=True)
 class CanonicalBuildResult:
+    """Blocks, elements, tables, relations and warnings built for one page."""
+
     blocks: tuple[DocumentBlock, ...]
     elements: tuple[DocumentElement, ...]
     tables: tuple[TableArtifact, ...]

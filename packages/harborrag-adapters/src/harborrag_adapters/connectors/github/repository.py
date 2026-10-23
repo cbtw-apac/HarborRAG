@@ -1,4 +1,10 @@
-"""Repository metadata, tree traversal, and blob-loading operations."""
+"""Repository-scoped GitHub operations.
+
+Handles:
+- Repository and commit resolution
+- Git tree traversal with a fallback for truncated trees
+- Blob loading with size and encoding checks
+"""
 
 from __future__ import annotations
 
@@ -33,10 +39,18 @@ logger = logging.getLogger("harborrag.adapters.connectors.github")
 
 
 class GitHubRepositoryAPI:
-    """Repository-scoped GitHub traversal, filtering, and blob loading."""
+    """GitHub operations for one repository.
+
+    Caches the repository and commit payloads for the lifetime of the instance.
+    """
 
     def __init__(self, config: GitHubRepositoryConfig, client: GitHubClient) -> None:
-        """Bind repository operations to a client and validated config."""
+        """Bind the repository to a client.
+
+        Args:
+            config: Validated repository config.
+            client: GitHub client used for all requests.
+        """
         self.config = config
         self.client = client
         self.owner = str(config.owner)
@@ -47,11 +61,21 @@ class GitHubRepositoryAPI:
 
     @property
     def resolved_ref(self) -> str | None:
-        """Return the configured ref resolved for the current ingestion run."""
+        """Return the ref ``resolve_commit`` used, or ``None`` before it runs."""
         return self._resolved_ref
 
     def iter_tree(self, tree_sha: str, *, recursive: bool) -> Iterator[dict[str, Any]]:
-        """Yield Git tree items, falling back if GitHub truncates recursion."""
+        """Yield tree items, falling back to a subtree walk if GitHub truncates the tree.
+
+        Entries with a ``..`` path segment are skipped.
+
+        Args:
+            tree_sha: SHA of the tree to read.
+            recursive: Request the full recursive listing.
+
+        Raises:
+            FetchError: If a tree response is not an object.
+        """
         params = {"recursive": "1"} if recursive else None
         response = self.client.get_json(
             tree_endpoint(self.owner, self.repo, tree_sha),
@@ -75,12 +99,21 @@ class GitHubRepositoryAPI:
             yield item
 
     def load_blob(self, sha: str, *, known_size: int | None = None) -> bytes:
-        """Fetch and decode a Git blob while enforcing GitHub and config limits.
+        """Fetch and base64-decode a Git blob, checking its size and encoding.
 
-        When ``known_size`` is supplied (e.g. from a prior contents-API lookup
-        for a single path), the configured size limit is enforced before the
-        blob endpoint is ever called so oversized files are rejected without
-        being downloaded and JSON-parsed first.
+        A ``known_size`` over the limit is rejected before the blob is requested.
+
+        Args:
+            sha: Blob SHA.
+            known_size: Size from a prior lookup, if any.
+
+        Returns:
+            The decoded bytes.
+
+        Raises:
+            DocumentProcessingError: If the blob is oversized, has an invalid size or
+                encoding, or its decoded size differs from the declared one.
+            FetchError: If the blob response is not an object.
         """
         if known_size is not None:
             self.enforce_size_limit(sha, known_size)
@@ -117,7 +150,7 @@ class GitHubRepositoryAPI:
         return decoded
 
     def _blob_response_limit(self) -> int:
-        """Bound base64 JSON using the configured decoded-file ceiling."""
+        """Return the byte cap for a blob response, derived from the decoded-file limit."""
 
         configured_limit = self.config.max_file_size_bytes
         decoded_limit = (
@@ -132,7 +165,15 @@ class GitHubRepositoryAPI:
         return encoded_limit + line_break_overhead + 64 * 1024
 
     def content_file_item(self, path: str, *, ref: str) -> dict[str, Any]:
-        """Resolve one path through the contents API and normalize it as a blob."""
+        """Return a blob item for one path from the contents API.
+
+        Args:
+            path: Repository path.
+            ref: Ref to read the path at.
+
+        Raises:
+            DocumentProcessingError: If the path is not a file.
+        """
         response = self.client.get_json(
             content_endpoint(self.owner, self.repo, path),
             params={"ref": ref},
@@ -156,7 +197,7 @@ class GitHubRepositoryAPI:
         ref: str,
         commit: dict[str, Any],
     ) -> SourceRecord:
-        """Map a tree item and its anchoring commit to a source record."""
+        """Build the source record for a tree item at a commit."""
         return build_source_record(
             item,
             owner=self.owner,
@@ -167,7 +208,7 @@ class GitHubRepositoryAPI:
         )
 
     def record_for_path(self, path: str) -> SourceRecord:
-        """Resolve one repository path and return its source record."""
+        """Return the source record for a path at the resolved commit."""
         repository = self.resolve_repository()
         commit = self.resolve_commit(repository)
         ref = self.resolved_ref or str(commit.get("sha") or "")
@@ -175,7 +216,11 @@ class GitHubRepositoryAPI:
         return self.source_record(item, ref=ref, commit=commit)
 
     def resolve_repository(self) -> dict[str, Any]:
-        """Fetch and cache repository metadata needed for default branch lookup."""
+        """Return the repository metadata, fetching it once.
+
+        Raises:
+            FetchError: If the response lacks ``full_name``.
+        """
         if self._repository is not None:
             return self._repository
         response = self.client.get_json(repo_endpoint(self.owner, self.repo))
@@ -185,7 +230,15 @@ class GitHubRepositoryAPI:
         return response
 
     def resolve_commit(self, repository: dict[str, Any]) -> dict[str, Any]:
-        """Resolve and cache the commit that anchors this ingestion run."""
+        """Return the commit for ``commit_sha``, ``ref``, ``branch`` or the default branch.
+
+        Args:
+            repository: Repository metadata, used for the default branch.
+
+        Raises:
+            FetchError: If no ref resolves or the commit response lacks a SHA or tree SHA.
+        """
+        # TODO: scope the cached commit to one scan so later scans see new commits.
         if self._commit is not None:
             return self._commit
 
@@ -217,11 +270,11 @@ class GitHubRepositoryAPI:
         *,
         commit: dict[str, Any],
     ) -> bool:
-        """Apply query/config filters to one GitHub tree or content item."""
+        """Return whether an item passes the config and query filters."""
         return should_process_file(self.config, item, query, commit=commit)
 
     def enforce_size_limit(self, label: str, size: int) -> None:
-        """Prevent large blobs from being materialized by direct loads."""
+        """Raise ``DocumentProcessingError`` if ``size`` exceeds ``max_file_size_bytes``."""
         if self.config.max_file_size_bytes is None or not size:
             return
         if size > self.config.max_file_size_bytes:
@@ -236,15 +289,7 @@ class GitHubRepositoryAPI:
         *,
         prefix: str = "",
     ) -> Iterator[dict[str, Any]]:
-        """Walk subtrees manually when GitHub's recursive tree API is truncated.
-
-        Uses an explicit stack of per-level iterators instead of recursing, so
-        a repository tree truncated because it is extremely deep (the case
-        most likely to also be deep) cannot grow the Python call stack.
-        Subtrees are pushed on top of the stack so they drain before the
-        remaining siblings at the current level, preserving the same
-        depth-first order the recursive version yielded.
-        """
+        """Yield non-tree items by walking subtrees depth-first with an explicit stack."""
         stack: list[Iterator[dict[str, Any]]] = [self._tree_items(tree_sha, prefix)]
         while stack:
             try:
@@ -258,7 +303,7 @@ class GitHubRepositoryAPI:
                 yield item
 
     def _tree_items(self, tree_sha: str, prefix: str) -> Iterator[dict[str, Any]]:
-        """Fetch and normalize the direct entries of one tree (no recursion)."""
+        """Yield the direct entries of one tree with paths prefixed, skipping ``..`` segments."""
         response = self.client.get_json(tree_endpoint(self.owner, self.repo, tree_sha))
         if not isinstance(response, dict):
             raise FetchError("GitHub tree response was not an object")
@@ -272,7 +317,7 @@ class GitHubRepositoryAPI:
 
 
 def _is_traversal_item(item: dict[str, Any]) -> bool:
-    """Skip remote tree entries whose names decode to ``..`` instead of aborting discovery."""
+    """Return whether a remote tree entry has a ``..`` segment, logging a warning if so."""
     path = str(item.get("path") or "")
     if not has_parent_segment(path):
         return False

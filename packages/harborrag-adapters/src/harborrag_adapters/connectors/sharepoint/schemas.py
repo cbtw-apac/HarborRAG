@@ -1,4 +1,4 @@
-"""Structured metadata emitted by the SharePoint connector."""
+"""Metadata types emitted by the SharePoint connector."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 @dataclass(slots=True)
 class SharePointParentReference:
-    """Parent drive item reference from Microsoft Graph."""
+    """Parent drive item reference from Graph."""
 
     drive_id: Any
     id: Any
@@ -19,7 +19,13 @@ class SharePointParentReference:
 
 @dataclass(slots=True, kw_only=True)
 class SharePointMetadata(ConnectorMetadata):
-    """Structured metadata for one loaded SharePoint drive item."""
+    """Metadata for one loaded SharePoint drive item.
+
+    Attributes:
+        etag: Graph ``eTag`` of the item.
+        ctag: Graph ``cTag`` of the item.
+        sharepoint_hashes: Graph file hashes, such as ``quickXorHash``.
+    """
 
     source_system: ClassVar[str] = "sharepoint"
 

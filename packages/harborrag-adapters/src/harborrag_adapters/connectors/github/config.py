@@ -1,4 +1,4 @@
-"""Validated configuration for GitHub repository connectors."""
+"""Configuration for GitHub repository connectors."""
 
 from __future__ import annotations
 
@@ -26,9 +26,19 @@ from .repository_paths import (
 class GitHubRepositoryConfig:
     """Configuration for one GitHub repository source scope.
 
-    The connector reads one resolved ref from one repository. Path filters and
-    size limits are applied during discovery and repeated during load for direct
-    record access.
+    Path filters and size limits apply during discovery and again on direct loads.
+    ``token`` falls back to the ``GITHUB_TOKEN`` environment variable.
+
+    Attributes:
+        repository_url: HTTPS or SSH URL; supplies ``owner`` and ``repo`` when they are unset.
+        ref: Branch, tag or commit to read; mutually exclusive with ``branch``.
+        branch: Branch to read; mutually exclusive with ``ref``.
+        commit_sha: Exact commit to read; mutually exclusive with ``ref`` and ``branch``.
+        root_path: Repository subtree that bounds discovery and loading.
+        process_file_callback: Called with path, size and MIME type; returns
+            ``(should_process, reason)``.
+        fail_on_error: Re-raise callback errors instead of skipping the file.
+        allow_private_network: Allow ``api_url`` and ``web_url`` to target private hosts.
     """
 
     owner: str | None = None
@@ -58,7 +68,11 @@ class GitHubRepositoryConfig:
     allow_private_network: bool = False
 
     def __post_init__(self) -> None:
-        """Resolve repository URL shortcuts and validate mutually exclusive refs."""
+        """Resolve the repository URL and validate URLs, refs, limits and HTTP tuning.
+
+        Raises:
+            ValueError: If the repository is unidentified, refs conflict, or a value is invalid.
+        """
         self.token = self.token or os.getenv("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")

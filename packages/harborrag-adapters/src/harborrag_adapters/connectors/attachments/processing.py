@@ -1,3 +1,13 @@
+"""Inline attachment processing for connectors that fold attachment text into the parent.
+
+Handles:
+- Attachment type classification by suffix and media type
+- Size, origin and callback checks before download
+- Download and parsing into text, with a status per attachment
+
+Does NOT handle attachments dispatched as their own records; ``sources.py`` does.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -22,7 +32,7 @@ DEFAULT_MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024
 
 
 class FileType(StrEnum):
-    """Attachment categories used for parser routing and custom overrides."""
+    """Attachment categories used for parser routing and custom parsers."""
 
     IMAGE = "image"
     DOCUMENT = "document"
@@ -39,7 +49,13 @@ class FileType(StrEnum):
 
 @dataclass(slots=True)
 class AttachmentMetadata:
-    """Result of attempting to download and parse one source attachment."""
+    """Outcome of downloading and parsing one attachment.
+
+    Attributes:
+        text: Extracted text, set only when ``status`` is ``processed``.
+        reason: Why the attachment was not processed, else ``None``.
+        created_at: Provider upload time, as reported.
+    """
 
     id: str
     title: str
@@ -119,11 +135,14 @@ _SUFFIX_TYPE_MAP: dict[str, tuple[FileType, str]] = {
 
 
 def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | None:
-    """Resolve an attachment category from filename suffix and media type.
+    """Resolve an attachment's file type and extension; the filename suffix wins.
 
-    Source APIs sometimes report generic or misleading MIME types for user
-    uploads, so filename suffixes intentionally take precedence where they are
-    more specific.
+    Args:
+        media_type: Media type reported by the provider.
+        title: Attachment filename.
+
+    Returns:
+        File type and extension, or ``None`` when neither suffix nor media type is known.
     """
     suffix = Path(title).suffix.lower().lstrip(".")
     if suffix in _SUFFIX_TYPE_MAP:
@@ -132,12 +151,10 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
 
 
 class AttachmentProcessor:
-    """Download source attachments and extract text through Harbor parsers.
+    """Processor that downloads attachments and extracts their text with Harbor parsers.
 
-    This class is shared by Confluence and JIRA. It keeps attachment handling
-    outside provider connectors while preserving their safety controls: trusted
-    origin checks, pre-download size limits, optional custom parsers, and
-    best-effort per-attachment failures.
+    Shared by Confluence and Jira. A processing failure is recorded on its attachment
+    unless ``fail_on_error`` is set.
     """
 
     def __init__(
@@ -152,15 +169,20 @@ class AttachmentProcessor:
         fail_on_error: bool = False,
         logger_: logging.Logger | None = None,
     ) -> None:
-        """Configure attachment download, parsing, limits, and error policy.
+        """Configure download, parsing, limits and error policy.
 
-        ``parser`` should be an explicitly constructed/injected parser registry
-        (e.g. the runtime's profile-configured instance). This class never
-        constructs a default parser itself, since a silent default would
-        bypass runtime-configured PDF backends and parser policies. Passing
-        ``None`` is only safe when every attachment type is covered by
-        ``custom_parsers``; otherwise parsing an uncovered attachment raises
-        (caught by the per-attachment failure boundary below).
+        Args:
+            download_fn: Downloads a URL; ``None`` means an empty body.
+            base_url: Provider origin that download URLs must belong to.
+            parser: Injected parser registry; never defaulted. Without one, every file
+                type needs a ``custom_parsers`` entry or the attachment fails.
+            custom_parsers: Parsers by file type, taking precedence over ``parser``.
+            process_attachment_callback: Hook ``(media_type, size, title)`` returning
+                ``(accepted, reason)``.
+            max_attachment_size_bytes: Largest processed attachment, ``None`` for no limit.
+            fail_on_error: Raise ``FetchError`` when processing raises, instead of recording
+                ``failed``.
+            logger_: Logger for per-attachment failures.
         """
         self._download = download_fn
         self.base_url = base_url.rstrip("/")
@@ -172,11 +194,25 @@ class AttachmentProcessor:
         self.logger = logger_ or logger
 
     def process(self, attachments: list[dict]) -> list[AttachmentMetadata]:
-        """Process a provider API attachment list into normalized metadata."""
+        """Download and parse each attachment, in order.
+
+        Args:
+            attachments: Provider attachment payloads.
+
+        Returns:
+            One entry per attachment, with status ``processed``, ``skipped``,
+            ``unsupported`` or ``failed``.
+
+        Raises:
+            FetchError: If processing fails and ``fail_on_error`` is set.
+        """
         return [self._process_one(attachment) for attachment in attachments]
 
     def _process_one(self, attachment: dict) -> AttachmentMetadata:
+        """Return the outcome for one attachment; ``FetchError`` only with ``fail_on_error``."""
+
         attachment_id = str(attachment.get("id") or "")
+        # TODO: read title, media type and upload time inside the attachment boundary.
         title = self._title(attachment)
         media_type = self._media_type(attachment)
 
@@ -191,12 +227,9 @@ class AttachmentProcessor:
             # or failed attachment still reports when it was uploaded.
             created_at=self._created_at(attachment),
         )
+        # One boundary per attachment: a malformed value or a raising callback fails only
+        # this attachment.
         try:
-            # Everything below (size/URL normalization, the caller callback,
-            # size limits, classification, download, and parsing) runs inside
-            # this one boundary so a malformed provider value or a raising
-            # callback degrades to a per-attachment failure instead of
-            # aborting every remaining attachment.
             metadata.size_bytes = self._size_bytes(attachment)
 
             try:
@@ -239,6 +272,7 @@ class AttachmentProcessor:
             metadata.status = "processed"
             metadata.text = text
             return metadata
+        # TODO: re-raise ``AuthenticationError`` instead of recording it as a failed attachment.
         except Exception as exc:  # noqa: BLE001 - attachment boundary
             safe_reason = redact_secrets(str(exc))
             self.logger.warning(
@@ -254,7 +288,7 @@ class AttachmentProcessor:
             return metadata
 
     def _download_within_limit(self, metadata: AttachmentMetadata) -> bytes | None:
-        """Download one attachment and apply the post-download size boundary."""
+        """Download one attachment; ``None`` with a reason on ``metadata`` if it fails."""
 
         content = self._download(metadata.download_url)
         if not content:
@@ -280,6 +314,8 @@ class AttachmentProcessor:
         title: str,
         media_type: str,
     ) -> str:
+        """Return the text from the custom parser or registry; ``ValueError`` if neither exists."""
+
         if file_type in self.custom_parsers:
             return self.custom_parsers[file_type](content, extension)
         if self.parser is not None:
@@ -301,6 +337,8 @@ class AttachmentProcessor:
         media_type: str,
         title: str,
     ) -> tuple[FileType, str] | None:
+        """Return the file type and extension, or mark ``metadata`` unsupported (``None``)."""
+
         classified = classify_attachment(media_type, title)
         if classified is None:
             metadata.status = "unsupported"
@@ -315,13 +353,7 @@ class AttachmentProcessor:
 
     @staticmethod
     def _created_at(attachment: dict) -> str | None:
-        """Read when the provider recorded this attachment being uploaded.
-
-        JIRA returns ``created`` directly on the attachment. Confluence carries
-        the equivalent on ``version.when`` for the current file version, and on
-        ``history.createdDate`` for the original upload; prefer the former so
-        a re-uploaded file reports its current timestamp.
-        """
+        """Return the upload time from the first known provider field, or ``None``."""
         version = attachment.get("version")
         history = attachment.get("history")
         value = (
@@ -353,7 +385,7 @@ class AttachmentProcessor:
         )
 
     def _download_url(self, attachment: dict) -> str:
-        """Build a trusted absolute download URL from provider attachment data."""
+        """Return an absolute provider-origin download URL; ``ValueError`` if absent."""
         download = str(
             attachment.get("content")
             or attachment.get("downloadUrl")

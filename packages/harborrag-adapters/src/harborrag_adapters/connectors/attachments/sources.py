@@ -1,3 +1,13 @@
+"""Admission of attachments as separate source items.
+
+Handles:
+- Admission decisions from provider metadata alone
+- Trusted-origin download URLs
+- Stable attachment version hashes
+
+Does NOT download during admission; ``fetch`` does that later.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -27,14 +37,22 @@ AttachmentSourceStatus = Literal[
 
 
 class BoundedDownload(Protocol):
+    """Callable that downloads a URL without buffering more than ``max_bytes``."""
+
     def __call__(self, url: str, *, max_bytes: int | None) -> bytes | None:
-        """Stream a response while refusing to buffer more than max_bytes."""
+        """Download ``url`` buffering at most ``max_bytes``. Returns the bytes or ``None``."""
         ...
 
 
 @dataclass(frozen=True, slots=True)
 class AttachmentSourceDescriptor:
-    """Fetch-safe metadata for one independently ingestible attachment."""
+    """Fetch-safe metadata for one independently ingestible attachment.
+
+    Attributes:
+        source_version: Hash of the attachment's identity fields, not its content.
+        status: Admission outcome.
+        reason: Why the attachment was not admitted, else ``None``.
+    """
 
     attachment_id: str
     title: str
@@ -48,6 +66,17 @@ class AttachmentSourceDescriptor:
 
 @dataclass(frozen=True, slots=True)
 class AttachmentSourcePolicy:
+    """Admission and fetch settings for the attachment gateway.
+
+    Attributes:
+        base_url: Provider origin that download URLs must belong to.
+        process_callback: Caller hook ``(media_type, size, title)`` returning
+            ``(accepted, reason)``.
+        max_size_bytes: Largest admitted attachment, ``None`` for no limit.
+        fail_on_error: Raise ``FetchError`` for a rejected descriptor instead of
+            returning a ``failed`` one.
+    """
+
     base_url: str
     process_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
@@ -55,7 +84,7 @@ class AttachmentSourcePolicy:
 
 
 class AttachmentSourceGateway:
-    """Apply attachment admission policy without downloading source bytes."""
+    """Gateway that admits attachments by policy and downloads only in ``fetch``."""
 
     def __init__(
         self,
@@ -74,10 +103,35 @@ class AttachmentSourceGateway:
         self,
         attachments: Sequence[Mapping[str, Any]],
     ) -> tuple[AttachmentSourceDescriptor, ...]:
+        """Describe each attachment, in order, without downloading anything.
+
+        A rejected attachment yields a ``failed`` descriptor unless ``fail_on_error`` is set.
+
+        Args:
+            attachments: Provider attachment payloads.
+
+        Returns:
+            One descriptor per attachment.
+
+        Raises:
+            FetchError: If a payload is rejected and the policy sets ``fail_on_error``.
+        """
+
         return tuple(self._safely_describe(attachment) for attachment in attachments)
 
     def fetch(self, descriptor: AttachmentSourceDescriptor) -> bytes:
-        """Download an admitted attachment and re-enforce the byte limit."""
+        """Download an admitted attachment and re-enforce the byte limit.
+
+        Args:
+            descriptor: Descriptor with status ``admitted``.
+
+        Returns:
+            Attachment bytes.
+
+        Raises:
+            FetchError: If the descriptor is not admitted, the download is empty or
+                it exceeds ``max_size_bytes``.
+        """
 
         if descriptor.status != "admitted":
             raise FetchError("attachment was not admitted for content capture")
@@ -96,6 +150,8 @@ class AttachmentSourceGateway:
         self,
         attachment: Mapping[str, Any],
     ) -> AttachmentSourceDescriptor:
+        """Describe one attachment; a rejection becomes a ``failed`` descriptor."""
+
         try:
             return self._describe_one(attachment)
         except Exception as error:
@@ -106,6 +162,7 @@ class AttachmentSourceGateway:
                 "Attachment descriptor rejected (%s)",
                 type(error).__name__,
             )
+            # TODO: build the failed descriptor without re-reading malformed fields.
             return AttachmentSourceDescriptor(
                 attachment_id=str(attachment.get("id") or ""),
                 title=self._title(attachment),
@@ -121,6 +178,12 @@ class AttachmentSourceGateway:
         self,
         attachment: Mapping[str, Any],
     ) -> AttachmentSourceDescriptor:
+        """Apply the admission rules to one attachment.
+
+        Raises on a missing or off-origin URL or a missing id or title; the callback, size
+        limit and handler lookup set ``skipped`` or ``unsupported``.
+        """
+
         attachment_id = str(attachment.get("id") or "").strip()
         title = self._title(attachment)
         media_type = self._media_type(attachment)
@@ -138,6 +201,7 @@ class AttachmentSourceGateway:
             )
             if not accepted:
                 status = "skipped"
+        # TODO: skip attachments the provider reports as 0 bytes; fetch refuses empty content.
         if (
             status == "admitted"
             and self._policy.max_size_bytes is not None
@@ -162,6 +226,8 @@ class AttachmentSourceGateway:
         )
 
     def _download_url(self, attachment: Mapping[str, Any]) -> str:
+        """Return the trusted URL from the first known provider download field."""
+
         value = str(
             attachment.get("content")
             or attachment.get("downloadUrl")
@@ -173,6 +239,8 @@ class AttachmentSourceGateway:
         return self._trusted_url(value)
 
     def _trusted_url(self, value: str) -> str:
+        """Return an absolute URL on the provider origin; off-origin URLs are rejected."""
+
         if value.startswith(("http://", "https://")):
             return require_same_origin_url(
                 value,
@@ -191,6 +259,8 @@ class AttachmentSourceGateway:
 
     @classmethod
     def _media_type(cls, attachment: Mapping[str, Any]) -> str:
+        """Return the reported media type, defaulting to ``application/octet-stream``."""
+
         return str(
             attachment.get("mimeType")
             or attachment.get("mediaType")
@@ -209,6 +279,8 @@ class AttachmentSourceGateway:
 
     @classmethod
     def _version(cls, attachment: Mapping[str, Any]) -> str:
+        """Return a hash of id, title, size, version number and update time, not the content."""
+
         identity = {
             "id": attachment.get("id"),
             "title": cls._title(attachment),

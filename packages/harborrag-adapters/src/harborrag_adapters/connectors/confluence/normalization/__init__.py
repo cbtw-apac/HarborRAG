@@ -1,3 +1,5 @@
+"""Confluence page normalization public API."""
+
 from .adf import AdfDocumentParser
 from .errors import (
     ConfluenceNormalizationError,

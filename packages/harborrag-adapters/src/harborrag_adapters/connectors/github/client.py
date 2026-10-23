@@ -1,4 +1,10 @@
-"""GitHub client protocol and requests-based implementation."""
+"""GitHub REST client protocol and its requests-based implementation.
+
+Handles:
+- Authenticated, rate-limited GET requests
+- Retries with provider retry headers
+- Capped JSON decoding and error classification
+"""
 
 from __future__ import annotations
 
@@ -29,7 +35,7 @@ _RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 class GitHubClient(Protocol):
-    """Small API surface needed by ``GitHubConnector``."""
+    """API surface ``GitHubConnector`` needs from a GitHub client."""
 
     def get_json(
         self,
@@ -38,7 +44,18 @@ class GitHubClient(Protocol):
         params: dict[str, Any] | None = None,
         max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
-        """Return a decoded GitHub response object or object list."""
+        """GET an endpoint and return the decoded JSON object or list of objects.
+
+        Args:
+            endpoint: API path relative to the API URL, or a same-origin absolute URL.
+            params: Query parameters.
+            max_bytes: Response body cap in bytes; defaults to the shared JSON limit.
+
+        Raises:
+            FetchError: If the request fails or the body is not valid JSON of that shape.
+            AuthenticationError: If GitHub rejects the credentials.
+            RateLimitError: If rate limiting persists after the retries.
+        """
         ...
 
     def close(self) -> None:
@@ -47,9 +64,17 @@ class GitHubClient(Protocol):
 
 
 class _RequestsGitHubClient:
-    """Authenticated, rate-limited GitHub REST client."""
+    """Requests-based GitHub REST client with local rate limiting and retries.
+
+    Owns its HTTP session; ``close`` releases it.
+    """
 
     def __init__(self, config: GitHubRepositoryConfig) -> None:
+        """Create the HTTP session with GitHub API headers and the configured token.
+
+        Args:
+            config: Validated repository config.
+        """
         self.config = config
         self.session = requests.Session()
         self.session.headers.update(
@@ -80,7 +105,19 @@ class _RequestsGitHubClient:
         params: dict[str, Any] | None = None,
         max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
-        """GET a GitHub API endpoint and decode its JSON body."""
+        """GET an endpoint and return the decoded JSON object or list of objects.
+
+        Args:
+            endpoint: API path relative to the API URL, or a same-origin absolute URL.
+            params: Query parameters.
+            max_bytes: Response body cap in bytes; defaults to the shared JSON limit.
+
+        Raises:
+            FetchError: If the request fails, the URL is cross-origin, or the body is too
+                large or not valid JSON of that shape.
+            AuthenticationError: If GitHub answers 401 or a non-rate-limit 403.
+            RateLimitError: If rate limiting persists after the retries.
+        """
         response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
             payload = read_capped_json(
@@ -103,7 +140,7 @@ class _RequestsGitHubClient:
         raise FetchError(f"GitHub returned invalid JSON for {endpoint}")
 
     def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one HTTP request with local rate limiting and retry handling."""
+        """Send a request with local throttling, retrying transient and rate-limit errors."""
         last_error: Exception | None = None
         for attempt in range(self.config.max_retries + 1):
             self._acquire()
@@ -125,10 +162,7 @@ class _RequestsGitHubClient:
                 raise AuthenticationError(safe_response_error_detail(response))
 
             if response.status_code >= 400:
-                # Read the error body once: `_rate_limited` sniffs it for
-                # rate-limit wording and every branch below reports it, but a
-                # streamed `requests.Response` body can only be read once --
-                # a second `iter_content` raises `StreamConsumedError`.
+                # A streamed `requests.Response` body can only be read once.
                 detail = safe_response_error_detail(response, limit=2_000)
                 if self._rate_limited(response, detail):
                     if attempt == self.config.max_retries:
@@ -159,7 +193,7 @@ class _RequestsGitHubClient:
         raise FetchError("GitHub request failed") from last_error
 
     def _api_url(self, endpoint: str) -> str:
-        """Build a GitHub API URL while rejecting cross-origin absolute URLs."""
+        """Return the full API URL. Raises ``FetchError`` for a cross-origin absolute URL."""
         if endpoint.startswith(("http://", "https://")):
             try:
                 return require_same_origin_url(
@@ -173,12 +207,7 @@ class _RequestsGitHubClient:
 
     @staticmethod
     def _rate_limited(response: requests.Response, detail: str) -> bool:
-        """Classify a response as rate-limited without reading its body again.
-
-        ``detail`` must be the already-read, already-capped error body (see
-        ``_request``): reading it here too would raise ``StreamConsumedError``
-        on a streamed response whose body was already consumed.
-        """
+        """Return whether a failed response is a rate limit, by status, headers or ``detail``."""
         if response.status_code == 429:
             return True
         if response.status_code != 403:
@@ -191,7 +220,7 @@ class _RequestsGitHubClient:
         return "secondary rate limit" in body or "abuse detection" in body
 
     def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
+        """Sleep so requests stay at least ``60 / requests_per_minute`` seconds apart."""
         now = time.monotonic()
         wait = self._min_interval - (now - self._last_request_at)
         if wait > 0:
@@ -206,7 +235,7 @@ class _RequestsGitHubClient:
         *,
         throttled: bool = False,
     ) -> None:
-        """Sleep before retrying, honoring provider retry headers when present."""
+        """Sleep before a retry, preferring provider retry headers over exponential backoff."""
         fallback_delay = self.config.backoff_factor * (2**attempt)
         delay = retry_delay_seconds(headers, fallback_delay, throttled=throttled)
         logger.warning(

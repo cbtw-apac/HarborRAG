@@ -1,4 +1,13 @@
-"""JIRA issue discovery and raw-document loading orchestration."""
+"""Jira connector: issue discovery, description and loading.
+
+Handles:
+- Issue search by JQL or explicit keys, with native paging
+- Source-access gating of issues and attachments
+- Issue and attachment loading into raw documents
+
+Does NOT build descriptors or run searches itself; ``JiraDescriptorBuilder`` and
+``JiraIssueAPI`` do.
+"""
 
 from __future__ import annotations
 
@@ -62,11 +71,9 @@ logger = logging.getLogger("harborrag.adapters.connectors.jira")
 
 
 class JiraConnector(BaseConnector):
-    """Connector for JIRA Cloud and Data Center REST APIs.
+    """Connector for Jira Cloud and Data Center issues.
 
-    Discovery searches issues by JQL or direct issue keys. Loading a record
-    fetches full issue fields plus optional comments, changelog, and attachment
-    text into one Markdown-ish raw document.
+    Closes its client, injected or not, in ``close``.
     """
 
     provider_name = "jira"
@@ -91,7 +98,6 @@ class JiraConnector(BaseConnector):
         parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize issue operations and shared attachment processing."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self._realm = atlassian_realm(self.base_url)
@@ -133,33 +139,43 @@ class JiraConnector(BaseConnector):
         )
 
     def close(self) -> None:
-        """Release the client session when the connector owns one."""
-
+        """Close the client session if the client has one."""
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
 
     def connect(self) -> None:
-        """Verify JIRA credentials once before the first discovery request.
+        """Verify the credentials with a ``myself`` request.
 
-        JIRA's issue search can return HTTP 200 with an empty result set for
-        a credential that lacks permission, silently masking a bad token as
-        "no matching issues" instead of surfacing an authentication failure.
-        `myself` requires a valid session on both Cloud and Data Center and
-        returns only account data, so it reliably raises an authentication
-        error without an issue-fetch call. See `verify_credentials` for how
-        a 403 is remapped the same way a bare 401 already is.
+        Issue search answers 200 with no issues for a credential that lacks
+        permission, so a bad token would otherwise look like an empty result.
         """
         verify_credentials(lambda: self.client.get_json("myself"), provider="JIRA")
 
     @property
     def skipped(self) -> tuple[ConnectorSkip, ...]:
-        """Issues the most recent discovery call withheld because of source access."""
-
+        """Issues the latest discovery call withheld because of source access."""
         return self._gate.skipped
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Search JIRA issues or materialize explicitly requested issue keys."""
+        """Yield issue records from a JQL search or from explicit issue keys.
+
+        In search mode, issues the source ACL withholds are skipped and listed in
+        ``skipped``; explicit keys are checked when described or loaded. An empty
+        search result is checked for a missing browse permission.
+
+        Args:
+            query: Filters and limit; ``issue_keys`` or ``keys`` selects explicit mode.
+
+        Yields:
+            One source record per issue; in search mode, only issues the ACL admits.
+
+        Raises:
+            AuthorizationError: If an empty search result is due to missing browse
+                permission.
+            DocumentProcessingError: If an issue is malformed or outside the
+                configured projects.
+        """
         self._ensure_connected()
         query = query or ConnectorQuery()
         self._gate.reset()
@@ -209,7 +225,21 @@ class JiraConnector(BaseConnector):
         cursor: str | None,
         page_size: int,
     ) -> ConnectorPage:
-        """Use Jira's native page token or offset without replaying prior pages."""
+        """Return one discovery page using Jira's native page token or offset.
+
+        Args:
+            query: Filters; explicit issue keys fall back to the base class paging.
+            cursor: Cursor from the previous page, or ``None`` for the first.
+            page_size: Maximum records on the page.
+
+        Returns:
+            Page of records and the next cursor, ``None`` on the last page.
+
+        Raises:
+            AuthorizationError: If an empty result is due to missing browse permission.
+            DocumentProcessingError: If an issue is malformed or outside the
+                configured projects.
+        """
 
         self._ensure_connected()
         query = query or ConnectorQuery()
@@ -254,11 +284,7 @@ class JiraConnector(BaseConnector):
         return page
 
     def _require_parent_access(self, record: SourceRecord) -> SourceAcl:
-        """Re-check the parent issue's access before downloading an attachment.
-
-        The parent may have been secured since discovery; one descriptor read
-        tells, and the attachment is refused exactly as the issue would be.
-        """
+        """Re-read the parent issue's ACL and refuse the attachment if it is withheld."""
 
         parent_key = attachment_parent_locator(record)
         acl = issue_acl(self._issues.get_issue_descriptor(parent_key), realm=self._realm)
@@ -266,7 +292,24 @@ class JiraConnector(BaseConnector):
         return acl
 
     def load(self, record: SourceRecord) -> RawDocument:
-        """Load one JIRA issue as a text/markdown raw document."""
+        """Load an issue, or an attachment record, as a raw document.
+
+        An issue renders as Markdown with comments and attachment text per configuration;
+        the changelog goes into metadata only. An attachment record is refused when
+        attachments are disabled and takes the parent's freshly read ACL.
+
+        Args:
+            record: Issue or attachment source record.
+
+        Returns:
+            Raw document with source ACL metadata.
+
+        Raises:
+            SourceRestrictedError: If restricted-content policy withholds the issue
+                or the attachment's parent.
+            DocumentProcessingError: If attachment loading is disabled or the issue
+                is malformed.
+        """
 
         if is_attachment_record(record):
             if (
@@ -351,7 +394,7 @@ class JiraConnector(BaseConnector):
         self,
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
-        """Discover comment/attachment versions and explicit issue relations."""
+        """Build the admission descriptor for one issue record."""
 
         descriptor = self._descriptors.describe(record)
         logger.info(
@@ -366,12 +409,11 @@ class JiraConnector(BaseConnector):
         return descriptor
 
     def load_by_keys(self, issue_keys: list[str]) -> Iterator[RawDocument]:
-        """Load issues for callers that already have issue keys."""
+        """Yield the loaded raw document for each issue key."""
         for issue_key in issue_keys:
             yield self.load(self._policy.record_for_key(issue_key, ConnectorQuery()))
 
     def _jql_from_query(self, query: ConnectorQuery) -> str:
-        """Translate shared connector filters into safe JIRA JQL."""
         return self._policy.jql(query)
 
     @staticmethod

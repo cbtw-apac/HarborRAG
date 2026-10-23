@@ -1,4 +1,4 @@
-"""Structured skip reporting for local filesystem discovery."""
+"""Skip reporting for local filesystem discovery."""
 
 from __future__ import annotations
 
@@ -18,18 +18,17 @@ logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 
 class LocalSkipReport:
-    """Accumulates the paths traversal dropped for a reportable reason."""
+    """Report of the paths traversal dropped, deduplicated by path and reason."""
 
     def __init__(self) -> None:
-        """Start an empty report."""
         self._skips: dict[tuple[str, str], ConnectorSkip] = {}
 
     def __len__(self) -> int:
-        """Return how many distinct skips have been recorded."""
+        """Return the number of recorded skips."""
         return len(self._skips)
 
     def __iter__(self) -> Iterator[ConnectorSkip]:
-        """Iterate recorded skips in first-seen order."""
+        """Iterate the recorded skips in first-seen order."""
         return iter(self._skips.values())
 
     @property
@@ -38,14 +37,16 @@ class LocalSkipReport:
         return tuple(self._skips.values())
 
     def clear(self) -> None:
-        """Discard every recorded skip, e.g. between independent sync runs."""
+        """Discard every recorded skip."""
         self._skips.clear()
 
     def record(self, path: str | Path, *, reason: str, detail: str) -> None:
-        """Log one skip at warning level and add it to the report.
+        """Log a skip as a warning and add it, unless the path and reason are already recorded.
 
-        A path already reported for the same reason is ignored, so a re-walk
-        neither duplicates the entry nor repeats the warning.
+        Args:
+            path: Skipped path.
+            reason: One of the ``SKIP_REASON_*`` constants.
+            detail: Human-readable explanation.
         """
         key = (str(path), reason)
         if key in self._skips:
@@ -54,7 +55,7 @@ class LocalSkipReport:
         logger.warning("Skipping local path %s: %s", path, detail)
 
     def oversized(self, path: str | Path, *, size: int, limit: int) -> None:
-        """Record a file rejected by ``max_file_size_bytes``."""
+        """Record a file over ``max_file_size_bytes``."""
         self.record(
             path,
             reason=SKIP_REASON_SIZE_LIMIT_EXCEEDED,

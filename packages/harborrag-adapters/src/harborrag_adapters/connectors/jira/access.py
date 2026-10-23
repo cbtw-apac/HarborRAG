@@ -1,4 +1,7 @@
-"""Jira issue security levels captured as source ACL evidence."""
+"""Jira issue security levels captured as source ACL evidence.
+
+Does NOT resolve level members; the operator's directory expands the level principal.
+"""
 
 from __future__ import annotations
 
@@ -21,20 +24,16 @@ def _project_key(fields: Mapping[str, Any]) -> str | None:
 def issue_acl(issue: Mapping[str, Any], *, realm: str) -> SourceAcl:
     """Map an issue's security level onto captured ACL evidence.
 
-    The ACL is relative to the issue's own project (``jira-project:<KEY>``), read
-    from ``fields.project.key``. An issue whose project cannot be read has no scope
-    to inherit from and is ``unknown``, which is withheld.
+    The scope is the issue's own project (``jira-project:<KEY>``). A security level
+    becomes one ``jira_security_level`` principal with id ``<KEY>/<level id>``.
 
-    ``fields.security`` is null or absent for issues every project browser can
-    read, which is exactly that scope. A security level narrows it to the level's
-    members (users, groups, project roles, reporter, assignee, ...). Resolving
-    those members needs Jira admin APIs, so the level itself is the captured
-    principal, in the site's ``realm``, and the operator's directory must expand it.
+    Args:
+        issue: Issue payload with the ``project`` and ``security`` fields.
+        realm: Site realm of the captured principals.
 
-    The level principal's id is ``<project key>/<level id>``, with the same project
-    key as the scope. One security scheme can serve several projects, and a level's
-    project-role and project-lead members resolve in the issue's project, so the
-    same level in two projects is two principals.
+    Returns:
+        ``inherited`` ACL when ``security`` is null, ``restricted`` by the level
+        principal otherwise, or ``unknown`` when the project or level id is unreadable.
     """
 
     fields = issue.get("fields")

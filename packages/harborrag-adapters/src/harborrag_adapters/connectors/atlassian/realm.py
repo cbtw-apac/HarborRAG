@@ -1,4 +1,4 @@
-"""The identity realm of an Atlassian site, derived from its configured base URL."""
+"""Identity realm of an Atlassian site, derived from its base URL."""
 
 from __future__ import annotations
 
@@ -8,10 +8,16 @@ from urllib.parse import urlsplit
 def atlassian_realm(base_url: str) -> str:
     """Return ``atlassian:<lowercase host>`` for a Jira or Confluence base URL.
 
-    Users and groups of one Atlassian site share a namespace, so the host names it;
-    Jira and Confluence on the same site (``acme.atlassian.net`` and
-    ``acme.atlassian.net/wiki``) share a realm. Port, credentials and path are not
-    part of it. A URL without a host raises ``ValueError``.
+    Jira and Confluence on one site share a realm; port, credentials and path are ignored.
+
+    Args:
+        base_url: Configured Jira or Confluence base URL.
+
+    Returns:
+        The realm string.
+
+    Raises:
+        ValueError: If the URL has no host.
     """
 
     try:

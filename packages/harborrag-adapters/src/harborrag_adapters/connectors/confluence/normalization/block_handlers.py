@@ -1,3 +1,14 @@
+"""Block, macro and reference handling, the middle layer of the block handler chain.
+
+Handles:
+- Dispatch of every non-heading node kind
+- Macro blocks resolved through the handler registry
+- Link and media reference blocks with their relations
+- Unsupported nodes preserved as blocks
+
+Does NOT decide sections or block ids; the hierarchy builder does through abstract hooks.
+"""
+
 from __future__ import annotations
 
 import abc
@@ -26,25 +37,19 @@ _BLOCK_KIND_BY_NODE = {
     "quote": DocumentBlockKind.QUOTE,
     "panel": DocumentBlockKind.PANEL,
     "expand": DocumentBlockKind.EXPAND,
-    # ADF's native tabs feature (tabsContainer/tabsPage in adf.py's
-    # _KIND_MAP) reaches this generic dispatch directly, unlike the
-    # storage-format tabs macro (tabs/tab-set/tab, handled via _append_macro
-    # instead) -- both must resolve to the same DocumentBlockKind so
-    # _container_context extends tab_path identically for either
-    # representation.
+    # ADF tabs arrive here directly and must map to the same kinds as the tabs macro
+    # so tab_path is built identically.
     "tab_set": DocumentBlockKind.TAB_SET,
     "tab": DocumentBlockKind.TAB,
 }
-# Node kinds independently populated as their own block draft somewhere in
-# `_append_node`'s dispatch (generic block kinds, tables, macros, and preserved
-# unsupported nodes). A container's own `visible_text()` aggregate must exclude
-# these kinds wherever it also independently populates them, or the same source
-# text is emitted twice: once via the aggregate, once via the nested block.
 _NESTED_BLOCK_KINDS = frozenset({*_BLOCK_KIND_BY_NODE, "table", "macro", "unsupported"})
 
 
 class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
-    """Append non-heading nodes while the hierarchy builder owns section policy."""
+    """Middle layer of the handler chain for non-heading nodes.
+
+    Needs the builder to provide ``_populate``, ``_draft`` and ``_container_context``.
+    """
 
     _document_id: str
     _space_key: str
@@ -61,6 +66,13 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Dispatch one node to the handler for its kind.
+
+        Macros, tables, references and unsupported nodes have their own handlers. Groups,
+        documents, text and unmapped kinds are flattened. Mapped kinds become a block whose
+        text excludes nested block kinds, so text is never emitted twice.
+        """
+
         if node.kind in {"group", "document", "text"}:
             self._append_group(parent, node, context)
             return
@@ -96,6 +108,7 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         child_context = self._container_context(context, draft)
         child_nodes = tuple(child for child in node.children if child.kind not in INLINE_KINDS)
         if child_nodes:
+            # TODO: bound the nesting depth; deeply nested nodes raise RecursionError.
             self._populate(draft, child_nodes, child_context)
         self._append_inline_references(draft, node, child_context)
 
@@ -105,10 +118,11 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Populate a node's children into ``parent``, with the node's own text first."""
+
         children = node.children
         if node.text.strip():
-            # Own text leads the group's content; `_populate` makes it (and
-            # any inline siblings that follow) one paragraph.
+            # Own text leads the group's content.
             own_text = ConfluenceNode(kind="text", source_id=node.source_id, text=node.text)
             children = (own_text, *children)
         self._populate(parent, children, context)
@@ -119,6 +133,12 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Append a block for a macro and, for includes, an ``includes`` relation.
+
+        The registry decides kind, title and parameters; an include target title replaces
+        the title. The text is the macro body, else the include target title.
+        """
+
         key = str(node.attributes.get("macro_name") or "unknown")
         parameters = node.attributes.get("parameters")
         handler = self._macros.resolve(key)
@@ -170,6 +190,12 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Append a link or media reference block and a relation when a target is known.
+
+        A link with a page id yields ``links_to``; media with an attachment id yields
+        ``has_attachment``.
+        """
+
         kind = (
             DocumentBlockKind.LINK_REFERENCE
             if node.kind == "link"
@@ -205,6 +231,9 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         context: BlockContext,
     ) -> None:
+        """Preserve an unsupported node as a block and record a warning."""
+
+        # TODO: report the source node type instead of the generic ``unsupported`` kind.
         self._warnings.append(f"unsupported Confluence block preserved: {node.kind}")
         draft = self._draft(
             node,
@@ -231,11 +260,7 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
     ) -> None:
         """Create reference blocks for the links and media in a node's inline content.
 
-        Inline formatting is searched too, since its text already belongs to
-        ``parent`` and it is never populated on its own. Block children are
-        populated through `_append_node`, which adds their own references;
-        recursing into them here would emit those references twice under the
-        wrong parent.
+        Block children are skipped; ``_append_node`` adds their references.
         """
 
         for child in node.children:
@@ -246,6 +271,8 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
 
     @staticmethod
     def _reference_attributes(node: ConfluenceNode) -> dict[str, object]:
+        """Return reference block attributes; the page id falls back to the ``/pages/<id>`` URL."""
+
         if node.kind == "media":
             return {
                 "attachment_id": str(
@@ -272,6 +299,8 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         node: ConfluenceNode,
         kind: DocumentBlockKind,
     ) -> str | None:
+        """Return the ``title`` attribute, or ``Details`` for an untitled expand."""
+
         value = node.attributes.get("title")
         if value and str(value).strip():
             return str(value).strip()
@@ -281,6 +310,8 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
 
     @staticmethod
     def _node_attributes(node: ConfluenceNode) -> dict[str, object]:
+        """Keep only the allow-listed scalar attributes of a node."""
+
         allowed = {"ordered", "panelType", "panel-type", "type", "icon"}
         return {
             str(key): value
@@ -294,7 +325,10 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         parent: BlockDraft,
         nodes: tuple[ConfluenceNode, ...],
         base_context: BlockContext,
-    ) -> None: ...
+    ) -> None:
+        """Append ``nodes`` under ``parent`` with section rules; the builder provides it."""
+
+        ...
 
     @abc.abstractmethod
     def _draft(
@@ -304,17 +338,28 @@ class ConfluenceBlockHandlers(ConfluenceIncludeTableHandlers, abc.ABC):
         parent: BlockDraft,
         context: BlockContext,
         presentation: BlockPresentation,
-    ) -> BlockDraft: ...
+    ) -> BlockDraft:
+        """Create the draft for ``node`` as next child of ``parent``; the builder provides it."""
+
+        ...
 
     @abc.abstractmethod
     def _container_context(
         self,
         context: BlockContext,
         draft: BlockDraft,
-    ) -> BlockContext: ...
+    ) -> BlockContext:
+        """Return the context for a container ``draft``'s children; the builder provides it."""
+
+        ...
 
 
 def _safe_url(value: str) -> str:
+    """Return an http(s) or relative URL without its query, else an empty string.
+
+    Other schemes such as ``javascript:`` and ``data:`` are rejected.
+    """
+
     if not value:
         return ""
     parsed = urlsplit(value)

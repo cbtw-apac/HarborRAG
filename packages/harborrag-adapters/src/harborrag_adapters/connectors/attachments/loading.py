@@ -1,3 +1,8 @@
+"""Loader that turns an admitted attachment record into its own raw document.
+
+Does NOT check the parent's access; connectors do that before loading.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -11,12 +16,29 @@ from .sources import AttachmentSourceGateway
 
 
 class AttachmentDocumentLoader:
-    """Fetch one admitted attachment as an independent raw document."""
+    """Loader of admitted attachment records as independent raw documents."""
 
     def __init__(self, gateway: AttachmentSourceGateway) -> None:
         self._gateway = gateway
 
     def load(self, record: SourceRecord) -> RawDocument:
+        """Download an attachment and wrap it as a raw document.
+
+        The document keeps the record's container identity and source ACL, and relates
+        to its parent with ``attached_to``.
+
+        Args:
+            record: Attachment binding record built by ``attachment_source_record``.
+
+        Returns:
+            Raw document with a SHA-256 checksum, sourced at
+            ``<parent url>#attachment-<id>`` when the parent URL is known.
+
+        Raises:
+            ValueError: If the record is not an attachment binding.
+            FetchError: If the download is empty or exceeds the size limit.
+        """
+
         descriptor = attachment_descriptor_from_record(record)
         content = self._gateway.fetch(descriptor)
         parent_id = str(record.metadata["parent_source_item_id"])
@@ -28,12 +50,8 @@ class AttachmentDocumentLoader:
             content=content,
             content_type=descriptor.media_type,
             metadata={
-                # Forward the parent's container identity before the loader's own keys,
-                # so the projector can file this attachment under the same space or
-                # project its parent lives in instead of falling back to the data source.
                 # The parent's source ACL travels with it: an attachment is readable by no
-                # more people than its parent, and dropping the label would make it look
-                # inherited (project-wide).
+                # more people than its parent.
                 **{
                     key: record.metadata[key]
                     for key in (*CONTAINER_IDENTITY_KEYS, SOURCE_ACL_METADATA_KEY)

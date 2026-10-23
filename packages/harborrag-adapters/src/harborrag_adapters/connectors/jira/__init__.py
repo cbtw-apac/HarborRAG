@@ -1,4 +1,4 @@
-"""JIRA connector public API."""
+"""Jira connector public API."""
 
 from harborrag_adapters.connectors.jira.config import (
     JiraDeploymentType,

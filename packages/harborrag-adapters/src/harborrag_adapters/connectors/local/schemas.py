@@ -1,4 +1,4 @@
-"""Structured metadata emitted by the local connector."""
+"""Metadata types emitted by the local connector."""
 
 from __future__ import annotations
 
@@ -11,7 +11,13 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 @dataclass(slots=True, kw_only=True)
 class LocalFileMetadata(ConnectorMetadata):
-    """Structured metadata for one loaded local file."""
+    """Metadata for one loaded local file.
+
+    Attributes:
+        relative_path: POSIX path relative to the trusted root.
+        parent_relative_path: POSIX path of the parent directory relative to the root.
+        is_symlink: Whether the path was a symlink before resolution.
+    """
 
     source_system: ClassVar[str] = "local"
 

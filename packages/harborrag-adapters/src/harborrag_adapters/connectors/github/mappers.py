@@ -1,4 +1,10 @@
-"""Mappings from GitHub API payloads to Harbor domain objects."""
+"""Mappings from GitHub API payloads to source records and metadata.
+
+Handles:
+- Source records and document metadata
+- Commit timestamps, tree SHAs and identities
+- Path and SHA recovery from records
+"""
 
 from __future__ import annotations
 
@@ -16,7 +22,7 @@ from .schemas import GitHubCommitIdentity, GitHubMetadata
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse GitHub ISO timestamp strings into datetimes."""
+    """Parse a GitHub ISO timestamp. Returns ``None`` if empty or invalid."""
     if not value:
         return None
     try:
@@ -26,7 +32,11 @@ def parse_timestamp(value: str | None) -> datetime | None:
 
 
 def file_path_from_record(record: SourceRecord) -> str:
-    """Recover and normalize the repository path from a source record."""
+    """Return the normalized repository path from a record's metadata or locator.
+
+    Raises:
+        ValueError: If the record has no path or the path contains a ``..`` segment.
+    """
     path = record.metadata.get("path") or record.locator
     if not path:
         raise ValueError(f"SourceRecord {record.id!r} does not contain path")
@@ -34,13 +44,13 @@ def file_path_from_record(record: SourceRecord) -> str:
 
 
 def file_sha_from_record(record: SourceRecord) -> str | None:
-    """Recover the blob SHA from metadata or the source checksum field."""
+    """Return the blob SHA from record metadata or checksum, or ``None``."""
     sha = record.metadata.get("sha") or record.checksum
     return str(sha) if sha else None
 
 
 def commit_timestamp(commit: dict[str, Any]) -> datetime | None:
-    """Return the best timestamp for a resolved commit."""
+    """Return the commit's committer date, else its author date, else ``None``."""
     return parse_timestamp(
         commit.get("commit", {}).get("committer", {}).get("date")
         or commit.get("commit", {}).get("author", {}).get("date")
@@ -48,7 +58,7 @@ def commit_timestamp(commit: dict[str, Any]) -> datetime | None:
 
 
 def tree_sha_from_commit(commit: dict[str, Any]) -> str:
-    """Return the root tree SHA from a commit response."""
+    """Return the root tree SHA from a commit response, or an empty string."""
     return str(commit.get("commit", {}).get("tree", {}).get("sha") or "")
 
 
@@ -61,7 +71,19 @@ def build_source_record(
     commit_sha: str,
     commit: dict[str, Any],
 ) -> SourceRecord:
-    """Convert a GitHub tree/content item into a source record."""
+    """Build the source record for a tree or content item.
+
+    Args:
+        item: Item with ``path``, ``sha``, ``mode`` and ``size``.
+        owner: Repository owner.
+        repo: Repository name.
+        ref: Ref the commit was resolved from.
+        commit_sha: SHA of the anchoring commit.
+        commit: Commit payload used for timestamps and the tree SHA.
+
+    Raises:
+        ValueError: If the item path is empty.
+    """
     path = _required_repo_path(item)
     file_sha = str(item.get("sha") or "")
     mime_type = guess_mime_type(path)
@@ -97,7 +119,11 @@ def build_document_metadata(
     commit: dict[str, Any],
     repository: dict[str, Any],
 ) -> GitHubMetadata:
-    """Build parsed provenance metadata for a loaded GitHub file."""
+    """Build the metadata for a loaded file from its item, commit and repository payloads.
+
+    Raises:
+        ValueError: If the item path is empty.
+    """
     path = _required_repo_path(item)
     commit_sha = str(commit.get("sha") or "")
     return GitHubMetadata(
@@ -124,7 +150,7 @@ def build_document_metadata(
 
 
 def _required_repo_path(item: dict[str, Any]) -> str:
-    """Return a normalized GitHub item path or reject malformed items."""
+    """Return the item's normalized path. Raises ``ValueError`` if it is empty."""
 
     path = normalize_remote_path(str(item.get("path") or ""))
     if not path:
@@ -136,6 +162,7 @@ def _commit_identity(
     commit: dict[str, Any],
     key: str,
 ) -> GitHubCommitIdentity | None:
+    """Return the commit's author or committer identity, or ``None`` if absent."""
     value = commit.get("commit", {}).get(key)
     if not isinstance(value, dict):
         return None

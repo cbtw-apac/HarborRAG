@@ -1,3 +1,5 @@
+"""Exact attachment selection from a source query's ``attachment_ids`` filter."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
@@ -7,7 +9,17 @@ from typing import Any
 def attachment_ids_from_filters(
     filters: Mapping[str, Any],
 ) -> tuple[str, ...]:
-    """Normalize an optional exact attachment selection from a source query."""
+    """Read the optional exact attachment selection from a query's filters.
+
+    Args:
+        filters: Query filters; ``attachment_ids`` is a string or a sequence.
+
+    Returns:
+        De-duplicated, stripped ids, empty when no selection is set.
+
+    Raises:
+        ValueError: If the value is not a string or sequence, or holds an empty id.
+    """
 
     value = filters.get("attachment_ids")
     if value is None:
@@ -25,7 +37,15 @@ def select_attachment_payloads(
     attachments: Sequence[Mapping[str, Any]],
     selected_ids: Sequence[str],
 ) -> list[Mapping[str, Any]]:
-    """Return source attachment descriptors matching an explicit selection."""
+    """Return the attachment payloads whose ``id`` is selected.
+
+    Args:
+        attachments: Provider attachment payloads.
+        selected_ids: Selected ids; empty selects every attachment.
+
+    Returns:
+        Matching payloads in source order.
+    """
 
     if not selected_ids:
         return list(attachments)

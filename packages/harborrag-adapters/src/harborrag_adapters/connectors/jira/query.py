@@ -1,4 +1,10 @@
-"""Pure query, URL, and payload helpers for JIRA."""
+"""Jira JQL and search payload helpers.
+
+Handles:
+- JQL literal quoting and issue or project key validation
+- JQL assembly from connector filters
+- Search request bodies for Cloud and Data Center
+"""
 
 from __future__ import annotations
 
@@ -10,14 +16,10 @@ from harborrag_adapters.connectors.atlassian.query import is_cloud_hostname as i
 
 
 def format_query_timestamp(value: datetime) -> str:
-    """Render a datetime for JQL as UTC ``yyyy/MM/dd HH:mm``.
-
-    Bare JQL timestamps are evaluated in the API user's timezone; normalizing to
-    UTC keeps the incremental-sync watermark from drifting by that offset.
-    Deployments should set the integration account timezone to UTC.
-    """
+    """Render a datetime for JQL as UTC ``yyyy/MM/dd HH:mm``; naive values are taken as UTC."""
     if value.tzinfo is None:
         value = value.replace(tzinfo=UTC)
+    # TODO: render in the Jira account timezone, which is how Jira reads bare timestamps.
     return value.astimezone(UTC).strftime("%Y/%m/%d %H:%M")
 
 
@@ -27,13 +29,13 @@ _ORDER_BY_RE = re.compile(r"\border\s+by\b", re.IGNORECASE)
 
 
 def quote_jql(value: str) -> str:
-    """Quote a JQL literal with the escaping JIRA expects."""
+    """Return ``value`` as a double-quoted JQL literal with backslashes and quotes escaped."""
     escaped = value.replace("\\", "\\\\").replace('"', '\\"')
     return f'"{escaped}"'
 
 
 def validate_project_key(value: str) -> str:
-    """Validate project keys before interpolating them into generated JQL."""
+    """Return ``value`` if it is a valid project key. Raises ``ValueError`` otherwise."""
     if not _PROJECT_RE.fullmatch(value):
         raise ValueError(
             "Invalid JIRA project key: expected uppercase letters, numbers, "
@@ -43,7 +45,7 @@ def validate_project_key(value: str) -> str:
 
 
 def validate_issue_key(value: str) -> str:
-    """Validate issue keys before interpolating them into REST paths."""
+    """Return the stripped issue key. Raises ``ValueError`` if it is not ``PROJECT-123``."""
     normalized = str(value).strip()
     if not _ISSUE_KEY_RE.fullmatch(normalized):
         raise ValueError(
@@ -63,16 +65,32 @@ def build_jql(  # noqa: PLR0913 - explicit allowlisted JQL clauses stay auditabl
     text_search: str | None = None,
     raw_jql: str | None = None,
 ) -> str:
-    """Build a deterministic JQL query from shared connector filters.
+    """Build a deterministic JQL query, ordered by ``updated ASC, key ASC`` by default.
 
-    ``text_search`` is a free-text term and is always escaped. Raw JQL remains
-    available, but configured/requested project keys are still applied as a
-    mandatory safety boundary around it.
+    Raw JQL keeps its own order. Project keys, when given, also bound raw JQL; raw JQL
+    without them is returned as given.
+
+    Args:
+        project_keys: Project keys for the ``project in`` clause.
+        issue_types: Issue type names.
+        statuses: Status names.
+        labels: Label names.
+        updated_after: Lower bound on ``updated``.
+        text_search: Free-text term, always quoted.
+        raw_jql: Caller-supplied JQL; replaces the other filters.
+
+    Returns:
+        JQL string.
+
+    Raises:
+        ValueError: If a project key is invalid or raw JQL has no condition before
+            ``ORDER BY``.
     """
     clauses: list[str] = []
     if project_keys:
         safe_projects = [quote_jql(validate_project_key(key)) for key in project_keys]
         clauses.append(f"project in ({','.join(safe_projects)})")
+    # TODO: keep the filters with raw JQL and split ORDER BY outside quoted strings.
     if raw_jql:
         raw = raw_jql.strip()
         if not clauses:
@@ -108,7 +126,7 @@ def search_body(
     fields: tuple[str, ...],
     expand: tuple[str, ...] = (),
 ) -> dict[str, Any]:
-    """Build the JSON request body used by JIRA issue search."""
+    """Build the JSON body for the Data Center ``/search`` request."""
     body: dict[str, Any] = {
         "jql": jql,
         "startAt": start_at,
@@ -116,9 +134,7 @@ def search_body(
         "fields": list(fields),
     }
     if expand:
-        # The search POST body expects expand as an array of strings; a
-        # comma-joined string is the GET query-param convention only and is
-        # rejected (or silently ignored) by the search endpoint.
+        # The search POST body expects expand as an array of strings.
         body["expand"] = list(expand)
     return body
 
@@ -132,12 +148,8 @@ def search_jql_body(
 ) -> dict[str, Any]:
     """Build the body for Jira Cloud's ``POST /rest/api/3/search/jql``.
 
-    The legacy ``/search`` endpoint (offset ``startAt``/``total`` paging) was
-    removed on Jira Cloud in 2025; the replacement paginates with an opaque
-    ``nextPageToken`` and returns ``isLast`` instead of a total count. Unlike
-    the legacy endpoint, this one rejects the request outright (400 Invalid
-    request payload) if an ``expand`` key is present at all, so it is never
-    added here even when empty.
+    Pages by opaque ``nextPageToken``. ``expand`` is never sent: the endpoint
+    rejects the key.
     """
     body: dict[str, Any] = {
         "jql": jql,

@@ -1,3 +1,11 @@
+"""Page relations extracted from Confluence storage HTML.
+
+Handles:
+- ``links_to`` from page links and ``ri:page`` references
+- ``includes`` from include and excerpt-include macros
+- Title-only references resolved through a lookup callback
+"""
+
 from __future__ import annotations
 
 import re
@@ -9,7 +17,7 @@ _SPACE_PAGE_PATH = re.compile(r"(?:^|/)spaces/(?P<space>[^/]+)/pages/(?P<page>[0
 
 
 class ConfluenceSourceRelationResolver:
-    """Extract page links and include references from Confluence storage HTML."""
+    """Extractor of page link and include relations from Confluence storage HTML."""
 
     def relations(
         self,
@@ -19,6 +27,19 @@ class ConfluenceSourceRelationResolver:
         source_version: str,
         resolve_title: Callable[[str, str], str | None] | None = None,
     ) -> list[dict[str, object]]:
+        """Return sorted ``links_to``/``includes`` relations for the pages referenced in ``html``.
+
+        A title-only ``ri:page`` link that does not resolve yields no relation.
+
+        Args:
+            html: Confluence storage HTML.
+            current_space: Space assumed for references that name none.
+            source_version: Version recorded on every relation.
+            resolve_title: Maps ``(space, title)`` to a page id, or None when unresolved.
+
+        Returns:
+            Relation dicts with predicate, target id, target type and version metadata.
+        """
         parser = _ConfluenceReferenceParser(current_space, resolve_title=resolve_title)
         parser.feed(html)
         return [
@@ -42,6 +63,20 @@ class ConfluenceSourceRelationResolver:
         source_version: str,
         resolve_title: Callable[[str, str], str | None] | None = None,
     ) -> list[dict[str, object]]:
+        """Merge ``existing`` relations with those from ``html``, de-duplicated and sorted.
+
+        Entries are keyed by predicate and target id; an extracted entry replaces an existing one.
+
+        Args:
+            existing: Relations already known for the page.
+            html: Confluence storage HTML.
+            current_space: Space assumed for references that name none.
+            source_version: Version recorded on extracted relations.
+            resolve_title: Maps ``(space, title)`` to a page id, or None when unresolved.
+
+        Returns:
+            Merged relation dicts sorted by predicate and target id.
+        """
         values = [
             *(dict(value) for value in existing),
             *self.relations(
@@ -62,6 +97,13 @@ class ConfluenceSourceRelationResolver:
 
 
 class _ConfluenceReferenceParser(HTMLParser):
+    """HTML parser collecting page references from ``ri:page`` elements and ``a`` links.
+
+    References from ``ri:page`` and ``data-linked-resource-id`` inside an include or
+    excerpt-include macro become ``includes``; ``href`` links are always ``links_to``.
+    References without a space use ``current_space``.
+    """
+
     def __init__(
         self,
         current_space: str,
@@ -92,12 +134,6 @@ class _ConfluenceReferenceParser(HTMLParser):
             if page_id and str(page_id).isdigit():
                 self._add(space, str(page_id))
                 return
-            # Confluence writes ac:link targets by title far more often than by id --
-            # measured on a live space, 173 of 173 in-body page references carried
-            # ri:content-title and none carried ri:content-id, so reading only the id
-            # dropped every link a reader actually sees. A title is not an identity: the
-            # graph keys pages by page_id, so a title-keyed node could never converge
-            # with the real one. Resolve it to an id or record it as unresolved.
             title = str(attributes.get("ri:content-title") or "").strip()
             if not title:
                 return
@@ -105,6 +141,7 @@ class _ConfluenceReferenceParser(HTMLParser):
             if resolved and str(resolved).isdigit():
                 self._add(space, str(resolved))
             else:
+                # TODO: drop ``unresolved_titles``; nothing reads it.
                 self.unresolved_titles.add((space, title))
             return
         if tag.casefold() == "a":
@@ -124,10 +161,12 @@ class _ConfluenceReferenceParser(HTMLParser):
             self._macro_stack.pop()
 
     def _add(self, space: str, page_id: str) -> None:
+        """Record a page reference as ``includes`` inside an include macro, else ``links_to``."""
         predicate = "includes" if any(self._macro_stack) else "links_to"
         self.relations.add((predicate, f"confluence://{space}/{page_id}"))
 
     def _target_from_href(self, href: str) -> str | None:
+        """Return the page id of a ``/spaces/<KEY>/pages/<id>`` or ``?pageId=`` link, else None."""
         parsed = urlsplit(href)
         match = _SPACE_PAGE_PATH.search(parsed.path)
         if match:

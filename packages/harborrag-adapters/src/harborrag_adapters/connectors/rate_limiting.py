@@ -1,4 +1,10 @@
-"""Shared connector rate-limit policies with a disposable Redis projection."""
+"""Connector rate limiting with a Redis token bucket and a local fallback.
+
+Handles:
+- Secret-safe rate-limit identities and scopes
+- Process-local interval limiter
+- Redis Lua token bucket that falls back locally when Redis fails
+"""
 
 from __future__ import annotations
 
@@ -53,7 +59,7 @@ type RateLimitWaitObserver = Callable[["RateLimitScope", float], None]
 
 
 class RedisScriptClient(Protocol):
-    """Minimal redis-py surface required by the token bucket."""
+    """Subset of the redis-py client used by the token bucket."""
 
     def eval(
         self,
@@ -61,15 +67,15 @@ class RedisScriptClient(Protocol):
         number_of_keys: int,
         *keys_and_args: str,
     ) -> object:
-        """Evaluate one Lua script."""
+        """Evaluate a Lua script with the given keys and arguments."""
 
     def close(self) -> Any:
-        """Release client connections."""
+        """Close the client connections."""
 
 
 @dataclass(frozen=True, slots=True)
 class RateLimitIdentity:
-    """Stable, secret-safe dimensions shared by one connector credential."""
+    """Secret-safe dimensions shared by all requests of one connector credential."""
 
     connector_type: str
     deployment_type: str
@@ -85,8 +91,14 @@ class RateLimitIdentity:
         base_url: str,
         credential_parts: tuple[str, ...],
     ) -> RateLimitIdentity:
-        """Build an identity without retaining raw credentials."""
+        """Build an identity from an HTTP source, keeping only a credential digest.
 
+        Args:
+            connector_type: Provider name, such as ``jira``.
+            deployment_type: Deployment flavor, such as ``cloud``.
+            base_url: Source base URL; only its host and port are kept.
+            credential_parts: Values that identify the credential; hashed, never stored.
+        """
         parsed = urlsplit(base_url)
         host = (parsed.hostname or "unknown-host").lower()
         if parsed.port is not None:
@@ -100,8 +112,7 @@ class RateLimitIdentity:
         )
 
     def scope(self, api_family: str) -> RateLimitScope:
-        """Add the controlled API-family lane used for one request."""
-
+        """Return the scope for one API family under this identity."""
         return RateLimitScope(
             connector_type=self.connector_type,
             deployment_type=self.deployment_type,
@@ -113,7 +124,7 @@ class RateLimitIdentity:
 
 @dataclass(frozen=True, slots=True)
 class RateLimitScope:
-    """Complete token-bucket key dimensions for one API family."""
+    """Token-bucket key dimensions for one API family of one credential."""
 
     connector_type: str
     deployment_type: str
@@ -122,8 +133,7 @@ class RateLimitScope:
     api_family: str
 
     def redis_key(self, prefix: str) -> str:
-        """Return a readable key containing only sanitized, non-secret values."""
-
+        """Return the Redis key: sanitized prefix followed by the scope dimensions."""
         dimensions = (
             self.connector_type,
             self.deployment_type,
@@ -135,7 +145,7 @@ class RateLimitScope:
 
 
 class ConnectorRateLimiter(Protocol):
-    """Blocking rate-limit boundary used by synchronous HTTP connectors."""
+    """Blocking rate limiter used by synchronous HTTP connectors."""
 
     def acquire(
         self,
@@ -143,14 +153,17 @@ class ConnectorRateLimiter(Protocol):
         *,
         requests_per_minute: int,
     ) -> None:
-        """Wait until the connector may issue one request."""
+        """Block until one request is allowed for ``scope`` at ``requests_per_minute``."""
 
     def close(self) -> None:
         """Release limiter resources."""
 
 
 class LocalIntervalRateLimiter:
-    """Process-local conservative fallback with thread-safe slot reservation."""
+    """Process-local limiter that spaces requests evenly per scope.
+
+    Thread-safe; state is not shared across processes.
+    """
 
     def __init__(
         self,
@@ -159,6 +172,13 @@ class LocalIntervalRateLimiter:
         clock: Callable[[], float] | None = None,
         on_wait: RateLimitWaitObserver | None = None,
     ) -> None:
+        """Set up per-scope slot tracking.
+
+        Args:
+            sleeper: Sleep function; defaults to ``time.sleep``.
+            clock: Monotonic clock; defaults to ``time.monotonic``.
+            on_wait: Observer called with the scope and wait before sleeping.
+        """
         self._sleep = sleeper or time.sleep
         self._clock = clock or time.monotonic
         self._on_wait = on_wait
@@ -171,8 +191,7 @@ class LocalIntervalRateLimiter:
         *,
         requests_per_minute: int,
     ) -> None:
-        """Reserve one evenly-spaced local request slot."""
-
+        """Reserve the next evenly spaced slot for ``scope`` and sleep until it starts."""
         interval = 60.0 / requests_per_minute
         now = self._clock()
         with self._lock:
@@ -184,14 +203,13 @@ class LocalIntervalRateLimiter:
             self._sleep(wait_seconds)
 
     def close(self) -> None:
-        """Discard disposable local scheduling state."""
-
+        """Discard the local slot state."""
         with self._lock:
             self._next_slots.clear()
 
 
 class RedisTokenBucketRateLimiter:
-    """Distributed Lua token bucket that falls back locally on Redis loss."""
+    """Distributed Lua token bucket that falls back to a local limiter on Redis errors."""
 
     def __init__(
         self,
@@ -202,6 +220,17 @@ class RedisTokenBucketRateLimiter:
         sleeper: Callable[[float], None] | None = None,
         on_wait: RateLimitWaitObserver | None = None,
     ) -> None:
+        """Bind the Redis client and the fallback limiter.
+
+        ``close`` closes both the client and the fallback.
+
+        Args:
+            client: Redis client used to run the Lua script.
+            key_prefix: Redis key prefix; sanitized.
+            fallback: Limiter used while Redis fails; defaults to ``LocalIntervalRateLimiter``.
+            sleeper: Sleep function; defaults to ``time.sleep``.
+            on_wait: Observer called with the scope and wait before sleeping.
+        """
         self._client = client
         self._key_prefix = _safe_key_part(key_prefix)
         self._fallback = fallback or LocalIntervalRateLimiter(on_wait=on_wait)
@@ -215,8 +244,7 @@ class RedisTokenBucketRateLimiter:
         *,
         requests_per_minute: int,
     ) -> None:
-        """Acquire a distributed token or use local conservative throttling."""
-
+        """Take a token from Redis, or from the local fallback if Redis fails."""
         try:
             self._acquire_from_redis(
                 scope,
@@ -236,8 +264,7 @@ class RedisTokenBucketRateLimiter:
             )
 
     def close(self) -> None:
-        """Close Redis connections and discard fallback state."""
-
+        """Close the Redis client and the fallback limiter."""
         try:
             self._client.close()
         finally:
@@ -249,6 +276,11 @@ class RedisTokenBucketRateLimiter:
         *,
         requests_per_minute: int,
     ) -> None:
+        """Run the Lua token bucket, sleeping and retrying until a token is granted.
+
+        The bucket refills continuously up to ``requests_per_minute`` tokens; a new bucket
+        starts with one token and its key expires after 120 seconds idle. Errors propagate.
+        """
         capacity = requests_per_minute
         refill_per_ms = requests_per_minute / 60_000
         ttl_ms = 120_000
@@ -271,12 +303,17 @@ class RedisTokenBucketRateLimiter:
 
 
 def _parse_lua_result(result: object) -> tuple[bool, int]:
+    """Return ``(allowed, wait_ms)`` from the script reply. Raises ``ValueError`` if malformed."""
     if not isinstance(result, (list, tuple)) or len(result) != 2:
         raise ValueError("Redis token bucket returned an invalid response")
     return bool(int(result[0])), max(0, int(result[1]))
 
 
 def _safe_key_part(value: str) -> str:
+    """Lowercase a key part, replacing runs outside ``[a-z0-9._-]`` with ``-``.
+
+    An empty result becomes ``unknown``.
+    """
     normalized = _SAFE_KEY_PART.sub("-", value.strip().lower()).strip("-")
     return normalized or "unknown"
 
@@ -286,6 +323,7 @@ def _notify_wait(
     scope: RateLimitScope,
     wait_seconds: float,
 ) -> None:
+    """Call the wait observer, logging its errors instead of raising."""
     if observer is None:
         return
     try:

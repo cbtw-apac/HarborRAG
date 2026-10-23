@@ -1,3 +1,13 @@
+"""Confluence page normalization into the canonical ``Document``.
+
+Handles:
+- Body selection across ADF, storage and rendered HTML
+- Document and version identifiers
+- Provenance and warning assembly
+
+Does NOT build sections or tables; the hierarchy builder does.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -17,18 +27,41 @@ from .schemas import ConfluencePageInput
 
 
 class ConfluencePageNormalizer:
-    """Normalize one Confluence page into the existing canonical Document contract."""
+    """Normalizer from a Confluence page to the canonical ``Document``.
+
+    Owns the ADF and markup parsers; macro handling comes from the registry.
+    """
 
     def __init__(
         self,
         macro_registry: ConfluenceMacroHandlerRegistry | None = None,
     ) -> None:
+        """Create the normalizer.
+
+        Args:
+            macro_registry: Macro handlers to use; defaults to a new registry.
+        """
+
         self._adf = AdfDocumentParser()
         self._markup = ConfluenceMarkupParser()
         self._macros = macro_registry or ConfluenceMacroHandlerRegistry()
 
     def normalize(self, page: ConfluencePageInput) -> Document:
-        """Prefer ADF, then storage format, then rendered HTML with explicit warnings."""
+        """Normalize one page into a ``Document``.
+
+        Prefers ADF, then storage format, then rendered HTML, and records a warning
+        for each representation that failed to parse.
+
+        Args:
+            page: Validated page input.
+
+        Returns:
+            Canonical document with blocks, table artifacts, relations and warnings.
+
+        Raises:
+            UnsupportedConfluenceBodyError: If no body representation parses.
+            TableExtractionError: If a table has no rows or cells, or its spans overlap.
+        """
 
         root, representation, parser_warnings = self._parse_body(page)
         document_id = page.document_id or f"confluence://{page.space_key}/{page.page_id}"
@@ -90,7 +123,21 @@ class ConfluencePageNormalizer:
         source_url: str,
         default_space_key: str = "",
     ) -> Document:
-        """Normalize a connector payload without retaining the provider object."""
+        """Normalize a Confluence API payload; see ``normalize``.
+
+        Args:
+            payload: Page payload from the Confluence API.
+            source_url: Canonical URL of the page.
+            default_space_key: Space key used when the payload carries none.
+
+        Returns:
+            Canonical document.
+
+        Raises:
+            UnsupportedConfluenceBodyError: If no body representation parses.
+            TableExtractionError: If a table has no rows or cells, or its spans overlap.
+            ValueError: If a required page field is blank.
+        """
 
         return self.normalize(
             ConfluencePageInput.from_api_payload(
@@ -104,6 +151,12 @@ class ConfluencePageNormalizer:
         self,
         page: ConfluencePageInput,
     ) -> tuple[ConfluenceNode, str, tuple[str, ...]]:
+        """Parse the first usable body, trying ADF, storage, then rendered HTML.
+
+        Returns the tree, the representation name and warnings for failed attempts.
+        Raises ``UnsupportedConfluenceBodyError`` if none parses or no body is present.
+        """
+
         warnings: list[str] = []
         available = False
         if page.adf is not None and (not isinstance(page.adf, str) or page.adf.strip()):

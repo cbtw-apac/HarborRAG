@@ -1,3 +1,13 @@
+"""Section hierarchy builder, the top layer of the block handler chain.
+
+Handles:
+- Sections opened by headings, with unique section ids
+- Block draft ids and container context
+- Flat legacy elements and the final build result
+
+Does NOT handle tables, macros or references; the lower handler layers do.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Iterable, Iterator
@@ -26,13 +36,23 @@ from .tables import TableArtifactBuilder
 
 
 class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
-    """Build deterministic sections and nested containers from source nodes."""
+    """Builder of deterministic sections and nested containers from source nodes.
+
+    Holds per-page state, so one instance builds one page.
+    """
 
     def __init__(
         self,
         build_context: ConfluenceBuildContext,
         macro_registry: ConfluenceMacroHandlerRegistry | None = None,
     ) -> None:
+        """Create the per-page state.
+
+        Args:
+            build_context: Page identity values.
+            macro_registry: Macro handlers to use; defaults to a new registry.
+        """
+
         self._document_id = build_context.document_id
         self._source_url = build_context.source_url
         self._space_key = build_context.space_key
@@ -53,6 +73,17 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         self._section_occurrences: dict[tuple[str, ...], int] = {}
 
     def build(self, root_node: ConfluenceNode) -> CanonicalBuildResult:
+        """Build the block tree, flat elements, tables, relations and warnings.
+
+        Text held directly on the root node becomes a leading paragraph.
+
+        Args:
+            root_node: Root of the parsed page tree.
+
+        Returns:
+            Build result with de-duplicated warnings.
+        """
+
         root = BlockDraft(
             block_id=encoded_identifier(
                 "block",
@@ -94,6 +125,8 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         nodes: tuple[ConfluenceNode, ...],
         base_context: BlockContext,
     ) -> None:
+        """Append ``nodes`` to ``parent``, opening a section at each heading."""
+
         section_stack: list[tuple[int, BlockDraft, BlockContext]] = []
         for node in _block_nodes(nodes):
             if node.kind == "heading":
@@ -125,14 +158,13 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         context: BlockContext,
         parent: BlockDraft,
     ) -> tuple[BlockDraft, BlockContext]:
+        """Create a section draft and its heading child for a heading node.
+
+        A repeated heading path at the same depth gets a numeric suffix so ids stay unique.
+        Tab titles are part of the section id but not of the visible path.
+        """
+
         title = node.visible_text() or "Untitled section"
-        # Two headings can share identical text at the same nesting depth (a
-        # repeated heading, or headings inside sibling panels/expands that
-        # don't otherwise affect the identity path). Without disambiguation
-        # they hash to the same section_id, which either violates the
-        # sibling-uniqueness invariant on DocumentBlock or silently aliases
-        # unrelated sections downstream. Only the repeat gets a suffix, so the
-        # common (non-duplicated) case keeps its original identity.
         candidate_path = (*context.tab_path, *context.section_path, title)
         occurrence = self._section_occurrences.get(candidate_path, 0)
         self._section_occurrences[candidate_path] = occurrence + 1
@@ -187,6 +219,8 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         context: BlockContext,
         presentation: BlockPresentation,
     ) -> BlockDraft:
+        """Create a draft with an id derived from document, node, kind, parent and ordinal."""
+
         block_id = encoded_identifier(
             "block",
             {
@@ -222,6 +256,12 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
         context: BlockContext,
         draft: BlockDraft,
     ) -> BlockContext:
+        """Return the context for the children of a container block.
+
+        Tabs extend ``tab_path``; panels, expands, tab sets, tabs, macros and unsupported
+        blocks extend ``container_path``.
+        """
+
         title = draft.title or draft.text or draft.kind.value.replace("_", " ").title()
         tab_path = context.tab_path
         tab_set_id = context.tab_set_id
@@ -265,6 +305,8 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
 
     @staticmethod
     def _heading_level(node: ConfluenceNode) -> int:
+        """Return the heading level clamped to 1-6, or 1 if missing or invalid."""
+
         value = node.attributes.get("level", 1)
         if isinstance(value, bool) or not isinstance(value, (str, int, float)):
             return 1
@@ -275,6 +317,11 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
 
     @staticmethod
     def _flatten_elements(block: DocumentBlock) -> list[DocumentElement]:
+        """Flatten a block tree depth-first into ``DocumentElement`` objects.
+
+        Only kinds with an element type and non-empty content are emitted.
+        """
+
         elements: list[DocumentElement] = []
         element_type = {
             DocumentBlockKind.HEADING: "heading",
@@ -315,10 +362,7 @@ class ConfluenceHierarchyBuilder(ConfluenceBlockHandlers):
 def _block_nodes(nodes: tuple[ConfluenceNode, ...]) -> Iterator[ConfluenceNode]:
     """Yield block nodes, gathering each run of loose inline nodes into one paragraph.
 
-    Text, inline formatting, links and media directly inside a container (a page
-    body, a macro body, a layout column) read as one paragraph, as on the page.
-    A run with no visible text yields only the links and media inside it, so
-    they still become references.
+    A run with no visible text yields only the links and media inside it.
     """
 
     run: list[ConfluenceNode] = []
@@ -340,6 +384,8 @@ def _block_nodes(nodes: tuple[ConfluenceNode, ...]) -> Iterator[ConfluenceNode]:
 
 
 def _references(nodes: Iterable[ConfluenceNode]) -> Iterator[ConfluenceNode]:
+    """Yield the links and media nested in inline nodes."""
+
     for node in nodes:
         if node.kind in {"link", "media"}:
             yield node

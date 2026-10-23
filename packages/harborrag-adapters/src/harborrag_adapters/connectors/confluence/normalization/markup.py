@@ -1,3 +1,11 @@
+"""Storage-format and rendered HTML parser producing ``ConfluenceNode`` trees.
+
+Handles:
+- Tolerant tree building for unclosed or stray tags
+- Tag-to-kind mapping, including headings and panels
+- Macro parameters and include targets
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -70,6 +78,8 @@ _TEXT_TAG = "#text"
 
 @dataclass(slots=True)
 class _MutableNode:
+    """Element or text node of the tolerant tree under construction."""
+
     tag: str
     attributes: dict[str, str]
     path: tuple[int, ...]
@@ -80,12 +90,19 @@ class _MutableNode:
 
 
 class _TreeParser(HTMLParser):
+    """``HTMLParser`` building a ``_MutableNode`` tree without validating nesting.
+
+    Tag names are lower-cased and ``br`` becomes a newline.
+    """
+
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.root = _MutableNode("document", {}, (0,))
         self._stack = [self.root]
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Open an element, or emit a newline for ``br``."""
+
         if tag.lower() == "br":
             self.handle_data("\n")
             return
@@ -100,11 +117,18 @@ class _TreeParser(HTMLParser):
             self._stack.append(node)
 
     def handle_startendtag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Treat a self-closing tag as a start tag followed by its end."""
+
         self.handle_starttag(tag, attrs)
         if tag.lower() not in _VOID_TAGS:
             self.handle_endtag(tag)
 
     def handle_endtag(self, tag: str) -> None:
+        """Close the nearest open element with this tag, dropping open descendants.
+
+        An end tag with no matching open element is ignored.
+        """
+
         normalized = tag.lower()
         for index in range(len(self._stack) - 1, 0, -1):
             if self._stack[index].tag == normalized:
@@ -112,6 +136,8 @@ class _TreeParser(HTMLParser):
                 return
 
     def handle_data(self, data: str) -> None:
+        """Append text, merging it into a preceding text node."""
+
         parent = self._stack[-1]
         if parent.children and parent.children[-1].tag == _TEXT_TAG:
             parent.children[-1].text.append(data)
@@ -121,6 +147,8 @@ class _TreeParser(HTMLParser):
         )
 
     def unknown_decl(self, data: str) -> None:
+        """Keep CDATA sections as text, since the base parser would drop them."""
+
         # Storage format carries code and noformat macro bodies, and plain-text
         # link bodies, as CDATA; the base parser would drop them.
         if data.startswith("CDATA["):
@@ -128,9 +156,25 @@ class _TreeParser(HTMLParser):
 
 
 class ConfluenceMarkupParser:
-    """Parse storage-format XML or rendered HTML with one tolerant tree policy."""
+    """Parser for storage-format XML and rendered HTML bodies.
+
+    Stateless; each ``parse`` call builds a fresh tree.
+    """
 
     def parse(self, value: str) -> ConfluenceNode:
+        """Parse a storage-format or rendered HTML body into a node tree.
+
+        Args:
+            value: Page body markup.
+
+        Returns:
+            Root node of the parsed tree.
+
+        Raises:
+            ConfluenceNormalizationError: If the markup is malformed or has no element and
+                no non-blank text.
+        """
+
         parser = _TreeParser()
         try:
             parser.feed(value)
@@ -144,6 +188,12 @@ class ConfluenceMarkupParser:
         return self._node(parser.root)
 
     def _node(self, value: _MutableNode) -> ConfluenceNode:
+        """Convert a mutable node and its subtree into a ``ConfluenceNode``.
+
+        The source id is the first of ``data-local-id``, ``data-node-id``, ``id`` and
+        ``ac:macro-id``, else ``markup:<path>``. Macro parameter children are dropped.
+        """
+
         tag = value.tag
         attributes: dict[str, object] = dict(value.attributes)
         source_id = (
@@ -153,6 +203,7 @@ class ConfluenceMarkupParser:
             or value.attributes.get("ac:macro-id")
             or f"markup:{'.'.join(str(part) for part in value.path)}"
         )
+        # TODO: bound the nesting depth; deeply nested markup raises RecursionError.
         children = tuple(self._node(child) for child in value.children)
         kind = self._kind(value)
         if tag.startswith("h") and len(tag) == 2 and tag[1].isdigit():
@@ -182,6 +233,12 @@ class ConfluenceMarkupParser:
 
     @staticmethod
     def _kind(value: _MutableNode) -> str:
+        """Map a tag to a node kind.
+
+        Panel classes override all but heading, parameter and details tags; unknown tags
+        are ``group``.
+        """
+
         tag = value.tag
         if tag.startswith("h") and len(tag) == 2 and tag[1] in "123456":
             return "heading"
@@ -198,6 +255,8 @@ class ConfluenceMarkupParser:
 
     @staticmethod
     def _macro_parameters(value: _MutableNode) -> dict[str, str]:
+        """Collect a macro's text ``ac:parameter`` values, skipping blank names and values."""
+
         parameters: dict[str, str] = {}
         for child in value.children:
             if child.tag != "ac:parameter":
@@ -212,6 +271,8 @@ class ConfluenceMarkupParser:
 
     @staticmethod
     def _is_include_macro(value: str) -> bool:
+        """Return whether a macro name is ``include`` or ``excerpt-include``."""
+
         return value.strip().casefold().replace("_", "-") in {
             "include",
             "excerpt-include",
@@ -219,6 +280,8 @@ class ConfluenceMarkupParser:
 
     @classmethod
     def _include_target(cls, value: _MutableNode) -> dict[str, str]:
+        """Return the target page id, title and space key of an include macro, or ``{}``."""
+
         page = cls._first_descendant(value, "ri:page")
         if page is None:
             return {}
@@ -234,6 +297,8 @@ class ConfluenceMarkupParser:
         value: _MutableNode,
         tag: str,
     ) -> _MutableNode | None:
+        """Return the first descendant with this tag in document order, or None."""
+
         for child in value.children:
             if child.tag == tag:
                 return child

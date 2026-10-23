@@ -26,7 +26,7 @@ _VALID_CONTENT_TYPES = {"page", "blogpost"}
 
 
 class ConfluenceDeploymentType(StrEnum):
-    """Supported Confluence auth/API deployment modes."""
+    """Supported Confluence deployments, selecting auth and API behavior."""
 
     CLOUD = "cloud"
     DATACENTER = "datacenter"
@@ -34,10 +34,18 @@ class ConfluenceDeploymentType(StrEnum):
 
 @dataclass(slots=True)
 class ConfluenceSpaceConfig:
-    """Configuration for one Confluence source scope.
+    """Configuration for one Confluence space source.
 
-    The config normalizes Cloud vs Data Center auth, CQL defaults, paging, and
-    attachment safety limits before the connector starts making requests.
+    Normalizes deployment type and credentials, and validates CQL filters, paging and attachment
+    limits at construction.
+
+    Attributes:
+        token: API token; falls back to ``CONFLUENCE_TOKEN``.
+        email: Account email; falls back to ``CONFLUENCE_EMAIL`` and is required on Cloud.
+        deployment_type: Inferred from the host when ``None``.
+        content_types: Content types to search; ``page`` and ``blogpost`` only.
+        restricted_content: Policy applied to restricted pages.
+        page_size: Search and child-page size, from 1 to 100.
     """
 
     space_key: str
@@ -65,7 +73,6 @@ class ConfluenceSpaceConfig:
     allow_private_network: bool = False
 
     def __post_init__(self) -> None:
-        """Normalize env-backed credentials and validate ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url(
             "base_url", self.base_url, allow_private_network=self.allow_private_network
@@ -112,7 +119,7 @@ class ConfluenceSpaceConfig:
 
     @property
     def deployment(self) -> ConfluenceDeploymentType:
-        """Return the normalized deployment type after validation."""
+        """Return the normalized deployment type."""
         if not isinstance(self.deployment_type, ConfluenceDeploymentType):
             raise RuntimeError("Confluence deployment type was not normalized")
         return self.deployment_type

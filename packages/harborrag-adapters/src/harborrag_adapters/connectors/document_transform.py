@@ -1,4 +1,4 @@
-"""Connector-owned transformation of generic canonical documents."""
+"""Protocol for connector-owned transformation of canonical documents."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from harborrag_core.domain import Document, ParsedDocument, RawDocument
 
 @runtime_checkable
 class ConnectorDocumentTransform(Protocol):
-    """Enrich a generic document using one connector's source semantics."""
+    """Transform that enriches a generic document with one connector's source semantics."""
 
     def transform(
         self,
@@ -18,12 +18,18 @@ class ConnectorDocumentTransform(Protocol):
         parsed: ParsedDocument,
         document: Document,
     ) -> Document:
-        """Return the connector-specific canonical representation."""
+        """Return the connector-specific canonical document.
+
+        Args:
+            raw: Raw document the connector loaded.
+            parsed: Parsed form of ``raw``.
+            document: Generic canonical document to enrich.
+        """
         ...
 
 
 ConnectorDocumentTransformFactory = Callable[[], ConnectorDocumentTransform]
-"""Construct an isolated connector document transform."""
+"""Factory that builds an isolated connector document transform."""
 
 
 __all__ = [

@@ -1,3 +1,13 @@
+"""HTTP helpers shared by connector clients.
+
+Handles:
+- Capped response body reads
+- Redacted, truncated error details
+- Same-origin URL checks
+- Retry delays from provider headers
+- Credential probe error normalization
+"""
+
 from __future__ import annotations
 
 import json
@@ -23,15 +33,15 @@ DEFAULT_JSON_BODY_LIMIT = 8 * 1024 * 1024
 
 
 class StreamingResponse(Protocol):
-    """Minimal response surface required by :func:`read_capped_content`."""
+    """Response surface required by ``read_capped_content``."""
 
     @property
     def headers(self) -> Mapping[str, str]:
-        """Read-only response headers compatible with covariant SDK mappings."""
+        """Return the response headers."""
         ...
 
     def iter_content(self, chunk_size: int) -> Iterator[bytes]:
-        """Yield response body chunks."""
+        """Yield response body chunks of up to ``chunk_size`` bytes."""
         ...
 
     def close(self) -> None:
@@ -40,7 +50,7 @@ class StreamingResponse(Protocol):
 
 
 def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT) -> str:
-    """Return a truncated, secret-redacted snippet of a response body."""
+    """Return a response body snippet with secrets redacted, truncated to ``limit`` characters."""
     if not text:
         return ""
     text = redact_secrets(text)
@@ -51,15 +61,13 @@ def safe_error_detail(text: str | None, *, limit: int = DEFAULT_ERROR_BODY_LIMIT
 
 
 def summarize_provider_error(exc: Exception) -> str:
-    """Reduce a connector exception to one diagnostic line for re-raising.
+    """Reduce a connector exception to one diagnostic line.
 
-    Prefers the exception's raw provider ``detail`` (set on `FetchError`) over
-    `str(exc)`, since some call sites format the latter with a redundant
-    "request failed with HTTP ..." prefix. If that detail is a JSON error
-    body -- as Confluence's often is -- pulls just its ``message`` field so
-    callers see a sentence instead of a raw envelope; anything that isn't a
-    JSON object with a string ``message`` (a different shape, or truncation
-    cutting the JSON short) falls back to the raw detail unchanged.
+    Prefers the exception's ``detail`` over ``str(exc)``. If that is a JSON object with
+    a string ``message``, returns the message; otherwise returns the detail unchanged.
+
+    Args:
+        exc: Exception, usually a ``FetchError``.
     """
     detail = getattr(exc, "detail", None)
     detail = detail if isinstance(detail, str) and detail else str(exc)
@@ -74,28 +82,24 @@ def summarize_provider_error(exc: Exception) -> str:
 
 
 def _with_status_code(message: str, status_code: int | None) -> str:
-    """Append the raw HTTP status so it's always visible, even when the
-    provider's own error body happens not to mention it (Jira Cloud's 401
-    body is just "Client must be authenticated..." with no digits, while
-    Confluence's 403 body happens to embed "403 FORBIDDEN" -- callers must
-    not depend on incidental provider wording to see the status code)."""
+    """Append ``(HTTP <status>)`` to the message when a status code is known."""
     return message if status_code is None else f"{message} (HTTP {status_code})"
 
 
 def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
-    """Run a cheap authenticated probe and normalize how it fails.
+    """Run an authenticated probe and re-raise its failures with a uniform message.
 
-    A bad credential (401) otherwise reaches the caller as a bare, un-prefixed
-    provider message, raised deep in the shared HTTP client. A 403 means the
-    credential itself checks out but lacks permission/scope for the probed
-    resource -- a different failure a caller must be able to tell apart from
-    an outright invalid credential, so it is reported as an authorization
-    failure, not an authentication one. Some deployments reject a probe with
-    a bare 403 `FetchError` instead of the shared client's own
-    `AuthorizationError`, so that case is normalized here too. Every branch
-    re-raises through the same message template so every connector's
-    ``connect()`` reports each kind of failure the same way regardless of
-    provider.
+    Authentication, authorization and bare 403 ``FetchError`` failures are re-raised as
+    ``"<provider> authentication|authorization failed: ... (HTTP <status>)"``.
+
+    Args:
+        probe: Cheap authenticated request to run.
+        provider: Provider name used in the message.
+
+    Raises:
+        AuthenticationError: If the credentials are rejected.
+        AuthorizationError: If the credentials lack permission, including a bare 403.
+        FetchError: For any other fetch failure, unchanged.
     """
     try:
         probe()
@@ -128,13 +132,18 @@ def verify_credentials(probe: Callable[[], object], *, provider: str) -> None:
 
 
 def require_same_origin_url(url: str, base_url: str, *, label: str) -> str:
-    """Validate absolute URLs before sending authenticated requests.
+    """Return ``url`` if it is relative or on the same origin as ``base_url``.
 
-    Connectors often receive download links from source APIs. Relative links are
-    safe to join against the configured base URL, but absolute links must stay on
-    the same scheme, host, and port to avoid leaking credentials to another
-    origin. Absoluteness is decided by parsing (not a case-sensitive prefix
-    check), and any non-http(s) scheme is rejected outright.
+    Absolute URLs must share scheme, host and port, so credentials never go to another
+    origin; non-http(s) schemes are rejected.
+
+    Args:
+        url: Link received from a source API.
+        base_url: Configured source base URL.
+        label: Name of the URL kind used in error messages.
+
+    Raises:
+        ValueError: If the scheme is not http(s) or the origin differs.
     """
     parsed = urlparse(url)
     if not parsed.scheme:
@@ -156,12 +165,20 @@ def read_capped_content(
     *,
     chunk_size: int = 64 * 1024,
 ) -> bytes:
-    """Read a ``requests`` response body while enforcing a hard byte ceiling.
+    """Read a streamed response body, aborting once it exceeds ``max_bytes``.
 
-    Streaming with an incremental cap bounds peak memory even when the provider
-    misreports (or omits) the size and when ``Content-Length`` is absent. The
-    read is aborted — and the connection released — as soon as the cap is
-    exceeded, so a hostile/unbounded body can never be fully buffered.
+    Checks ``Content-Length`` first, then counts streamed bytes. Always closes the response.
+
+    Args:
+        response: Streaming response to read.
+        max_bytes: Byte cap, or ``None`` for no cap.
+        chunk_size: Bytes per streamed chunk.
+
+    Returns:
+        The full body.
+
+    Raises:
+        ResponseTooLargeError: If the body exceeds ``max_bytes``.
     """
     if max_bytes is not None:
         declared = response.headers.get("Content-Length")
@@ -192,8 +209,16 @@ def read_capped_json(
     *,
     max_bytes: int = DEFAULT_JSON_BODY_LIMIT,
 ) -> object:
-    """Decode JSON only after incrementally enforcing the connector body limit."""
+    """Read a response body under the byte cap and decode it as JSON.
 
+    Args:
+        response: Streaming response to read.
+        max_bytes: Byte cap for the body.
+
+    Raises:
+        ResponseTooLargeError: If the body exceeds ``max_bytes``.
+        ValueError: If the body is not valid JSON.
+    """
     body = read_capped_content(response, max_bytes)
     return json.loads(body)
 
@@ -203,8 +228,14 @@ def safe_response_error_detail(
     *,
     limit: int = DEFAULT_ERROR_BODY_LIMIT,
 ) -> str:
-    """Read only a small error-body prefix before redacting and rendering it."""
+    """Return a redacted snippet of an error response body.
 
+    Reads at most 8 KiB; a larger body yields a fixed placeholder message.
+
+    Args:
+        response: Error response to read.
+        limit: Maximum characters in the snippet.
+    """
     try:
         body = read_capped_content(response, DEFAULT_ERROR_BODY_READ_LIMIT)
     except ResponseTooLargeError:
@@ -213,7 +244,7 @@ def safe_response_error_detail(
 
 
 def same_origin(url: str, base_url: str) -> bool:
-    """Return whether two URLs share scheme, host, and effective port."""
+    """Return whether two URLs share scheme, host and effective port."""
     parsed = urlparse(url)
     base = urlparse(base_url)
     return (
@@ -231,17 +262,20 @@ def retry_delay_seconds(
     jitter: bool = True,
     throttled: bool = False,
 ) -> float:
-    """Choose a retry delay from provider headers or a fallback backoff.
+    """Choose a retry delay from ``Retry-After``, the rate-limit reset, or a fallback.
 
-    HTTP providers commonly return either ``Retry-After`` or
-    ``X-RateLimit-Reset``. This helper centralizes that interpretation so every
-    connector sleeps consistently when it is throttled. ``X-RateLimit-Reset``
-    only applies when the caller classified the response as ``throttled`` or
-    ``X-RateLimit-Remaining`` is ``0``: GitHub sends the reset time of its
-    hourly window on every response, and a transient 5xx must not wait for it.
-    The result is always clamped to ``max_delay`` (defending against hostile
-    headers) and, when ``jitter`` is set, spread by a small random factor to
-    avoid a thundering herd of synchronized retries across workers.
+    ``X-RateLimit-Reset`` applies only when the response is ``throttled`` or
+    ``X-RateLimit-Remaining`` is ``0``.
+
+    Args:
+        headers: Response headers, or ``None``.
+        fallback_delay: Delay in seconds when no header applies.
+        max_delay: Upper bound on the result in seconds.
+        jitter: Add up to 10% (at most 1 second) of random spread.
+        throttled: Caller classified the response as rate limited.
+
+    Returns:
+        Delay in seconds, between 0 and ``max_delay``.
     """
     delay = _raw_delay(headers, fallback_delay, throttled=throttled)
     delay = max(0.0, min(delay, max_delay))
@@ -256,6 +290,7 @@ def _raw_delay(
     *,
     throttled: bool,
 ) -> float:
+    """Return the unclamped delay: ``Retry-After``, then ``X-RateLimit-Reset``, else fallback."""
     if not headers:
         return fallback_delay
 
@@ -279,6 +314,7 @@ def _raw_delay(
 
 
 def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
+    """Return a stripped header value from a mapping or ``HTTPResponse``, or ``None``."""
     if hasattr(headers, "get"):
         value = headers.get(name)
     elif hasattr(headers, "getheader"):
@@ -289,6 +325,10 @@ def _header(headers: Mapping[str, str] | HTTPResponse, name: str) -> str | None:
 
 
 def _parse_retry_after(value: str) -> float | None:
+    """Return ``Retry-After`` (seconds or HTTP date) as seconds from now, else ``None``.
+
+    A date without a timezone is read as UTC; past dates give ``0.0``.
+    """
     try:
         return max(0.0, float(value))
     except ValueError:

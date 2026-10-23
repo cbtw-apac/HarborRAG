@@ -1,4 +1,10 @@
-"""GitHub repository discovery and raw-blob loading orchestration."""
+"""GitHub repository connector.
+
+Handles:
+- Discovery from explicit paths or a Git tree walk
+- Blob loading by SHA at the discovered commit
+- Root path confinement
+"""
 
 from __future__ import annotations
 
@@ -36,14 +42,13 @@ logger = logging.getLogger("harborrag.adapters.connectors.github")
 
 
 class GitHubConnector(BaseConnector):
-    """Connector for GitHub repository file ingestion through the REST API.
+    """Connector for GitHub repository files over the REST API.
 
-    Discovery resolves one repository ref and walks Git trees to produce file
-    records. Loading fetches blob bytes by SHA so the loaded content matches the
-    discovered commit instead of whatever the branch points to later.
+    Loads blobs by SHA; explicit paths resolve that SHA at the configured ref.
     """
 
     provider_name = "github"
+    # TODO: advertise ``pagination=False`` or implement ``discover_page`` natively.
     capabilities = ConnectorCapabilities(
         pagination=True,
         incremental_sync=True,
@@ -58,7 +63,12 @@ class GitHubConnector(BaseConnector):
         *,
         client: GitHubClient | None = None,
     ) -> None:
-        """Initialize repository operations with an optional client override."""
+        """Create the repository API over a GitHub client.
+
+        Args:
+            config: Validated repository config.
+            client: Client to use instead of the default requests client.
+        """
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)
@@ -66,13 +76,27 @@ class GitHubConnector(BaseConnector):
         self._github = GitHubRepositoryAPI(config, self.client)
 
     def close(self) -> None:
-        """Release the underlying GitHub HTTP client's resources."""
+        """Close the GitHub client."""
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Discover repository file records from explicit paths or tree walking."""
+        """Yield file records from explicit paths or a walk of the resolved commit's tree.
+
+        Explicit paths come from the ``file_paths``, ``paths`` or ``files`` filters. A walk
+        yields nothing when the commit is not newer than ``updated_after``.
+
+        Args:
+            query: Path, pattern, filter and limit selectors.
+
+        Yields:
+            One ``SourceRecord`` per file that passes config and query filters.
+
+        Raises:
+            DocumentProcessingError: If an explicit path is outside ``root_path`` or not a file.
+            ValueError: If an explicit path contains a ``..`` segment.
+        """
         query = query or ConnectorQuery()
         repository = self._github.resolve_repository()
         commit = self._github.resolve_commit(repository)
@@ -104,11 +128,12 @@ class GitHubConnector(BaseConnector):
         ref: str,
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
-        """Resolve an explicit path list without mixing it into tree traversal."""
+        """Yield records for explicit paths, honoring filters and ``query.limit``."""
 
         yielded = 0
         for path in paths:
             self._require_in_root(path)
+            # TODO: skip and report an unreadable explicit path instead of aborting discovery.
             item = self._github.content_file_item(path, ref=ref)
             if not self._github.should_process_file(item, query, commit=commit):
                 continue
@@ -124,13 +149,14 @@ class GitHubConnector(BaseConnector):
         ref: str,
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
-        """Walk one resolved Git tree and emit records that pass query policy."""
+        """Yield blob records under the scoped root that pass filters, up to ``query.limit``."""
 
         root_path = scoped_root_path(self.config.root_path, query.path)
         tree_sha = tree_sha_from_commit(commit)
         recursive = query.recursive or bool(root_path)
         yielded = 0
         for item in self._github.iter_tree(tree_sha, recursive=recursive):
+            # TODO: skip symlinks (mode 120000) and Git LFS pointer files.
             if not is_blob(item):
                 continue
             if not path_in_scope(str(item.get("path") or ""), root_path, recursive=True):
@@ -151,7 +177,18 @@ class GitHubConnector(BaseConnector):
                 return
 
     def load(self, record: SourceRecord) -> RawDocument:
-        """Load one repository blob as a raw document."""
+        """Load one repository file as a raw document.
+
+        Args:
+            record: File record produced by discovery.
+
+        Returns:
+            Raw document with the blob bytes and GitHub provenance metadata.
+
+        Raises:
+            DocumentProcessingError: If the path is outside ``root_path``, the blob SHA is
+                missing, or the file exceeds ``max_file_size_bytes``.
+        """
         repository = self._github.resolve_repository()
         commit = self._github.resolve_commit(repository)
         ref = self._github.resolved_ref or str(commit.get("sha") or "")
@@ -207,13 +244,17 @@ class GitHubConnector(BaseConnector):
         )
 
     def load_by_paths(self, paths: list[str]) -> Iterator[RawDocument]:
-        """Load files for callers that already know repository paths."""
+        """Yield raw documents for known repository paths.
+
+        Args:
+            paths: Repository paths inside ``root_path``.
+        """
         for path in paths:
             self._require_in_root(path)
             yield self.load(self._github.record_for_path(path))
 
     def _require_in_root(self, path: str) -> None:
-        """Refuse explicit paths and records outside the configured ``root_path``."""
+        """Raise ``DocumentProcessingError`` if ``path`` is outside ``root_path``."""
         root = normalize_repo_path(self.config.root_path)
         if not path_in_scope(normalize_repo_path(path), root, recursive=True):
             raise DocumentProcessingError(

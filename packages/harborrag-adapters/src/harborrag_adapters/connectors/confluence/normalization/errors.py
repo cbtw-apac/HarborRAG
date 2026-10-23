@@ -1,10 +1,13 @@
+"""Errors raised while normalizing a Confluence page body."""
+
+
 class ConfluenceNormalizationError(ValueError):
-    """Base error for pure Confluence page normalization."""
+    """Base error for Confluence page normalization."""
 
 
 class UnsupportedConfluenceBodyError(ConfluenceNormalizationError):
-    """Raised when no supported page body representation is available."""
+    """No supported page body representation is available."""
 
 
 class TableExtractionError(ConfluenceNormalizationError):
-    """Raised when a source table cannot retain a valid topology."""
+    """A source table cannot retain a valid topology."""

@@ -1,4 +1,11 @@
-"""Safe local filesystem traversal, filtering, and scope enforcement."""
+"""Local filesystem boundary for traversal, selection and secure reads.
+
+Handles:
+- Directory walking with symlink, hidden-file, depth and cycle rules
+- Source scope enforcement
+- Descriptor-bound snapshot reads with a byte cap
+- Record building and change-detection checksums
+"""
 
 from __future__ import annotations
 
@@ -31,10 +38,18 @@ _READ_CHUNK_SIZE = 1024 * 1024
 
 
 class LocalFileSystem:
-    """Filesystem traversal, filtering, and scope enforcement for local files."""
+    """Traversal, selection and secure reads for one local source scope.
+
+    Holds a descriptor on the root directory where the platform supports it; ``close``
+    releases it.
+    """
 
     def __init__(self, config: LocalFileConfig) -> None:
-        """Normalize the configured source into concrete traversal paths."""
+        """Resolve the source and root paths and open the root descriptor.
+
+        Args:
+            config: Validated local config.
+        """
         self.config = config
         self.skips = LocalSkipReport()
         # Config accepts strings at the package boundary; traversal uses one
@@ -60,7 +75,7 @@ class LocalFileSystem:
         )
 
     def close(self) -> None:
-        """Release the trusted root descriptor used for race-free reads."""
+        """Close the root descriptor. Later reads raise ``RuntimeError``."""
 
         if SUPPORTS_DIR_FD and self._root_fd >= 0:
             os.close(self._root_fd)
@@ -68,7 +83,14 @@ class LocalFileSystem:
         self._closed = True
 
     def files_from_query(self, query: ConnectorQuery) -> Iterator[tuple[Path, bool]]:
-        """Yield resolved files (with pre-resolution symlink provenance)."""
+        """Yield ``(resolved path, is_symlink)`` for the explicit paths or the traversal.
+
+        ``is_symlink`` is captured before the path is resolved.
+
+        Raises:
+            DocumentProcessingError: If an explicit path is outside the source scope or uses
+                a symlink while ``follow_symlinks`` is off.
+        """
         file_paths = file_paths_from_query(query)
         if file_paths:
             for path in file_paths:
@@ -92,7 +114,14 @@ class LocalFileSystem:
         depth: int = 0,
         seen_dirs: set[Path] | None = None,
     ) -> Iterator[tuple[Path, bool]]:
-        """Yield files with symlink provenance under the configured traversal policy."""
+        """Yield ``(resolved path, is_symlink)`` for files under ``start_path``.
+
+        Args:
+            start_path: File or directory to start from.
+            query: Discovery query; ``recursive`` controls descent.
+            depth: Current depth below the start path.
+            seen_dirs: Resolved directories already visited.
+        """
         if not self._traversable(start_path):
             return
         if start_path.is_file():
@@ -114,6 +143,13 @@ class LocalFileSystem:
             yield from self._walk_entry(entry, query, depth=depth, seen_dirs=seen_dirs)
 
     def _traversable(self, path: Path) -> bool:
+        """Return whether traversal may enter the path.
+
+        Skips symlinks silently unless followed, and records out-of-scope paths as skips.
+
+        Raises:
+            DocumentProcessingError: If the path is neither a file nor a directory.
+        """
         if path.is_symlink() and not self.config.follow_symlinks:
             return False
         if not self.within_source_scope(path):
@@ -124,6 +160,11 @@ class LocalFileSystem:
         return True
 
     def _directory_entries(self, path: Path) -> list[Path] | None:
+        """List a directory sorted by lowercase name, or return ``None`` after recording a skip.
+
+        Raises:
+            FetchError: If the listing fails and ``fail_on_error`` is set.
+        """
         try:
             return sorted(path.iterdir(), key=lambda item: item.name.lower())
         except OSError as exc:
@@ -140,6 +181,11 @@ class LocalFileSystem:
         depth: int,
         seen_dirs: set[Path],
     ) -> Iterator[tuple[Path, bool]]:
+        """Yield ``(resolved path, is_symlink)`` for one entry, descending into directories.
+
+        Hidden entries and unfollowed symlinks are ignored silently; a file resolving
+        outside the source scope is recorded as a skip.
+        """
         is_symlink = entry.is_symlink()
         if is_symlink and not self.config.follow_symlinks:
             return
@@ -168,13 +214,13 @@ class LocalFileSystem:
         yield resolved, is_symlink
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
-        """Apply local connector filters to one candidate path."""
+        """Return whether a path passes the symlink rule and the selection policy."""
         if not self.config.follow_symlinks and self.has_symlink_component(path):
             return False
         return self._selector.should_process_file(path, query)
 
     def enforce_size_limit(self, path: Path, size: int) -> None:
-        """Prevent direct loads from materializing oversized files."""
+        """Raise ``DocumentProcessingError`` if ``size`` exceeds ``max_file_size_bytes``."""
         if self.config.max_file_size_bytes is None:
             return
         if size > self.config.max_file_size_bytes:
@@ -184,24 +230,20 @@ class LocalFileSystem:
             )
 
     def read_capped_bytes(self, path: Path) -> bytes:
-        """Read a file while re-enforcing max_file_size_bytes during the read.
-
-        A stat-then-read size check leaves a window where the file can grow
-        between the two calls, so ``load()`` would materialize an unbounded
-        file despite the earlier check. Re-checking the size incrementally
-        while reading closes that race.
-        """
+        """Return a file's bytes, enforcing ``max_file_size_bytes`` during the read."""
         return self.read_snapshot(path).content
 
     def read_snapshot(self, path: Path) -> LocalFileSnapshot:
-        """Open beneath the bound root and read/hash/fstat one descriptor.
+        """Read a file's bytes, stat and SHA-256 from one descriptor opened beneath the root.
 
-        On platforms with `dir_fd` support, every component is opened with
-        ``O_NOFOLLOW``, binding validation, bytes, metadata, and checksum to
-        one inode even if a writer renames a pathname while the connector is
-        loading it. Windows has no `dir_fd`/`openat()` equivalent, so there
-        `read_snapshot_beneath` falls back to per-component symlink checks
-        followed by a plain open -- a narrower, best-effort guarantee.
+        With ``dir_fd`` support every component is opened with ``O_NOFOLLOW``; otherwise
+        symlinks are checked per component before a plain open.
+
+        Raises:
+            DocumentProcessingError: If the path is outside scope, not a regular file, or
+                oversized.
+            FetchError: If the file cannot be opened.
+            RuntimeError: If the filesystem is closed.
         """
 
         return read_snapshot_beneath(
@@ -223,7 +265,7 @@ class LocalFileSystem:
         file_fd: int,
         descriptor_stat: os.stat_result,
     ) -> LocalFileSnapshot:
-        """Read and hash an authorized descriptor with a hard byte cap."""
+        """Read and hash an open descriptor. Raises ``DocumentProcessingError`` if oversized."""
 
         limit = self.config.max_file_size_bytes
         buffer = bytearray()
@@ -246,7 +288,7 @@ class LocalFileSystem:
         )
 
     def source_record(self, path: Path, *, is_symlink: bool) -> SourceRecord:
-        """Build a lightweight source record for a discovered file."""
+        """Build the source record for a file, with the configured checksum."""
         return build_source_record(
             path,
             root_path=self.root_path,
@@ -255,12 +297,15 @@ class LocalFileSystem:
         )
 
     def discovered_record(self, path: Path, *, is_symlink: bool) -> SourceRecord | None:
-        """Build a discovered file's record, or skip a file that changed under the scan.
+        """Build a file's record, or record a skip and return ``None`` if it became unreadable.
 
-        Selection stat'ed the file moments earlier, but it can vanish (editor
-        lock files), lose its permissions, or outgrow the size cap before its
-        record is built. Like an unlistable directory, that costs only this
-        file unless ``fail_on_error`` is set.
+        Args:
+            path: Resolved file path.
+            is_symlink: Whether the path was a symlink before resolution.
+
+        Raises:
+            FetchError: If the file cannot be read and ``fail_on_error`` is set.
+            DocumentProcessingError: If the file became oversized and ``fail_on_error`` is set.
         """
         try:
             return self.source_record(path, is_symlink=is_symlink)
@@ -275,11 +320,12 @@ class LocalFileSystem:
         return None
 
     def record_for_path(self, path: str | Path) -> SourceRecord:
-        """Resolve a caller-provided path and return its source record.
+        """Return the source record for a caller-provided path.
 
-        Applies discovery's selection policy (regular file, hidden files, filters,
-        size, callback) before anything opens the file, so a direct load cannot
-        reach what a scan would have excluded.
+        Applies the discovery selection policy before opening the file.
+
+        Raises:
+            DocumentProcessingError: If the path is outside scope or excluded by policy.
         """
         is_symlink = Path(path).is_symlink()
         resolved = self.resolve_candidate(path)
@@ -288,14 +334,9 @@ class LocalFileSystem:
         return self.source_record(resolved, is_symlink=is_symlink)
 
     def checksum(self, path: Path) -> str | None:
-        """Return the configured change-detection signature for a file.
+        """Return the change-detection signature for ``checksum_mode``, or ``None`` for ``none``.
 
-        The sha256 mode routes through ``read_snapshot`` rather than hashing
-        the path directly, so it gets the same O_NOFOLLOW/dir_fd-bound
-        descriptor and size cap as every other read -- hashing a plain
-        ``path.open()`` would reopen the file outside that protection and
-        reintroduce the stat-then-read TOCTOU window the rest of this module
-        closes.
+        The ``sha256`` mode reads through ``read_snapshot``.
         """
         if self.config.checksum_mode == "none":
             return None
@@ -304,13 +345,18 @@ class LocalFileSystem:
         return stat_signature(path)
 
     def start_path(self, query: ConnectorQuery) -> Path:
-        """Resolve the traversal root selected by a query."""
+        """Return the traversal root: the query path if set, else the source path."""
         if query.path:
             return self.resolve_candidate(query.path)
         return self.source_path
 
     def resolve_candidate(self, value: str | Path) -> Path:
-        """Resolve a user or record path and enforce the configured source scope."""
+        """Return the resolved path for a user or record path.
+
+        Raises:
+            DocumentProcessingError: If it uses a symlink while ``follow_symlinks`` is off,
+                or resolves outside the source scope.
+        """
         candidate = Path(value)
         if not candidate.is_absolute():
             candidate = self.root_path / candidate
@@ -322,14 +368,14 @@ class LocalFileSystem:
         return resolved
 
     def within_source_scope(self, path: Path) -> bool:
-        """Return whether a resolved path is inside the configured source scope."""
+        """Return whether a path resolves inside the source scope."""
         resolved = resolve_path(path)
         if self._source_is_file:
             return resolved == self.source_path
         return resolved.is_relative_to(self.source_path)
 
     def has_symlink_component(self, path: Path) -> bool:
-        """Detect symlink use anywhere between the candidate and source root."""
+        """Return whether the path or any parent up to the root is a symlink."""
         current = path
         while True:
             if current.is_symlink():

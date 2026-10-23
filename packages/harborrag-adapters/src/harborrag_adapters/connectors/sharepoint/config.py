@@ -1,4 +1,4 @@
-"""Validated configuration for SharePoint site connectors."""
+"""Configuration for SharePoint site connectors."""
 
 from __future__ import annotations
 
@@ -24,9 +24,23 @@ DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
 class SharePointSiteConfig:
     """Configuration for one SharePoint document-library scope.
 
-    A site can be addressed directly by ``site_id`` or parsed from ``site_url``.
-    The connector then resolves a drive and walks drive items through Microsoft
-    Graph.
+    The site is addressed by ``site_id`` or parsed from ``site_url``. Credentials fall
+    back to the ``MICROSOFT_GRAPH_TOKEN``, ``MICROSOFT_TENANT_ID``, ``MICROSOFT_CLIENT_ID``
+    and ``MICROSOFT_CLIENT_SECRET`` environment variables.
+
+    Attributes:
+        site_url: Site URL; supplies ``hostname`` and ``site_path`` when they are unset.
+        site_id: Graph site id; replaces ``hostname`` and ``site_path``.
+        drive_id: Drive to read; takes precedence over ``drive_name``.
+        drive_name: Drive name to look up; the default library is used when both are unset.
+        root_path: Drive folder that bounds discovery and loading.
+        access_token: Bearer token; alternative to the client credentials.
+        process_file_callback: Called with name, size and MIME type; returns
+            ``(should_process, reason)``.
+        fail_on_error: Re-raise callback errors instead of skipping the file.
+        page_size: Graph page size, 1 to 999.
+        restricted_content: ``skip`` or ``include``.
+        allow_private_network: Allow ``graph_api_url`` to target private hosts.
     """
 
     site_url: str | None = None
@@ -56,7 +70,11 @@ class SharePointSiteConfig:
     allow_private_network: bool = False
 
     def __post_init__(self) -> None:
-        """Resolve site/auth shortcuts and validate paging and size limits."""
+        """Resolve the site and credentials, then validate URLs, tuning and limits.
+
+        Raises:
+            ValueError: If the site or credentials are missing or a value is invalid.
+        """
         self.graph_api_url = self.graph_api_url.rstrip("/")
         validate_https_url(
             "graph_api_url", self.graph_api_url, allow_private_network=self.allow_private_network

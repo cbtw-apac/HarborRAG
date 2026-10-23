@@ -1,3 +1,12 @@
+"""Table header, unit, cell type and key column inference.
+
+Handles:
+- Row and column header detection
+- Header hierarchy and units from column names
+- Typed cell values
+- Scored key column candidates
+"""
+
 from __future__ import annotations
 
 import re
@@ -21,13 +30,15 @@ _IDENTITY_HEADERS = frozenset(
 
 
 class TableArtifactAnalyzer:
-    """Derive headers, units, types, and key candidates from retained topology."""
+    """Heuristics deriving headers, units, types and key candidates from a table topology."""
 
     @staticmethod
     def header_columns(
         cells: Sequence[TableCell],
         header_rows: tuple[int, ...],
     ) -> tuple[int, ...]:
+        """Return the columns holding header cells outside the header rows."""
+
         return tuple(
             sorted(
                 {
@@ -45,6 +56,20 @@ class TableArtifactAnalyzer:
         header_rows: tuple[int, ...],
         column_count: int,
     ) -> tuple[tuple[str, ...], ...]:
+        """Return, per column, the header texts from top to bottom.
+
+        A text equal to the one just above is skipped, so merged headers appear once.
+
+        Args:
+            cells: All table cells.
+            grid: Logical grid of cell slots.
+            header_rows: Indices of the header rows.
+            column_count: Number of grid columns.
+
+        Returns:
+            One path per column; empty for columns without header rows.
+        """
+
         by_id = {cell.cell_id: cell for cell in cells}
         paths: list[tuple[str, ...]] = []
         for column_index in range(column_count):
@@ -59,6 +84,8 @@ class TableArtifactAnalyzer:
 
     @staticmethod
     def units(column_names: tuple[str, ...]) -> tuple[TableColumnUnit, ...]:
+        """Return the units of column names ending in ``(unit)`` or ``[unit]``."""
+
         units: list[TableColumnUnit] = []
         for index, name in enumerate(column_names):
             match = _UNIT_PATTERN.search(name)
@@ -79,6 +106,21 @@ class TableArtifactAnalyzer:
         column_names: tuple[str, ...],
         header_rows: tuple[int, ...],
     ) -> tuple[TableKeyColumnCandidate, ...]:
+        """Score columns as possible row identifiers and keep those scoring at least 0.5.
+
+        The score combines a known identity header, value uniqueness, non-empty share and
+        first-column position.
+
+        Args:
+            cells: All table cells.
+            grid: Logical grid of cell slots.
+            column_names: Resolved column names.
+            header_rows: Indices of the header rows, excluded from scoring.
+
+        Returns:
+            Candidates sorted by descending confidence, then column index.
+        """
+
         by_id = {cell.cell_id: cell for cell in cells}
         data_rows = [index for index in range(len(grid)) if index not in header_rows]
         candidates: list[TableKeyColumnCandidate] = []
@@ -119,6 +161,19 @@ class TableArtifactAnalyzer:
         text: str,
         is_header: bool,
     ) -> tuple[str | int | float | bool | None, TableCellType]:
+        """Return a cell's typed value and type.
+
+        Header cells keep their text. Dates and datetimes stay strings, and a datetime at
+        midnight counts as a date.
+
+        Args:
+            text: Cell text.
+            is_header: Whether the cell is a header cell.
+
+        Returns:
+            Value and type, trying empty, boolean, integer, float, ISO date, then text.
+        """
+
         value = text.strip()
         if is_header:
             return value, TableCellType.HEADER
@@ -147,6 +202,8 @@ class TableArtifactAnalyzer:
 
     @staticmethod
     def topology_warnings(cells: Sequence[TableCell]) -> tuple[str, ...]:
+        """Return a warning if any cell is merged across rows or columns."""
+
         if any(cell.row_span > 1 or cell.column_span > 1 for cell in cells):
             return ("merged cells retained through logical-grid inheritance",)
         return ()

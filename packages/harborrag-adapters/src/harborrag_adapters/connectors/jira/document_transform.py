@@ -1,4 +1,12 @@
-"""Jira-owned canonical document transformation."""
+"""Jira canonical document transformation.
+
+Handles:
+- Evidence elements from summary, description, custom fields and comments
+- Provenance with attachment details and typed custom attributes
+- A flat ``fields`` filter map for retrieval narrowing
+
+Does NOT parse Markdown; the issue payload on the raw document is the source.
+"""
 
 from __future__ import annotations
 
@@ -17,7 +25,7 @@ _COMMENT_CONTENT_FIELDS = frozenset({"body", "text"})
 
 
 class JiraDocumentTransform:
-    """Build Jira evidence from typed source fields instead of rendered Markdown."""
+    """Transform building Jira evidence from typed source fields instead of Markdown."""
 
     def transform(
         self,
@@ -25,6 +33,24 @@ class JiraDocumentTransform:
         parsed: ParsedDocument,
         document: Document,
     ) -> Document:
+        """Replace the parsed elements with elements built from the issue payload.
+
+        Provenance gains attachment details, custom fields and a flat ``fields`` filter
+        map; ``table_artifacts`` are cleared.
+
+        Args:
+            raw: Raw document whose ``raw`` is the issue payload.
+            parsed: Parsed document; unused.
+            document: Canonical document to rebuild.
+
+        Returns:
+            Document of type ``jira_issue`` with summary, description, prose-field,
+            typed-field and comment elements.
+
+        Raises:
+            ValueError: If the issue payload, its fields or its key is missing.
+        """
+
         del parsed
         if not isinstance(raw.raw, Mapping):
             raise ValueError("Jira canonical normalization requires the source issue payload")
@@ -56,8 +82,7 @@ class JiraDocumentTransform:
             if str(item.get("title") or item.get("filename") or "").strip()
         )
         # The raw entries also carry extracted attachment text, which is already
-        # in the document content. Drop them, but keep a compact per-file record
-        # so the upload time stays queryable instead of being lost with them.
+        # in the document content.
         extra.pop("attachments", None)
         extra["attachment_names"] = attachment_names
         extra["attachment_details"] = [
@@ -95,24 +120,14 @@ class JiraDocumentTransform:
             if item["value_kind"] != JiraCustomFieldKind.PROSE.value
         ]
         # The same typed fields as one flat, exact map keyed by normalized display
-        # name. Every chunk of the issue inherits it, and the vector projection
-        # stores it as ``fields.<key>``, so a search can be narrowed to, say,
-        # ``fields.skill_set`` or a ``fields.years_of_experience`` range.
+        # name. Every chunk of the issue inherits it.
         extra["fields"] = filterable_fields(custom_fields)
         return replace(
             document,
             title=str(fields.get("summary") or document.title or issue_key).strip(),
             content=elements,
-            # The generic normalizer derives table artifacts from the parser's
-            # elements -- the rendered Markdown -- and stamps each one with the
-            # `source_block_id` of the element it came from. This transform replaces
-            # that element list wholesale, so every one of those artifacts would now
-            # reference an element the document no longer contains, and no strategy
-            # emits a table chunk for them. ProjectionVerifier requires the table
-            # chunks and the canonical tables to be the same set, so carrying them
-            # forward fails the document version at VerifyProjections. The grids
-            # themselves are not lost: `_adf_table` and `html_to_markdown` render
-            # them into the comment and custom-field text above.
+            # The parser's table artifacts cite elements this transform replaces; carrying them
+            # forward fails projection verification.
             table_artifacts=(),
             content_type="jira_issue",
             provenance=replace(
@@ -130,15 +145,13 @@ class JiraDocumentTransform:
         issue_key: str,
         custom_fields: Sequence[JiraCustomFieldMetadata],
     ) -> list[DocumentElement]:
-        """Build one element per prose-bearing issue field."""
+        """Build elements for the summary, description, prose fields and typed-field block."""
 
         elements: list[DocumentElement] = []
         summary = str(fields.get("summary") or "").strip()
         if summary:
-            # Every chunk cites a source element ID, and the chunk validator resolves
-            # those IDs against this list. An issue whose description and prose custom
-            # fields are all empty would otherwise leave it empty, and its comment
-            # chunks would have nothing real to cite.
+            # Without the summary element, an issue with empty description and prose fields
+            # would have no element for comment chunks to cite.
             elements.append(
                 DocumentElement(
                     id=f"jira:{issue_key}:summary",
@@ -182,10 +195,8 @@ class JiraDocumentTransform:
 
         typed_block = self._typed_custom_field_block(custom_fields)
         if typed_block:
-            # The typed fields carry the issue's real substance on projects that use
-            # Jira as a record store -- skills, rates, seniority, location. Keeping them
-            # only as structured attributes leaves them unsearchable, so they are also
-            # rendered as one evidence element, the way the connector's Markdown did.
+            # Keeping them only as structured attributes leaves them unsearchable, so they are
+            # also rendered as one evidence element, the way the connector's Markdown did.
             elements.append(
                 DocumentElement(
                     id=f"jira:{issue_key}:custom_fields",
@@ -202,7 +213,7 @@ class JiraDocumentTransform:
         comments: object,
         issue_key: str,
     ) -> list[DocumentElement]:
-        """Build one element per source comment, keyed by its provider ID."""
+        """Build one element per non-empty comment, keyed by its provider id."""
 
         elements: list[DocumentElement] = []
         for ordinal, comment in enumerate(self._mapping_items(comments)):
@@ -233,11 +244,7 @@ class JiraDocumentTransform:
     def _typed_custom_field_block(
         custom_fields: Sequence[JiraCustomFieldMetadata],
     ) -> str:
-        """Render every non-prose custom field as one labelled block.
-
-        Prose fields are already independent elements, so repeating them here would
-        chunk the same text twice.
-        """
+        """Render the non-prose custom fields as one labelled block."""
 
         return "\n".join(
             labelled_block(field.name, field.text)

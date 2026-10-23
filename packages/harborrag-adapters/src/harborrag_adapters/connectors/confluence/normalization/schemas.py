@@ -1,3 +1,11 @@
+"""Validated page input for the Confluence normalizer.
+
+Handles:
+- Page identity, label and ancestor fields
+- ADF, storage and rendered HTML body values
+- Space identity resolution shared with attachment binding
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -14,12 +22,16 @@ def space_identity(
     *,
     default_space_key: str = "",
 ) -> dict[str, str]:
-    """Resolve a space's two identity fields, in exactly one place.
+    """Resolve a space's ``space_id`` and ``space_key``.
 
-    ``space_id`` is what the graph keys ``confluence_space`` by, and a source-entity node
-    key hashes the provider id -- so a second copy of this fallback forks the space node
-    the moment the two drift. ``ConfluencePageInput`` uses it for pages and the attachment
-    binding inherits it, which is what lets both hang off the same space node.
+    Pages and attachment bindings both use it so they share one space node.
+
+    Args:
+        space: Space mapping from the API payload.
+        default_space_key: Key used when the payload has neither ``id`` nor ``key``.
+
+    Returns:
+        Mapping with ``space_id`` (id, else key, else default) and ``space_key``.
     """
 
     return {
@@ -30,7 +42,16 @@ def space_identity(
 
 @dataclass(frozen=True, slots=True)
 class ConfluencePageInput:
-    """Safe page fields accepted by the canonical normalizer."""
+    """Validated page fields accepted by the normalizer.
+
+    Attributes:
+        document_id: Overrides the derived ``confluence://`` document id.
+        document_version_id: Overrides the derived document version id.
+        ancestors: ``(id, title)`` pairs from the root down to the parent.
+        adf: ADF body as a mapping or JSON string.
+        storage: Storage-format XHTML body.
+        rendered_html: Rendered export or view HTML body.
+    """
 
     page_id: str
     page_version: str
@@ -76,7 +97,22 @@ class ConfluencePageInput:
         source_url: str,
         default_space_key: str = "",
     ) -> ConfluencePageInput:
-        """Select safe page and body fields without retaining the API payload."""
+        """Build a page input from a Confluence API payload.
+
+        Keeps only the identity, label, ancestor and body fields; the payload itself is
+        not retained.
+
+        Args:
+            payload: Page payload from the Confluence API.
+            source_url: Canonical URL of the page.
+            default_space_key: Space key used when the payload carries none.
+
+        Returns:
+            Validated page input.
+
+        Raises:
+            ValueError: If a required field resolves to a blank value.
+        """
 
         body = _mapping(payload.get("body"))
         space = _mapping(payload.get("space"))
@@ -107,10 +143,14 @@ class ConfluencePageInput:
 
 
 def _body_value(body: Mapping[str, Any], key: str) -> Mapping[str, Any] | str | None:
+    """Return a body representation's value if it is a mapping or string."""
+
     value = _mapping(body.get(key)).get("value")
     return value if isinstance(value, (Mapping, str)) else None
 
 
 def _text_body_value(body: Mapping[str, Any], key: str) -> str | None:
+    """Return a body representation's value if it is a non-blank string."""
+
     value = _body_value(body, key)
     return value if isinstance(value, str) and value.strip() else None

@@ -1,4 +1,4 @@
-"""JIRA client protocol and requests-based implementation."""
+"""Jira REST client protocol and its requests-based implementation."""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ logger = logging.getLogger("harborrag.adapters.connectors.jira")
 
 
 class JiraClient(Protocol):
-    """Small API surface needed by ``JiraConnector`` for tests and clients."""
+    """Client surface the Jira connector needs; tests can substitute a fake."""
 
     def get_json(
         self,
@@ -29,7 +29,7 @@ class JiraClient(Protocol):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Return a decoded JIRA GET response."""
+        """Return the decoded JSON of a GET request."""
         pass
 
     def post_json(
@@ -38,20 +38,24 @@ class JiraClient(Protocol):
         *,
         json: dict[str, Any],
     ) -> dict[str, Any]:
-        """Return a decoded JIRA POST response."""
+        """Return the decoded JSON of a POST request."""
         pass
 
     def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
-        """Download bytes from a trusted JIRA URL."""
+        """Download a URL, capped at ``max_bytes`` when given."""
         pass
 
     def close(self) -> None:
-        """Release connector-owned HTTP resources."""
+        """Release the HTTP session."""
         pass
 
 
 class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
-    """Authenticated, rate-limited JIRA REST client."""
+    """Authenticated, rate-limited Jira REST client.
+
+    Cloud uses API v3 with basic auth (email and token); Data Center uses API v2 with
+    a bearer token.
+    """
 
     def __init__(
         self,
@@ -88,7 +92,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         *,
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """GET a JIRA REST endpoint and decode its JSON body."""
+        """GET a REST endpoint and return its decoded JSON."""
         return self._json_response(
             "GET",
             self._api_url(endpoint),
@@ -102,7 +106,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         *,
         json: dict[str, Any],
     ) -> dict[str, Any]:
-        """POST a JSON body to a JIRA REST endpoint and decode the response."""
+        """POST a JSON body and return the decoded response."""
         return self._json_response(
             "POST",
             self._api_url(endpoint),
@@ -111,7 +115,7 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         )
 
     def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
-        """Download attachment bytes only from the configured JIRA origin."""
+        """Download a file from the configured origin. Cloud URLs get ``redirect=false``."""
         if self.config.deployment_type == JiraDeploymentType.CLOUD:
             url = _with_query_parameter(url, "redirect", "false")
         return self._download_bytes(
@@ -121,12 +125,11 @@ class _RequestsJiraClient(AtlassianRestClient[JiraProjectConfig]):
         )
 
     def _api_url(self, endpoint: str) -> str:
-        """Build a JIRA REST API URL from a relative endpoint."""
         return f"{self.base_url}/rest/api/{self.api_version}/{endpoint.lstrip('/')}"
 
 
 def _with_query_parameter(url: str, name: str, value: str) -> str:
-    """Set one URL query parameter while preserving every unrelated value."""
+    """Return ``url`` with query parameter ``name`` set, keeping the others."""
     parts = urlsplit(url)
     query = [
         (key, item) for key, item in parse_qsl(parts.query, keep_blank_values=True) if key != name

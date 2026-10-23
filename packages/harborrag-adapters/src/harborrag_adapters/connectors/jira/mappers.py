@@ -1,4 +1,10 @@
-"""Mappings from JIRA API payloads to Harbor domain objects."""
+"""Jira payload mappers to Harbor domain objects.
+
+Handles:
+- Source records and document metadata for issues
+- Issue URLs, keys and project identity
+- Comment, link and changelog normalization
+"""
 
 from __future__ import annotations
 
@@ -24,7 +30,7 @@ from .schemas import (
 
 
 def parse_timestamp(value: str | None) -> datetime | None:
-    """Parse JIRA timestamp strings into timezone-aware datetimes."""
+    """Parse an ISO timestamp (``Z`` accepted) into a datetime, or ``None`` if blank or invalid."""
     if not value:
         return None
     try:
@@ -34,7 +40,11 @@ def parse_timestamp(value: str | None) -> datetime | None:
 
 
 def issue_key_from_record(record: SourceRecord) -> str:
-    """Recover the JIRA issue key from a source record."""
+    """Return the validated issue key stored on a source record.
+
+    Raises:
+        ValueError: If the record has no key or the key is invalid.
+    """
     issue_key = record.metadata.get("issue_key") or record.locator
     if not issue_key:
         raise ValueError(f"SourceRecord {record.id!r} does not contain issue_key")
@@ -42,19 +52,16 @@ def issue_key_from_record(record: SourceRecord) -> str:
 
 
 def issue_url(base_url: str, issue_key: str) -> str:
-    """Build the user-facing browse URL for an issue."""
+    """Return the browse URL for an issue. Raises ``ValueError`` on an invalid key."""
     issue_key = validate_issue_key(issue_key)
     base = base_url if base_url.endswith("/") else f"{base_url}/"
     return urljoin(base, f"browse/{issue_key}")
 
 
 def project_identity(issue: dict[str, Any]) -> dict[str, str]:
-    """Resolve the project key an issue belongs to, in exactly one place.
+    """Return the issue's project key, falling back to the issue-key prefix.
 
-    The graph keys ``jira_project`` by this value, and a source-entity node key hashes the
-    provider id -- so a second copy of the issue-key-prefix fallback forks the project node
-    as soon as the two drift. ``build_source_record`` uses it for issues and the attachment
-    binding inherits it, which is what puts both under one project node.
+    Issues and their attachment records share this value, so both land under one project.
     """
 
     fields = issue.get("fields", {})
@@ -64,7 +71,7 @@ def project_identity(issue: dict[str, Any]) -> dict[str, str]:
 
 
 def build_source_record(issue: dict[str, Any], *, base_url: str) -> SourceRecord:
-    """Convert a JIRA search result into a lightweight source record."""
+    """Build a source record from an issue payload, with title, status and subtasks."""
     fields = issue.get("fields", {})
     issue_key = str(issue.get("key") or "")
     identity = project_identity(issue)
@@ -102,7 +109,18 @@ def build_document_metadata(
     attachments: list[AttachmentMetadata] | None = None,
     changelog: list[dict[str, Any]] | None = None,
 ) -> JiraMetadata:
-    """Build parsed provenance metadata for a loaded JIRA issue."""
+    """Build the structured metadata of a loaded issue.
+
+    Args:
+        issue: Issue payload.
+        content: Rendered content, hashed into the checksum.
+        comments: Shareable comments.
+        attachments: Processed attachments.
+        changelog: Histories normalized by ``changelog_histories``.
+
+    Returns:
+        Metadata with people, versions, links, comments and custom fields.
+    """
     fields = issue.get("fields", {})
     issue_key = str(issue.get("key") or "")
     project = fields.get("project") or {}
@@ -141,7 +159,7 @@ def build_document_metadata(
 
 
 def changelog_histories(response: dict[str, Any]) -> list[dict[str, Any]]:
-    """Normalize both Cloud and Data Center changelog response shapes."""
+    """Normalize the Cloud and Data Center changelog shapes into history dicts."""
     histories = response.get("histories") or response.get("values") or []
     return [
         {
@@ -205,6 +223,8 @@ def _issue_link(link: dict[str, Any]) -> JiraIssueLinkMetadata:
 
 
 def _comment_metadata(comment: dict[str, Any]) -> JiraCommentMetadata:
+    """Convert a comment into metadata, rendering its body to text."""
+
     return JiraCommentMetadata(
         id=comment.get("id"),
         author=_display_name(comment.get("author")),
@@ -220,6 +240,8 @@ def _comment_metadata(comment: dict[str, Any]) -> JiraCommentMetadata:
 
 
 def _changelog_metadata(history: dict[str, Any]) -> JiraChangelogMetadata:
+    """Convert a history from ``changelog_histories`` into metadata."""
+
     return JiraChangelogMetadata(
         id=history.get("id"),
         author=history.get("author"),

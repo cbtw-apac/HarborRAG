@@ -1,4 +1,10 @@
-"""SharePoint site, drive, and item traversal operations."""
+"""SharePoint site, drive and item operations over Microsoft Graph.
+
+Handles:
+- Site and drive resolution
+- Paged, cycle-checked folder traversal
+- File filters, size limit and root confinement
+"""
 
 from __future__ import annotations
 
@@ -33,10 +39,18 @@ _MAX_PROVIDER_PAGES = 10_000
 
 
 class SharePointDriveAPI:
-    """SharePoint site, drive, and drive-item traversal helpers."""
+    """Graph operations for one SharePoint site and drive.
+
+    Caches the resolved site and drive for the lifetime of the instance.
+    """
 
     def __init__(self, client: SharePointClient, config: SharePointSiteConfig) -> None:
-        """Bind drive traversal to a client and validated config."""
+        """Bind the drive API to a client.
+
+        Args:
+            client: Graph client used for all requests.
+            config: Validated site config.
+        """
         self.client = client
         self.config = config
         self._site: dict[str, Any] | None = None
@@ -50,7 +64,17 @@ class SharePointDriveAPI:
         drive: dict[str, Any],
         query: ConnectorQuery,
     ) -> Iterator[SourceRecord]:
-        """Return records for a direct drive item ID, descending into folders."""
+        """Yield records for a drive item id, descending into folders.
+
+        Args:
+            item_id: Drive item id of a file or folder.
+            site: Resolved site payload.
+            drive: Resolved drive payload.
+            query: Discovery query.
+
+        Raises:
+            DocumentProcessingError: If the item is outside ``root_path``.
+        """
         item = self.get_item(str(drive["id"]), item_id)
         self.require_within_root(item, item_id)
         if is_drive_file(item):
@@ -79,13 +103,19 @@ class SharePointDriveAPI:
         item_id: str | None = None,
         path: str | None = None,
     ) -> Iterator[SourceRecord]:
-        """Walk child items depth-first with an explicit stack.
+        """Yield file records under a folder depth-first, using an explicit stack.
 
-        A folder tree with no depth cap and no cycle protection previously
-        recursed once per subfolder, so an extremely deep tree could grow the
-        Python call stack past its limit before ``query.limit`` ever has a
-        chance to stop discovery. An explicit stack removes that ceiling
-        while preserving the same depth-first yield order.
+        Subfolders are descended only when ``query.recursive`` is set.
+
+        Args:
+            site: Resolved site payload.
+            drive: Resolved drive payload.
+            query: Discovery query.
+            item_id: Folder item id to start from.
+            path: Folder path to start from when ``item_id`` is unset.
+
+        Raises:
+            FetchError: If the folder tree contains a cycle.
         """
         drive_id = str(drive["id"])
         pending: list[tuple[str | None, str | None]] = [(item_id, path)]
@@ -124,7 +154,7 @@ class SharePointDriveAPI:
         item_id: str | None,
         path: str | None,
     ) -> Iterator[dict[str, Any]]:
-        """Yield children under ``root_path``; warn once per folder about the rest."""
+        """Yield children under ``root_path``, logging one warning per folder for the rest."""
         skipped = 0
         for item in self.iter_children(drive_id, item_id=item_id, path=path):
             if item_within_root(item, self.config.root_path):
@@ -144,7 +174,11 @@ class SharePointDriveAPI:
         item_id: str | None = None,
         path: str | None = None,
     ) -> Iterator[dict[str, Any]]:
-        """Iterate Graph children pages for a folder item or path."""
+        """Yield the children of a folder item or path across all Graph pages.
+
+        Raises:
+            FetchError: If pagination does not advance or exceeds the page cap.
+        """
         endpoint = children_endpoint(drive_id, item_id=item_id, path=path)
         params: dict[str, Any] | None = {
             "$top": self.config.page_size,
@@ -163,7 +197,11 @@ class SharePointDriveAPI:
             params = None
 
     def iter_site_drives(self, site_id: str) -> Iterator[dict[str, Any]]:
-        """Iterate drives for a site when resolving a configured drive name."""
+        """Yield the drives of a site across all Graph pages.
+
+        Raises:
+            FetchError: If pagination does not advance or exceeds the page cap.
+        """
         endpoint = f"sites/{site_id}/drives"
         params: dict[str, Any] | None = {
             "$top": self.config.page_size,
@@ -182,14 +220,19 @@ class SharePointDriveAPI:
             params = None
 
     def get_item(self, drive_id: str, item_id: str) -> dict[str, Any]:
-        """Fetch one drive item with the fields used by mappers and filters."""
+        """Return one drive item with the fields mappers and filters use."""
+        # TODO: URL-encode item ids in Graph endpoints.
         return self.client.get_json(
             f"drives/{drive_id}/items/{item_id}",
             params={"$select": DRIVE_ITEM_SELECT},
         )
 
     def resolve_site(self) -> dict[str, Any]:
-        """Resolve and cache the configured SharePoint site."""
+        """Return the configured site, resolving it once.
+
+        Raises:
+            FetchError: If the site response lacks an id.
+        """
         if self._site is not None:
             return self._site
 
@@ -213,7 +256,14 @@ class SharePointDriveAPI:
         return site
 
     def resolve_drive(self, site: dict[str, Any]) -> dict[str, Any]:
-        """Resolve and cache the configured or default document library drive."""
+        """Return the configured or default document library drive, resolving it once.
+
+        Args:
+            site: Resolved site payload.
+
+        Raises:
+            FetchError: If the named drive is not found or the response lacks an id.
+        """
         if self._drive is not None:
             return self._drive
 
@@ -242,7 +292,7 @@ class SharePointDriveAPI:
         return drive
 
     def should_process_file(self, item: dict[str, Any], query: ConnectorQuery) -> bool:
-        """Apply query/config filters to one Microsoft Graph drive item."""
+        """Return whether a file item passes the config and query filters."""
         name = item_name(item)
         mime_type = item_mime_type(item)
         size = int(item.get("size") or 0)
@@ -261,6 +311,7 @@ class SharePointDriveAPI:
         size: int,
         extension: str,
     ) -> bool:
+        """Apply the hidden, size, extension, modified-time and name-pattern rules in order."""
         if item_hidden(item) and not self.config.include_hidden:
             logger.debug("Skipping hidden SharePoint file %s", name)
             return False
@@ -281,6 +332,7 @@ class SharePointDriveAPI:
         return matches_pattern(item, query.pattern)
 
     def _callback_allows_file(self, name: str, size: int, mime_type: str) -> bool:
+        """Ask ``process_file_callback``. A failing callback skips unless ``fail_on_error``."""
         callback = self.config.process_file_callback
         if callback is None:
             return True
@@ -297,7 +349,7 @@ class SharePointDriveAPI:
         return True
 
     def enforce_size_limit(self, item: dict[str, Any]) -> None:
-        """Prevent large drive files from being downloaded by direct loads."""
+        """Raise ``DocumentProcessingError`` if the item exceeds ``max_file_size_bytes``."""
         size = int(item.get("size") or 0)
         if self.config.max_file_size_bytes is None or not size:
             return
@@ -308,9 +360,9 @@ class SharePointDriveAPI:
             )
 
     def require_within_root(self, item: dict[str, Any], item_id: str) -> None:
-        """Refuse an item addressed by ID that lies outside ``config.root_path``.
+        """Raise ``DocumentProcessingError`` if the item is outside ``root_path``.
 
-        The message carries only the caller-supplied ID, never fetched names or paths.
+        The message contains only the caller-supplied id.
         """
         if not item_within_root(item, self.config.root_path):
             raise DocumentProcessingError(
@@ -318,7 +370,7 @@ class SharePointDriveAPI:
             )
 
     def record_for_item_id(self, item_id: str) -> SourceRecord:
-        """Resolve a drive item ID and build its source record."""
+        """Return the source record for a drive item id."""
         site = self.resolve_site()
         drive = self.resolve_drive(site)
         item = self.get_item(str(drive["id"]), item_id)
@@ -330,7 +382,7 @@ class SharePointDriveAPI:
 
 
 def _page_items(response: dict[str, Any], *, operation: str) -> list[dict[str, Any]]:
-    """Validate Graph collection pages before exposing provider-controlled data."""
+    """Return the page's ``value`` list. Raises ``FetchError`` if it is not a list of objects."""
     raw_items = response.get("value", [])
     if not isinstance(raw_items, list) or any(not isinstance(item, dict) for item in raw_items):
         raise FetchError(f"SharePoint {operation} response contained an invalid value list")

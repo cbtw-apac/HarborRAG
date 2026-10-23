@@ -1,4 +1,10 @@
-"""JIRA issue search and nested-resource pagination."""
+"""Jira issue search and nested-resource pagination.
+
+Handles:
+- Issue search for Cloud page tokens and Data Center offsets
+- Issue and descriptor fetches with restricted comments removed
+- Comment and changelog paging up to the configured caps
+"""
 
 from __future__ import annotations
 
@@ -30,9 +36,7 @@ DESCRIPTOR_FIELDS = (
     "subtasks",
     "issuelinks",
     "attachment",
-    # Admission versions every comment by id and timestamp. Search returns a
-    # page of them inline, which spares describing an issue its own comment
-    # request -- at 50 issues a page, 50 of the page's 51 requests.
+    # Admission versions every comment by id and timestamp.
     "comment",
 )
 DISCOVERY_FIELDS = DESCRIPTOR_FIELDS
@@ -41,15 +45,14 @@ _MAX_PROVIDER_PAGES = 10_000
 
 
 class JiraIssueAPI:
-    """JIRA issue search and nested-resource pagination."""
+    """Gateway for Jira issue search and nested resources."""
 
     def __init__(self, client: JiraClient, config: JiraProjectConfig) -> None:
-        """Bind issue traversal to a client and validated config."""
         self.client = client
         self.config = config
 
     def search(self, jql: str) -> Iterator[dict[str, Any]]:
-        """Iterate search results using the endpoint appropriate to deployment."""
+        """Yield every search result, using the Cloud or Data Center endpoint."""
         if self.config.deployment_type == JiraDeploymentType.CLOUD:
             yield from self._search_cloud(jql)
         else:
@@ -62,7 +65,21 @@ class JiraIssueAPI:
         cursor: str | None,
         limit: int,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Fetch one native Jira Cloud-token or Data Center-offset page."""
+        """Fetch one native search page: Cloud page token or Data Center offset.
+
+        Args:
+            jql: Search query.
+            cursor: ``token:<value>`` (Cloud) or ``offset:<n>`` (Data Center), or
+                ``None`` for the first page.
+            limit: Maximum issues, capped at the configured page size.
+
+        Returns:
+            Issues with restricted comments removed, and the next cursor, ``None`` on
+            the last page.
+
+        Raises:
+            ValueError: If ``limit`` is below 1 or the cursor is invalid.
+        """
 
         if limit < 1:
             raise ValueError("JIRA page limit must be positive")
@@ -85,6 +102,7 @@ class JiraIssueAPI:
                 None if response.get("isLast") or not next_token else f"token:{next_token}",
             )
 
+        # TODO: page by a stable cursor; offsets over ``updated ASC`` can skip issues.
         raw_offset = _cursor_value(cursor, expected_kind="offset")
         start_at = int(raw_offset or 0)
         if start_at < 0:
@@ -114,18 +132,14 @@ class JiraIssueAPI:
         *,
         permission: str = "BROWSE_PROJECTS",
     ) -> bool:
-        """Return whether the authenticated credential can browse one project.
+        """Return whether the credential holds ``permission`` on one project.
 
-        Used to disambiguate a zero-issue search result: Jira's search
-        endpoints return HTTP 200 with an empty ``issues`` list rather than
-        403 when the credential lacks this permission on every project in
-        scope, so a real permission gap otherwise looks identical to "no
-        matching issues".
+        Args:
+            project_key: Project to probe.
+            permission: Jira permission key.
 
-        ``mypermissions`` predates the Cloud/Data Center API version split
-        and keeps the same ``projectKey``/``permissions`` query params and
-        ``permissions.<KEY>.havePermission`` response shape on both
-        ``/rest/api/2/`` and ``/rest/api/3/``.
+        Returns:
+            ``True`` when ``mypermissions`` reports ``havePermission``.
         """
         response = self.client.get_json(
             "mypermissions",
@@ -135,7 +149,11 @@ class JiraIssueAPI:
         return bool((permissions.get(permission) or {}).get("havePermission"))
 
     def get_issue(self, issue_key: str) -> dict[str, Any]:
-        """Fetch one issue with configured fields and expansion settings."""
+        """Fetch one issue with the configured fields, restricted comments removed.
+
+        Raises:
+            ValueError: If ``issue_key`` is invalid.
+        """
         issue_key = validate_issue_key(issue_key)
         response = self.client.get_json(
             f"issue/{issue_key}",
@@ -147,7 +165,11 @@ class JiraIssueAPI:
         return redact_restricted_comments(response)
 
     def get_issue_descriptor(self, issue_key: str) -> dict[str, Any]:
-        """Fetch admission and relation fields without requesting issue prose."""
+        """Fetch only the admission and relation fields, restricted comments removed.
+
+        Raises:
+            ValueError: If ``issue_key`` is invalid.
+        """
 
         issue_key = validate_issue_key(issue_key)
         return redact_restricted_comments(
@@ -158,10 +180,17 @@ class JiraIssueAPI:
         )
 
     def issue_comments(self, issue_key: str, issue: dict[str, Any]) -> list[dict[str, Any]]:
-        """The comments embedded in an issue response, fetched only when that list is partial.
+        """Return the issue's shareable comments, fetching only if the embedded list is partial.
 
-        The result is what ``fetch_comments`` returns: the same comments, capped
-        at the same ``max_comments``.
+        Capped at ``max_comments``. On Data Center the embedded list cannot detect
+        internal notes.
+
+        Args:
+            issue_key: Key used for the fallback fetch.
+            issue: Issue payload that may embed the comment page.
+
+        Returns:
+            Shareable comments, as ``fetch_comments`` returns them.
         """
 
         embedded = (issue.get("fields") or {}).get("comment")
@@ -182,7 +211,11 @@ class JiraIssueAPI:
         return self.fetch_comments(issue_key)
 
     def fetch_comments(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch comments for one issue, truncated to the configured cap."""
+        """Fetch an issue's shareable comments, capped at ``max_comments``.
+
+        Raises:
+            ValueError: If ``issue_key`` is invalid.
+        """
         issue_key = validate_issue_key(issue_key)
         comments: list[dict[str, Any]] = []
         start_at = 0
@@ -218,7 +251,11 @@ class JiraIssueAPI:
                 return comments
 
     def fetch_changelog(self, issue_key: str) -> list[dict[str, Any]]:
-        """Fetch issue changelog pages, truncated to the configured cap."""
+        """Fetch an issue's changelog histories, capped at ``max_changelog_items``.
+
+        Raises:
+            ValueError: If ``issue_key`` is invalid.
+        """
         issue_key = validate_issue_key(issue_key)
         histories: list[dict[str, Any]] = []
         start_at = 0
@@ -250,11 +287,11 @@ class JiraIssueAPI:
                 return histories
 
     def issue_expand(self) -> tuple[str, ...]:
-        """Return JIRA expansions needed for body rendering and custom fields."""
+        """Return the expansions needed for body rendering and custom fields."""
         return ISSUE_EXPAND
 
     def _search_cloud(self, jql: str) -> Iterator[dict[str, Any]]:
-        """Paginate Jira Cloud's token-based ``/search/jql`` endpoint."""
+        """Yield issues from Cloud's token-based ``/search/jql``; ``FetchError`` on a stuck page."""
         next_page_token: str | None = None
         seen_tokens: set[str] = set()
         pages = 0
@@ -292,7 +329,8 @@ class JiraIssueAPI:
             seen_tokens.add(next_page_token)
 
     def _search_datacenter(self, jql: str) -> Iterator[dict[str, Any]]:
-        """Paginate Jira Data Center's offset-based ``/search`` endpoint."""
+        """Yield issues from Data Center's offset-based ``/search``."""
+        # TODO: page by a stable cursor; offsets over ``updated ASC`` can skip issues.
         start_at = 0
         while True:
             response = self.client.post_json(
@@ -324,6 +362,11 @@ class JiraIssueAPI:
 
 
 def _cursor_value(cursor: str | None, *, expected_kind: str) -> str | None:
+    """Return the value of a ``<kind>:<value>`` cursor, or ``None`` for no cursor.
+
+    Raises ``ValueError`` on a wrong kind or an empty, oversized or control-character value.
+    """
+
     if cursor is None:
         return None
     kind, separator, value = cursor.partition(":")

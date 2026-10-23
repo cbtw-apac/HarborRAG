@@ -1,4 +1,11 @@
-"""Pure path, URL, and payload helpers for SharePoint."""
+"""Path, endpoint and drive-item helpers for SharePoint.
+
+Handles:
+- Graph field selections
+- Site URL parsing and endpoint builders
+- Drive path normalization and root scoping
+- Drive item type, name and path accessors
+"""
 
 from __future__ import annotations
 
@@ -32,7 +39,11 @@ DRIVE_SELECT = "id,name,driveType,webUrl,createdDateTime,lastModifiedDateTime"
 
 
 def parse_sharepoint_site_url(site_url: str) -> tuple[str, str]:
-    """Parse a SharePoint site URL into Graph hostname and site path."""
+    """Return ``(hostname, site path)`` from an absolute SharePoint site URL.
+
+    Raises:
+        ValueError: If the URL is not absolute http(s).
+    """
     parsed = urlparse(site_url)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
         raise ValueError("site_url must be an absolute SharePoint URL")
@@ -42,7 +53,7 @@ def parse_sharepoint_site_url(site_url: str) -> tuple[str, str]:
 
 
 def site_path_endpoint(hostname: str, site_path: str | None) -> str:
-    """Build the Graph endpoint that resolves a SharePoint site by path."""
+    """Return the Graph endpoint that resolves a site by hostname and path."""
     path = (site_path or "").strip("/")
     if not path:
         return f"sites/{hostname}:/"
@@ -55,8 +66,13 @@ def children_endpoint(
     item_id: str | None = None,
     path: str | None = None,
 ) -> str:
-    """Build the Graph children endpoint for a folder item or path."""
+    """Return the Graph children endpoint for a folder item id or path.
+
+    Raises:
+        ValueError: If ``path`` contains a ``..`` segment.
+    """
     if item_id:
+        # TODO: URL-encode item ids in Graph endpoints.
         return f"drives/{drive_id}/items/{item_id}/children"
     normalized_path = normalize_drive_path(path)
     if normalized_path:
@@ -66,9 +82,10 @@ def children_endpoint(
 
 
 def normalize_drive_path(path: str | None) -> str:
-    """Normalize SharePoint drive paths to Graph's POSIX-like path style.
+    """Normalize a drive path to a POSIX-style path without outer slashes.
 
-    ``..`` segments are rejected, because the path is interpolated into Graph endpoints.
+    Raises:
+        ValueError: If the path contains a ``..`` segment.
     """
     if not path:
         return ""
@@ -79,22 +96,22 @@ def normalize_drive_path(path: str | None) -> str:
 
 
 def is_drive_file(item: dict[str, Any]) -> bool:
-    """Return whether a Graph drive item is a downloadable file."""
+    """Return whether a drive item is a file."""
     return isinstance(item.get("file"), dict)
 
 
 def is_drive_folder(item: dict[str, Any]) -> bool:
-    """Return whether a Graph drive item can contain children."""
+    """Return whether a drive item is a folder or package."""
     return isinstance(item.get("folder"), dict) or isinstance(item.get("package"), dict)
 
 
 def item_name(item: dict[str, Any]) -> str:
-    """Return the display name of a Graph drive item."""
+    """Return the item's name, or an empty string."""
     return str(item.get("name") or "")
 
 
 def item_extension(item: dict[str, Any]) -> str:
-    """Return the lowercased file extension for a drive item."""
+    """Return the lowercased extension of the item's name, or an empty string."""
     name = item_name(item)
     if "." not in name:
         return ""
@@ -102,7 +119,7 @@ def item_extension(item: dict[str, Any]) -> str:
 
 
 def item_mime_type(item: dict[str, Any]) -> str:
-    """Return a MIME type for a Graph drive item."""
+    """Return the item's MIME type, with a folder type for folders and a binary default."""
     file_info = item.get("file")
     if isinstance(file_info, dict):
         return str(file_info.get("mimeType") or "application/octet-stream")
@@ -112,13 +129,13 @@ def item_mime_type(item: dict[str, Any]) -> str:
 
 
 def item_hidden(item: dict[str, Any]) -> bool:
-    """Return whether Graph marks a drive item as hidden."""
+    """Return whether Graph marks the item as hidden."""
     value = item.get("hidden")
     return isinstance(value, dict) or value is True
 
 
 def item_path(item: dict[str, Any]) -> str:
-    """Reconstruct a path-like locator from Graph parentReference metadata."""
+    """Return the item's path under the drive root, built from ``parentReference``."""
     name = item_name(item)
     parent_path = str(item.get("parentReference", {}).get("path") or "")
     if "root:" not in parent_path:
@@ -131,10 +148,16 @@ def item_path(item: dict[str, Any]) -> str:
 
 
 def scoped_drive_root(configured: str | None, requested: str | None) -> str:
-    """Return the decoded traversal root; a query path may narrow but never widen the config root.
+    """Return the decoded traversal root; a query path may narrow the config root, never widen it.
 
-    Both paths are percent-decoded once and validated in that decoded form, and the decoded
-    form is what callers use, so Graph endpoint encoding happens exactly once.
+    Both paths are percent-decoded once; the decoded form is returned.
+
+    Args:
+        configured: ``root_path`` from the config.
+        requested: Path from the query.
+
+    Raises:
+        ValueError: If ``requested`` is outside ``configured`` or contains ``..``.
     """
     root = normalize_drive_path(unquote(configured or ""))
     if not requested:
@@ -146,7 +169,7 @@ def scoped_drive_root(configured: str | None, requested: str | None) -> str:
 
 
 def item_within_root(item: dict[str, Any], root_path: str | None) -> bool:
-    """Return whether a Graph item lies under ``root_path`` (fail closed without a path)."""
+    """Return whether an item is under ``root_path``. An item without a parent path is outside."""
     root = normalize_drive_path(unquote(root_path or ""))
     if not root:
         return True
@@ -157,14 +180,14 @@ def item_within_root(item: dict[str, Any], root_path: str | None) -> bool:
 
 
 def _path_under(path: str, root: str) -> bool:
-    """Case-insensitive containment of already-decoded paths (SharePoint paths are caseless)."""
+    """Return whether a decoded path equals or is under ``root``, ignoring case."""
     candidate = path.casefold()
     folded_root = root.casefold()
     return candidate == folded_root or candidate.startswith(f"{folded_root}/")
 
 
 def matches_pattern(item: dict[str, Any], pattern: str | None) -> bool:
-    """Return whether a drive item name matches a query pattern."""
+    """Return whether the item name matches a query glob, or contains the pattern."""
     if not pattern:
         return True
     name = item_name(item).lower()

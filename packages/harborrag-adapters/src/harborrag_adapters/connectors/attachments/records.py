@@ -1,3 +1,13 @@
+"""Source records for attachments dispatched as their own items.
+
+Handles:
+- Binding records (``binding_kind`` ``ATTACHMENT``) carrying the descriptor fields
+- Rebuilding a descriptor from a record
+- Resolving the parent locator of an attachment
+
+Does NOT check the parent's access; connectors re-check it before loading.
+"""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -9,11 +19,6 @@ from .sources import AttachmentSourceDescriptor
 
 _ATTACHMENT_BINDING = "ATTACHMENT"
 
-# The container-identity keys an attachment inherits from its parent, named once so the
-# record that carries them and the loader that forwards them cannot drift. Putting them on
-# the SourceRecord is not enough on its own: AttachmentDocumentLoader rebuilds the raw
-# document's metadata from the descriptor, so a key it does not forward never reaches
-# provenance.extra and the graph projector never sees the container.
 CONTAINER_IDENTITY_KEYS = ("space_id", "space_key", "project_id", "project_key")
 
 
@@ -23,15 +28,17 @@ def attachment_source_record(
     *,
     inherited: Mapping[str, object] | None = None,
 ) -> SourceRecord:
-    """Create a stable, independently dispatchable attachment source record.
+    """Build the independently dispatchable source record of one attachment.
 
-    ``inherited`` carries the parent's *container* identity -- a Confluence space, a Jira
-    project. An attachment is dispatched as its own source item and knows nothing about
-    where its parent lives, so without this the graph projector finds no container and
-    files it under the data source instead: measured on a live graph, 147 of 147
-    attachments hung off the DataSource while every page hung off the space. The keys are
-    the provider's own identity fields, so the attachment resolves to the *same* container
-    node its parent does rather than minting a second one.
+    The record id is ``<parent id>/attachments/<attachment id>``.
+
+    Args:
+        parent: Record of the issue or page the attachment belongs to.
+        descriptor: Admitted attachment descriptor.
+        inherited: Parent's container identity and ACL metadata (space or project keys).
+
+    Returns:
+        Binding record that ``attachment_descriptor_from_record`` can read back.
     """
 
     return SourceRecord(
@@ -58,6 +65,18 @@ def attachment_source_record(
 def attachment_descriptor_from_record(
     record: SourceRecord,
 ) -> AttachmentSourceDescriptor:
+    """Rebuild the ``admitted`` descriptor stored on an attachment binding record.
+
+    Args:
+        record: Attachment binding record.
+
+    Returns:
+        Descriptor read from the record metadata.
+
+    Raises:
+        ValueError: If the record is not an attachment binding.
+    """
+
     metadata = record.metadata
     if metadata.get("binding_kind") != _ATTACHMENT_BINDING:
         raise ValueError("source record is not an attachment binding")
@@ -73,15 +92,21 @@ def attachment_descriptor_from_record(
 
 
 def is_attachment_record(record: SourceRecord) -> bool:
+    """Return whether the record is an attachment binding."""
     return record.metadata.get("binding_kind") == _ATTACHMENT_BINDING
 
 
 def attachment_parent_locator(record: SourceRecord) -> str:
     """Return the provider locator of an attachment's parent (issue key, page id).
 
-    The parent's source item id ends in its locator (``jira://ENG/ENG-1``,
-    ``confluence://ENG/123``). Loading re-checks the parent's access with it, so a
-    record that does not name its parent fails closed.
+    Args:
+        record: Attachment binding record whose parent id ends in the locator.
+
+    Returns:
+        Locator taken from the last segment of ``parent_source_item_id``.
+
+    Raises:
+        DocumentProcessingError: If the record does not name its parent.
     """
 
     parent_id = str(record.metadata.get("parent_source_item_id") or "")

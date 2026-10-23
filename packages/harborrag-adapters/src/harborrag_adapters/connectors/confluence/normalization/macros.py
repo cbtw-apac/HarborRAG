@@ -1,3 +1,13 @@
+"""Confluence macro handlers and their registry.
+
+Handles:
+- Macro classification into block kinds
+- Parameter filtering that drops credentials and signed URLs
+- Alias resolution with a generic fallback
+
+Does NOT flatten macro children; the block handlers populate them.
+"""
+
 from __future__ import annotations
 
 import re
@@ -31,6 +41,8 @@ _ALLOWED_PARAMETER_NAMES = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class MacroHandling:
+    """Block kind, title, safe parameters and optional warning for one macro."""
+
     kind: DocumentBlockKind
     title: str | None
     parameters: Mapping[str, str]
@@ -38,6 +50,11 @@ class MacroHandling:
 
 
 class ConfluenceMacroHandler(Protocol):
+    """Contract for a macro handler.
+
+    ``keys`` lists the macro names it owns; the capability flags are copied onto the block.
+    """
+
     keys: frozenset[str]
     emits_container: bool
     emits_visible_content: bool
@@ -45,10 +62,12 @@ class ConfluenceMacroHandler(Protocol):
     needs_rendered_fallback: bool
 
     def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
-        """Describe one known macro without flattening its children."""
+        """Describe one macro."""
 
 
 class _ContainerMacroHandler:
+    """Handler for macros whose body holds nested content, such as panels and tabs."""
+
     def __init__(
         self,
         keys: frozenset[str],
@@ -66,6 +85,8 @@ class _ContainerMacroHandler:
         self.needs_rendered_fallback = False
 
     def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        """Return the configured kind titled by ``title``, ``name`` or the default title."""
+
         del macro_key
         safe = filter_macro_parameters(parameters)
         title = safe.get("title") or safe.get("name") or self.default_title
@@ -73,6 +94,11 @@ class _ContainerMacroHandler:
 
 
 class _IncludeMacroHandler:
+    """Handler for ``include`` and ``excerpt-include``.
+
+    The macro becomes a link reference; the included text is not inlined.
+    """
+
     keys = frozenset({"include", "excerpt-include"})
     emits_container = False
     emits_visible_content = False
@@ -80,6 +106,8 @@ class _IncludeMacroHandler:
     needs_rendered_fallback = True
 
     def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        """Return a link reference titled by the ``title`` or ``name`` parameter."""
+
         del macro_key
         safe = filter_macro_parameters(parameters)
         return MacroHandling(
@@ -90,7 +118,7 @@ class _IncludeMacroHandler:
 
 
 class _CodeMacroHandler:
-    """Code and noformat macros: their plain-text body is a code block."""
+    """Handler for ``code`` and ``noformat``, whose body is a code block."""
 
     keys = frozenset({"code", "noformat"})
     emits_container = False
@@ -99,12 +127,16 @@ class _CodeMacroHandler:
     needs_rendered_fallback = False
 
     def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        """Return a code block titled by the ``title`` parameter."""
+
         del macro_key
         safe = filter_macro_parameters(parameters)
         return MacroHandling(DocumentBlockKind.CODE_BLOCK, safe.get("title"), safe)
 
 
 class GenericMacroHandler:
+    """Fallback handler that keeps an unknown macro as an ``unsupported`` block."""
+
     keys: frozenset[str] = frozenset()
     emits_container = True
     emits_visible_content = True
@@ -112,6 +144,8 @@ class GenericMacroHandler:
     needs_rendered_fallback = True
 
     def handle(self, macro_key: str, parameters: Mapping[str, object]) -> MacroHandling:
+        """Return an unsupported block with a warning naming ``macro_key``."""
+
         safe = filter_macro_parameters(parameters)
         title = safe.get("title") or safe.get("name")
         return MacroHandling(
@@ -123,9 +157,18 @@ class GenericMacroHandler:
 
 
 class ConfluenceMacroHandlerRegistry:
-    """Resolve explicit native and commonly deployed macro aliases."""
+    """Registry resolving macro names, including common aliases, to handlers."""
 
     def __init__(self, handlers: tuple[ConfluenceMacroHandler, ...] | None = None) -> None:
+        """Index handlers by normalized key.
+
+        Args:
+            handlers: Handlers to register; defaults to ``default_macro_handlers``.
+
+        Raises:
+            ValueError: If two handlers claim the same normalized key.
+        """
+
         selected = handlers or default_macro_handlers()
         self._handlers: dict[str, ConfluenceMacroHandler] = {}
         for handler in selected:
@@ -137,10 +180,14 @@ class ConfluenceMacroHandlerRegistry:
         self._generic = GenericMacroHandler()
 
     def resolve(self, macro_key: str) -> ConfluenceMacroHandler:
+        """Return the handler for a macro name, else the generic fallback."""
+
         return self._handlers.get(normalize_macro_key(macro_key), self._generic)
 
 
 def default_macro_handlers() -> tuple[ConfluenceMacroHandler, ...]:
+    """Return the built-in handlers for include, code, expand, panel, tabs and properties."""
+
     return (
         _IncludeMacroHandler(),
         _CodeMacroHandler(),
@@ -179,11 +226,20 @@ def default_macro_handlers() -> tuple[ConfluenceMacroHandler, ...]:
 
 
 def normalize_macro_key(value: str) -> str:
+    """Return a macro name lower-cased with ``_`` and spaces replaced by ``-``."""
+
     return value.strip().lower().replace("_", "-").replace(" ", "-")
 
 
 def filter_macro_parameters(parameters: Mapping[str, object]) -> Mapping[str, str]:
-    """Keep useful display parameters while removing credentials and signed URLs."""
+    """Keep allow-listed display parameters, dropping credentials and signed URLs.
+
+    Args:
+        parameters: Raw macro parameters.
+
+    Returns:
+        Stripped, non-empty values keyed by lower-cased name.
+    """
 
     safe: dict[str, str] = {}
     for raw_key, raw_value in parameters.items():
@@ -198,6 +254,8 @@ def filter_macro_parameters(parameters: Mapping[str, object]) -> Mapping[str, st
 
 
 def _safe_parameter_value(value: str) -> str:
+    """Truncate a value to 512 characters, removing the query and fragment of URLs."""
+
     if "://" not in value:
         return value[:512]
     parsed = urlsplit(value)

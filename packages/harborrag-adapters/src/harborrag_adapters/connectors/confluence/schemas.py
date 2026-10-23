@@ -1,4 +1,4 @@
-"""Structured schemas used by the Confluence connector."""
+"""Confluence metadata dataclasses."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 @dataclass(slots=True)
 class ConfluencePageReference:
-    """Compact page reference used for hierarchy metadata."""
+    """Compact page reference for hierarchy metadata."""
 
     id: Any
     title: Any
@@ -22,7 +22,12 @@ class ConfluencePageReference:
 
 @dataclass(slots=True)
 class ConfluenceCommentMetadata:
-    """Normalized Confluence comment metadata."""
+    """Normalized Confluence comment metadata.
+
+    Attributes:
+        comment_kind: ``PAGE_COMMENT`` or ``INLINE_COMMENT``.
+        parent_comment_id: Parent comment for replies, else None.
+    """
 
     id: Any
     body: str
@@ -46,7 +51,12 @@ class ConfluenceHierarchyMetadata:
 
 @dataclass(slots=True, kw_only=True)
 class ConfluenceMetadata(ConnectorMetadata):
-    """Structured metadata for one loaded Confluence content item."""
+    """Structured metadata for one loaded Confluence content item.
+
+    Attributes:
+        version: Version number reported by the API.
+        body_representation: ``storage`` or ``rendered_html``; None when the page has no body.
+    """
 
     source_system: ClassVar[str] = "confluence"
 

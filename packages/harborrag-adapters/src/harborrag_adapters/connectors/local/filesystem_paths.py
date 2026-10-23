@@ -1,4 +1,10 @@
-"""Pure path, checksum, MIME, and filtering helpers for local files."""
+"""Path, checksum, MIME and glob helpers for local files.
+
+Handles:
+- Path resolution and root-relative paths
+- Hidden-path, pattern, glob and subtree matching
+- Stat-based signatures and timestamps
+"""
 
 from __future__ import annotations
 
@@ -29,23 +35,23 @@ DEFAULT_EXCLUDED_DIR_NAMES = {
 
 
 def resolve_path(value: str | Path) -> Path:
-    """Expand and resolve a local path without requiring it to exist."""
+    """Return the path with ``~`` expanded and symlinks resolved; it need not exist."""
     return Path(value).expanduser().resolve(strict=False)
 
 
 def file_extension(path: Path) -> str:
-    """Return a lowercased suffix for a local path."""
+    """Return the path's lowercased suffix."""
     return path.suffix.lower()
 
 
 def guess_mime_type(path: Path) -> str:
-    """Infer a MIME type from a local path."""
+    """Return the guessed MIME type of a path, defaulting to ``application/octet-stream``."""
     mime_type, _ = mimetypes.guess_type(str(path))
     return mime_type or "application/octet-stream"
 
 
 def relative_path(path: Path, root_path: Path) -> str:
-    """Return a POSIX-style path relative to root when possible."""
+    """Return the POSIX path relative to ``root_path``, or the absolute POSIX path if outside."""
     try:
         return path.relative_to(root_path).as_posix()
     except ValueError:
@@ -53,25 +59,25 @@ def relative_path(path: Path, root_path: Path) -> str:
 
 
 def is_hidden_path(path: Path, root_path: Path) -> bool:
-    """Return whether any relative path component is hidden."""
+    """Return whether any component of the root-relative path starts with a dot."""
     relative = relative_path(path, root_path)
     return any(part.startswith(".") for part in Path(relative).parts)
 
 
 def stat_datetime(timestamp: float) -> datetime:
-    """Convert a filesystem timestamp to a timezone-aware datetime."""
+    """Return a filesystem timestamp as a UTC datetime."""
     return datetime.fromtimestamp(timestamp, tz=UTC)
 
 
 def stat_signature(path: Path) -> str:
-    """Build a cheap change signature from file size and mtime."""
+    """Return ``stat:<size>:<mtime ns>`` as a cheap change signature."""
     stat = path.stat()
     mtime_ns = getattr(stat, "st_mtime_ns", int(stat.st_mtime * 1_000_000_000))
     return f"stat:{stat.st_size}:{mtime_ns}"
 
 
 def matches_pattern(path: Path, root_path: Path, pattern: str | None) -> bool:
-    """Return whether a path matches a glob-like pattern or substring."""
+    """Return whether a path matches a glob or contains the pattern, case-insensitively."""
     if not pattern:
         return True
     relative = relative_path(path, root_path).lower()
@@ -83,13 +89,14 @@ def matches_pattern(path: Path, root_path: Path, pattern: str | None) -> bool:
 
 
 def matches_globs(path: Path, root_path: Path, patterns: list[str]) -> bool:
-    """Return whether a relative path matches any glob pattern (case-insensitive)."""
+    """Return whether the root-relative path matches any glob, case-insensitively."""
+    # TODO: match ``**/`` globs against root-level files and support ``**`` fully.
     relative = relative_path(path, root_path).lower()
     return any(fnmatch(relative, pattern.replace("\\", "/").lower()) for pattern in patterns)
 
 
 def path_in_scope(path: Path, root_path: Path, candidate: str) -> bool:
-    """Return whether a path is within a configured include/exclude subtree (case-insensitive)."""
+    """Return whether a path is within the ``candidate`` subtree, case-insensitively."""
     normalized = candidate.replace("\\", "/").strip("/").lower()
     if not normalized:
         return True

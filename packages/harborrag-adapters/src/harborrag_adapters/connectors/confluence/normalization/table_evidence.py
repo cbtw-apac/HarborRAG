@@ -1,3 +1,11 @@
+"""Table artifact rendering into flat text elements.
+
+Handles:
+- Replacing table references with rendered cell text
+- Elements for tables no block references, such as nested tables
+- Placeholder text for tables without cell text
+"""
+
 from __future__ import annotations
 
 from harborrag_core.domain import DocumentElement, TableArtifact
@@ -7,7 +15,15 @@ def build_table_evidence_elements(
     elements: tuple[DocumentElement, ...],
     tables: tuple[TableArtifact, ...],
 ) -> tuple[DocumentElement, ...]:
-    """Replace table references with exact cells and append nested tables."""
+    """Replace table references with rendered tables and append unreferenced ones.
+
+    Args:
+        elements: Flat elements, including table reference elements.
+        tables: All table artifacts of the page.
+
+    Returns:
+        Elements with table content rendered, then one element per unreferenced table.
+    """
 
     by_id = {table.table_id: table for table in tables}
     rendered_ids: set[str] = set()
@@ -34,6 +50,8 @@ def build_table_evidence_elements(
 
 
 def _nested_table_element(table: TableArtifact) -> DocumentElement:
+    """Build an element for a table no block references, such as a nested table."""
+
     return DocumentElement(
         id=f"table-artifact:{table.table_id}",
         type="table",
@@ -52,6 +70,12 @@ def _nested_table_element(table: TableArtifact) -> DocumentElement:
 
 
 def render_table(table: TableArtifact) -> str:
+    """Render a table as tab-separated rows of its logical grid.
+
+    Merged cells repeat their text in every slot they cover. A table without any text
+    renders a placeholder with its dimensions.
+    """
+
     cells = {cell.cell_id: cell for cell in table.cells}
     rendered = "\n".join(
         "\t".join(
@@ -59,18 +83,16 @@ def render_table(table: TableArtifact) -> str:
         )
         for row in table.logical_grid
     )
-    # Tables with no extractable cell text (e.g. image-only layout tables)
-    # would otherwise render to pure whitespace, which the chunking
-    # segmenter treats as empty content and silently drops — leaving the
-    # canonical table artifact with no corresponding chunk and failing
-    # projection verification. A non-empty placeholder keeps the table
-    # represented by exactly one chunk, matching the canonical artifact.
+    # Whitespace-only text is dropped by chunking and fails projection verification;
+    # the placeholder keeps exactly one chunk per table.
     if rendered.strip():
         return rendered
     return _empty_table_placeholder(table)
 
 
 def _empty_table_placeholder(table: TableArtifact) -> str:
+    """Return placeholder text with the table's caption and dimensions."""
+
     dimensions = (
         f"{table.row_count} row{'s' if table.row_count != 1 else ''} x "
         f"{table.column_count} column{'s' if table.column_count != 1 else ''}"
@@ -81,4 +103,6 @@ def _empty_table_placeholder(table: TableArtifact) -> str:
 
 
 def _flat_cell_text(value: str) -> str:
+    """Collapse tabs and whitespace runs in cell text into single spaces."""
+
     return " ".join(value.replace("\t", " ").split())
