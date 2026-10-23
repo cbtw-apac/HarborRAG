@@ -15,6 +15,7 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from harborrag_core.base import utc_now
 from harborrag_core.ports.memory import (
     Memory,
     MemoryOwner,
@@ -142,8 +143,9 @@ class AgentMemoryTools:
     async def manage(self, values: dict[str, object]) -> dict[str, object]:
         """Record one durable fact for the bound owner, add-only.
 
-        The requested scope degrades to the narrowest one this owner can
-        address rather than widening, and an identical memory already stored in
+        A PROJECT request is kept to the session unless the policy allows
+        project-scope writes. The requested scope degrades to the narrowest
+        one this owner can address rather than widening, and an identical memory already stored in
         that scope is reported back instead of being duplicated. Indexing is
         best effort: a memory that is saved but not indexed is still recalled
         through the repository's own search.
@@ -155,11 +157,16 @@ class AgentMemoryTools:
             self.owner,
             _scope(values, default=MemoryScope.USER, allowed=WRITABLE_SCOPES),
         )
+        if scope is not None and self.policy.write_scope(scope) is not scope:
+            # The same project-scope gate extraction applies: a tool call is
+            # model output too, and may be steered by a retrieved page.
+            scope = _resolved_scope(self.owner, self.policy.write_scope(scope))
         if scope is None:
             return {"ok": False, "error": "this caller cannot address any memory scope"}
         existing = await self._existing(scope, content)
         if existing is not None:
             return {"ok": True, "memory_id": existing.memory_id, "recorded": False}
+        now = utc_now()
         memory = Memory(
             memory_id=new_memory_id(),
             scope=scope,
@@ -167,6 +174,9 @@ class AgentMemoryTools:
             owner=self.owner,
             content=content,
             importance=_fraction(values, "importance", default=0.5),
+            created_at=now,
+            updated_at=now,
+            expires_at=self.policy.retention.expires_at(scope, now),
             source_session_id=self.owner.session_id,
         )
         await self.memories.save(memory)

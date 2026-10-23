@@ -14,7 +14,11 @@ from context_test_fakes import (
 
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_memory import MemoryContextBuilder, MemoryOwner, MemoryPolicy
-from harborrag_memory.context.summarizer import LAST_COVERED_KEY, SummaryRecord
+from harborrag_memory.context.summarizer import (
+    LAST_COVERED_KEY,
+    SummaryRecord,
+    summary_memory_id,
+)
 
 pytestmark = [pytest.mark.unit]
 
@@ -128,9 +132,9 @@ async def test_summary_triggers_past_the_threshold_and_shrinks_the_window(
     assert context.messages == (rows[4], rows[5])
 
     assert len(memories.saved) == 1
-    assert list(memories.rows) == ["summary:s-1"]
+    assert list(memories.rows) == [summary_memory_id(owner)]
     saved = memories.saved[0]
-    assert saved.memory_id == "summary:s-1"
+    assert saved.memory_id == summary_memory_id(owner)
     assert saved.scope.value == "session"
     assert saved.memory_type.value == "summary"
     assert saved.source_session_id == "s-1"
@@ -168,9 +172,10 @@ async def test_second_trigger_folds_the_prior_summary_into_a_replacement(
     assert second.summary_written is True
     assert "first summary text" in model.prompts[1]
     assert len(memories.saved) == 2
-    assert list(memories.rows) == ["summary:s-1"]
-    assert memories.rows["summary:s-1"].content == "second summary text"
-    assert memories.rows["summary:s-1"].source_message_ids == tuple(
+    summary_id = summary_memory_id(owner)
+    assert list(memories.rows) == [summary_id]
+    assert memories.rows[summary_id].content == "second summary text"
+    assert memories.rows[summary_id].source_message_ids == tuple(
         message.message_id for message in rows[4:]
     )
 
@@ -311,4 +316,5 @@ async def test_a_summary_round_trips_for_an_owner_without_a_user_id(
     assert len(model.prompts) == 1
     assert second.summary == "first summary"
     assert second.summary_written is False
-    assert await memories.get(memories.saved[-1].owner, "summary:s-1") is not None
+    stored_owner = memories.saved[-1].owner
+    assert await memories.get(stored_owner, summary_memory_id(stored_owner)) is not None

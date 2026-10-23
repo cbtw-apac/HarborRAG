@@ -110,7 +110,7 @@ site/
 └── robots.txt
 ```
 
-Every current package with both `pyproject.toml` and `README.md` is discovered automatically. Compatibility redirects preserve the former `core`, `mcp-server`, and predecessor package-documentation URLs.
+Every current package with both `pyproject.toml` and `README.md` is discovered automatically. Compatibility redirects preserve the former `core` and `mcp-server` package-documentation URLs.
 
 ## Publication boundary
 

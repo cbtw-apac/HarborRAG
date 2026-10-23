@@ -253,13 +253,15 @@ async def test_failures_cleanup_and_task_results_are_durable_and_idempotent(
         )
 
         assert replay == first
-        assert (await control_plane.reliability.pending_cleanup_jobs()) == (first,)
+        assert (await control_plane.reliability.pending_cleanup_jobs(tenant_id="DEFAULT")) == (
+            first,
+        )
         await control_plane.reliability.start_cleanup(first.cleanup_job_id)
         await control_plane.reliability.fail_cleanup(
             first.cleanup_job_id,
             safe_error_code="qdrant_unavailable",
         )
-        failed = (await control_plane.reliability.pending_cleanup_jobs())[0]
+        failed = (await control_plane.reliability.pending_cleanup_jobs(tenant_id="DEFAULT"))[0]
         assert failed.status == CleanupJobState.FAILED
         assert failed.attempt_count == 1
 
@@ -358,13 +360,48 @@ async def test_pending_cleanup_selection_is_scope_isolated(tmp_path: Path) -> No
                 document_version_id=str(value.document_version_id),
             )
 
-        selected = await control_plane.reliability.pending_cleanup_jobs(source_scope_id="scope-a")
+        selected = await control_plane.reliability.pending_cleanup_jobs(
+            tenant_id="DEFAULT", source_scope_id="scope-a"
+        )
         assert selected == (cleanup_by_scope["scope-a"],)
         with pytest.raises(ValueError, match="not both"):
             await control_plane.reliability.pending_cleanup_jobs(
+                tenant_id="DEFAULT",
                 source_scope_id="scope-a",
                 document_ids=(str(cleanup_by_scope["scope-b"].document_id),),
             )
+
+
+@pytest.mark.asyncio
+async def test_pending_cleanup_selection_is_tenant_isolated(tmp_path: Path) -> None:
+    """A tenant-wide drain once claimed every tenant's cleanup jobs.
+
+    It ran them under its own storage context, deleted nothing, and marked the
+    other tenant's jobs COMPLETED, so retention then purged their manifests and
+    orphaned their projections for good.
+    """
+
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        cleanup_by_tenant = {}
+        for tenant_id in ("tenant-a", "tenant-b"):
+            source = source_identity(f"page-{tenant_id}").model_copy(
+                update={"tenant_id": tenant_id}
+            )
+            value = candidate(tenant_id, source=source)
+            await control_plane.document_versions.create_candidate(value)
+            cleanup_by_tenant[tenant_id] = await control_plane.reliability.enqueue_cleanup(
+                document_id=str(value.document_id),
+                document_version_id=str(value.document_version_id),
+            )
+
+        unscoped = await control_plane.reliability.pending_cleanup_jobs(tenant_id="tenant-a")
+        assert unscoped == (cleanup_by_tenant["tenant-a"],)
+        foreign_documents = await control_plane.reliability.pending_cleanup_jobs(
+            tenant_id="tenant-a",
+            document_ids=(str(cleanup_by_tenant["tenant-b"].document_id),),
+        )
+        assert foreign_documents == ()
 
 
 @pytest.mark.asyncio

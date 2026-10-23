@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlalchemy import insert
+from sqlalchemy.dialects import postgresql
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
@@ -15,6 +18,9 @@ from harborrag_adapters.repositories.database.ingestion_control.schema import (
     DOCUMENTS,
     SOURCE_ITEMS,
     SOURCE_SCOPES,
+)
+from harborrag_adapters.repositories.database.ingestion_control.unresolved_relations import (
+    _declarer_lock,
 )
 from harborrag_core.base import utc_now
 
@@ -28,6 +34,7 @@ async def _document(  # noqa: PLR0913
     *,
     scope: str = "scope-a",
     connection_id: str = "jira-main",
+    connector_type: str = "jira",
     active: bool = True,
     item_active: bool = True,
 ) -> None:
@@ -42,7 +49,7 @@ async def _document(  # noqa: PLR0913
                 insert(SOURCE_SCOPES).values(
                     source_scope_id=scope,
                     tenant_id="tenant-1",
-                    connector_type="jira",
+                    connector_type=connector_type,
                     connection_id=connection_id,
                     configuration_fingerprint="fingerprint",
                     created_at=now,
@@ -54,7 +61,7 @@ async def _document(  # noqa: PLR0913
                 document_id=document_id,
                 tenant_id="tenant-1",
                 source_scope_id=scope,
-                connector_type="jira",
+                connector_type=connector_type,
                 connection_id=connection_id,
                 source_item_id=source_item_id,
                 active_document_version_id=f"{document_id}-v1" if active else None,
@@ -92,12 +99,13 @@ async def _remember(
     document_id: str,
     *links: UnresolvedSourceRelation,
     connection_id: str = "jira-main",
+    connector_type: str = "jira",
 ) -> None:
     await control.unresolved_relations.replace_unresolved(
         tenant_id="tenant-1",
         declaring_document_id=document_id,
         declaring_document_version_id=f"{document_id}-v1",
-        connector_type="jira",
+        connector_type=connector_type,
         connection_id=connection_id,
         relations=links,
     )
@@ -187,3 +195,138 @@ async def test_a_deleted_declarer_is_never_offered_for_repair(tmp_path: Path) ->
             await control.unresolved_relations.resolvable_declaring_documents(tenant_id="tenant-1")
             == ()
         )
+
+
+async def _confluence_page_linking_to(control: IngestionControlPlaneDatabase, target: str) -> None:
+    await _document(
+        control,
+        "page",
+        "confluence://WIKI/page-1",
+        scope="wiki-scope",
+        connection_id="wiki",
+        connector_type="confluence",
+    )
+    await _remember(
+        control, "page", _link(target), connection_id="wiki", connector_type="confluence"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_cross_connector_target_in_two_connections_is_never_offered(
+    tmp_path: Path,
+) -> None:
+    # Repair declines a target two connections hold, so offering its declarer would
+    # re-repair it on every run, to the same unresolved row, and starve later declarers.
+    async with make_control_plane(tmp_path) as control:
+        await _confluence_page_linking_to(control, "jira://ABC/ABC-1")
+        await _document(control, "in-a", "jira://ABC/ABC-1", scope="jira-a", connection_id="a")
+        await _document(control, "in-b", "jira://ABC/ABC-1", scope="jira-b", connection_id="b")
+
+        assert (
+            await control.unresolved_relations.resolvable_declaring_documents(tenant_id="tenant-1")
+            == ()
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_cross_connector_target_in_one_connection_resolves_whatever_its_scope_rows(
+    tmp_path: Path,
+) -> None:
+    async with make_control_plane(tmp_path) as control:
+        await _confluence_page_linking_to(control, "jira://ABC/ABC-1")
+        await _document(control, "target", "jira://ABC/ABC-1", scope="jira-a", connection_id="a")
+        # The same document discovered by a second scope of its connection is still one
+        # identity, so it stays unambiguous.
+        async with control._client.sessions.begin() as session:
+            await session.execute(
+                insert(SOURCE_SCOPES).values(
+                    source_scope_id="jira-a-2",
+                    tenant_id="tenant-1",
+                    connector_type="jira",
+                    connection_id="a",
+                    configuration_fingerprint="fingerprint",
+                    created_at=utc_now(),
+                    updated_at=utc_now(),
+                )
+            )
+            await session.execute(
+                insert(SOURCE_ITEMS).values(
+                    source_scope_id="jira-a-2",
+                    source_item_id="jira://ABC/ABC-1",
+                    document_id="target",
+                    source_version="1",
+                    binding_kind="ROOT",
+                    admission_change_key="admission",
+                    last_seen_scan_sequence=1,
+                    is_active=True,
+                    descriptor={},
+                    updated_at=utc_now(),
+                )
+            )
+        # A copy in another connection whose source item is no longer active does not
+        # count either: the resolver ignores it too.
+        await _document(
+            control,
+            "stale-copy",
+            "jira://ABC/ABC-1",
+            scope="jira-b",
+            connection_id="b",
+            item_active=False,
+        )
+
+        assert await control.unresolved_relations.resolvable_declaring_documents(
+            tenant_id="tenant-1"
+        ) == ("page",)
+
+
+@pytest.mark.asyncio
+async def test_the_resolvable_query_agrees_with_the_unambiguous_resolver(tmp_path: Path) -> None:
+    async with make_control_plane(tmp_path) as control:
+        await _confluence_page_linking_to(control, "jira://ABC/ABC-1")
+        resolvable = control.unresolved_relations.resolvable_declaring_documents
+
+        async def resolved() -> set[str]:
+            return set(
+                await control.document_versions.resolve_unambiguous_active_sources(
+                    tenant_id="tenant-1",
+                    connector_type="jira",
+                    source_item_ids=["jira://ABC/ABC-1"],
+                )
+            )
+
+        await _document(control, "in-a", "jira://ABC/ABC-1", scope="jira-a", connection_id="a")
+        assert (await resolvable(tenant_id="tenant-1"), await resolved()) == (
+            ("page",),
+            {"jira://ABC/ABC-1"},
+        )
+        await _document(control, "in-b", "jira://ABC/ABC-1", scope="jira-b", connection_id="b")
+        assert (await resolvable(tenant_id="tenant-1"), await resolved()) == ((), set())
+
+
+def test_reconciliation_locks_the_declarer_row_on_postgres() -> None:
+    # Two concurrent reconciliations of one declarer otherwise race DELETE-then-INSERT
+    # into a primary-key violation under READ COMMITTED.
+    statement = str(_declarer_lock("declarer").compile(dialect=postgresql.dialect()))
+
+    assert "FROM documents" in statement
+    assert statement.rstrip().endswith("FOR NO KEY UPDATE")
+
+
+@pytest.mark.asyncio
+async def test_reconciliation_takes_the_declarer_lock_before_deleting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executed: list[str] = []
+    original = AsyncSession.execute
+
+    async def recording(self: AsyncSession, statement: Any, *args: Any, **kwargs: Any) -> Any:
+        executed.append(str(statement.compile(dialect=postgresql.dialect())))
+        return await original(self, statement, *args, **kwargs)
+
+    async with make_control_plane(tmp_path) as control:
+        await _document(control, "declarer", "jira://ENG/ENG-1")
+        monkeypatch.setattr(AsyncSession, "execute", recording)
+        await _remember(control, "declarer", _link("jira://RHR/RHR-1"))
+
+    assert executed[0].rstrip().endswith("FOR NO KEY UPDATE")
+    assert executed[1].startswith("DELETE FROM unresolved_source_relations")

@@ -38,14 +38,25 @@ def path_limit_for(max_nodes: int) -> int:
 
 
 def access_predicate(variable: str) -> str:
-    """Return the fixed Cypher ACL applied before ordering and limiting graph rows."""
+    """Return the fixed Cypher ACL applied before ordering and limiting graph rows.
+
+    An external stub is checked against the tenant, not its ``source_scope_id``: its key
+    is scope-free, so that scope is just the declarer projected last, and checking it
+    made the stub (and every link through it) flip with ingestion order. The stub holds
+    only a provider id, and each link to it is still checked against its own declaring
+    document. ``graph_visibility._record_authorized`` applies the same rule.
+    """
 
     return f"""(
         $access_unrestricted
         OR ({variable}.document_id IS NOT NULL
             AND {variable}.document_id IN $authorized_document_ids)
         OR ({variable}.document_id IS NULL
+            AND {variable}.external = true
+            AND $tenant_visible)
+        OR ({variable}.document_id IS NULL
             AND {variable}.source_scope_id IS NOT NULL
+            AND coalesce({variable}.external, false) = false
             AND {variable}.source_scope_id IN $authorized_source_scope_ids)
         OR ({variable}.document_id IS NULL
             AND {variable}.source_scope_id IS NULL

@@ -3,10 +3,9 @@
 HarborRAG is a provider-agnostic Retrieval-Augmented Generation framework for engineering knowledge. It uses ports and adapters so source systems, document formats, model providers, persistence backends, and operator surfaces can change independently.
 
 The first public alpha release is **HarborRAG 2.0.0 Alpha 1** (Python package
-version `2.0.0a1`), dated August 27, 2026. It continues the project
-lineage of Qdrant Loader as a breaking rename and a provider-neutral
-architectural expansion; legacy import paths and package names do not carry
-over.
+version `2.0.0a1`), dated August 27, 2026.
+The current release is **HarborRAG 2.0.0 Alpha 2** (`2.0.0a2`), dated October 22, 2026;
+see the [changelog](../../CHANGELOG.md) for what changed and how to upgrade from 2.0.0a1.
 
 ## Capability status
 

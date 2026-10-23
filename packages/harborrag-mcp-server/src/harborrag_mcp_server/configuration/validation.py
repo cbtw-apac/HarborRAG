@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from typing import Any
 
@@ -11,6 +12,8 @@ from jsonschema.validators import validator_for
 from harborrag_core.contracts.tools import ToolSpec
 
 from .models import McpConfiguration, ToolConfiguration
+
+logger = logging.getLogger("harborrag.mcp.configuration")
 
 
 def validate_tools(
@@ -116,4 +119,65 @@ def _validate_property(
         raise ValueError(f"Invalid default for MCP tool {tool_name}.{field_name}") from exc
 
 
-__all__ = ["validate_tools"]
+def clamp_to_safety_maxima(
+    configuration: McpConfiguration,
+    specs: Mapping[str, ToolSpec],
+) -> McpConfiguration:
+    """Lower configured numeric defaults and limits above a tool's safety maximum.
+
+    Applied to a file read from disk only. A tool's built-in ``maximum`` can
+    tighten between releases (alpha2 capped graph ``max_depth`` at 4 and
+    ``max_paths`` at 5), and a file written for the older ceiling must not stop
+    the server starting. Each lowered value is logged as a WARNING so the
+    operator can update the file; the configuration editor still rejects them.
+    """
+
+    raw = configuration.model_dump(mode="python")
+    scopes = [("", raw["tools"])] + [
+        (f"tenant {tenant_id!r} ", tenant["tools"]) for tenant_id, tenant in raw["tenants"].items()
+    ]
+    changed = False
+    for scope, tools in scopes:
+        for tool_name, override in tools.items():
+            spec = specs.get(tool_name)
+            properties = spec.input_schema.get("properties") if spec is not None else None
+            if isinstance(properties, dict):
+                for section in ("defaults", "limits"):
+                    label = f"{scope}{tool_name}"
+                    changed |= _clamp_section(label, section, override[section], properties)
+    return McpConfiguration.model_validate(raw) if changed else configuration
+
+
+def _clamp_section(
+    label: str,
+    section: str,
+    values: dict[str, Any],
+    properties: Mapping[str, object],
+) -> bool:
+    changed = False
+    for field_name, value in values.items():
+        field_schema = properties.get(field_name)
+        maximum = field_schema.get("maximum") if isinstance(field_schema, dict) else None
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not isinstance(maximum, (int, float))
+            or value <= maximum
+        ):
+            continue
+        logger.warning(
+            "MCP configuration %s.%s %s %s exceeds its safety maximum %s; using %s. "
+            "Lower it in the configuration file.",
+            label,
+            field_name,
+            section.removesuffix("s"),
+            value,
+            maximum,
+            maximum,
+        )
+        values[field_name] = maximum
+        changed = True
+    return changed
+
+
+__all__ = ["clamp_to_safety_maxima", "validate_tools"]

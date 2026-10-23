@@ -27,7 +27,7 @@ def sample_coverage_data(tmp_path):
                 "hash": "mock_hash",
                 "index": {
                     "url": "mock_loader_file_py.html",
-                    "file": "src/qdrant_loader/mock_file.py",
+                    "file": "src/harborrag/mock_file.py",
                     "description": "",
                     "nums": {
                         "precision": 0,

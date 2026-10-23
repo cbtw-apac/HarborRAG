@@ -39,6 +39,10 @@ _DOCUMENT_STREAM = "PowerPoint Document"
 _CURRENT_USER_STREAM = "Current User"
 
 
+class _OutputLimitError(ParseError):
+    """The extracted text exceeded the parser output budget: never a structure error."""
+
+
 @dataclass(frozen=True, slots=True)
 class _Slide:
     text: str
@@ -71,8 +75,9 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
         if kind is not ContainerKind.OLE:
             raise_unsupported_container(kind, format_name="PowerPoint .ppt")
         olefile = import_olefile("Legacy PowerPoint .ppt")
+        budget = ParseResourceBudget()
         try:
-            slides = self._read_slides(olefile, source_bytes)
+            slides = self._read_slides(olefile, source_bytes, budget)
         except ParseError:
             raise
         except BINARY_DECODE_ERRORS as exc:
@@ -107,7 +112,9 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
             if body:
                 sections.append(f"Slide {index}\n{body}")
         content = "\n\n".join(sections).strip()
-        ParseResourceBudget().consume_output(len(content))
+        # Slide text was charged as it was extracted; add only the headings.
+        extracted = sum(len(slide.text) + len(slide.notes) for slide in slides)
+        budget.consume_output(max(0, len(content) - extracted))
         parser_logger.info(
             "Parsed PPT %s slides=%d content_chars=%d elements=%d",
             input_label(parse_input),
@@ -133,7 +140,9 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
         )
 
     @classmethod
-    def _read_slides(cls, olefile: Any, source_bytes: bytes) -> list[_Slide]:
+    def _read_slides(
+        cls, olefile: Any, source_bytes: bytes, budget: ParseResourceBudget
+    ) -> list[_Slide]:
         limit = len(source_bytes)
         with open_ole(olefile, source_bytes) as ole:
             if not ole.exists(_DOCUMENT_STREAM):
@@ -151,42 +160,77 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
                 else None
             )
         if current_user is None:
-            return cls._slides_from_stream_order(data)
+            return cls._slides_from_stream_order(data, budget)
+        spent = budget.output_characters
         try:
-            return cls._slides_from_persist_directory(data, current_user)
-        except PasswordProtectedError:
+            return cls._slides_from_persist_directory(data, current_user, budget)
+        except (PasswordProtectedError, _OutputLimitError):
+            # Neither is a stale pointer: a stream-order re-parse would redo the
+            # work and could accept an oversized deck by dropping its notes.
             raise
         except ParseError as persist_error:
             # Third-party writers sometimes leave a stale Current User pointer;
             # the records themselves are often intact, so fall back to them.
+            budget.output_characters = spent
             try:
-                return cls._slides_from_stream_order(data)
+                return cls._slides_from_stream_order(data, budget)
             except ParseError:
                 raise persist_error from None
 
     @classmethod
-    def _slides_from_persist_directory(cls, data: bytes, current_user: bytes) -> list[_Slide]:
+    def _slides_from_persist_directory(
+        cls,
+        data: bytes,
+        current_user: bytes,
+        budget: ParseResourceBudget | None = None,
+    ) -> list[_Slide]:
+        """Read the live slides the persist directory references, in slide-list order.
+
+        Each Slide and Notes container is decoded at most once, keyed by its
+        stream offset: crafted slide lists can point many SlidePersistAtoms (or
+        many persist ids) at one container, which would otherwise multiply its
+        text. Output is charged to ``budget`` slide by slide, so the character
+        limit trips before an oversized result is materialized.
+        """
+        budget = budget or ParseResourceBudget()
         persist, document_id = rec.persist_directory(data, rec.current_edit_offset(current_user))
         document = rec.read_record(data, persist[document_id])
         if document.type != rec.RT_DOCUMENT:
             raise ParseError("PowerPoint persist directory does not point at a Document")
         lists = rec.document_slide_lists(data, document)
         notes_by_id = {entry.slide_id: entry for entry in lists.get(rec.SLIDE_LIST_NOTES, [])}
+        visited: set[int] = set()
         slides: list[_Slide] = []
         for entry in lists.get(rec.SLIDE_LIST_SLIDES, []):
+            slide = cls._persisted(data, persist, entry.persist_id, rec.RT_SLIDE)
+            if slide is not None and slide.start in visited:
+                continue
             texts = list(entry.texts)
             notes: list[str] = []
-            slide = cls._persisted(data, persist, entry.persist_id, rec.RT_SLIDE)
             if slide is not None:
+                visited.add(slide.start)
                 texts.extend(rec.collect_text(data, slide))
-                notes_entry = notes_by_id.get(rec.notes_id_of(data, slide) or -1)
+                notes_entry = notes_by_id.pop(rec.notes_id_of(data, slide) or -1, None)
                 if notes_entry is not None:
-                    notes.extend(notes_entry.texts)
-                    container = cls._persisted(data, persist, notes_entry.persist_id, rec.RT_NOTES)
-                    if container is not None:
-                        notes.extend(rec.collect_text(data, container))
-            slides.append(_Slide(_join(texts), _join(notes)))
+                    notes = cls._notes_text(data, persist, notes_entry, visited)
+            slides.append(_charged(budget, _Slide(_join(texts), _join(notes))))
         return slides
+
+    @classmethod
+    def _notes_text(
+        cls,
+        data: bytes,
+        persist: dict[int, int],
+        entry: rec.SlideEntry,
+        visited: set[int],
+    ) -> list[str]:
+        """Return one notes page's text, decoding its container only once."""
+        notes = list(entry.texts)
+        container = cls._persisted(data, persist, entry.persist_id, rec.RT_NOTES)
+        if container is not None and container.start not in visited:
+            visited.add(container.start)
+            notes.extend(rec.collect_text(data, container))
+        return notes
 
     @staticmethod
     def _persisted(
@@ -199,9 +243,12 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
         return record if record.type == record_type else None
 
     @staticmethod
-    def _slides_from_stream_order(data: bytes) -> list[_Slide]:
+    def _slides_from_stream_order(
+        data: bytes, budget: ParseResourceBudget | None = None
+    ) -> list[_Slide]:
         """Fallback without a Current User stream: pair slide lists and containers by order."""
 
+        budget = budget or ParseResourceBudget()
         entries: list[rec.SlideEntry] = []
         containers: list[rec.Record] = []
         for record in rec.top_level_records(data):
@@ -216,8 +263,16 @@ class MsPowerPointBinaryPresentationEngine(HarborPresentationEngine):
             texts = list(entries[index].texts) if index < len(entries) else []
             if index < len(containers):
                 texts.extend(rec.collect_text(data, containers[index]))
-            slides.append(_Slide(_join(texts), ""))
+            slides.append(_charged(budget, _Slide(_join(texts), "")))
         return slides
+
+
+def _charged(budget: ParseResourceBudget, slide: _Slide) -> _Slide:
+    try:
+        budget.consume_output(len(slide.text) + len(slide.notes))
+    except ParseError as exc:
+        raise _OutputLimitError(str(exc)) from exc
+    return slide
 
 
 def _join(texts: list[str]) -> str:

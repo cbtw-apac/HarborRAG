@@ -127,6 +127,8 @@ def build_explorer(  # noqa: C901 - one closure per backend shares the registry 
     names = _tool_names_for(modes)
     if not names:
         return None
+    # The global ceilings size the UI's top_k control only; every call clamps to
+    # the bound tenant's own ceiling, which its limit overrides may narrow.
     limits = {
         tool: _schema_maximum(specs, tool, name, default=default)
         for tool, (name, default) in _LIMIT_FIELDS.items()
@@ -155,7 +157,7 @@ def build_explorer(  # noqa: C901 - one closure per backend shares the registry 
             raise ToolError("Enter a question or keywords to search.")
         reader = reader_for("explorer_search", mode)
         tenant = _require_tenant(tenant_id, ToolError)
-        size = max(1, min(int(top_k), limits[reader]))
+        size = max(1, min(int(top_k), _tenant_maximum(registry, tenant, reader)))
         if mode == "entities":
             result = await handler(reader)(query=text, tenant_id=tenant, limit=size)
             rows = views.entity_rows(result)
@@ -197,7 +199,7 @@ def build_explorer(  # noqa: C901 - one closure per backend shares the registry 
         arguments: dict[str, Any] = {
             "tenant_id": tenant,
             "document_id": document,
-            "limit": limits[reader],
+            "limit": _tenant_maximum(registry, tenant, reader),
         }
         if cursor.strip():
             arguments["cursor"] = cursor.strip()
@@ -219,14 +221,16 @@ def build_explorer(  # noqa: C901 - one closure per backend shares the registry 
             "tenant_id": tenant,
             "document_id": document,
             "anchor_chunk_id": item.get("chunk_id"),
-            "limit": min(_EVIDENCE_WINDOW, limits["get_document_context"]),
+            "limit": min(
+                _EVIDENCE_WINDOW, _tenant_maximum(registry, tenant, "get_document_context")
+            ),
         }
         version = item.get("document_version_id")
         if isinstance(version, str) and version:
             arguments["expected_document_version_id"] = version
         try:
             return await handler("get_document_context")(**arguments)
-        except ToolError:
+        except Exception:  # noqa: BLE001 - the window is optional; the evidence still shows
             return None
 
     async def explorer_browse(
@@ -401,6 +405,21 @@ def _require_tenant(tenant_id: str, error: type[Exception]) -> str:
 def _first_sentence(description: str) -> str:
     head, separator, _ = description.partition(". ")
     return head + "." if separator else description
+
+
+def _tenant_maximum(registry: "McpServer", tenant: str, tool: str) -> int:
+    """The result ceiling ``tool`` validates a call from ``tenant`` against.
+
+    Resolved per call, not once at build time: a tenant's ``limits`` override
+    narrows its schema below the global maximum, and a request sized to the
+    global one fails that tenant's schema validation.
+    """
+
+    name, default = _LIMIT_FIELDS[tool]
+    spec = next((item.spec for item in registry.tools or () if item.spec.name == tool), None)
+    if spec is not None and registry.configuration is not None:
+        spec = registry.configuration.tool_spec(spec, tenant)
+    return _schema_maximum([spec] if spec is not None else [], tool, name, default=default)
 
 
 def _schema_maximum(specs: "Sequence[ToolSpec]", tool: str, field: str, *, default: int) -> int:

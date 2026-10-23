@@ -425,3 +425,55 @@ def test_ui_check_lists_only_the_explorer_tools(tmp_path, monkeypatch, capsys) -
     monkeypatch.chdir(tmp_path)
     assert ui_main(["--check"]) == 0
     assert json.loads(capsys.readouterr().out) == EXPLORER_TOOLS
+
+
+@pytest.mark.asyncio
+async def test_reads_and_searches_clamp_to_the_tenants_own_limits(tmp_path) -> None:
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        "version: 1\ntenants:\n  acme:\n    tools:\n"
+        "      get_document_context:\n        defaults: {limit: 4}\n        limits: {limit: 4}\n"
+        "      vector_search:\n        defaults: {top_k: 3}\n        limits: {top_k: 3}\n",
+        encoding="utf-8",
+    )
+    runtime = _Runtime()
+    registry = _registry(runtime)
+    registry.configuration = McpConfigurationStore.load(
+        path=config_path, specs=registry.list_tools(), audit=McpAuditLog(), environment={}
+    )
+
+    async with fastmcp.Client(_explorer(registry)) as client:
+        document = await client.call_tool(
+            "explorer_read", {"tenant_id": "acme", "document_id": "document-1"}
+        )
+        evidence = await client.call_tool(
+            "explorer_read", {"tenant_id": "acme", "evidence_id": "chunk-1"}
+        )
+        await client.call_tool(
+            "explorer_search", {"query": "failover", "tenant_id": "acme", "top_k": 20}
+        )
+        await client.call_tool(
+            "explorer_read", {"tenant_id": "tenant-1", "document_id": "document-1"}
+        )
+
+    assert document.structured_content["kind"] == "document"
+    assert evidence.structured_content["chunks"], "the window fits the tenant's limit"
+    assert [request.limit for request in runtime.knowledge.context_requests] == [4, 4, 10]
+    assert runtime.retrieval.requests[-1].top_k == 3
+
+
+@pytest.mark.asyncio
+async def test_a_failed_reading_window_still_shows_the_evidence(monkeypatch) -> None:
+    runtime = _Runtime()
+
+    async def broken_context(request):
+        raise RuntimeError("context backend is down")
+
+    monkeypatch.setattr(runtime.knowledge, "get_document_context", broken_context)
+    async with fastmcp.Client(_explorer(_registry(runtime))) as client:
+        result = await client.call_tool(
+            "explorer_read", {"tenant_id": "tenant-1", "evidence_id": "chunk-1"}
+        )
+
+    assert result.structured_content["kind"] == "evidence"
+    assert result.structured_content["chunks"] == []

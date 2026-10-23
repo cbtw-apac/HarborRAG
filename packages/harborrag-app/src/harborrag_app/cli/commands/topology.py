@@ -10,6 +10,8 @@ from typing import Annotated, Any
 
 import typer
 
+from harborrag_app.cli.project import invocation_path
+
 from .summary_projection import app as summary_app
 from .topology_security import app as indexing_app
 
@@ -24,11 +26,15 @@ app.add_typer(config_app, name="config")
 app.add_typer(summary_app, name="summaries")
 Tenant = Annotated[str, typer.Option("--tenant", help="Tenant authority and evidence scope.")]
 Scope = Annotated[str, typer.Option("--source-scope", help="Canonical ingestion source scope ID.")]
+# Relative to where the user ran the command, not the project root main() moved into.
+GraphBuildPath = Annotated[
+    Path | None, typer.Option("--path", callback=invocation_path(dir_okay=False))
+]
 
 
 @app.command("evaluate")
 def evaluate(
-    cases: Annotated[Path, typer.Argument(exists=True, dir_okay=False)],
+    cases: Annotated[Path, typer.Argument(callback=invocation_path(exists=True, dir_okay=False))],
 ) -> None:
     """Evaluate expected/predicted extractions in JSONL offline; no provider requests."""
     from harborrag_runtime.topology.operations import evaluate as evaluate_cases
@@ -178,7 +184,7 @@ def _graph_build_settings(path: Path | None) -> Any:
 
 @config_app.command("validate")
 def validate_config(
-    path: Annotated[Path | None, typer.Option("--path", dir_okay=False)] = None,
+    path: GraphBuildPath = None,
 ) -> None:
     """Validate graph-build policy and display its non-secret effective values."""
     from harborrag_runtime.config.graph_build import (
@@ -209,7 +215,7 @@ def validate_config(
 
 @config_app.command("apply")
 def apply_config(
-    path: Annotated[Path | None, typer.Option("--path", dir_okay=False)] = None,
+    path: GraphBuildPath = None,
 ) -> None:
     """Synchronize managed tenant/source policy to canonical Postgres state."""
     from harborrag_runtime.topology.operations import apply_graph_build_config
@@ -237,7 +243,9 @@ def profile(
 @app.command("enable")
 def enable(
     source_scope: Scope,
-    profile_file: Annotated[Path, typer.Option("--profile", exists=True, dir_okay=False)],
+    profile_file: Annotated[
+        Path, typer.Option("--profile", callback=invocation_path(exists=True, dir_okay=False))
+    ],
     tenant: Tenant = "DEFAULT",
 ) -> None:
     """Enable a pinned extraction policy and enqueue unchanged active documents."""

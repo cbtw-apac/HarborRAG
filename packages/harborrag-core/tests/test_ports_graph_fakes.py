@@ -150,3 +150,37 @@ async def test_online_item_cleanup_leaves_unrelated_edgeless_staged_nodes() -> N
     assert set(graph.nodes) == {"container", "linker", "stub"}
     assert set(graph.relations) == {"holds"}
     assert await graph.tenant_projection_counts(context=_CONTEXT) == (3, 1)
+
+
+@pytest.mark.asyncio
+async def test_removing_a_scope_leaves_a_shared_external_stub_for_pruning() -> None:
+    """Parity with FalkorDB: the stub's scope is only its last declarer's."""
+
+    graph = FakeKnowledgeGraphRepository()
+    stub = _source_entity("stub", "EXT-1").model_copy(
+        update={"source_scope_id": "scope-2", "attributes": {"placeholder": True, "external": True}}
+    )
+    in_scope_2 = _source_entity("linker-2", "docs/b.txt").model_copy(
+        update={"source_scope_id": "scope-2"}
+    )
+    await graph.write_projection(
+        (_source_entity("linker-1", "docs/a.txt"), in_scope_2, stub),
+        (
+            _link("from-1", "linker-1", "stub"),
+            _link("from-2", "linker-2", "stub").model_copy(update={"source_scope_id": "scope-2"}),
+        ),
+        context=_CONTEXT,
+    )
+
+    await graph.delete_source_scope("scope-2", context=_CONTEXT)
+
+    # Scope 2's own node and link go; scope 1 still links to the stub, so it stays.
+    assert set(graph.nodes) == {"linker-1", "stub"}
+    assert set(graph.relations) == {"from-1"}
+
+    await graph.delete_source_scope("scope-1", context=_CONTEXT)
+
+    # Orphaned now, it is left for pruning rather than deleted by scope.
+    assert set(graph.nodes) == {"stub"}
+    assert await graph.prune_external_stubs(context=_CONTEXT) == 1
+    assert graph.nodes == {}

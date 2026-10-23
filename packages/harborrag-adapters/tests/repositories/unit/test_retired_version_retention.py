@@ -11,6 +11,9 @@ from sqlalchemy import select, update
 from harborrag_adapters.repositories.database.ingestion_control import (
     IngestionControlPlaneDatabase,
 )
+from harborrag_adapters.repositories.database.ingestion_control.retention import (
+    PURGE_LEASE_SECONDS,
+)
 from harborrag_adapters.repositories.database.ingestion_control.schema import (
     DOCUMENT_VERSIONS,
     DOCUMENTS,
@@ -127,10 +130,21 @@ async def _complete_cleanup(control: IngestionControlPlaneDatabase, version_id: 
     await control.reliability.complete_cleanup(job.cleanup_job_id)
 
 
+async def _expire_lease(control: IngestionControlPlaneDatabase, version_id: str) -> None:
+    """Age a PURGING claim past its lease, as if its purger had died."""
+
+    async with control._client.sessions.begin() as session:
+        await session.execute(
+            update(DOCUMENT_VERSIONS)
+            .where(DOCUMENT_VERSIONS.c.document_version_id == version_id)
+            .values(updated_at=datetime.now(UTC) - timedelta(seconds=PURGE_LEASE_SECONDS + 1))
+        )
+
+
 async def _purgeable_ids(
     control: IngestionControlPlaneDatabase,
     *,
-    retired_before: datetime = _FUTURE,
+    retired_before: datetime | None = _FUTURE,
     tenant_id: str | None = None,
     source_scope_id: str | None = None,
 ) -> set[str]:
@@ -392,7 +406,11 @@ async def test_a_version_being_purged_refuses_replay_transiently_and_resumes(
         assert snapshot is not None
         assert snapshot.state == DocumentVersionState.PURGING
 
-        # An interrupted purge is still eligible, and claiming it again resumes it.
+        # A live claim is neither eligible nor claimable by another worker; once its
+        # lease lapses the interrupted purge is eligible and claiming it resumes it.
+        assert await _purgeable_ids(control) == set()
+        assert await control.retention.begin_purge(retired) is False
+        await _expire_lease(control, retired)
         assert await _purgeable_ids(control) == {retired}
         assert await control.retention.begin_purge(retired) is True
         assert await control.retention.mark_version_purged(retired) is True

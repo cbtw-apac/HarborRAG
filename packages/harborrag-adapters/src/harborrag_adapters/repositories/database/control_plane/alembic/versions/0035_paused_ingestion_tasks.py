@@ -22,6 +22,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    # The previous schema has no PAUSED. RUNNING is the state a paused task was
+    # paused from and the one resume() restores, so the task carries on there.
+    op.execute("UPDATE ingestion_tasks SET status = 'RUNNING' WHERE status = 'PAUSED'")
     with op.batch_alter_table("ingestion_tasks") as batch_op:
         batch_op.drop_constraint("ck_ingestion_task_status", type_="check")
         batch_op.create_check_constraint(

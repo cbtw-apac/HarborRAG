@@ -62,6 +62,7 @@ async def inspect_stores(
         results = await control.tasks.document_results(task_id)
         _assert_task_results(results)
         pending_cleanup = await control.reliability.pending_cleanup_jobs(
+            tenant_id=tenant_id,
             limit=1_000,
             document_ids=tuple(str(result.document_id) for result in results),
         )

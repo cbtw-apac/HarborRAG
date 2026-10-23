@@ -9,6 +9,8 @@ boundary to anyone deciding where a new import could go.
 
 from __future__ import annotations
 
+import logging
+import os
 from decimal import Decimal
 from pathlib import Path
 from typing import Literal
@@ -26,6 +28,18 @@ from harborrag_core.summary_cards import SUMMARY_DESCRIPTION_MAX_WORDS
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
 
 from .memory_settings import MemorySettingsMixin
+
+logger = logging.getLogger("harborrag.runtime.config")
+
+# Environment variables an earlier release read and this one does not. With
+# ``extra="ignore"`` a stale one would otherwise vanish without a word, and
+# the stores it used to separate would silently share one namespace.
+_REMOVED_ENVIRONMENT = {
+    "HARBORRAG_QDRANT_COLLECTION_PREFIX": "HARBORRAG_STORAGE_NAMESPACE_PREFIX",
+    "HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX": "HARBORRAG_STORAGE_NAMESPACE_PREFIX",
+}
+# Names already warned about: settings are built many times per process.
+_warned_removed_environment: set[str] = set()
 
 _REDIS_TRANSPORT = RemoteTransportPolicy(
     service="Redis",
@@ -217,6 +231,22 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         if isinstance(value, str) and value.strip().lower() in {"", "none", "off", "disabled"}:
             return None
         return value
+
+    @model_validator(mode="after")
+    def _warn_removed_environment(self) -> RuntimeSettings:
+        for name, replacement in _REMOVED_ENVIRONMENT.items():
+            if name not in os.environ or name in _warned_removed_environment:
+                continue
+            _warned_removed_environment.add(name)
+            logger.warning(
+                "%s is no longer read and is ignored; every store is now namespaced "
+                "by %s (currently %r). Set that instead, and see the CHANGELOG for "
+                "the reset and re-ingest the namespace change requires.",
+                name,
+                replacement,
+                self.storage_namespace_prefix,
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:

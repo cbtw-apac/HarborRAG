@@ -335,7 +335,8 @@ def test_a_source_field_facet_may_name_a_standard_issue_attribute() -> None:
     card = _with_facets(SummaryCard(description="c."), node, policy, (ISSUE_DOCUMENT,))
     by_name = {item.name: item for item in card.attributes}
     assert by_name["stage"].values == ("Placed",)
-    assert by_name["tags"].values == ("a, b",)
+    # One value per label, so a facet filter on either label matches.
+    assert by_name["tags"].values == ("a", "b")
     assert set(by_name) == {"stage", "tags"}
 
 

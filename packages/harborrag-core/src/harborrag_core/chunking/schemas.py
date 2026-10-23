@@ -74,11 +74,16 @@ class RelationType(StrEnum):
     would be inconsistent.
     """
 
-    # Projected. These are the only predicates the graph builder emits today, and the
-    # only edge types present in a graph written by the current schema version.
+    # Projected. With HAS_CHUNK (declared below), these are the only predicates the
+    # graph builder emits today, and the only edge types present in a graph written by
+    # the current schema version. SUPPORTS is the exception in this block: see its note.
     HAS_DATA_SOURCE = "has_data_source"
     CONTAINS = "contains"
     HAS_VERSION = "has_version"
+    # No longer projected. 2.0.0a1 linked a chunk as (:Chunk)-[:SUPPORTS]->(:Structure);
+    # the projection now writes (:Structure)-[:HAS_CHUNK]->(:Chunk) instead. Kept so an
+    # old value still decodes, but it is not in PROJECTED_RELATION_TYPES, so the graph
+    # tools no longer accept 'supports' as a filter.
     SUPPORTS = "supports"
     PARENT_OF = "parent_of"
     LINKS_TO = "links_to"
@@ -100,6 +105,9 @@ class RelationType(StrEnum):
     # normalized into reversed PARENT_OF and HAS_ATTACHMENT edges rather than stored in
     # their own direction; the rest describe structure that CONTAINS already carries.
     HAS_SECTION = "has_section"
+    # Projected, despite its place in this block: the chunk edge,
+    # (:Structure)-[:HAS_CHUNK]->(:Chunk), which replaced SUPPORTS. Members are not
+    # reordered, because enum order is observable.
     HAS_CHUNK = "has_chunk"
     HAS_TABLE = "has_table"
     HAS_COMMENT = "has_comment"

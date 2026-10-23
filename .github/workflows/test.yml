@@ -2,7 +2,7 @@ name: Test and Coverage
 
 on:
   push:
-    branches: [ main, dev/*, develop, feature/*, bugfix/*, release/*, fix/* ]
+    branches: [ main, dev/*, develop, feature/*, feat/*, bugfix/*, fix/*, hotfix/*, release/*, chore/*, patch/* ]
   pull_request:
     branches: [ main, dev/*, develop, feature/*, bugfix/*, release/*, fix/* ]
 
@@ -18,6 +18,7 @@ jobs:
   build-wheels:
     name: Build distribution wheels
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -34,6 +35,7 @@ jobs:
   test-installed-wheels:
     name: Bare wheel ${{ matrix.package }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: build-wheels
     strategy:
       fail-fast: false
@@ -64,6 +66,7 @@ jobs:
   test-packages:
     name: Test ${{ matrix.package }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -91,19 +94,36 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras
 
+      # Run from the repository root so the root coverage config applies: branch
+      # coverage, with every package as source, so code one package's tests
+      # exercise in another still counts. The 90% gate runs once, on the
+      # combined data, in coverage-gate; a single package is not held to it.
       - name: Run tests with coverage
+        env:
+          COVERAGE_FILE: covdata/coverage.${{ matrix.package }}
         run: |
-          cd packages/${{ matrix.package }}
-          uv run python -m pytest tests/ --cov=src --cov-report=term-missing -v
+          mkdir -p covdata
+          uv run python -m pytest packages/${{ matrix.package }}/tests --cov --cov-report= --cov-fail-under=0 -v
+          uv run coverage report --include='packages/${{ matrix.package }}/src/*' --fail-under=0
+
+      - name: Upload coverage data
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          # Not "coverage-*": the docs workflows download that prefix into the site.
+          name: covdata-${{ matrix.package }}-${{ github.run_id }}
+          path: covdata/coverage.${{ matrix.package }}
+          if-no-files-found: error
+          retention-days: 5
 
       - name: Generate coverage reports
         if: |
           (github.event_name == 'pull_request' && github.event.pull_request.base.ref == 'main') ||
           (github.event_name == 'push' && github.ref_name == 'main')
+        env:
+          COVERAGE_FILE: covdata/coverage.${{ matrix.package }}
         run: |
-          cd packages/${{ matrix.package }}
-          uv run coverage xml -o ../../coverage-${{ matrix.package }}.xml
-          uv run coverage html -d ../../htmlcov-${{ matrix.package }}
+          uv run coverage xml --include='packages/${{ matrix.package }}/src/*' -o coverage-${{ matrix.package }}.xml --fail-under=0
+          uv run coverage html --include='packages/${{ matrix.package }}/src/*' -d htmlcov-${{ matrix.package }} --fail-under=0
 
       - name: Upload coverage artifact
         if: |
@@ -117,9 +137,46 @@ jobs:
             coverage-${{ matrix.package }}.xml
           retention-days: 30
 
+  coverage-gate:
+    name: Coverage gate (90%)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: test-packages
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@cec208311dfd045dd5311c1add060b2062131d57 # v8.0.0
+        with:
+          python-version: '3.12'
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
+
+      # Same environment as the test jobs, so coverage reads their data files
+      # with the version that wrote them.
+      - name: Install dependencies
+        run: uv sync --all-packages --all-extras
+
+      - name: Download coverage data
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: covdata-*-${{ github.run_id }}
+          path: covdata
+          merge-multiple: true
+
+      # fail_under = 90 comes from [tool.coverage.report] in pyproject.toml, the
+      # same threshold `make coverage` applies locally.
+      - name: Combine and enforce coverage
+        run: |
+          uv run coverage combine covdata/coverage.*
+          uv run coverage report
+
   test-website:
     name: Test Website Build System
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -141,11 +198,22 @@ jobs:
       - name: Install dependencies
         run: uv sync --all-packages --all-extras
 
-      - name: Run website tests with coverage
+      - name: Run website and release tooling tests with coverage
         run: |
           # Add website directory to Python path and run tests
           export PYTHONPATH="${PYTHONPATH}:$(pwd)/website"
-          uv run python -m pytest tests/ --cov=website --cov-report=xml:coverage-website.xml --cov-report=html:htmlcov-website --cov-report=term-missing --cov-fail-under=85 -v
+          uv run python -m pytest tests/ --cov=website --cov=release_support --cov-report= --cov-fail-under=0 -v
+
+      # Reports first, so the artifact below exists even when a gate fails.
+      # Every command passes its own floor: pyproject's 90% default is the
+      # package gate, not these.
+      - name: Website and release tooling coverage
+        run: |
+          uv run coverage xml --include='website/*' -o coverage-website.xml --fail-under=0
+          uv run coverage html --include='website/*' -d htmlcov-website --fail-under=0
+          uv run coverage report --include='website/*' --fail-under=85
+          # First gate for release_support, set at its current level; raise it as tests are added.
+          uv run coverage report --include='release_support/*' --fail-under=67
 
       - name: Upload website test coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
@@ -160,17 +228,19 @@ jobs:
   test-summary:
     name: Test Summary
     runs-on: ubuntu-latest
-    needs: [test-packages, test-website, test-installed-wheels]
+    timeout-minutes: 5
+    needs: [test-packages, coverage-gate, test-website, test-installed-wheels]
     if: always()
     steps:
       - name: Check test results
         run: |
           echo "=== Test Results Summary ==="
           echo "Package Tests: ${{ needs.test-packages.result }}"
+          echo "Coverage Gate: ${{ needs.coverage-gate.result }}"
           echo "Website Build Tests: ${{ needs.test-website.result }}"
           echo "Installed Wheel Tests: ${{ needs.test-installed-wheels.result }}"
 
-          if [ "${{ needs.test-packages.result }}" != "success" ] || [ "${{ needs.test-website.result }}" != "success" ] || [ "${{ needs.test-installed-wheels.result }}" != "success" ]; then
+          if [ "${{ needs.test-packages.result }}" != "success" ] || [ "${{ needs.coverage-gate.result }}" != "success" ] || [ "${{ needs.test-website.result }}" != "success" ] || [ "${{ needs.test-installed-wheels.result }}" != "success" ]; then
             echo "❌ Some tests failed"
             exit 1
           else
@@ -178,14 +248,16 @@ jobs:
           fi
 
       - name: Create test status artifact
+        if: always()
         run: |
           mkdir -p test-results
           cat > test-results/status.json <<EOF
           {
             "packages_status": "${{ needs.test-packages.result }}",
+            "coverage_status": "${{ needs.coverage-gate.result }}",
             "website_status": "${{ needs.test-website.result }}",
             "installed_wheels_status": "${{ needs.test-installed-wheels.result }}",
-            "overall_status": "${{ (needs.test-packages.result == 'success' && needs.test-website.result == 'success' && needs.test-installed-wheels.result == 'success') && 'success' || 'failure' }}",
+            "overall_status": "${{ (needs.test-packages.result == 'success' && needs.coverage-gate.result == 'success' && needs.test-website.result == 'success' && needs.test-installed-wheels.result == 'success') && 'success' || 'failure' }}",
             "run_id": "${{ github.run_id }}",
             "commit_sha": "${{ github.sha }}",
             "branch": "${{ github.ref_name }}",
@@ -201,6 +273,7 @@ jobs:
           echo "Website Tests: ${{ needs.test-website.result }}" >> test-results/summary.txt
 
       - name: Upload test status artifact
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: test-status-${{ github.run_id }}

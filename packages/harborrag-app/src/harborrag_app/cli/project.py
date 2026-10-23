@@ -12,11 +12,12 @@ from __future__ import annotations
 import logging
 import os
 import stat
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+import typer
 import yaml
 
 logger = logging.getLogger("harborrag.app.cli.project")
@@ -25,6 +26,11 @@ logger = logging.getLogger("harborrag.app.cli.project")
 # of re-running discovery from the new CWD -- which would re-apply the safety rule to a
 # directory the user already opted into with --project.
 _ACTIVE: Project | None = None
+# Where the user stood when activation moved the process, paired with the directory it
+# moved to. Click parses argv after that chdir, so a relative path argument has to be
+# rebased onto this origin -- but only while the process is still where activation left
+# it; anything else (a later chdir, a test that never activated) means "use the CWD".
+_INVOCATION: tuple[Path, Path] | None = None
 
 PROJECT_FILE = "harborrag.yaml"
 # A repository checkout carries no harborrag.yaml but does ship catalogs under config/.
@@ -96,6 +102,12 @@ def find_project(start: Path | None = None, *, explicit: str | None = None) -> P
         if (directory / PROJECT_FILE).is_file():
             _ensure_safe(directory)
             return _load(directory)
+        if (directory / LEGACY_CONFIG_MARKER).is_file():
+            # The nearest marker wins: a checkout the user stands in must not be
+            # outranked by a stray harborrag.yaml further up (say, in ~), which would
+            # also silence the checkout's sqlite write guard. A project's own config/
+            # never reaches here, because its harborrag.yaml is checked first.
+            return None
     return None
 
 
@@ -107,7 +119,7 @@ def activate_project(project: Project) -> None:
     """
 
     global _ACTIVE  # noqa: PLW0603 - one activation per process, by design
-    os.chdir(project.root)
+    _chdir_remembering_origin(project.root)
     _ACTIVE = project
     logger.debug("Activated project %s", project.root)
     if project.env_file.is_file():
@@ -168,9 +180,54 @@ def activate_legacy_checkout(start: Path | None = None) -> Path | None:
 
     root = find_legacy_checkout(start)
     if root is not None:
-        os.chdir(root)
+        _chdir_remembering_origin(root)
         logger.debug("Activated repository checkout %s", root)
     return root
+
+
+def invocation_cwd() -> Path:
+    """The directory the user ran the command from, even after activation's chdir."""
+
+    cwd = Path.cwd()
+    if _INVOCATION is not None and _INVOCATION[1] == cwd:
+        return _INVOCATION[0]
+    return cwd
+
+
+def invocation_path(
+    *, exists: bool = False, dir_okay: bool = True
+) -> Callable[[Path | None], Path | None]:
+    """Typer callback that resolves a relative path against :func:`invocation_cwd`.
+
+    Rebasing happens before the ``exists`` check, so ``cases.jsonl`` typed in a project
+    subdirectory names that subdirectory's file, not one at the project root. The value is
+    absolute, which is also what a command should report back. This is a callback rather
+    than a ``click.Path`` subclass because Typer 0.26+ vendors Click and no longer installs
+    it, so ``harborrag-app`` must not import ``click`` itself.
+    """
+
+    def rebase(value: Path | None) -> Path | None:
+        if value is None or os.fspath(value) == "-":
+            return value
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = invocation_cwd() / path
+        if exists and not path.exists():
+            raise typer.BadParameter(f"File '{value}' does not exist.")
+        if not dir_okay and path.is_dir():
+            raise typer.BadParameter(f"File '{value}' is a directory.")
+        if exists and not os.access(path, os.R_OK):
+            raise typer.BadParameter(f"File '{value}' is not readable.")
+        return path
+
+    return rebase
+
+
+def _chdir_remembering_origin(target: Path) -> None:
+    global _INVOCATION  # noqa: PLW0603 - mirrors _ACTIVE: one activation per process
+    origin = Path.cwd()
+    os.chdir(target)
+    _INVOCATION = (origin, Path.cwd())
 
 
 def project_option_from_argv(args: Sequence[str]) -> str | None:
@@ -253,6 +310,7 @@ def _env_value(value: Any) -> str:
 
 __all__ = [
     "ENV_FILE",
+    "invocation_path",
     "LEGACY_CONFIG_MARKER",
     "PROJECT_ENV_VAR",
     "PROJECT_FILE",
@@ -267,5 +325,6 @@ __all__ = [
     "activate_project",
     "find_legacy_checkout",
     "find_project",
+    "invocation_cwd",
     "project_option_from_argv",
 ]

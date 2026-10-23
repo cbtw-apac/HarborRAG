@@ -22,6 +22,8 @@ from harborrag_memory import MemoryContextBuilder, MemoryPolicy, MemoryRecall
 pytestmark = [pytest.mark.unit]
 
 QUERY = "who owns the ingest pipeline?"
+QUERY_TERMS = ["pipeline", "ingest", "owns"]
+"""The significant terms the repository fallback searches ``QUERY`` by."""
 
 
 def recall(
@@ -65,7 +67,7 @@ async def test_recall_falls_back_to_repository_search_without_an_index(
     recalled = await recall(memories).recall(owner, QUERY)
 
     assert [memory.content for memory in recalled] == ["Dana owns ingest", "Ravi owns search"]
-    assert memories.queries[0].text == QUERY
+    assert [query.text for query in memories.queries[:3]] == QUERY_TERMS
 
 
 @pytest.mark.asyncio
@@ -102,7 +104,7 @@ async def test_recall_falls_back_to_the_repository_when_the_index_raises(
     recalled = await recall(memories, index=index, embedder=embedder).recall(owner, QUERY)
 
     assert [memory.content for memory in recalled] == ["Dana owns ingest"]
-    assert memories.queries[0].text == QUERY
+    assert [query.text for query in memories.queries[:3]] == QUERY_TERMS
 
 
 @pytest.mark.asyncio
@@ -138,13 +140,13 @@ async def test_recall_visits_scopes_in_policy_order_without_widening_the_owner(
 ) -> None:
     await recall(memories).recall(owner, QUERY)
 
-    assert [query.scopes for query in memories.queries] == [
+    assert list(dict.fromkeys(query.scopes for query in memories.queries)) == [
         (MemoryScope.USER,),
         (MemoryScope.PROJECT,),
         (MemoryScope.SESSION,),
         (MemoryScope.TENANT,),
     ]
-    assert [query.owner for query in memories.queries] == [
+    assert list(dict.fromkeys(query.owner for query in memories.queries)) == [
         MemoryOwner(tenant_id="tenant-1", user_id="user-1"),
         MemoryOwner(tenant_id="tenant-1", project_id="handbook"),
         MemoryOwner(tenant_id="tenant-1", user_id="user-1", session_id="s-1"),
@@ -234,9 +236,7 @@ async def test_builder_recalls_against_the_rewritten_standalone_query(
 
     assert context.rewritten is True
     assert [memory.content for memory in context.recalled] == ["Dana owns ingest"]
-    assert [query.text for query in memories.queries if query.text] == [
-        "Who owns the ingest pipeline?"
-    ] * 4
+    assert [query.text for query in memories.queries if query.text] == QUERY_TERMS * 4
 
 
 @pytest.mark.asyncio

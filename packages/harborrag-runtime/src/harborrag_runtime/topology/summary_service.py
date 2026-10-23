@@ -336,7 +336,10 @@ class SummaryProjectionService:
 
         A failure here must not fail the run: the cards are already accepted and
         readable, and the index is rebuilt from them on the next pass. Losing a
-        search entry point is a degraded result; losing the binding is not.
+        search entry point is a degraded result; losing the binding is not. It is
+        logged as an error all the same: until it succeeds, ``find_entities`` and
+        ``facet.*`` filters answer nothing for the scope, and a failure that repeats
+        every run must be alertable rather than a warning nobody reads.
         """
 
         if self.entity_index is None or not await self.repository.scope_current(lease):
@@ -346,9 +349,8 @@ class SummaryProjectionService:
                 lease.tenant_id, lease.source_scope_id, bindings, lease.policy.facets
             )
         except Exception:
-            logger.warning(
+            logger.exception(
                 "Entity summary index publication failed",
-                exc_info=True,
                 extra={
                     "tenant_id": lease.tenant_id,
                     "source_scope_id": lease.source_scope_id,
@@ -498,12 +500,20 @@ def _with_facets(
     fields = _node_fields(node)
     copied: dict[str, SummaryAttribute] = {}
     for facet in policy.facets:
-        value = fields.get(facet.field.strip().casefold())
-        if not value:
+        # One value per member, so ``skill_set == java`` matches a card whose
+        # Skill Set is Java and Python -- as ``fields.skill_set`` does on evidence.
+        values = tuple(
+            dict.fromkeys(
+                value[:200]
+                for member in fields.get(facet.field.strip().casefold(), ())
+                if (value := member.strip())
+            )
+        )[:24]
+        if not values:
             continue
         copied[facet.name] = SummaryAttribute(
             name=facet.name,
-            values=(value[:200],),
+            values=values,
             from_document_ids=tuple(sorted(document_ids))[:64],
         )
     if not copied:
@@ -511,27 +521,32 @@ def _with_facets(
     return card.model_copy(update={"attributes": tuple(copied.values())})
 
 
-def _node_fields(node: GraphNodeRecord) -> dict[str, str]:
+def _node_fields(node: GraphNodeRecord) -> dict[str, tuple[str, ...]]:
     """Every field a facet may name on this node, keyed case-insensitively.
 
     Standard issue attributes come first (``status``, ``priority``, ``labels``, ...):
     the pipeline stage of a candidate is the issue status, not a custom field. A
     custom field answers to its field id and to its display name alike.
+
+    Each field keeps its members: a list attribute (``labels``) as its items, and
+    a typed custom field as the lines of its text. Prose fields never reach the
+    node, so a line break in a typed field's text is where the connector joined
+    one option, user or value to the next.
     """
 
-    fields: dict[str, str] = {}
+    fields: dict[str, tuple[str, ...]] = {}
     for key, value in node.attributes.items():
         if key == "custom_fields" or value in (None, "", [], {}):
             continue
-        rendered = ", ".join(str(v) for v in value) if isinstance(value, list) else str(value)
-        fields[str(key).strip().casefold()] = rendered
+        members = tuple(str(v) for v in value) if isinstance(value, list) else (str(value),)
+        fields[str(key).strip().casefold()] = members
     rows = node.attributes.get("custom_fields")
     for row in rows if isinstance(rows, list) else ():
         if not isinstance(row, dict) or not row.get("value"):
             continue
         for key in ("field_id", "name"):
             if row.get(key):
-                fields[str(row[key]).strip().casefold()] = str(row["value"])
+                fields[str(row[key]).strip().casefold()] = tuple(str(row["value"]).splitlines())
     return fields
 
 

@@ -26,6 +26,7 @@ from harborrag_mcp_server.server.api_keys import (
     create_postgres_api_key_verifier,
 )
 from harborrag_mcp_server.server.http import (
+    create_api_key_owner_verifier,
     create_local_token_verifier,
     register_health_route,
     register_http_routes,
@@ -114,21 +115,18 @@ def _http_auth(
                 from harborrag_runtime.composition.mcp_auth import build_api_key_verification
 
                 keys = create_postgres_api_key_verifier(build_api_key_verification(settings))
-                # The loopback owner token stays valid beside the keys so the status
-                # UI can still edit configuration; leave HARBORRAG_MCP_BEARER_TOKEN
-                # unset on a deployment that must have no owner over HTTP.
-                bearer = (os.environ.get("HARBORRAG_MCP_BEARER_TOKEN") or "").strip()
-                if not bearer:
-                    return keys
-                owner = create_local_token_verifier(
-                    validate_local_http_settings(
-                        host=arguments.host,
-                        port=arguments.port,
-                        path=arguments.path,
-                        bearer_token=bearer,
-                    ),
-                    tenant_id=os.environ.get("HARBORRAG_MCP_READER_TENANT_ID", "*"),
+                # The owner token stays valid beside the keys, so the status UI can
+                # still edit configuration, only when it is bound to one explicit
+                # tenant; unset or '*', it is refused with a WARNING.
+                owner = create_api_key_owner_verifier(
+                    host=arguments.host,
+                    port=arguments.port,
+                    path=arguments.path,
+                    bearer_token=os.environ.get("HARBORRAG_MCP_BEARER_TOKEN"),
+                    tenant_id=os.environ.get("HARBORRAG_MCP_READER_TENANT_ID"),
                 )
+                if owner is None:
+                    return keys
                 print("MCP owner token enabled alongside reader keys.", file=sys.stderr)
                 return create_composite_verifier([owner, keys])
             raise ValueError("HARBORRAG_MCP_KEY_STORE must be postgres or file")

@@ -71,3 +71,19 @@ def repository_path(relative_path: str) -> Path:
     """Resolve a repository-relative release path without depending on cwd."""
 
     return REPOSITORY_ROOT / relative_path
+
+
+def release_tag(package_name: str, version: str) -> str:
+    """Return the Git tag for one package release: ``<package-name>-v<version>``.
+
+    CI workflows and the website match this convention by pattern, so tests
+    assert those copies against this function.
+    """
+
+    return f"{package_name}-v{version}"
+
+
+def release_name(package_name: str, version: str) -> str:
+    """Return the public GitHub release title for one package release."""
+
+    return f"{package_name} v{version}"

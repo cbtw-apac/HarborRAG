@@ -127,6 +127,46 @@ async def test_cleanup_removes_retired_vector_and_graph_projections(
 
 
 @pytest.mark.asyncio
+async def test_a_tenant_wide_cleanup_drain_leaves_other_tenants_jobs_pending(
+    tmp_path: Path,
+) -> None:
+    """Another tenant's drain must not claim and complete this tenant's job.
+
+    It ran under the wrong storage context, so it deleted nothing, yet marked
+    the job COMPLETED; retention then purged the manifest and the retired
+    projections were orphaned for good.
+    """
+
+    control = build_control_plane(tmp_path)
+    resources = build_release_resources(control)
+    connector = SourceConnector()
+    async with control, resources.store:
+        dependencies = build_dependencies(resources)
+        service = DocumentReleaseService(dependencies)
+        await service.provision(tenant_id="default")
+        first = await service.release(release_request(source_version="1"), connector)
+        connector.labels = ["production"]
+        await service.release(
+            release_request(
+                source_version="1",
+                discovery_decision=SourceAdmissionDecision.METADATA_CHANGED,
+            ),
+            connector,
+        )
+
+        result = await ProjectionCleanupService(
+            control=control,
+            vector_store=dependencies.vector_store,
+            graph_store=resources.graph,
+        ).run_pending(tenant_id="tenant-other")
+
+        job = await control.reliability.cleanup_for_version(str(first.document_version_id))
+        assert result.claimed == 0
+        assert job is not None
+        assert job.status == CleanupJobState.PENDING
+
+
+@pytest.mark.asyncio
 async def test_metadata_update_encodes_fresh_when_previous_chunks_are_missing(
     tmp_path: Path,
 ) -> None:

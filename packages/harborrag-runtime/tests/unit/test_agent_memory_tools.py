@@ -247,7 +247,8 @@ async def test_search_memory_cannot_see_another_callers_memories() -> None:
 @pytest.mark.asyncio
 async def test_manage_memory_records_for_the_bound_owner_and_is_add_only() -> None:
     memories = _Memories()
-    provider = _provider(memories)
+    # Project-scope writes are opt-in; this test records a project memory.
+    provider = _provider(memories, settings=RuntimeSettings(memory_extraction_project_scope=True))
 
     first = await provider.call_tool(
         "manage_memory",

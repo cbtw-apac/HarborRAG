@@ -9,8 +9,10 @@ rotated refresh token Microsoft identity returns.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -71,7 +73,12 @@ class DelegatedTokenCache:
         return token
 
     def save(self, refresh_token: str, *, account: str | None = None) -> None:
-        """Atomically write the refresh token with owner-only file permissions."""
+        """Atomically write the refresh token with owner-only file permissions.
+
+        Each write gets its own exclusively created, owner-only temporary file,
+        so concurrent saves never share or truncate one, and a file another
+        user pre-created in the cache directory is never written through.
+        """
         self.path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
             "tenant_id": self.tenant_id,
@@ -80,11 +87,17 @@ class DelegatedTokenCache:
             "refresh_token": refresh_token,
             "saved_at": int(time.time()),
         }
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
-            json.dump(payload, handle)
-        os.replace(temporary, self.path)
+        descriptor, temporary = tempfile.mkstemp(
+            dir=self.path.parent, prefix=f"{self.path.name}.", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            os.replace(temporary, self.path)
+        except BaseException:
+            with contextlib.suppress(OSError):
+                os.unlink(temporary)
+            raise
 
     def clear(self) -> None:
         """Delete the stored sign-in, e.g. when access is revoked."""

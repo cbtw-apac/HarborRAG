@@ -171,9 +171,15 @@ How it works:
 - The tenant comes from the stored row, never from the client: a call naming
   another `tenant_id` is refused. In the status UI a reader key can load and
   run its own tenant's tools; the configuration editor and API stay owner-only.
-  In `api_key` mode the loopback owner token from `env/.env.mcp` keeps working
-  beside the keys for exactly that; leave it unset on a deployment that must
-  have no owner over HTTP.
+  In `api_key` mode the owner token from `env/.env.mcp` keeps working beside
+  the keys for exactly that, but only when `HARBORRAG_MCP_READER_TENANT_ID`
+  names one tenant. The token never expires and cannot be revoked, and a TLS
+  proxy forwards remote callers to the loopback listener, so it is not allowed
+  to read every tenant. If the variable is unset or `*`, the server starts with
+  reader keys only and logs a `WARNING`; set
+  `HARBORRAG_MCP_READER_TENANT_ID=<tenant>` and restart to get the
+  configuration editor back. Leave `HARBORRAG_MCP_BEARER_TOKEN` unset on a
+  deployment that must have no owner over HTTP.
 - Creation and revocation are recorded in the `activity` table. Rotation is
   create-new, switch the client, revoke-old; there is no automatic rotation.
 
@@ -184,7 +190,13 @@ credentials. Run it from the checkout root and it reads `env/.env.database`
 otherwise fall back to the local SQLite default, which no MCP server reads.
 The previous file-backed key list
 (`config/mcp_keys.yaml` with hashes in environment variables) still works with
-`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it.
+`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it. The server
+validates that file strictly at startup and re-reads it whenever it changes. On a
+re-read, an entry it cannot use (for example, a new key whose hash variable this
+process was not started with) is skipped with a `WARNING` while the other keys keep
+working. If the file is missing, empty or cannot be parsed, every key is denied and
+an `ERROR` is logged until the file parses again, so a revocation saved with a typo
+never leaves the revoked key live.
 
 `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default and requires current
 source and document ACL snapshots. Set it to `tenant_shared` only for a tenant
@@ -316,7 +328,9 @@ automatically once the missing document lands.
 
 1. Open `http://127.0.0.1:8010/`.
 2. Enter the bearer token from `env/.env.mcp`, or a reader key issued by
-   `harborrag auth keys create` (server in `api_key` mode).
+   `harborrag auth keys create` (server in `api_key` mode). In `api_key` mode
+   the bearer token is accepted only when `HARBORRAG_MCP_READER_TENANT_ID`
+   names one tenant.
 3. Enter a tenant ID and select **Load tools**. Leave it blank to use the
    tenant bound to the token: `HARBORRAG_MCP_READER_TENANT_ID` for the owner
    token, the key's own tenant for a reader key, which cannot pick another.
@@ -531,6 +545,14 @@ The configuration fails closed. It rejects:
 - stale revisions
 - limits above compiled safety ceilings
 
+One exception keeps an upgrade from stopping the server. When `config/mcp.yaml` is
+read at startup or on reload, a numeric default or limit above a tool's compiled
+safety ceiling is lowered to that ceiling and logged as a `WARNING` that names the
+tool and field. For example, the graph tools now cap `max_depth` at 4 and
+`max_paths` at 5, so the alpha1 file's `max_depth: 8` and `max_paths: 20` load as
+4 and 5. Lower the values in the file to silence the warning. Saving through the
+editor still rejects them.
+
 Change audits store only old/new revision hashes and the authenticated
 principal.
 
@@ -699,7 +721,9 @@ Restart the process after saving to refresh what clients see in `tools/list`.
 
 The configuration fails closed: it rejects unknown tools or fields, invalid
 types, defaults for required or tenant identity fields, stale revisions, and
-limits above compiled safety ceilings. Change audits store only old/new
+limits above compiled safety ceilings. A file loaded at startup or on reload is the
+one exception: a numeric default or limit above its ceiling is lowered to the
+ceiling with a `WARNING` (see [Validation](#validation)). Change audits store only old/new
 revision hashes and the authenticated principal.
 
 Environment overrides are applied after the file and are not written back:

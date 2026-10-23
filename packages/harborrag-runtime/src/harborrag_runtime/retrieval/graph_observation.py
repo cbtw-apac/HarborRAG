@@ -22,15 +22,16 @@ logger = logging.getLogger("harborrag.runtime.retrieval")
 # results it covers. The cap bounds the fan-out for large top_k.
 _GRAPH_SEED_LIMIT = 10
 # Depth 2 is exactly what provenance needs: a chunk reaches its Structure in one hop
-# (:Chunk)-[:SUPPORTS]->(:Structure) and the owning DocumentVersion in a second
+# (:Structure)-[:HAS_CHUNK]->(:Chunk) and the owning DocumentVersion in a second
 # (:DocumentVersion)-[:CONTAINS]->(:Structure). Depth 4 paid for two more hops the summary
 # never read. Note this is not a net saving -- raising the seed count from 3 to 10
 # outweighs the shallower walk (measured ~0.6ms -> ~2.2ms of FalkorDB time on a 3.2k-node
 # graph). The traversals are gathered concurrently, and observation is opt-in.
 _GRAPH_OBSERVE_DEPTH = 2
 _GRAPH_OBSERVE_MAX_NODES = 100
-# Undirected: SUPPORTS points from the chunk into the spine while CONTAINS points down
-# it, so a directed walk cannot reach a chunk's own document.
+# Undirected: HAS_CHUNK and CONTAINS both point down the spine towards the chunk, so an
+# outgoing walk from a chunk seed cannot reach its own document, and memory seeds are
+# arbitrary graph nodes whose relations point either way.
 _GRAPH_OBSERVE_DIRECTION = "both"
 # Caller-supplied seeds (the graph entities this session's recalled memories
 # reference) get their own allowance *on top of* the result-seed budget rather

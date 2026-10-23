@@ -11,7 +11,7 @@ from harborrag_core.security.field_names import (
     SENSITIVE_FIELD_TOKENS,
     is_sensitive_field_name,
 )
-from harborrag_core.security.redaction import redact_secrets
+from harborrag_core.security.redaction import redact_mapping, redact_secrets
 
 
 @pytest.mark.parametrize(
@@ -55,6 +55,11 @@ def test_a_credential_field_is_recognized(name: str) -> None:
         "tokenizer_name",
         "nickname",
         "keyspace",
+        "secretary",
+        # Flags and reference maps that name credentials without holding one.
+        "allow_ambient_credentials",
+        "supports_ambient_credentials",
+        "secrets",
     ],
 )
 def test_a_quantity_is_not_mistaken_for_a_credential(name: str) -> None:
@@ -84,6 +89,58 @@ def test_the_newly_shared_names_are_refused_by_configuration(name: str) -> None:
 def test_a_secret_reference_is_still_the_way_to_carry_one() -> None:
     validate_secret_free_config({"private_key": "secret://vault/key"})
     validate_secret_free_config({"passwd": {"secret_ref": "secret://vault/pw"}})
+
+
+_UNSEPARATED_CREDENTIAL_NAMES = [
+    "apikey",
+    "APIKEY",
+    "x-apikey",
+    "accesskey",
+    "privatekey",
+    "accesstoken",
+    "clientsecret",
+    "authtoken",
+    "secretkey",
+    "passWord",
+    "api_keys",
+]
+
+
+@pytest.mark.parametrize("name", _UNSEPARATED_CREDENTIAL_NAMES)
+def test_a_credential_name_written_as_one_word_is_recognized(name: str) -> None:
+    """Token matching needed separators, so ``apikey`` passed as plain config."""
+
+    assert is_sensitive_field_name(name) is True
+
+
+@pytest.mark.parametrize("name", _UNSEPARATED_CREDENTIAL_NAMES)
+def test_a_credential_name_written_as_one_word_is_refused_and_redacted(name: str) -> None:
+    with pytest.raises(ValueError, match="secret reference"):
+        validate_secret_free_config({name: "raw-value"})
+    error = HarborModelError("failed", metadata={name: "raw-value"})
+    assert error.to_dict()["metadata"][name] == "<redacted>"
+    assert redact_mapping({name: "raw-value"})[name] == "<redacted>"
+
+
+@pytest.mark.parametrize("name", ["api.key", "api key", "Private Key", "access.key", "api__key"])
+def test_mapping_redaction_uses_the_shared_definition(name: str) -> None:
+    """``redact_mapping`` kept its own pattern, which had drifted from the set."""
+
+    assert redact_mapping({name: "raw-value"})[name] == "<redacted>"
+
+
+@pytest.mark.parametrize(
+    "name", ["credentials", "vertex_credentials", "secrets", "client_secrets", "mysecretvalue"]
+)
+def test_mapping_redaction_still_masks_what_its_pattern_caught(name: str) -> None:
+    """Masking output is not configuration validation: over-masking is harmless.
+
+    The predicate leaves plurals and mid-word forms alone so flags such as
+    ``allow_ambient_credentials`` stay storable, but a response must not lose
+    the masking the free-text pattern already gave these keys.
+    """
+
+    assert redact_mapping({name: "raw-value"})[name] == "<redacted>"
 
 
 def test_every_consumer_agrees_on_one_definition() -> None:

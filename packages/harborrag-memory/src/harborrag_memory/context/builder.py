@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 
 from harborrag_core.base import utc_now
@@ -29,16 +29,36 @@ from .condenser import condense_question
 from .entities import unique_ids
 from .model import MemoryModelLike
 from .policy import MemoryPolicy
+from .prompting import clip_message
 from .recall import MemoryRecall
 from .result import MemoryContext
-from .summarizer import LAST_COVERED_KEY, SummaryRecord, recall_owner, summarize
+from .summarizer import (
+    LAST_COVERED_KEY,
+    SummaryRecord,
+    legacy_summary_memory_id,
+    recall_owner,
+    summarize,
+    summary_memory_id,
+)
 from .tokens import approximate_tokens
 from .trimming import TokenCounter, keep_boundary, total_tokens, trim_window
 
 logger = logging.getLogger(__name__)
 
 MAX_SUMMARY_CATCHUP_PAGES = 4
+SUMMARY_LOOKUP_LIMIT = 5
+"""Room for the hashed summary row plus a legacy ``summary:{session_id}`` one."""
+
 """Bound history reads and summary model calls per build; later turns resume."""
+
+SUMMARY_INPUT_MAX_TOKENS = 6_000
+"""Transcript tokens one summary call folds in; the rest waits for the next call.
+
+Message count alone does not bound the prompt: a catch-up page holds up to a
+thousand messages, and a single message may be a pasted log. A prompt that
+overflows the memory model fails on every turn, so the frontier would never
+move; capping the covered prefix keeps every call answerable.
+"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +73,21 @@ class _WindowState:
 
 def _identity(owner: MemoryOwner) -> ConversationIdentity:
     return conversation_identity(owner, subject="per-turn memory context")
+
+
+def summary_prefix(messages: Sequence[ConversationMessage], counter: TokenCounter) -> int:
+    """Length of the longest prefix one summary call can take, never below one.
+
+    Messages are costed as the summarizer renders them -- clipped -- so even a
+    single oversized message is summarized and the frontier moves past it.
+    """
+
+    used = 0
+    for index, message in enumerate(messages):
+        used += counter(clip_message(message.content))
+        if index > 0 and used > SUMMARY_INPUT_MAX_TOKENS:
+            return index
+    return len(messages)
 
 
 class MemoryContextBuilder:
@@ -183,7 +218,7 @@ class MemoryContextBuilder:
             owner=recall_owner(owner),
             scopes=(MemoryScope.SESSION,),
             memory_types=(MemoryType.SUMMARY,),
-            limit=1,
+            limit=SUMMARY_LOOKUP_LIMIT,
         )
         try:
             found = await self._memories.search(query)
@@ -192,7 +227,40 @@ class MemoryContextBuilder:
             return None
         now = self._clock()
         valid = [memory for memory in found if memory.is_valid_at(now)]
-        return max(valid, key=lambda memory: memory.updated_at) if valid else None
+        legacy_id = legacy_summary_memory_id(owner.session_id or "")
+        legacy = next((memory for memory in valid if memory.memory_id == legacy_id), None)
+        current = [memory for memory in valid if memory.memory_id != legacy_id]
+        latest = max(current, key=lambda memory: memory.updated_at) if current else None
+        if legacy is None:
+            return latest
+        return await self._retire_legacy_summary(legacy, latest, now)
+
+    async def _retire_legacy_summary(
+        self, legacy: Memory, current: Memory | None, now: datetime
+    ) -> Memory:
+        """Carry a pre-hash ``summary:{session_id}`` row forward, then delete it.
+
+        The row's id is the old global key, so it would otherwise linger with
+        no expiry. Its content moves to the hashed id when no hashed row exists
+        yet; either way the legacy row is deleted. A failure keeps the turn
+        working on whichever summary was loaded and retries on a later turn.
+        """
+
+        if self._memories is None:
+            return current or legacy
+        kept = current or replace(
+            legacy,
+            memory_id=summary_memory_id(legacy.owner),
+            expires_at=self._policy.retention.expires_at(MemoryScope.SESSION, now),
+        )
+        try:
+            if current is None:
+                await self._memories.save(kept)
+            await self._memories.delete(legacy.owner, legacy.memory_id)
+        except Exception:
+            logger.warning("retiring a legacy rolling session summary failed", exc_info=True)
+            return current or legacy
+        return kept
 
     async def _refresh_summary(
         self,
@@ -234,7 +302,7 @@ class MemoryContextBuilder:
                 return _WindowState(tuple(recent), stored.content if stored else None, written)
             if not pending:
                 return _WindowState((), stored.content if stored else None, written)
-            if pending[-1].message_id in visited:
+            if any(message.message_id in visited for message in pending):
                 logger.warning("unsummarized history cursor did not advance")
                 return _WindowState(tuple(recent), stored.content if stored else None, written)
             last = next(
@@ -252,7 +320,8 @@ class MemoryContextBuilder:
             if state.record is None:
                 return _WindowState(tuple(recent), state.summary, written)
             stored = state.record
-            frontier = pending[-1].message_id
+            # The covered prefix may stop short of the page under the token cap.
+            frontier = str(stored.metadata[LAST_COVERED_KEY])
             visited.add(frontier)
             written = True
         return _WindowState(tuple(recent), stored.content if stored else None, written)
@@ -282,6 +351,7 @@ class MemoryContextBuilder:
         if not force and total_tokens(recent, self._count) <= budget:
             return unchanged
         boundary = len(recent) if force else keep_boundary(recent, policy.summary_keep_messages)
+        boundary = min(boundary, summary_prefix(recent[:boundary], self._count))
         covered = tuple(recent[:boundary])
         if not covered:
             return unchanged
@@ -289,13 +359,15 @@ class MemoryContextBuilder:
             summary = await summarize(self._model, prior=prior, messages=covered)
             if not summary:
                 return unchanged
+            now = self._clock()
             record = SummaryRecord(
                 # Session ownership excludes credential/project context. Keep
                 # the original provenance when refreshing the existing row.
                 owner=stored.owner if stored is not None else recall_owner(owner),
                 summary=summary,
                 covered=covered,
-                now=self._clock(),
+                now=now,
+                expires_at=policy.retention.expires_at(MemoryScope.SESSION, now),
             ).to_memory()
             await self._memories.save(record)
         except Exception:

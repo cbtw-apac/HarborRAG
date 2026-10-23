@@ -21,7 +21,7 @@
 
 ---
 
-> **Release Note** `2.0.0a1` is the new public release. It is built for local
+> **Release Note** `2.0.0a2` is the current public release. It is built for local
 > development, integration testing, and controlled single-host staging. A hardened
 > multi-tenant production topology is not supplied yet - see
 > [Where HarborRAG is production-ready](#where-harborrag-is-production-ready).
@@ -738,28 +738,6 @@ Maintainers: the publication sequence lives in
 - **Questions and ideas** - [GitHub Discussions](https://github.com/cbtw-apac/HarborRAG/discussions)
 - **Bugs and feature requests** - [GitHub Issues](https://github.com/cbtw-apac/HarborRAG/issues)
 - **Security** - do not open a public issue; follow [SECURITY.md](SECURITY.md)
-
-<details markdown="1">
-<summary><strong>Coming from Qdrant Loader?</strong></summary>
-
-HarborRAG 2.0 is Qdrant Loader, renamed and restructured from a single Qdrant-coupled
-ingestion tool into a provider-agnostic framework. Qdrant is now one vector adapter among
-several rather than the hardwired store.
-
-This is a **breaking** change. Import paths, distribution names, CLI commands, and
-configuration keys from `qdrant-loader` do not carry over. The closest equivalents:
-
-| Qdrant Loader | HarborRAG |
-| --- | --- |
-| `qdrant-loader` | `harborrag-app` for the CLI, or `harborrag` as the library facade |
-| `qdrant-loader-core` | `harborrag-core`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, and `harborrag-adapters` |
-| `qdrant-loader-mcp-server` | `harborrag-mcp-server` |
-
-There is no automated migration path from a 1.x deployment: reconfigure connectors,
-parsers, and models against the new catalogs in [`config/`](config/), then reingest. The
-[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) records the full migration boundary.
-
-</details>
 
 ## License
 

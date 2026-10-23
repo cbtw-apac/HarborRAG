@@ -23,7 +23,7 @@ help:
 	@echo "  make file-length      Require every Python file to stay at most 1000 lines"
 	@echo "  make import-boundaries Run import-linter architecture contracts"
 	@echo "  make format           Format and fix imports with Ruff"
-	@echo "  make typecheck        Run mypy across packages"
+	@echo "  make typecheck        Run mypy across packages and release tooling"
 	@echo "  make compile          Compile package and script Python files"
 	@echo ""
 	@echo "Diagnostics:"
@@ -82,7 +82,7 @@ format:
 	ruff check --fix --ignore C901,PLR0913 .
 
 typecheck:
-	mypy packages
+	mypy packages release_support release.py
 
 compile:
 	$(PYTHON) -m compileall -q packages scripts

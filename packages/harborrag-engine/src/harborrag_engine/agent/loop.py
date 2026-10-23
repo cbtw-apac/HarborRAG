@@ -86,6 +86,14 @@ class AgentLoopRunner:
         await emit(
             context.events, AgentEvent("run.started", context.identity.run_id, {"step": state.step})
         )
+        # The checkpoint version the COMPLETED save is written at. ``persist``
+        # bumps ``state.version`` the moment that save returns, so once the
+        # version has moved past it the run is finished -- even if a cancel
+        # lands before the commit call returns here. A cancellation (an SSE
+        # client leaving while the answer is written to memory) or an error
+        # after that point must still propagate, but must not overwrite the
+        # committed answer with a resumable CANCELLED or FAILED checkpoint.
+        commit_version: int | None = None
         try:
             stop_reason, final_response, calls_made = await self._run_until_stop(
                 context, state, tool_definitions, allowed_tools
@@ -93,7 +101,9 @@ class AgentLoopRunner:
             final_response, calls_made = await self._ensure_final_response(
                 context, state, stop_reason, final_response, calls_made
             )
-            return await self._lifecycle.complete(
+            commit_version = state.version
+            await self._lifecycle.commit_completion(context, state, stop_reason, final_response)
+            return await self._lifecycle.publish_completion(
                 context, state, stop_reason, final_response, calls_made
             )
         except asyncio.CancelledError:
@@ -103,11 +113,13 @@ class AgentLoopRunner:
             # ``Exception``, not ``BaseException``: the shielded persist failing
             # must not stop cancellation propagating, but a KeyboardInterrupt or
             # SystemExit raised inside it is not this handler's to discard.
-            with contextlib.suppress(Exception):
-                await asyncio.shield(self._lifecycle.record_cancellation(context, state))
+            if not _committed(state, commit_version):
+                with contextlib.suppress(Exception):
+                    await asyncio.shield(self._lifecycle.record_cancellation(context, state))
             raise
         except Exception as error:
-            await self._lifecycle.record_failure(context, state, error)
+            if not _committed(state, commit_version):
+                await self._lifecycle.record_failure(context, state, error)
             raise
 
     async def _run_until_stop(
@@ -368,6 +380,12 @@ class AgentLoopRunner:
                 {"step": state.step, "tool": execution.tool, "ok": execution.ok},
             ),
         )
+
+
+def _committed(state: LoopState, commit_version: int | None) -> bool:
+    """Whether the COMPLETED checkpoint saved at ``commit_version`` has landed."""
+
+    return commit_version is not None and state.version > commit_version
 
 
 __all__ = ["AgentLoopRunner"]

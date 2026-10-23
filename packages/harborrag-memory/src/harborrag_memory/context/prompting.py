@@ -12,6 +12,16 @@ from harborrag_core.ports.conversation import ConversationMessage
 from .model import MemoryModel, MemoryModelLike
 from .prompts import NO_MESSAGES_PLACEHOLDER
 
+TRANSCRIPT_MESSAGE_MAX_CHARS = 8_000
+"""Longest message a memory prompt renders whole, roughly 2,000 tokens.
+
+A pasted log or an unbounded assistant answer would otherwise push a summary,
+condense, or extraction prompt past the memory model's context window on every
+turn that covers it, so a longer message keeps its head and tail instead.
+"""
+
+ELISION_MARKER = "\n[... {omitted} characters omitted ...]\n"
+
 _ROLE_LABELS = {
     "user": "User",
     "assistant": "Assistant",
@@ -69,15 +79,39 @@ def content_text(content: Any) -> str:
     return ""
 
 
+def clip_message(text: str, max_chars: int = TRANSCRIPT_MESSAGE_MAX_CHARS) -> str:
+    """Return ``text`` stripped, keeping its head and tail when it is too long."""
+
+    text = text.strip()
+    if len(text) <= max_chars:
+        return text
+    head = max_chars // 2
+    tail = max_chars - head
+    omitted = len(text) - head - tail
+    return f"{text[:head]}{ELISION_MARKER.format(omitted=omitted)}{text[-tail:]}"
+
+
 def render_transcript(messages: Iterable[ConversationMessage]) -> str:
-    """Render conversation rows as labelled oldest-first transcript lines."""
+    """Render conversation rows as labelled oldest-first transcript lines.
+
+    Each message is clipped by ``clip_message``, so one huge message cannot
+    make the prompt it lands in unanswerable.
+    """
 
     lines = [
-        f"{_ROLE_LABELS.get(message.role, message.role)}: {message.content.strip()}"
+        f"{_ROLE_LABELS.get(message.role, message.role)}: {clip_message(message.content)}"
         for message in messages
         if message.content.strip()
     ]
     return "\n".join(lines) if lines else NO_MESSAGES_PLACEHOLDER
 
 
-__all__ = ["content_text", "generate_text", "message_text", "render_transcript"]
+__all__ = [
+    "ELISION_MARKER",
+    "TRANSCRIPT_MESSAGE_MAX_CHARS",
+    "clip_message",
+    "content_text",
+    "generate_text",
+    "message_text",
+    "render_transcript",
+]
