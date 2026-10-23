@@ -3,7 +3,7 @@
 from pathlib import Path
 
 import pytest
-from release_support import checks, cli, releases, versioning, versions, workflows
+from release_support import checks, cli, config, releases, versions, workflows
 from release_support.diagnostics import redact_diagnostic
 from release_support.github_api import GitHubRequestError, GitHubResponse
 
@@ -49,8 +49,10 @@ def test_release_diagnostics_redact_tokens_and_url_credentials() -> None:
 
 
 def test_github_token_accepts_the_gh_cli_environment_name(
-    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # Keep a developer's repository .env from supplying GITHUB_TOKEN.
+    monkeypatch.setattr(checks, "REPOSITORY_ROOT", tmp_path)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("GH_TOKEN", "token-from-gh-cli-environment")
 
@@ -64,7 +66,7 @@ def test_github_token_accepts_the_gh_cli_environment_name(
 def test_version_bumps_normalize_short_pep440_releases(
     current: str, bump: int, expected: str
 ) -> None:
-    assert versioning.calculate_new_version(current, bump) == expected
+    assert versions.calculate_new_version(current, bump) == expected
 
 
 def test_classifier_update_supports_single_quoted_toml(
@@ -77,13 +79,13 @@ def test_classifier_update_supports_single_quoted_toml(
         encoding="utf-8",
     )
     monkeypatch.setitem(
-        versioning.PACKAGES,
+        versions.PACKAGES,
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
-    monkeypatch.setattr(versioning, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
-    versioning.update_development_status_classifier("sample", "2.1.0b1")
+    versions.update_development_status_classifier("sample", "2.1.0b1")
 
     assert "'Development Status :: 4 - Beta'" in pyproject.read_text(encoding="utf-8")
 
@@ -107,6 +109,23 @@ def test_changelog_gate_requires_unreleased_before_release(
     monkeypatch.setattr(checks, "REPOSITORY_ROOT", tmp_path)
 
     assert not checks.check_changelog_updated("2.0.0", dry_run=True)
+
+
+def test_release_notes_for_the_oldest_version_exclude_link_references(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    (tmp_path / "CHANGELOG.md").write_text(
+        "# Changelog\n\n## [Unreleased]\n\n"
+        "## [2.1.0] - 2026-09-01\n\n- Newer.\n\n"
+        "## [2.0.0] - 2026-08-14\n\n- First.\n\n"
+        "[2.1.0]: https://example.test/compare/v2.0.0...v2.1.0\n"
+        "[2.0.0]: https://example.test/releases/tag/v2.0.0\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(checks, "REPOSITORY_ROOT", tmp_path)
+
+    assert checks.extract_changelog_for_version("2.0.0") == "- First."
+    assert checks.extract_changelog_for_version("2.1.0") == "- Newer."
 
 
 def test_matching_retry_tags_are_accepted(monkeypatch: pytest.MonkeyPatch) -> None:

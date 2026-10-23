@@ -36,6 +36,9 @@ class LinkChecker:
         self.checked_links = set()
         self.dead_links = []
         self.broken_links = defaultdict(list)  # page -> [broken_links]
+        # Why the start page could not be read. Every other crawled page is
+        # also checked as a link, so only this failure would otherwise pass.
+        self.start_page_error = None
         self.session = requests.Session()
         self.session.headers.update({"User-Agent": "HarborRAG-Link-Checker/1.0"})
 
@@ -208,6 +211,8 @@ class LinkChecker:
             response = self.session.get(url, timeout=10)
             if response.status_code != 200:
                 print(f"{'  ' * depth}⚠️  Page returned {response.status_code}: {url}")
+                if depth == 0:
+                    self.start_page_error = f"HTTP {response.status_code}"
                 return []
 
             links = self.extract_links_from_html(response.text, url)
@@ -225,6 +230,8 @@ class LinkChecker:
 
         except requests.exceptions.RequestException as e:
             print(f"{'  ' * depth}❌ ERROR crawling {url}: {e}")
+            if depth == 0:
+                self.start_page_error = str(e)
             return []
 
     def report_link(self, link, found_on, depth):
@@ -280,6 +287,11 @@ class LinkChecker:
         print(f"🌐 Pages crawled: {len(self.visited_urls)}")
         print(f"🔗 Links checked: {len(self.checked_links)}")
         print(f"❌ Broken links found: {len(self.dead_links)}")
+
+        if self.start_page_error:
+            print(f"\n💥 Could not read the start page {self.base_url}: {self.start_page_error}")
+            print("   No links were checked; is the site being served at that URL?")
+            return False
 
         if self.dead_links:
             print("\n💥 BROKEN LINKS DETAILS:")

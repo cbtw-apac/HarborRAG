@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import tomllib
 from pathlib import Path
 
 import pytest
 import release
 from click.testing import CliRunner
-from release_support import checks, cli, metadata, versioning, versions
+from release_support import checks, cli, config, metadata, versions
 from release_support.cli import release as release_command
 from release_support.config import PRIMARY_PACKAGE, WORKSPACE_PACKAGE
 
@@ -28,12 +29,18 @@ PUBLIC_PACKAGES = {
 }
 
 
-def test_release_entrypoint_loads_the_current_workspace() -> None:
-    assert set(release.PACKAGES) == PUBLIC_PACKAGES | {WORKSPACE_PACKAGE}
-    assert release.get_current_version() == CURRENT_VERSION
-    assert set(release.get_all_package_versions().values()) == {CURRENT_VERSION}
+def test_release_script_exposes_the_click_command() -> None:
+    """The documented ``python release.py`` entry point must stay the CLI."""
 
-    ordered = release.get_packages_for_release()
+    assert release.release is release_command
+
+
+def test_release_entrypoint_loads_the_current_workspace() -> None:
+    assert set(config.PACKAGES) == PUBLIC_PACKAGES | {WORKSPACE_PACKAGE}
+    assert versions.get_current_version() == CURRENT_VERSION
+    assert set(versions.get_all_package_versions().values()) == {CURRENT_VERSION}
+
+    ordered = versions.get_packages_for_release()
     assert set(ordered) == PUBLIC_PACKAGES
     assert ordered[-1] == PRIMARY_PACKAGE
     assert "harborrag-memory" in ordered
@@ -54,7 +61,7 @@ def test_release_cli_help_and_dry_sync_are_non_mutating() -> None:
 
 
 def test_release_cli_preparation_dry_run_never_publishes() -> None:
-    candidate = release.calculate_new_version(CURRENT_VERSION, 3)
+    candidate = versions.calculate_new_version(CURRENT_VERSION, 3)
     result = CliRunner().invoke(
         release_command,
         ["--dry-run", "--bump", "patch"],
@@ -100,15 +107,15 @@ def test_release_cli_publish_mode_uses_the_reviewed_current_version(
     ],
 )
 def test_calculate_new_version(current: str, bump: int, expected: str) -> None:
-    assert release.calculate_new_version(current, bump) == expected
+    assert versions.calculate_new_version(current, bump) == expected
 
 
 def test_calculate_new_version_validates_explicit_versions() -> None:
-    assert release.calculate_new_version("2.0.0", 5, "2.1.0rc1") == "2.1.0rc1"
+    assert versions.calculate_new_version("2.0.0", 5, "2.1.0rc1") == "2.1.0rc1"
     with pytest.raises(ValueError, match="Custom version"):
-        release.calculate_new_version("2.0.0", 5, "release-next")
+        versions.calculate_new_version("2.0.0", 5, "release-next")
     with pytest.raises(ValueError, match="Unknown bump"):
-        release.calculate_new_version("2.0.0", 9)
+        versions.calculate_new_version("2.0.0", 9)
 
 
 @pytest.mark.parametrize(
@@ -125,7 +132,7 @@ def test_calculate_new_version_validates_explicit_versions() -> None:
 def test_calculate_new_version_normalizes_friendly_prerelease_aliases(
     friendly: str, canonical: str
 ) -> None:
-    assert release.calculate_new_version("1.0.3", 5, friendly) == canonical
+    assert versions.calculate_new_version("1.0.3", 5, friendly) == canonical
 
 
 def test_publish_dry_run_exits_nonzero_when_a_gate_fails(
@@ -175,6 +182,64 @@ def test_typescript_release_metadata_uses_npm_semver(
     assert '"version": "2.0.0-alpha.1"' in package_json.read_text(encoding="utf-8")
 
 
+def _write_package_lock(path: Path, version: str) -> None:
+    payload = {
+        "name": "client",
+        "version": version,
+        "lockfileVersion": 3,
+        "packages": {
+            "": {"name": "client", "version": version},
+            "node_modules/dep": {"version": "1.0.0"},
+        },
+    }
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def test_typescript_lock_versions_follow_the_package(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text('{"name": "client", "version": "2.0.0"}\n', encoding="utf-8")
+    _write_package_lock(tmp_path / "package-lock.json", "2.0.0")
+    monkeypatch.setattr(metadata, "TYPESCRIPT_PACKAGE", package_json)
+
+    metadata.update_typescript_version("2.0.0a1")
+
+    lock = json.loads((tmp_path / "package-lock.json").read_text(encoding="utf-8"))
+    assert lock["version"] == "2.0.0-alpha.1"
+    assert lock["packages"][""]["version"] == "2.0.0-alpha.1"
+    assert lock["packages"]["node_modules/dep"]["version"] == "1.0.0"
+
+
+def test_stale_typescript_lock_is_repaired_when_the_package_already_matches(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text('{"name": "client", "version": "2.0.0-alpha.1"}\n', encoding="utf-8")
+    _write_package_lock(tmp_path / "package-lock.json", "2.0.0")
+    monkeypatch.setattr(metadata, "TYPESCRIPT_PACKAGE", package_json)
+
+    metadata.update_typescript_version("2.0.0a1")
+
+    lock = json.loads((tmp_path / "package-lock.json").read_text(encoding="utf-8"))
+    assert lock["version"] == lock["packages"][""]["version"] == "2.0.0-alpha.1"
+
+
+def test_typescript_lock_dry_run_leaves_the_file_untouched(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    package_json = tmp_path / "package.json"
+    package_json.write_text('{"name": "client", "version": "2.0.0"}\n', encoding="utf-8")
+    lock_path = tmp_path / "package-lock.json"
+    _write_package_lock(lock_path, "2.0.0")
+    before = lock_path.read_text(encoding="utf-8")
+    monkeypatch.setattr(metadata, "TYPESCRIPT_PACKAGE", package_json)
+
+    metadata.update_typescript_version("2.0.0a1", dry_run=True)
+
+    assert lock_path.read_text(encoding="utf-8") == before
+
+
 @pytest.mark.parametrize(
     "remote",
     [
@@ -184,12 +249,12 @@ def test_typescript_release_metadata_uses_npm_semver(
     ],
 )
 def test_extract_repo_info_accepts_supported_github_remotes(remote: str) -> None:
-    assert release.extract_repo_info(remote) == "cbtw-apac/HarborRAG"
+    assert checks.extract_repo_info(remote) == "cbtw-apac/HarborRAG"
 
 
 def test_extract_repo_info_rejects_non_github_hosts() -> None:
     assert (
-        release.extract_repo_info("https://example.com/cbtw-apac/HarborRAG.git", dry_run=True)
+        checks.extract_repo_info("https://example.com/cbtw-apac/HarborRAG.git", dry_run=True)
         == "unknown/repo"
     )
 
@@ -208,7 +273,7 @@ def test_version_update_preserves_surrounding_toml(
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
-    monkeypatch.setattr(versions, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
     versions.update_package_version("sample", "1.1.0")
 
@@ -229,7 +294,7 @@ def test_version_update_preserves_crlf_line_endings(
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
-    monkeypatch.setattr(versions, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
     versions.update_package_version("sample", "1.1.0")
 
@@ -247,13 +312,13 @@ def test_internal_dependency_update_preserves_extras_and_markers(
         encoding="utf-8",
     )
     monkeypatch.setitem(
-        versioning.PACKAGES,
+        versions.PACKAGES,
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
-    monkeypatch.setattr(versioning, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
-    changes = versioning.update_internal_dependencies_for_package(
+    changes = versions.update_internal_dependencies_for_package(
         "sample", {"harborrag-core"}, "2.1.0"
     )
 
@@ -280,23 +345,23 @@ def test_final_version_preserves_explicit_alpha_maturity(
     (tmp_path / "sample.toml").write_text(project, encoding="utf-8")
     (tmp_path / "workspace.toml").write_text(project, encoding="utf-8")
     monkeypatch.setitem(
-        versioning.PACKAGES,
+        versions.PACKAGES,
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
     monkeypatch.setitem(
-        versioning.PACKAGES,
+        versions.PACKAGES,
         WORKSPACE_PACKAGE,
         {"path": ".", "pyproject": "workspace.toml", "create_release": False},
     )
-    monkeypatch.setattr(versioning, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
-    versioning.update_development_status_classifier("sample", "2.1.0")
+    versions.update_development_status_classifier("sample", "2.1.0")
     assert "Development Status :: 3 - Alpha" in (tmp_path / "sample.toml").read_text(
         encoding="utf-8"
     )
 
-    versioning.update_development_status_classifier("sample", "2.1.0b1")
+    versions.update_development_status_classifier("sample", "2.1.0b1")
     assert "Development Status :: 4 - Beta" in (tmp_path / "sample.toml").read_text(
         encoding="utf-8"
     )
@@ -312,13 +377,13 @@ def test_explicit_maturity_adds_a_missing_classifier(
         encoding="utf-8",
     )
     monkeypatch.setitem(
-        versioning.PACKAGES,
+        versions.PACKAGES,
         "sample",
         {"path": ".", "pyproject": "sample.toml", "create_release": True},
     )
-    monkeypatch.setattr(versioning, "repository_path", lambda relative: tmp_path / relative)
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
 
-    versioning.update_development_status_classifier("sample", "2.1.0", development_status="beta")
+    versions.update_development_status_classifier("sample", "2.1.0", development_status="beta")
 
     classifiers = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["classifiers"]
     assert classifiers == ["Development Status :: 4 - Beta"]
@@ -340,6 +405,6 @@ def test_changelog_gate_checks_the_first_released_section(
 def test_release_workflows_cover_every_release_package() -> None:
     publish_workflow = (ROOT / ".github/workflows/publish.yml").read_text(encoding="utf-8")
     test_workflow = (ROOT / ".github/workflows/test.yml").read_text(encoding="utf-8")
-    for package_name in release.get_packages_for_release():
+    for package_name in versions.get_packages_for_release():
         assert package_name in publish_workflow
         assert package_name in test_workflow

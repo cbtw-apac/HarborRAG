@@ -22,8 +22,8 @@ uv run make coverage
 
 Add the new version section to [`CHANGELOG.md`](../../CHANGELOG.md) first, then run the
 preparation command. It changes package versions, internal dependency pins, the TypeScript
-client version, classifiers when requested, and `uv.lock`. It never commits, pushes, tags,
-or publishes:
+client version in `package.json` and `package-lock.json`, classifiers when requested, and
+`uv.lock`. It never commits, pushes, tags, or publishes:
 
 ```bash
 uv run python release.py --dry-run --bump patch --verbose

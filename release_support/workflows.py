@@ -2,7 +2,7 @@
 
 import logging
 
-from .checks import extract_repo_info, get_github_token, run_command
+from .checks import _command_result, extract_repo_info, get_github_token
 from .diagnostics import redact_diagnostic
 from .github_api import GitHubRequestError, github_request
 
@@ -14,8 +14,10 @@ CRITICAL_WORKFLOWS = {
 }
 
 
-def _fail(message: str, dry_run: bool) -> bool:
+def _fail(message: str, dry_run: bool, stderr: str = "") -> bool:
     logging.getLogger("release").error("%s", message)
+    if stderr:
+        logging.getLogger("release").debug("%s", redact_diagnostic(stderr))
     if not dry_run:
         raise SystemExit(1)
     return False
@@ -91,16 +93,18 @@ def _completed_workflow_error(runs: list[dict[str, object]]) -> str | None:
 def check_github_workflows(dry_run: bool = False) -> bool:
     """Require all critical workflows to pass on the exact release commit."""
 
-    remote, remote_error = run_command("git remote get-url origin", dry_run)
-    if remote_error or not remote:
-        return _fail("Unable to read the origin GitHub remote.", dry_run)
-    repository = extract_repo_info(remote, dry_run)
+    # Judge git by its exit status: it writes warnings to stderr on success.
+    remote = _command_result("git remote get-url origin", dry_run)
+    if remote.returncode or not remote.stdout:
+        return _fail("Unable to read the origin GitHub remote.", dry_run, remote.stderr)
+    repository = extract_repo_info(remote.stdout, dry_run)
     if repository == "unknown/repo":
         return False
 
-    commit, commit_error = run_command("git rev-parse HEAD", dry_run)
-    if commit_error or not commit:
-        return _fail("Unable to determine the current commit.", dry_run)
+    head = _command_result("git rev-parse HEAD", dry_run)
+    if head.returncode or not head.stdout:
+        return _fail("Unable to determine the current commit.", dry_run, head.stderr)
+    commit = head.stdout
     token = get_github_token(dry_run)
     if not token:
         return False

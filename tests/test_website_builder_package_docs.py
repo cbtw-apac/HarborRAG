@@ -39,7 +39,7 @@ class TestBuildPackageDocs:
 
         html = (packages_dir / "harborrag" / "README.html").read_text(encoding="utf-8")
         assert "toc-sidebar" in html
-        assert (packages_dir / "qdrant-loader" / "README.html").exists()
+        assert not (packages_dir / "qdrant-loader" / "README.html").exists()
         assert (packages_dir / "mcp-server" / "README.html").exists()
         assert (packages_dir / "core" / "README.html").exists()
 

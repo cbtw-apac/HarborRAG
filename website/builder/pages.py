@@ -66,7 +66,9 @@ class PageBuildMixin:
                     raise
                 # Otherwise, leave content empty
 
-        project_info = self.generate_project_info()
+        # build_site resolves project metadata once per build; a page built on
+        # its own resolves it here.
+        project_info = getattr(self, "project_info", None) or self.generate_project_info()
 
         # Calculate base URL for relative paths
         if canonical_path.count("/") > 0:
@@ -95,7 +97,7 @@ class PageBuildMixin:
             "base_url": _html_value(base_url),
             "canonical_url": _html_value(canonical_url),
             "author": _html_value(project_info.get("name", "HarborRAG")),
-            "version": _html_value(project_info.get("version", "2.0.0a1")),
+            "version": _html_value(project_info["version"]),
             "project_name": _html_value(project_info["name"]),
             "project_version": _html_value(project_info["version"]),
             "project_status": _html_value(project_info.get("status", "Alpha")),

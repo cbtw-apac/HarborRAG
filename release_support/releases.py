@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from packaging.version import InvalidVersion, Version
 
 from .checks import _command_result, extract_changelog_for_version, extract_repo_info
+from .config import release_name, release_tag
 from .diagnostics import redact_diagnostic
 from .github_api import GitHubRequestError, GitHubResponse, github_request
 
@@ -24,13 +25,13 @@ class ReleaseSpec:
     def tag_name(self) -> str:
         """Return the coordinated package tag."""
 
-        return f"{self.package_name}-v{self.version}"
+        return release_tag(self.package_name, self.version)
 
     @property
     def release_name(self) -> str:
         """Return the public GitHub release name."""
 
-        return f"{self.package_name} v{self.version}"
+        return release_name(self.package_name, self.version)
 
 
 def _release_matches(response: GitHubResponse, spec: ReleaseSpec) -> bool:
@@ -152,7 +153,7 @@ def create_github_release(
 
     logger = logging.getLogger("release")
     if dry_run:
-        logger.info("[DRY RUN] Would create GitHub release %s-v%s", package_name, version)
+        logger.info("[DRY RUN] Would create GitHub release %s", release_tag(package_name, version))
         return
     try:
         spec = ReleaseSpec(package_name, version, Version(version).is_prerelease)

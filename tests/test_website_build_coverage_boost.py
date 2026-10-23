@@ -153,7 +153,7 @@ Regular paragraph text.
         assert 'class="language-bash"' in result
 
         # Test paragraphs with command-like content
-        html = '<p><code class="inline-code">pip install qdrant-loader</code></p>'
+        html = '<p><code class="inline-code">pip install harborrag</code></p>'
         result = processor.fix_malformed_code_blocks(html)
         assert 'class="code-block-wrapper"' in result
         assert 'class="language-bash"' in result
