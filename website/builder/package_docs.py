@@ -124,11 +124,10 @@ class PackageDocsMixin:
         return sorted(packages, key=lambda package: package["name"])
 
     def build_legacy_package_redirects(self) -> None:
-        """Preserve the published package URLs used by the predecessor site."""
+        """Preserve the short package URLs published before the package rename."""
         redirects = {
             "core": "harborrag-core",
             "mcp-server": "harborrag-mcp-server",
-            "qdrant-loader": "harborrag",  # branding-compat: preserve the published URL
         }
         for legacy_slug, package_slug in redirects.items():
             target_page = self.output_dir / "docs" / "packages" / package_slug / "README.html"

@@ -35,6 +35,7 @@ jobs:
   check-release:
     name: Check if this is a main package release
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     if: github.event_name == 'release'
     outputs:
       should-deploy: ${{ steps.check.outputs.should-deploy }}
@@ -57,9 +58,13 @@ jobs:
   build-docs:
     name: Build Documentation Website
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs: [check-release]
+    # A workflow_run build only follows a passing test run: its coverage
+    # artifacts describe that run, and a failed run has nothing to publish.
     if: |
       !cancelled() &&
+      (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') &&
       ((github.event_name != 'release') ||
       (github.event_name == 'release' && needs.check-release.outputs.should-deploy == 'true'))
     permissions:
@@ -68,6 +73,9 @@ jobs:
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          # workflow_run otherwise checks out main's current head, which may be
+          # newer than the commit whose test artifacts this build downloads.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
           persist-credentials: false
 
       - name: Install uv
@@ -87,14 +95,16 @@ jobs:
       - name: Get latest test workflow run ID
         if: github.event_name == 'release'
         id: get-workflow-run
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "🔍 Finding latest successful test workflow run on main branch..."
 
           # Get the latest successful workflow run for "Test and Coverage" on main branch
           WORKFLOW_RUN=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows" \
             | jq -r '.workflows[] | select(.name == "Test and Coverage") | .id')
 
           if [ "$WORKFLOW_RUN" = "null" ] || [ -z "$WORKFLOW_RUN" ]; then
@@ -103,9 +113,9 @@ jobs:
           fi
 
           LATEST_RUN=$(curl -s \
-            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/$WORKFLOW_RUN/runs?branch=main&status=completed&conclusion=success&per_page=1" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/actions/workflows/$WORKFLOW_RUN/runs?branch=main&status=completed&conclusion=success&per_page=1" \
             | jq -r '.workflow_runs[0].id')
 
           if [ "$LATEST_RUN" = "null" ] || [ -z "$LATEST_RUN" ]; then
@@ -228,7 +238,7 @@ jobs:
 
       - name: Test website generator and branding
         run: |
-          uv run pytest tests/test_website_*.py tests/test_link_checker.py
+          uv run pytest tests/test_website_*.py tests/test_link_checker*.py
           uv run python website/check_branding.py
           uv run python website/check_publication.py
 
@@ -266,6 +276,7 @@ jobs:
   stage-pages:
     name: Stage GitHub Pages artifact
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [check-release, build-docs]
     if: |
       needs.build-docs.result == 'success' &&
@@ -292,6 +303,7 @@ jobs:
   deploy:
     name: Deploy to GitHub Pages
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     needs: [check-release, build-docs, stage-pages]
     if: |
       needs.build-docs.result == 'success' &&
@@ -311,6 +323,7 @@ jobs:
   build-summary:
     name: Build Summary
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [check-release, build-docs]
     if: always()
     steps:
@@ -344,7 +357,7 @@ jobs:
               echo "📋 Built but not deployed"
             fi
           elif [ "${{ needs.build-docs.result }}" = "skipped" ]; then
-            echo "⏭️  Website build skipped (MCP server or other release)"
+            echo "⏭️  Website build skipped (sub-package release or failed test run)"
           else
             echo "❌ Website build failed"
             exit 1

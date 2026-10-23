@@ -32,8 +32,7 @@ class CoverageBuildMixin:
                     dest_name = "mcp"
                 elif "htmlcov-website" in item.name:
                     dest_name = "website"
-                # branding-compat: accept coverage artifacts produced before the rename.
-                elif "htmlcov-core" in item.name or "htmlcov-qdrant-loader-core" in item.name:
+                elif "htmlcov-core" in item.name:
                     dest_name = "core"
                 elif "htmlcov" in item.name:
                     dest_name = item.name.replace("htmlcov-", "").replace("htmlcov_", "")

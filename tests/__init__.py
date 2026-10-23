@@ -1,1 +1,1 @@
-# Tests package for QDrant Loader website build system
+# Tests package for HarborRAG website build system

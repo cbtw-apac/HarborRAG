@@ -41,6 +41,31 @@ class TestSiteBuildMixin:
         assert "assets/css/foundation.css" not in html
         assert "assets/js/site.js" not in html
         assert "{{" not in html
+        assert "Qdrant Loader" not in html
+        assert 'id="migration"' not in html
+
+    def test_footer_links_the_main_package_release_tag(self, project_root_dir):
+        """Release tags are ``harborrag-v<version>``; a bare ``v<version>`` tag does not exist."""
+        base = (project_root_dir / "website" / "templates" / "base.html").read_text(
+            encoding="utf-8"
+        )
+
+        assert "/releases/tag/harborrag-v${encodeURIComponent(data.version)}" in base
+        assert "/releases/tag/v$" not in base
+
+    def test_resolves_project_info_once_per_build(self, builder, monkeypatch):
+        original = builder.generate_project_info
+        calls = []
+
+        def counting_generate_project_info():
+            calls.append(1)
+            return original()
+
+        monkeypatch.setattr(builder, "generate_project_info", counting_generate_project_info)
+
+        builder.build_site()
+
+        assert len(calls) == 1
 
     def test_escapes_html_metadata_and_serializes_json_ld(
         self, tmp_path, project_root_dir, website_builder_cls, monkeypatch

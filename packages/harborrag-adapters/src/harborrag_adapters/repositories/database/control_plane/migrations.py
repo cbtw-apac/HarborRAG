@@ -1,7 +1,7 @@
 """Programmatic Alembic runner (ST5).
 
-Migrations run at composition time — no CLI, no cwd dependence (the
-qdrant-loader 1.0.3 alembic-path lesson). env.py drives the async engine via
+Migrations run at composition time — no CLI, no cwd dependence, so the
+alembic script path resolves the same from any working directory. env.py drives the async engine via
 asyncio.run, so when run_migrations is itself called from inside a running
 event loop it hops to a worker thread first.
 """

@@ -89,7 +89,7 @@ repos:
 
       - id: typecheck
         name: mypy
-        entry: uv run --all-packages --all-extras mypy packages
+        entry: uv run --all-packages --all-extras mypy packages release_support release.py
         language: system
         types: [python]
         pass_filenames: false

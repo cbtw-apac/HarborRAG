@@ -8,12 +8,8 @@ import subprocess
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
-
-from .config import REPOSITORY_ROOT
+from .config import REPOSITORY_ROOT, release_tag
 from .diagnostics import redact_diagnostic
-
-load_dotenv(REPOSITORY_ROOT / ".env", override=False)
 
 _DRY_RUN_READ_ONLY_COMMANDS = {
     ("git", "branch"),
@@ -56,23 +52,6 @@ def _command_result(cmd: str, dry_run: bool = False) -> CommandResult:
         text=True,
     )
     return CommandResult(completed.stdout.strip(), completed.stderr.strip(), completed.returncode)
-
-
-def run_command(cmd: str, dry_run: bool = False) -> tuple[str, str]:
-    """Run a release command without invoking a shell.
-
-    The tuple return shape is retained for compatibility with the former
-    monolithic release script. Callers that perform safety checks use the
-    private result object so a failed command cannot look like an empty success.
-    """
-
-    result = _command_result(cmd, dry_run)
-    if result.returncode:
-        logger = logging.getLogger("release")
-        logger.error("Command failed (%s): %s", result.returncode, cmd)
-        if result.stderr:
-            logger.error("%s", redact_diagnostic(result.stderr))
-    return result.stdout, result.stderr
 
 
 def require_command(cmd: str, dry_run: bool = False) -> str:
@@ -184,7 +163,7 @@ def check_release_tags_absent(
     if not _check_result(head, "Unable to determine the reviewed release commit.", dry_run):
         return False
     for package_name in package_names:
-        tag = f"{package_name}-v{version}"
+        tag = release_tag(package_name, version)
         result = _command_result(f"git tag --list {tag}", dry_run)
         if not _check_result(result, f"Unable to inspect release tag {tag}.", dry_run):
             return False
@@ -252,8 +231,10 @@ def extract_changelog_for_version(version: str) -> str:
     if not changelog.is_file():
         return ""
     content = changelog.read_text(encoding="utf-8")
+    # A section ends at the next release heading or, for the oldest release,
+    # at the link-reference definitions that close a Keep a Changelog file.
     match = re.search(
-        rf"(?ms)^## \[{re.escape(version)}\](?:[^\n]*)\n(.*?)(?=^## |\Z)",
+        rf"(?ms)^## \[{re.escape(version)}\](?:[^\n]*)\n(.*?)(?=^## |^\[[^\]]+\]:\s|\Z)",
         content,
     )
     return match.group(1).strip() if match else ""
