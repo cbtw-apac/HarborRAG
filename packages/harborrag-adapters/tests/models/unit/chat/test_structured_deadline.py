@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 
 import pytest
 from pydantic import BaseModel
@@ -21,6 +22,20 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 class Answer(BaseModel):
     answer: str
+
+
+@pytest.fixture(autouse=True, scope="module")
+def litellm_imported() -> None:
+    """Import LiteLLM before any 50 ms operation budget starts.
+
+    Production backends import LiteLLM when they are constructed, outside every
+    operation deadline. The fake backend does not, so the first response's lazy
+    cost lookup would otherwise spend the whole budget on a multi-second import,
+    and these tests would pass only when an earlier test in the same worker had
+    already imported it.
+    """
+
+    importlib.import_module("litellm")
 
 
 def bounded_config(base_config, seconds=0.05):
