@@ -49,10 +49,8 @@ def test_release_diagnostics_redact_tokens_and_url_credentials() -> None:
 
 
 def test_github_token_accepts_the_gh_cli_environment_name(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Keep a developer's repository .env from supplying GITHUB_TOKEN.
-    monkeypatch.setattr(checks, "REPOSITORY_ROOT", tmp_path)
     monkeypatch.delenv("GITHUB_TOKEN", raising=False)
     monkeypatch.setenv("GH_TOKEN", "token-from-gh-cli-environment")
 

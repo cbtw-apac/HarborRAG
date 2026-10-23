@@ -65,6 +65,16 @@ class TestLinkCheckerOutcomes:
         assert success is False
         assert "Connection refused" in checker.start_page_error
 
+    def test_run_check_fails_when_the_start_page_error_has_no_message(self):
+        """An exception with an empty message must still fail the run."""
+        checker = LinkChecker("http://example.com", max_depth=1)
+
+        with patch.object(checker.session, "get", side_effect=requests.exceptions.Timeout()):
+            success = checker.run_check()
+
+        assert success is False
+        assert checker.start_page_error == "Timeout"
+
     @responses.activate
     def test_broken_deeper_page_is_reported_as_a_dead_link_not_a_start_failure(self):
         """Only the start page sets the start-page error; deeper failures stay dead links."""

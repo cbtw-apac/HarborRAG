@@ -231,7 +231,8 @@ class LinkChecker:
         except requests.exceptions.RequestException as e:
             print(f"{'  ' * depth}❌ ERROR crawling {url}: {e}")
             if depth == 0:
-                self.start_page_error = str(e)
+                # Some exceptions, such as a bare Timeout(), carry no message.
+                self.start_page_error = str(e) or type(e).__name__
             return []
 
     def report_link(self, link, found_on, depth):
@@ -288,7 +289,7 @@ class LinkChecker:
         print(f"🔗 Links checked: {len(self.checked_links)}")
         print(f"❌ Broken links found: {len(self.dead_links)}")
 
-        if self.start_page_error:
+        if self.start_page_error is not None:
             print(f"\n💥 Could not read the start page {self.base_url}: {self.start_page_error}")
             print("   No links were checked; is the site being served at that URL?")
             return False

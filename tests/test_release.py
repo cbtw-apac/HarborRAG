@@ -29,6 +29,28 @@ PUBLIC_PACKAGES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def no_repository_dotenv(monkeypatch: pytest.MonkeyPatch) -> list[tuple[Path, bool]]:
+    """Keep a developer's repository .env out of in-process CLI runs.
+
+    ``release()`` loads it into ``os.environ``, which CliRunner does not
+    restore, so its values would leak into every later test.
+    """
+
+    loaded: list[tuple[Path, bool]] = []
+    monkeypatch.setattr(cli, "load_dotenv", lambda path, override: loaded.append((path, override)))
+    return loaded
+
+
+def test_release_cli_loads_the_repository_dotenv_without_overriding(
+    no_repository_dotenv: list[tuple[Path, bool]],
+) -> None:
+    result = CliRunner().invoke(release_command, ["--sync-versions", "--dry-run"])
+
+    assert result.exit_code == 0, result.output
+    assert no_repository_dotenv == [(config.REPOSITORY_ROOT / ".env", False)]
+
+
 def test_release_script_exposes_the_click_command() -> None:
     """The documented ``python release.py`` entry point must stay the CLI."""
 
@@ -387,6 +409,39 @@ def test_explicit_maturity_adds_a_missing_classifier(
 
     classifiers = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["classifiers"]
     assert classifiers == ["Development Status :: 4 - Beta"]
+
+
+@pytest.mark.parametrize(
+    "existing",
+    [
+        'classifiers = ["License :: OSI Approved :: Apache Software License"]\n',
+        'classifiers = [\n    "License :: OSI Approved :: Apache Software License",\n]\n',
+    ],
+    ids=["inline", "multiline"],
+)
+def test_explicit_maturity_joins_an_existing_classifier_list(
+    existing: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pyproject = tmp_path / "sample.toml"
+    pyproject.write_text(
+        f'[project]\nname = "sample"\nversion = "2.0.0"\n{existing}\n[build-system]\n'
+        'requires = ["hatchling"]\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setitem(
+        versions.PACKAGES,
+        "sample",
+        {"path": ".", "pyproject": "sample.toml", "create_release": True},
+    )
+    monkeypatch.setattr(config, "repository_path", lambda relative: tmp_path / relative)
+
+    versions.update_development_status_classifier("sample", "2.1.0", development_status="beta")
+
+    classifiers = tomllib.loads(pyproject.read_text(encoding="utf-8"))["project"]["classifiers"]
+    assert classifiers == [
+        "Development Status :: 4 - Beta",
+        "License :: OSI Approved :: Apache Software License",
+    ]
 
 
 def test_changelog_gate_checks_the_first_released_section(

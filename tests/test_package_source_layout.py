@@ -11,7 +11,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 _TEST_DOUBLE_MODULE = re.compile(r"^(?:mocks?|fakes?)(?:_\w+)?\.py$|_(?:mocks?|fakes?)\.py$")
-_TEST_DOUBLE_PACKAGES = {"mocks", "fakes"}
+_TEST_DOUBLE_PACKAGES = {"mock", "mocks", "fake", "fakes"}
 
 
 def _test_double_modules(root: Path) -> list[str]:
@@ -36,6 +36,8 @@ def test_test_doubles_are_detected_outside_testing_packages(tmp_path: Path) -> N
         "repositories/vector/fake_qdrant.py",
         "models/client_mock.py",
         "fakes/store.py",
+        "repositories/vector/mock/__init__.py",
+        "repositories/cache/fake/backend.py",
         "testing/fakes.py",
         "connectors/mockingbird_parser.py",
     ):
@@ -46,5 +48,7 @@ def test_test_doubles_are_detected_outside_testing_packages(tmp_path: Path) -> N
         "packages/harborrag-demo/src/harborrag_demo/connectors/mock.py",
         "packages/harborrag-demo/src/harborrag_demo/fakes/store.py",
         "packages/harborrag-demo/src/harborrag_demo/models/client_mock.py",
+        "packages/harborrag-demo/src/harborrag_demo/repositories/cache/fake/backend.py",
         "packages/harborrag-demo/src/harborrag_demo/repositories/vector/fake_qdrant.py",
+        "packages/harborrag-demo/src/harborrag_demo/repositories/vector/mock/__init__.py",
     ]

@@ -302,9 +302,15 @@ def update_development_status_classifier(
                     target,
                 )
                 return
-            _, section_end = project_section_span(source, path)
-            insertion = f'classifiers = [\n    "{target}",\n]\n\n'
-            updated = source[:section_end].rstrip() + "\n" + insertion + source[section_end:]
+            section_start, section_end = project_section_span(source, path)
+            existing = re.search(r"(?m)^classifiers\s*=\s*\[", source[section_start:section_end])
+            if existing is not None:
+                # A second ``classifiers`` key would be invalid TOML: join the list.
+                insert_at = section_start + existing.end()
+                updated = source[:insert_at] + f'\n    "{target}",' + source[insert_at:]
+            else:
+                insertion = f'classifiers = [\n    "{target}",\n]\n\n'
+                updated = source[:section_end].rstrip() + "\n" + insertion + source[section_end:]
             tomllib.loads(updated)
             path.write_text(updated, encoding="utf-8", newline="")
             return

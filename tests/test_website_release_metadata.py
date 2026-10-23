@@ -5,6 +5,7 @@ import re
 import tomllib
 from pathlib import Path
 
+import yaml
 from release_support.config import PACKAGES, PRIMARY_PACKAGE, release_tag
 from release_support.metadata import python_version_to_semver
 from release_support.versions import get_packages_for_release
@@ -101,10 +102,15 @@ def test_ci_matrices_and_root_test_config_cover_every_released_package() -> None
 
     expected = set(get_packages_for_release())
 
-    matrices = re.findall(r"(?m)^ +package:\n((?: +- [\w-]+\n)+)", _workflow("test.yml"))
-    assert len(matrices) == 2
+    jobs = yaml.safe_load(_workflow("test.yml"))["jobs"]
+    matrices = [
+        job["strategy"]["matrix"]["package"]
+        for job in jobs.values()
+        if "package" in job.get("strategy", {}).get("matrix", {})
+    ]
+    assert matrices
     for matrix in matrices:
-        assert set(re.findall(r"- ([\w-]+)", matrix)) == expected
+        assert set(matrix) == expected
 
     root = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
     testpaths = root["pytest"]["ini_options"]["testpaths"]

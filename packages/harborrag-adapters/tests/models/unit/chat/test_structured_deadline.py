@@ -48,15 +48,21 @@ def bounded_config(base_config, seconds=0.05):
 @pytest.mark.asyncio
 async def test_async_deadline_cancels_repair_and_releases_admission(base_config) -> None:
     blocked = asyncio.Event()
+    started = asyncio.Event()
     cancelled = asyncio.Event()
 
     async def pending():
+        started.set()
         try:
             await blocked.wait()
         finally:
             cancelled.set()
 
-    config = bounded_config(base_config)
+    # The deadline must expire while the repair call is in flight, so the budget
+    # has to outlast the first response and its validation. A busy CI runner
+    # spends well over 50 ms reaching the repair call; the blocked call still
+    # waits out the whole budget, so this only adds time to this one test.
+    config = bounded_config(base_config, seconds=1.0)
     config = configured(config, max_parallel_requests=1)
     backend = FakeInvocation(
         [response_dict("invalid"), pending, response_dict('{"answer":"next"}')]
@@ -67,6 +73,7 @@ async def test_async_deadline_cancels_repair_and_releases_admission(base_config)
             await client.achat_structured(
                 [HarborChatMessage.user("extract")], response_model=Answer
             )
+        assert started.is_set(), "deadline expired before the repair call started"
         assert cancelled.is_set()
         assert len(backend.async_calls) == 2
         result = await client.achat_structured(
