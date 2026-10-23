@@ -214,11 +214,17 @@ def test_jira_issue_carries_four_distinct_link_predicates(corpus: EvalCorpus) ->
         assert (subject, corpus.source_item_key(target)) in _edges(corpus, "HR-10", relation_type)
 
 
-def test_a_document_can_carry_more_than_one_placeholder(corpus: EvalCorpus) -> None:
-    """The placeholder census counts per node, not per document."""
+def test_a_document_can_carry_multiple_unresolved_targets_without_placeholders(
+    corpus: EvalCorpus,
+) -> None:
+    """Unknown scope is durable unresolved state, not a guessed source identity."""
 
     batch = corpus.batches["changelog"]
     placeholders = {
         node.logical_id for node in batch.nodes if node.attributes.get("placeholder") is True
     }
-    assert placeholders == {"retired-notes", "retired-plan"}
+    assert not placeholders
+    assert {item.target_source_item_id for item in batch.unresolved_relations} == {
+        "retired-notes",
+        "retired-plan",
+    }

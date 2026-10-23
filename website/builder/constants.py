@@ -12,6 +12,11 @@ origin, so they must not read ``base_url``.
 # test-suite produce stable, non-empty absolute URLs.
 DEFAULT_PUBLIC_ORIGIN = "https://cbtw-apac.github.io/HarborRAG"
 
+# Version reported when the root ``pyproject.toml`` cannot be read. It is not a
+# release number on purpose: release tooling only rewrites pyproject files, so
+# any literal version here would silently go stale at the next bump.
+UNKNOWN_PROJECT_VERSION = "unknown"
+
 
 def resolve_public_origin(base_url: str, public_origin: str | None = None) -> str:
     """Return the absolute origin used for canonical, Open Graph and SEO URLs.

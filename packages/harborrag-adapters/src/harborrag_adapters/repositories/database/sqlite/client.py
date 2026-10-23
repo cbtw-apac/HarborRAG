@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
-from harborrag_adapters.repositories.backends.sqlite import sqlite_url
+from harborrag_adapters.repositories.backends.sqlite import prepare_sqlite_database
 
 
 class SQLiteDBClient(SQLAlchemyDBClient):
@@ -16,7 +16,7 @@ class SQLiteDBClient(SQLAlchemyDBClient):
     ) -> None:
         super().__init__(
             backend=backend_name,
-            url=sqlite_url(database),
+            url=prepare_sqlite_database(database),
             pool_size=None,
             max_overflow=None,
             pool_recycle_seconds=1800,

@@ -19,13 +19,14 @@ from harborrag_core.ingestion import (
 
 from .removal_reconciliation import SourceRemovalReconciler
 from .schema import SOURCE_ITEMS, SOURCE_SCANS, SOURCE_SCOPES
+from .source_catalog import SourceCatalogReader
 from .source_item_mapping import (
     registration_from_existing,
     stored_source_item_from_row,
 )
 
 
-class SourceScanRepository:
+class SourceScanRepository(SourceCatalogReader):
     """Persist authoritative discovery scans and consecutive removal misses."""
 
     def __init__(self, client: SQLAlchemyDBClient) -> None:
@@ -62,16 +63,32 @@ class SourceScanRepository:
                 return
             if existing["tenant_id"] != tenant_id:
                 raise HarborConflictError("source scope belongs to another tenant")
+            if existing["connector_type"] != connector_type:
+                raise HarborConflictError("source scope belongs to another connector type")
+            if existing["connection_id"] != connection_id:
+                raise HarborConflictError("source scope belongs to another connection")
             await session.execute(
                 update(SOURCE_SCOPES)
                 .where(SOURCE_SCOPES.c.source_scope_id == source_scope_id)
                 .values(
-                    connector_type=connector_type,
-                    connection_id=connection_id,
                     configuration_fingerprint=configuration_fingerprint,
                     updated_at=now,
                 )
             )
+
+    async def has_running_scan(self, source_scope_id: str) -> bool:
+        """Whether an authoritative scan currently holds the scope."""
+
+        async with self._client.sessions.begin() as session:
+            result = await session.execute(
+                select(SOURCE_SCANS.c.scan_id)
+                .where(
+                    SOURCE_SCANS.c.source_scope_id == source_scope_id,
+                    SOURCE_SCANS.c.status == SourceScanState.STARTED.value,
+                )
+                .limit(1)
+            )
+            return result.scalar_one_or_none() is not None
 
     async def start(self, source_scope_id: str, *, scan_id: str | None = None) -> str:
         selected_scan_id = scan_id or f"scan:{uuid4().hex}"
@@ -225,6 +242,25 @@ class SourceScanRepository:
 
         if not safe_reason.strip():
             raise ValueError("source scan failure reason must be non-empty")
+        return await self._finish_if_started(
+            scan_id, state=SourceScanState.FAILED, failure_reason=safe_reason
+        )
+
+    async def cancel(self, scan_id: str) -> None:
+        await self._finish(scan_id, state=SourceScanState.CANCELLED)
+
+    async def cancel_if_started(self, scan_id: str) -> bool:
+        """Release a cancelled task's open scan so the scope can be scanned again."""
+
+        return await self._finish_if_started(scan_id, state=SourceScanState.CANCELLED)
+
+    async def _finish_if_started(
+        self,
+        scan_id: str,
+        *,
+        state: SourceScanState,
+        failure_reason: str | None = None,
+    ) -> bool:
         async with self._client.sessions.begin() as session:
             result = await session.execute(
                 select(SOURCE_SCANS).where(SOURCE_SCANS.c.scan_id == scan_id).with_for_update()
@@ -236,15 +272,12 @@ class SourceScanRepository:
                 update(SOURCE_SCANS)
                 .where(SOURCE_SCANS.c.scan_id == scan_id)
                 .values(
-                    status=SourceScanState.FAILED.value,
+                    status=state.value,
                     completed_at=utc_now(),
-                    failure_reason=safe_reason,
+                    failure_reason=failure_reason,
                 )
             )
             return True
-
-    async def cancel(self, scan_id: str) -> None:
-        await self._finish(scan_id, state=SourceScanState.CANCELLED)
 
     async def reconcile_removals(
         self,

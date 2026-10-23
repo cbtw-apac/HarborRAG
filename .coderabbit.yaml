@@ -5,14 +5,13 @@
 language: "en-US"
 
 tone_instructions: >
-  Be direct, precise, and engineering-focused. Prioritize correctness, package
-  boundaries, security, resource safety, concurrency, provider lifecycle, and
-  test coverage. Ignore formatting handled by tooling. Give each issue a fix
-  and brief rationale.
+  Be direct and concise. Lead with correctness, security, concurrency, and
+  package-boundary issues; skip style that Ruff handles. Give each finding a
+  concrete fix and a one-line reason.
 
 reviews:
   profile: assertive
-  request_changes_workflow: true
+  request_changes_workflow: false
   review_status: true
   high_level_summary: true
   review_details: true
@@ -24,7 +23,7 @@ reviews:
     base_branches:
       - main
       - develop
-      - dev/v2.0.0
+      - dev/.*
       - release/.*
     ignore_title_keywords:
       - "WIP"
@@ -35,7 +34,9 @@ reviews:
       - renovate[bot]
       - github-actions[bot]
     auto_incremental_review: true
-    auto_pause_after_reviewed_commits: 5
+    # 0 disables auto-pause: long PRs keep being reviewed on every push. Pause one
+    # PR by hand with `@coderabbitai pause` and restart it with `@coderabbitai resume`.
+    auto_pause_after_reviewed_commits: 0
 
   path_filters:
     - "**/*"
@@ -54,6 +55,7 @@ reviews:
     - "!**/.coverage"
     - "!**/coverage.xml"
     - "!**/*.lock"
+    - "!**/package-lock.json"
     - "!**/*.zip"
     - "!**/*.tar"
     - "!**/*.tar.gz"
@@ -64,8 +66,8 @@ reviews:
     - "!**/*.gif"
     - "!**/*.pdf"
     - "!**/*.svg"
-    # Vendored icon/JS/CSS library - pre-commit excludes it from formatting too.
-    - "!website/assets/**"
+    - "!**/*.ico"
+    - "!**/*.md"
     # Generated documentation site output.
     - "!site/**"
 
@@ -92,6 +94,8 @@ reviews:
       instructions: "Apply when packages/harborrag-app is changed."
     - label: "pkg:mcp"
       instructions: "Apply when packages/harborrag-mcp-server is changed."
+    - label: "pkg:harborrag"
+      instructions: "Apply when packages/harborrag, the public facade package, is changed."
     - label: "area:docs"
       instructions: >
         Apply when docs/, website/, or any published README changes. See
@@ -100,6 +104,10 @@ reviews:
       instructions: "Apply when .github/workflows, Makefile, or pre-commit config changes."
     - label: "area:deploy"
       instructions: "Apply when deploy/ or scripts/deployment changes."
+    - label: "area:release"
+      instructions: >
+        Apply when release.py, release_support/, or .github/workflows/publish.yml
+        changes.
 
   auto_title_instructions: >
     Follow Conventional Commits: type(scope): description.
@@ -160,8 +168,8 @@ reviews:
     - path: "packages/harborrag-adapters/src/harborrag_adapters/repositories/**"
       instructions: >
         This is the storage adapter layer. Use repositories/ naming, not stores/.
-        Each family folder - vector, graph, cache, object_store, database, and
-        state when added - exposes provider-neutral Harbor* contracts plus real
+        Each family folder - vector, graph, cache, object_store, database,
+        state, and memory - exposes provider-neutral Harbor* contracts plus real
         provider packages. Production repository packages do not ship mock
         backends; deterministic fakes belong under tests/. Check
         connection lifecycle, transaction boundaries, parameterized SQL, object
@@ -185,22 +193,59 @@ reviews:
         provider dependencies, no mutation of input results unless documented,
         and tests for empty, duplicate, tie-score, and low-score cases.
 
+    - path: "packages/harborrag-engine/src/harborrag_engine/tools/**"
+      instructions: >
+        Reader tools bind only to core reader ports. MCP and the optional agent
+        invoke them through the same policy, validation, and output-budget
+        boundary. A new or changed tool must declare its input/output schema, run
+        through the checked invoker, and have no path that skips policy checks or
+        the output budget.
+
+    - path: "packages/harborrag-engine/src/harborrag_engine/agent/**"
+      instructions: >
+        The agent is bounded multi-hop model/tool orchestration. Check explicit hop
+        and token budgets, termination on every path including tool errors, tool
+        calls only through the checked tool invoker, and no provider SDK or
+        transport imports; runtime binds the model clients and optional memory.
+
+    - path: "packages/harborrag-engine/src/harborrag_engine/chat/**"
+      instructions: >
+        Chat prompts are typed, packaged, provider-neutral definitions. Flag
+        provider-specific prompt formats, user or retrieved text inserted into a
+        prompt without clear delimiting, and prompt changes without tests.
+
+    - path: "packages/harborrag-memory/src/harborrag_memory/**"
+      instructions: >
+        Memory is the scope-aware MemoryManager facade over optional short-term,
+        working, and long-term tiers. It may import only harborrag_core: storage
+        lives in harborrag-adapters and contracts in harborrag-core. Check that an
+        unconfigured tier raises MemoryConfigurationError, working-memory TTLs are
+        bounded, reads and writes never cross scopes, and model calls go through
+        the MemoryModel protocol rather than a provider SDK. LangChain stays an
+        implementation detail of message conversion and trimming.
+
     - path: "packages/harborrag-runtime/src/harborrag_runtime/**"
       instructions: >
-        Runtime owns process boundaries, jobs, schedules, supervisors, and future
-        Temporal integration. It must not contain domain-specific ingestion or
+        Runtime owns process boundaries, jobs, schedules, supervisors, and Temporal
+        workflow orchestration. It must not contain domain-specific ingestion or
         retrieval business logic. Check bounded worker counts, job-state
         transitions, cancellation, retry policy, schedule persistence, and no
-        blocking I/O inside future async workers. Temporal placeholders should
-        remain optional and must not become required imports for local runtime.
+        blocking I/O inside async workers. temporalio is the optional `temporal`
+        extra: it must not become a required import for local runtime. Workflow
+        code must stay deterministic and replay-safe - no wall-clock time,
+        randomness, or network/file I/O inside workflows; side effects belong in
+        activities, and changes to workflow behaviour or signatures need
+        replay-aware versioning.
 
     - path: "packages/harborrag-app/src/harborrag_app/api/**"
       instructions: >
-        API code is the external HTTP boundary. When FastAPI or another framework
-        is added, route handlers must validate inputs with explicit request
-        schemas, return stable error envelopes, avoid leaking stack traces or
-        secrets, and call runtime/engine service facades rather than raw adapters.
-        Any new route needs package-local tests under packages/harborrag-app/tests.
+        API code is the external HTTP boundary, built on FastAPI. Route handlers
+        must validate inputs with explicit request schemas, return stable error
+        envelopes, avoid leaking stack traces or secrets, and call runtime/engine
+        service facades rather than raw adapters. Route and schema changes alter
+        the OpenAPI contract that the API Contract workflow diffs; call out any
+        breaking change. Any new route needs package-local tests under
+        packages/harborrag-app/tests.
 
     - path: "packages/harborrag-app/src/harborrag_app/cli/**"
       instructions: >
@@ -228,10 +273,12 @@ reviews:
 
     - path: "tests/**"
       instructions: >
-        Root tests should cover cross-package behavior: import smoke tests,
-        dependency-direction rules, CLI smoke, and integration contracts. Do not
-        duplicate package-local unit tests here. If a cross-package rule changes,
-        explain why in the PR description.
+        Root tests cover repository-level contracts rather than package behaviour:
+        the documentation website builder and link checker, release tooling,
+        drift between CI workflows and release/test configuration, deployment and
+        Docker assets, and source-layout rules. Do not duplicate package-local unit
+        tests here. Tests that read workflow or config files should assert the
+        specific contract, not incidental formatting.
 
     - path: "scripts/**"
       instructions: >
@@ -239,6 +286,33 @@ reviews:
         no shell=True with user input, helpful JSON output where relevant,
         deterministic exit codes, and no writes outside the repository unless an
         explicit output path is provided and validated.
+
+    - path: "release_support/**"
+      instructions: >
+        Release tooling rewrites version metadata, tags, and creates GitHub
+        releases for the whole workspace. Check that dry-run paths never mutate
+        files, git, or GitHub; failures stop the release rather than continue;
+        subprocesses run without a shell; diagnostics pass through
+        redact_diagnostic; metadata edits preserve formatting and parse before
+        writing; and package names and tags come from release_support.config.
+        Package-list or tag-format changes must keep the drift tests in
+        tests/test_website_release_metadata.py passing.
+
+    - path: "website/**"
+      instructions: >
+        The website is a static generator over repository documentation. Keep
+        changes inside the publication boundary described in website/README.md,
+        HTML-escape any repository-derived text placed into templates, keep
+        generated links relative and passing check_links.py, and do not
+        reintroduce predecessor branding (check_branding.py).
+
+    - path: "clients/typescript/src/**"
+      instructions: >
+        Hand-written runtime for the @harborrag/api-client package; request and
+        response types are generated from the OpenAPI contract and must not be
+        edited by hand. Check request timeouts and abort signals, SSE parsing and
+        stream cleanup, typed error mapping, and that public exports stay backward
+        compatible within a release.
 
     - path: ".github/workflows/**"
       instructions: >
@@ -262,20 +336,6 @@ reviews:
         optional provider dependencies in adapter extras. Package names should
         match workspace membership and README ownership.
 
-    - path: "README.md"
-      instructions: >
-        Root README should onboard open-source contributors. Check that package
-        map, quickstart commands, current status, testing instructions, and
-        architecture boundaries match the actual repository structure. Avoid
-        claiming implemented providers that are only TODO or placeholders.
-
-    - path: "packages/*/README.md"
-      instructions: >
-        Package README files should explain ownership, public API, base
-        contracts, teammate deliverables, and boundary rules for that package.
-        Each is also the package's PyPI project page, so links must be absolute.
-        See website/README.md for the expected structure.
-
   pre_merge_checks:
     title:
       mode: warning
@@ -285,10 +345,6 @@ reviews:
     description:
       mode: warning
     custom_checks:
-      # Production packages no longer ship mock.py modules. Fakes and test
-      # doubles live under each package's tests/, or in harborrag_core.testing
-      # when shared. See "File ownership and test doubles" in
-      # packages/harborrag-adapters/README.md.
       - name: "No production mock modules"
         mode: error
         instructions: >
@@ -305,16 +361,14 @@ reviews:
           Authorization header, GitHub token, OpenAI key, cloud key, database
           password, or bearer token appears in non-test source code.
 
-      # Dependency direction, provider-SDK placement, and the coverage gate are
-      # enforced deterministically by lint-imports, check_dependency_direction.py,
-      # and the pytest coverage gate. `github-checks` below reads those results,
-      # so restating them here as LLM-evaluated checks adds latency, not signal.
       - name: "Coverage gate preserved"
         mode: warning
         instructions: >
           Warn if a change lowers coverage fail_under in pyproject.toml below 90
-          (the repository-wide gate), lowers --cov-fail-under below 85 for the
-          website suite in .github/workflows/test.yml, or stops running
+          (the repository-wide gate that the coverage-gate job in
+          .github/workflows/test.yml enforces on the combined package data),
+          lowers the --fail-under floors for website (85) or release_support
+          in test.yml, removes the coverage-gate job, or stops running
           package-local tests.
 
       - name: "Package-local test coverage"
@@ -329,12 +383,6 @@ reviews:
 
 
   tools:
-    # Every CodeRabbit tool except ast-grep is enabled by default, so only
-    # deviations from the default belong here.
-
-    # Disabled: these overlap tooling this repository already runs and would
-    # report the same findings twice. `github-checks` below reads the real
-    # results from the Quality Gates workflow.
     ruff:
       enabled: false          # make lint (ruff format --check + ruff check)
     pylint:
@@ -346,10 +394,8 @@ reviews:
     languagetool:
       enabled: false          # prose style is not gated in this repository
 
-    # Wait long enough for the Quality Gates and Test workflows to finish.
     github-checks:
       enabled: true
-      timeout_ms: 900000
 
 knowledge_base:
   opt_out: false
@@ -362,10 +408,7 @@ knowledge_base:
       - "CONTRIBUTING.md"
       - "SECURITY.md"
       - "packages/*/README.md"
-      # Package README structure, the documentation publication boundary, and
-      # the build/deploy contract for the documentation site.
       - "website/README.md"
-      # Architecture, testing, release, and publication conventions.
       - "docs/developers/**/*.md"
   learnings:
     scope: local

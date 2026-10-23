@@ -39,6 +39,60 @@ class TestLinkCheckerOutcomes:
         assert len(checker.dead_links) == 1
 
     @responses.activate
+    def test_run_check_fails_when_start_page_is_missing(self):
+        """A start page that is not served must fail the run, not pass with nothing checked."""
+        checker = LinkChecker("http://example.com", max_depth=1)
+
+        responses.add(responses.GET, "http://example.com", status=404)
+
+        success = checker.run_check()
+
+        assert success is False
+        assert checker.start_page_error == "HTTP 404"
+        assert len(checker.checked_links) == 0
+
+    def test_run_check_fails_when_server_is_unreachable(self):
+        """A connection failure on the start page must fail the run."""
+        checker = LinkChecker("http://example.com", max_depth=1)
+
+        with patch.object(
+            checker.session,
+            "get",
+            side_effect=requests.exceptions.ConnectionError("Connection refused"),
+        ):
+            success = checker.run_check()
+
+        assert success is False
+        assert "Connection refused" in checker.start_page_error
+
+    def test_run_check_fails_when_the_start_page_error_has_no_message(self):
+        """An exception with an empty message must still fail the run."""
+        checker = LinkChecker("http://example.com", max_depth=1)
+
+        with patch.object(checker.session, "get", side_effect=requests.exceptions.Timeout()):
+            success = checker.run_check()
+
+        assert success is False
+        assert checker.start_page_error == "Timeout"
+
+    @responses.activate
+    def test_broken_deeper_page_is_reported_as_a_dead_link_not_a_start_failure(self):
+        """Only the start page sets the start-page error; deeper failures stay dead links."""
+        checker = LinkChecker("http://example.com", max_depth=2)
+
+        responses.add(
+            responses.GET, "http://example.com", body='<a href="/gone.html">Gone</a>', status=200
+        )
+        responses.add(responses.HEAD, "http://example.com/gone.html", status=404)
+        responses.add(responses.GET, "http://example.com/gone.html", status=404)
+
+        success = checker.run_check()
+
+        assert success is False
+        assert checker.start_page_error is None
+        assert len(checker.dead_links) == 1
+
+    @responses.activate
     def test_redirects_handling(self):
         """Test handling of redirect responses."""
         checker = LinkChecker("http://example.com")

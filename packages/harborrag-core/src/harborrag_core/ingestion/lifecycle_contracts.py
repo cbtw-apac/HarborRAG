@@ -128,6 +128,14 @@ class DocumentVersionSnapshot(StrictModel):
     representation_artifact: ArtifactReference | None = None
 
 
+class PurgeableDocumentVersion(StrictModel):
+    """A RETIRED version whose retention elapsed and whose projections are cleaned."""
+
+    tenant_id: str = Field(min_length=1)
+    retired_at: datetime
+    snapshot: DocumentVersionSnapshot
+
+
 class PublicationResult(StrictModel):
     document_id: DocumentId
     active_document_version_id: DocumentVersionId

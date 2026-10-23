@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-from harborrag_core.models.chat import HarborChatResponse, HarborChatUsage
-from harborrag_core.ports.agent_runs import AgentStopReason, AgentToolExecution
+from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
+from harborrag_core.ports.agent_runs import (
+    AgentEvidenceReference,
+    AgentStopReason,
+    AgentToolExecution,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -18,6 +23,12 @@ class AgentRunResult:
     turns: int
     usage: HarborChatUsage
     stop_reason: AgentStopReason
+    cost: ModelCost = field(default_factory=ModelCost)
+    memory_persisted: bool = False
+    citations: tuple[AgentEvidenceReference, ...] = ()
+    citation_marker_count: int = 0
+    invalid_citation_markers: tuple[str, ...] = ()
+    citation_evidence_available: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,6 +42,22 @@ class AgentRunOptions:
     max_repeated_tool_calls: int = 2
     synthesis_timeout_seconds: float | None = 30.0
     max_total_tokens: int | None = None
+    # Conversation context chosen by the caller's memory policy. When ``history``
+    # is supplied the engine replays it instead of reading the last turns itself,
+    # so trimming, summarization, and recall stay one decision made upstream.
+    history: tuple[HarborChatMessage, ...] | None = None
+    memory_summary: str | None = None
+    # The human the run is for, which owns the conversation and is what every
+    # recorded token is attributed to. ``principal_id`` is only the credential
+    # that acted. Direct SDK callers that pass none fall back to the principal.
+    user_id: str | None = None
+    logical_model: str | None = None
+
+    @property
+    def owner_id(self) -> str:
+        """The end user this run belongs to, defaulting to the principal."""
+
+        return self.user_id or self.principal_id
 
 
 __all__ = ["AgentRunOptions", "AgentRunResult"]

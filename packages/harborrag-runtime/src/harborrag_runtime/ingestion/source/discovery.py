@@ -25,6 +25,7 @@ from .models import (
     SourceDiscoveryPage,
     SourceIngestionRequest,
 )
+from .skips import bind_connector_run, discovery_skip_summary
 
 _LEGACY_ROOT_BATCH_SIZE = 50
 _REGISTRATION_BATCH_SIZE = 200
@@ -61,6 +62,7 @@ class SourceDiscoveryPlanner:
     ) -> SourceDiscoveryPage:
         """Fetch, describe, and register one native provider page."""
 
+        bind_connector_run(connector, request.task_id)
         provider_started = perf_counter()
         page = await asyncio.to_thread(
             connector.discover_page,
@@ -90,6 +92,9 @@ class SourceDiscoveryPlanner:
             batch = pending[:_REGISTRATION_BATCH_SIZE]
             del pending[:_REGISTRATION_BATCH_SIZE]
             planned.extend(await self._record_batch(scan_id, batch))
+        # A paged connector replays its traversal from the start, so its skips
+        # after any page cover every page so far.
+        await self._record_skips(request, connector)
         logger.info(
             "Source discovery page task_id=%s roots=%d documents=%d has_next=%s "
             "provider_ms=%.1f descriptor_ms=%.1f concurrency=%d",
@@ -154,6 +159,7 @@ class SourceDiscoveryPlanner:
         *,
         scan_id: str,
     ) -> tuple[PlannedDocumentRelease, ...]:
+        bind_connector_run(connector, request.task_id)
         roots = iter(connector.discover(request.query))
         planned: list[PlannedDocumentRelease] = []
         pending: list[PendingSourceRelease] = []
@@ -178,7 +184,17 @@ class SourceDiscoveryPlanner:
                 planned.extend(await self._record_batch(scan_id, pending))
                 pending.clear()
             await self._record_progress(request, root_count=root_count, planned=len(planned))
+        await self._record_skips(request, connector)
         return tuple(planned)
+
+    async def _record_skips(
+        self,
+        request: SourceIngestionRequest,
+        connector: BaseConnector | HarborConnector,
+    ) -> None:
+        skips = discovery_skip_summary(connector)
+        if skips is not None:
+            await self._control.tasks.update_summary(request.task_id, skips)
 
     @staticmethod
     async def _describe_roots(

@@ -72,7 +72,7 @@ jobs:
       MODE: ${{ needs.plan.outputs.mode }}
       BRANCH: ${{ matrix.branch }}
       RULES: ${{ github.workspace }}/ocr-config/.opencodereview/harborrag-rules.json
-      DELTA_TOKEN_BUDGET: ${{ vars.OCR_DELTA_TOKEN_BUDGET || '3_000_000' }} # 3M tokens for delta jobs should be good
+      DELTA_TOKEN_BUDGET: ${{ vars.OCR_DELTA_TOKEN_BUDGET || '25_000_000' }} # 25M tokens for delta jobs
       FULL_TOKEN_BUDGET: ${{ vars.OCR_FULL_TOKEN_BUDGET || '50_000_000' }} # 50M tokens for repo-wide monthly scan
     defaults:
       run: { working-directory: target }

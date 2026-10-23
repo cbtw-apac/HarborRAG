@@ -96,3 +96,38 @@ def _openxml_bytes() -> bytes:
     buffer = io.BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+def test_excel_parser_converts_xlrd_errors_on_corrupt_xls() -> None:
+    """`xlrd.XLRDError` derives only from Exception, so it used to escape
+    `wrap_parse_errors` and surface as an untyped crash instead of a rejection."""
+    import xlrd
+
+    from harborrag_adapters.parsers.errors import ParseError, PasswordProtectedError
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+
+    with pytest.raises(ParseError, match="xlrd failed to parse input") as caught:
+        ExcelParser().parse(ParseInput(content=b"not a workbook at all", filename="bad.xls"))
+    assert isinstance(caught.value.__cause__, xlrd.XLRDError)
+    assert not isinstance(caught.value, PasswordProtectedError)
+
+
+def test_excel_parser_reports_encrypted_xls_as_password_protected() -> None:
+    import struct
+
+    olefile = pytest.importorskip("olefile")
+    from cfb_writer import build_compound_file
+
+    from harborrag_adapters.parsers.errors import PasswordProtectedError
+    from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
+
+    with olefile.OleFileIO(io.BytesIO(_xls_bytes())) as ole:
+        workbook = ole.openstream("Workbook").read()
+    # Insert a FILEPASS record (0x002F) right after the leading BOF record.
+    (bof_length,) = struct.unpack_from("<H", workbook, 2)
+    cut = 4 + bof_length
+    filepass = struct.pack("<HHHHH", 0x002F, 6, 0, 0x1234, 0x5678)
+    encrypted = build_compound_file({"Workbook": workbook[:cut] + filepass + workbook[cut:]})
+
+    with pytest.raises(PasswordProtectedError):
+        ExcelParser().parse(ParseInput(content=encrypted, filename="secret.xls"))

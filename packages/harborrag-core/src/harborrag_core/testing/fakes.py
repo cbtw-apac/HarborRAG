@@ -85,25 +85,29 @@ class FakeJobQueue:
 
 @dataclass(slots=True)
 class FakeSecrets:
-    """In-memory SecretsPort; refs are sequential and reveal nothing."""
+    """In-memory SecretsPort; refs are sequential, tenant-scoped, and reveal nothing.
 
-    values: dict[str, str] = field(default_factory=dict)
+    Storage is keyed by ``(tenant_id, ref)`` exactly like the SQL adapter, so a
+    ref belonging to another tenant is indistinguishable from an unknown ref.
+    """
+
+    values: dict[tuple[str, str], str] = field(default_factory=dict)
     counter: int = 0
 
-    async def put(self, value: str) -> str:
-        """Store the value under a fresh opaque ref."""
+    async def put(self, value: str, *, tenant_id: str) -> str:
+        """Store the value for the tenant under a fresh opaque ref."""
         self.counter += 1
         ref = f"secret://fake/{self.counter}"
-        self.values[ref] = value
+        self.values[(tenant_id, ref)] = value
         return ref
 
-    async def resolve(self, ref: str) -> str:
-        """Return the stored value; KeyError for unknown/deleted refs."""
-        return self.values[ref]
+    async def resolve(self, ref: str, *, tenant_id: str) -> str:
+        """Return the tenant's stored value; KeyError for unknown/foreign refs."""
+        return self.values[(tenant_id, ref)]
 
-    async def delete(self, ref: str) -> None:
-        """Forget the value behind the ref."""
-        self.values.pop(ref, None)
+    async def delete(self, ref: str, *, tenant_id: str) -> None:
+        """Forget the value behind the tenant's ref."""
+        self.values.pop((tenant_id, ref), None)
 
 
 @dataclass(slots=True)

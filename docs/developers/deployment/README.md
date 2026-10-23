@@ -39,14 +39,15 @@ Prepare a protected environment file:
 scripts/deployment/dev.sh bootstrap     # creates all seven env/ files, mode 0600
 ```
 
-`bootstrap` is preferred over copying templates by hand: it creates every file the
-entrypoints require - including `env/.env.api`, which `mcp.sh` hard-requires - and mints
-the MCP bearer token.
+`bootstrap` is preferred over copying templates by hand: it creates the
+checkout environment files and mints the local MCP bearer token. MCP reads the
+database and model files, plus the MCP file when present; it does not load
+`env/.env.api`.
 
 **`HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` ships empty and blocks
 startup.** It encrypts stored connector credentials in the control database, and both the
-API and the Temporal worker must read the same value. Compose guards it, and treats an
-empty value as unset:
+API and the Temporal worker must read the same value. Their launch/runtime validation
+guards it and treats an empty value as unset:
 
 ```bash
 openssl rand -hex 32     # paste into HARBORRAG_SECRETS_ENCRYPTION_KEY
@@ -204,6 +205,13 @@ Use `scripts/deployment/mcp.sh --http` for the authenticated loopback HTTP
 transport and local status/configuration UI. Remote MCP needs TLS and a
 production JWT/JWKS verifier and is intentionally not provided by the local
 container command.
+
+The Explorer MCP UI server is optional and separate. `scripts/deployment/mcp-ui.sh`
+builds `deploy/docker/Dockerfile.mcp-ui`, a layer over the MCP image that adds
+the `ui` extra and runs `harborrag-mcp-ui`, and starts it from
+`deploy/compose/docker-compose.mcp-ui.yml` on port `8011`. Its audit path is the
+same, inside its own `harborrag-mcp-ui-audit` volume. The MCP image and
+`mcp.sh` never include or start it.
 
 ## Model assets
 

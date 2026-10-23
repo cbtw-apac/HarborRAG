@@ -24,7 +24,7 @@ from .parameters import ChatMessageInput, prepare_chat_request
 from .registry import ProviderRegistry
 from .schemas import ChatClientDependencies
 from .stream_execution import ChatStreamExecution
-from .validation import validate_chat_configuration
+from .validation import validate_chat_configuration, validate_stream_capability
 
 
 class ChatClientRuntime(
@@ -160,15 +160,19 @@ class ChatClientRuntime(
         request: HarborChatRequest | None,
         model: str | None,
         kwargs: dict[str, Any],
+        *,
+        streaming: bool = False,
     ) -> tuple[str, HarborChatRequest, str]:
         self._ensure_open()
         alias = model or (request.logical_model if request is not None else None)
         alias = alias or self.config.default_model
-        logical, _deployment, prepared = prepare_chat_request(
+        logical, deployment, prepared = prepare_chat_request(
             self.config,
             messages,
             request=request,
             model=model,
             request_kwargs=kwargs,
         )
+        if streaming:
+            validate_stream_capability(prepared, deployment)
         return logical, prepared, alias

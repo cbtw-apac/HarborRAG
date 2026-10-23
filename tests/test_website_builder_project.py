@@ -3,11 +3,13 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+from website.builder.constants import UNKNOWN_PROJECT_VERSION
 
 
 class TestGenerateProjectInfo:
@@ -16,7 +18,7 @@ class TestGenerateProjectInfo:
     def test_reads_pyproject(self, builder):
         info = builder.generate_project_info()
 
-        assert info["name"] == "qdrant-loader"
+        assert info["name"] == "harborrag-demo"
         assert info["version"] == "0.4.0"
         written = json.loads((builder.output_dir / "project-info.json").read_text(encoding="utf-8"))
         assert written["version"] == "0.4.0"
@@ -76,8 +78,13 @@ class TestGenerateProjectInfo:
         info = builder.generate_project_info()
 
         assert info["name"] == "HarborRAG"
-        assert info["version"] == "2.0.0a1"
+        assert info["version"] == UNKNOWN_PROJECT_VERSION
         assert info["status"] == "Alpha"
+
+    def test_build_timestamp_is_utc_with_z_suffix(self, builder):
+        info = builder.generate_project_info()
+
+        assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", info["build"]["timestamp"])
 
     def test_includes_git_metadata(self, tmp_path, project_root_dir, website_builder_cls):
         """Run against the real repository so the git lookups succeed."""

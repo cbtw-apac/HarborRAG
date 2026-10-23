@@ -11,6 +11,7 @@ from harborrag_runtime.contracts import (
 )
 from harborrag_runtime.execution.submission import build_ingestion_input
 from harborrag_runtime.temporal.client import IngestionTemporalClient
+from harborrag_runtime.temporal.gateway import to_temporal_source
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 
@@ -34,7 +35,7 @@ class TemporalIngestionExecutor:
         return self._client
 
     def _input(self, request: IngestionRequest) -> SourceIngestionInput:
-        return build_ingestion_input(self._settings, request)
+        return to_temporal_source(build_ingestion_input(self._settings, request))
 
     async def submit(self, request: IngestionRequest) -> IngestionTaskReference:
         client = await self._connected_client()

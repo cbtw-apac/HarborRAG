@@ -65,6 +65,40 @@ def test_normalize_chat_response_with_usage_tools_and_metadata() -> None:
     assert response.tool_calls[0].function.parsed_arguments == {"id": 1}
     assert response.provider_request_id == "provider-1"
     assert response.cache_hit is True
+    assert response.estimated_cost_usd == 0.01
+
+
+@pytest.mark.parametrize(
+    ("hidden", "expected"),
+    [
+        ({}, None),
+        ({"response_cost": None}, None),
+        ({"response_cost": -0.5}, None),
+        ({"response_cost": "0.5"}, None),
+        ({"response_cost": True}, None),
+        ({"response_cost": 0}, 0.0),
+        ({"response_cost": 2}, 2.0),
+        ({"response_cost": 0.0025}, 0.0025),
+    ],
+)
+def test_normalize_chat_response_cost_is_float_or_none(
+    hidden: dict[str, object], expected: float | None
+) -> None:
+    raw = {
+        "id": "resp-2",
+        "choices": [{"finish_reason": "stop", "message": {"role": "assistant", "content": "x"}}],
+        "_hidden_params": hidden,
+    }
+    response = normalize_chat_response(
+        raw,
+        logical_model="primary",
+        deployment=deployment(),
+        request_id="req-2",
+        latency_ms=1.0,
+    )
+    assert response.estimated_cost_usd == expected
+    if expected is not None:
+        assert isinstance(response.estimated_cost_usd, float)
 
 
 @pytest.mark.parametrize(

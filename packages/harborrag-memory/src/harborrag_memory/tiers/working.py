@@ -45,7 +45,23 @@ class InMemoryWorkingMemoryStore:
         _require_run_owner(owner)
         _validate_ttl(ttl_seconds)
         async with self._lock:
+            self._sweep()
             self._values[owner] = (monotonic() + ttl_seconds, deepcopy(state))
+
+    def _sweep(self) -> None:
+        """Drop every expired entry, not only the one being read.
+
+        Eviction used to happen in ``get`` and only for that exact owner, so a
+        run that ended without one kept its scratch state for the life of the
+        process. A long-lived worker accumulated one dead entry per run. Called
+        under the lock, on write, so the cost is bounded by how often state is
+        written rather than by how long the process has been up.
+        """
+
+        now = monotonic()
+        expired = [owner for owner, (expires_at, _) in self._values.items() if expires_at <= now]
+        for owner in expired:
+            del self._values[owner]
 
     async def delete(self, owner: MemoryOwner) -> None:
         _require_run_owner(owner)

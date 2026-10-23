@@ -110,7 +110,7 @@ def test_update_source_swaps_secret_and_retires_the_old_ref(project: Project) ->
             },
         ).json()
         old_ref = created["secret_refs"][0]
-        assert secrets.values[old_ref] == "old-token"
+        assert secrets.values[("DEFAULT", old_ref)] == "old-token"
 
         updated = client.patch(
             f"/api/v1/sources/{created['id']}",
@@ -119,8 +119,8 @@ def test_update_source_swaps_secret_and_retires_the_old_ref(project: Project) ->
         new_ref = updated["secret_refs"][0]
 
         assert new_ref != old_ref
-        assert secrets.values[new_ref] == "new-token"
-        assert old_ref not in secrets.values
+        assert secrets.values[("DEFAULT", new_ref)] == "new-token"
+        assert ("DEFAULT", old_ref) not in secrets.values
 
 
 @pytest.mark.blackbox
@@ -138,11 +138,11 @@ def test_delete_source_forgets_every_secret_it_referenced(project: Project) -> N
             },
         ).json()
         ref = created["secret_refs"][0]
-        assert ref in secrets.values
+        assert ("DEFAULT", ref) in secrets.values
 
         response = client.delete(f"/api/v1/sources/{created['id']}")
         assert response.status_code == 204
-        assert ref not in secrets.values
+        assert ("DEFAULT", ref) not in secrets.values
         assert client.get(f"/api/v1/sources/{created['id']}").status_code == 404
 
 

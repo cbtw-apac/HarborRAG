@@ -6,18 +6,18 @@ import json
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest
-from harborrag_runtime.temporal.schemas import SourceIngestionInput
-from harborrag_runtime.temporal.source_query import SourceQuery
-from harborrag_runtime.temporal.submission import SourceSubmission, build_source_input
+from harborrag_runtime.execution.gateway import prepare_configured_source_submission
+from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_runtime.source_query import SourceQuery
 
 
 def build_ingestion_input(
     settings: RuntimeSettings,
     request: IngestionRequest,
-) -> SourceIngestionInput:
+) -> PreparedSourceSubmission:
     """Build the single source input shared by direct and Temporal strategies."""
 
-    return build_source_input(
+    return prepare_configured_source_submission(
         settings,
         SourceSubmission(
             task_id=request.task_id,

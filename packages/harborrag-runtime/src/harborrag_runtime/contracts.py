@@ -6,21 +6,107 @@ from dataclasses import dataclass, field
 from enum import StrEnum
 from uuid import uuid4
 
-from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_core.ingestion import GraphEdgeRecord, GraphNodeRecord
-from harborrag_core.retrieval import (
-    GraphPath,
-    GraphPathQuery,
-    GraphSubgraphQuery,
-    GraphTriplet,
-    GraphTripletQuery,
+from harborrag_core.contracts.reader import (
+    EntityFindRequest as EntityFindRequest,
+)
+from harborrag_core.contracts.reader import (
+    EntityFindResponse as EntityFindResponse,
+)
+from harborrag_core.contracts.reader import (
+    EntityMatch as EntityMatch,
+)
+from harborrag_core.contracts.reader import (
+    EntityResolveRequest as EntityResolveRequest,
+)
+from harborrag_core.contracts.reader import (
+    EntityResolveResponse as EntityResolveResponse,
+)
+from harborrag_core.contracts.reader import (
+    EvidenceFetchRequest as EvidenceFetchRequest,
+)
+from harborrag_core.contracts.reader import (
+    EvidenceFetchResponse as EvidenceFetchResponse,
+)
+from harborrag_core.contracts.reader import (
+    GraphPathRequest as GraphPathRequest,
+)
+from harborrag_core.contracts.reader import (
+    GraphPathResponse as GraphPathResponse,
+)
+from harborrag_core.contracts.reader import (
+    GraphSubgraphRequest as GraphSubgraphRequest,
+)
+from harborrag_core.contracts.reader import (
+    GraphSubgraphResponse as GraphSubgraphResponse,
+)
+from harborrag_core.contracts.reader import (
+    GraphTripletRequest as GraphTripletRequest,
+)
+from harborrag_core.contracts.reader import (
+    GraphTripletResponse as GraphTripletResponse,
+)
+from harborrag_core.contracts.reader import (
+    RelationSearchRequest as RelationSearchRequest,
+)
+from harborrag_core.contracts.reader import (
+    RelationSearchResponse as RelationSearchResponse,
+)
+from harborrag_core.contracts.reader import (
+    RetrievalLane as RetrievalLane,
+)
+from harborrag_core.contracts.reader import (
+    RetrievalMode as RetrievalMode,
+)
+from harborrag_core.contracts.reader import (
+    RetrievalRequest as RetrievalRequest,
+)
+from harborrag_core.contracts.reader import (
+    RetrievalResponse as RetrievalResponse,
+)
+from harborrag_core.contracts.reader import (
+    SemanticPathRequest as SemanticPathRequest,
+)
+from harborrag_core.contracts.reader import (
+    SemanticPathResponse as SemanticPathResponse,
 )
 from harborrag_core.security import AccessContext
-from harborrag_engine.retrieval import RetrievalLane
 from harborrag_runtime.ingestion.limits import (
     validate_discovery_concurrency,
     validate_discovery_page_size,
     validate_document_concurrency,
+)
+from harborrag_runtime.reader_contracts import (
+    DocumentContextChunk as DocumentContextChunk,
+)
+from harborrag_runtime.reader_contracts import (
+    DocumentContextRequest as DocumentContextRequest,
+)
+from harborrag_runtime.reader_contracts import (
+    DocumentContextResponse as DocumentContextResponse,
+)
+from harborrag_runtime.reader_contracts import (
+    EvidenceReadItem as EvidenceReadItem,
+)
+from harborrag_runtime.reader_contracts import (
+    EvidenceReadRequest as EvidenceReadRequest,
+)
+from harborrag_runtime.reader_contracts import (
+    EvidenceReadResponse as EvidenceReadResponse,
+)
+from harborrag_runtime.reader_contracts import (
+    EvidenceReadSelector as EvidenceReadSelector,
+)
+from harborrag_runtime.reader_contracts import (
+    GraphNodeResolveRequest as GraphNodeResolveRequest,
+)
+from harborrag_runtime.reader_contracts import (
+    GraphNodeResolveResponse as GraphNodeResolveResponse,
+)
+from harborrag_runtime.reader_contracts import (
+    SourceListRequest as SourceListRequest,
+)
+from harborrag_runtime.reader_contracts import (
+    SourceListResponse as SourceListResponse,
 )
 
 
@@ -83,61 +169,10 @@ class IngestionStatus:
 
 
 @dataclass(frozen=True, slots=True)
-class RetrievalRequest:
-    access: AccessContext
-    query: str
-    top_k: int = 10
-    filters: dict[str, object] = field(default_factory=dict)
-    lane: RetrievalLane = RetrievalLane.HYBRID
-    observe_graph: bool = False
-
-    def __post_init__(self) -> None:
-        if not self.query.strip():
-            raise ValueError("retrieval query must be non-empty")
-        if not 1 <= self.top_k <= 100:
-            raise ValueError("retrieval top_k must be between 1 and 100")
-
-
-@dataclass(frozen=True, slots=True)
-class RetrievalResponse:
-    request_id: str
-    lane: RetrievalLane
-    results: tuple[RetrievalResult, ...]
-    diagnostics: dict[str, object]
-
-
-@dataclass(frozen=True, slots=True)
-class GraphTripletRequest:
-    access: AccessContext
-    query: GraphTripletQuery
-
-
-@dataclass(frozen=True, slots=True)
-class GraphTripletResponse:
-    triplets: tuple[GraphTriplet, ...]
-    diagnostics: dict[str, object]
-
-
-@dataclass(frozen=True, slots=True)
-class GraphPathRequest:
-    access: AccessContext
-    query: GraphPathQuery
-
-
-@dataclass(frozen=True, slots=True)
-class GraphPathResponse:
-    paths: tuple[GraphPath, ...]
-    diagnostics: dict[str, object]
-
-
-@dataclass(frozen=True, slots=True)
-class GraphSubgraphRequest:
-    access: AccessContext
-    query: GraphSubgraphQuery
-
-
-@dataclass(frozen=True, slots=True)
-class GraphSubgraphResponse:
-    nodes: tuple[GraphNodeRecord, ...]
-    relations: tuple[GraphEdgeRecord, ...]
-    diagnostics: dict[str, object]
+class MemoryContextRequest:
+    tenant_id: str
+    principal_id: str
+    user_id: str
+    session_id: str
+    question: str
+    project_id: str | None = None

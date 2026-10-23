@@ -35,22 +35,21 @@ def superseded_relations(
     go in, and ``relation_id`` is derived from type, endpoints and source relation
     version. So the edges to retract can be named without reading the graph back.
 
-    The discriminator is the *target node key*, not the relation. Only the targets whose
-    far end moved are superseded: a target key present in both projections was already
-    resolvable on the first pass and its edge is live, so matching on
-    ``(type, source, version)`` instead would let one resolved link mark every other link
-    of the same document for deletion. The placeholder attribute is checked too, so a key
-    that is placeholder-only for some other reason is left alone.
+    Compare both endpoints: reversed native predicates place the referenced
+    placeholder on the source side. A placeholder endpoint still present in the
+    repaired batch is not superseded, including a different unresolved target.
     """
 
     nodes = {node.node_key: node for node in first_pass.nodes}
     relations = document_relations(first_pass)
-    retired = {relation.target_node_key for relation in relations} - {
-        relation.target_node_key for relation in resolved
+    resolved_keys = {
+        key for relation in resolved for key in (relation.source_node_key, relation.target_node_key)
     }
     return tuple(
         relation
         for relation in relations
-        if relation.target_node_key in retired
-        and nodes[relation.target_node_key].attributes.get("placeholder") is True
+        if any(
+            key not in resolved_keys and nodes[key].attributes.get("placeholder") is True
+            for key in (relation.source_node_key, relation.target_node_key)
+        )
     )

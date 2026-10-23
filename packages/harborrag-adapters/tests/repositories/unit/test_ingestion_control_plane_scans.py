@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.repositories.database.ingestion_control import removal_reconciliation
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     BindingKind,
@@ -50,6 +51,26 @@ async def test_source_scan_overlap_and_failed_scan_cannot_remove_documents(
 
 
 @pytest.mark.asyncio
+async def test_running_scan_is_reported_only_while_started(tmp_path: Path) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        scans = control_plane.source_scans
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v1",
+        )
+
+        assert await scans.has_running_scan("scope-engineering") is False
+        scan_id = await scans.start("scope-engineering")
+        assert await scans.has_running_scan("scope-engineering") is True
+        assert await scans.has_running_scan("scope-other") is False
+        await scans.fail(scan_id, safe_reason="connector_timeout")
+        assert await scans.has_running_scan("scope-engineering") is False
+
+
+@pytest.mark.asyncio
 async def test_open_scan_start_is_idempotent_for_the_same_identity(
     tmp_path: Path,
 ) -> None:
@@ -78,6 +99,47 @@ async def test_open_scan_start_is_idempotent_for_the_same_identity(
                 "scope-engineering",
                 scan_id="scan:different",
             )
+
+
+@pytest.mark.asyncio
+async def test_source_scope_rejects_identity_changes_without_mutating_it(
+    tmp_path: Path,
+) -> None:
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        scans = control_plane.source_scans
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v1",
+        )
+
+        with pytest.raises(HarborConflictError, match="another connection"):
+            await scans.register_scope(
+                source_scope_id="scope-engineering",
+                connector_type="confluence",
+                connection_id="replacement.example",
+                configuration_fingerprint="config-v2",
+            )
+        with pytest.raises(HarborConflictError, match="another connector type"):
+            await scans.register_scope(
+                source_scope_id="scope-engineering",
+                connector_type="jira",
+                connection_id="wiki.example",
+                configuration_fingerprint="config-v2",
+            )
+
+        # The failed registrations must not poison the durable scope. A normal
+        # configuration refresh under the original identity remains valid.
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v2",
+        )
+        scan_id = await scans.start("scope-engineering")
+        await scans.fail(scan_id, safe_reason="test_complete")
 
 
 @pytest.mark.asyncio
@@ -333,3 +395,51 @@ async def test_removed_document_retirement_is_atomic_and_idempotent(
         )
         assert absent.replayed is True
         assert absent.retired_document_version_id is None
+
+
+@pytest.mark.asyncio
+async def test_removal_reconciles_every_stale_item_across_statement_chunks(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A rescan can find more stale items than one statement can bind; chunking must
+    # neither drop an item nor change what is removed.
+    monkeypatch.setattr(removal_reconciliation, "_STATEMENT_CHUNK", 2)
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        scans = control_plane.source_scans
+        await scans.register_scope(
+            source_scope_id="scope-engineering",
+            connector_type="confluence",
+            connection_id="wiki.example",
+            configuration_fingerprint="config-v1",
+        )
+        first_scan = await scans.start("scope-engineering")
+        candidates = [
+            candidate(f"stale-{number}", source=source_identity(f"page-{number}"))
+            for number in range(5)
+        ]
+        for item in candidates:
+            await scans.record_seen(
+                scan_id=first_scan,
+                item=DiscoveredSourceItem(
+                    source_identity=item.source_identity,
+                    document_id=item.document_id,
+                    source_version="1",
+                    admission_change_key=item.fingerprints.admission_change_key,
+                ),
+            )
+        await scans.complete(first_scan)
+        assert await scans.reconcile_removals(first_scan) == ()
+        for _ in range(2):
+            missed = await scans.start("scope-engineering")
+            await scans.complete(missed)
+            removed = await scans.reconcile_removals(missed)
+
+        assert removed == tuple(sorted(str(item.document_id) for item in candidates))
+        for item in candidates:
+            stored = await scans.source_item(
+                source_scope_id="scope-engineering",
+                source_item_id=item.source_identity.source_item_id,
+            )
+            assert stored is not None and stored.active is False

@@ -21,6 +21,7 @@ jobs:
   openapi:
     name: Export OpenAPI + breaking-change gate
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -86,6 +87,7 @@ jobs:
   client:
     name: Generate @harborrag/api-client
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: openapi
     steps:
       - name: Checkout
@@ -111,10 +113,17 @@ jobs:
           npm run generate
           npm run build
 
+      - name: Test runtime client and packed declarations
+        working-directory: clients/typescript
+        run: npm test
+
       - name: Upload client artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: api-client
-          path: clients/typescript
+          # The generated client and its build, not the installed toolchain.
+          path: |
+            clients/typescript
+            !clients/typescript/node_modules
       # TODO(M0 follow-up): `npm publish` to the internal registry on tags,
       # version pinned to the backend package version (plan ST10 item 4).

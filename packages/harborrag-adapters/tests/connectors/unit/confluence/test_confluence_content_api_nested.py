@@ -159,7 +159,9 @@ def test_list_attachments_truncates_at_max_attachments_without_fetching_next_pag
 def test_with_children_skips_duplicate_ids():
     api = ConfluenceContentAPI(FakeConfluenceClient(), cloud_config())
 
-    ids = list(api.with_children(["1", "1", "2"], ConnectorQuery()))
+    ids = list(
+        api.with_children(["1", "1", "2"], ConnectorQuery(filters={"include_children": False}))
+    )
 
     assert ids == ["1", "2"]
 
@@ -207,27 +209,11 @@ def test_child_page_ids_paginates_across_multiple_pages():
     assert ids == ["2", "3", "4"]
 
 
-def test_child_page_ids_truncates_at_max_child_pages_without_fetching_next_page():
-    client = FakeConfluenceClient()
-    client.add(
-        "content/1/child/page",
-        {"results": [{"id": "2"}, {"id": "3"}]},
-    )
-    api = ConfluenceContentAPI(client, cloud_config(page_size=2, max_child_pages=1))
-
-    ids = list(api.child_page_ids("1", recursive=False, seen=set()))
-
-    assert ids == ["2"]
-    assert len(client.calls) == 1
-
-
-def test_child_page_ids_truncates_across_multiple_root_ids_independently():
-    # max_child_pages caps discovery per root, not globally across a batch of
-    # roots requested through with_children -- each root gets its own budget.
+def test_with_children_walks_every_child_of_each_root():
     client = FakeConfluenceClient()
     client.add("content/1/child/page", {"results": [{"id": "2"}, {"id": "3"}]})
     client.add("content/10/child/page", {"results": [{"id": "11"}, {"id": "12"}]})
-    api = ConfluenceContentAPI(client, cloud_config(page_size=10, max_child_pages=1))
+    api = ConfluenceContentAPI(client, cloud_config(page_size=10))
 
     ids = list(
         api.with_children(
@@ -236,7 +222,12 @@ def test_child_page_ids_truncates_across_multiple_root_ids_independently():
         )
     )
 
-    assert ids == ["1", "2", "10", "11"]
+    assert ids == ["1", "2", "3", "10", "11", "12"]
+
+
+def test_config_no_longer_accepts_max_child_pages():
+    with pytest.raises(TypeError, match="max_child_pages"):
+        cloud_config(max_child_pages=1)
 
 
 def test_child_page_ids_honors_server_clamped_page_limit():

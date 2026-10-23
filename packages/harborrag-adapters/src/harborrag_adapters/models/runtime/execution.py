@@ -11,6 +11,11 @@ from harborrag_core.models.errors import HarborModelError
 
 from .config import RetryPolicyConfig, RoutingConfig
 from .errors import HarborNoHealthyDeploymentError
+from .operation_deadline import (
+    OperationDeadlineExceeded,
+    remaining_timeout,
+    sleep_with_deadline,
+)
 from .retry import RetryController
 from .routing import DeploymentSelector
 from .routing_cursor import RoutingExecutionCursor
@@ -96,6 +101,7 @@ class RoutedModelExecutor[D: DeploymentLike]:
         cursor = self.runtime.cursor(logical_model)
         last_error: HarborModelError | None = None
         while attempt := cursor.next_attempt_sync(self.runtime.selector):
+            remaining_timeout()
             state = attempt.state
             try:
                 with self.runtime.selector.lease_sync(
@@ -105,10 +111,13 @@ class RoutedModelExecutor[D: DeploymentLike]:
                 ):
                     started = time.perf_counter()
                     raw = invoke(attempt.public)
+                    remaining_timeout()
                     latency = (time.perf_counter() - started) * 1_000
                 self.runtime.selector.record_success_sync(state, latency)
                 value = normalize(raw, attempt.logical_model, state.config, latency)
                 return cursor.result(value, attempt.public)
+            except OperationDeadlineExceeded:
+                raise
             except Exception as exc:
                 error = normalize_execution_error(
                     exc, attempt.logical_model, state.config, normalize_error
@@ -127,7 +136,7 @@ class RoutedModelExecutor[D: DeploymentLike]:
                     on_transition(cursor.transition(before, attempt.public, error))
                 delay = self.runtime.retry.delay_seconds(cursor.retry_count)
                 if delay:
-                    time.sleep(delay)
+                    sleep_with_deadline(delay)
         raise routing_unavailable_error(logical_model, cursor, last_error)
 
     async def aexecute[T: BaseModel](
@@ -145,6 +154,7 @@ class RoutedModelExecutor[D: DeploymentLike]:
         cursor = self.runtime.cursor(logical_model)
         last_error: HarborModelError | None = None
         while attempt := await cursor.next_attempt(self.runtime.selector):
+            remaining_timeout()
             state = attempt.state
             try:
                 async with self.runtime.selector.lease(
@@ -154,10 +164,13 @@ class RoutedModelExecutor[D: DeploymentLike]:
                 ):
                     started = time.perf_counter()
                     raw = await invoke(attempt.public)
+                    remaining_timeout()
                     latency = (time.perf_counter() - started) * 1_000
                 await self.runtime.selector.record_success(state, latency)
                 value = normalize(raw, attempt.logical_model, state.config, latency)
                 return cursor.result(value, attempt.public)
+            except OperationDeadlineExceeded:
+                raise
             except Exception as exc:
                 error = normalize_execution_error(
                     exc, attempt.logical_model, state.config, normalize_error

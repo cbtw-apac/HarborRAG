@@ -71,3 +71,42 @@ def test_stream_normalizes_reasoning_tools_usage_and_finish_metadata() -> None:
     assert completed.metadata["first_token_latency_ms"] >= 0
     assert completed.metadata["stream_duration_ms"] >= 0
     assert StreamEventType.METADATA in {event.event for event in events}
+
+
+def test_stream_completed_event_carries_response_cost_from_final_chunk() -> None:
+    deployment = chat_config().models["primary"].deployments[0]
+    normalizer = ChatStreamNormalizer(
+        logical_model="primary",
+        deployment=deployment,
+        request_id="request-2",
+    )
+    chunks = [
+        {"id": "response-2", "choices": [{"delta": {"content": "Hi"}}]},
+        {"id": "response-2", "choices": [{"delta": {}, "finish_reason": "stop"}]},
+        {
+            "id": "response-2",
+            "choices": [],
+            "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+            "_hidden_params": {"response_cost": 0.0042},
+        },
+    ]
+
+    for chunk in chunks:
+        normalizer.consume(chunk)
+    completed = normalizer.complete()
+
+    assert completed.event is StreamEventType.COMPLETED
+    assert completed.estimated_cost_usd == 0.0042
+    assert isinstance(completed.estimated_cost_usd, float)
+
+
+def test_stream_completed_event_cost_is_none_without_hidden_cost() -> None:
+    deployment = chat_config().models["primary"].deployments[0]
+    normalizer = ChatStreamNormalizer(
+        logical_model="primary",
+        deployment=deployment,
+        request_id="request-3",
+    )
+    normalizer.consume({"id": "response-3", "choices": [{"delta": {"content": "Hi"}}]})
+    normalizer.consume({"id": "response-3", "choices": [], "usage": {"total_tokens": 1}})
+    assert normalizer.complete().estimated_cost_usd is None

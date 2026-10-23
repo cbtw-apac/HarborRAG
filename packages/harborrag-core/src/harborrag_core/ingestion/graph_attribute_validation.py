@@ -32,7 +32,18 @@ _FORBIDDEN_ATTRIBUTE_TOKENS = frozenset(
 )
 _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
     {
+        "assignee",
+        "components",
         "connector_type",
+        "created_at",
+        "creator",
+        "due_date",
+        "labels",
+        "priority",
+        "project_name",
+        "reporter",
+        "status_category",
+        "updated_at",
         "connection_id",
         "ctag",
         "default_branch",
@@ -40,9 +51,12 @@ _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
         "document_kind",
         "drive_type",
         "etag",
+        # Marks a stand-in for a link target outside every ingested scope.
+        "external",
         "issue_type",
         "issue_key",
         "item_name",
+        "logical_view",
         "mode",
         "name",
         "ordinal",
@@ -60,6 +74,16 @@ _ALLOWED_ATTRIBUTE_FIELDS = frozenset(
         "space_key",
         "status",
         "suffix",
+        "source_metadata",
+        "target_metadata",
+        "source_relation",
+        "title",
+        "attributes",
+        # A connector's typed custom fields, as ``[{field_id, name, value}]``: the
+        # structured facts a source entity carries that no fixed schema names.
+        "custom_fields",
+        "field_id",
+        "value",
     }
 )
 
@@ -68,6 +92,19 @@ def validate_graph_attributes(attributes: Mapping[str, Any]) -> None:
     """Reject sensitive, unbounded, or non-JSON graph metadata."""
 
     _validate_attribute_mapping(attributes, depth=0)
+    for role in ("source_metadata", "target_metadata"):
+        observation = attributes.get(role)
+        if observation is None:
+            continue
+        if not isinstance(observation, Mapping) or set(observation) != {"title", "attributes"}:
+            raise ValueError("source metadata requires a title and bounded attributes")
+        title = observation["title"]
+        if title is not None and (
+            not isinstance(title, str) or not title.strip() or len(title) > 512
+        ):
+            raise ValueError("source metadata title must be non-empty and at most 512 characters")
+        if not isinstance(observation["attributes"], Mapping):
+            raise ValueError("source metadata attributes must be a mapping")
 
 
 def _validate_attribute_mapping(attributes: Mapping[str, Any], *, depth: int) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import tomllib
 from pathlib import Path
 
@@ -30,7 +31,7 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
 
     assert "WORKDIR /var/lib/harborrag" in dockerfile
     assert "COPY config ./config" in dockerfile
-    for name in ("TEMPORAL", "CONNECTOR", "PARSER", "MODEL"):
+    for name in ("TEMPORAL", "CONNECTOR", "PARSER", "MODEL", "GRAPH_BUILD"):
         variable = f"HARBORRAG_{name}_CONFIG_PATH"
         assert (
             f"ENV {variable}=/app/config/" in dockerfile or f"{variable}=/app/config/" in dockerfile
@@ -51,6 +52,16 @@ def test_api_mounts_config_while_worker_uses_baked_runtime_configuration() -> No
     assert "COPY config ./config" in dockerfile
 
 
+def test_api_and_worker_pin_the_executable_graph_build_policy() -> None:
+    api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
+    temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
+
+    expected = "HARBORRAG_GRAPH_BUILD_CONFIG_PATH: /app/config/topology/graph_build.yaml"
+    assert expected in api
+    assert expected in temporal
+    assert (ROOT / "config/topology/graph_build.yaml").is_file()
+
+
 def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:
     api = (ROOT / "deploy/compose/docker-compose.yml").read_text(encoding="utf-8")
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
@@ -63,10 +74,15 @@ def test_temporal_secret_is_explicitly_scoped_to_api_and_worker() -> None:
 def test_temporal_compose_mounts_its_required_dynamic_config() -> None:
     temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
     dynamic_config = ROOT / "deploy/temporal/dynamicconfig/development-sql.yaml"
+    dynamic_config_text = dynamic_config.read_text(encoding="utf-8")
 
     assert "DYNAMIC_CONFIG_FILE_PATH: config/dynamicconfig/development-sql.yaml" in temporal
     assert "../temporal/dynamicconfig:/etc/temporal/config/dynamicconfig:ro" in temporal
     assert dynamic_config.is_file()
+    # Without this, native PauseWorkflowExecution/UnpauseWorkflowExecution fail
+    # as UNIMPLEMENTED and the Temporal UI never leaves RUNNING for paused runs.
+    assert "frontend.WorkflowPauseEnabled:" in dynamic_config_text
+    assert "namespace: harborrag" in dynamic_config_text
 
 
 def test_worker_image_installs_durable_artifact_adapters() -> None:
@@ -77,7 +93,7 @@ def test_worker_image_installs_durable_artifact_adapters() -> None:
 
     adapter_extras = (
         "chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,"
-        "pdf-docling,postgres,qdrant,redis,s3,tables"
+        "pdf-liteparse,postgres,qdrant,redis,s3,tables"
     )
     release_version = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
@@ -96,6 +112,29 @@ def test_temporal_and_worker_subcommands_have_separate_ownership() -> None:
     assert "--profile worker" in worker_function
     assert "--no-deps" in worker_function
     assert "temporal-worker" in worker_function
+
+
+def test_server_only_temporal_does_not_interpolate_worker_encryption_secret() -> None:
+    temporal = TEMPORAL_COMPOSE.read_text(encoding="utf-8")
+    script = DEV_SCRIPT.read_text(encoding="utf-8")
+    temporal_function = script.split("start_temporal() {", 1)[1].split("start_worker() {", 1)[0]
+    worker_function = script.split("start_worker() {", 1)[1].split("start_api() {", 1)[0]
+    api_function = script.split("start_api() {", 1)[1].split("stop_stack() {", 1)[0]
+    # The `up)` arm closes with a `;;` indented exactly one case level. Anchor
+    # to the line start: a nested case arm (--device) ends with a deeper-
+    # indented `;;` that still contains eight spaces, and an unanchored split
+    # would truncate the arm before its body.
+    up_body = script.split("    up)", 1)[1]
+    up_function = re.split(r"^ {8};;$", up_body, maxsplit=1, flags=re.MULTILINE)[0]
+
+    assert 'HARBORRAG_SECRETS_ENCRYPTION_KEY: "${HARBORRAG_SECRETS_ENCRYPTION_KEY:-}"' in temporal
+    assert "HARBORRAG_SECRETS_ENCRYPTION_KEY:?" not in temporal
+    assert "require_control_plane_encryption_key" not in temporal_function
+    assert "require_control_plane_encryption_key" in worker_function
+    assert "require_control_plane_encryption_key" in api_function
+    assert up_function.index("require_control_plane_encryption_key") < up_function.index(
+        "start_data"
+    )
 
 
 def test_temporal_startup_and_dependents_require_cluster_health() -> None:

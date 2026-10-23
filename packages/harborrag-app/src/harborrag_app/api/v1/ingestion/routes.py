@@ -10,6 +10,7 @@ from fastapi import APIRouter, Body, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.dependencies import (
+    authorize_role,
     authorize_task_tenant,
     authorize_tenant,
     require_role,
@@ -39,7 +40,12 @@ _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 router = APIRouter(
     prefix="/ingestions",
     tags=["Ingestion"],
-    dependencies=[Depends(require_api_capacity)],
+    # Function scope, like the chat and agent routers: with the default request
+    # scope the server deadline stays armed across a StreamingResponse body and
+    # hard-cancels the SSE stream mid-flight with no terminal error frame. This
+    # router has such an endpoint. The capacity lease is unaffected and is
+    # still held until the last frame; streams carry their own deadline.
+    dependencies=[Depends(require_api_capacity, scope="function")],
 )
 
 
@@ -77,6 +83,9 @@ async def create_ingestion(
     ] = None,
 ) -> IngestionAcceptedResponse:
     authorize_tenant(principal, request.tenant)
+    if request.source_scope_id is not None:
+        # Choosing a scope chooses which permission pile the documents join.
+        authorize_role(principal, "admin")
     result = await service.submit(
         build_ingestion_command(request),
         idempotency_key=idempotency_key,
@@ -225,6 +234,42 @@ def _sse_frame(event: HarborEvent) -> bytes:
 
 
 @router.post(
+    "/{task_id}/pause",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def pause_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(
+        await service.pause(task_id, actor=principal.subject)
+    )
+
+
+@router.post(
+    "/{task_id}/resume",
+    response_model=IngestionActionResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    responses=ERROR_RESPONSES,
+)
+async def resume_ingestion(
+    task_id: str,
+    service: IngestionServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("editor"))],
+) -> IngestionActionResponse:
+    task = await service.get_task(task_id)
+    authorize_task_tenant(principal, task)
+    return IngestionActionResponse.model_validate(
+        await service.resume(task_id, actor=principal.subject)
+    )
+
+
+@router.post(
     "/{task_id}/cancel",
     response_model=IngestionActionResponse,
     status_code=status.HTTP_202_ACCEPTED,
@@ -237,7 +282,9 @@ async def cancel_ingestion(
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(await service.cancel(task_id))
+    return IngestionActionResponse.model_validate(
+        await service.cancel(task_id, actor=principal.subject)
+    )
 
 
 @router.post(

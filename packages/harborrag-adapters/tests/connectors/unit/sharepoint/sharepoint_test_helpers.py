@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 from harborrag_adapters.connectors import SharePointSiteConfig
@@ -115,3 +117,26 @@ def folder_item(item_id: str = "folder1", name: str = "Runbooks") -> dict[str, A
 def add_site_and_default_drive(client: FakeGraphClient) -> None:
     client.add("sites/contoso.sharepoint.com:/sites/Engineering", site())
     client.add("sites/site1/drive", drive())
+
+
+FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def fixture(name: str) -> dict[str, Any]:
+    """Load a cleaned Microsoft Graph response saved under ``fixtures/``."""
+    return json.loads((FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def page_item(
+    page_id: str = "page1", name: str = "Onboarding.aspx", **overrides: Any
+) -> dict[str, Any]:
+    page = {
+        "id": page_id,
+        "name": name,
+        "title": name.removesuffix(".aspx"),
+        "webUrl": f"{SITE_URL}/SitePages/{name}",
+        "lastModifiedDateTime": "2024-05-24T20:57:56Z",
+        "eTag": f"etag-{page_id}",
+    }
+    page.update(overrides)
+    return page

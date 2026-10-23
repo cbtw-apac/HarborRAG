@@ -10,13 +10,19 @@ from harborrag_core.ingestion import BindingKind, IngestionTaskState
 
 from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
 from .models import (
-    PlannedDocumentRelease,
+    PlannedDocuments,
+    RelationRepairProgress,
     SourceDispatchSummary,
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+from .skips import run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
+
+# Comfortably under the smallest supported control-plane pool, so retirement
+# never competes with the rest of the task for connections.
+_MAX_CONCURRENT_RETIREMENTS = 4
 
 
 class SourceFinalizationService:
@@ -36,21 +42,24 @@ class SourceFinalizationService:
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
-        summary.require_total(len(planned))
+        summary.require_total(planned.document_count)
         logger.info(
             "Source finalization started task_id=%s scan_id=%s documents=%d",
             request.task_id,
             scan_id,
-            len(planned),
+            planned.document_count,
         )
         await self._control.tasks.update_summary(
             request.task_id,
             {"stage": "RECONCILING"},
         )
-        relation_repair = await self._repair_relations(request, planned, summary)
+        relation_repair = await self._repair_relations(
+            request, planned, summary, repair_progress or RelationRepairProgress()
+        )
         removals = await self._reconcile_removals(
             request,
             scan_id=scan_id,
@@ -60,16 +69,18 @@ class SourceFinalizationService:
         unresolved_relations = (
             relation_repair.unresolved_relations if relation_repair is not None else 0
         )
+        skips = await run_skip_summary(self._control, request.task_id)
         await self._control.tasks.finalize(
             request.task_id,
             summary.task_state(),
             summary={
                 "stage": "COMPLETED",
-                "discovered": len(planned),
-                "admitted": len(planned),
+                "discovered": planned.document_count,
+                "admitted": planned.document_count,
                 "published": summary.published,
                 "unchanged": summary.unchanged,
                 "failed": summary.failed,
+                **skips,
                 "removal_candidates": len(removals),
                 "unresolved_relations": unresolved_relations,
             },
@@ -77,7 +88,7 @@ class SourceFinalizationService:
         outcome = SourceIngestionOutcome(
             task_id=request.task_id,
             scan_id=scan_id,
-            discovered=len(planned),
+            discovered=planned.document_count,
             published=summary.published,
             unchanged=summary.unchanged,
             failed=summary.failed,
@@ -86,10 +97,17 @@ class SourceFinalizationService:
             unresolved_relations=unresolved_relations,
         )
         logger.info(
-            "Source finalization completed task_id=%s status=%s removals=%d "
-            "unresolved_relations=%d",
+            "Source finalization completed task_id=%s status=%s discovered=%d "
+            "published=%d unchanged=%d failed=%d skipped=%s skipped_by_reason=%s "
+            "removals=%d unresolved_relations=%d",
             request.task_id,
             outcome.status.value,
+            planned.document_count,
+            summary.published,
+            summary.unchanged,
+            summary.failed,
+            skips["skipped"],
+            skips["skipped_by_reason"],
             len(removals),
             unresolved_relations,
         )
@@ -98,15 +116,37 @@ class SourceFinalizationService:
     async def _repair_relations(
         self,
         request: SourceIngestionRequest,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
+        progress: RelationRepairProgress,
     ) -> RelationRepairResult | None:
         if self._relations is None:
             return None
         try:
-            return await self._relations.repair(
-                planned,
+            # Page by page: every document is already published, so no repair
+            # depends on another page's, and memory stays bounded by one page.
+            # ``progress`` is updated in place after each page; the caller may
+            # persist it (the Temporal activity heartbeats it) to resume here.
+            async for page in planned.pages(progress.next_page):
+                result = await self._relations.repair(page, tenant_id=request.tenant_id)
+                progress.repaired_documents += result.repaired_documents
+                progress.resolved_relations += result.resolved_relations
+                progress.unresolved_relations += result.unresolved_relations
+                progress.next_page += 1
+            # Then the reverse direction: documents outside this plan whose links point
+            # at something this run (or any earlier one) has now published. Not folded
+            # into ``progress``: it is idempotent, so a retried attempt simply re-runs it
+            # rather than resuming totals it would then count twice.
+            reverse = await self._relations.repair_resolvable(
                 tenant_id=request.tenant_id,
+                graph_projection_version=request.processing.graph_projection_version,
+            )
+            return RelationRepairResult(
+                repaired_documents=progress.repaired_documents + reverse.repaired_documents,
+                resolved_relations=progress.resolved_relations + reverse.resolved_relations,
+                # The plan's own count: the reverse pass only ever reduces what is
+                # unresolved, and its declarers belong to other runs' summaries.
+                unresolved_relations=progress.unresolved_relations,
             )
         except Exception as error:
             logger.error(
@@ -122,14 +162,40 @@ class SourceFinalizationService:
             )
             raise
 
+    async def _retire_all(self, removals: tuple[str, ...]) -> None:
+        """Retire every removed document without exhausting the connection pool.
+
+        ``retire_removed`` opens a session per call, so gathering one task per
+        removal put the whole batch in flight at once. A scan that detected a
+        few hundred removals overran a pool sized ``control_db_pool_size +
+        control_db_max_overflow`` (15 by default), timed out, and marked the
+        task FAILED even though every document had already been published.
+        """
+
+        slots = asyncio.Semaphore(_MAX_CONCURRENT_RETIREMENTS)
+
+        async def retire(document_id: str) -> None:
+            async with slots:
+                await self._control.publisher.retire_removed(document_id=document_id)
+
+        await asyncio.gather(*(retire(document_id) for document_id in removals))
+
     async def _reconcile_removals(
         self,
         request: SourceIngestionRequest,
         *,
         scan_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
+        if request.query.limit is not None or request.query.updated_after is not None:
+            # A deliberately partial scan cannot tell "not in scope" from "gone".
+            logger.info(
+                "Skipping removal reconciliation for a partial scan task_id=%s "
+                "(limit/updated_after set)",
+                request.task_id,
+            )
+            return ()
         try:
             removals = await self._control.source_scans.reconcile_removals(
                 scan_id,
@@ -140,12 +206,7 @@ class SourceFinalizationService:
                     else frozenset()
                 ),
             )
-            await asyncio.gather(
-                *(
-                    self._control.publisher.retire_removed(document_id=document_id)
-                    for document_id in removals
-                )
-            )
+            await self._retire_all(removals)
             logger.info(
                 "Source removal reconciliation completed task_id=%s removals=%d",
                 request.task_id,
@@ -169,12 +230,12 @@ class SourceFinalizationService:
     async def _record_failure(
         self,
         task_id: str,
-        planned: tuple[PlannedDocumentRelease, ...],
+        planned: PlannedDocuments,
         summary: SourceDispatchSummary,
         *,
         failed_stage: str,
     ) -> None:
-        discovered = len(planned)
+        discovered = planned.document_count
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.FAILED,

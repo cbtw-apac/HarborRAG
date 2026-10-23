@@ -4,12 +4,14 @@ from dataclasses import dataclass, field
 
 from harborrag_runtime.ingestion.limits import (
     MAX_RETRY_DOCUMENT_IDS,
-    validate_discovery_concurrency,
-    validate_discovery_page_size,
-    validate_document_concurrency,
-    validate_source_orchestration_limits,
 )
-from harborrag_runtime.temporal.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
+from harborrag_runtime.source_query import (
+    ProcessingProfileInput as ProcessingProfileInput,
+)
+from harborrag_runtime.source_query import (
+    SourceQuery as SourceQuery,
+)
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .dispatch import DocumentDispatchSummary
@@ -71,49 +73,62 @@ class SourceContinuation:
 
 
 @dataclass(frozen=True, slots=True)
-class SourceIngestionInput:
-    task_id: str
-    tenant_id: str
-    connector_name: str
-    connector_type: str
-    connection_id: str
-    source_scope_id: str
-    configuration_fingerprint: str
-    processing: ProcessingProfileInput
-    query: SourceQuery = SourceQuery()
-    force_reprocess: bool = False
-    discovery_page_size: int = 50
-    discovery_concurrency: int = 4
-    document_concurrency: int = 8
-    missing_threshold: int = 2
-    batch_size: int = 200
-    continue_after_batches: int = 25
+class SourceIngestionInput(PreparedSourceSubmission):
+    """Temporal history payload extends the neutral submission with replay state."""
+
     continuation: SourceContinuation | None = None
     workflow_options: TemporalWorkflowOptions = field(default_factory=TemporalWorkflowOptions)
 
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionInput:
+    """Schedule action payload: only the target, prepared afresh on each firing.
+
+    A prepared source frozen at schedule creation would carry a stale connector
+    fingerprint, processing profile and task queues once the worker config moves.
+    """
+
+    schedule_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
     def __post_init__(self) -> None:
-        values = (
-            self.task_id,
-            self.tenant_id,
-            self.connector_name,
-            self.connector_type,
-            self.connection_id,
-            self.source_scope_id,
-            self.configuration_fingerprint,
-        )
-        if any(not value.strip() for value in values):
-            raise ValueError("source input identities must be non-empty")
-        if len(self.task_id) > 128:
-            raise ValueError("source task ID must not exceed 128 characters")
-        validate_source_orchestration_limits(
-            batch_size=self.batch_size,
-            continue_after_batches=self.continue_after_batches,
-        )
-        validate_document_concurrency(self.document_concurrency)
-        validate_discovery_page_size(self.discovery_page_size)
-        validate_discovery_concurrency(self.discovery_concurrency)
-        if self.missing_threshold < 1:
-            raise ValueError("missing_threshold must be positive")
+        if not self.schedule_id.strip():
+            raise ValueError("schedule_id must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparationInput:
+    task_id: str
+    tenant_id: str
+    connection_id: str
+    source_scope_id: str | None = None
+    force_reprocess: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourcePreparation:
+    """A source prepared by the worker; ``source`` is None while its scope is busy."""
+
+    source: SourceIngestionInput | None
+    source_scope_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledSourceIngestionResult:
+    schedule_id: str
+    outcome: str
+    task_id: str | None = None
+    result: SourceIngestionResult | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScheduledRunMetricInput:
+    schedule_id: str
+    outcome: str
+    schedule_to_start_seconds: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -193,6 +208,7 @@ class DocumentFailureInput:
     prepared: PreparedDocument | None
     failed_stage: str
     error_type: str
+    skip_reason: str | None = None
 
     def __post_init__(self) -> None:
         if not self.failed_stage.strip() or not self.error_type.strip():
@@ -217,6 +233,24 @@ class SourceCancellationInput:
 
 
 @dataclass(frozen=True, slots=True)
+class SourcePauseInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("paused source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceResumeInput:
+    task_id: str
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("resumed source task ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
 class SourceFailureInput:
     task_id: str
     error_code: str
@@ -224,6 +258,19 @@ class SourceFailureInput:
     def __post_init__(self) -> None:
         if not self.task_id.strip() or not self.error_code.strip():
             raise ValueError("source failure task ID and error code must be non-empty")
+
+
+# A result travels through Temporal as one payload, capped at 2 MB. Each removed
+# document id is about 75 bytes, so a rescan that retires tens of thousands of
+# documents cannot carry them all; the retirements are durable in the control
+# plane anyway, so the result names a bounded sample and the full count.
+MAX_REPORTED_REMOVAL_CANDIDATES = 1_000
+
+
+def reported_removal_candidates(removals: tuple[str, ...]) -> tuple[str, ...]:
+    """The removed document ids a Temporal result may carry."""
+
+    return removals[:MAX_REPORTED_REMOVAL_CANDIDATES]
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,13 +281,23 @@ class SourceIngestionResult:
     published: int
     unchanged: int
     failed: int
+    # At most MAX_REPORTED_REMOVAL_CANDIDATES of the removed documents.
     removal_candidates: tuple[str, ...]
     unresolved_relations: int
     status: str = "COMPLETED"
+    # Every removed document, including those not named above. Results recorded
+    # before this field existed carry no value and are read as the named ones.
+    removal_count: int | None = None
 
     def __post_init__(self) -> None:
         if self.status not in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
             raise ValueError("source result has an unsupported status")
+        if len(self.removal_candidates) > MAX_REPORTED_REMOVAL_CANDIDATES:
+            raise ValueError("source result names more removals than a payload may carry")
+        if self.removal_count is None:
+            object.__setattr__(self, "removal_count", len(self.removal_candidates))
+        elif self.removal_count < len(self.removal_candidates):
+            raise ValueError("source result removal count is below the removals it names")
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,12 +306,36 @@ class SourceIngestionStatus:
     status: str
     paused: bool
     cancel_requested: bool
+    pause_applied: bool = False
 
     def __post_init__(self) -> None:
         if not self.task_id.strip():
             raise ValueError("source status task ID must be non-empty")
         if self.status not in _SOURCE_TASK_STATES:
             raise ValueError("source status is invalid")
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowExecutionControlInput:
+    workflow_id: str
+
+    def __post_init__(self) -> None:
+        if not self.workflow_id.strip():
+            raise ValueError("workflow control workflow ID must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
+class SourceBatchStatus:
+    task_id: str
+    status: str
+    paused: bool
+    cancel_requested: bool
+
+    def __post_init__(self) -> None:
+        if not self.task_id.strip():
+            raise ValueError("source batch status task ID must be non-empty")
+        if self.status not in {"PENDING", "RUNNING", "PAUSED", "CANCELLING", "COMPLETED"}:
+            raise ValueError("source batch status is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -305,6 +386,7 @@ class RetryDocumentInput:
 class RetryDocumentFailureInput:
     document: RetryDocumentInput
     error_type: str
+    skip_reason: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

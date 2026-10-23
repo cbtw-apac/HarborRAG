@@ -2,138 +2,38 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from pathlib import Path
 from uuid import UUID
 
 import pytest
-import pytest_asyncio
+from workflow_control_fixtures import (
+    FakeTemporalClient,
+)
+from workflow_control_fixtures import (
+    public_ingestion_command as _command,
+)
+from workflow_control_fixtures import (
+    service_resources as service_resources,
+)
 
-from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.errors import (
     IngestionAlreadyCompletedError,
+    IngestionAlreadyPausedError,
+    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
 )
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-from harborrag_core.contracts.errors import HarborConnectionError
+from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
-from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.errors import WorkflowSubmissionError
-from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    RetryFailuresInput,
-    SourceIngestionInput,
+from harborrag_runtime.errors import (
+    RuntimeConnectionError,
+    WorkflowOperationError,
+    WorkflowSubmissionError,
 )
-from harborrag_runtime.temporal.submission import SourceSubmission
-from harborrag_runtime.temporal.task_registry import IngestionTaskRegistry
-
-
-class FakeTemporalClient:
-    def __init__(self) -> None:
-        self.started: list[SourceIngestionInput] = []
-        self.cancelled: list[str] = []
-        self.retries: list[RetryFailuresInput] = []
-
-    async def start_ingestion(self, source: SourceIngestionInput) -> RuntimeWorkflowRef:
-        self.started.append(source)
-        return RuntimeWorkflowRef(source.task_id, "internal", "internal-run")
-
-    async def cancel(self, task_id: str) -> None:
-        self.cancelled.append(task_id)
-
-    async def start_retry_failures(
-        self,
-        request: RetryFailuresInput,
-    ) -> RuntimeWorkflowRef:
-        self.retries.append(request)
-        return RuntimeWorkflowRef(request.retry_task_id, "internal", "internal-run")
-
-
-def _source_input(
-    _settings: RuntimeSettings,
-    submission: SourceSubmission,
-) -> SourceIngestionInput:
-    task_id = submission.task_id
-    return SourceIngestionInput(
-        task_id=task_id,
-        tenant_id=submission.tenant_id,
-        connector_name="harborrag-workspace",
-        connector_type="local",
-        connection_id="harborrag-workspace",
-        source_scope_id="scope-harborrag-workspace",
-        configuration_fingerprint="connector-test",
-        processing=ProcessingProfileInput(
-            parser_profile="parser-v1",
-            normalizer_version="normalizer-v1",
-            chunk_strategy="chunk-v1",
-            dense_encoder_profile="dense-v1",
-            sparse_encoder_profile="sparse-v1",
-            graph_projection_version="graph-v1",
-        ),
-    )
-
-
-def _command(*, marker: str = "one") -> IngestionCreateCommand:
-    return IngestionCreateCommand(
-        tenant_id="ACME",
-        connection_id="harborrag-workspace",
-        force_reprocess=False,
-        public_request={
-            "connection_id": "harborrag-workspace",
-            "tenant": "ACME",
-            "marker": marker,
-        },
-    )
-
-
-@pytest_asyncio.fixture
-async def service_resources(
-    tmp_path: Path,
-) -> AsyncIterator[
-    tuple[IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient]
-]:
-    client = SQLAlchemyDBClient(
-        backend="sqlite",
-        url=f"sqlite+aiosqlite:///{tmp_path / 'ingestion-api.db'}",
-        pool_size=None,
-        max_overflow=None,
-        pool_recycle_seconds=1_800,
-        echo=False,
-    )
-    control = IngestionControlPlaneDatabase(client, create_schema=True)
-    await control.connect()
-    registry = IngestionTaskRegistry(control)
-    temporal = FakeTemporalClient()
-    identifiers = iter(
-        (
-            "00000000-0000-4000-8000-000000000001",
-            "00000000-0000-4000-8000-000000000002",
-            "00000000-0000-4000-8000-000000000003",
-            "00000000-0000-4000-8000-000000000004",
-        )
-    )
-
-    async def runtime_client() -> FakeTemporalClient:
-        return temporal
-
-    async def task_store() -> IngestionTaskRegistry:
-        return registry
-
-    service = IngestionApplicationService(
-        RuntimeSettings(ingestion_tenant_id="default"),
-        client_provider=runtime_client,
-        task_store_provider=task_store,
-        source_input_builder=_source_input,
-        task_id_factory=lambda: next(identifiers),
-    )
-    try:
-        yield service, control, temporal
-    finally:
-        await control.close()
+from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
+from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 
 def test_generated_task_id_is_uuid4() -> None:
@@ -232,6 +132,140 @@ async def test_recovery_submits_pending_task_without_client_idempotency_key(
     assert [source.task_id for source in temporal.started] == [pending.task_id]
 
 
+async def _unsubmitted_task(
+    service: IngestionApplicationService, temporal: FakeTemporalClient
+) -> str:
+    """Register a run whose first start failed, leaving it PENDING for the outbox."""
+
+    original_start = temporal.start_ingestion
+
+    async def failing_start(source: SourceIngestionInput) -> RuntimeWorkflowRef:
+        raise WorkflowSubmissionError("temporarily unavailable")
+
+    temporal.start_ingestion = failing_start  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.submit(_command(), idempotency_key=None)
+    temporal.start_ingestion = original_start  # type: ignore[method-assign]
+    return "00000000-0000-4000-8000-000000000001"
+
+
+@pytest.mark.asyncio
+async def test_recovery_claims_the_task_before_starting_it(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # The race: recovery starts the workflow, then a connect failure on the original
+    # submit path fails the still-PENDING row, and the started run hits FAILED -> RUNNING.
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+    original_start = temporal.start_ingestion
+    concurrent_outcomes: list[IngestionTaskState | None] = []
+
+    async def start_while_the_submit_path_gives_up(
+        source: SourceIngestionInput,
+    ) -> RuntimeWorkflowRef:
+        concurrent_outcomes.append(
+            await control.tasks.fail_if_unsubmitted(
+                task_id, summary={"failed_stage": "submission", "error_code": "submission_failed"}
+            )
+        )
+        return await original_start(source)
+
+    temporal.start_ingestion = start_while_the_submit_path_gives_up  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 1
+
+    assert concurrent_outcomes == [IngestionTaskState.PENDING]
+    task = await control.tasks.get(task_id)
+    assert task is not None
+    assert task.status == IngestionTaskState.PENDING
+    assert task.summary["submission_state"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_recovery_releases_the_claim_when_it_cannot_connect(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # No client means nothing was started, so the next pass may retry at once.
+    service, control, _temporal = service_resources
+    task_id = await _unsubmitted_task(service, _temporal)
+    connect = service._client_provider
+
+    async def unreachable() -> FakeTemporalClient:
+        raise RuntimeConnectionError("Temporal is unreachable")
+
+    service._client_provider = unreachable  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 0
+
+    released = await control.tasks.get(task_id)
+    assert released is not None
+    assert "submission_state" not in released.summary
+    assert "submission_claimed_at" not in released.summary
+    assert [task.task_id for task in await control.tasks.pending_submissions()] == [task_id]
+
+    service._client_provider = connect  # type: ignore[method-assign]
+    assert await service.recover_pending_submissions() == 1
+    submitted = await control.tasks.get(task_id)
+    assert submitted is not None
+    assert submitted.summary["submission_state"] == "submitted"
+
+
+@pytest.mark.asyncio
+async def test_recovery_keeps_the_claim_when_the_start_is_ambiguous(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # A failed start call may still have created the workflow: the claim stays until it
+    # goes stale, so the submit path cannot fail a run that is starting.
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+
+    async def ambiguous_start(source: SourceIngestionInput) -> RuntimeWorkflowRef:
+        raise WorkflowSubmissionError("deadline exceeded after the request was sent")
+
+    temporal.start_ingestion = ambiguous_start  # type: ignore[method-assign]
+
+    assert await service.recover_pending_submissions() == 0
+
+    claimed = await control.tasks.get(task_id)
+    assert claimed is not None
+    assert claimed.status == IngestionTaskState.PENDING
+    assert claimed.summary["submission_state"] == "submitting"
+    assert await control.tasks.pending_submissions() == ()
+    outcome = await control.tasks.fail_if_unsubmitted(
+        task_id, summary={"failed_stage": "submission", "error_code": "submission_failed"}
+    )
+    assert outcome == IngestionTaskState.PENDING
+
+
+@pytest.mark.asyncio
+async def test_recovery_skips_a_task_another_pass_has_claimed(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    task_id = await _unsubmitted_task(service, temporal)
+    store = IngestionTaskRegistry(control)
+
+    assert await store.claim_submission(task_id) is not None
+    assert await service.recover_pending_submissions() == 0
+    assert temporal.started == []
+
+
 @pytest.mark.asyncio
 async def test_status_and_cursor_pages_are_read_from_the_database(
     service_resources: tuple[
@@ -301,8 +335,17 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
     service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
-    await service.cancel(task_id)
+    await service.cancel(task_id, actor="ops@laptop")
     assert temporal.cancelled == [task_id]
+    # Who asked is now on the run's own trail, next to its progress events.
+    control_events = [
+        event
+        for event in await control.task_events.list_events(task_id)
+        if event.name == f"task.{task_id}.control"
+    ]
+    assert [event.payload for event in control_events] == [
+        {"action": "cancel", "actor": "ops@laptop"}
+    ]
 
     await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
     await control.tasks.record_document_result(
@@ -342,3 +385,141 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
     assert temporal.retries[0].document_ids == ("document:retryable",)
     with pytest.raises(IngestionAlreadyCompletedError):
         await service.cancel(task_id)
+    with pytest.raises(IngestionAlreadyCompletedError):
+        await service.pause(task_id)
+    with pytest.raises(IngestionAlreadyCompletedError):
+        await service.resume(task_id)
+
+
+@pytest.mark.asyncio
+async def test_retry_of_named_documents_reruns_deterministic_but_not_source_failures(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    # A blanket retry skips chunk_invalid; once a fix is deployed the operator
+    # can still re-run that document by naming it. An unsupported document
+    # fails the same way whatever runs it.
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    for document_id, code, stage in (
+        ("document:fixed-bug", "document_release_chunk_invalid", "ChunkAndValidate"),
+        ("document:unsupported", "document_release_document_unsupported", "ParseAndNormalize"),
+    ):
+        await control.tasks.record_document_result(
+            TaskDocumentResult(
+                task_id=task_id,
+                document_id=document_id,
+                status="failed",
+                result={"safe_error_code": code, "failure_stage": stage, "retryable": False},
+            )
+        )
+    await control.tasks.finalize(
+        task_id,
+        IngestionTaskState.PARTIAL,
+        summary={"stage": "COMPLETED", "failed": 2},
+    )
+
+    retry = await service.retry_failures(
+        task_id=task_id,
+        document_ids=["document:fixed-bug", "document:unsupported"],
+    )
+
+    assert retry["accepted_document_count"] == 1
+    assert temporal.retries[0].document_ids == ("document:fixed-bug",)
+
+
+@pytest.mark.asyncio
+async def test_pause_and_resume_forward_to_temporal(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
+    paused = await service.pause(task_id)
+    assert temporal.paused == [task_id]
+    assert paused["status"] == "PENDING"
+    assert paused["message"] == "Pause requested"
+
+    # The Temporal activity settles the durable lifecycle asynchronously.
+    await control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED
+
+    with pytest.raises(IngestionAlreadyPausedError, match="already paused"):
+        await service.pause(task_id)
+    assert temporal.paused == [task_id]
+
+    with pytest.raises(HarborConflictError, match="finalization from PAUSED"):
+        await control.tasks.finalize(
+            task_id,
+            IngestionTaskState.COMPLETED,
+            summary={"stage": "COMPLETED"},
+        )
+
+    resumed = await service.resume(task_id)
+    assert temporal.resumed == [task_id]
+    assert resumed["status"] == "RUNNING"
+    assert resumed["message"] == "Resume requested"
+    # The Temporal activity settles the durable lifecycle asynchronously.
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.RUNNING
+
+
+@pytest.mark.asyncio
+async def test_resume_on_an_already_running_task_is_rejected(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
+    with pytest.raises(IngestionAlreadyRunningError, match="already running"):
+        await service.resume(task_id)
+    assert temporal.resumed == []
+
+
+@pytest.mark.asyncio
+async def test_failed_pause_and_resume_do_not_change_durable_state(
+    service_resources: tuple[
+        IngestionApplicationService,
+        IngestionControlPlaneDatabase,
+        FakeTemporalClient,
+    ],
+) -> None:
+    service, control, temporal = service_resources
+    accepted = await service.submit(_command(), idempotency_key=None)
+    task_id = str(accepted["task_id"])
+    await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
+
+    async def fail_pause(_task_id: str) -> None:
+        raise WorkflowOperationError("pause failed")
+
+    temporal.pause = fail_pause  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.pause(task_id)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.RUNNING
+
+    await control.tasks.transition(task_id, IngestionTaskState.PAUSED)
+
+    async def fail_resume(_task_id: str) -> None:
+        raise WorkflowOperationError("resume failed")
+
+    temporal.resume = fail_resume  # type: ignore[method-assign]
+    with pytest.raises(HarborConnectionError):
+        await service.resume(task_id)
+    assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED

@@ -39,6 +39,8 @@ class WebsiteBuilder(
         self.public_origin: str | None = None
         # Cached docs navigation data (built once per run)
         self.docs_nav_data: dict | None = None
+        # Project metadata, resolved once by build_site and shared by every page
+        self.project_info: dict | None = None
 
         # Initialize component processors
         self.template_processor = TemplateProcessor(templates_dir)

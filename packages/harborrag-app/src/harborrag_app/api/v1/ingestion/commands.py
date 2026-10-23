@@ -15,4 +15,5 @@ def build_ingestion_command(request: IngestionCreateRequest) -> IngestionCreateC
         connection_id=request.connection_id,
         force_reprocess=request.mode == "force",
         public_request=request.model_dump(mode="json"),
+        source_scope_id=request.source_scope_id,
     )

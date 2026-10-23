@@ -18,6 +18,36 @@ def base_config() -> HarborChatClientConfig:
                     "provider": "openai",
                     "model": "openai/gpt-4o-mini",
                     "api_key": "test-key",
+                    "capabilities": {
+                        "streaming": True,
+                        "tools": True,
+                        "parallel_tools": True,
+                    },
+                }
+            },
+        }
+    )
+
+
+@pytest.fixture
+def config() -> HarborChatClientConfig:
+    """Config whose single deployment declares every capability the shim exercises."""
+
+    return HarborChatClientConfig.from_dict(
+        {
+            "default_model": "primary",
+            "models": {
+                "primary": {
+                    "provider": "openai",
+                    "model": "openai/gpt-4o-mini",
+                    "api_key": "test-key",
+                    "capabilities": {
+                        "streaming": True,
+                        "tools": True,
+                        "parallel_tools": True,
+                        "structured_output": True,
+                        "json_mode": True,
+                    },
                 }
             },
         }

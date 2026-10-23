@@ -1,310 +1,211 @@
 # Chat
 
-The HTTP API and CLI chat surfaces are retrieval-grounded: every call searches
-indexed HarborRAG content for the given prompt, injects the retrieved chunks
-as context, and asks the model to answer from that context. Both surfaces
-load the `chat` family from `config/models.yaml` and call
-`AsyncHarborChatClient` through the runtime facade.
+Use `POST /v1/chat/completions` for retrieval chat and
+`POST /v1/agent/completions` for bounded agent runs. Set `stream` to choose JSON
+or Server-Sent Events (SSE). Omit `session_id` to create a session; include the
+returned ID on later requests. Both endpoints can use the same session.
 
-| Surface | Entry point | Best for |
-| --- | --- | --- |
-| HTTP API | `POST /v1/chat/sessions`, then `POST /v1/chat/completions` | Applications and authenticated services |
-| HTTP API (streaming) | `POST /v1/chat/completions` with `"stream": true` | Incremental rendering as the model responds |
-| HTTP API | `POST /v1/agent/sessions`, then `POST /v1/agent/completions` | Bounded multi-hop reasoning over retrieval tools |
-| HTTP API | `POST /v1/agent/runs/{run_id}/resume` | Continue a paused agent run |
-| CLI | `harborrag chat MESSAGE` | One-shot operator requests and scripts |
+Both HTTP modes run a request-scope check before generation or SSE headers. Requests
+about indexed knowledge, relevant source code, and the conversation are allowed.
+Unrelated creation requests (for example, "write a Python snake game") receive
+HTTP `200` with the normal completion schema, `outcome: "refused"`, and
+`refusal_reason: "out_of_scope"`. They do not run answer generation.
+"Find and explain the snake implementation in our repository" remains a valid search.
+The check is model-based, not an authorization boundary or proof of answer relevance.
+Malformed classifier output fails closed with `503`; it never enables generation.
+Completed idempotent replays skip this check. CLI/SDK callers use the scoped prompts
+but do not go through HTTP admission.
 
-Chat and agent are not exposed as MCP tools; the retrieval tools (`vector_search`,
-`graph_triplet_search`, ...) are. See [MCP Tools](../detailed-guides/mcp-server/README.md).
+## First request
 
-Chat and agent HTTP clients first create a session, then identify every
-completion with only that `session_id`. Completed turns are stored in the
-configured PostgreSQL control database; the latest two turns are added to each
-prompt. Memory is not ingested into the RAG index.
-
-## Configure the model
-
-The checked-in runtime catalog uses one logical model named `primary`:
-
-```yaml
-chat:
-  default_model: primary
-  models:
-    primary:
-      deployments:
-        - name: openai-primary
-          provider: ${HARBOR_CHAT_PROVIDER}
-          model: ${HARBOR_CHAT_MODEL}
-          api_key: ${HARBOR_CHAT_API_KEY}
-```
-
-Copy the environment template, replace its placeholders, and keep the
-populated file out of version control:
+Start the development API with `scripts/deployment/dev.sh api`, then:
 
 ```bash
-cp env-example/.env.models.example env/.env.models
+curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
+  --header 'Content-Type: application/json' \
+  --data '{"tenant":"DEFAULT","prompt":"Explain HarborRAG in one paragraph."}'
 ```
 
-The relevant values are `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and
-`HARBOR_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
-catalog. Configuration loading expands environment references but does not
-load `.env` files itself; the deployment scripts and Compose services load
-`env/.env.models` for you.
+With authentication enabled, add `Authorization: Bearer <token>`; the route
+requires the `reader` role and access to the requested tenant. Development
+with `HARBORRAG_AUTH_MODE=none` needs no authorization header.
 
-Callers select only a system-prompt name; they do not accept provider
-credentials, base URLs, custom headers, tools, provider-specific parameters,
-or model/sampling overrides. The deployed model, temperature, and token
-limits come entirely from `config/models.yaml`.
+With HMAC authentication, session scope is `(tenant, signed user claim, session_id)`.
+The claim is `sub` by default. If one service credential represents several
+people, set `HARBORRAG_AUTH_USER_ID_CLAIM` to a stable signed claim, such as
+`oid`, and issue a token with that claim for each person. Tokens missing that
+claim return `401`. The credential subject remains the audit actor. Clients
+cannot set `user_id` in a request. Local `auth_mode=none` keeps one shared
+`DEFAULT_USER` identity for development. See [Conversation memory](memory.md).
 
-## Configure retrieval
+| Request field | Default | Meaning |
+| --- | --- | --- |
+| `prompt` | Required | Nonempty question, up to 65,536 characters |
+| `tenant` | `DEFAULT` | An authorized tenant |
+| `session_id` | Omitted | Create a conversation, or continue an existing one |
+| `mode` | Endpoint-owned | Optional fixed value: `rag` on chat, `agent` on agent; opposite values return `422` |
+| `stream` | `false` | JSON response or SSE |
+| `model` | Catalog default | Logical chat model permitted for the tenant |
+| `project_id` | Omitted | Project that must exist in the tenant |
+| `graph_search` | `null` | In RAG mode, inherit the server setting; in agent mode, graph tools default off |
+| `max_steps` | `4` | Agent tool-loop limit, from 1 to 8 |
+| `idempotency_key` | Omitted | Duplicate suppression; also accepted as `Idempotency-Key` |
 
-Two `HARBORRAG_`-prefixed runtime settings control how chat retrieves context
-for every HTTP and CLI call:
+The JSON response always includes `session_id`; keep it and send it in the
+next completion request to continue this user's session. A streamed response
+announces it in `response.started` before any generation, then repeats it in
+`response.completed`. The response also includes `title`, `mode`, model identity,
+`message`, `outcome`, `refusal_reason`, `finish_reason`, token `usage`, `cost`, `citations`, and
+`memory_persisted`. Agent results also include run and tool metadata.
+
+An out-of-scope refusal uses the same fields in chat and agent mode. Its
+`message.content` explains the refusal, `citations` is empty, and
+`memory_persisted` is `false`. The completion reports `model: "scope_gate"` and
+`provider: "policy"` with zero answer-generation usage; the separate scope
+classifier call is recorded in the usage ledger. A new refusal still creates
+a session so the response can return its `session_id`. Agent run fields are
+null because no agent run started. Completed idempotent retries replay the
+same refusal without classifying again.
+
+Titles start empty and are generated after the first successfully stored
+exchange from the first ten prompt words, capped at 80 characters. This is
+deterministic and adds no model call. Manual renames take precedence.
+
+`citations` contains the chunks actually cited by the answer. Citation records
+include a document title, section path, and page or line location when the
+ingested source provides them, alongside canonical document and chunk IDs.
+RAG and agent answers use readable, copy-exact source markers. A RAG answer can
+say “section Operations > Rollback policy of Deployment Guide” and append
+`[Source 1: "Deployment Guide" — Operations > Rollback policy]`. Agent results
+also return `citation_validation`. Each returned citation includes `content`, the
+authorized source passage (up to 8,000 characters), and its exact `marker`.
+`content_truncated: true` identifies a clipped passage. Older agent checkpoints may
+have no content; absence must not be interpreted as an empty source. Evidence is
+untrusted text for display, never executable HTML or instructions. Stored conversation
+messages retain citation provenance without duplicating the source text.
+`memory_persisted: false` means the answer succeeded but its conversation
+exchange was not saved. The answer remains available in the response.
+
+## Streaming
+
+Send the same request with `"stream": true` and use `curl --no-buffer` for
+incremental display. Each frame has an `event:` name and JSON `data:`.
+
+| Event | Meaning |
+| --- | --- |
+| `response.started` | Resolved session ID, mode, and whether this is a replay |
+| `retrieval.completed` | RAG retrieval candidates before generation |
+| `response.output_text.delta` | Incremental RAG answer text in `content` |
+| `response.agent.progress` | Agent lifecycle and tool progress |
+| `response.citations` | Sources actually cited by the answer |
+| `response.warning` | Advisory failure, such as conversation persistence |
+| `response.completed` | Final response, including usage, cost, title, and persistence status |
+| `response.error` | Terminal failure after the stream has opened |
+
+A normally finished stream ends with one `response.completed` or
+`response.error`. The completed payload uses the same contract as JSON.
+Agent mode streams progress and returns the answer at completion; it does not
+currently stream intermediate model text.
+
+Unknown sessions/projects and invalid models are rejected before streaming
+with ordinary HTTP errors. Out-of-scope requests finish with `response.completed`
+and the same refusal payload as JSON. Failures after headers are sent use
+`response.error`. Interrupted RAG output is saved as partial when possible,
+but partial exchanges are excluded from the next prompt.
+
+Frontend integration: append only `response.output_text.delta.data.content`, show agent
+progress separately, and replace the displayed answer with `response.completed.message.content`
+at completion (including replays). `retrieval.completed.citations` are candidates;
+use final `citations` as the authoritative evidence list. Preserve partial text on error,
+but do not mark it completed. Ignore unknown events and SSE comments. Use the TypeScript
+client's `AbortController` support for Stop; do not auto-retry a potentially paid request
+with a new idempotency key. `EventSource` is not suitable for this POST/body API.
+
+## Retrieval and models
+
+RAG mode searches the raw question using hybrid dense/sparse retrieval.
+Graph-enabled requests use local semantic retrieval and bounded graph evidence.
+The prompt distinguishes conversation context from document evidence and
+instructs the model to cite only sources it uses.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Number of chunks retrieved as context per call |
-| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | When `true`, also runs graph search (FalkorDB traversal) alongside vector search |
+| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates |
+| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Default RAG graph mode |
+| `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold |
 
-**Current limitation:** the retrieval engine only surfaces `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH`'s
-graph traversal as diagnostics/telemetry (`RetrievalDiagnostics.graph_nodes` /
-`graph_relations`) - it does not yet add graph-discovered content to the
-chunks used to ground the answer. Enabling the flag runs the extra graph
-query (added latency, no functional effect on the answer's context yet).
-Making graph search actually expand the retrieved context is a retrieval-engine
-change, not a chat-layer one.
+Results without a relevance score are retained. Prompt budgets can exclude
+whole passages and older pairs from the three-exchange window.
 
-Retrieval always runs hybrid (dense + sparse) vector search; graph search is
-strictly additive on top of it. Graph search adds latency, so it defaults to
-off. HTTP callers can override the deployment default for one request with
-`graph_search: true` or `graph_search: false`.
+Use RAG mode for a focused question that can be answered from the first ranked
+passages. Use agent mode with `graph_search: true` when the question spans
+multiple documents or stages and may need focused follow-up searches. A broad
+workflow question can rank several chunks from its first matching document
+before later-stage evidence; the agent can search those missing stages within
+its bounded tool loop. Both modes remain subject to the same permission and
+active-version checks.
 
-## Server-owned prompts
+Both modes use the `chat` family in `config/models.yaml`. HTTP and CLI use
+the server-owned `default` prompt; callers cannot supply prompt paths.
+See [Chat models](models.md) for catalogs and tenant model selection.
 
-The runtime packages two Markdown system prompts, both instructing the model
-to answer from the retrieved context and say so when that context is
-insufficient:
+## Sessions, history, and CLI
 
-| Name | Purpose |
-| --- | --- |
-| `default` | General HarborRAG assistant behavior |
-| `concise` | Short, direct answers |
+Both endpoint families have the same session operations. Replace `{surface}`
+with `chat` or `agent`:
 
-HTTP and CLI use `default`.
+| Method | Path | Purpose |
+| --- | --- | --- |
+| POST | `/v1/{surface}/sessions` | Explicitly create an unnamed session |
+| GET | `/v1/{surface}/sessions` | List sessions created on this surface |
+| GET | `/v1/{surface}/sessions/{session_id}/messages` | Read paginated session history |
+| PATCH | `/v1/{surface}/sessions/{session_id}` | Rename or clear the title |
+| DELETE | `/v1/{surface}/sessions/{session_id}` | Erase session history and associated memory |
 
-Prompt names are a controlled public enum; callers cannot provide filesystem
-paths or replace the stored catalog. The templates live under
-`packages/harborrag-runtime/src/harborrag_runtime/chat/prompts/templates/`.
+Lists return `{"sessions": [...], "next_cursor": "..."}`; `next_cursor` is
+omitted on the last page. Session kind records the creating surface. Using a
+chat session for an agent turn does not move it to the agent list. Known IDs
+can be read, renamed, or erased through either family, with the same tenant
+authorization. History responses use `Cache-Control: no-store`.
 
-## HTTP API
-
-Start the development API, then create a persisted session:
-
-```bash
-scripts/deployment/dev.sh api
-
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"tenant":"DEFAULT"}' \
-  http://127.0.0.1:8000/v1/chat/sessions
-```
-
-The `201` response contains `{"session_id":"session-...","greeting":"..."}`.
-Use that ID for a completion:
+See [Conversation memory](memory.md) for paging and deletion.
 
 ```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "tenant": "DEFAULT",
-    "session_id": "session-...",
-    "prompt": "Explain HarborRAG in one paragraph."
-  }' \
-  http://127.0.0.1:8000/v1/chat/completions
+uv run harborrag chat "Explain HarborRAG." --tenant DEFAULT --json
+uv run harborrag chat "Explain the last point." --session session-... --json
 ```
 
-The route requires the `reader` role when API authentication is enabled. Add
-`Authorization: Bearer <token>` in that mode. The local development template
-uses `HARBORRAG_AUTH_MODE=none` and therefore needs no header.
+The CLI creates a session when `--session` is omitted. Optional `--project`
+uses the same project validation as HTTP. After `uv sync --all-packages`,
+the command is also available as `harborrag chat`.
 
-The JSON body requires `session_id` and `prompt`. `tenant` defaults to `DEFAULT` and
-`stream` defaults to `false`. `graph_search` defaults to `null`, **not** `false`: when it
-is omitted the server falls back to `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH`, so pass an
-explicit `true`/`false` if you need to override the deployment setting. The HTTP service
-always uses its server-owned default system prompt. Unknown sessions, or sessions owned by
-another tenant or authenticated principal, return `404`.
+## Migration
 
-A successful response has this stable shape:
+This is a breaking HTTP migration; stored sessions and history are preserved.
 
-```json
-{
-  "id": "completion-id",
-  "model": "primary",
-  "provider": "openai",
-  "provider_model": "openai/model-name",
-  "message": {"role": "assistant", "content": "..."},
-  "finish_reason": "stop",
-  "usage": {
-    "prompt_tokens": 42,
-    "completion_tokens": 18,
-    "total_tokens": 60
-  },
-  "retry_count": 0,
-  "fallback_count": 0,
-  "session_id": "support:thread-456",
-  "citations": [
-    {"document_id": "document:...", "chunk_id": "chunk:...", "score": 0.83}
-  ]
-}
-```
+Authenticated ownership also changes from the shared `DEFAULT_USER` to the
+configured signed user claim. Existing authenticated sessions stored under
+`DEFAULT_USER` cannot be assigned to individual people automatically; deployers
+must map them using trusted ownership records or start fresh sessions. Do not
+make the old shared namespace visible to every authenticated user.
 
-`citations` lists the retrieved chunks used as context, ranked by the
-retrieval engine, so callers can verify or display sources. It is empty when
-retrieval finds nothing relevant.
+- Move agent requests from `/v1/chat/completions` to `/v1/agent/completions`.
+  The request no longer needs a `mode` field.
+- Replace `/v1/conversations` and `/v1/chat/conversations` with the appropriate
+  `/v1/chat/sessions` or `/v1/agent/sessions` family. The old routes return `404`.
+- List responses now use `sessions`, not `conversations`; choose the endpoint
+  family instead of a `kind` query parameter.
+- Resume through `POST /v1/agent/runs/{run_id}/resume`; `/v1/runs/*` is removed.
+- Old agent SSE consumers must switch from `run.*` / `result` / `error` to the
+  shared event names above. Use `response.completed` as the final authority.
 
-### Streaming
+Remove `title` from session-creation bodies. The separate memory-erasure and
+graph-traverse aliases retain deprecation headers; chat and agent paths do not.
 
-Set `"stream": true` in the `POST /v1/chat/completions` body to receive Server-Sent
-Events instead of one JSON object:
+Existing control databases must apply migrations `0033` (conversation
+sequencing, title state, and turn leases) and `0034` (completion replay
+claims) before serving these requests. The configured control-plane startup
+runs migrations; verify it reaches the current schema during deployment.
 
-```bash
-curl --no-buffer \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "session_id": "session-...",
-    "prompt": "Explain HarborRAG in one paragraph.",
-    "stream": true
-  }' \
-  http://127.0.0.1:8000/v1/chat/completions
-```
-
-The stream emits, in order: one `citations` event, then one or more model
-event frames (`text_delta`, `reasoning_delta`, `usage`, `completed`, ...,
-mirroring the underlying provider stream), and ends either after `completed`
-or with a terminal `error` event. Each frame is `event: <name>\ndata: <json>\n\n`.
-
-The response status is always `200 text/event-stream`: once the stream
-starts, HTTP status can no longer change, so failures - including a
-prepare-time failure such as an unreachable retrieval or chat backend -
-surface as the in-band `error` event rather than a `503`.
-
-### Conversation memory
-
-Memory is keyed by `(tenant, authenticated principal, session_id)`.
-This prevents a caller from reading another principal's history even if it
-guesses the same session ID. The PostgreSQL adapter stores completed
-user/assistant turns and each request recalls only the latest two, in
-chronological order. Configure it through `HARBORRAG_CONTROL_DB_URL`, using a
-`postgresql+asyncpg://...` DSN in deployed environments.
-
-The provider-neutral `ConversationMemory` port lives in `harborrag-core`; its
-SQL implementation lives in `harborrag-adapters`. Chat and agent orchestration
-therefore do not depend on SQLAlchemy or PostgreSQL.
-
-## CLI
-
-```bash
-harborrag chat \
-  "Explain HarborRAG in one paragraph." \
-  --tenant DEFAULT \
-  --json
-```
-
-From a source checkout, prefix the command with `uv run` — after
-`uv sync --all-packages` the `harborrag` script is in the workspace environment:
-
-```bash
-uv run harborrag chat "Explain HarborRAG in one paragraph." --json
-```
-
-Use `--json` for the stable machine-readable command envelope, which includes
-the generated `session_id` and same `citations` field as the HTTP response.
-
-## Agent
-
-Create a session, then run bounded multi-hop completions against it:
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{"tenant":"DEFAULT"}' \
-  http://127.0.0.1:8000/v1/agent/sessions
-
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "tenant": "DEFAULT",
-    "session_id": "session-...",
-    "prompt": "Connect the release policy to its owning service.",
-    "graph_search": true,
-    "max_steps": 4
-  }' \
-  http://127.0.0.1:8000/v1/agent/completions
-```
-
-`session_id` and `prompt` are required in the JSON body; `tenant` defaults to `DEFAULT`,
-`graph_search` defaults to `false`, and `max_steps` defaults to `4` (1–8). The
-agent calls enabled read-only retrieval tools repeatedly, including parallel
-calls in a single step. When `graph_search` is false, graph tools are removed
-from the model's tool surface. When the step budget is exhausted, the model
-gets one final tool-free synthesis turn. The authenticated tenant and role
-requirements match `/v1/chat`.
-
-A successful response has this stable shape:
-
-```json
-{
-  "id": "completion-id",
-  "run_id": "run-...",
-  "model": "primary",
-  "provider": "openai",
-  "provider_model": "openai/model-name",
-  "message": {"role": "assistant", "content": "..."},
-  "finish_reason": "stop",
-  "stop_reason": "completed",
-  "usage": {"prompt_tokens": 42, "completion_tokens": 18, "total_tokens": 60},
-  "turns": 2,
-  "tool_call_count": 1,
-  "tool_calls": [{"step": 1, "tool": "vector_search", "ok": true}],
-  "session_id": "session-..."
-}
-```
-
-### Resuming a run
-
-Each agent completion returns a `run_id`. Continue a run that stopped before finishing with:
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "tenant": "DEFAULT",
-    "session_id": "session-...",
-    "graph_search": true,
-    "max_steps": 4
-  }' \
-  http://127.0.0.1:8000/v1/agent/runs/run-.../resume
-```
-
-`session_id` is required; `graph_search` and `max_steps` carry the same defaults as a fresh
-completion. There is no `prompt` - the run already has its own. The response is the same
-`AgentCompletionResponse` shape shown above.
-
-## Data and error behavior
-
-Every transport marks chat and agent requests as sensitive, disabling
-model-response caching unless a separately reviewed model policy explicitly
-allows it. Raw prompts and model output are excluded from HarborRAG
-application logs.
-
-Public transports expose normalized errors. Provider exceptions and secrets
-remain server-side. A `503` or streamed `error` from `/v1/chat/completions`
-or `/v1/agent/completions` usually means the model configuration,
-credentials, provider reachability, retrieval backend, or provider context
-limit must be checked in server logs.
+See [Agent](agent.md) and [Limits and accounting](limits.md) for execution
+budgets, duplicate suppression, and cost semantics.

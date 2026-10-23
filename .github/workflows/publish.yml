@@ -12,6 +12,7 @@ jobs:
   determine-package:
     name: Determine which package to publish
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     permissions:
       contents: read
     outputs:
@@ -42,6 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: determine-package
     if: needs.determine-package.outputs.publish == 'true'
+    timeout-minutes: 15
     environment:
       name: ${{ vars.PYPI_ENVIRONMENT || 'pypi-publish' }}
       url: https://pypi.org/p/${{ needs.determine-package.outputs.package }}

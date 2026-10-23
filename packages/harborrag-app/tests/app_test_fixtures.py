@@ -7,52 +7,102 @@ from collections.abc import Mapping
 from app_test_agent import AgentServiceFixture
 from app_test_chat import ChatServiceFixture
 from app_test_graph_records import (
+    graph_conflict,
     graph_payload,
     projection_inventory_payload,
     retrieval_payload,
 )
 from app_test_ingestion import IngestionServiceFixture
+from app_test_memory import FakeMemoryIndex, FakeMemoryStore
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_app.workflow_control.memory import (
+    ConversationDirectoryService,
+    MemoryAdminClientMixin,
+    MemoryAdministrationService,
+)
+from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ports.completion_requests import CompletionClaim
+from harborrag_core.ports.conversation import ConversationKind
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
-from harborrag_runtime.memory import new_session_id
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
+from harborrag_runtime.memory import (
+    ConversationIdentity,
+    InMemoryConversationMemory,
+    new_session_id,
+)
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
 class MockAppService(
     AgentServiceFixture,
     ChatServiceFixture,
     IngestionServiceFixture,
+    MemoryAdminClientMixin,
     BaseAppService,
 ):
     def __init__(self) -> None:
         self.submissions: list[IngestionCreateCommand] = []
         self.idempotency: dict[str, str] = {}
         self.task_list_calls: list[dict[str, object]] = []
+        self.direct_runs: list[dict[str, object]] = []
         self.retrieval_calls: list[dict[str, object]] = []
         self.graph_retrieval_calls: list[dict[str, object]] = []
         self.chat_calls: list[dict[str, object]] = []
+        # Model policy the double enforces, mirroring the runtime's rule: a
+        # tenant listed in ``tenant_models`` is bounded by its own names, every
+        # other tenant by the process-wide ``allowed_models``.
+        self.allowed_models: set[str] = {"primary"}
+        self.tenant_models: dict[str, set[str]] = {}
+        self.known_projects: set[str] = {"proj-1"}
         self.agent_calls: list[dict[str, object]] = []
         self.agent_resume_calls: list[dict[str, object]] = []
-        self.conversation_sessions: set[tuple[str, str, str]] = set()
+        # (tenant, principal, user, session_id, kind): a conversation belongs
+        # to the end user, and is bound to the surface that created it.
+        self.conversation_sessions: set[tuple[str, str, str, str, str]] = set()
+        # Long-term memory administration runs against the real service over
+        # in-memory doubles, so route tests exercise production visibility.
+        self.memory_store = FakeMemoryStore()
+        self.memory_index = FakeMemoryIndex()
+        self.conversations = InMemoryConversationMemory()
+        self._extraction = None
+        self.pending_effects = FakePendingEffectRepository()
+        self._memory_admin = MemoryAdministrationService(
+            conversations=self.conversations,
+            memories=self.memory_store,  # type: ignore[arg-type]
+            index=self.memory_index,  # type: ignore[arg-type]
+            pending_effects=self.pending_effects,
+        )
+        self._conversation_directory = ConversationDirectoryService(
+            self.conversations, self._memory_admin
+        )
+        default_conflict = graph_conflict()
+        self.graph_conflicts: dict[str, GraphConflict] = {default_conflict.id: default_conflict}
+        self.graph_conflict_resolve_calls: list[dict[str, object]] = []
 
     async def create_chat_session(
         self,
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
+        title: str | None = None,
+        kind: ConversationKind = "chat",
     ) -> AppResponse:
-        return self._create_session(tenant_id, principal_id)
+        return await self._create_session(tenant_id, principal_id, user_id, kind, title)
 
     async def create_agent_session(
         self,
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> AppResponse:
-        return self._create_session(tenant_id, principal_id)
+        return await self._create_session(tenant_id, principal_id, user_id, "agent")
 
     async def chat_session_exists(
         self,
@@ -60,8 +110,11 @@ class MockAppService(
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool:
-        return (tenant_id, principal_id, session_id) in self.conversation_sessions
+        return await self.conversations.exists(
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
+        )
 
     async def agent_session_exists(
         self,
@@ -69,15 +122,88 @@ class MockAppService(
         *,
         tenant_id: str,
         principal_id: str,
+        user_id: str | None = None,
     ) -> bool:
-        return (tenant_id, principal_id, session_id) in self.conversation_sessions
+        return await self.conversations.exists(
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
+        )
 
-    def _create_session(self, tenant_id: str, principal_id: str) -> AppResponse:
+    @staticmethod
+    def _key(  # noqa: PLR0913 - one component of the isolation key per argument
+        tenant_id: str,
+        principal_id: str,
+        user_id: str | None,
+        session_id: str,
+        kind: str,
+    ) -> tuple[str, str, str, str, str]:
+        return (tenant_id, principal_id, user_id or DEFAULT_USER, session_id, kind)
+
+    async def _create_session(  # noqa: PLR0913 - one component of the new session per argument
+        self,
+        tenant_id: str,
+        principal_id: str,
+        user_id: str | None,
+        kind: str,
+        title: str | None = None,
+    ) -> AppResponse:
+        """Write through to the conversation store the directory routes read.
+
+        The fake keeps its own key set for the completion paths, but a created
+        session must also become a listable conversation, or the session and
+        directory surfaces would disagree in a way production cannot.
+        """
+
         session_id = new_session_id()
-        self.conversation_sessions.add((tenant_id, principal_id, session_id))
+        self.conversation_sessions.add(
+            self._key(tenant_id, principal_id, user_id, session_id, kind)
+        )
+        await self.conversations.create(
+            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER),
+            kind="agent" if kind == "agent" else "chat",
+            title=title,
+        )
         return AppResponse(
             True,
             {"session_id": session_id, "greeting": "Hello! How can I help you today?"},
+        )
+
+    async def claim_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> CompletionClaim:
+        return await self.conversations.claim_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+        )
+
+    async def finish_completion(  # noqa: PLR0913 - mirrors CompletionRequestStore
+        self,
+        *,
+        tenant_id: str,
+        user_id: str,
+        key: str,
+        request_hash: str,
+        response_json: str | None,
+        session_id: str | None = None,
+    ) -> None:
+        await self.conversations.finish_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
+            response_json=response_json,
+            session_id=session_id,
+        )
+
+    async def release_completion(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> None:
+        await self.conversations.release_completion(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            key=key,
+            request_hash=request_hash,
         )
 
     def health(self) -> AppResponse:
@@ -100,6 +226,7 @@ class MockAppService(
         top_k: int = 10,
         filters: Mapping[str, object] | None = None,
         lane: RetrievalLane = RetrievalLane.HYBRID,
+        mode: RetrievalMode = RetrievalMode.FLAT,
         observe_graph: bool = False,
         include_content: bool = False,
         include_metadata: bool = False,
@@ -113,6 +240,7 @@ class MockAppService(
                 "top_k": top_k,
                 "filters": dict(filters or {}),
                 "lane": lane,
+                "mode": mode,
                 "observe_graph": observe_graph,
                 "include_content": include_content,
                 "include_metadata": include_metadata,
@@ -191,6 +319,44 @@ class MockAppService(
             "before": await self.projection_inventory(tenant),
             "reindex_required": True,
         }
+
+    async def list_graph_conflicts(
+        self,
+        *,
+        cursor: str | None,
+        limit: int,
+        tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
+    ) -> AppResponse:
+        del cursor
+        conflicts = [
+            c
+            for c in self.graph_conflicts.values()
+            if (tenant_ids is None or c.tenant_id in tenant_ids)
+            and (status is None or c.status == status)
+        ][:limit]
+        return AppResponse(True, {"conflicts": conflicts, "next_cursor": None})
+
+    async def resolve_graph_conflict(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        actor: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        conflict = self.graph_conflicts.get(conflict_id)
+        if conflict is None or (tenant_ids is not None and conflict.tenant_id not in tenant_ids):
+            raise HarborNotFoundError(f"graph conflict {conflict_id!r} not found")
+        if conflict.status == "resolved":
+            raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
+        self.graph_conflict_resolve_calls.append(
+            {"conflict_id": conflict_id, "action": action, "actor": actor}
+        )
+        conflict.status = "resolved"
+        conflict.action = action
+        conflict.resolved_by = actor
+        return AppResponse(True, {"conflict": conflict})
 
     async def list_projects(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
         del tenant_ids

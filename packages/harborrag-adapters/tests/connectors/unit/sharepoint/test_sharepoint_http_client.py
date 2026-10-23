@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import time as _time_module
-
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
 from sharepoint_http_test_helpers import sharepoint_client
-
-# Captured at import time, before the autouse fixture below patches
-# time.sleep to a no-op for every test in this module.
-_REAL_SLEEP = _time_module.sleep
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -103,13 +97,27 @@ def test_sharepoint_request_raises_authentication_error_on_401():
         client.get_json("sites/x")
 
 
-def test_sharepoint_request_raises_authentication_error_on_403():
-    from harborrag_adapters.connectors.exceptions import AuthenticationError
+def test_sharepoint_request_raises_authorization_error_on_403():
+    # A 403 is "no access to this resource", not "bad credentials": callers
+    # skip one item as ACCESS_DENIED instead of failing the whole run.
+    from harborrag_adapters.connectors.exceptions import AuthenticationError, AuthorizationError
 
     client = sharepoint_client()
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="forbidden")])
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthorizationError) as excinfo:
         client.get_json("sites/x")
+    assert excinfo.value.status_code == 403
+    assert not isinstance(excinfo.value, AuthenticationError)
+
+
+def test_sharepoint_request_keeps_status_code_on_not_found():
+    from harborrag_adapters.connectors.exceptions import FetchError
+
+    client = sharepoint_client()
+    client.session = FakeSession(responses=[FakeResponse(status_code=404, text="gone")])
+    with pytest.raises(FetchError) as excinfo:
+        client.get_json("drives/d/items/x")
+    assert excinfo.value.status_code == 404
 
 
 def test_sharepoint_request_raises_rate_limit_error_after_exhausting_retries():
@@ -220,38 +228,28 @@ def test_sharepoint_acquire_sleeps_when_requests_arrive_faster_than_budget(monke
     assert any(seconds > 0 for seconds in sleeps)
 
 
-def test_sharepoint_acquire_serializes_concurrent_callers(monkeypatch):
-    """Concurrent _acquire() calls must not overlap inside the critical section.
+def test_sharepoint_acquire_reserves_distinct_slots_for_concurrent_callers(monkeypatch):
+    """Concurrent _acquire() calls must each wait for their own request slot.
 
-    Without the rate-limit lock, two threads can both read the same stale
-    _last_request_at, both decide to sleep, and both proceed together --
-    bursting past the configured requests-per-minute budget.
+    Two threads that both read the same stale "last request" time would both
+    proceed together, bursting past the configured requests-per-minute budget.
+    The limiter reserves one evenly spaced slot per caller instead.
     """
     import threading
     import time
 
-    client = sharepoint_client(requests_per_minute=1)  # min_interval = 60s
-    # Fix the clock so every call after the first observes a fresh
-    # _last_request_at and unambiguously decides to sleep.
+    # Fix the clock so every call observes the same "now" and the reserved
+    # slots alone decide how long each caller waits.
     monkeypatch.setattr(time, "monotonic", lambda: 1000.0)
-
-    active = 0
-    max_active = 0
+    waits: list[float] = []
     guard = threading.Lock()
 
-    def instrumented_sleep(_seconds: float) -> None:
-        nonlocal active, max_active
+    def recording_sleep(seconds: float) -> None:
         with guard:
-            active += 1
-            max_active = max(max_active, active)
-        # Hold the "critical section" open briefly (real time, unaffected by
-        # the monotonic patch above) so a racing thread would have a chance
-        # to pile in here if _acquire did not hold its lock during sleep.
-        _REAL_SLEEP(0.05)
-        with guard:
-            active -= 1
+            waits.append(seconds)
 
-    monkeypatch.setattr(time, "sleep", instrumented_sleep)
+    monkeypatch.setattr(time, "sleep", recording_sleep)
+    client = sharepoint_client(requests_per_minute=1)  # one slot every 60s
 
     threads = [threading.Thread(target=client._acquire) for _ in range(3)]
     for thread in threads:
@@ -259,4 +257,4 @@ def test_sharepoint_acquire_serializes_concurrent_callers(monkeypatch):
     for thread in threads:
         thread.join(timeout=3)
 
-    assert max_active == 1
+    assert sorted(waits) == [60.0, 120.0]

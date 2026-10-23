@@ -1,0 +1,1023 @@
+{
+  "events": [
+    {
+      "eventId": "1",
+      "eventTime": "2026-10-22T11:53:06.071Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_STARTED",
+      "workflowExecutionStartedEventAttributes": {
+        "workflowType": {
+          "name": "harborrag.source_ingestion"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJiYXRjaF9zaXplIjoyMDAsImNvbmZpZ3VyYXRpb25fZmluZ2VycHJpbnQiOiJjb25maWctdjEiLCJjb25uZWN0aW9uX2lkIjoibG9jYWwtZG9jcyIsImNvbm5lY3Rvcl9uYW1lIjoibG9jYWwtZG9jcyIsImNvbm5lY3Rvcl90eXBlIjoibG9jYWwiLCJjb250aW51YXRpb24iOm51bGwsImNvbnRpbnVlX2FmdGVyX2JhdGNoZXMiOjI1LCJkaXNjb3ZlcnlfY29uY3VycmVuY3kiOjQsImRpc2NvdmVyeV9wYWdlX3NpemUiOjUwLCJkb2N1bWVudF9jb25jdXJyZW5jeSI6OCwiZm9yY2VfcmVwcm9jZXNzIjpmYWxzZSwibWlzc2luZ190aHJlc2hvbGQiOjIsInByb2Nlc3NpbmciOnsiY2h1bmtfc3RyYXRlZ3kiOiJjaHVua3MtdjEiLCJkZW5zZV9lbmNvZGVyX3Byb2ZpbGUiOiJkZW5zZS12MSIsImdyYXBoX3Byb2plY3Rpb25fdmVyc2lvbiI6ImdyYXBoLXYxIiwibm9ybWFsaXplcl92ZXJzaW9uIjoiY2Fub25pY2FsLXYxIiwicGFyc2VyX3Byb2ZpbGUiOiJwYXJzZXItdjEiLCJzcGFyc2VfZW5jb2Rlcl9wcm9maWxlIjoic3BhcnNlLXYxIiwidmVjdG9yX3Byb2plY3Rpb25fc2NoZW1hIjoidmVjdG9yLXYyIn0sInF1ZXJ5Ijp7ImZpbHRlcnNfanNvbiI6Int9IiwiaW5jbHVkZV9hdHRhY2htZW50cyI6dHJ1ZSwibGltaXQiOm51bGwsInBhdGgiOm51bGwsInBhdHRlcm4iOm51bGwsInJlY3Vyc2l2ZSI6dHJ1ZSwidXBkYXRlZF9hZnRlciI6bnVsbH0sInNvdXJjZV9zY29wZV9pZCI6ImRvY3MiLCJ0YXNrX2lkIjoidGFzay0zN2ZmMTAwNCIsInRlbmFudF9pZCI6InRlbmFudC0xIiwid29ya2Zsb3dfb3B0aW9ucyI6eyJyZXRyaWVzIjp7ImRpc2NvdmVyeSI6eyJiYWNrb2ZmX2NvZWZmaWNpZW50IjoyLjAsImluaXRpYWxfaW50ZXJ2YWxfc2Vjb25kcyI6Mi4wLCJtYXhpbXVtX2F0dGVtcHRzIjo4LCJtYXhpbXVtX2ludGVydmFsX3NlY29uZHMiOjYwLjB9LCJkb2N1bWVudCI6eyJiYWNrb2ZmX2NvZWZmaWNpZW50IjoyLjAsImluaXRpYWxfaW50ZXJ2YWxfc2Vjb25kcyI6Mi4wLCJtYXhpbXVtX2F0dGVtcHRzIjoxMiwibWF4aW11bV9pbnRlcnZhbF9zZWNvbmRzIjozMDAuMH19LCJ0YXNrX3F1ZXVlcyI6eyJkaXNjb3ZlcnkiOiJoYXJib3JyYWctZGlzY292ZXJ5IiwiaW5kZXgiOiJoYXJib3JyYWctaW5kZXgiLCJpbyI6ImhhcmJvcnJhZy1pbyIsIm1vZGVsIjoiaGFyYm9ycmFnLW1vZGVsIiwicGFyc2VyIjoiaGFyYm9ycmFnLXBhcnNlciIsInRyYW5zZm9ybSI6ImhhcmJvcnJhZy10cmFuc2Zvcm0ifSwidGltZW91dHMiOnsiZGlzY292ZXJ5X3NlY29uZHMiOjE4MDAsImZpbmFsaXphdGlvbl9zZWNvbmRzIjo5MDB9fX0="
+            }
+          ]
+        },
+        "workflowExecutionTimeout": "315360000s",
+        "workflowRunTimeout": "315360000s",
+        "workflowTaskTimeout": "10s",
+        "originalExecutionRunId": "1baa4a78-97b0-4581-badc-9b2d30302e34",
+        "identity": "912867@Lap-0070",
+        "firstExecutionRunId": "1baa4a78-97b0-4581-badc-9b2d30302e34",
+        "attempt": 1,
+        "firstWorkflowTaskBackoff": "0s",
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "2",
+      "eventTime": "2026-10-22T11:53:06.071Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "3",
+      "eventTime": "2026-10-22T11:53:06.074Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "1587"
+      }
+    },
+    {
+      "eventId": "4",
+      "eventTime": "2026-10-22T11:53:06.081Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "2",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {
+          "coreUsedFlags": [
+            3,
+            2,
+            1
+          ],
+          "sdkName": "temporal-python",
+          "sdkVersion": "1.30.0"
+        },
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "5",
+      "eventTime": "2026-10-22T11:53:06.081Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "1",
+        "activityType": {
+          "name": "harborrag.discover_source_items"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJiYXRjaF9zaXplIjoyMDAsImNvbmZpZ3VyYXRpb25fZmluZ2VycHJpbnQiOiJjb25maWctdjEiLCJjb25uZWN0aW9uX2lkIjoibG9jYWwtZG9jcyIsImNvbm5lY3Rvcl9uYW1lIjoibG9jYWwtZG9jcyIsImNvbm5lY3Rvcl90eXBlIjoibG9jYWwiLCJjb250aW51YXRpb24iOm51bGwsImNvbnRpbnVlX2FmdGVyX2JhdGNoZXMiOjI1LCJkaXNjb3ZlcnlfY29uY3VycmVuY3kiOjQsImRpc2NvdmVyeV9wYWdlX3NpemUiOjUwLCJkb2N1bWVudF9jb25jdXJyZW5jeSI6OCwiZm9yY2VfcmVwcm9jZXNzIjpmYWxzZSwibWlzc2luZ190aHJlc2hvbGQiOjIsInByb2Nlc3NpbmciOnsiY2h1bmtfc3RyYXRlZ3kiOiJjaHVua3MtdjEiLCJkZW5zZV9lbmNvZGVyX3Byb2ZpbGUiOiJkZW5zZS12MSIsImdyYXBoX3Byb2plY3Rpb25fdmVyc2lvbiI6ImdyYXBoLXYxIiwibm9ybWFsaXplcl92ZXJzaW9uIjoiY2Fub25pY2FsLXYxIiwicGFyc2VyX3Byb2ZpbGUiOiJwYXJzZXItdjEiLCJzcGFyc2VfZW5jb2Rlcl9wcm9maWxlIjoic3BhcnNlLXYxIiwidmVjdG9yX3Byb2plY3Rpb25fc2NoZW1hIjoidmVjdG9yLXYyIn0sInF1ZXJ5Ijp7ImZpbHRlcnNfanNvbiI6Int9IiwiaW5jbHVkZV9hdHRhY2htZW50cyI6dHJ1ZSwibGltaXQiOm51bGwsInBhdGgiOm51bGwsInBhdHRlcm4iOm51bGwsInJlY3Vyc2l2ZSI6dHJ1ZSwidXBkYXRlZF9hZnRlciI6bnVsbH0sInNvdXJjZV9zY29wZV9pZCI6ImRvY3MiLCJ0YXNrX2lkIjoidGFzay0zN2ZmMTAwNCIsInRlbmFudF9pZCI6InRlbmFudC0xIiwid29ya2Zsb3dfb3B0aW9ucyI6eyJyZXRyaWVzIjp7ImRpc2NvdmVyeSI6eyJiYWNrb2ZmX2NvZWZmaWNpZW50IjoyLjAsImluaXRpYWxfaW50ZXJ2YWxfc2Vjb25kcyI6Mi4wLCJtYXhpbXVtX2F0dGVtcHRzIjo4LCJtYXhpbXVtX2ludGVydmFsX3NlY29uZHMiOjYwLjB9LCJkb2N1bWVudCI6eyJiYWNrb2ZmX2NvZWZmaWNpZW50IjoyLjAsImluaXRpYWxfaW50ZXJ2YWxfc2Vjb25kcyI6Mi4wLCJtYXhpbXVtX2F0dGVtcHRzIjoxMiwibWF4aW11bV9pbnRlcnZhbF9zZWNvbmRzIjozMDAuMH19LCJ0YXNrX3F1ZXVlcyI6eyJkaXNjb3ZlcnkiOiJoYXJib3JyYWctZGlzY292ZXJ5IiwiaW5kZXgiOiJoYXJib3JyYWctaW5kZXgiLCJpbyI6ImhhcmJvcnJhZy1pbyIsIm1vZGVsIjoiaGFyYm9ycmFnLW1vZGVsIiwicGFyc2VyIjoiaGFyYm9ycmFnLXBhcnNlciIsInRyYW5zZm9ybSI6ImhhcmJvcnJhZy10cmFuc2Zvcm0ifSwidGltZW91dHMiOnsiZGlzY292ZXJ5X3NlY29uZHMiOjE4MDAsImZpbmFsaXphdGlvbl9zZWNvbmRzIjo5MDB9fX0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "315360000s",
+        "scheduleToStartTimeout": "315360000s",
+        "startToCloseTimeout": "1800s",
+        "heartbeatTimeout": "120s",
+        "workflowTaskCompletedEventId": "3",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "60s",
+          "maximumAttempts": 8
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "6",
+      "eventTime": "2026-10-22T11:53:06.081Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "5",
+        "identity": "912867@Lap-0070",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "7",
+      "eventTime": "2026-10-22T11:53:06.082Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "activityTaskCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJkb2N1bWVudF9jb3VudCI6MSwicGxhbl9yZWZlcmVuY2UiOnsiYnVja2V0IjoiYXJ0aWZhY3RzIiwiYnl0ZV9sZW5ndGgiOm51bGwsImJ5dGVfb2Zmc2V0IjpudWxsLCJieXRlX3NpemUiOjEsImtleSI6InNvdXJjZS1wbGFucy9zY2FuLTEuanNvbiIsIm1lZGlhX3R5cGUiOiJhcHBsaWNhdGlvbi9qc29uIiwic2hhMjU2IjoiMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMCJ9LCJzY2FuX2lkIjoic2Nhbi0xIn0="
+            }
+          ]
+        },
+        "scheduledEventId": "5",
+        "startedEventId": "6",
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "8",
+      "eventTime": "2026-10-22T11:53:06.082Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "9",
+      "eventTime": "2026-10-22T11:53:06.082Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "8",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "3648"
+      }
+    },
+    {
+      "eventId": "10",
+      "eventTime": "2026-10-22T11:53:06.084Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "8",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "11",
+      "eventTime": "2026-10-22T11:53:06.084Z",
+      "eventType": "EVENT_TYPE_START_CHILD_WORKFLOW_EXECUTION_INITIATED",
+      "startChildWorkflowExecutionInitiatedEventAttributes": {
+        "namespace": "default",
+        "workflowId": "harborrag-source-batch:task-37ff1004:0",
+        "workflowType": {
+          "name": "harborrag.source_batch"
+        },
+        "taskQueue": {
+          "name": "harborrag-transform",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJiYXRjaF9udW1iZXIiOjAsImNvbm5lY3Rvcl9uYW1lIjoibG9jYWwtZG9jcyIsImRvY3VtZW50X2NvbmN1cnJlbmN5Ijo4LCJlbmRfaW5kZXgiOjEsInBsYW5fcmVmZXJlbmNlIjp7ImJ1Y2tldCI6ImFydGlmYWN0cyIsImJ5dGVfbGVuZ3RoIjpudWxsLCJieXRlX29mZnNldCI6bnVsbCwiYnl0ZV9zaXplIjoxLCJrZXkiOiJzb3VyY2UtcGxhbnMvc2Nhbi0xLmpzb24iLCJtZWRpYV90eXBlIjoiYXBwbGljYXRpb24vanNvbiIsInNoYTI1NiI6IjAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAifSwic3RhcnRfaW5kZXgiOjAsInRhc2tfaWQiOiJ0YXNrLTM3ZmYxMDA0IiwidGVuYW50X2lkIjoidGVuYW50LTEiLCJ3b3JrZmxvd19vcHRpb25zIjp7InJldHJpZXMiOnsiZGlzY292ZXJ5Ijp7ImJhY2tvZmZfY29lZmZpY2llbnQiOjIuMCwiaW5pdGlhbF9pbnRlcnZhbF9zZWNvbmRzIjoyLjAsIm1heGltdW1fYXR0ZW1wdHMiOjgsIm1heGltdW1faW50ZXJ2YWxfc2Vjb25kcyI6NjAuMH0sImRvY3VtZW50Ijp7ImJhY2tvZmZfY29lZmZpY2llbnQiOjIuMCwiaW5pdGlhbF9pbnRlcnZhbF9zZWNvbmRzIjoyLjAsIm1heGltdW1fYXR0ZW1wdHMiOjEyLCJtYXhpbXVtX2ludGVydmFsX3NlY29uZHMiOjMwMC4wfX0sInRhc2tfcXVldWVzIjp7ImRpc2NvdmVyeSI6ImhhcmJvcnJhZy1kaXNjb3ZlcnkiLCJpbmRleCI6ImhhcmJvcnJhZy1pbmRleCIsImlvIjoiaGFyYm9ycmFnLWlvIiwibW9kZWwiOiJoYXJib3JyYWctbW9kZWwiLCJwYXJzZXIiOiJoYXJib3JyYWctcGFyc2VyIiwidHJhbnNmb3JtIjoiaGFyYm9ycmFnLXRyYW5zZm9ybSJ9LCJ0aW1lb3V0cyI6eyJkaXNjb3Zlcnlfc2Vjb25kcyI6MTgwMCwiZmluYWxpemF0aW9uX3NlY29uZHMiOjkwMH19fQ=="
+            }
+          ]
+        },
+        "workflowExecutionTimeout": "0s",
+        "workflowRunTimeout": "0s",
+        "workflowTaskTimeout": "10s",
+        "parentClosePolicy": "PARENT_CLOSE_POLICY_REQUEST_CANCEL",
+        "workflowTaskCompletedEventId": "9",
+        "workflowIdReusePolicy": "WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE",
+        "header": {},
+        "memo": {},
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "12",
+      "eventTime": "2026-10-22T11:53:06.085Z",
+      "eventType": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_STARTED",
+      "childWorkflowExecutionStartedEventAttributes": {
+        "namespace": "default",
+        "initiatedEventId": "11",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0",
+          "runId": "2dd387af-f831-43c6-a6fc-eb6d2275b7c9"
+        },
+        "workflowType": {
+          "name": "harborrag.source_batch"
+        }
+      }
+    },
+    {
+      "eventId": "13",
+      "eventTime": "2026-10-22T11:53:06.085Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "14",
+      "eventTime": "2026-10-22T11:53:06.085Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "13",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "5042"
+      }
+    },
+    {
+      "eventId": "15",
+      "eventTime": "2026-10-22T11:53:06.087Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "13",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "16",
+      "eventTime": "2026-10-22T11:53:06.129Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "workflowExecutionSignaledEventAttributes": {
+        "signalName": "pause",
+        "input": {},
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "17",
+      "eventTime": "2026-10-22T11:53:06.129Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "18",
+      "eventTime": "2026-10-22T11:53:06.129Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "17",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "5253"
+      }
+    },
+    {
+      "eventId": "19",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "17",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "20",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_MARKER_RECORDED",
+      "markerRecordedEventAttributes": {
+        "markerName": "core_patch",
+        "details": {
+          "patch-data": {
+            "payloads": [
+              {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg=="
+                },
+                "data": "eyJpZCI6ImhhcmJvcnJhZy1zb3VyY2UtcGF1c2UtcGVyc2lzdGVuY2UiLCJkZXByZWNhdGVkIjpmYWxzZX0="
+              }
+            ]
+          }
+        },
+        "workflowTaskCompletedEventId": "18"
+      }
+    },
+    {
+      "eventId": "21",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+      "upsertWorkflowSearchAttributesEventAttributes": {
+        "workflowTaskCompletedEventId": "18",
+        "searchAttributes": {
+          "indexedFields": {
+            "TemporalChangeVersion": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg==",
+                "type": "S2V5d29yZExpc3Q="
+              },
+              "data": "WyJoYXJib3JyYWctc291cmNlLXBhdXNlLXBlcnNpc3RlbmNlIl0="
+            }
+          }
+        }
+      }
+    },
+    {
+      "eventId": "22",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "2",
+        "activityType": {
+          "name": "harborrag.pause_source_ingestion"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJ0YXNrX2lkIjoidGFzay0zN2ZmMTAwNCJ9"
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "315360000s",
+        "scheduleToStartTimeout": "315360000s",
+        "startToCloseTimeout": "120s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "18",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "60s",
+          "maximumAttempts": 8
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "23",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 2
+      }
+    },
+    {
+      "eventId": "24",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "23",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "5884"
+      }
+    },
+    {
+      "eventId": "25",
+      "eventTime": "2026-10-22T11:53:06.134Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "23",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "26",
+      "eventTime": "2026-10-22T11:53:06.132Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "22",
+        "identity": "912867@Lap-0070",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "27",
+      "eventTime": "2026-10-22T11:53:06.134Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "activityTaskCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "YmluYXJ5L251bGw="
+              }
+            }
+          ]
+        },
+        "scheduledEventId": "22",
+        "startedEventId": "25",
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "28",
+      "eventTime": "2026-10-22T11:53:06.134Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "29",
+      "eventTime": "2026-10-22T11:53:06.134Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "28",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "6160"
+      }
+    },
+    {
+      "eventId": "30",
+      "eventTime": "2026-10-22T11:53:06.136Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "28",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "31",
+      "eventTime": "2026-10-22T11:53:06.136Z",
+      "eventType": "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+      "signalExternalWorkflowExecutionInitiatedEventAttributes": {
+        "workflowTaskCompletedEventId": "29",
+        "namespace": "default",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0"
+        },
+        "signalName": "pause",
+        "input": {},
+        "childWorkflowOnly": true
+      }
+    },
+    {
+      "eventId": "32",
+      "eventTime": "2026-10-22T11:53:06.136Z",
+      "eventType": "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED",
+      "externalWorkflowExecutionSignaledEventAttributes": {
+        "initiatedEventId": "31",
+        "namespace": "default",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0",
+          "runId": "2dd387af-f831-43c6-a6fc-eb6d2275b7c9"
+        }
+      }
+    },
+    {
+      "eventId": "33",
+      "eventTime": "2026-10-22T11:53:06.136Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "34",
+      "eventTime": "2026-10-22T11:53:06.136Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "33",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "6520"
+      }
+    },
+    {
+      "eventId": "35",
+      "eventTime": "2026-10-22T11:53:06.138Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "33",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "36",
+      "eventTime": "2026-10-22T11:53:06.138Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "3",
+        "activityType": {
+          "name": "harborrag.pause_workflow_execution"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJ3b3JrZmxvd19pZCI6ImhhcmJvcnJhZy1zb3VyY2UtYmF0Y2g6dGFzay0zN2ZmMTAwNDowIn0="
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "315360000s",
+        "scheduleToStartTimeout": "315360000s",
+        "startToCloseTimeout": "120s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "34",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "60s",
+          "maximumAttempts": 8
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "37",
+      "eventTime": "2026-10-22T11:53:06.138Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "36",
+        "identity": "912867@Lap-0070",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "38",
+      "eventTime": "2026-10-22T11:53:06.140Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "activityTaskCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "YmluYXJ5L251bGw="
+              }
+            }
+          ]
+        },
+        "scheduledEventId": "36",
+        "startedEventId": "37",
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "39",
+      "eventTime": "2026-10-22T11:53:06.140Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "40",
+      "eventTime": "2026-10-22T11:53:06.140Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "39",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "7017"
+      }
+    },
+    {
+      "eventId": "41",
+      "eventTime": "2026-10-22T11:53:06.142Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "39",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "42",
+      "eventTime": "2026-10-22T11:53:06.189Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_SIGNALED",
+      "workflowExecutionSignaledEventAttributes": {
+        "signalName": "request_graceful_cancel",
+        "input": {},
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "43",
+      "eventTime": "2026-10-22T11:53:06.189Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "44",
+      "eventTime": "2026-10-22T11:53:06.189Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "43",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "7246"
+      }
+    },
+    {
+      "eventId": "45",
+      "eventTime": "2026-10-22T11:53:06.190Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "43",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "46",
+      "eventTime": "2026-10-22T11:53:06.190Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "4",
+        "activityType": {
+          "name": "harborrag.resume_source_ingestion"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJ0YXNrX2lkIjoidGFzay0zN2ZmMTAwNCJ9"
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "315360000s",
+        "scheduleToStartTimeout": "315360000s",
+        "startToCloseTimeout": "120s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "44",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "60s",
+          "maximumAttempts": 8
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "47",
+      "eventTime": "2026-10-22T11:53:06.190Z",
+      "eventType": "EVENT_TYPE_SIGNAL_EXTERNAL_WORKFLOW_EXECUTION_INITIATED",
+      "signalExternalWorkflowExecutionInitiatedEventAttributes": {
+        "workflowTaskCompletedEventId": "44",
+        "namespace": "default",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0"
+        },
+        "signalName": "request_graceful_cancel",
+        "input": {},
+        "childWorkflowOnly": true
+      }
+    },
+    {
+      "eventId": "48",
+      "eventTime": "2026-10-22T11:53:06.191Z",
+      "eventType": "EVENT_TYPE_EXTERNAL_WORKFLOW_EXECUTION_SIGNALED",
+      "externalWorkflowExecutionSignaledEventAttributes": {
+        "initiatedEventId": "47",
+        "namespace": "default",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0",
+          "runId": "2dd387af-f831-43c6-a6fc-eb6d2275b7c9"
+        }
+      }
+    },
+    {
+      "eventId": "49",
+      "eventTime": "2026-10-22T11:53:06.191Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "50",
+      "eventTime": "2026-10-22T11:53:06.191Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "49",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "7815"
+      }
+    },
+    {
+      "eventId": "51",
+      "eventTime": "2026-10-22T11:53:06.193Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "49",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "52",
+      "eventTime": "2026-10-22T11:53:06.193Z",
+      "eventType": "EVENT_TYPE_CHILD_WORKFLOW_EXECUTION_COMPLETED",
+      "childWorkflowExecutionCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJmYWlsZWQiOjAsInB1Ymxpc2hlZCI6MSwidW5jaGFuZ2VkIjowfQ=="
+            }
+          ]
+        },
+        "namespace": "default",
+        "workflowExecution": {
+          "workflowId": "harborrag-source-batch:task-37ff1004:0",
+          "runId": "2dd387af-f831-43c6-a6fc-eb6d2275b7c9"
+        },
+        "workflowType": {
+          "name": "harborrag.source_batch"
+        },
+        "initiatedEventId": "11",
+        "startedEventId": "12"
+      }
+    },
+    {
+      "eventId": "53",
+      "eventTime": "2026-10-22T11:53:06.193Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "54",
+      "eventTime": "2026-10-22T11:53:06.193Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "53",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "8190"
+      }
+    },
+    {
+      "eventId": "55",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "53",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "56",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_CANCEL_REQUESTED",
+      "activityTaskCancelRequestedEventAttributes": {
+        "scheduledEventId": "46",
+        "workflowTaskCompletedEventId": "54"
+      }
+    },
+    {
+      "eventId": "57",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_MARKER_RECORDED",
+      "markerRecordedEventAttributes": {
+        "markerName": "core_patch",
+        "details": {
+          "patch-data": {
+            "payloads": [
+              {
+                "metadata": {
+                  "encoding": "anNvbi9wbGFpbg=="
+                },
+                "data": "eyJpZCI6InJ1bi1mYWlsdXJlLXN0YXR1cyIsImRlcHJlY2F0ZWQiOmZhbHNlfQ=="
+              }
+            ]
+          }
+        },
+        "workflowTaskCompletedEventId": "54"
+      }
+    },
+    {
+      "eventId": "58",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_UPSERT_WORKFLOW_SEARCH_ATTRIBUTES",
+      "upsertWorkflowSearchAttributesEventAttributes": {
+        "workflowTaskCompletedEventId": "54",
+        "searchAttributes": {
+          "indexedFields": {
+            "TemporalChangeVersion": {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg==",
+                "type": "S2V5d29yZExpc3Q="
+              },
+              "data": "WyJoYXJib3JyYWctc291cmNlLXBhdXNlLXBlcnNpc3RlbmNlIiwicnVuLWZhaWx1cmUtc3RhdHVzIl0="
+            }
+          }
+        }
+      }
+    },
+    {
+      "eventId": "59",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_SCHEDULED",
+      "activityTaskScheduledEventAttributes": {
+        "activityId": "5",
+        "activityType": {
+          "name": "harborrag.record_source_failure"
+        },
+        "taskQueue": {
+          "name": "harborrag-discovery",
+          "kind": "TASK_QUEUE_KIND_NORMAL"
+        },
+        "header": {},
+        "input": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "anNvbi9wbGFpbg=="
+              },
+              "data": "eyJlcnJvcl9jb2RlIjoiQ2FuY2VsbGVkRXJyb3IiLCJ0YXNrX2lkIjoidGFzay0zN2ZmMTAwNCJ9"
+            }
+          ]
+        },
+        "scheduleToCloseTimeout": "315360000s",
+        "scheduleToStartTimeout": "315360000s",
+        "startToCloseTimeout": "120s",
+        "heartbeatTimeout": "0s",
+        "workflowTaskCompletedEventId": "54",
+        "retryPolicy": {
+          "initialInterval": "2s",
+          "backoffCoefficient": 2.0,
+          "maximumInterval": "60s",
+          "maximumAttempts": 8
+        },
+        "priority": {}
+      }
+    },
+    {
+      "eventId": "60",
+      "eventTime": "2026-10-22T11:53:06.197Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_STARTED",
+      "activityTaskStartedEventAttributes": {
+        "scheduledEventId": "59",
+        "identity": "912867@Lap-0070",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "61",
+      "eventTime": "2026-10-22T11:53:06.198Z",
+      "eventType": "EVENT_TYPE_ACTIVITY_TASK_COMPLETED",
+      "activityTaskCompletedEventAttributes": {
+        "result": {
+          "payloads": [
+            {
+              "metadata": {
+                "encoding": "YmluYXJ5L251bGw="
+              }
+            }
+          ]
+        },
+        "scheduledEventId": "59",
+        "startedEventId": "60",
+        "identity": "912867@Lap-0070"
+      }
+    },
+    {
+      "eventId": "62",
+      "eventTime": "2026-10-22T11:53:06.198Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_SCHEDULED",
+      "workflowTaskScheduledEventAttributes": {
+        "taskQueue": {
+          "name": "harborrag-discovery"
+        },
+        "startToCloseTimeout": "10s",
+        "attempt": 1
+      }
+    },
+    {
+      "eventId": "63",
+      "eventTime": "2026-10-22T11:53:06.198Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_STARTED",
+      "workflowTaskStartedEventAttributes": {
+        "scheduledEventId": "62",
+        "identity": "912867@Lap-0070",
+        "historySizeBytes": "8993"
+      }
+    },
+    {
+      "eventId": "64",
+      "eventTime": "2026-10-22T11:53:06.199Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_TASK_COMPLETED",
+      "workflowTaskCompletedEventAttributes": {
+        "scheduledEventId": "62",
+        "identity": "912867@Lap-0070",
+        "binaryChecksum": "468aee12494d412a7e5479fa46729776",
+        "sdkMetadata": {},
+        "meteringMetadata": {}
+      }
+    },
+    {
+      "eventId": "65",
+      "eventTime": "2026-10-22T11:53:06.199Z",
+      "eventType": "EVENT_TYPE_WORKFLOW_EXECUTION_FAILED",
+      "workflowExecutionFailedEventAttributes": {
+        "failure": {
+          "message": "Activity cancelled",
+          "cause": {
+            "canceledFailureInfo": {}
+          },
+          "activityFailureInfo": {
+            "activityType": {
+              "name": "harborrag.resume_source_ingestion"
+            },
+            "activityId": "4",
+            "retryState": "RETRY_STATE_CANCEL_REQUESTED"
+          }
+        },
+        "workflowTaskCompletedEventId": "63"
+      }
+    }
+  ]
+}

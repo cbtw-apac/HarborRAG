@@ -9,6 +9,7 @@ from enum import StrEnum
 class PDFParserProfile(StrEnum):
     """Named PDF engine orderings for cost and quality tradeoffs."""
 
+    LITEPARSE = "liteparse"
     FAST = "fast"
     BALANCED = "balanced"
     OCR = "ocr"
@@ -45,6 +46,9 @@ class PDFProfileConfig:
 
 def default_pdf_profiles() -> dict[str, PDFProfileConfig]:
     return {
+        # The default: LiteParse (layout-aware text plus OCR for scanned pages),
+        # with PyMuPDF as a lightweight fallback when LiteParse is unavailable.
+        "liteparse": PDFProfileConfig(("liteparse", "pymupdf"), 0.65),
         "fast": PDFProfileConfig(("pymupdf", "liteparse"), 0.65),
         "balanced": PDFProfileConfig(
             ("pymupdf", "docling", "liteparse", "mineru", "paddleocr"),
@@ -83,7 +87,7 @@ def default_pdf_profiles() -> dict[str, PDFProfileConfig]:
 class PDFRouterConfig:
     """Default profile and named engine-order policies."""
 
-    default_profile: str = "balanced"
+    default_profile: str = "liteparse"
     profiles: dict[str, PDFProfileConfig] = field(default_factory=default_pdf_profiles)
 
     def __post_init__(self) -> None:

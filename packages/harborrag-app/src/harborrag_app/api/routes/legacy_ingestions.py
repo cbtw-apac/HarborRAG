@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Request
@@ -174,13 +175,19 @@ def _render(
         "Legacy ingestion operation failed",
         extra={"operation": operation, "error_type": error_type, "status_code": status_code},
     )
+    details: dict[str, object] = {"operation": operation, "error_type": error_type}
+    run = response.data.get("run")
+    if isinstance(run, Mapping) and run.get("run_id"):
+        # A start that failed after registering still names its run and the state it
+        # was left in (e.g. FAILED when Temporal was unreachable).
+        details["run"] = {"run_id": run.get("run_id"), "status": run.get("status")}
     return JSONResponse(
         status_code=status_code,
         content=error_envelope(
             request,
             code,
             response.error or "Ingestion operation failed",
-            {"operation": operation, "error_type": error_type},
+            details,
         ),
         headers=_DEPRECATION_HEADERS,
     )

@@ -28,6 +28,7 @@ TERMINAL_STATES = frozenset(
 STATUS_NAMES = {
     IngestionTaskState.PENDING: "PENDING",
     IngestionTaskState.RUNNING: "RUNNING",
+    IngestionTaskState.PAUSED: "PAUSED",
     IngestionTaskState.COMPLETED: "SUCCESS",
     IngestionTaskState.PARTIAL: "PARTIAL",
     IngestionTaskState.FAILED: "FAILED",

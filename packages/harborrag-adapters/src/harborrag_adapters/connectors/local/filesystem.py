@@ -169,6 +169,8 @@ class LocalFileSystem:
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply local connector filters to one candidate path."""
+        if not self.config.follow_symlinks and self.has_symlink_component(path):
+            return False
         return self._selector.should_process_file(path, query)
 
     def enforce_size_limit(self, path: Path, size: int) -> None:
@@ -286,10 +288,14 @@ class LocalFileSystem:
         if not candidate.is_absolute():
             candidate = self.root_path / candidate
         if not self.config.follow_symlinks and self.has_symlink_component(candidate):
-            raise DocumentProcessingError(f"Local symlinks are disabled for source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local symlinks are disabled for source scope {self.root_path}: {value}"
+            )
         resolved = resolve_path(candidate)
         if not self.within_source_scope(resolved):
-            raise DocumentProcessingError(f"Local path is outside configured source scope: {value}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope {self.root_path}: {value}"
+            )
         return resolved
 
     def within_source_scope(self, path: Path) -> bool:

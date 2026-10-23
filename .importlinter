@@ -18,6 +18,7 @@ forbidden_modules =
     harborrag
     harborrag_adapters
     harborrag_engine
+    harborrag_memory
     harborrag_app
     harborrag_mcp_server
     harborrag_runtime
@@ -43,6 +44,7 @@ source_modules =
 forbidden_modules =
     harborrag
     harborrag_adapters
+    harborrag_memory
     harborrag_app
     harborrag_mcp_server
     harborrag_runtime
@@ -130,3 +132,45 @@ forbidden_modules =
     harborrag_runtime.chat
     harborrag_runtime.sdk
     harborrag_runtime.temporal
+
+[importlinter:contract:11]
+name = App consumes the ingestion gateway rather than Temporal internals
+type = forbidden
+allow_indirect_imports = true
+source_modules =
+    harborrag_app
+forbidden_modules =
+    harborrag_runtime.temporal
+
+[importlinter:contract:12]
+name = Shared reader tools do not depend on agent orchestration
+type = forbidden
+source_modules =
+    harborrag_engine.tools
+forbidden_modules =
+    harborrag_engine.agent
+
+[importlinter:contract:13]
+name = MCP does not import optional runtime layers
+type = forbidden
+source_modules =
+    harborrag_mcp_server
+forbidden_modules =
+    harborrag_memory
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.memory
+    harborrag_runtime.sdk
+
+[importlinter:contract:14]
+name = Reader composition does not import optional runtime layers
+type = forbidden
+source_modules =
+    harborrag_runtime.composition.readers
+forbidden_modules =
+    harborrag_runtime.agent
+    harborrag_runtime.chat
+    harborrag_runtime.memory
+    harborrag_runtime.sdk
+    harborrag_runtime.execution
+    harborrag_runtime.config.temporal

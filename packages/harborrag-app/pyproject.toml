@@ -1,18 +1,20 @@
 [project]
 name = "harborrag-app"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "CLI and API package boundary for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "harborrag-core==2.0.0a1",
-    "harborrag-runtime==2.0.0a1",
+    "harborrag-core==2.0.0a2",
+    "harborrag-runtime==2.0.0a2",
+    "harborrag-engine==2.0.0a2",
+    "harborrag-memory==2.0.0a2",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",
+    "PyYAML>=6.0,<7",
     "rich>=14,<16",
-    "textual>=8.2,<9",
     "typer>=0.24,<0.27",
 ]
 
@@ -22,7 +24,6 @@ harborrag = "harborrag_app.cli.main:main"
 [project.optional-dependencies]
 api = [
     "fastapi>=0.115",
-    "harborrag-runtime[temporal]==2.0.0a1",
     "prometheus-client>=0.19,<1",
     "uvicorn[standard]>=0.30",
     "pydantic>=2.7",
@@ -31,9 +32,10 @@ api = [
     "sse-starlette>=2.1",
     "websockets>=12",
 ]
+durable = ["harborrag-runtime[temporal]==2.0.0a2"]
 production = [
-    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a1",
-    "harborrag-runtime[temporal]==2.0.0a1",
+    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2",
+    "harborrag-runtime[temporal]==2.0.0a2",
 ]
 
 [build-system]

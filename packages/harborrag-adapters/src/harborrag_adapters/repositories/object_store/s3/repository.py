@@ -108,6 +108,15 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
                 }:
                     raise
 
+    async def validate_buckets(self, buckets: tuple[str, ...]) -> None:
+        """Require existing readable buckets without attempting provisioning."""
+
+        for bucket in buckets:
+            try:
+                await self.client.head_bucket(Bucket=bucket)
+            except ClientError as exc:
+                raise RuntimeError(f"required reader bucket {bucket!r} is unavailable") from exc
+
     async def health(self) -> RepositoryHealth:
         try:
             await self._database.ping()
@@ -133,7 +142,7 @@ class S3ObjectStore(S3ObjectOperationsMixin, HarborObjectStore):
         try:
             response: dict[str, Any] = await self.client.head_object(
                 Bucket=bucket,
-                Key=physical_object_key(context.tenant_id, key),
+                Key=physical_object_key(context.tenant_id, key, self._config.namespace_prefix),
             )
         except ClientError as exc:
             code = str(exc.response.get("Error", {}).get("Code", ""))

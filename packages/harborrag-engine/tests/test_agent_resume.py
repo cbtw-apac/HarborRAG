@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 
 import pytest
 from agent_test_helpers import Chat, Runs, Tools
+from agent_test_helpers import checkpoint as _checkpoint
 from agent_test_helpers import response as _response
 
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
@@ -70,6 +71,7 @@ async def test_agent_resume_continues_from_last_checkpoint() -> None:
         principal_id="reader-1",
         session_id="session-1",
         run_id="run-fixed",
+        user_id="reader-1",
     )
     prior_digest = digest_arguments({"query": "x"})
     now = datetime.now(UTC)
@@ -137,7 +139,8 @@ async def test_agent_resume_continues_from_last_checkpoint() -> None:
     assert len(result.executions) == 1
     persisted = runs.checkpoints["run-fixed"]
     assert persisted.status is AgentRunStatus.COMPLETED
-    assert persisted.version == 3
+    # version 2 (checkpoint) -> 3 (resume claims the lease) -> 4 (completion)
+    assert persisted.version == 4
     assert chat.requests[0].messages[0].content == "multi-hop question"
 
 
@@ -151,6 +154,42 @@ async def test_agent_resume_rejects_unknown_or_non_running_run() -> None:
             "missing-run",
             AgentRunOptions(tenant_id="ACME", principal_id="reader-1", session_id="session-1"),
         )
+
+
+@pytest.mark.asyncio
+async def test_agent_resume_refuses_another_user_behind_the_same_principal() -> None:
+    """A shared service principal must not let one human resume another's run.
+
+    Both humans authenticate as ``reader-1`` and both know the run id; only
+    ``user-a`` owns it, so ``user-b`` gets the plain not-found error instead
+    of somebody else's conversation replayed into the model.
+    """
+
+    identity = AgentRunIdentity(
+        tenant_id="ACME",
+        principal_id="reader-1",
+        session_id="session-1",
+        run_id="run-owned",
+        user_id="user-a",
+    )
+    runs = Runs()
+    runs.checkpoints[identity.run_id] = _checkpoint(identity)
+    service = AgentService(Chat([]), Tools(), runs=runs)
+
+    with pytest.raises(HarborNotFoundError):
+        await service.resume(
+            "run-owned",
+            AgentRunOptions(
+                tenant_id="ACME",
+                principal_id="reader-1",
+                session_id="session-1",
+                user_id="user-b",
+            ),
+        )
+
+    # The owner's checkpoint is untouched: nothing was claimed or advanced.
+    assert runs.checkpoints["run-owned"].version == 2
+    assert runs.checkpoints["run-owned"].status is AgentRunStatus.RUNNING
 
 
 @pytest.mark.asyncio

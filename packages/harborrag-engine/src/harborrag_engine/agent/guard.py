@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 from json import dumps
 
+from harborrag_core.models.chat import HarborToolCall
 from harborrag_core.ports.agent_runs import AgentToolExecution
 
 
@@ -27,6 +28,20 @@ def digest_arguments(arguments: dict[str, object]) -> str:
 
     canonical = dumps(arguments, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def call_digest(call: HarborToolCall) -> str:
+    """Repeat-detection key for one tool call, whether or not it parsed.
+
+    The same three-line expression stood at each of the three call sites, so
+    the key a call was admitted under, executed under, and rejected under
+    could drift apart while every site still looked right on its own.
+    """
+
+    arguments = call.function.parsed_arguments
+    return digest_arguments(
+        arguments if isinstance(arguments, dict) else {"__unparsed__": call.function.arguments}
+    )
 
 
 @dataclass(slots=True)
@@ -88,4 +103,4 @@ class ExecutionGuard:
             self._call_counts[key] = self._call_counts.get(key, 0) + 1
 
 
-__all__ = ["ExecutionGuard", "digest_arguments"]
+__all__ = ["call_digest", "ExecutionGuard", "digest_arguments"]

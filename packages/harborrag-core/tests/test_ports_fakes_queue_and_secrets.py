@@ -62,14 +62,14 @@ async def test_fake_job_queue_handles_skips_retries_failures_and_cancellation() 
 @pytest.mark.asyncio
 async def test_fake_secrets_and_event_bus_are_opaque_and_deterministic() -> None:
     secrets = FakeSecrets()
-    first_ref = await secrets.put("alpha")
-    second_ref = await secrets.put("beta")
+    first_ref = await secrets.put("alpha", tenant_id="tenant-a")
+    second_ref = await secrets.put("beta", tenant_id="tenant-a")
     assert (first_ref, second_ref) == ("secret://fake/1", "secret://fake/2")
-    assert await secrets.resolve(first_ref) == "alpha"
-    await secrets.delete(first_ref)
-    await secrets.delete("secret://fake/missing")
+    assert await secrets.resolve(first_ref, tenant_id="tenant-a") == "alpha"
+    await secrets.delete(first_ref, tenant_id="tenant-a")
+    await secrets.delete("secret://fake/missing", tenant_id="tenant-a")
     with pytest.raises(KeyError):
-        await secrets.resolve(first_ref)
+        await secrets.resolve(first_ref, tenant_id="tenant-a")
 
     bus = FakeEventBus()
     started = HarborEvent(name="job.started", trace_id="trace-1")
@@ -79,3 +79,16 @@ async def test_fake_secrets_and_event_bus_are_opaque_and_deterministic() -> None
         await bus.publish(event)
     assert [event async for event in bus.subscribe("job.")] == [started, finished]
     assert [event async for event in bus.subscribe("missing.")] == []
+
+
+@pytest.mark.asyncio
+async def test_fake_secrets_hides_refs_from_other_tenants() -> None:
+    """A ref is worthless outside its tenant: resolve and delete must both miss."""
+    secrets = FakeSecrets()
+    ref = await secrets.put("tenant-a-key", tenant_id="tenant-a")
+
+    with pytest.raises(KeyError):
+        await secrets.resolve(ref, tenant_id="tenant-b")
+
+    await secrets.delete(ref, tenant_id="tenant-b")
+    assert await secrets.resolve(ref, tenant_id="tenant-a") == "tenant-a-key"

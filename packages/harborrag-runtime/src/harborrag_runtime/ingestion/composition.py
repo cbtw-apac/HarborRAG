@@ -14,18 +14,19 @@ from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
-from harborrag_adapters.repositories.object_store.s3 import S3ObjectStore
-from harborrag_adapters.repositories.vector import HarborVectorRepository
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_runtime.config import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.errors import RuntimeConnectionError
 
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
@@ -36,6 +37,20 @@ if TYPE_CHECKING:
     from .document.normalizers import SourceDocumentNormalizerBuilder
 
 logger = logging.getLogger("harborrag.runtime.ingestion.composition")
+
+_FALLBACK_TARGETS = {
+    "control": "the control database",
+    "object_store": "the object store",
+    "vector": "the vector store",
+    "graph": "the graph store",
+}
+# Fallbacks for runtimes built without resource_hints (tests, embedders).
+_START_HINTS = {
+    "control": "check HARBORRAG_CONTROL_DB_URL",
+    "object_store": "check HARBORRAG_OBJECT_STORE_* credentials and that MinIO is running",
+    "vector": "start Qdrant or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP",
+    "graph": "start FalkorDB",
+}
 
 
 @dataclass(slots=True)
@@ -53,13 +68,19 @@ class IngestionRuntime:
     cleanup: ProjectionCleanupService
     reindex: DocumentReindexService
     source_plans: SourcePlanRepository
-    object_store: S3ObjectStore
-    vector_repository: HarborVectorRepository
+    object_store: ObjectStorePort
+    vector_repository: VectorRepositoryPort
     graph_repository: KnowledgeGraphRepositoryPort
     embed_client: HarborEmbedClient
     connector_rate_limiter: ConnectorRateLimiter
     telemetry: IngestionTelemetry
     connector_errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
+    # None keeps hand-built runtimes (tests, embedders) free of the purge.
+    retention: RetiredVersionPurgeService | None = None
+    # Safe display strings per resource label; read only on the failure path.
+    resource_targets: Mapping[str, str] = field(default_factory=dict)
+    # What to check per resource label for the configured providers; same path.
+    resource_hints: Mapping[str, str] = field(default_factory=dict)
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
@@ -80,15 +101,21 @@ class IngestionRuntime:
         try:
             await self.telemetry.start()
             connected.append(self.telemetry.close)
-            for resource in (
-                self.control,
-                self.object_store,
-                self.vector_repository,
-                self.graph_repository,
+            for label, resource in (
+                ("control", self.control),
+                ("object_store", self.object_store),
+                ("vector", self.vector_repository),
+                ("graph", self.graph_repository),
             ):
-                await resource.connect()
+                try:
+                    await resource.connect()
+                except Exception as error:
+                    raise self._unreachable(label, error) from error
                 connected.append(resource.close)
-            await self.object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
+            try:
+                await self.object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
+            except Exception as error:
+                raise self._unreachable("object_store", error) from error
         except BaseException as error:
             logger.error(
                 "Ingestion runtime startup failed error_type=%s connected_resources=%d",
@@ -108,6 +135,19 @@ class IngestionRuntime:
             len(connected),
             len(self.connectors),
         )
+
+    def _unreachable(self, label: str, error: Exception) -> RuntimeConnectionError:
+        """Authored message only: the driver's text may carry credentials."""
+        targets = getattr(self, "resource_targets", None) or {}
+        target = targets.get(label) or _FALLBACK_TARGETS[label]
+        hints = getattr(self, "resource_hints", None) or {}
+        hint = hints.get(label) or _START_HINTS[label]
+        logger.error(
+            "Ingestion runtime resource unreachable resource=%s error_type=%s",
+            label,
+            type(error).__name__,
+        )
+        return RuntimeConnectionError(f"Could not connect to or initialise {target}; {hint}")
 
     async def close(self) -> None:
         if not self._started:

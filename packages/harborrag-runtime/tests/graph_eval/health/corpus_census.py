@@ -26,6 +26,10 @@ def _merge(corpus: EvalCorpus) -> tuple[dict[str, GraphNodeRecord], dict[str, Gr
     relations: dict[str, GraphEdgeRecord] = {}
     for batch in corpus.batches.values():
         for node in batch.nodes:
+            if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY:
+                # Match physical storage: labels and attributes live on accepted
+                # support observations, never on the shared identity row.
+                node = node.model_copy(update={"title": node.logical_id[:512], "attributes": {}})
             # Placeholders share the real node's key and must never downgrade it —
             # mirrors upsert_nodes, where placeholder rows are ON CREATE SET only.
             existing = nodes.get(node.node_key)
@@ -72,8 +76,12 @@ def corpus_health_entry(corpus: EvalCorpus) -> dict[str, object]:
     # `NOT (node)--()` is undirected, so an endpoint on either side of any edge counts.
     connected = {node_key for edge in edges for node_key in edge}
     orphan_counts = Counter(kinds[node_key] for node_key in nodes if node_key not in connected)
+    # Mirror graph_health: version-owned connector assertions are evidence supports;
+    # logical structural adjacencies are the edges that must be physically unique.
     semantic = Counter(
-        (r.relation_type.value, r.source_node_key, r.target_node_key) for r in relations.values()
+        (r.relation_type.value, r.source_node_key, r.target_node_key)
+        for r in relations.values()
+        if not r.source_explicit
     )
     degrees = Counter(node_key for edge in edges for node_key in edge)
 

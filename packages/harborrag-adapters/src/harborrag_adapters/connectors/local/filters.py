@@ -8,6 +8,24 @@ from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 from .config import LocalFileConfig
 
+LOCAL_QUERY_FILTER_KEYS: frozenset[str] = frozenset(
+    {
+        "allowed_extensions",
+        "extensions",
+        "excluded_extensions",
+        "include_paths",
+        "exclude_paths",
+        "include_globs",
+        "exclude_globs",
+        "file_paths",
+        "paths",
+        "files",
+        "include_comments",
+        "build_graph",
+        "attachment_ids",
+    }
+)
+
 
 def extension_filter(
     config: LocalFileConfig,

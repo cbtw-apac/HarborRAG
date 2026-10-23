@@ -279,3 +279,55 @@ def test_embedding_configuration_rejects_disabled_and_unsafe_routes() -> None:
     logical = config.models["primary"].model_copy(update={"deployments": (deployment,)})
     with pytest.raises(HarborEmbedConfigurationError, match="unapproved"):
         validate_embed_configuration(config.model_copy(update={"models": {"primary": logical}}))
+
+
+def _weather_tool() -> dict[str, Any]:
+    return {
+        "type": "function",
+        "function": {"name": "weather", "parameters": {"type": "object"}},
+    }
+
+
+def test_chat_accepts_reasoning_effort_when_reasoning_capability_declared() -> None:
+    config = _chat_config(capabilities={"reasoning": True})
+    deployment = config.models["primary"].deployments[0]
+    validate_chat_request(_chat_request(reasoning_effort="medium"), config, deployment)
+
+
+def test_chat_rejects_tools_without_tools_capability() -> None:
+    config = _chat_config(capabilities={"tools": False})
+    deployment = config.models["primary"].deployments[0]
+    with pytest.raises(HarborChatCapabilityError, match="tool calling"):
+        validate_chat_request(_chat_request(tools=(_weather_tool(),)), config, deployment)
+
+
+def test_chat_rejects_parallel_tool_calls_without_parallel_tools_capability() -> None:
+    config = _chat_config(capabilities={"tools": True, "parallel_tools": False})
+    deployment = config.models["primary"].deployments[0]
+    request = _chat_request(tools=(_weather_tool(),), parallel_tool_calls=True)
+    with pytest.raises(HarborChatCapabilityError, match="parallel tool calls"):
+        validate_chat_request(request, config, deployment)
+    # Explicitly disabling parallel calls needs no extra capability.
+    validate_chat_request(
+        _chat_request(tools=(_weather_tool(),), parallel_tool_calls=False),
+        config,
+        deployment,
+    )
+
+
+def test_chat_accepts_tools_and_parallel_calls_when_declared() -> None:
+    config = _chat_config(capabilities={"tools": True, "parallel_tools": True})
+    deployment = config.models["primary"].deployments[0]
+    validate_chat_request(
+        _chat_request(tools=(_weather_tool(),), parallel_tool_calls=True),
+        config,
+        deployment,
+    )
+
+
+def test_chat_rejects_streaming_without_streaming_capability() -> None:
+    config = _chat_config(capabilities={"streaming": False})
+    deployment = config.models["primary"].deployments[0]
+    validate_chat_request(_chat_request(), config, deployment)
+    with pytest.raises(HarborChatCapabilityError, match="streaming"):
+        validate_chat_request(_chat_request(), config, deployment, streaming=True)

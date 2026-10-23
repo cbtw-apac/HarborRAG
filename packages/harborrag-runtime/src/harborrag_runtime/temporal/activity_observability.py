@@ -17,6 +17,7 @@ from harborrag_runtime.ingestion.document.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
 )
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.observability import (
     ArtifactMetricKind,
     ChunkMetricKind,
@@ -31,6 +32,8 @@ logger = logging.getLogger("harborrag.runtime.temporal.activities")
 _ACTIVITY_STAGES = {
     "DiscoverSourceItems": IngestionStage.DISCOVERY,
     "CancelSourceIngestion": IngestionStage.CANCELLATION,
+    "PauseSourceIngestion": IngestionStage.CONTROL,
+    "ResumeSourceIngestion": IngestionStage.CONTROL,
     "RecordSourceFailure": IngestionStage.FAILURE_CAPTURE,
     "FetchAndCaptureRaw": IngestionStage.FETCH,
     "ParseAndNormalize": IngestionStage.PARSE_NORMALIZE,
@@ -64,7 +67,7 @@ class ActivityObservability:
         failures: IngestionFailureClassifier | None = None,
     ) -> None:
         self._telemetry = telemetry
-        self._failures = failures or IngestionFailureClassifier()
+        self._failures = failures or ingestion_failure_classifier()
 
     @contextmanager
     def boundary(self, stage: str) -> Iterator[None]:
@@ -117,8 +120,14 @@ class ActivityObservability:
                     getattr(error, "status_code", None),
                     failure.retryable,
                 )
+                # A connector that declines one item names the standard skip
+                # reason; it rides in the failure details so the document
+                # result can record it.
+                skip_reason = getattr(error, "skip_reason", None)
+                details = (skip_reason,) if isinstance(skip_reason, str) and skip_reason else ()
                 raise ApplicationError(
                     "ingestion activity failed; inspect restricted worker logs",
+                    *details,
                     type=failure.code,
                     non_retryable=not failure.retryable,
                 ) from error

@@ -17,15 +17,31 @@ from .control_plane import (
     TenantScopedRepositoryProvider,
 )
 from .conversation import (
+    ConversationDirectory,
+    ConversationHistoryRepository,
     ConversationIdentity,
     ConversationMemory,
+    ConversationMessage,
+    ConversationMessageStore,
+    ConversationPage,
     ConversationRepository,
+    ConversationRole,
     ConversationSessions,
+    ConversationSummaryRow,
     ConversationTurn,
+    new_message_id,
     new_session_id,
+    normalize_conversation_title,
+    turns_from_messages,
 )
 from .events import EventBusPort
 from .indexing import KnowledgeGraphRepositoryPort, VectorIndexRepositoryPort
+from .model_catalog import (
+    TenantChatCatalog,
+    TenantModelCatalogPort,
+    TenantModelDefinition,
+    TenantModelDeployment,
+)
 from .model_clients import (
     AsyncHarborChatClientProtocol,
     AsyncHarborEmbedClientProtocol,
@@ -36,6 +52,13 @@ from .model_clients import (
 )
 from .retrieval import GraphRetrievalRepositoryPort
 from .secrets import SecretsPort
+from .usage import (
+    ModelUsageRecord,
+    ModelUsageRepository,
+    ModelUsageTotals,
+    UsageSurface,
+    new_usage_id,
+)
 
 __all__ = [
     "ActivityRepositoryPort",
@@ -43,10 +66,17 @@ __all__ = [
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
+    "ConversationDirectory",
+    "ConversationHistoryRepository",
     "ConversationIdentity",
     "ConversationMemory",
+    "ConversationMessage",
+    "ConversationMessageStore",
+    "ConversationPage",
     "ConversationRepository",
+    "ConversationRole",
     "ConversationSessions",
+    "ConversationSummaryRow",
     "ConversationTurn",
     "EventBusPort",
     "GraphRetrievalRepositoryPort",
@@ -58,6 +88,9 @@ __all__ = [
     "KnowledgeGraphRepositoryPort",
     "MemberRepositoryPort",
     "MemberRepositoryProvider",
+    "ModelUsageRecord",
+    "ModelUsageRepository",
+    "ModelUsageTotals",
     "PendingEffectRepositoryPort",
     "ProjectRepositoryProvider",
     "ProjectRepositoryPort",
@@ -68,7 +101,16 @@ __all__ = [
     "SettingsRepositoryPort",
     "SourceRepositoryProvider",
     "SourceRepositoryPort",
+    "TenantChatCatalog",
+    "TenantModelCatalogPort",
+    "TenantModelDefinition",
+    "TenantModelDeployment",
     "TenantScopedRepositoryProvider",
+    "UsageSurface",
     "VectorIndexRepositoryPort",
+    "new_message_id",
     "new_session_id",
+    "new_usage_id",
+    "normalize_conversation_title",
+    "turns_from_messages",
 ]

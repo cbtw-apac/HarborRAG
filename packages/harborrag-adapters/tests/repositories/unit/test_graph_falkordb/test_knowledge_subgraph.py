@@ -8,7 +8,7 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
-from harborrag_core.retrieval import GraphSubgraphQuery
+from harborrag_core.retrieval import GraphAccessScope, GraphSubgraphQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
@@ -71,7 +71,7 @@ async def test_expand_subgraph_stops_once_max_nodes_is_reached() -> None:
 
 
 def _colliding_title_nodes() -> tuple[GraphNodeRecord, GraphNodeRecord]:
-    """Two distinct nodes that collide on toLower(title), the resolution branch a
+    """Two distinct nodes that collide on toLower(title), the resolution tier a
     start_node value falls back to when it matches neither node_key nor logical_id."""
     base = {
         "node_kind": KnowledgeNodeKind.STRUCTURE,
@@ -90,7 +90,7 @@ def _colliding_title_nodes() -> tuple[GraphNodeRecord, GraphNodeRecord]:
 
 @pytest.mark.asyncio
 async def test_expand_subgraph_resolves_start_node_to_a_single_row() -> None:
-    """The start-resolution query must constrain the OR'd node_key/logical_id/title match
+    """Each start-resolution tier must constrain its node_key/logical_id/title match
     to exactly one row via ORDER BY + LIMIT 1, not LIMIT $max_nodes: max_nodes bounds the
     traversal frontier, not how many candidate start nodes get seeded into it."""
     client = FakeFalkorDBClient()
@@ -101,14 +101,20 @@ async def test_expand_subgraph_resolves_start_node_to_a_single_row() -> None:
     ]
 
     result = await repository(client).expand_subgraph(
-        GraphSubgraphQuery(start_node="Ops", max_depth=1, max_nodes=10),
+        GraphSubgraphQuery(
+            start_node="Ops",
+            max_depth=1,
+            max_nodes=10,
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
     start_statement, start_parameters = client.read_calls[0]
-    assert "ORDER BY start.node_key" in start_statement
-    assert "LIMIT 1" in start_statement
+    assert "node.node_key\n        LIMIT 1" in start_statement
     assert "max_nodes" not in start_parameters
+    assert start_parameters["authorized_document_ids"] == ["document-1"]
+    assert start_statement.index("$authorized_document_ids") < start_statement.index("LIMIT 1")
     assert {node.node_key for node in result.nodes} == {"node-ops-a"}
 
 

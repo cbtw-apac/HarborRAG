@@ -18,6 +18,7 @@ from harborrag_engine.retrieval.graph import (
     AuthoritativeTripletResult,
     GraphSearchDiagnostics,
 )
+from harborrag_engine.retrieval.graph_visibility import graph_access_scope
 from harborrag_engine.retrieval.pipeline import RetrievalLimits, RetrievalPipeline
 from harborrag_engine.retrieval.ports import RetrievalContext
 
@@ -34,6 +35,7 @@ __all__ = [
     "AuthoritativeTripletResult",
     "CandidateValidationResult",
     "GraphSearchDiagnostics",
+    "graph_access_scope",
     "ProjectionSearchRepository",
     "RetrievalContext",
     "RetrievalLane",

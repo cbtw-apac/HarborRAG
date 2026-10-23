@@ -182,3 +182,19 @@ def test_local_root_and_mtime_do_not_change_canonical_version_identity() -> None
     assert first.document.provenance.source == "architecture/guide.md"
     assert first.document.provenance.url is None
     assert "path" not in first.document.provenance.extra
+
+
+def test_reidentify_promotes_both_source_timestamps() -> None:
+    """Projections read dates from ``extra``, never from the provenance object.
+
+    ``source_updated_at`` was already promoted; without its creation counterpart
+    no projection could answer when the source record was first written.
+    """
+
+    document = _document()
+    document.provenance.created_at = datetime(2025, 6, 1, tzinfo=UTC)
+
+    extra = _plan(document).document.provenance.extra
+
+    assert extra["source_created_at"] == "2025-06-01T00:00:00+00:00"
+    assert extra["source_updated_at"] == "2026-01-01T00:00:00+00:00"

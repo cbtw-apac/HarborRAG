@@ -20,6 +20,7 @@ from harborrag_core.contracts.errors import (
     HarborConfigurationError,
     HarborNotFoundError,
 )
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
 logger = logging.getLogger("harborrag.app.api.auth")
@@ -32,11 +33,13 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
 
     none -> None (implicit owner principal); hmac -> HS256 against
     HARBORRAG_AUTH_SECRET; oidc -> HarborCapabilityError until M5.
-    Fails closed: auth cannot be disabled when HARBORRAG_ENV=prod.
+    Fails closed: auth cannot be disabled when HARBORRAG_ENV is staging or prod.
     """
     if settings.auth_mode == "none":
-        if settings.env == "prod":
-            raise HarborConfigurationError("auth_mode=none is not allowed when HARBORRAG_ENV=prod")
+        if settings.env != "dev":
+            raise HarborConfigurationError(
+                f"auth_mode=none is not allowed when HARBORRAG_ENV={settings.env}"
+            )
         if not _is_loopback_host(settings.host) and not settings.allow_insecure_dev:
             raise HarborConfigurationError(
                 "auth_mode=none may bind only to a loopback host; set "
@@ -72,6 +75,7 @@ def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
             audience=settings.auth_audience,
             max_token_lifetime_seconds=settings.auth_max_token_lifetime_seconds,
             clock_skew_seconds=settings.auth_clock_skew_seconds,
+            user_id_claim=settings.auth_user_id_claim,
         )
     raise HarborCapabilityError("auth_mode=oidc lands in M5")
 
@@ -88,6 +92,27 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
+def _arrived_on_loopback(request: Request) -> bool:
+    """Whether the connection's local address is a loopback interface.
+
+    The startup check reads ``HARBORRAG_HOST``, but uvicorn binds whatever
+    ``--host`` it is given, so the socket is checked per request. The ASGI
+    server fills ``scope["server"]`` from the socket, never from a header. A
+    non-IP value (a Unix socket path, or a test transport) is not a network
+    listener and is left to the startup check.
+    """
+
+    server = request.scope.get("server")
+    if not server:
+        return True
+    host = str(server[0])
+    try:
+        ip_address(host.removeprefix("[").removesuffix("]"))
+    except ValueError:
+        return True
+    return _is_loopback_host(host)
+
+
 def get_principal(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
@@ -99,16 +124,31 @@ def get_principal(
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
+        if not settings.allow_insecure_dev and not _arrived_on_loopback(request):
+            raise HarborAuthError(
+                "auth_mode=none serves loopback connections only; set "
+                "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
+                "non-loopback development listener",
+                forbidden=True,
+            )
         return Principal(
             subject="dev",
             role="owner",
             tenant_ids=frozenset({"*"}),
             token_kind="none",
+            user_id=DEFAULT_USER,
         )
     if credentials is None:
         raise HarborAuthError("missing bearer token")
     verifier: BaseTokenVerifier = request.app.state.token_verifier
     return verifier.verify(credentials.credentials)
+
+
+def authorize_role(principal: Principal, minimum: Role) -> None:
+    """Reject a principal below the minimum role, for in-body field checks."""
+
+    if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
+        raise HarborAuthError(f"requires {minimum} role", forbidden=True)
 
 
 def require_role(minimum: Role) -> Callable[..., Principal]:
@@ -118,8 +158,7 @@ def require_role(minimum: Role) -> Callable[..., Principal]:
         principal: Annotated[Principal, Depends(get_principal)],
     ) -> Principal:
         """Pass the principal through when its role clears the minimum."""
-        if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
-            raise HarborAuthError(f"requires {minimum} role", forbidden=True)
+        authorize_role(principal, minimum)
         return principal
 
     return dependency

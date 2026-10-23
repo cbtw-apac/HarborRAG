@@ -24,7 +24,7 @@ from harborrag_app.api.auth.dependencies import build_token_verifier
 from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
-from harborrag_app.api.middleware import RequestBodyLimitMiddleware, TraceIdMiddleware
+from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
 from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
@@ -35,6 +35,7 @@ logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
 _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
+_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -92,6 +93,31 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _sync_declared_schedules(app: FastAPI) -> None:
+    """Reconcile declared schedules once, retrying while the engine is unreachable.
+
+    Runs in the background so a Temporal outage never blocks API startup.
+    Invalid configuration (``ValueError``) and a missing Temporal SDK
+    (``ImportError``) cannot heal without a redeploy, so they stop the loop.
+    """
+
+    while True:
+        try:
+            await app.state.app_service.sync_declared_schedules()
+            return
+        except asyncio.CancelledError:
+            raise
+        except (ValueError, ImportError):
+            logger.exception("Declared schedule sync failed; fix the deployment and restart")
+            return
+        except Exception:
+            logger.exception(
+                "Declared schedule sync failed; retrying in %.0fs",
+                _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS,
+            )
+        await asyncio.sleep(_SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Compose the app service on startup (ST8 selection rule).
@@ -103,24 +129,29 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.app_service = service
     app.state.composition_mode = mode
     logger.info("Application service composed in %s mode", mode)
+    # Long-term memory extraction runs on a bounded in-process worker pool
+    # owned by this process, so it starts with the app and is drained -- not
+    # cancelled -- on shutdown, letting queued exchanges finish.
+    owns_memory_extraction = getattr(service, "has_memory_extraction", False)
+    if owns_memory_extraction:
+        await service.start_memory_extraction()
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
         _recover_pending_control_plane_effects(app)
     )
+    background_tasks = [recovery_task, progress_task, control_plane_effect_recovery_task]
+    if hasattr(service, "sync_declared_schedules"):
+        background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
     try:
         yield
     finally:
-        recovery_task.cancel()
-        progress_task.cancel()
-        control_plane_effect_recovery_task.cancel()
-        await asyncio.gather(
-            recovery_task,
-            progress_task,
-            control_plane_effect_recovery_task,
-            return_exceptions=True,
-        )
+        for task in background_tasks:
+            task.cancel()
+        await asyncio.gather(*background_tasks, return_exceptions=True)
         logger.info("Closing the application service")
+        if owns_memory_extraction:
+            await service.drain_memory_extraction()
         try:
             close = getattr(service, "aclose", None)
             if close is not None:
@@ -154,9 +185,13 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     )
     app.state.api_capacity_limiter = build_api_capacity_limiter(
         redis_url=redis_url,
-        requests_per_minute=settings.api_requests_per_minute,
-        max_inflight=settings.api_max_inflight_per_principal,
-        lease_seconds=settings.api_request_timeout_seconds + 5,
+        limits=settings.default_capacity_limits(),
+        tenant_overrides=settings.tenant_capacity_limits(),
+        # A lease spans the whole response, including streamed bodies, so it
+        # must outlive the longer of the two server-owned deadlines.
+        lease_seconds=(
+            max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
+        ),
     )
     app.state.api_metrics = ApiMetrics(version=app.version)
     app.add_middleware(
@@ -176,6 +211,14 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
+            expose_headers=[
+                TRACE_HEADER,
+                "Idempotency-Replayed",
+                "Retry-After",
+                "Deprecation",
+                "Sunset",
+                "Link",
+            ],
         )
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)

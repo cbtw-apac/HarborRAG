@@ -5,6 +5,7 @@ from importlib.util import find_spec
 from sqlalchemy import text
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.state.postgresql.config import (
     PostgreSQLStateConfig,
 )
@@ -24,7 +25,7 @@ class PostgreSQLStateBackend(SQLStateBackend):
         telemetry: StorageTelemetryHook | None = None,
     ) -> None:
         if find_spec("asyncpg") is None:
-            raise ImportError("asyncpg is not installed")
+            raise MissingOptionalDependencyError("asyncpg")
         super().__init__(
             client=SQLAlchemyDBClient(
                 backend="postgresql",

@@ -10,6 +10,8 @@ from .models import PlannedTableChunk, TableChunkRole, TableClassification
 class TableRenderer:
     """Create deterministic extractive table representations."""
 
+    version = "table-renderer-v1"
+
     def __init__(self, artifact: TableArtifact) -> None:
         self.artifact = artifact
         self._cells = {cell.cell_id: cell for cell in artifact.cells}

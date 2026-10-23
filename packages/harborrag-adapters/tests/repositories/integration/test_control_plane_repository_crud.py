@@ -127,16 +127,16 @@ async def test_secrets_repository_flags_decryption_failure_as_distinct_from_not_
     """A ref encrypted under a since-rotated key must not be conflated with a missing ref."""
 
     repo = SqlSecretsRepository(sessions, encryption_key="original-key")
-    ref = await repo.put("hunter2")
-    assert await repo.resolve(ref) == "hunter2"
+    ref = await repo.put("hunter2", tenant_id="tenant-a")
+    assert await repo.resolve(ref, tenant_id="tenant-a") == "hunter2"
 
     rotated = SqlSecretsRepository(sessions, encryption_key="rotated-key")
     with pytest.raises(HarborSecretDecryptionError, match="cannot be decrypted"):
-        await rotated.resolve(ref)
+        await rotated.resolve(ref, tenant_id="tenant-a")
 
     # A genuinely missing ref still 404s rather than raising the decryption error.
     with pytest.raises(HarborNotFoundError):
-        await rotated.resolve("secret://db/does-not-exist")
+        await rotated.resolve("secret://db/does-not-exist", tenant_id="tenant-a")
 
 
 @pytest.mark.asyncio

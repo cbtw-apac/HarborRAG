@@ -2,22 +2,34 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import signal
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Coroutine, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from typing import Any
 
 from temporalio.client import Client
 from temporalio.worker import Worker
 
+from harborrag_adapters.repositories.object_store import (
+    ImmutableArtifactReader,
+    ImmutableArtifactWriter,
+)
 from harborrag_core.observability.process_logging import configure_logging
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion import build_ingestion_runtime
+from harborrag_runtime.topology.derived_models import RequestEmbedder
+from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
+from harborrag_runtime.topology.summary_worker import serve_summaries
 
 from .connection import connect_temporal_client
 from .ingestion_activities import IngestionActivities
 from .maintenance_activities import MaintenanceActivities
+from .sandbox import workflow_sandbox_runner
+from .schedules import TemporalScheduleBackend
 from .worker_registry import (
     validate_worker_registrations,
     worker_registrations,
@@ -25,6 +37,29 @@ from .worker_registry import (
 
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
+SCHEDULE_METRICS_INTERVAL_SECONDS = 30.0
+FIRST_RETENTION_SWEEP_MAX_DELAY_SECONDS = 60.0
+
+
+def thread_pool_size(config: TemporalRuntimeConfig) -> int:
+    """One thread per activity this process may run at once.
+
+    Connector loads, parsing, normalization and chunking all run through
+    ``asyncio.to_thread``, and a Jira load sleeps in the rate limiter while it
+    holds its thread. The default executor has ``cpu_count + 4`` threads (8 on
+    a 4-vCPU host), which caps the documents a replica can really progress at
+    about eight however many activity slots it has.
+    """
+
+    return config.worker.max_concurrent_activities * len(config.task_queues.as_tuple())
+
+
+def _size_thread_pool(config: TemporalRuntimeConfig) -> None:
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(
+            max_workers=thread_pool_size(config), thread_name_prefix="harborrag-activity"
+        )
+    )
 
 
 async def run_workers(
@@ -35,6 +70,7 @@ async def run_workers(
     """Run the Postgres-authoritative workflow hierarchy until shutdown."""
 
     config = TemporalRuntimeConfig.from_settings(settings)
+    _size_thread_pool(config)
     # Establish the control-plane dependency before opening every ingestion
     # repository and connector. This fails fast during Temporal startup or
     # transport errors and avoids expensive start/close churn in restart loops.
@@ -44,7 +80,10 @@ async def run_workers(
         await runtime.start()
         activities = IngestionActivities(
             runtime,
+            temporal_client=client,
             telemetry=runtime.telemetry,
+            settings=settings,
+            temporal_config=config,
         )
         maintenance = MaintenanceActivities(
             runtime,
@@ -67,10 +106,174 @@ async def run_workers(
             "Temporal ingestion worker polling queues: %s",
             ", ".join(config.task_queues.as_tuple()),
         )
-        runs = asyncio.gather(*(worker.run() for worker in workers))
-        await _wait_for_shutdown(workers, runs, stop_event=stop_event)
+        summary_run = _summary_runner(settings, runtime, client, stop_event)
+        retention_run = _retention_runner(settings, runtime, stop_event)
+        runs = asyncio.gather(
+            *(worker.run() for worker in workers),
+            *((summary_run,) if summary_run is not None else ()),
+            *((retention_run,) if retention_run is not None else ()),
+        )
+        metrics_interval = getattr(settings, "schedule_metrics_interval_seconds", 0.0)
+        schedule_metrics = (
+            asyncio.create_task(
+                _schedule_metrics_loop(
+                    runtime.telemetry, client, config, stop_event, interval=metrics_interval
+                )
+            )
+            if metrics_interval
+            else None
+        )
+        try:
+            await _wait_for_shutdown(workers, runs, stop_event=stop_event)
+        finally:
+            if schedule_metrics is not None:
+                schedule_metrics.cancel()
+                await asyncio.gather(schedule_metrics, return_exceptions=True)
     finally:
         await runtime.close()
+
+
+def _retention_runner(
+    settings: RuntimeSettings,
+    runtime: Any,
+    stop_event: asyncio.Event | None,
+) -> Coroutine[Any, Any, None] | None:
+    """Sweep every scope for retired versions past their TTL on a fixed interval."""
+
+    interval_hours = getattr(settings, "retired_version_purge_interval_hours", 0.0)
+    retention = getattr(runtime, "retention", None)
+    if not interval_hours or retention is None:
+        return None
+    return _sweep_retired_versions(
+        retention,
+        interval_hours * 3600.0,
+        stop_event,
+        telemetry=getattr(runtime, "telemetry", None),
+    )
+
+
+async def _sweep_retired_versions(
+    retention: Any,
+    interval_seconds: float,
+    stop_event: asyncio.Event | None,
+    *,
+    telemetry: Any | None = None,
+) -> None:
+    """Sweep soon after start, then every interval.
+
+    Waiting a full interval first meant a worker restarted more often than the
+    interval (daily deploys, spot nodes) never swept at all. The first sweep waits
+    a short random delay instead, so replicas started together do not all claim
+    the same versions at once.
+    """
+
+    stop = stop_event or asyncio.Event()
+    first_delay = min(interval_seconds, FIRST_RETENTION_SWEEP_MAX_DELAY_SECONDS)
+    delay = random.uniform(0.0, first_delay)  # noqa: S311 - jitter, not security
+    while not stop.is_set():
+        try:
+            await asyncio.wait_for(stop.wait(), timeout=delay)
+            return
+        except TimeoutError:
+            pass
+        delay = interval_seconds
+        try:
+            batch = await _unless_stopped(retention.run_all(), stop)
+        except _SweepStopped:
+            return
+        except Exception as error:  # noqa: BLE001 - a failed sweep waits for the next one
+            logger.error(
+                "Retired version sweep failed error_type=%s",
+                type(error).__name__,
+                exc_info=True,
+            )
+            continue
+        logger.info(
+            "Retired version sweep completed eligible=%d purged=%d skipped=%d failed=%d "
+            "deleted_objects=%d backlog=%d",
+            batch.eligible,
+            batch.purged,
+            batch.skipped,
+            batch.failed,
+            batch.deleted_objects,
+            batch.backlog,
+        )
+        if telemetry is not None:
+            telemetry.record_retention_purge(
+                purged=batch.purged,
+                skipped=batch.skipped,
+                failed=batch.failed,
+                deleted_objects=batch.deleted_objects,
+                backlog=batch.backlog,
+            )
+
+
+class _SweepStopped(Exception):
+    """The worker is shutting down while a sweep is running."""
+
+
+async def _unless_stopped(sweep: Coroutine[Any, Any, Any], stop: asyncio.Event) -> Any:
+    """Run one sweep, cancelling it when the worker stops.
+
+    A sweep drains batches for minutes, and shutdown waits for this loop.
+    Cancelling mid-purge is safe: the version stays PURGING under its lease and
+    the next sweep, on any worker, resumes it.
+    """
+
+    task = asyncio.ensure_future(sweep)
+    stopped = asyncio.ensure_future(stop.wait())
+    try:
+        await asyncio.wait((task, stopped), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopped.cancel()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(stopped, task, return_exceptions=True)
+    if task.cancelled():
+        raise _SweepStopped
+    return task.result()
+
+
+def _summary_runner(
+    settings: RuntimeSettings,
+    runtime: Any,
+    client: Client,
+    stop_event: asyncio.Event | None,
+) -> Coroutine[Any, Any, None] | None:
+    """Attach the optional semantic projection queue to the deployed worker."""
+    # Deliberate duck-typing, not a dead guard: a caller may pass any settings
+    # object, and one without graph-build configuration skips this queue rather
+    # than failing the whole worker over an optional projection.
+    if not hasattr(settings, "graph_build_config_path"):
+        return None
+    graph_build = GraphBuildConfig.from_settings(settings)
+    if not graph_build.summarization.enabled:
+        return None
+    tenants = tuple(tenant.tenant_id for tenant in graph_build.tenants)
+    if not tenants:
+        logger.warning("Summary projection enabled but no managed tenants are configured")
+        return None
+    effective = graph_build.effective_settings(settings)
+    # The durable worker already owns a connected vector repository and embed
+    # client; handing them over is what lets an accepted entity card also become
+    # a searchable point here, not only on the standalone summaries CLI. Same
+    # duck-typing as above: a partial runtime simply gets cards without search.
+    vectors = getattr(runtime, "vector_repository", None)
+    embed_client = getattr(runtime, "embed_client", None)
+    factory = SummaryRuntimeFactory(
+        effective,
+        runtime.control,
+        ImmutableArtifactReader(runtime.object_store),
+        ImmutableArtifactWriter(runtime.object_store),
+        vectors,
+        RequestEmbedder(embed_client) if embed_client is not None else None,
+    )
+    logger.info(
+        "Temporal summary worker polling queue=%s tenants=%s",
+        effective.summary_task_queue,
+        ",".join(tenants),
+    )
+    return serve_summaries(client, factory, tenants, stop_event=stop_event)
 
 
 def _build_worker(
@@ -89,6 +292,7 @@ def _build_worker(
         task_queue=task_queue,
         workflows=workflows,
         activities=activities,
+        workflow_runner=workflow_sandbox_runner(workflows),
         identity=worker.identity,
         max_concurrent_activities=worker.max_concurrent_activities,
         max_concurrent_workflow_tasks=worker.max_concurrent_workflow_tasks,
@@ -118,6 +322,41 @@ async def _emit_queue_metrics(
         depth = queue_depths.get(queue_name)
         telemetry.record_temporal_queue_depth(queue_name, depth)
         telemetry.record_temporal_worker_slot_saturation(queue_name, slots=slots, depth=depth)
+
+
+async def _schedule_metrics_loop(
+    telemetry: Any,
+    client: Client,
+    config: TemporalRuntimeConfig,
+    stop_event: asyncio.Event | None,
+    *,
+    interval: float = SCHEDULE_METRICS_INTERVAL_SECONDS,
+) -> None:
+    while True:
+        try:
+            views = await TemporalScheduleBackend(client, config).list_all()
+            telemetry.record_schedule_states(
+                {
+                    view.definition.schedule_id: (
+                        view.definition.paused,
+                        view.desired_paused,
+                        view.num_actions_skipped_overlap,
+                    )
+                    for view in views
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Temporal schedule metrics collection failed")
+        if stop_event is None:
+            await asyncio.sleep(interval)
+        else:
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=interval)
+            except TimeoutError:
+                continue
+            return
 
 
 async def _describe_task_queue_depths(

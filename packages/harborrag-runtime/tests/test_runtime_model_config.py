@@ -4,10 +4,25 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_adapters.models.chat import HarborChatClientConfig
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_core.models.embed import EmbeddingPurpose
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def test_repository_chat_config_supports_agent_tool_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HARBOR_CHAT_PROVIDER", "openai")
+    monkeypatch.setenv("HARBOR_CHAT_MODEL", "openai/gpt-test")
+    monkeypatch.setenv("HARBOR_CHAT_API_KEY", "test-secret")
+
+    config = HarborChatClientConfig.from_file(REPO_ROOT / "config" / "models.yaml")
+    deployment = config.models[config.default_model].deployments[0]
+
+    assert deployment.capabilities.tools is True
+    assert deployment.capabilities.parallel_tools is True
 
 
 def test_repository_embedding_config_supports_index_and_query_purposes(

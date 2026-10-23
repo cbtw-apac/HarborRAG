@@ -30,9 +30,9 @@ def build_database_conversation_memory(
 
     selected = settings or RuntimeSettings()
     dsn = selected.control_db_url.get_secret_value()
-    if selected.env == "prod" and dsn == DEFAULT_CONTROL_DB_URL:
+    if selected.env != "dev" and dsn == DEFAULT_CONTROL_DB_URL:
         raise HarborConfigurationError(
-            "conversation memory requires HARBORRAG_CONTROL_DB_URL in production"
+            "conversation memory requires HARBORRAG_CONTROL_DB_URL outside development"
         )
     run_migrations(dsn)
     engine = create_control_plane_engine(dsn)

@@ -5,20 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
-from harborrag_core.security.field_names import canonical_field_name, canonical_field_tokens
-
-_SENSITIVE_CONFIG_TOKENS = frozenset(
-    {
-        "api_key",
-        "access_key",
-        "access_token",
-        "authorization",
-        "credential",
-        "password",
-        "secret",
-        "token",
-    }
-)
+from harborrag_core.security.field_names import is_sensitive_field_name
 
 
 def require_id(value: str, *, label: str) -> None:
@@ -29,6 +16,19 @@ def require_id(value: str, *, label: str) -> None:
 
 def require_tenant_id(value: str) -> None:
     require_id(value, label="Tenant")
+
+
+def require_identity_fields(**fields: str) -> None:
+    """Reject an isolation key with a blank component.
+
+    An identity assembled from an upstream bug used to construct happily with
+    ``""`` and then key a bucket every such caller shared. Blank is never a
+    valid tenant, session, user, run, or principal, so it fails here.
+    """
+
+    blank = sorted(name for name, value in fields.items() if not value or not value.strip())
+    if blank:
+        raise ValueError(f"identity fields must be non-empty: {', '.join(blank)}")
 
 
 _MAX_CONFIG_DEPTH = 32
@@ -62,13 +62,7 @@ def _validate_secret_free_value(
             visited[0] += 1
             if visited[0] > _MAX_CONFIG_ITEMS:
                 raise ValueError("configuration exceeds the security validation item limit")
-            sensitive = False
-            if isinstance(value, Mapping):
-                key = canonical_field_name(raw_key)
-                tokens = canonical_field_tokens(raw_key)
-                sensitive = key in _SENSITIVE_CONFIG_TOKENS or bool(
-                    tokens & _SENSITIVE_CONFIG_TOKENS
-                )
+            sensitive = isinstance(value, Mapping) and is_sensitive_field_name(raw_key)
             if sensitive and not _is_secret_reference(item):
                 raise ValueError(f"configuration field must use a secret reference: {raw_key}")
             _validate_secret_free_value(

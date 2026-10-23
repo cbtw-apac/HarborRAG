@@ -4,7 +4,11 @@ from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.parsers.common.metadata import parse_metadata
-from harborrag_adapters.parsers.common.models import ParserAttempt, ParseResult
+from harborrag_adapters.parsers.common.models import (
+    ParserAttempt,
+    ParseResult,
+    document_attempts,
+)
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_core.domain.element import DocumentElement
@@ -208,16 +212,7 @@ class PDFNormalizer:
                 **parse_metadata(parse_input),
                 "pdf_engine": result.engine,
                 "pdf_profile": profile,
-                "parser_attempts": [
-                    {
-                        "engine": attempt.engine,
-                        "success": attempt.success,
-                        "duration_ms": attempt.duration_ms,
-                        "quality_score": attempt.quality_score,
-                        "message": attempt.message,
-                    }
-                    for attempt in attempts
-                ],
+                "parser_attempts": document_attempts(attempts),
                 **result.metadata,
             },
             warnings=warnings or None,

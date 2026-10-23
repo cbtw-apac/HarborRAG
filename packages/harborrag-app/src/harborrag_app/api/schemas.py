@@ -34,8 +34,12 @@ class IngestionWorkflowInput(ApiModel):
     tenant_id: str = Field(min_length=1, max_length=255)
     connector_name: str = Field(min_length=1, max_length=100)
     run_id: str | None = Field(default=None, min_length=1, max_length=512)
-    manifest_id: str | None = Field(default=None, min_length=1, max_length=512)
-    generation_id: str | None = Field(default=None, min_length=1, max_length=512)
+    # Accepted by the schema but never forwarded to the service, so a client
+    # that set one believed it had pinned a manifest while nothing had. This
+    # legacy endpoint cannot honour them, so it says so rather than dropping
+    # them silently.
+    manifest_id: str | None = Field(default=None, min_length=1, max_length=512, deprecated=True)
+    generation_id: str | None = Field(default=None, min_length=1, max_length=512, deprecated=True)
     max_artifacts: int | None = Field(default=None, ge=1)
     wait: bool = False
 

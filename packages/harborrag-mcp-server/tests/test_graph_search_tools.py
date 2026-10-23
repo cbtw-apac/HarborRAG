@@ -13,7 +13,7 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import GraphPath, GraphTriplet
-from harborrag_mcp_server.tools.graph_search import (
+from harborrag_engine.tools.graph_search import (
     GraphPathSearchTool,
     GraphSubgraphSearchTool,
     GraphTripletSearchTool,
@@ -52,6 +52,17 @@ def edge(source: GraphNodeRecord, target: GraphNodeRecord) -> GraphEdgeRecord:
     )
 
 
+def _graph_diagnostics(accepted_count: int) -> dict[str, object]:
+    """A full ``GraphSearchDiagnostics``-shaped dict, matching what the real search emits."""
+    return {
+        "candidate_count": accepted_count,
+        "accepted_count": accepted_count,
+        "stale_count": 0,
+        "unpublished_count": 0,
+        "projection_truncated": False,
+    }
+
+
 class StaticGraphFacade:
     def __init__(self) -> None:
         self.source = node("node-a", "document-a")
@@ -69,14 +80,14 @@ class StaticGraphFacade:
                     object=self.target,
                 ),
             ),
-            diagnostics={"accepted_count": 1},
+            diagnostics=_graph_diagnostics(1),
         )
 
     async def find_paths(self, request):
         self.calls.append(request)
         return GraphPathResponse(
             paths=(GraphPath(nodes=(self.source, self.target), relations=(self.relation,)),),
-            diagnostics={"accepted_count": 1},
+            diagnostics=_graph_diagnostics(1),
         )
 
     async def expand_subgraph(self, request):
@@ -84,7 +95,7 @@ class StaticGraphFacade:
         return GraphSubgraphResponse(
             nodes=(self.source, self.target),
             relations=(self.relation,),
-            diagnostics={"accepted_count": 2},
+            diagnostics=_graph_diagnostics(2),
         )
 
 
@@ -150,11 +161,21 @@ async def test_triplet_tool_forwards_access_and_predicate() -> None:
     )
 
     assert result["ok"] is True
+    assert result["outcome"] == "matched"
+    assert result["completion"] == {"complete": True, "reasons": []}
     request = graph.calls[0]
     assert request.access.principal_id == "reader-1"
     assert request.access.tenant_id == "demo"
     assert request.query.predicate == RelationType.LINKS_TO
     assert result["triplets"][0]["predicate"] == "links_to"
+    assert result["triplets"][0]["relation"] == {
+        "relation_id": "relation-1",
+        "relation_type": "links_to",
+        "source_node_key": "node-a",
+        "target_node_key": "node-b",
+        "origin": "source_declared",
+        "source_scope_id": "scope-1",
+    }
     assert result["triplets"][0]["subject"]["node_key"] == "node-a"
     # Write-side bookkeeping must not reach an LLM caller.
     assert "owner_id" not in result["triplets"][0]["subject"]
@@ -179,6 +200,7 @@ async def test_path_tool_forwards_bounds_direction_and_relationships() -> None:
     )
 
     assert result["ok"] is True
+    assert result["outcome"] == "matched"
     query = graph.calls[0].query
     assert query.max_depth == 3
     assert query.max_paths == 4
@@ -200,6 +222,7 @@ async def test_subgraph_tool_returns_canonical_nodes_and_relations() -> None:
     )
 
     assert result["ok"] is True
+    assert result["completion"] == {"complete": True, "reasons": []}
     assert len(result["nodes"]) == 2
     assert len(result["relations"]) == 1
     assert graph.calls[0].query.max_nodes == 2
@@ -258,16 +281,36 @@ def test_path_search_defaults_to_an_undirected_walk() -> None:
     assert schema["properties"]["direction"]["default"] == "both"
 
 
-def test_mcp_and_agent_tool_schemas_are_the_same_definition() -> None:
-    from harborrag_runtime.agent.tool_specs import RUNTIME_AGENT_TOOL_SPECS
+@pytest.mark.asyncio
+async def test_graph_tool_success_and_failure_outputs_match_output_schema() -> None:
+    from jsonschema.validators import validator_for
 
-    agent_specs = {spec.name: spec for spec in RUNTIME_AGENT_TOOL_SPECS}
-    for tool in (
-        GraphTripletSearchTool,
-        GraphPathSearchTool,
-        GraphSubgraphSearchTool,
-    ):
-        agent = agent_specs[tool.spec.name]
-        assert tool.spec.description == agent.description
-        assert tool.spec.input_schema["required"] == agent.input_schema["required"]
-        assert set(tool.spec.input_schema["properties"]) == set(agent.input_schema["properties"])
+    harbor, _ = runtime()
+    cases = [
+        (
+            GraphTripletSearchTool,
+            {"tenant_id": "demo", "subject": "document-a"},
+            {"tenant_id": "demo"},
+        ),
+        (
+            GraphPathSearchTool,
+            {"tenant_id": "demo", "start_node": "document-a", "end_node": "document-b"},
+            {"tenant_id": "demo", "start_node": "same", "end_node": "same"},
+        ),
+        (
+            GraphSubgraphSearchTool,
+            {"tenant_id": "demo", "start_node": "document-a"},
+            {"tenant_id": "demo", "start_node": "a", "max_nodes": 21},
+        ),
+    ]
+    for tool_cls, success_arguments, failure_arguments in cases:
+        output_schema = tool_cls.spec.output_schema
+        validator_type = validator_for(output_schema)
+        validator_type.check_schema(output_schema)
+        validator = validator_type(output_schema)
+
+        success = await tool_cls(runtime=harbor).call(success_arguments, principal_id="reader-1")
+        validator.validate(success)
+
+        failure = await tool_cls().call(failure_arguments, principal_id="reader-1")
+        validator.validate(failure)

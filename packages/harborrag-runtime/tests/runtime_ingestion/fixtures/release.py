@@ -82,6 +82,7 @@ def release_request(
     *,
     source_version: str,
     discovery_decision: SourceAdmissionDecision | None = None,
+    force_reprocess: bool = False,
 ) -> DocumentReleaseRequest:
     return DocumentReleaseRequest(
         tenant_id="default",
@@ -101,6 +102,7 @@ def release_request(
         admission=AdmissionSnapshot(source_version=source_version),
         processing=processing_profile(),
         discovery_decision=discovery_decision,
+        force_reprocess=force_reprocess,
     )
 
 

@@ -66,6 +66,7 @@ def coerce_parse_input(
         filename=(
             getattr(value, "filename", None)
             or getattr(value, "file_name", None)
+            or _name_from_metadata(metadata)
             or _name_from(getattr(value, "source", None))
             or _name_from(getattr(value, "source_id", None))
         ),
@@ -76,8 +77,23 @@ def coerce_parse_input(
 
 def parse_input_suffix(value: ParseInput) -> str:
     """Return the normalized filename suffix used for parser routing."""
-    candidate = value.filename or value.path
-    return Path(candidate).suffix.lower() if candidate else ""
+    return filename_suffix(value.filename or value.path)
+
+
+def filename_suffix(candidate: str | Path | None) -> str:
+    """Return a name's routing suffix, tolerating surrounding whitespace.
+
+    Interior spaces are ordinary in real upload names -- `Anh Nguyen - Data.pdf`
+    -- and never affect the suffix. Surrounding whitespace does: `Path` keeps it,
+    so `"Resume.pdf "` yields `".pdf "`, which matches no registered extension and
+    silently downgrades routing to the media type. Both ends are trimmed, on the
+    name and on the suffix, so a trailing space or newline cannot lose the route.
+    """
+
+    if candidate is None:
+        return ""
+    text = str(candidate).strip()
+    return Path(text).suffix.strip().lower() if text else ""
 
 
 def request_to_parse_input(request: ParseRequest) -> ParseInput:
@@ -282,10 +298,39 @@ def _has_bom(data: bytes, encoding: str) -> bool:
     return False
 
 
+# Only keys that name a file. Jira and Confluence documents also carry `title`
+# (an issue summary or page title), and "Crash loading config.yaml" read as a
+# filename would route a Markdown issue to the YAML parser.
+_FILENAME_METADATA_KEYS = ("filename", "file_name")
+
+
+def _name_from_metadata(metadata: Any) -> str | None:
+    """Recover the source's own file name, which routes better than its URI.
+
+    A connector records the real upload name here -- `Anh Nguyen - Data.pdf` --
+    while `source` is a permalink whose last segment carries no suffix at all
+    (`.../browse/CPM-1#attachment-397115`). The extension router covers roughly
+    twice as many formats as the media-type router, and providers routinely
+    report a generic type for user uploads, so dropping the name leaves only the
+    weaker key and fails every format that just the suffix could have resolved.
+    `classify_attachment` already admits attachments on the same principle.
+    """
+
+    if not hasattr(metadata, "get"):
+        return None
+    for key in _FILENAME_METADATA_KEYS:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value
+    return None
+
+
 def _name_from(value: Any) -> str | None:
     if not value:
         return None
-    return Path(str(value)).name or None
+    # A name recovered from a URI is percent-encoded, so a space arrives as %20
+    # and would be carried into the parsed document's own filename.
+    return Path(unquote(str(value))).name or None
 
 
 def _existing_path(value: str) -> Path | None:

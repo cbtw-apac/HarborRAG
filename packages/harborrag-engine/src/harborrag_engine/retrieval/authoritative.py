@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
 from typing import Protocol
 
+from harborrag_core.contracts.reader import RetrievalLane
 from harborrag_core.indexing import (
     HybridSearchQuery,
     SparseSearchQuery,
@@ -17,18 +17,32 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.projections.vector import EVIDENCE_INDEX
 
 from .active_versions import ActiveVersionCandidateValidator
+from .duplicates import collapse_duplicates, duplicate_identity
 
 _INITIAL_OVERSAMPLE = 3
 _MINIMUM_WINDOW = 20
 _MAXIMUM_WINDOW = 1_000
+_WIDENING_MARGIN = 1.5
+"""Headroom for a stale rate that worsens further down the ranking."""
 
 
-class RetrievalLane(StrEnum):
-    """Select the retrieval representation used to rank candidates."""
+def _next_window(window: int, *, accepted: int, wanted: int) -> int:
+    """Widen to what this pass suggests is needed, not merely to double.
 
-    DENSE = "dense"
-    SPARSE = "sparse"
-    HYBRID = "hybrid"
+    Each pass re-reads the whole window from the start, because a larger
+    ``top_k`` re-ranks globally rather than paging. Doubling therefore paid for
+    60 + 120 + 240 + ... reads to reach a window the first pass already implied:
+    if 60 candidates yielded 6 survivors and 10 are wanted, roughly 100 are
+    needed, so going there directly costs one more read instead of three.
+
+    The margin covers a stale rate that worsens further down the ranking, and
+    the result is never narrower than doubling would have given.
+    """
+
+    projected = window * 2
+    if accepted > 0:
+        projected = max(projected, int(window * wanted / accepted * _WIDENING_MARGIN) + 1)
+    return min(_MAXIMUM_WINDOW, projected)
 
 
 class ProjectionSearchRepository(Protocol):
@@ -87,6 +101,8 @@ class AuthoritativeSearchDiagnostics:
     malformed_count: int
     search_window: int
     exhausted: bool
+    # Accepted hits dropped because a better-ranked hit had the same text.
+    collapsed_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,8 +114,9 @@ class AuthoritativeSearchResult:
 class AuthoritativeProjectionSearch:
     """Over-fetch vector candidates and keep only Postgres-active document versions.
 
-    This validates version activeness, not access. There is no intra-tenant permission
-    model: isolation is physical, one vector collection per tenant.
+    This validates version activeness. The surrounding retrieval service supplies
+    the authorized document filter before search and checks permissions again
+    afterward; a tenant's vector collection alone does not grant access.
     """
 
     def __init__(
@@ -129,7 +146,15 @@ class AuthoritativeProjectionSearch:
             )
             candidates = tuple(evidence)
             validated = await self._validator.validate(candidates)
-            accepted = validated.accepted[: request.top_k]
+            # Collapsed before truncation, so a page of one repeated sentence is
+            # refilled from the rest of the window -- and the window widens when
+            # it holds too few distinct hits, exactly as it does for stale ones.
+            distinct, collapsed = collapse_duplicates(
+                validated.accepted,
+                lambda candidate: duplicate_identity(candidate.payload),
+                limit=request.top_k,
+            )
+            accepted = distinct[: request.top_k]
             exhausted = len(evidence) < window
             if len(accepted) >= request.top_k or exhausted or window == _MAXIMUM_WINDOW:
                 return AuthoritativeSearchResult(
@@ -142,9 +167,10 @@ class AuthoritativeProjectionSearch:
                         malformed_count=validated.malformed_count,
                         search_window=window,
                         exhausted=exhausted,
+                        collapsed_count=collapsed,
                     ),
                 )
-            window = min(_MAXIMUM_WINDOW, window * 2)
+            window = _next_window(window, accepted=len(distinct), wanted=request.top_k)
 
     async def _search_collection(
         self,

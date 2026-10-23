@@ -1,0 +1,213 @@
+"""Authenticated administration of a tenant's long-term memory.
+
+Every owner identity here (principal and end user) is derived from the verified
+principal, never from a request field, so a caller cannot reach outside the
+tenants its token grants; only the project and session filters come from the query. The one
+endpoint that acts on a named person -- right-to-erasure -- requires the
+``admin`` role and is still confined to a tenant the caller may access.
+
+USER and SESSION memory are scoped to the signed end-user claim. A shared
+service credential must carry a distinct end-user claim for each person.
+
+PROJECT and TENANT memory is shared: the listing includes rows other users in
+the tenant (and the requested project) authored, as recall does, but without
+their source session and message ids. Only a row's author may delete it, or
+an editor (PROJECT) or admin (TENANT) moderating the shared scope.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Path, Query
+
+from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
+from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.workflow_control.memory import MemoryAccess
+from harborrag_core.domain.member import Role
+from harborrag_core.ports.memory import MemoryScope
+
+from .dependencies import MemoryAdminServiceDependency
+from .schemas import (
+    MemoryDeletionResponse,
+    MemoryListResponse,
+    SessionErasureResponse,
+    UserErasureResponse,
+)
+
+router = APIRouter(
+    prefix="/memory",
+    tags=["Memory"],
+    dependencies=[Depends(require_api_capacity)],
+)
+
+ERROR_RESPONSES = documented_error_responses(
+    {
+        403: (
+            "Tenant access is not permitted, the role is insufficient, or a shared"
+            " memory was authored by someone else and the role cannot moderate its scope"
+        ),
+        404: "Memory, session, or user was not found for this caller",
+        422: "Invalid tenant, scope, or identifier",
+        503: "Long-term memory is not configured",
+    }
+)
+
+_IDENTIFIER = r"^[A-Za-z0-9][A-Za-z0-9._:-]*$"
+
+TenantQuery = Annotated[
+    str,
+    Query(
+        min_length=1,
+        max_length=128,
+        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
+        description="Tenant the memories belong to.",
+    ),
+]
+ProjectQuery = Annotated[
+    str | None,
+    Query(min_length=1, max_length=128, pattern=_IDENTIFIER),
+]
+SessionQuery = Annotated[
+    str | None,
+    Query(
+        min_length=1,
+        max_length=128,
+        pattern=_IDENTIFIER,
+        description="Narrow the listing to one of the caller's sessions.",
+    ),
+]
+IdentifierPath = Annotated[str, Path(min_length=1, max_length=128, pattern=_IDENTIFIER)]
+
+
+# Shared scopes a role may moderate: delete rows in them that another user authored.
+# Below editor a caller may delete only the shared rows they authored themselves.
+_MODERATED_SCOPES: tuple[tuple[Role, frozenset[MemoryScope]], ...] = (
+    ("admin", frozenset({MemoryScope.PROJECT, MemoryScope.TENANT})),
+    ("editor", frozenset({MemoryScope.PROJECT})),
+)
+
+
+def _moderated_scopes(principal: Principal) -> frozenset[MemoryScope]:
+    """The shared scopes whose other-authored rows ``principal``'s role may delete."""
+
+    rank = ROLE_ORDER[principal.role]
+    for minimum, scopes in _MODERATED_SCOPES:
+        if rank >= ROLE_ORDER[minimum]:
+            return scopes
+    return frozenset()
+
+
+def _access(
+    principal: Principal,
+    tenant: str,
+    *,
+    project_id: str | None = None,
+    session_id: str | None = None,
+) -> MemoryAccess:
+    """The caller's isolation key: identity from verified claims, filters from the query."""
+
+    return MemoryAccess(
+        tenant_id=tenant,
+        principal_id=principal.subject,
+        user_id=principal.user_id or principal.subject,
+        project_id=project_id,
+        session_id=session_id,
+    )
+
+
+@router.get(
+    "/memories",
+    response_model=MemoryListResponse,
+    responses=ERROR_RESPONSES,
+)
+async def list_memories(  # noqa: PLR0913 - one parameter per documented query filter
+    service: MemoryAdminServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+    tenant: TenantQuery = "DEFAULT",
+    project_id: ProjectQuery = None,
+    session_id: SessionQuery = None,
+    scope: Annotated[MemoryScope | None, Query()] = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> MemoryListResponse:
+    """List the memories visible to the caller.
+
+    Provenance is included for the caller's own rows only; shared PROJECT and
+    TENANT rows another user authored come back without it.
+    """
+
+    authorize_tenant(principal, tenant)
+    access = _access(principal, tenant, project_id=project_id, session_id=session_id)
+    result = await service.list_memories(access, scope=scope, limit=limit)
+    return MemoryListResponse.model_validate(result.data)
+
+
+@router.delete(
+    "/memories/{memory_id}",
+    response_model=MemoryDeletionResponse,
+    responses=ERROR_RESPONSES,
+)
+async def delete_memory(  # noqa: PLR0913 - one parameter per documented query filter
+    memory_id: IdentifierPath,
+    service: MemoryAdminServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+    tenant: TenantQuery = "DEFAULT",
+    project_id: ProjectQuery = None,
+    session_id: SessionQuery = None,
+) -> MemoryDeletionResponse:
+    """Forget one memory; ``404`` when it is not visible to this caller.
+
+    A shared memory another user authored is visible but deletable only by a
+    moderator of its scope: ``editor`` and above for PROJECT, ``admin`` and
+    above for TENANT; anyone else gets ``403``.
+    """
+
+    authorize_tenant(principal, tenant)
+    access = _access(principal, tenant, project_id=project_id, session_id=session_id)
+    result = await service.delete_memory(
+        access, memory_id, shared_scopes=_moderated_scopes(principal)
+    )
+    return MemoryDeletionResponse.model_validate(result.data)
+
+
+@router.delete(
+    "/sessions/{session_id}",
+    deprecated=True,
+    response_model=SessionErasureResponse,
+    responses=ERROR_RESPONSES,
+)
+async def erase_session(
+    session_id: IdentifierPath,
+    service: MemoryAdminServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader"))],
+    tenant: TenantQuery = "DEFAULT",
+) -> SessionErasureResponse:
+    """Erase one of the caller's sessions: messages, memories, and vectors."""
+
+    authorize_tenant(principal, tenant)
+    result = await service.erase_memory_session(_access(principal, tenant, session_id=session_id))
+    return SessionErasureResponse.model_validate(result.data)
+
+
+@router.delete(
+    "/users/{user_id}",
+    response_model=UserErasureResponse,
+    responses=ERROR_RESPONSES,
+)
+async def erase_user(
+    user_id: IdentifierPath,
+    service: MemoryAdminServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("admin"))],
+    tenant: TenantQuery = "DEFAULT",
+) -> UserErasureResponse:
+    """Right to erasure: remove everything remembered about one end user.
+
+    Sessions are reached through the memories they produced, so the response
+    reports exactly what was removed rather than claiming completeness.
+    """
+
+    authorize_tenant(principal, tenant)
+    result = await service.erase_memory_user(_access(principal, tenant), user_id)
+    return UserErasureResponse.model_validate(result.data)

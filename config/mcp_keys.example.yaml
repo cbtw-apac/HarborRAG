@@ -1,0 +1,7 @@
+version: 1
+keys:
+  - key_id: engineering-reader
+    principal_id: mcp-reader:engineering
+    tenant_id: DEFAULT
+    secret_hash_env: HARBORRAG_MCP_ENGINEERING_KEY_SHA256
+    revoked: false

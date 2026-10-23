@@ -13,7 +13,7 @@ from harborrag_core.retrieval import (
     GraphSubgraphQuery,
     GraphTripletQuery,
 )
-from harborrag_runtime.sdk import RetrievalLane
+from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
 class RetrievalService(Protocol):
@@ -30,6 +30,7 @@ class RetrievalService(Protocol):
         include_content: bool,
         include_metadata: bool,
         score_threshold: float,
+        mode: RetrievalMode = RetrievalMode.FLAT,
     ) -> AppResponse: ...
 
     async def retrieve_graph_triplets(

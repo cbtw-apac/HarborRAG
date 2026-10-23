@@ -17,15 +17,28 @@ from harborrag_core.observability.process_logging import (
 
 @pytest.fixture(autouse=True)
 def restore_harborrag_logger():
-    """Leave the shared "harborrag" logger exactly as the suite found it."""
+    """Give each test a pristine "harborrag" logger, and put it back after.
+
+    Resetting before the test as well as after is what makes these hermetic.
+    ``configure_logging`` is deliberately idempotent, so a handler left on this
+    shared logger by anything that ran earlier -- another package's suite
+    configuring logging, or a caplog handler bound to this namespace -- made
+    the call here a no-op: the test's own stream then received nothing, and the
+    handler count included handlers it never installed.
+    """
 
     logger = logging.getLogger(ROOT_LOGGER_NAME)
     handlers = list(logger.handlers)
     level, propagate = logger.level, logger.propagate
-    yield
-    logger.handlers = handlers
-    logger.setLevel(level)
-    logger.propagate = propagate
+    logger.handlers = []
+    logger.setLevel(logging.NOTSET)
+    logger.propagate = True
+    try:
+        yield
+    finally:
+        logger.handlers = handlers
+        logger.setLevel(level)
+        logger.propagate = propagate
 
 
 def test_configure_installs_one_handler_and_emits_records() -> None:

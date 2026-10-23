@@ -14,6 +14,7 @@ from harborrag_adapters.parsers.common.utils import (
 )
 from harborrag_adapters.parsers.document.engines.docx.engine import DocxParser
 from harborrag_adapters.parsers.document.engines.epub.engine import EpubParser
+from harborrag_adapters.parsers.document.engines.msword.engine import MsWordParser
 from harborrag_adapters.parsers.document.engines.odt.engine import OdtParser
 from harborrag_adapters.parsers.errors import (
     ParseError,
@@ -44,6 +45,7 @@ from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import (
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
 from harborrag_adapters.parsers.pdf.models import PdfParseResult
 from harborrag_adapters.parsers.pdf.parser import PdfParser
+from harborrag_adapters.parsers.presentation.engines.msppt.engine import PptParser
 from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import PptxParser
 from harborrag_adapters.parsers.spreadsheet.engines.csv.engine import CsvParser
 from harborrag_adapters.parsers.spreadsheet.engines.openpyxl.engine import ExcelParser
@@ -67,6 +69,7 @@ __all__ = [
     "MarkdownParser",
     "MinerUBackend",
     "MinerUBackendOptions",
+    "MsWordParser",
     "OdtParser",
     "PaddleOcrBackend",
     "PaddleOcrBackendOptions",
@@ -76,6 +79,7 @@ __all__ = [
     "PdfParseResult",
     "PdfParser",
     "PdfParserProfile",
+    "PptParser",
     "PptxParser",
     "PyMuPdfBackend",
     "TextParser",

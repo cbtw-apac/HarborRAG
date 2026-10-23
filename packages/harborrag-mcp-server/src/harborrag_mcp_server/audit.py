@@ -23,6 +23,14 @@ class McpAuditLog:
     def __post_init__(self) -> None:
         if self.max_entries < 1:
             raise ValueError("MCP audit max_entries must be positive")
+        if self.path is not None and not self.path.is_absolute():
+            # An MCP client launches the stdio server from a directory of its
+            # choosing, so a relative path put the trail somewhere different on
+            # every launch -- or in a directory the process could not make
+            # owner-only, which failed every tool call. Anchor it at the home
+            # directory, which is stable and is where the ownership rules the
+            # writer enforces can actually hold.
+            object.__setattr__(self, "path", Path.home() / self.path)
 
     def start(
         self,
@@ -30,13 +38,23 @@ class McpAuditLog:
         arguments: dict[str, object],
         *,
         principal_id: str,
+        tenant_id: str | None = None,
     ) -> str:
+        """Record an attempt.
+
+        ``tenant_id`` is the canonical stripped value the call is bound to.
+        Without it the trail could not answer which tenant a call touched,
+        which is the first question asked of it; the arguments themselves stay
+        a digest so the log never becomes a copy of the payload.
+        """
+
         invocation_id = uuid4().hex
         self._record(
             {
                 "invocation_id": invocation_id,
                 "tool": _bounded(tool),
                 "principal_id": _bounded(principal_id),
+                "tenant_id": _bounded(tenant_id) if tenant_id is not None else None,
                 "arguments_sha256": _arguments_digest(arguments),
                 "event": "tool_invocation_attempted",
                 "timestamp": datetime.now(UTC).isoformat(),
@@ -44,7 +62,7 @@ class McpAuditLog:
         )
         return invocation_id
 
-    def finish(
+    def finish(  # noqa: PLR0913 - one audit line names who, where, what and how it ended
         self,
         invocation_id: str,
         tool: str,
@@ -52,11 +70,19 @@ class McpAuditLog:
         principal_id: str,
         outcome: str,
         error_type: str | None = None,
+        tenant_id: str | None = None,
     ) -> None:
+        """Close the attempt ``start`` opened, under the same principal and tenant.
+
+        Every parameter is an independent fact the trail has to carry: collapsing
+        them into one object would hide which of them a caller actually knew.
+        """
+
         event: dict[str, object] = {
             "invocation_id": invocation_id,
             "tool": _bounded(tool),
             "principal_id": _bounded(principal_id),
+            "tenant_id": _bounded(tenant_id) if tenant_id is not None else None,
             "event": "tool_invocation_completed",
             "timestamp": datetime.now(UTC).isoformat(),
             "outcome": outcome,

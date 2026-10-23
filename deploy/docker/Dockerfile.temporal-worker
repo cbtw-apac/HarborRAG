@@ -35,14 +35,9 @@ RUN uv export --quiet --frozen --package harborrag-runtime \
         --extra production --extra temporal \
         --no-dev --no-hashes --no-emit-workspace \
         --output-file /tmp/harborrag-lock.txt \
-    && uv pip install --system \
-        --no-deps \
-        --index-url https://download.pytorch.org/whl/cpu \
-        --constraint /tmp/harborrag-lock.txt \
-        'torch==2.13.0' 'torchvision==0.28.0' \
     && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
-        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]' \
+        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]' \
         -e packages/harborrag-memory \
         -e packages/harborrag-engine \
         -e 'packages/harborrag-runtime[temporal]' \
@@ -69,7 +64,8 @@ COPY config ./config
 ENV HARBORRAG_TEMPORAL_CONFIG_PATH=/app/config/temporal.yaml \
     HARBORRAG_CONNECTOR_CONFIG_PATH=/app/config/connectors.yaml \
     HARBORRAG_PARSER_CONFIG_PATH=/app/config/parsers.yaml \
-    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml
+    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml \
+    HARBORRAG_GRAPH_BUILD_CONFIG_PATH=/app/config/topology/graph_build.yaml
 
 WORKDIR /var/lib/harborrag
 USER harborrag

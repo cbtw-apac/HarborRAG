@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from harborrag_app.api.deprecation import DeprecatedEndpointsMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.v1.admin import router as admin_router
 from harborrag_app.api.v1.agent import router as agent_router
 from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.connections import router as connections_router
+from harborrag_app.api.v1.graph import router as graph_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
+from harborrag_app.api.v1.memory import router as memory_router
 from harborrag_app.api.v1.retrieval import router as retrieval_router
+from harborrag_app.api.v1.schedules import router as schedules_router
 
 OPERATIONAL_PREFIX = "/api/v1"
 PUBLIC_PREFIX = "/v1"
@@ -19,14 +23,18 @@ PUBLIC_PREFIX = "/v1"
 def register_routes(app: FastAPI) -> None:
     """Mount process routes and stable public resource routes."""
 
+    app.add_middleware(DeprecatedEndpointsMiddleware)
     for router in all_routers():
         app.include_router(router, prefix=OPERATIONAL_PREFIX)
     for router in (
         ingestion_router,
         connections_router,
         retrieval_router,
+        graph_router,
         chat_router,
         agent_router,
+        memory_router,
         admin_router,
+        schedules_router,
     ):
         app.include_router(router, prefix=PUBLIC_PREFIX)

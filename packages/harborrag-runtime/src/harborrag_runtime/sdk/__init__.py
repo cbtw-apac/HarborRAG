@@ -1,9 +1,27 @@
 """Stable public SDK façade for HarborRAG runtime services."""
 
+from harborrag_core.topology.search import RetrievalMode
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_runtime.reader_contracts import (
+    DocumentListRequest,
+    DocumentListResponse,
+    DocumentMetadata,
+)
 
 from ..contracts import (
+    DocumentContextRequest,
+    DocumentContextResponse,
+    EntityResolveRequest,
+    EntityResolveResponse,
+    EvidenceFetchRequest,
+    EvidenceFetchResponse,
+    EvidenceReadItem,
+    EvidenceReadRequest,
+    EvidenceReadResponse,
+    EvidenceReadSelector,
     ExecutionMode,
+    GraphNodeResolveRequest,
+    GraphNodeResolveResponse,
     GraphPathRequest,
     GraphPathResponse,
     GraphSubgraphRequest,
@@ -14,13 +32,24 @@ from ..contracts import (
     IngestionResult,
     IngestionStatus,
     IngestionTaskReference,
+    RelationSearchRequest,
+    RelationSearchResponse,
     RetrievalRequest,
     RetrievalResponse,
+    SemanticPathRequest,
+    SemanticPathResponse,
+    SourceListRequest,
+    SourceListResponse,
 )
 from .configuration import HarborRAGConfig
 from .runtime import HarborRAG
 
 __all__ = [
+    "DocumentListRequest",
+    "DocumentListResponse",
+    "DocumentMetadata",
+    "DocumentContextRequest",
+    "DocumentContextResponse",
     "ExecutionMode",
     "GraphPathRequest",
     "GraphPathResponse",
@@ -28,6 +57,16 @@ __all__ = [
     "GraphSubgraphResponse",
     "GraphTripletRequest",
     "GraphTripletResponse",
+    "EntityResolveRequest",
+    "EntityResolveResponse",
+    "EvidenceFetchRequest",
+    "EvidenceFetchResponse",
+    "EvidenceReadItem",
+    "EvidenceReadRequest",
+    "EvidenceReadResponse",
+    "EvidenceReadSelector",
+    "GraphNodeResolveRequest",
+    "GraphNodeResolveResponse",
     "HarborRAG",
     "HarborRAGConfig",
     "IngestionRequest",
@@ -35,6 +74,13 @@ __all__ = [
     "IngestionStatus",
     "IngestionTaskReference",
     "RetrievalLane",
+    "RetrievalMode",
     "RetrievalRequest",
     "RetrievalResponse",
+    "RelationSearchRequest",
+    "RelationSearchResponse",
+    "SemanticPathRequest",
+    "SemanticPathResponse",
+    "SourceListRequest",
+    "SourceListResponse",
 ]

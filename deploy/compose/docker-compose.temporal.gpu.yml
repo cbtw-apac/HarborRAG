@@ -1,0 +1,17 @@
+name: harborrag-temporal
+
+# Optional GPU overlay for the ingestion worker. Combine with
+# docker-compose.temporal.yml (dev.sh does this automatically when
+# HARBORRAG_ENABLE_GPU=1) on hosts with an NVIDIA GPU and the NVIDIA
+# Container Toolkit installed.
+services:
+  temporal-worker:
+    build:
+      dockerfile: deploy/docker/Dockerfile.temporal-worker.gpu
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: ${HARBORRAG_TEMPORAL_WORKER_GPU_COUNT:-all}
+              capabilities: [gpu]

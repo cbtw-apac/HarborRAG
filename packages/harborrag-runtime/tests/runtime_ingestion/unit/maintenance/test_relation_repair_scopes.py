@@ -118,13 +118,8 @@ async def test_repair_resolves_a_target_published_under_a_sibling_scope(
         # points at a node no projection ever writes; left beside the resolved one, a
         # traversal returns the real target and a target that does not exist.
         assert (linker, _key("docs", "docs/b.txt")) not in endpoints
-        # The stub node itself stays, deliberately. Deleting it would mean testing its
-        # degree in one write and deleting it in another, and another document linking to
-        # the same unresolved target may have staged that very node without its relation
-        # yet -- so the retraction takes the edge only, and the tenant-wide prune on
-        # version cleanup reaps the node. Nothing reads it meanwhile: every graph query
-        # starts from a node and walks at least one relationship.
-        assert _key("docs", "docs/b.txt") in resources.graph.nodes
+        # Unknown scope never creates a guessed placeholder in the first place.
+        assert _key("docs", "docs/b.txt") not in resources.graph.nodes
         assert not [
             relation
             for relation in resources.graph.relations.values()
@@ -176,12 +171,11 @@ async def test_repair_keeps_the_other_relations_of_a_repaired_document(
         # docs/b.txt resolved into "archive" and its stub is retracted.
         assert (linker, _key("archive", "docs/b.txt")) in endpoints
         assert (linker, _key("docs", "docs/b.txt")) not in endpoints
-        # docs/missing.txt never published, so its stub is all this link has -- it is
-        # unresolved, not superseded, and it stays.
-        assert (linker, _key("docs", "docs/missing.txt")) in endpoints
+        # Unknown identity remains unresolved without a serving edge or fake scope.
+        assert (linker, _key("docs", "docs/missing.txt")) not in endpoints
         assert outcome.unresolved_relations == 1
         retracted = {relation.target_node_key for relation in resources.graph.retracted_relations}
-        assert retracted == {_key("docs", "docs/b.txt")}
+        assert not retracted
 
 
 def _key(source_scope_id: str, source_item_id: str) -> str:
@@ -246,8 +240,5 @@ async def test_two_documents_sharing_one_unresolved_target_both_repair(
         for linker in ("docs/a.txt", "docs/c.txt"):
             assert (_key("docs", linker), resolved) in endpoints
             assert (_key("docs", linker), _key("docs", "docs/b.txt")) not in endpoints
-        # Both retractions name the one shared stub, and it survives them.
-        assert {relation.target_node_key for relation in resources.graph.retracted_relations} == {
-            _key("docs", "docs/b.txt")
-        }
-        assert _key("docs", "docs/b.txt") in resources.graph.nodes
+        assert not resources.graph.retracted_relations
+        assert _key("docs", "docs/b.txt") not in resources.graph.nodes

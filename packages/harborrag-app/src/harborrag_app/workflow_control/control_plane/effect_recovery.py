@@ -14,6 +14,7 @@ and a requeued activity entry keeps its original id, so it can't double-write.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 from typing import Any
 from uuid import uuid4
@@ -27,6 +28,8 @@ logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_
 
 _RETIRE_SECRET_KIND = "retire_secret"
 _LOG_ACTIVITY_KIND = "log_activity"
+# The tenant migration 0032 gives a legacy secret no source row still owns.
+LEGACY_SECRET_TENANT_ID = "DEFAULT"
 
 # Named lease AppService.recover_pending_control_plane_effects runs its drain
 # under (LeaseRepositoryPort), mirroring the ingestion progress bridge's
@@ -42,14 +45,28 @@ EFFECT_RECOVERY_LEASE_NAME = "control_plane_effect_recovery"
 EFFECT_RECOVERY_LEASE_TTL_SECONDS = 120.0
 
 
-async def retire_refs(control_plane: ControlPlaneRepositories, refs: list[str]) -> None:
-    """Delete each ref; a failed delete is queued for retry, never raised."""
+async def retire_refs(
+    control_plane: ControlPlaneRepositories,
+    refs: list[str],
+    *,
+    tenant_id: str,
+) -> None:
+    """Delete each of one tenant's refs; a failed delete is queued, never raised.
+
+    The tenant travels with the queued effect because secret refs are
+    tenant-scoped: a replay that presented the ref alone would address
+    nothing and silently leave the secret behind.
+    """
     for ref in refs:
         try:
-            await control_plane.secrets.delete(ref)
+            await control_plane.secrets.delete(ref, tenant_id=tenant_id)
         except Exception:
             logger.exception("secret retirement failed ref=%r; queued for retry", ref)
-            await _queue_effect(control_plane, _RETIRE_SECRET_KIND, {"ref": ref})
+            await _queue_effect(
+                control_plane,
+                _RETIRE_SECRET_KIND,
+                {"ref": ref, "tenant_id": tenant_id},
+            )
 
 
 async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityEntry) -> None:
@@ -62,19 +79,23 @@ async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityE
 
 
 async def recover_pending_control_plane_effects(
-    control_plane: ControlPlaneRepositories, *, limit: int = 100
+    control_plane: ControlPlaneRepositories,
+    *,
+    limit: int = 100,
+    erasure_handler: Callable[[PendingControlPlaneEffect], Awaitable[bool]] | None = None,
 ) -> int:
-    """Retry durably-queued secret retirements and audit-log writes.
+    """Retry queued effects and authorized cross-store erasure intents.
 
-    Each pending row's first attempt ran only after the write it depends on
-    already committed, so retrying is always safe and never touches an
-    in-flight request. A row that fails again is left pending for the next
-    drain pass; one bad row must not block the rest.
+    Post-commit effects and pre-delete erasure intents are idempotent; a
+    concurrent initial attempt may perform the same deletion harmlessly.
+    A row that fails again is left pending for the next drain pass; one bad
+    row must not block the rest.
     """
     recovered = 0
     for effect in await control_plane.pending_effects.list_pending(limit=limit):
         try:
-            await _replay_effect(control_plane, effect)
+            if erasure_handler is None or not await erasure_handler(effect):
+                await _replay_effect(control_plane, effect)
         except Exception:
             logger.exception(
                 "control-plane pending effect retry failed id=%s kind=%s",
@@ -126,7 +147,19 @@ async def _replay_effect(
     control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
 ) -> None:
     if effect.kind == _RETIRE_SECRET_KIND:
-        await control_plane.secrets.delete(effect.payload["ref"])
+        tenant_id = effect.payload.get("tenant_id")
+        if not isinstance(tenant_id, str) or not tenant_id:
+            # A retirement queued before refs became tenant-scoped (alpha1). Its
+            # ref was retired from the source that used it, so migration 0032
+            # found no owner and left the secret under DEFAULT: retire it there
+            # rather than drop it and orphan the ciphertext.
+            logger.warning(
+                "pending secret retirement carries no tenant; retiring under %s ref=%r",
+                LEGACY_SECRET_TENANT_ID,
+                effect.payload.get("ref"),
+            )
+            tenant_id = LEGACY_SECRET_TENANT_ID
+        await control_plane.secrets.delete(str(effect.payload["ref"]), tenant_id=tenant_id)
         return
     if effect.kind == _LOG_ACTIVITY_KIND:
         await control_plane.activity.append(_activity_from_payload(effect.payload))

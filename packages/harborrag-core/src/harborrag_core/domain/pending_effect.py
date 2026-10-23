@@ -1,8 +1,8 @@
-"""PendingControlPlaneEffect: a durable retry record for a post-commit side effect.
+"""PendingControlPlaneEffect: durable intent for replayable cross-store work.
 
-Enqueued only when a secondary effect (secret retirement, activity logging)
-fails after the primary control-plane write it depends on has already
-committed -- never a step on the happy path. The recovery drain
+Secret retirement and activity logging enqueue failed post-commit effects.
+Memory erasure records intent before deleting canonical identifiers so an
+index outage or interrupted session purge cannot lose its retry handle. The recovery drain
 (``AppService.recover_pending_control_plane_effects``) retries each row and
 removes it once the retry succeeds.
 """

@@ -7,40 +7,107 @@ policy-bounded FastMCP transport.
 **Want to get it running first?** Jump to
 [Setup and Integration](setup-and-integration.md). This page describes what the tools do.
 
-## The four tools
+| Tool | Arguments | Result |
+| --- | --- | --- |
+| `vector_search` | Query, tenant, top-k, lane, filters, `observe_graph`, threshold | Vector results and diagnostics |
+| `fetch_evidence` | Tenant and up to 10 chunk IDs with optional expected document/version | Reauthorized immutable artifact text and per-item availability |
+| `get_document_context` | Tenant, document, optional anchor/version/cursor, limit | Document title, ordered version-bound chunks, bounded outline, continuation cursor |
+| `list_sources` | Tenant, optional source/type filters, cursor, limit | Readable corpus scopes and safe freshness metadata |
+| `describe_graph` | Empty object | Static schema versions, node kinds, projected relations, and property catalogs |
+| `graph_triplet_search` | Tenant plus subject, predicate, or object | Active canonical triplets |
+| `graph_subgraph_search` | Tenant, start node, depth and direction | Active bounded nodes and relations |
+| `graph_path_search` | Tenant, start/end nodes, depth and direction | Active bounded paths |
+| `resolve_graph_nodes` | Tenant, exact typed selector, optional source/type scope | Authorized candidates with explicit ambiguity |
+| `list_documents` | Tenant, cursor, limit | Readable active document inventory |
+| `find_entities` | Tenant, query, optional facets and source scope, limit | Ranked whole entities with summary, facets, and evidence chunk IDs |
 
-The catalog contains exactly four tools. All of them are read-only, and every one requires
-an explicit `tenant_id`.
+Call `describe_graph` first — before any other graph tool — if you are not yet
+familiar with the graph model, or if graph selectors, relations, or directions are
+unclear. It is a static schema lookup, not a query. The MCP server also advertises
+short cross-tool routing instructions (which tool to call for which intent) to any
+client that surfaces server-level `instructions`.
+
+The catalog contains eleven read-only tools. Ten require an explicit `tenant_id`;
+`describe_graph` accepts `{}` because it returns only the static supported model.
+A separate server, `harborrag-mcp-ui`, offers the interactive
+[Explorer](setup-and-integration.md#explorer-mcp-ui-server): a UI that helps people
+search, read and trace the corpus, rather than an evidence source for models.
 
 | Tool | Required arguments | Optional arguments | Returns |
 | --- | --- | --- | --- |
-| `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `observe_graph`, `score_threshold` (0.0–1.0) | Vector results and retrieval diagnostics |
+| `vector_search` | `query`, `tenant_id` | `top_k` (1–20, default 5), `lane` (`dense`/`sparse`/`hybrid`, default `hybrid`), `filters`, `mode`, `observe_graph`, `include_content`, `score_threshold` (0.0–1.0) | Vector results, retrieval diagnostics, and cost availability |
+| `fetch_evidence` | `tenant_id`, `items[].chunk_id` | Expected document/version IDs | Canonical text, citation locator, and `available`/`unavailable`/`output_limit` per item |
+| `get_document_context` | `tenant_id`, `document_id` | Expected version, one anchor, cursor, limit (1–10), outline | `document_title`, ordered chunks, and a tenant/principal/version-bound cursor |
+| `list_sources` | `tenant_id` | Source IDs, connector types, cursor, limit (1–20) | Only readable source scopes; never connection configuration |
+| `describe_graph` | None | None | `ok`, `versions`, `layers`, and `properties` |
 | `graph_triplet_search` | `tenant_id`, plus at least one of `subject`, `predicate`, `object` | `limit` (1–20, default 10) | Active canonical subject–predicate–object records |
-| `graph_path_search` | `tenant_id`, `start_node`, `end_node` | `relationship_types`, `max_depth` (1–8, default 4), `max_paths` (1–20, default 10), `direction` (`incoming`/`outgoing`/`both`, default `both`) | Active bounded paths between the two nodes |
-| `graph_subgraph_search` | `tenant_id`, `start_node` | `relationship_types`, `max_depth` (1–8, default 2), `max_nodes` (1–20, default 20), `direction` (default `both`) | Active bounded neighborhood of nodes and relations |
+| `graph_subgraph_search` | `tenant_id`, `start_node` | Relation types, depth (1–4), nodes (1–20), direction | ACL-filtered connected neighborhood, at most 40 edges, with completion reasons |
+| `graph_path_search` | `tenant_id`, `start_node`, `end_node` | Relation types, depth (1–4), paths (1–5), direction | ACL-filtered bounded paths with stable relation provenance |
+| `resolve_graph_nodes` | `tenant_id`, selector kind/value | Source IDs, entity types, limit (1–10) | Unique, ambiguous, or no-match candidates |
+| `list_documents` | `tenant_id` | Cursor, limit (1–20) | Active readable documents with title, version, source, and chunk count |
+| `find_entities` | `tenant_id`, `query` | `facets`, `source_ids`, `limit` (1–20, default 10) | Ranked entities with summary, facets, and released evidence chunk IDs for `fetch_evidence` |
 
-Chat and agent are **not** MCP tools. They are served only through the HarborRAG REST API
-at `/v1/chat/completions` and `/v1/agent/completions` - see [Chat](../../chat/README.md).
+Chat and agent are **not** MCP tools. Both use the HarborRAG REST API
+at `/v1/chat/completions` and `/v1/agent/completions`, respectively — see
+[Chat](../../chat/README.md).
 Ingestion is controlled through the CLI or the authenticated API, never through MCP.
 
 > Defaults advertised in the schema can be overridden per deployment in
-> [`config/mcp.yaml`](../../../../config/mcp.yaml). The checked-in file sets
-> `observe_graph: true` for `vector_search`, which is the opposite of the schema default,
-> so confirm the effective value with `GET /api/tools?tenant_id=<tenant>` rather than
-> assuming the schema default applies.
+> [`config/mcp.yaml`](../../../../config/mcp.yaml). The checked-in vector defaults set
+> `top_k`; graph observation remains off. Confirm effective values with
+> `GET /api/tools?tenant_id=<tenant>`.
 
-## Start with `vector_search`
+The REST agent and MCP use the same runtime catalog, input schemas, and tool execution.
+For compact discovery, set `include_content: false` and fetch selected evidence separately.
+Vector and composed search report `cost.status: unavailable` until actual LiteLLM
+embedding/reranking invocation cost telemetry is available; an unknown charge is never zero.
+Artifact and graph reads do not claim model charges.
 
-`vector_search` is the entry point, because the three graph tools need a node selector you
-must already hold. Only three things resolve to a node:
+Document discovery applies the existing 10,000-document permission enumeration budget
+and loads canonical artifacts only for the requested page. A larger authorized catalog
+fails explicitly; it is never silently presented as complete. Every metadata and content
+read checks publication and permissions again after reading. Cursors are scoped to the
+tenant and principal and currently live in process memory, so a restart invalidates them.
+An agent's cursors remain valid for the lifetime of its tool provider, normally one run.
+
+HTTP MCP tool calls accept `reader` and `owner` tokens with an explicit tenant grant.
+The local configuration and administration API continues to require `owner`.
+
+## Graph contract discovery
+
+`describe_graph({})` follows the compact contract introduced in
+[PR #62](https://github.com/cbtw-apac/HarborRAG/pull/62):
+
+- `ok`: always `true` for this static response.
+- `versions`: structural, semantic, and ontology schema version identifiers.
+- `layers`: node kinds and projected relation types from the current core enums.
+- `properties`: property names for common nodes, document-owned nodes, `Chunk`,
+  `Entity`, and `RELATES`.
+
+It does not query a tenant or return live graph statistics. Semantic and ontology
+properties describe the declared versioned contract, not a claim that every node
+or relation currently stores those properties. Selector rules, traversal limits,
+and defaults belong to each executable tool's input schema; they are not extra
+fields in this response. The tool accepts no filters or `for_tool` argument.
+
+## Evidence and graph workflow
+
+Use `list_sources` when the corpus is unclear, `vector_search` to discover evidence, and
+`fetch_evidence` before citing selected chunk IDs; it rechecks publication, permissions
+and any expected document/version, so it also verifies a citation. Set `vector_search`
+`mode` to `local_semantic` for bounded graph expansion. Use `get_document_context` when
+ordered surrounding text, or the document title, is needed. The graph tools navigate; they do not replace source evidence.
+
+Graph selectors support three exact forms:
 
 - a `node_key`
 - a `logical_id`
 - an exact, complete `title` - matched case-insensitively, never partially, and unset on
   chunk nodes
 
-In practice the selector you use is a `chunk_id` from a `vector_search` result: chunk IDs
-and `Chunk` node keys are the same value. So the usual sequence is *search, then expand*.
+In practice use a `chunk_id` from `vector_search` (also its Chunk node key), or call
+`resolve_graph_nodes` and pass a returned stable `node_key`. Duplicate titles remain
+explicitly ambiguous.
 
 `graph_triplet_search` is the one exception - it is satisfiable by `predicate` alone, which
 is a relation-type enum rather than a node selector, so you can enumerate relationships of
@@ -58,28 +125,48 @@ print(list_tools())
 ```
 
 ```python
-# Server instance: returns McpToolSpec objects with .name and .input_schema.
+# Server instance: returns ToolSpec objects with .name and .input_schema.
 from harborrag_mcp_server.server import McpServer
-from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
+from harborrag_runtime.composition.readers import open_reader_application
+from harborrag_runtime.config.settings import RuntimeSettings
 
-server = McpServer(runtime=HarborRAG(HarborRAGConfig()))
+application = open_reader_application(RuntimeSettings())
+server = McpServer(invoker=application.invoker, references=application.references)
+await application.start()
 for spec in server.list_tools():
     print(spec.name, spec.input_schema)
 
 result = await server.call_tool(
     "vector_search",
     {"query": "publication policy", "tenant_id": "default"},
+    principal_id="reader-principal",
 )
+await application.aclose()
 ```
 
 An unknown tool name raises `ValueError`.
 
-## Policy and audit
+### `observe_graph` is diagnostics, not evidence
 
-Every call passes the same boundary, whether it arrives over stdio, over HTTP, or from the
-browser Tool Playground:
+`vector_search(observe_graph=true)` adds a *shallow provenance observation*: it seeds up
+to ten of the returned `chunk_id`s, traverses two hops in both directions, and summarizes
+the counts, documents, and sections it touched under the response's `diagnostics` field.
+It never loads the content of any newly discovered chunk, never ranks neighboring
+evidence, and a graph failure silently degrades to an empty observation rather than
+failing the vector call. Treat it as provenance context for the results you already have
+— not as a way to retrieve additional evidence for a generator. Retrieving and ranking
+neighboring evidence is a separate, not-yet-available composed operation.
 
-1. **Capability check** - all four tools declare `read`; nothing else is registered.
+## Policy and audit status
+
+`McpServer` records every call attempt and outcome, validates each declared
+JSON schema, and enforces argument, result-count, and output-size budgets.
+Every tool call requires an explicit tenant (except `describe_graph` static tool). Retrieval propagates the caller's
+principal through the runtime access context. MCP audits store argument
+digests rather than raw query text.
+
+1. **Capability check** - all eleven tools declare `read`; nothing else is registered.
+   The separate Explorer UI server calls the reader tools through this same pipeline.
 2. **Schema validation** - the declared JSON schema, with `additionalProperties: false`.
 3. **Argument budget** - a serialized-argument size ceiling.
 4. **Tenant scope** - `tenant_id` is required, and `filters` explicitly cannot carry a

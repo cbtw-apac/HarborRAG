@@ -4,8 +4,13 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
+from harborrag_core.security.field_names import is_sensitive_field_name
+
+# Kept in step with ``SENSITIVE_FIELD_TOKENS``. Broader than the field-name
+# predicate (it matches anywhere, plurals included), which is right for masking
+# output but would reject flags such as ``allow_ambient_credentials`` as config.
 _SENSITIVE_KEY_PATTERN = re.compile(
-    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)|secret|password|credential|authorization"
+    r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)|secret|passwd|password|credential|authorization"
 )
 
 # The unquoted branch stops before either a delimiter (",", ";", "&", "}", "]",
@@ -15,12 +20,24 @@ _SENSITIVE_KEY_PATTERN = re.compile(
 _UNQUOTED_VALUE = r"(?:(?!\s+[\w.-]+\s*[:=]).)+?(?=[,;&}\]\r\n]|\s+[\w.-]+\s*[:=]|$)"
 _VALUE = rf'(?:"[^"]*"|\'[^\']*\'|{_UNQUOTED_VALUE})'
 
+# Authorization carries a scheme before the credential ("Bearer x", "Basic y"),
+# and the generic value branch below stops at what looks like the next "key="
+# pair -- which base64 padding does. So it gets its own branch that consumes to
+# a real delimiter, placed first. Previously only the "Bearer" form was handled
+# at all, so a Basic credential went to the log intact.
+_AUTHORIZATION_VALUE = r"(?:\"[^\"]*\"|'[^']*'|[^,;&}\]\r\n]+)"
+
 _LABELED_PATTERNS = [
+    re.compile(r"(?i)(authorization)['\"]?\s*[:=]\s*" + _AUTHORIZATION_VALUE),
     re.compile(
-        r"(?i)(api[_-]?key|access[_-]?key|token|secret|password|credential)"
-        r"[\w-]*['\"]?\s*[:=]\s*" + _VALUE
+        # The key group spans its whole name so the replacement preserves it:
+        # redacting "api_key_id" must not rewrite the key to "api_key".
+        # ``token`` carries the same lookahead as _SENSITIVE_KEY_PATTERN so a
+        # token *count* ("tokens=5") is left alone.
+        r"(?i)((?:api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)"
+        r"|secret|passwd|password|credential)[\w-]*)"
+        r"['\"]?\s*[:=]\s*" + _VALUE
     ),
-    re.compile(r"(?i)(authorization)['\"]?\s*:\s*['\"]?\s*bearer\s+" r"([^\s,'\";}\]]+)"),
 ]
 
 _TOKEN_PATTERNS = [
@@ -57,16 +74,18 @@ def redact_mapping(data: Mapping[str, Any], replacement: str = "<redacted>") -> 
     """Recursively mask values whose key looks credential-shaped.
 
     Defense-in-depth for DTO boundaries that serialize free-form config
-    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN is
-    masked regardless of what invariants upstream write-side code is
-    supposed to enforce. Mappings nested inside lists/tuples are recursed
-    into, and string values are additionally passed through
-    redact_secrets() to catch secrets embedded in free-form text (e.g. a
-    header line under a non-sensitive key).
+    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN or
+    ``is_sensitive_field_name`` is masked regardless of what invariants
+    upstream write-side code is supposed to enforce. Either one suffices: the
+    pattern alone missed ``api.key`` and ``Private Key``, and the predicate
+    alone leaves plurals such as ``vertex_credentials`` unmasked. Mappings
+    nested inside lists/tuples are recursed into, and string values are
+    additionally passed through redact_secrets() to catch secrets embedded in
+    free-form text (e.g. a header line under a non-sensitive key).
     """
     result: dict[str, Any] = {}
     for key, value in data.items():
-        if _SENSITIVE_KEY_PATTERN.search(key):
+        if _SENSITIVE_KEY_PATTERN.search(key) or is_sensitive_field_name(key):
             result[key] = replacement
         else:
             result[key] = _redact_value(value, replacement)

@@ -22,11 +22,22 @@ from harborrag_core.domain.parser import ParseInput
 
 _IMAGE_SUFFIXES = frozenset({"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp", "svg"})
 
+# Engine-specific keys are all listed here on purpose: a document is parsed by
+# exactly one engine, and `render_metadata_section` drops every field the
+# parsed document has no value for, so only the engine that actually ran
+# contributes rows. Keeping the alternatives listed means switching the enabled
+# PDF parser in `config/parsers.yaml` needs no edit here.
 LOCAL_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Parser", "parser_name"),
     ("Parser version", "parser_version"),
-    ("Source engine", "source_engine"),
+    # `pdf_engine` is set for every PDF engine, including the ones that report
+    # no `source_engine` of their own, so it is the one row that always names
+    # the engine that ran.
+    ("PDF engine", "pdf_engine"),
     ("Page count", "page_count"),
+    ("OCR enabled", "liteparse_ocr_enabled"),
+    ("Output format", "liteparse_output_format"),
+    ("Target pages", "liteparse_target_pages"),
     ("OCR engine", "docling_ocr_engine"),
     ("OCR enabled", "docling_do_ocr"),
     ("Table structure", "docling_do_table_structure"),
@@ -64,6 +75,10 @@ def _save_local_figures(parsed, output_path: Path) -> list[Path]:
     full-page image and table crops into the same `docling_image_paths` list;
     only `picture-*` entries are figures actually embedded in the document, so
     page/table renders are intentionally skipped here.
+
+    Extracting figures to disk is Docling-only: no other configured PDF engine
+    reports image paths, so with the shipped LiteParse parser this returns no
+    figures and the saved Markdown simply has no `## Figures` section.
     """
     image_paths = (parsed.metadata or {}).get("docling_image_paths") or []
     figures = sorted(

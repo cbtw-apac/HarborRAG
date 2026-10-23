@@ -153,3 +153,10 @@ def test_error_renderer_uses_stderr_panel() -> None:
     assert "HarborRAG error" in rendered
     assert "Temporal is down" in rendered
     assert "RuntimeConnectionError" in rendered
+
+
+def test_partial_summary_shows_stage_states() -> None:
+    views = stage_views("partial", {"discovered": 4, "processed": 4})
+
+    assert views
+    assert all(view.state != "unknown" for view in views)

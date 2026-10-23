@@ -9,6 +9,26 @@ from harborrag_adapters.models.runtime.responses import (
 from harborrag_core.models.errors import HarborChatProviderError
 
 
+def split_leading_think_block(
+    content: str | None, reasoning_content: str | None
+) -> tuple[str | None, str | None]:
+    """Split one recognized leading block; never strip tags inside answer content."""
+
+    if content is None or not content.lstrip().startswith("<think>"):
+        return content, reasoning_content
+    leading = content.lstrip()
+    end = leading.find("</think>", len("<think>"))
+    if end < 0:
+        raise HarborChatProviderError(
+            "malformed provider response: unterminated leading thinking block",
+            operation="chat",
+            retryable=False,
+        )
+    thinking = leading[len("<think>") : end].strip()
+    answer = leading[end + len("</think>") :].lstrip()
+    return answer, reasoning_content or thinking or None
+
+
 def normalize_reasoning_content(
     choice: Mapping[str, Any], message: Mapping[str, Any]
 ) -> str | None:

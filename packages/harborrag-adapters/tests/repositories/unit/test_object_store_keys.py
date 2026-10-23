@@ -39,7 +39,27 @@ def test_tenant_object_prefix_is_deterministic_and_namespaced() -> None:
 
     assert prefix_a == prefix_a_again
     assert prefix_a != prefix_b
-    assert prefix_a.startswith(".harborrag/tenants/")
+    # The same namespace the tenant's Qdrant collections and FalkorDB graph use.
+    assert prefix_a == "harborrag_tenant-a"
+    assert tenant_object_prefix("tenant-a", "harbor_smoke") == "harbor_smoke_tenant-a"
+
+
+def test_one_namespace_names_a_tenant_in_every_store() -> None:
+    from harborrag_adapters.repositories.graph.falkordb.tenant_pool import TenantGraphRegistry
+    from harborrag_core.storage import StorageOperationContext, tenant_namespace
+
+    context = StorageOperationContext.system("DEFAULT")
+    namespace = tenant_namespace("DEFAULT")
+
+    assert namespace == "harborrag_DEFAULT"
+    assert TenantGraphRegistry("harborrag").graph_for(context) == namespace
+    assert physical_object_key("DEFAULT", "raw/x").startswith(f"{namespace}/")
+
+
+@pytest.mark.parametrize("tenant", ["", "../x", "a/b", "-lead", "a b"])
+def test_untrusted_tenant_ids_never_become_a_namespace(tenant: str) -> None:
+    with pytest.raises(ValueError):
+        tenant_object_prefix(tenant)
 
 
 def test_physical_and_logical_object_key_round_trip() -> None:

@@ -7,12 +7,464 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0a2] - 2026-10-22
+
+### Upgrading from 2.0.0a1
+
+Existing store data is not migrated: plan a reset and a full re-ingest.
+
+1. Stop schedules and API submissions, then let every running `harborrag.*` Temporal workflow
+   finish or terminate it (`temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'`).
+   Object keys are re-prefixed at read time, so an alpha1 run resumed by an alpha2 worker cannot
+   find its plans and artifacts.
+2. Back up the PostgreSQL control database. Restoring that backup (with the untouched alpha1
+   stores) is the only practical rollback: alpha1 cannot start against a database migrated to
+   0040, and the alembic downgrade to 0019 is lossy.
+3. Unset `HARBORRAG_QDRANT_COLLECTION_PREFIX` / `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX` (now
+   ignored with a startup warning) and set `HARBORRAG_STORAGE_NAMESPACE_PREFIX`; give each
+   deployment its own value when stores are shared.
+4. Drop the alpha1 Qdrant collections, FalkorDB graphs and object-store keys (or keep them for
+   rollback). The new names are `harborrag_{tenant}_{index}`, graph `harborrag_{tenant}` and keys
+   under `harborrag_{tenant}/`.
+5. Review `config/mcp.yaml` (graph `max_depth` above 4 and `max_paths` above 5 are lowered with
+   a warning) and remove `max_child_pages` from Confluence connectors (ignored with a warning).
+6. Run the migrations once (0019 -> 0040) from a single process before starting the other
+   services; on a large control database the 0021 backfill and the 0037 index hold table locks.
+7. Re-ingest every source scope. The graph projection version changed, so every document is
+   reprocessed without `--force-reprocess`; Jira `fields.*` keys for accented field names change
+   (see Changed).
+8. Summaries are off by default. To use them, enable `summarization` in
+   `config/topology/graph_build.yaml`, then run `harborrag topology summaries backfill`.
+
+### Added
+
+- Parse legacy Microsoft Office binary files: Word 97-2003 `.doc`
+  (body, tables, headers/footers, text boxes, notes) and PowerPoint 97-2003
+  `.ppt`/`.pps` (slide text and speaker notes; templates by MIME type) through new `doc` and
+  `ppt` engines built on `olefile`, which the `parsers`, `document`,
+  `presentation`, and `parsers-all` extras now install. Encrypted files are
+  rejected as password-protected and Word 6/95 files as unsupported.
+
+- Links to items no ingested scope has published get an external stub node in the graph
+  (`ExternalSourceEntity`-style: a `SourceEntity` marked `external`, keyed by tenant, connector,
+  connection and source item id -- never by scope -- and carrying the provider id only, no
+  title or metadata from the unread source). Relation repair persists each unresolved link
+  (`unresolved_source_relations`, migration 0039), and every source run finishes with a
+  reverse pass that re-repairs documents elsewhere whose link targets are now published, so
+  the link moves from the stub to the real node. Stubs nothing references are pruned after a
+  grace period.
+
+- Retention TTL for retired document versions (`HARBORRAG_RETIRED_VERSION_RETENTION_DAYS`,
+  default 30 days; `0` purges as soon as eligible, `off` disables). After a source-scope
+  run's projection cleanup, every version of that scope that has been RETIRED for longer
+  than the TTL, and whose projection cleanup job has COMPLETED, is purged: its object-store
+  artifacts (canonical, chunks and chunk index, representations, relations, comments,
+  tables, projection files) are deleted, raw source and metadata objects are deleted only
+  when no other unpurged version of the document references them, and its
+  `projection_manifests` row is dropped. The version row is kept, with its artifact columns
+  cleared, in the new `PURGED` state (migration 0038), so task results still resolve; the
+  shared parse cache (`parsed/`) and source plans are never touched, and a storage error
+  leaves the version RETIRED for the next run. Re-ingesting content identical to a purged
+  version rebuilds that version from scratch. The cleanup activity result reports
+  `purged_versions` and `purge_failed_versions`.
+  A purge first claims the version (`RETIRED` -> `PURGING`); while it is claimed a replay of
+  the same content is refused as transient and retried, so it can never be restored onto
+  artifacts that are being deleted, and an interrupted purge resumes on the next run. Besides
+  the purge after each source run, every worker sweeps all scopes every
+  `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` (default 24; `0` disables).
+- `harborrag auth keys create|list|revoke`: hashed, tenant-bound MCP reader keys with a
+  bounded lifetime, stored in the control database (`mcp_api_keys`, migration 0036) and
+  verified on every request. `HARBORRAG_MCP_AUTH_MODE=api_key` accepts them (and keeps the
+  loopback owner token for the status UI); the UI's tool playground now accepts reader keys
+  for their own tenant. The secret is written once to a `0600` file, never printed.
+- Pause, resume and cancel of an ingestion run append a `task.<id>.control` event naming the
+  action and who asked for it, next to the run's progress events.
+- `harborrag init` scaffolds a self-contained project directory (`harborrag.yaml`, `.env`,
+  `config/` catalogs, `docker-compose.yml`) with provider presets for OpenAI, Azure OpenAI,
+  Gemini, and OpenAI-compatible gateways. The CLI discovers the project by walking up from
+  the current directory (`--project` / `HARBORRAG_PROJECT` override). When the default
+  service ports are taken, `init` moves the stack to a free offset (`--ports-offset N` to force).
+  `init` asks which data sources to ingest (local folder, GitHub, Confluence, Jira; or
+  `--connectors LIST`) and scaffolds a connector plus `.env` variables for each.
+- `harborrag ingest run CONNECTOR` executes an ingestion in-process (direct mode) with
+  inline progress; no Temporal or worker required.
+- `harborrag doctor` now checks the project, catalogs, environment, Qdrant, FalkorDB, the
+  object store and the control database, and checks Temporal only with `--temporal`.
+- The `harborrag` command ships with every install of `harborrag`, including the bare one;
+  `harborrag[local]` adds the clients the local stack needs.
+- Source-entity summaries can be searched, not only read. With
+  `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, each accepted source-entity card is
+  published as its own vector point, and a query that matches one expands into the evidence
+  chunks beneath that entity. This is what lets a question spanning an issue's body, its
+  comments and an attached file reach that issue, which chunk search alone cannot do. The
+  point carries no card text: a hit yields a node key, and the summary authority re-checks
+  the binding's permission dependencies and freshness before releasing any chunk.
+- Summary cards carry `attributes`: named facets (a short reusable name, its values, and the
+  documents each value was copied from) that make a card filterable as well as readable.
+- `HARBORRAG_SUMMARY_ENTITY_CARD_MAX_WORDS` (default `60`) sets how long a source-entity card
+  may be, so the level that spans documents can be a dossier while section and document cards
+  stay navigation hints. The budget is part of the summary policy fingerprint, so widening it
+  regenerates only the cards it applies to.
+- Source scopes can declare **facets** in `config/topology/graph_build.yaml`: the named,
+  filterable facts every source-entity card carries. Each facet names a structured field the
+  connector already extracted (`field: "Skill Set"` -- a custom field by display name or id,
+  or a standard attribute such as `status`) and copies its value verbatim, with no model call;
+  a Jira issue node now carries its typed custom fields for this. Facets land on the entity
+  point as indexed `facet.<name>` payload, so `filters: {"facet.stage": "placed"}` selects
+  entities without forcing the flat lane, and a new `find_entities` reader tool ranks whole
+  entities against a question within a facet selection, returning each one's summary, facets
+  and released evidence ids.
+- Every evidence chunk of a Jira issue carries the issue's typed custom fields as a `fields`
+  payload map keyed by normalized field name (`Skill Set` -> `fields.skill_set`, `Years of
+  experience` -> `fields.years_of_experience`). Values keep their type, so
+  `{"fields.skill_set": "Data Engineering"}` matches exactly and a range condition works on a
+  number. A `fields.*` filter also reaches the issue's attachments: retrieval resolves it to
+  the matching issues, then searches their evidence and every document attached to them
+  (each attachment chunk now carries `parent_source_item_id`), so a CV is found through the
+  candidate issue whose fields describe it without copying those fields onto the CV. Documents
+  ingested before this change gain the map and the link on their next reprocessing.
+- The Temporal worker now hands its vector repository and embed client to the summary
+  projection, so `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED` takes effect on the durable worker,
+  not only on the standalone `topology summaries worker` CLI.
+- `harborrag ingest watch`, `wait` and `start --wait` take `--timeout SECONDS`; on expiry they
+  print the run id and how to re-attach, and exit 3 while the run keeps going (`--json` prints an
+  envelope with `data.run` and `timed_out: true`).
+- `harborrag ingest start` takes the connector positionally, like `ingest run`, and `--tenant` on
+  both reads `HARBORRAG_INGESTION_TENANT_ID`.
+- In repository-checkout mode only, the CLI uses `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` from
+  `env/.env.database` as the object-store credentials when they are not set; an explicit
+  `DATABASE_ENV_FILE` is honoured in any mode.
+- `harborrag doctor` authenticates against the object store (a non-blocking "credentials not
+  verified" warning when botocore is missing), probes Qdrant's gRPC port, warns when a checkout
+  falls back to the sqlite control DB and names invalid connector definitions; runtime startup
+  also probes FalkorDB.
+
+### Changed
+
+- A source link is one graph edge however many documents declare it. Each relation type has
+  one owner: the attachment owns `has_attachment`, the child owns `parent_of`, the outward
+  issue owns `blocks`/`duplicates`, the smaller source item id owns `relates_to`; the other end
+  asserts the edge only when the far end is not published or does not declare the link back.
+  Jira subtasks and Confluence page attachment lists no longer draw a second, parent-owned
+  edge, and a GitHub ref -> commit link is one shared edge instead of one per file. The Jira
+  connector now declares `parent_of` for an issue's subtasks. Existing parallel edges heal on
+  the next ingestion run of each scope.
+- A document skipped by relation repair (its artifacts were cleaned) no longer counts as an
+  unresolved relation, and `unresolved_relations` counts each distinct target and predicate
+  once.
+
+- One tenant namespace in every store: `{prefix}_{tenant_id}` (default `harborrag_DEFAULT`) is
+  the Qdrant collection stem (`harborrag_DEFAULT_evidence`), the FalkorDB graph name and the
+  object-store key prefix (`harborrag_DEFAULT/…`, no longer a SHA-256 of the tenant), so a tenant
+  is found and removed by one name per store. `HARBORRAG_STORAGE_NAMESPACE_PREFIX` replaces
+  `HARBORRAG_QDRANT_COLLECTION_PREFIX` and `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`.
+  **Existing data is not moved**: reset the stores and re-ingest after upgrading.
+- Evidence points carry `graph_chunk_node_key` and `graph_source_node_key` (indexed), the
+  chunk's graph node and its document's source entity, so a vector hit joins the graph directly.
+- Summarization is off in the shipped `config/topology/graph_build.yaml` (`summarization.enabled:
+  false`), and the switch now stops all summary work, not just the worker: publishing, retiring and
+  permission imports no longer take the summary tenant lock or mark `summary_scopes` dirty, and
+  retrieval no longer joins summary views onto graph nodes. Rebuild the worker image to pick up the
+  YAML. After turning it back on, run `harborrag topology summaries backfill` so scopes published
+  while it was off are summarized.
+- An issue or page no longer asserts its own `HAS_ATTACHMENT` edge to an attachment that is a
+  separate document: the attachment's projection owns that edge. Every pair used to have two
+  parallel edges, the extra one owned by the container's version and carrying its full metadata.
+  Existing duplicates are removed by relation repair on the next ingestion run of the scope.
+- Search collapses identical chunk text per subject (the source item, or an attachment's parent)
+  instead of across the whole corpus. The same file attached twice to one issue still shows once,
+  but the same comment on different issues (for example a status line on each candidate) is no
+  longer reduced to a single hit.
+- LiteParse is the default parser engine. A new `liteparse` PDF profile (LiteParse, then
+  PyMuPDF) is the default wherever a profile was not named (it was `balanced`, which starts with
+  PyMuPDF), and the image parser's default `ocr_engine` is `liteparse` instead of `pytesseract`.
+  `harborrag init` now scaffolds `pdf-liteparse` and `image-liteparse` (Docling and RapidOCR stay
+  as commented alternatives) and writes `HARBORRAG_OCR_SERVER_URL=` to `.env`. The adapters
+  `parsers` and `image` extras install `liteparse`, so the default engine is always present.
+- The LiteParse OCR server is opt-in. `config/parsers.yaml` reads `HARBORRAG_OCR_SERVER_URL`
+  with no default, and `env/.env.parser` carries the variable (empty in the example). Unset or
+  empty, the PDF and image parsers use no OCR server and LiteParse OCRs locally with Tesseract;
+  previously they fell back to `http://ppocr-server:8888/ocr`. To keep using the server, set
+  `HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr` (or `http://localhost:8888/ocr` on the host).
+- MinIO now runs from `cgr.dev/chainguard/minio` (pinned by digest) in the dev stack and in
+  `harborrag init` projects, because `quay.io/minio/minio` refuses anonymous pulls. The image
+  runs as uid 65532 rather than root, so a `minio_data` volume written by the old image may hold
+  root-owned files: fix it once with
+  `docker run --rm -v <project>_minio_data:/data alpine chown -R 65532:65532 /data`, or reset it.
+- Ingestion is sized for the shared 4-vCPU / 15 GB host instead of for I/O latency.
+  `worker.max_concurrent_activities` drops from 12 to 4 (24 slots and executor threads per
+  worker process instead of 72), `ingestion.document_concurrency` from 32 to 8, and the example
+  worker replica count stays at 2. The Compose files set no per-service CPU or memory limits,
+  so size the host for the corpus (FalkorDB holds the graph in RAM, roughly 12.6 KB per Jira
+  document).
+- Ingestion workers pass already-loaded HarborRAG modules through the Temporal workflow sandbox
+  (`temporal/sandbox.py`), so it no longer re-imports them for every workflow run (about 320 ms
+  to 1 ms of CPU per document workflow). Workflow modules and their parent packages stay
+  sandboxed. The passthrough is configured on the runner because the in-module
+  `imports_passed_through()` form leaves base-class modules unresolvable when workflow inputs
+  are decoded.
+- `parse_and_normalize` parses in-process. The isolated-subprocess attempt before it could not
+  pickle the preparation stages and failed on every document before falling back.
+- Source dispatch plans are stored as pages with an index, and a document workflow resolves
+  its record from one cached page instead of downloading and parsing the whole plan. Per-
+  document cost no longer grows with the plan, which is what a 400,000-document run needs.
+- Summary reads (`entity_evidence`, `views`) run in a snapshot-isolated read-only
+  transaction and never lock or write; tenant rollups are queued by the worker's
+  `reconcile` when every source ACL is resolved and public, instead of by a reader.
+- `HARBORRAG_SECRETS_ENCRYPTION_KEY` is required by `CompositionRoot.production` (the one
+  place that opens the secret store), not by every `RuntimeSettings`; reader-only processes
+  such as the MCP server no longer receive it.
+- `ingest start --wait` and `ingest watch` render an inline progress block instead of a
+  full-screen dashboard; `watch --events` streams NDJSON.
+- A summary's `coverage_mode` can now be `partial`, not only `complete` or `empty`. Coverage
+  is read from discovery -- the connector lists an issue's attachments and comments before any
+  of them is parsed -- so a card written while an attachment is still in OCR, or is of a type
+  nothing can parse, says so and names how many documents are missing, instead of silently
+  describing a candidate without their CV. A partial card is superseded automatically once the
+  missing document lands.
+- Direct-mode commands (`ingest run`, `retrieve`, `chat`, `doctor`) no longer import the
+  Temporal client, so they work on a bare or `[local]` install; durable commands explain
+  that `harborrag[temporal]` is required instead of failing with an import error.
+- `config/parsers.yaml` setting values may reference the environment with `${VARIABLE}` or
+  `${VARIABLE:-default}`, as `config/models.yaml` already did. The LiteParse OCR server URL
+  uses it: `HARBORRAG_OCR_SERVER_URL` (see `env-example/.env.parser.example`) moves both the
+  PDF and the image parser off the `ppocr-server` container alias - for example to
+  `http://localhost:8888/ocr` for a host run - without editing the catalog. A bare
+  `${VARIABLE}` that is unset fails the load; secrets keep using the `secrets` block.
+- FalkorDB names a tenant's graph `{HARBORRAG_STORAGE_NAMESPACE_PREFIX}_{tenant_id}` (default
+  `harborrag_DEFAULT`) instead of appending a SHA-256 digest of the tenant, matching the Qdrant
+  collection naming so a graph is recognizable without a lookup. The tenant must use the same charset Qdrant requires
+  (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
+  Deployments that already wrote digest-named graphs must rename them or reindex, and
+  projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
+- CLI exit codes: 0 completed, 1 not completed or failed, 2 usage error, 3 `--timeout` expired,
+  130 interrupted. `ingest wait` and `start --wait --json` now exit 1 for `PARTIAL`, `FAILED` or
+  `CANCELLED` runs, and `ok` in `--json` output only means the command ran: check the exit code
+  or `data.result.status`.
+- `harborrag ingest start` without `--run-id` generates `ingest-<hex>` ids (the API still uses
+  `ingestion-<hex>`); scripts matching the prefix must accept both.
+- From a repository checkout, `ingest run` and `ingest start` refuse to run on the default sqlite
+  control DB. Set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres, or use a `harborrag init`
+  project.
+- Local connectors reject unknown filter keys, and `--limit` / `--updated-after` scans no longer
+  retire documents; run a full scan to retire deleted ones.
+- Failed documents record the classifier code (e.g. `document_release_parser_rejected_document`)
+  and the stage that failed, and parser rejections are no longer retried; update scripts that
+  match the old codes.
+- Startup fails when `HARBORRAG_EMBEDDING_DIMENSIONS` contradicts a deployment's
+  `expected_dimensions` in `config/models.yaml`.
+- `harborrag auth keys create` needs the control DB at the migration head (run it once with
+  `--migrate`); an unknown `--key-id` fails with `KeyNotFound`, revoking by owner always returns
+  `{"revoked": [...], "active_keys": N}` (N = the active keys found and revoked, `0` when
+  nothing was active), and constraint errors report `ConstraintRejected`.
+- Reusing the id of a finished run is rejected (`WorkflowRunAlreadyStartedError`, HTTP 409); use a
+  new run id for every run.
+- `POST /ingestions`: when Temporal is unreachable at connect time, a still-unsubmitted run is
+  marked `FAILED` (`submission_failed`) and named in `details.run`, instead of being started
+  later by the outbox. Submit again with a new run id.
+- `GET /ingestions/{id}` returns 200 with `execution_status: "not_found"` when Temporal no longer
+  knows the run (it used to return 404); 404 now only means there is no such run.
+
+- Accepting a section or document summary card re-reads only its own document and permissions
+  instead of the whole source scope, and the summary reconcile poll no longer snapshots the whole
+  tenant unless a tenant rollup is due. Changing one `card_words` budget no longer invalidates the
+  cached section and document cards (leaf cards regenerate once after upgrading).
+- External-stub pruning runs once per source finalization, in bounded batches, instead of after
+  every 500-document repair page.
+- Entity summary index publication embeds cards in batches of 64 and upserts in chunks of 256;
+  publication failures are logged at ERROR.
+- The periodic retired-version sweep runs within a minute of worker start, drains its backlog in
+  one pass (10-minute budget), queues failed purges behind fresh ones, and exports
+  `harborrag_retention_purge_versions_total`, `harborrag_retention_purge_deleted_objects_total`
+  and `harborrag_retention_purge_backlog`. A purge holds a renewable lease on the version.
+- SharePoint throttles Microsoft Graph through the shared connector rate limiter and reports its
+  waits in the connector rate-limit metrics; `requests_per_minute` is now one budget shared by
+  all workers using the same app registration, not a per-process limit.
+- Jira custom-field filter keys fold accents instead of splitting on them (`Kỹ năng` ->
+  `fields.ky_nang`, `Résumé` -> `fields.resume`), and when display names collide the lowest
+  field id owns the readable key on every issue. Saved filters or facets that used the old keys
+  must be updated; re-ingest Jira sources.
+- `harborrag init` keeps an existing `.gitignore` (appending only missing entries, no `--force`
+  needed) and an existing `docker-compose.yml` (the new copy is written to
+  `docker-compose.harborrag.yml`), and a re-init keeps the port offset recorded in the
+  project's `.env`.
+- CLI path arguments (`topology evaluate`, `topology config --path`, `topology enable --profile`,
+  `topology indexing` files, `auth keys create --secret-output`) resolve against the directory
+  the command was run from, and project discovery stops at the nearest directory holding
+  `harborrag.yaml` or `config/connectors.yaml`.
+- The MCP Explorer sizes reads, evidence windows and searches to the calling tenant's limits.
+- Memory extraction and the agent `manage_memory` tool keep project-scope writes to the session
+  unless `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE=true`; the rolling session summary id is a
+  hash of tenant, user and session (a summary under the old `summary:{session_id}` id is carried
+  forward and deleted the next time its session builds context); summary prompts are bounded
+  (messages clipped head-and-tail, about 6k tokens per call).
+- Breaking (MCP tool contract): the graph chunk edge is `(:Structure)-[:HAS_CHUNK]->(:Chunk)`,
+  replacing alpha1's `(:Chunk)-[:SUPPORTS]->(:Structure)`; graph tools no longer accept
+  `supports` (use `has_chunk`, which points the other way), and graph `max_depth` / `max_paths`
+  are capped at 4 / 5.
+
+### Deprecated
+
+- The Confluence `max_child_pages` connector setting (removed after 2.0.0a1) is accepted and
+  ignored with a WARNING for this release; delete it (listed `content_ids` now ingest their
+  whole subtree).
+
+### Removed
+
+- The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
+- Three redundant MCP reader tools, leaving eleven: `composed_evidence_search` (use
+  `vector_search` with `mode: local_semantic`, then `fetch_evidence`), `verify_citations`
+  (`fetch_evidence` already rechecks publication, permissions and the expected
+  document/version), and `get_document_metadata` (`get_document_context` now returns
+  `document_title`). Remove their entries from a customised `mcp.yaml`, which rejects
+  unknown tools. The Explorer's "Deep evidence" search mode goes with them, and the reader
+  port and SDK drop `get_document_metadata` / `DocumentMetadataRequest` /
+  `DocumentMetadataResponse`; `list_documents` still returns `DocumentMetadata`.
+- The unimplemented `HARBORRAG_MEMORY_PII_REDACTION` setting.
+
+### Security
+
+- The MCP server no longer receives the secrets encryption key, and the MCP Compose file no
+  longer opts into plaintext remote backends. It still connects to PostgreSQL and MinIO with
+  the credentials from `env/.env.database` (the Postgres owner and the MinIO root user); a
+  least-privilege reader role and read-only bucket user are planned, so keep the MCP reader on
+  a trusted network until then.
+- Issued reader keys cannot name the `*` wildcard tenant, at issuance, verification and in the
+  database constraint; the file-backed key list refuses it too.
+- Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
+  user and not world-writable; `--project` opts in explicitly. The CLI announces the project
+  it activated, and `harborrag doctor` never echoes environment values or pydantic input dumps.
+- Validation errors no longer echo input values, so a malformed DSN no longer prints its password
+  in CLI output or API errors.
+- The CLI no longer prints tracebacks, which can contain credentials, above `DEBUG`; set
+  `HARBORRAG_LOG_LEVEL=DEBUG` to see them.
+
+- In `HARBORRAG_MCP_AUTH_MODE=api_key`, the static owner token (`HARBORRAG_MCP_BEARER_TOKEN`)
+  is accepted beside reader keys only when `HARBORRAG_MCP_READER_TENANT_ID` names one tenant;
+  unset or `*`, the server starts with reader keys only and logs a WARNING.
+- The memory admin API no longer lets any tenant reader delete PROJECT or TENANT memories other
+  users wrote: deleting another user's PROJECT memory needs editor, a TENANT memory needs admin,
+  and listings omit source session/message ids on shared rows the caller did not write.
+- Memory extraction can no longer supersede a project memory another user wrote.
+- Over the document-enumeration budget, retrieval diagnostics (`candidate_hits` and the stale,
+  unpublished and malformed counts) count only documents the caller may read, so a hidden
+  document matching a filter is indistinguishable from no match.
+- The legacy `.ppt` parser decodes each slide and notes container once and enforces its output
+  limit while extracting, so a crafted slide list can no longer multiply a small file into
+  gigabytes of text; a presentation over the limit is rejected instead of re-parsed without its
+  notes.
+- SharePoint refresh-token saves use an exclusively created owner-only temp file, so concurrent
+  saves no longer corrupt the cache and a pre-created or symlinked temp file cannot capture the
+  token.
+- A tenant-wide reindex drains only its own tenant's projection-cleanup jobs. It used to claim
+  every tenant's pending jobs, run them under its own storage context (deleting nothing), and
+  mark them completed, so retention then purged their manifests and left the retired Qdrant
+  points and FalkorDB nodes orphaned. `IngestionReliabilityPort.pending_cleanup_jobs` now
+  requires `tenant_id`.
+- Credential field names written without separators (`apikey`, `accesstoken`, `clientsecret`,
+  `privatekey`, `secretkey`, `authtoken`, `passWord`) are refused as raw configuration and
+  redacted from model-error metadata; `redact_mapping` also applies that definition, so
+  `api.key` and `Private Key` are masked too.
+- Model configuration validation errors no longer echo their input, which arrives after
+  `${VAR}` expansion, so `python -m harborrag_adapters.models validate`, runtime startup and
+  tenant chat configuration errors no longer print API keys or credentialed Redis URLs.
+- The SharePoint connector no longer requests `@microsoft.graph.downloadUrl` and strips
+  `@microsoft.graph.*` annotations from the payload stored in the raw-metadata artifact. That
+  pre-authenticated link bypasses SharePoint permissions for about an hour.
+- With `HARBORRAG_AUTH_MODE=none`, a request that arrives on a non-loopback interface is refused
+  (403) unless `HARBORRAG_ALLOW_INSECURE_DEV=true`. The startup check read `HARBORRAG_HOST`, so
+  `uvicorn ... --host 0.0.0.0` with default settings served an implicit owner on every interface.
 ### Fixed
 
+- Report corrupt and encrypted legacy `.xls` workbooks as parser rejections
+  (`ParseError` / `PasswordProtectedError`) instead of leaking `xlrd.XLRDError`.
+- Ingesting a large source no longer fails in discovery. The discovery and finalization
+  activities had fixed 30- and 15-minute budgets per attempt, so a Jira project of tens of
+  thousands of issues exhausted its retries before listing finished (`TimeoutError`). Both
+  budgets are now `timeouts.discovery_seconds` / `timeouts.finalization_seconds` in
+  `config/temporal.yaml` (12h / 6h there; 30 / 15 minutes when unset), frozen into each run
+  like `retries`, and finalization now heartbeats. The dispatch plan is also no longer
+  assembled in memory: paged discovery keeps only page counts and hands on the page index,
+  and finalization and retry selection read the plan one page at a time. Runs started
+  earlier keep their whole-plan artifact and still finish.
+- The MCP `vector_search` and graph tools advertised an `outputSchema` with an unresolvable
+  `#/$defs/SummaryAttribute` reference, so clients rejected them; summary schemas are now
+  fully inlined.
 - Revalidate retrieval candidates against the authoritative active document
   versions immediately before returning results, preventing a concurrent
   publication from exposing a superseded document version.
+- Ctrl-C or a failure during `harborrag ingest run` no longer leaves the run stuck and its scope
+  blocked: the run ends `CANCELLED` or `FAILED` with the failing stage. Ctrl-C on `run`, `watch`,
+  `wait` and `start --wait` names the run and exits 130.
+- The API outbox no longer re-submits runs executed inline or created by a worker.
+- `harborrag ingest pause`, `resume` and `cancel` no longer report `NotFound` after applying the
+  action.
+- `harborrag ingest status` and `watch` fall back to the control-plane record when Temporal no
+  longer knows the run, and `PARTIAL` runs show as `partial` instead of `completed`.
+- Startup failures, failed durable runs and Qdrant vector-size mismatches report readable
+  messages (the target, `error_code` or both dimensions) instead of a bare class name, never
+  credentials or exception text; bad arguments fail before any store connects.
+- Each failed document logs one warning with its stage and code, with the traceback at `DEBUG`.
+- CLI: unknown commands report "No such command"; configuration errors show their message;
+  `doctor` ignores commented-out `${VAR}` lines and its hints name the right files;
+  `harborrag --help` takes about 0.9 s instead of 2.0 s; a close failure after the output no
+  longer changes the exit code.
 
+- A source ingestion no longer ends FAILED when its batch finishes, or is cancelled after a
+  pause, while the pause relay is persisting a pause or resume (gated by a new workflow patch,
+  so running histories replay unchanged).
+- Pausing or resuming an ingestion keeps its progress summary and start time, and a pause sent
+  during discovery or finalization is accepted (applied at the next batch boundary) instead of
+  returning 503.
+- Re-ingesting content whose retired version is being purged retries instead of failing the
+  document; an interrupted purge resumes after its lease lapses, even with retention `off`; the
+  raw-reference check runs right before shared raw objects are deleted, and siblings purged
+  together no longer orphan a shared raw object.
+- A retried chat completion can no longer take over the idempotency claim of a slow stream that
+  is still running (stale-claim window now 80 minutes).
+- Migration 0032 assigns each legacy secret to the tenant of the source that references it, and
+  legacy secret retirements queued before tenant scoping are replayed under DEFAULT; the 0035
+  downgrade maps PAUSED tasks to RUNNING. Databases already at 0040 are not re-backfilled.
+- Reverse relation repair skips (and logs) a failing declarer from another scope instead of
+  failing the current run, no longer re-repairs ambiguous cross-connector targets on every run,
+  and concurrent repairs of one declarer no longer hit a primary-key violation.
+- Graph reads that reach an external link-target stub no longer fail with a validation error,
+  and a shared stub's visibility no longer flips with ingestion order.
+- Entity-lane evidence honours the caller's scope, type, date and `fields.*` filters;
+  `facet.*` filters match case-insensitively; multi-valued source fields become one facet value
+  per member; `find_entities` rejects non-facet names and reports `unknown_facet` instead of a
+  complete empty answer.
+- Retrieval no longer fails with AUTHORIZATION_UNAVAILABLE for a principal who can read more than
+  10,000 documents; past that budget it pre-filters by readable source scopes, remembers the
+  over-budget result per principal for 60 s, and gives the fallback lookup its own timeout. Under
+  that fallback, `fields.*` filters are refused with AUTHORIZATION_UNAVAILABLE.
+- A failing summary dispatch is logged and backed off instead of shutting down every ingestion
+  worker in the process.
+- Per-tenant chat clients build under a per-tenant lock, close a replaced or evicted client only
+  after its in-flight turns finish, and retry a transient catalog or secret failure after 10 s
+  without evicting any cached client (the tenant keeps its existing client meanwhile).
+- A cancellation after an agent run's COMPLETED checkpoint no longer overwrites it with a
+  resumable CANCELLED one; both the SQL and the in-memory run repositories refuse any save over a
+  COMPLETED run.
+- SharePoint: a deleted item fails as a missing source item, throttling or 5xx after retries is a
+  retryable `source_unavailable` failure, retries re-read the token and a 401 refreshes it once,
+  discovery walks each library once, and path allowlists match percent-encoded folder names.
+- The MCP file key store no longer revokes every key when one entry's hash variable is unset; it
+  denies every key while the file is missing or cannot be parsed (so a broken revocation edit
+  fails closed), is cached by mtime and read off the event loop, and logs denials of expired or
+  revoked keys by key id. MCP clients again see schema, budget, disabled-tool and tenant-refusal
+  messages; errors raised inside a tool's own execution stay masked.
+- An `mcp.yaml` with defaults or limits above a tool's safety maximum (such as alpha1's graph
+  `max_depth: 8`) loads with those values lowered and a WARNING instead of stopping the server.
+- Setting the removed `HARBORRAG_QDRANT_COLLECTION_PREFIX` or `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`
+  logs a startup WARNING naming `HARBORRAG_STORAGE_NAMESPACE_PREFIX`.
+- `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION/USER/PROJECT` are enforced: extracted memories,
+  rolling summaries and agent-recorded memories get an `expires_at` for their scope (0 = never).
+- Memory recall without an embedder searches per significant query term (concurrently, keeping
+  partial results when one search fails); extraction still supersedes the contradicted fact when
+  indexing the replacement fails, and re-indexes a restated fact only when its earlier index
+  write never completed.
+- `env-example` no longer lists memory-cap and log-rotation variables that no Compose file reads.
 ### Security
 
 - Require operator-supplied PostgreSQL, MinIO, and Grafana passwords instead
@@ -30,709 +482,17 @@ operator-facing alias.
 ### Documentation
 
 - Rebuilt the public documentation website around HarborRAG 2.0.0 capabilities,
-  limitations, package boundaries, and project lineage.
+  limitations, and package boundaries.
 - Added a publication-manifest hero, interactive ingestion/retrieval explorer,
   accessible interface examples, and responsive navigation while retaining the
   existing visual assets and splitting presentation code into focused modules.
 - Added public data-lifecycle, runtime-reliability, publication, and security
   guidance plus a CI guard against publishing private reference material.
 
-### Changed
-
-#### Project renamed: Qdrant-loader → HarborRAG
-
-- Qdrant-loader is now **HarborRAG**, restructured from a single Qdrant-coupled ingestion tool into a modular, provider-agnostic RAG framework. The old `qdrant-loader` / `qdrant-loader-core` / `qdrant-loader-mcp-server` packages are replaced by eight ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp-server`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently instead of being hardwired to Qdrant and a fixed provider set.
-- Documentation, Docker assets, and CI workflows updated to reflect the new package layout and naming.
-
-> This is a breaking rename: import paths, package names, and CLI/config references from `qdrant-loader` do not carry over. See [README.md](README.md) for the current architecture.
-
-## [1.0.3] - 2026-06-08
-
 ### Added
 
-#### Qdrant-loader
-
-- Queue-based ingestion architecture with SQLite job queue, worker pool, scheduler, and new `serve`/`jobs`/`webhook` CLI flows [#269] [#280] [#281] [#284] [#289] [#291] [#294] [#307]
-- Excel ingestion improvements and Jira Data Center custom field mapping support [#251] [#276]
-- `updated_after` filter for Jira connector to limit ingestion to issues updated after a given date [#267]
-- Container deployment setup with dedicated Dockerfiles and `docker-compose.yaml` [#278]
-
-#### Qdrant-loader-core
-
-- Bedrock and Gemini provider support in the LLM/embedding layer [#275] [#292]
-- Sparse retrieval primitives for hybrid search flows [#184]
-
-#### Qdrant-loader-mcp-server
-
-- Qdrant hybrid search support with sparse+dense pipeline integration [#184]
-
-### Fixed
-
-#### Qdrant-loader
-
-- Queue concurrency and failure-path hardening, including race-condition fixes and safer startup/auth/readiness handling [#307] [#311]
-- State DB and Alembic path resolution reliability, plus safer rollback behavior for multi-project transactions [#270] [#285] [#290]
-- Deleted Jira issues are now cleaned up from Qdrant during re-ingestion and delete flows [#307]
-- Empty-chunk regression prevention and CORS environment configuration fixes [#268] [#293]
-
-### Changed
-
-#### Qdrant-loader
-
-- Ingestion pipeline refactored to a streaming-oriented flow for queue-driven execution [#295]
-
-## [1.0.2] - 2026-05-12
-
-### Changed
-
-#### Documentation
-
-- Updated contributing guide for external contributors [#273]
-
-## [1.0.1] - 2026-04-23
-
-### Fixed
-
-#### Qdrant-loader
-
-- Fixed UI layout issues across website pages [#253]
-- Privacy policy `last_updated` fallback now uses template file mtime instead of build date when Git timestamp is unavailable [#259]
-
-#### Documentation
-
-- Updated docs and removed broken internal links [#258]
-
-## [1.0.0] - 2026-04-09
-
-### Added
-
-#### Qdrant-loader
-
-- Contextual embeddings for enriched chunk context during ingestion [#221]
-
-### Fixed
-
-#### Qdrant-loader
-
-- Jira Cloud connection failure due to deprecated search API endpoints [#215]
-- Duplicate chunks for Python files by rewriting AST parser [#217]
-- Duplicate document IDs causing missing chunks in metric tracking [#222]
-- Ingestion metrics: aligned size metrics and aggregated project results [#222]
-- JQL injection and query breaking when configuration values include special characters [#223]
-- Jira connector validation for environment configuration and connection errors [#224]
-- Optional `issue_types` and `include_statuses` configuration for Jira connector [#223]
-- Error message sanitization to prevent accidental exposure of sensitive data [#230]
-- Contextual embedding content formatting [#228]
-- YAML syntax error and broken markdown in configuration documentation [#231]
-
-#### Qdrant-loader-core
-
-- Sensitive data redaction in logging processors [#230]
-
-#### Qdrant-loader-mcp-server
-
-- Embedding logic and configuration for local (Ollama) model support [#229]
-- `vector_search_service` to use correct `embedding_model` parameter [#229]
-- Retry logic and failure context reporting in search pipeline [#229]
-
-### Changed
-
-#### Qdrant-loader
-
-- Aligned configuration templates with Ollama-first and OpenAI unified setup [#231]
-- Migrated pip/venv to uv for monorepo package management [#220]
-- Updated deprecated GitHub Actions from Node.js 20 to Node.js 24 [#227]
-- Updated website UI to v1 [#219]
-
-## [0.9.0] - 2026-03-26
-
-### Added
-
-#### Qdrant-loader
-
-- `enable_semantic_analysis` global NLP kill switch in `chunking` config to skip spaCy/LDA processing entirely for faster ingestion [#189]
-- `enable_enhanced_semantic_analysis` opt-in flag in `chunking` config to gate advanced NLP fields (`pos_tags`, `dependencies`, `document_similarity`) [#195]
-
-#### Qdrant-loader-mcp-server
-
-- `expand_chunk_context` MCP tool to retrieve surrounding chunks for richer context around a specific chunk [#185]
-- `cluster_session_id` required parameter to `expand_cluster` tool schema for session isolation [#175]
-
-### Fixed
-
-#### Qdrant-loader
-
-- Semantic analyzer now filters out garbage/punctuation-only entities from NLP metadata [#178]
-- Improved semantic similarity caching to avoid self-matches and keep similarity results fresh across repeated enhanced analyses [#195]
-
-#### Qdrant-loader-mcp-server
-
-- Instance-level `_clustering_cache` causing cross-request data leakage in `IntelligenceHandler`; replaced with session-scoped store with TTL cleanup [#175]
-- MCP server concurrency improved with FastAPI-centric workers and semaphore-based search load distribution [#176]
-- Removed redundant top-level `schemas.py` that duplicated per-tool schema modules [#181]
-- Search handler config instance de-duplicated to eliminate redundant initialization [#174]
-
-### Changed
-
-#### Qdrant-loader-mcp-server
-
-- CLI and transport layer refactored: `server.py` centralizes startup; HTTP handler split into focused route modules [#176]
-
-## [0.8.1] - 2026-03-24
-
-### Fixed
-
-- CI secret injection restricted to develop/main branches only [#187]
-- CI secrets and integration tests skipped for fork/Dependabot PRs [#187]
-
-### Changed
-
-- Removed `uv.lock` from version control tracking [#187]
-
-## [0.8.0] - 2026-03-17
-
-### Removed
-
-#### Qdrant-loader
-
-- Legacy binary Office formats (`.doc`/`.ppt`) no longer supported [#145]
-
-### Fixed
-
-#### Qdrant-loader
-
-- Unsupported-type fallback now skips ingestion for legacy `.doc`/`.ppt` files [#145]
-- Excel chunk overlap consistency [#142]
-- `.xls` inputs now treated as Excel files for chunking strategy and metadata [#141]
-
-#### Qdrant-loader-mcp-server
-
-- Applied NLP processing only to keyword-search flow [#134]
-- Lazily loaded `qdrant-client`, `spaCy`, and network imports in MCP server [#132]
-- Reduced CLI startup time by lazily loading the OpenAI SDK [#131]
-
-### Added
-
-#### Qdrant-loader-mcp-server
-
-- Cross-encoder reranking to improve retrieval relevance [#151]
-- `expand_document` MCP tool to expand context around a specific chunk [#149]
-- `expand_cluster` MCP tool with detailed analysis of document grouping and relationships [#146]
-- WRRF ranking for hybrid search to improve result quality [#133]
-
-### Changed
-
-- Simplified configuration with smart defaults and a setup wizard [#144]
-
-## [0.7.6] - 2026-01-22
-
-### Changed
-
-- Documentation terminology updated from "Release Notes" to "Changelog" [#112]
-- Applied consistent formatting across workflow and updated navigation links [#112]
-
-## [0.7.5] - 2026-01-20
-
-### Fixed
-
-#### Qdrant-loader-mcp-server
-
-- Mixed document types (dict/object) causing "Untitled" and empty `content_preview` in results [#92]
-- Incorrect usage of NestedCondition for `project_ids` filter replaced with dot notation [#97]
-- Search results not respecting user-specified `limit` parameter (now defaults to 5) [#98]
-
-### Added
-
-#### Qdrant-loader-mcp-server
-
-- Optional `similarity_threshold` parameter (default 0.7) to `find_similar_documents` for filtering by minimum similarity score [#91]
-- Separate `fetch_limit` from user `limit` with configurable defaults for better control [#98]
-
-### Changed
-
-#### Qdrant-loader-mcp-server
-
-- Updated `reason` field from `explanation` to `recommendation_reason` in complementary content results [#100]
-- Enhanced validation for text field types to prevent display issues [#92]
-
-## [0.7.4] - 2025-12-11
-
-### Fixed
-
-#### Qdrant-loader
-
-- Windows asyncio event loop crashes with signal handling and stdio support [#76]
-- --log-level CLI option not working after logging initialization [#63]
-- Missing prometheus-client dependency causing import errors [#75]
-- Deprecated langchain.text_splitter import warnings [#76]
-
-#### Qdrant-loader-mcp-server
-
-- Missing Spacy dependency causing Cursor MCP crash on startup [#82]
-- MCP Search API compatibility issues with qdrant-client 1.16 [#78]
-
-### Added
-
-#### Qdrant-loader
-
-- Test suite cross-platform support [#76]
-
-## [0.7.3] - 2025-09-11
-
-### Fixed
-
-#### Qdrant-loader
-
-- Logging duplication where CLI commands printed each log message 2-4 times [#56]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Unified logging architecture with centralized configuration across all packages [#56]
-- Idempotent setup with new `reconfigure()` method [#56]
-
-## [0.7.2] - 2025-09-05
-
-### Changed
-
-- Internal inter-package dependencies now pinned to unified release version [#54]
-- Enhanced dry-run output to preview internal dependency pin changes [#54]
-- Enforced explicit release order: bump → update classifiers → pin deps → commit → tag → release [#54]
-- Updated commit messages to reflect classifier and internal dependency updates [#54]
-
-## [0.7.1] - 2025-09-04
-
-### Added
-
-#### Qdrant-loader-core
-
-- Azure OpenAI support with robust endpoint handling (BETA) [#52]
-- Ollama endpoint handling [#52]
-- Unified `global.llm.*` configuration for provider-agnostic setup [#52]
-- Structured logging for LLM requests (provider, operation, model, latency) [#52]
-- Secret redaction in logs [#52]
-- Normalized exception mapping across providers [#52]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Vector size now read from config instead of hardcoded `1536` defaults [#52]
-- Centralized LLM layer with provider adapters [#52]
-- Direct OpenAI imports removed from application code [#52]
-- Tests and documentation updated for provider-agnostic architecture [#52]
-
-#### Qdrant-loader-mcp-server
-
-- MCP server prefers config file loading with CLI/env/file precedence [#53]
-
-### Deprecated
-
-#### Qdrant-loader-core
-
-- Legacy fields `global.embedding.*` and `file_conversion.markitdown.*` (deprecation warnings shown) [#52]
-
-### Security
-
-#### Qdrant-loader-mcp-server
-
-- Redacted `--print-config` for MCP server [#53]
-
-## [0.6.1] - 2025-08-13
-
-### Fixed
-
-#### Qdrant-loader-mcp-server
-
-- Timeout and error issues in `detect_document_conflicts` tool (achieved P95 latency 8-10s) [#45]
-- AttributeError in conflict formatter: `'dict' object has no attribute 'document_id'` [#45]
-
-### Added
-
-#### Qdrant-loader-mcp-server
-
-- Tiered analysis with intelligent document pair prioritization [#45]
-- Parallel processing with concurrent Qdrant vector retrieval [#45]
-- 8 configuration options for conflict detection performance tuning [#45]
-- Detailed performance statistics in tool responses [#45]
-- Optional per-call parameter overrides for conflict detection [#45]
-
-### Changed
-
-#### Qdrant-loader-mcp-server
-
-- Strict budgeting for expensive LLM calls (default 2 pairs) [#45]
-- Graceful degradation with partial results instead of hard failures [#45]
-- Tool schema enhanced with performance parameters [#45]
-- Error handling for malformed document data [#45]
-
-## [0.6.0] - 2025-08-12
-
-### Added
-
-#### Qdrant-loader-mcp-server
-
-- FastAPI-based HTTP transport alongside stdio transport [#43]
-- Server-Sent Events (SSE) streaming capabilities [#43]
-- `--transport` CLI option to choose between stdio and HTTP modes [#43]
-- Health check endpoints for production deployment [#43]
-- Structured tool output with JSON content [#43]
-- Tool behavioral annotations for all 8 tools [#43]
-- Protocol version validation with graceful degradation [#43]
-- Comprehensive session management for HTTP connections [#43]
-
-### Changed
-
-#### Qdrant-loader-mcp-server
-
-- MCP Protocol upgraded from 2024-11-05 to 2025-06-18 [#43]
-- Modular transport layer with clean separation [#43]
-- Error handling with improved messages [#43]
-- Connection handling performance optimizations [#43]
-
-## [0.5.1] - 2025-07-28
-
-### Changed
-
-#### Qdrant-loader-core
-
-- All chunking strategies refactored into modular components [#39]
-- Dedicated classes for document parsing, section splitting, metadata extraction [#39]
-- HTML chunking with robust handling for empty content and malformed HTML [#39]
-- Code and JSON strategy complete modular redesign [#39]
-- Chunk processing with additional metadata fields [#39]
-- Configuration templates with new strategy-specific options [#39]
-
-## [0.5.0] - 2025-07-25
-
-### Added
-
-#### Qdrant-loader-mcp-server
-
-- Cross-document intelligence: similarity analysis, clustering, relationship detection [#35]
-- Intent-aware adaptive search with AI-powered query understanding [#35]
-- Knowledge graph integration with entity relationships [#35]
-- Topic-driven search chaining with automatic discovery [#35]
-- Dynamic faceted search with real-time generation [#35]
-- spaCy integration for advanced NLP processing [#35]
-
-#### Qdrant-loader
-
-- `--force` flag to bypass change detection for complete reprocessing [#35]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Topic extraction with enhanced LDA modeling [#35]
-- Entity recognition with structured conversion [#35]
-- Chunking with improved timeout handling [#35]
-- Structured logging for semantic analysis [#35]
-
-## [0.4.15] - 2025-07-22
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- Critical chunking inconsistency (all strategies now use character-based `chunk_size`) [#33]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Markdown strategy refactored into focused components [#33]
-- Hierarchical metadata with intelligent section analysis [#33]
-- Split level detection based on document structure [#33]
-- Boundary detection using tokenizer for word/token boundaries [#33]
-
-### Added
-
-#### Qdrant-loader-core
-
-- Comprehensive integration tests for strategy consistency [#33]
-
-## [0.4.14] - 2025-07-13
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- Regex error in Excel table detection: `bad character range |-\s` [#33]
-- Large Excel tables treated as single massive chunks [#33]
-- Token limit warnings for large Excel chunks [#33]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Logical unit management with intelligent splitting at line boundaries [#33]
-- Efficient chunking for large Excel files [#33]
-- Error handling with better error messages [#33]
-- Table structure preservation during chunking [#33]
-
-## [0.4.13] - 2025-07-11
-
-### Added
-
-#### Qdrant-loader-core
-
-- Sheet-aware sectioning for Excel files (split on H2 headers) [#33]
-- Table-aware chunking with specialized `_split_excel_sheet_content` method [#33]
-- Intelligent content detection based on `original_file_type` metadata [#33]
-- 3 test cases for Excel chunking scenarios [#33]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Excel-to-markdown chunking in MarkdownChunkingStrategy [#33]
-- Context-aware splitting with different header level thresholds [#33]
-- Metadata tracking with `is_excel_sheet` field [#33]
-- Table boundary preservation in chunking [#33]
-
-## [0.4.12] - 2025-07-10
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- Missing chunk overlap in MarkdownChunkingStrategy [#33]
-
-### Added
-
-#### Qdrant-loader-core
-
-- Intelligent overlap calculation using paragraph/sentence boundaries [#33]
-- Comprehensive overlap testing [#33]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Overlap configuration support (0 for no overlap, up to 25% for context) [1f53556]
-
-## [0.4.11] - 2025-07-10
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- File size detection limits for larger documents [6160435]
-- MarkdownChunkingStrategy not respecting `chunk_size` configuration [6160435]
-- Unique chunk ID generation (chunks had identical IDs causing overwrites) [6160435]
-
-### Added
-
-#### Qdrant-loader-core
-
-- `max_chunks_per_document` configuration parameter [6160435]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Chunk count management with configurable limits [6160435]
-- Error messages with actionable configuration advice [6160435]
-- Section limits now dynamic (50% of max_chunks_per_document) [6160435]
-
-### Removed
-
-#### Qdrant-loader-core
-
-- Conflicting `max_document_size` parameter [6160435]
-
-## [0.4.10] - 2025-06-18
-
-### Fixed
-
-#### Qdrant-loader
-
-- Duplicate debug logging with `[DEBUG] [DEBUG]` tags [c72a872]
-- Mixed path separators in Windows log output [c72a872]
-- .txt file processing when `file_types: []` was empty [c72a872]
-
-#### Qdrant-loader-core
-
-- Windows file URL parsing for LocalFile connector [c72a872]
-- Git connector document URL generation with Windows paths [c72a872]
-
-### Changed
-
-#### Qdrant-loader
-
-- Logging verbosity control for third-party libraries [c72a872]
-- Emoji handling for Windows console [c72a872]
-- SQLite logs now suppressed [c72a872]
-
-#### Qdrant-loader-core
-
-- Path normalization across all connectors [c72a872]
-- Timeout handling (threading on Windows, signals on Unix) [c72a872]
-
-### Added
-
-#### Qdrant-loader
-
-- 38 Windows compatibility test cases [c72a872]
-
-## [0.4.9] - 2025-06-18
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- Missing `content_type="md"` field in `_create_deleted_document` method [430cb2a]
-
-## [0.4.8] - 2025-06-17
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- Windows file URL parsing in LocalFile Connector [b60e6e0]
-- Git Connector document URL generation with Windows paths [b60e6e0]
-- File conversion timeout handling for cross-platform [b60e6e0]
-- MarkItDown Windows signal compatibility [b60e6e0]
-
-#### Qdrant-loader
-
-- Console emoji handling for Windows [b60e6e0]
-- Duplicate log level display [b60e6e0]
-
-### Added
-
-#### Qdrant-loader
-
-- 38 Windows compatibility test cases [b60e6e0]
-
-## [0.4.7] - 2025-06-09
-
-### Fixed
-
-#### Qdrant-loader
-
-- Upgrade instructions to include `qdrant-loader-mcp-server` package [fecc0dc]
-
-#### Qdrant-loader-core
-
-- Branch display logic to default to 'main' when unknown [fecc0dc]
-
-### Changed
-
-#### Qdrant-loader
-
-- Configuration template with detailed comments [fecc0dc]
-- Release script with automatic RELEASE_NOTES.md validation [fecc0dc]
-
-#### Qdrant-loader-core
-
-- Logging in PublicDocsConnector [fecc0dc]
-
-## [0.4.6] - 2025-06-03
-
-### Added
-
-#### Qdrant-loader
-
-- Automatic update notifications when new versions available [3604f92]
-- Non-intrusive background version checking [3604f92]
-
-## [0.4.5] - 2025-06-03
-
-### Fixed
-
-#### Qdrant-loader
-
-- Version detection using `importlib.metadata.version()` [#25]
-
-#### Qdrant-loader-core
-
-- Circular imports in config → connectors → config cycle [#25]
-
-### Changed
-
-#### Qdrant-loader
-
-- CLI startup time reduced by 60-67% for basic commands [#24]
-  - `--help`: ~6.8s → 2.33s (66% improvement)
-  - `--version`: ~6.3s → 2.57s (59% improvement)
-- Lazy loading for heavy modules (96-97% import time reduction) [#25]
-
-### Added
-
-#### Qdrant-loader-core
-
-- Warning capture system for Excel file processing [#25]
-- Structured logging for openpyxl warnings [#25]
-- Smart detection for "Data Validation" and "Conditional Formatting" warnings [#25]
-- Summary reporting for unsupported Excel features [#25]
-
-## [0.4.4] - 2025-06-03
-
-### Fixed
-
-#### Qdrant-loader-core
-
-- File conversion initialization with missing `set_file_conversion_config` calls [#21]
-- Converted files using wrong chunking strategy [#21]
-- NLP processing skipped for converted files [#21]
-- MarkdownChunkingStrategy infinite loops with very long words [#21]
-
-#### Qdrant-loader
-
-- ResourceManager cleanup causing workers to exit prematurely [#21]
-
-### Added
-
-#### Qdrant-loader-core
-
-- Safety limits: `MAX_CHUNKS_PER_SECTION = 100` and `MAX_CHUNKS_PER_DOCUMENT = 500` [#21]
-- Handling for words longer than `max_size` [#21]
-- Comprehensive tests for converted file NLP processing [#21]
-
-### Changed
-
-#### Qdrant-loader-core
-
-- Strategy selection based on conversion status [#21]
-- Metadata propagation for converted files [#21]
-- `MAX_CHUNKS_TO_PROCESS` increased from 100 to 1000 chunks [#21]
-- Large document handling (up to ~1000KB text limit) [#21]
-
-#### Qdrant-loader
-
-- Change detection for incremental updates [#21]
-- Signal handling for graceful shutdown [#21]
-
-[2.0.0a1]: https://github.com/cbtw-apac/HarborRAG/compare/qdrant-loader-v1.0.3...harborrag-v2.0.0a1
-[1.0.3]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.2...qdrant-loader-v1.0.3
-[1.0.2]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.1...qdrant-loader-v1.0.2
-[1.0.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.0...qdrant-loader-v1.0.1
-[1.0.0]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.9.0...qdrant-loader-v1.0.0
-[0.9.0]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.8.1...qdrant-loader-v0.9.0
-[0.8.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.8.0...qdrant-loader-v0.8.1
-[0.8.0]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.6...qdrant-loader-v0.8.0
-[0.7.6]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.5...qdrant-loader-v0.7.6
-[0.7.5]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.4...qdrant-loader-v0.7.5
-[0.7.4]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.3...qdrant-loader-v0.7.4
-[0.7.3]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.2...qdrant-loader-v0.7.3
-[0.7.2]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.7.1...qdrant-loader-v0.7.2
-[0.7.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.6.1...qdrant-loader-v0.7.1
-[0.6.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.6.0...qdrant-loader-v0.6.1
-[0.6.0]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.5.1...qdrant-loader-v0.6.0
-[0.5.1]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.5.0...qdrant-loader-v0.5.1
-[0.5.0]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.15...qdrant-loader-v0.5.0
-[0.4.15]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.14...qdrant-loader-v0.4.15
-[0.4.14]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.13...qdrant-loader-v0.4.14
-[0.4.13]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.12...qdrant-loader-v0.4.13
-[0.4.12]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.11...qdrant-loader-v0.4.12
-[0.4.11]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.10...qdrant-loader-v0.4.11
-[0.4.10]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.9...qdrant-loader-v0.4.10
-[0.4.9]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.8...qdrant-loader-v0.4.9
-[0.4.8]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.7...qdrant-loader-v0.4.8
-[0.4.7]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.6...qdrant-loader-v0.4.7
-[0.4.6]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.5...qdrant-loader-v0.4.6
-[0.4.5]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.4...qdrant-loader-v0.4.5
-[0.4.4]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v0.4.2...qdrant-loader-v0.4.4
+- **HarborRAG** as a modular, provider-agnostic RAG framework built from eight ports-and-adapters packages (`harborrag-core`, `harborrag-adapters`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, `harborrag-app`, `harborrag-mcp-server`, `harborrag`), so connectors, parsers, model providers, and storage backends can evolve independently. See [README.md](README.md) for the current architecture.
+- Documentation, Docker assets, and CI workflows for the package layout.
+
+[2.0.0a2]: https://github.com/cbtw-apac/HarborRAG/compare/harborrag-v2.0.0a1...harborrag-v2.0.0a2
+[2.0.0a1]: https://github.com/cbtw-apac/HarborRAG/releases/tag/harborrag-v2.0.0a1

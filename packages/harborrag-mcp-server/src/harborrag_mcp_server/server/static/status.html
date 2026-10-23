@@ -45,10 +45,10 @@
     <h2>Available tools</h2>
     <ul>__MCP_TOOLS__</ul>
     <section>
-    <h2>Owner access</h2>
+    <h2>Access</h2>
     <label for="token">Bearer token</label>
-    <input id="token" type="password" autocomplete="off" placeholder="HARBORRAG_MCP_BEARER_TOKEN">
-    <small>The token is kept only in this page's memory and is never persisted by the browser.</small>
+    <input id="token" type="password" autocomplete="off" placeholder="owner token or reader key (hrk_...)">
+    <small>The owner token (HARBORRAG_MCP_BEARER_TOKEN) unlocks everything; a reader key issued by <code>harborrag auth keys create</code> unlocks the playground for its own tenant. Kept only in this page's memory, never persisted by the browser.</small>
     </section>
     <section>
     <h2>Tool Playground</h2>
@@ -202,11 +202,22 @@
       }
       return argumentsValue;
     }
+    const configControls = ['#load', '#save', '#reload', '#configuration'].map((id) => document.querySelector(id));
+    function applyRole(role, boundTenant) {
+      // A reader key is bound to one tenant and cannot administer the server:
+      // lock the tenant field to it and say why the editor is unavailable.
+      const reader = role === 'reader';
+      if (reader && boundTenant) tenant.value = boundTenant;
+      tenant.disabled = reader;
+      for (const control of configControls) control.disabled = reader;
+      show(reader ? 'Reader key: configuration requires the owner token.' : '', reader);
+    }
     document.querySelector('#load-tools').addEventListener('click', async () => {
       try {
         const query = tenant.value.trim() ? `?${new URLSearchParams({tenant_id: tenant.value.trim()})}` : '';
         const body = await responseJson(await fetch(`/api/tools${query}`, {headers: headers()}));
         toolCatalog = body.tools;
+        applyRole(body.role, body.tenant_id);
         toolSelect.replaceChildren();
         if (!toolCatalog.length) appendOption(toolSelect, '', 'No tools enabled');
         for (const tool of toolCatalog) appendOption(toolSelect, tool.name, tool.name);

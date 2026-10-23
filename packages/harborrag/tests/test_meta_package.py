@@ -70,20 +70,31 @@ def test_graph_sdk_requests_are_constructible_from_public_exports() -> None:
     assert triplet.access == path.access == subgraph.access == access
 
 
-def test_base_install_declares_only_directly_imported_packages() -> None:
+def test_base_install_declares_only_first_party_runtime_packages() -> None:
+    """The base install stays first-party and provider-free.
+
+    ``harborrag-app`` is listed even though the facade never imports it: it owns the
+    ``harborrag`` console script (``harborrag_app.cli.main:main``), so it is what makes
+    ``pip install harborrag`` yield a usable command. Its own base dependencies are just
+    typer, rich, pydantic, PyYAML, and python-dotenv -- no provider SDK reaches the base
+    install through it, which is the property this test and
+    ``test_base_facade_import_does_not_load_optional_providers`` exist to protect.
+    """
+
     project = tomllib.loads((PACKAGE_ROOT / "pyproject.toml").read_text(encoding="utf-8"))[
         "project"
     ]
 
     version = project["version"]
     assert project["dependencies"] == [
+        f"harborrag-app=={version}",
         f"harborrag-core=={version}",
         f"harborrag-runtime=={version}",
     ]
     assert project["optional-dependencies"]["chat"] == [f"harborrag-adapters[llm]=={version}"]
     assert project["optional-dependencies"]["local"] == [
         "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,"
-        f"pdf-docling,qdrant,s3,tables]=={version}"
+        f"pdf-liteparse,qdrant,s3,tables]=={version}"
     ]
     assert f"harborrag-adapters[parsers-all]=={version}" in project["optional-dependencies"]["all"]
 

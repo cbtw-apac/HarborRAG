@@ -21,7 +21,7 @@
 
 ---
 
-> **Release Note** `2.0.0a1` is the new public release. It is built for local
+> **Release Note** `2.0.0a2` is the current public release. It is built for local
 > development, integration testing, and controlled single-host staging. A hardened
 > multi-tenant production topology is not supplied yet - see
 > [Where HarborRAG is production-ready](#where-harborrag-is-production-ready).
@@ -122,9 +122,9 @@ retry, and failure behavior.
 
 </details>
 
-## 5-minute tour
+## 5-minute tour of a checkout
 
-No credentials, no Docker, and no backing services. You need Python 3.12+ and
+For contributors. No credentials, no Docker, and no backing services. You need Python 3.12+ and
 [`uv`](https://docs.astral.sh/uv/). The workspace sync needs roughly 520 MB of disk.
 
 ```bash
@@ -174,22 +174,42 @@ That is parsing on its own. Ingestion and retrieval need backing services, which
 
 ## Install
 
+New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md)
+- it shows the expected output of every step below. The short version, about ten minutes and
+no clone:
+
+```bash
+pip install "harborrag[local]"
+harborrag init my-harbor            # provider, models, key, folder to ingest
+cd my-harbor
+docker compose up -d                # Qdrant, FalkorDB, MinIO
+harborrag doctor
+harborrag ingest run workspace      # inline progress, then the run summary
+harborrag retrieve "what does this project do" --include-content
+harborrag chat "Summarise these documents."
+```
+
+`init` asks for your provider, API key, and data sources (a folder, GitHub, Confluence,
+Jira), then writes the project; `doctor` names anything that is still missing.
+
 `harborrag` is the only package you install. It pulls in the rest of the workspace, and
 extras add the providers you actually use:
 
 ```bash
+pip install "harborrag[local]"        # the CLI plus the local stack's clients
 pip install "harborrag[all]"          # everything
 pip install "harborrag[cli,qdrant]"   # or just what you need
 ```
 
-A bare `pip install harborrag` gives you the contracts and no provider clients - no vector
-store, no graph store, no model client - so add at least one extra.
+A bare `pip install harborrag` installs the MCP transport and the lazy public facade.
+Install `harborrag[mcp]` for the reader backend providers, or add `cli` for the
+application command.
 
 | Extra | Install it when you want |
 | --- | --- |
 | `local` | local end-to-end ingestion and retrieval |
 | `chat` | chat completion, embeddings, or reranking |
-| `cli` | the `harborrag` command |
+| `cli` | the `harborrag` application command |
 | `server` | the HTTP control-plane API |
 | `mcp` | MCP retrieval tools in an IDE or agent |
 | `temporal` | durable ingestion (`submit`/`pause`/`resume`/`cancel`) |
@@ -278,10 +298,10 @@ Then open the files it created and replace the placeholders:
 ### Three values you must fill in
 
 `bootstrap` leaves working local defaults everywhere except these. The first one is
-mandatory - Compose refuses to start without it:
+mandatory for the API and worker; their launchers refuse to start without it:
 
 ```bash
-# 1. env/.env.database - ships EMPTY and blocks startup.
+# 1. env/.env.database - ships EMPTY and blocks API/worker startup.
 #    Encrypts stored connector credentials in the control database. The API and the
 #    worker must share the same value, and it cannot change once secrets are stored.
 openssl rand -hex 32
@@ -307,8 +327,8 @@ Model references are expanded eagerly at load time, so a missing *embedding* var
 fails just as hard as a missing chat one.
 
 > **If `dev.sh up` dies with**
-> `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a value` - that is this
-> step. Compose treats an empty value the same as an unset one.
+> `HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker` - that is this
+> step. The launcher treats an empty value the same as an unset one.
 
 <details markdown="1">
 <summary><strong>Details: what reads these files, and how to point elsewhere</strong></summary>
@@ -319,8 +339,8 @@ manager. The checked-in Compose worker explicitly loads `env/.env.connector`,
 `env/.env.parser`, and `env/.env.models`; the API and MCP launchers load the files listed
 in the table above.
 
-**Overriding paths.** Both scripts read the same environment-file variables, so you can
-keep secrets outside the checkout:
+**Overriding paths.** The checkout launchers accept environment-file path
+overrides, so you can keep secrets outside the checkout:
 
 ```bash
 DATABASE_ENV_FILE=/etc/harborrag/database.env \
@@ -329,8 +349,9 @@ MODEL_ENV_FILE=/etc/harborrag/models.env \
 ```
 
 `dev.sh` accepts `DATABASE_ENV_FILE`, `TEMPORAL_ENV_FILE`, `CONNECTOR_ENV_FILE`,
-`PARSER_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`. `mcp.sh` accepts
-`DATABASE_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`.
+`PARSER_ENV_FILE`, `MODEL_ENV_FILE`, `API_ENV_FILE`, and `MCP_ENV_FILE`. The MCP checkout
+wrapper accepts `DATABASE_ENV_FILE`, `MODEL_ENV_FILE`, and `MCP_ENV_FILE`; the installed
+`harborrag-mcp` command accepts `--env-file` and direct `HARBORRAG_*` settings.
 
 **Doing it by hand.** `bootstrap` is `cp` plus `chmod` plus token generation. The manual
 equivalent:
@@ -498,7 +519,7 @@ operator commands:
 ```bash
 uv run harborrag ingest status RUN_ID --json
 uv run harborrag ingest wait RUN_ID --json
-uv run harborrag ingest watch RUN_ID      # live TUI dashboard
+uv run harborrag ingest watch RUN_ID      # inline progress until the run settles
 uv run harborrag ingest pause RUN_ID
 uv run harborrag ingest resume RUN_ID
 uv run harborrag ingest cancel RUN_ID
@@ -532,9 +553,9 @@ More: [CLI reference](docs/users/cli-reference/README.md) ·
 
 ## Connect an MCP client
 
-HarborRAG exposes **four** audited, tenant-scoped retrieval tools over MCP:
-`vector_search`, `graph_triplet_search`, `graph_path_search`, and
-`graph_subgraph_search`. Every call requires an explicit tenant, passes JSON-schema and
+HarborRAG exposes **eleven** audited reader tools over MCP, including
+`vector_search`, evidence and document reads, source discovery, and graph search.
+Tenant-scoped calls require an explicit tenant, pass JSON-schema and
 budget validation, and is recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 
@@ -668,7 +689,7 @@ The same CLI can `validate` and `render` the chat, embedding, and reranking sect
 | --- | --- |
 | [What is HarborRAG?](docs/getting-started/what-is-harborrag.md) | Concepts and the implemented/scaffolded boundary |
 | [Installation](docs/getting-started/installation.md) | Every install path, extra, and platform note |
-| [Quick start](docs/getting-started/quick-start.md) | Checkout to first ingested document |
+| [Quick start](docs/getting-started/quick-start.md) | `pip install` to your first answer, in ten minutes |
 | [Documentation index](docs/TOC.md) | Everything, organized |
 
 | Using it | |
@@ -717,28 +738,6 @@ Maintainers: the publication sequence lives in
 - **Questions and ideas** - [GitHub Discussions](https://github.com/cbtw-apac/HarborRAG/discussions)
 - **Bugs and feature requests** - [GitHub Issues](https://github.com/cbtw-apac/HarborRAG/issues)
 - **Security** - do not open a public issue; follow [SECURITY.md](SECURITY.md)
-
-<details markdown="1">
-<summary><strong>Coming from Qdrant Loader?</strong></summary>
-
-HarborRAG 2.0 is Qdrant Loader, renamed and restructured from a single Qdrant-coupled
-ingestion tool into a provider-agnostic framework. Qdrant is now one vector adapter among
-several rather than the hardwired store.
-
-This is a **breaking** change. Import paths, distribution names, CLI commands, and
-configuration keys from `qdrant-loader` do not carry over. The closest equivalents:
-
-| Qdrant Loader | HarborRAG |
-| --- | --- |
-| `qdrant-loader` | `harborrag-app` for the CLI, or `harborrag` as the library facade |
-| `qdrant-loader-core` | `harborrag-core`, `harborrag-engine`, `harborrag-memory`, `harborrag-runtime`, and `harborrag-adapters` |
-| `qdrant-loader-mcp-server` | `harborrag-mcp-server` |
-
-There is no automated migration path from a 1.x deployment: reconfigure connectors,
-parsers, and models against the new catalogs in [`config/`](config/), then reingest. The
-[2.0.0a1 changelog](CHANGELOG.md#200a1---2026-08-27) records the full migration boundary.
-
-</details>
 
 ## License
 

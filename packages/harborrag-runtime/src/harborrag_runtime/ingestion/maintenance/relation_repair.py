@@ -9,28 +9,28 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+from harborrag_adapters.repositories.database.ingestion_control import UnresolvedSourceRelation
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
-from harborrag_adapters.repositories.object_store import (
-    CanonicalDocumentArtifactRepository,
-    ChunkArtifactReader,
-)
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
+    ActiveSourceDocument,
     ChangeFingerprintBuilder,
     ProcessingProfile,
 )
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.artifacts import CanonicalDocumentArtifactPort, ChunkArtifactReaderPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphDocumentTarget,
     GraphProjectionBatch,
     GraphProjectionBuilder,
     GraphProjectionInput,
+    target_connector_type,
 )
 
 from ..document.models import DocumentReleaseRequest
-from .relation_supersession import document_relations, superseded_relations
+from .relation_supersession import document_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 
@@ -55,8 +55,16 @@ class RelationRepairResult:
 @dataclass(frozen=True, slots=True)
 class _RepairTarget:
     document_id: str
-    processing_fingerprint: str
+    # None accepts whatever profile the active version was processed with: a declarer
+    # re-repaired because its target appeared belongs to another run's configuration.
+    processing_fingerprint: str | None
     graph_projection_version: str
+
+
+# Re-repair at most this many declarers per pass, so one run cannot be held hostage by a
+# tenant's whole backlog; the next run picks up where the cursor stops.
+_MAX_RESOLVABLE_DECLARERS = 10_000
+_RESOLVABLE_PAGE = 500
 
 
 class GraphRelationRepairService:
@@ -66,8 +74,8 @@ class GraphRelationRepairService:
         self,
         *,
         control: IngestionControlPlaneDatabase,
-        canonical_artifacts: CanonicalDocumentArtifactRepository,
-        chunk_reader: ChunkArtifactReader,
+        canonical_artifacts: CanonicalDocumentArtifactPort,
+        chunk_reader: ChunkArtifactReaderPort,
         graph_store: KnowledgeGraphRepositoryPort,
         max_concurrency: int = 8,
     ) -> None:
@@ -101,7 +109,87 @@ class GraphRelationRepairService:
             ),
             context=context,
         )
+        # No stub pruning here: finalization calls this once per plan page, and a prune
+        # scans the tenant's whole graph. ``repair_resolvable`` prunes once, after it.
         return self._result(results)
+
+    async def repair_resolvable(
+        self,
+        *,
+        tenant_id: str,
+        graph_projection_version: str,
+        limit: int = _MAX_RESOLVABLE_DECLARERS,
+    ) -> RelationRepairResult:
+        """Re-repair documents whose unresolved link targets have since been published.
+
+        The reverse trigger. A document's links are resolved when *its* source runs, so
+        a link to an item another scope ingests later stayed pointed at a stub forever.
+        Every repair persists what it could not resolve; this walks the declarers whose
+        targets are now active and repairs them, which re-points their links at the real
+        nodes (or drops them where the far end owns the edge) and orphans the stubs.
+
+        The declarers belong to other scopes and other runs, so one that fails to repair
+        is logged and skipped rather than failing the caller's task: its unresolved rows
+        stay, and a later run retries it. This is also where the stubs orphaned by this
+        pass and by the caller's forward repairs are pruned, once.
+        """
+
+        context = StorageOperationContext.system(tenant_id)
+        cursor = ""
+        totals: list[tuple[int, int, int]] = []
+        failed: list[str] = []
+        visited = 0
+        while visited < limit:
+            page = await self._control.unresolved_relations.resolvable_declaring_documents(
+                tenant_id=tenant_id,
+                after=cursor,
+                limit=min(_RESOLVABLE_PAGE, limit - visited),
+            )
+            if not page:
+                break
+            totals.extend(
+                await self._repair_targets(
+                    tuple(
+                        _RepairTarget(
+                            document_id=document_id,
+                            processing_fingerprint=None,
+                            graph_projection_version=graph_projection_version,
+                        )
+                        for document_id in page
+                    ),
+                    context=context,
+                    failed=failed,
+                )
+            )
+            visited += len(page)
+            # A cursor, not "until nothing is left": a declarer whose repair still
+            # leaves the row (a failed or skipped repair) would otherwise loop forever.
+            cursor = page[-1]
+        if failed:
+            logger.warning(
+                "Reverse relation repair skipped failing declarers tenant_id=%s "
+                "failed=%d visited=%d",
+                tenant_id,
+                len(failed),
+                visited,
+            )
+        await self._prune_stubs(context)
+        return self._result(totals)
+
+    async def _prune_stubs(self, context: StorageOperationContext) -> None:
+        """Remove stubs nothing points at any more; a failure only delays the cleanup."""
+
+        try:
+            pruned = await self._graph.prune_external_stubs(context=context)
+        except Exception as error:  # noqa: BLE001 -- pruning is best-effort housekeeping
+            logger.warning(
+                "External stub pruning failed tenant_id=%s error_type=%s",
+                context.tenant_id,
+                type(error).__name__,
+            )
+            return
+        if pruned:
+            logger.info("External stubs pruned tenant_id=%s count=%d", context.tenant_id, pruned)
 
     async def repair_reindexed(
         self,
@@ -131,6 +219,7 @@ class GraphRelationRepairService:
             ),
             context=context,
         )
+        await self._prune_stubs(context)
         return self._result(results)
 
     async def _repair_targets(
@@ -138,17 +227,35 @@ class GraphRelationRepairService:
         targets: Sequence[_RepairTarget],
         *,
         context: StorageOperationContext,
+        failed: list[str] | None = None,
     ) -> tuple[tuple[int, int, int], ...]:
+        """Repair every target; with ``failed``, record a failing one there and go on."""
+
         slots = asyncio.Semaphore(self._max_concurrency)
 
         async def repair(target: _RepairTarget) -> tuple[int, int, int]:
             async with slots:
-                return await self._repair_one(
-                    target.document_id,
-                    expected_processing_fingerprint=target.processing_fingerprint,
-                    graph_projection_version=target.graph_projection_version,
-                    context=context,
-                )
+                try:
+                    return await self._repair_one(
+                        target.document_id,
+                        expected_processing_fingerprint=target.processing_fingerprint,
+                        graph_projection_version=target.graph_projection_version,
+                        context=context,
+                    )
+                except Exception as error:
+                    if failed is None:
+                        raise
+                    # Caught per target rather than gather(return_exceptions=True),
+                    # which would also swallow a cancelled activity's CancelledError.
+                    logger.warning(
+                        "Skipping relation repair of a resolvable declarer "
+                        "tenant_id=%s document_id=%s error_type=%s",
+                        context.tenant_id,
+                        target.document_id,
+                        type(error).__name__,
+                    )
+                    failed.append(target.document_id)
+                    return (0, 0, 0)
 
         return tuple(await asyncio.gather(*(repair(target) for target in targets)))
 
@@ -164,14 +271,17 @@ class GraphRelationRepairService:
         self,
         document_id: str,
         *,
-        expected_processing_fingerprint: str,
+        expected_processing_fingerprint: str | None,
         graph_projection_version: str,
         context: StorageOperationContext,
     ) -> tuple[int, int, int]:
         snapshot = await self._control.document_versions.active_snapshot(document_id)
         if snapshot is None:
             return (0, 0, 0)
-        if snapshot.fingerprints.processing_fingerprint != expected_processing_fingerprint:
+        if (
+            expected_processing_fingerprint is not None
+            and snapshot.fingerprints.processing_fingerprint != expected_processing_fingerprint
+        ):
             return (0, 0, 0)
         if snapshot.canonical_artifact is None or snapshot.chunk_artifact is None:
             raise RuntimeError("active document is missing canonical graph inputs")
@@ -197,14 +307,19 @@ class GraphRelationRepairService:
                 document_id,
                 snapshot.document_version_id,
             )
-            return (0, 0, 1)
+            # Skipped, not unresolved: nothing here says any of its links lack a target.
+            return (0, 0, 0)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
-        targets = await self._control.document_versions.resolve_active_sources(
-            tenant_id=context.tenant_id,
-            connector_type=self._required_extra(document, "connector_type"),
-            connection_id=self._required_extra(document, "connection_id"),
-            source_item_ids=source_ids,
-        )
+        if not source_ids:
+            await self._remember_unresolved(
+                document,
+                document_id,
+                str(snapshot.document_version_id),
+                (),
+                context=context,
+            )
+            return (0, 0, 0)
+        targets = await self._resolve_targets(document, source_ids, context=context)
         graph = self._build(
             document,
             chunks,
@@ -215,41 +330,28 @@ class GraphRelationRepairService:
                     document_version_id=target.document_version_id,
                     source_scope_id=target.source_scope_id,
                     title=target.title,
+                    declared_relations=frozenset(target.declared_relations),
                 )
                 for source_id, target in targets.items()
             },
             graph_projection_version=graph_projection_version,
         )
-        relations = document_relations(graph)
-        if not relations:
-            return (0, 0, len(graph.unresolved_relations))
+        relations = tuple(
+            relation
+            for relation in document_relations(graph)
+            if relation.attributes.get("source_relation") is True
+        )
         endpoint_keys = {
             node_key
             for relation in relations
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
-        # Retract before writing. The first projection could only stamp this document's
-        # own scope on a target it could not resolve, so the edge it wrote points at a
-        # stub no projection ever fills in. Left in place beside the resolved edge, a
-        # traversal returns both the real target and a target that does not exist.
-        superseded = superseded_relations(
-            self._build(
-                document,
-                chunks,
-                resolved_targets={},
-                graph_projection_version=graph_projection_version,
-            ),
-            resolved=relations,
-        )
-        if superseded:
-            logger.info(
-                "Retracting superseded placeholder relations document_id=%s count=%d",
-                document_id,
-                len(superseded),
-            )
-            await self._graph.delete_relations(superseded, context=context)
-        await self._graph.write_projection(
+        # Reconcile the whole owning version's link set, including an empty set.
+        # This handles reverse links and targets that moved after a prior repair;
+        # reconstructing the initial guessed endpoints cannot name those edges.
+        await self._graph.replace_source_relations(
+            str(snapshot.document_version_id),
             nodes,
             relations,
             context=context,
@@ -261,11 +363,85 @@ class GraphRelationRepairService:
         )
         if not verification.valid:
             raise ValueError("repaired graph projection failed verification")
+        await self._remember_unresolved(
+            document,
+            document_id,
+            str(snapshot.document_version_id),
+            tuple(
+                UnresolvedSourceRelation(
+                    target_source_item_id=unresolved.target_source_item_id,
+                    target_connector_type=unresolved.target_connector_type,
+                    predicate=unresolved.predicate,
+                    relation_type=unresolved.relation_type,
+                )
+                for unresolved in graph.unresolved_relations
+            ),
+            context=context,
+        )
         return (
-            1,
+            int(bool(relations)),
             len(relations),
+            # One per distinct (target, predicate): a link repeated on the document is
+            # still one missing target.
             len(graph.unresolved_relations),
         )
+
+    async def _remember_unresolved(
+        self,
+        document: Document,
+        document_id: str,
+        document_version_id: str,
+        relations: tuple[UnresolvedSourceRelation, ...],
+        *,
+        context: StorageOperationContext,
+    ) -> None:
+        await self._control.unresolved_relations.replace_unresolved(
+            tenant_id=str(context.tenant_id),
+            declaring_document_id=document_id,
+            declaring_document_version_id=document_version_id,
+            connector_type=self._required_extra(document, "connector_type").casefold(),
+            connection_id=self._required_extra(document, "connection_id"),
+            relations=relations,
+        )
+
+    async def _resolve_targets(
+        self,
+        document: Document,
+        source_item_ids: Sequence[str],
+        *,
+        context: StorageOperationContext,
+    ) -> dict[str, ActiveSourceDocument]:
+        declaring_connector = self._required_extra(document, "connector_type").casefold()
+        declaring_connection = self._required_extra(document, "connection_id")
+        by_connector: dict[str, list[str]] = {}
+        for source_item_id in source_item_ids:
+            connector = target_connector_type(declaring_connector, source_item_id).casefold()
+            by_connector.setdefault(connector, []).append(source_item_id)
+
+        async def resolve(
+            connector: str,
+            ids: Sequence[str],
+        ) -> dict[str, ActiveSourceDocument]:
+            if connector == declaring_connector:
+                return await self._control.document_versions.resolve_active_sources(
+                    tenant_id=context.tenant_id,
+                    connector_type=connector,
+                    connection_id=declaring_connection,
+                    source_item_ids=ids,
+                )
+            return await self._control.document_versions.resolve_unambiguous_active_sources(
+                tenant_id=context.tenant_id,
+                connector_type=connector,
+                source_item_ids=ids,
+            )
+
+        groups = tuple(by_connector.items())
+        resolved = await asyncio.gather(*(resolve(connector, ids) for connector, ids in groups))
+        return {
+            source_item_id: target
+            for targets in resolved
+            for source_item_id, target in targets.items()
+        }
 
     def _build(
         self,
@@ -281,6 +457,9 @@ class GraphRelationRepairService:
                 chunks=chunks,
                 resolved_targets=resolved_targets,
                 graph_projection_version=graph_projection_version,
+                # Repair is where a link is known to be unresolvable, so it is the only
+                # build that may stand an external stub in for the missing target.
+                external_stubs=True,
             )
         )
 

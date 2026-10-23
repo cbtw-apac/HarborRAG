@@ -78,6 +78,9 @@ class TimeoutConfig(BaseModel):
 
     request_seconds: float = Field(default=60.0, gt=0)
     stream_seconds: float | None = Field(default=None, gt=0)
+    operation_seconds: float | None = Field(
+        default=None, gt=0, description="Total structured-chat deadline across routing and repairs"
+    )
 
 
 class RetryPolicyConfig(BaseModel):
@@ -186,7 +189,10 @@ class SecurityBaseConfig(BaseModel):
 class ModelClientConfig(BaseModel):
     """Provide validated settings and loading behavior shared by every model family."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # ``from_dict`` validates after ``${VAR}`` expansion, and pydantic repeats the
+    # input in its message, so a validation error printed every expanded key and
+    # credentialed URL. This hides the input for nested models too.
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     config_section: ClassVar[str]
 
     default_model: str = Field(min_length=1)

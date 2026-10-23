@@ -113,14 +113,23 @@ class ConnectorSkip:
     (extension, glob, pattern, ``updated_after``) is *not* a skip; only
     exclusions a caller would want to see named belong here.
 
-    ``reason`` is one of the ``SKIP_REASON_*`` constants and is meant for
-    machine handling; ``detail`` is the human-readable explanation.
+    ``reason`` is one of the ``SKIP_REASON_*`` constants (or a provider's
+    documented reason codes) and is meant for machine handling; ``detail`` is
+    the human-readable explanation. ``item_id`` and ``url`` identify the item
+    when the provider knows them.
     """
 
     path: str
     reason: str
     detail: str
+    item_id: str | None = None
+    url: str | None = None
 
     def to_dict(self) -> dict[str, str]:
         """Serialize one skip for logs, reports, or run summaries."""
-        return {"path": self.path, "reason": self.reason, "detail": self.detail}
+        payload = {"path": self.path, "reason": self.reason, "detail": self.detail}
+        if self.item_id is not None:
+            payload["item_id"] = self.item_id
+        if self.url is not None:
+            payload["url"] = self.url
+        return payload

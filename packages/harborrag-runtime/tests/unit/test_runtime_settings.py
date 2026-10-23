@@ -27,6 +27,21 @@ def test_default_tenant_is_operator_readable() -> None:
     assert RuntimeSettings().ingestion_tenant_id == "DEFAULT"
 
 
+def test_topology_retrieval_policy_is_versioned_configurable_and_bounded(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "HARBORRAG_TOPOLOGY_RETRIEVAL_POLICY",
+        '{"version":"pilot-3","rrf_constant":20,"max_context_tokens":4000}',
+    )
+    policy = RuntimeSettings().topology_retrieval_policy
+    assert policy.version == "pilot-3"
+    assert policy.rrf_constant == 20
+    assert policy.max_context_tokens == 4000
+    assert policy.seed_chunks == 8
+    monkeypatch.setenv("HARBORRAG_TOPOLOGY_RETRIEVAL_POLICY", '{"typed_relation_hops":3}')
+    with pytest.raises(ValidationError):
+        RuntimeSettings()
+
+
 def test_control_database_pool_settings_are_bounded() -> None:
     settings = RuntimeSettings(
         env="prod",
@@ -183,36 +198,20 @@ def test_default_sqlite_control_db_does_not_require_an_encryption_key() -> None:
     assert settings.secrets_encryption_key is None
 
 
-def test_non_sqlite_control_db_requires_an_explicit_encryption_key_even_in_dev() -> None:
-    """env=dev with a real Postgres DSN is legal but must not fall back to the
-    publicly-known dev-default Fernet key for stored secrets."""
-    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
-        RuntimeSettings(control_db_url="postgresql+asyncpg://user:pass@database/control")
-
+@pytest.mark.parametrize("env", ["dev", "prod"])
+@pytest.mark.parametrize("key", [None, "   "])
+def test_reader_settings_do_not_require_an_encryption_key(env: str, key: str | None) -> None:
+    """Settings are shared by reader-only processes (the MCP server) that never
+    open the secret store, so the key is enforced by CompositionRoot.production
+    -- the one place that decrypts -- not here. Requiring it globally handed the
+    key to a container with no use for it."""
     settings = RuntimeSettings(
+        env=env,
         control_db_url="postgresql+asyncpg://user:pass@database/control",
-        secrets_encryption_key="test-encryption-key",
+        secrets_encryption_key=key,
     )
-    assert settings.secrets_encryption_key is not None
 
-
-def test_prod_requires_an_explicit_encryption_key() -> None:
-    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
-        RuntimeSettings(
-            env="prod",
-            control_db_url="postgresql+asyncpg://user:pass@database/control",
-        )
-
-
-def test_prod_rejects_a_blank_encryption_key() -> None:
-    """A blank key is not None, so it must not slip past the "must be set"
-    check and reach Fernet key derivation as a fixed, guessable value."""
-    with pytest.raises(ValidationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"):
-        RuntimeSettings(
-            env="prod",
-            control_db_url="postgresql+asyncpg://user:pass@database/control",
-            secrets_encryption_key="   ",
-        )
+    assert settings.control_db_url.get_secret_value().startswith("postgresql")
 
 
 def test_graph_concurrency_settings_are_positive_and_independent() -> None:

@@ -31,30 +31,58 @@ def make_renderer() -> tuple[CliRenderer, StringIO, StringIO]:
 # --------------------------------------------------------------------------
 
 
-def test_doctor_reports_a_ready_runtime() -> None:
+def test_doctor_reports_a_ready_project() -> None:
     renderer, output, _ = make_renderer()
     response = AppResponse(
         True,
-        {"runtime": {"ready": True, "provider": "temporal", "target": "localhost:7233"}},
+        {
+            "checks": [
+                {"name": "project", "status": "ok", "detail": "/work/harbor", "hint": ""},
+                {"name": "temporal", "status": "skip", "detail": "not checked", "hint": ""},
+            ],
+            "ready": True,
+            "summary": {"ok": 1, "fail": 0, "warn": 0, "skip": 1},
+        },
     )
 
     renderer.render(response, command="doctor")
 
     text = output.getvalue()
-    assert "Runtime ready" in text
-    assert "temporal" in text
-    assert "localhost:7233" in text
+    assert "Ready" in text and "Not ready" not in text
+    assert "project" in text and "/work/harbor" in text
 
 
-def test_doctor_reports_an_unavailable_runtime() -> None:
+def test_doctor_reports_failed_checks_with_their_hints() -> None:
     renderer, output, _ = make_renderer()
+    response = AppResponse(
+        True,
+        {
+            "checks": [
+                {
+                    "name": "qdrant",
+                    "status": "fail",
+                    "detail": "refused",
+                    "hint": "docker compose up -d",
+                },
+                {
+                    "name": "falkordb",
+                    "status": "fail",
+                    "detail": "refused",
+                    "hint": "docker compose up -d",
+                },
+            ],
+            "ready": False,
+            "summary": {"ok": 0, "fail": 2, "warn": 0, "skip": 0},
+        },
+    )
 
-    renderer.render(AppResponse(True, {"runtime": {"ready": False}}), command="doctor")
+    renderer.render(response, command="doctor")
 
     text = output.getvalue()
-    assert "Runtime unavailable" in text
-    # Absent fields fall back to placeholders rather than raising.
-    assert "unknown" in text
+    assert "Not ready" in text
+    assert "qdrant" in text and "falkordb" in text
+    # Identical hints are printed once.
+    assert text.count("docker compose up -d") == 1
 
 
 # --------------------------------------------------------------------------
@@ -231,3 +259,42 @@ def test_status_without_discovery_shows_a_waiting_bar() -> None:
     renderer.render(response, command="status")
 
     assert "Waiting for discovery" in output.getvalue()
+
+
+def test_doctor_panel_title_follows_readiness_not_the_fail_count() -> None:
+    """An optional failure exits 0, so the panel must not announce "Not ready"."""
+
+    renderer, output, _ = make_renderer()
+    data = {
+        "checks": [
+            {"name": "qdrant", "group": "services", "status": "ok", "detail": "up"},
+            {
+                "name": "temporal",
+                "group": "durable",
+                "status": "fail",
+                "detail": "unreachable",
+                "required": False,
+            },
+        ],
+        "ready": True,
+        "summary": {"ok": 1, "fail": 1, "warn": 0, "skip": 0},
+    }
+
+    renderer.render(AppResponse(True, data), command="doctor")
+
+    text = output.getvalue()
+    assert "Ready" in text and "Not ready" not in text
+    assert "unreachable" in text  # the optional failure stays visible
+
+
+def test_doctor_panel_says_not_ready_when_a_required_check_fails() -> None:
+    renderer, output, _ = make_renderer()
+    data = {
+        "checks": [{"name": "qdrant", "group": "services", "status": "fail", "detail": "down"}],
+        "ready": False,
+        "summary": {"ok": 0, "fail": 1, "warn": 0, "skip": 0},
+    }
+
+    renderer.render(AppResponse(True, data), command="doctor")
+
+    assert "Not ready" in output.getvalue()

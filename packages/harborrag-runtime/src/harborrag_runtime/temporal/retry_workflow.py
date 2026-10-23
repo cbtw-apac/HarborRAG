@@ -11,7 +11,7 @@ from temporalio.exceptions import ActivityError, ChildWorkflowError
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
-from harborrag_runtime.temporal.failure_handling import durable_failure
+from harborrag_runtime.temporal.failure_handling import durable_failure, durable_skip_reason
 
 from .policies import temporal_retry_policy
 from .schemas import (
@@ -50,6 +50,7 @@ class DocumentRetryWorkflow:
                 RetryDocumentFailureInput(
                     document=request,
                     error_type=error_type,
+                    skip_reason=durable_skip_reason(error),
                 ),
                 task_queue=queues.io,
                 start_to_close_timeout=timedelta(minutes=2),

@@ -49,6 +49,7 @@ class AttachmentMetadata:
     status: AttachmentStatus
     text: str | None = None
     reason: str | None = None
+    created_at: str | None = None
 
 
 MEDIA_TYPE_MAP: dict[str, tuple[FileType, str]] = {
@@ -186,6 +187,9 @@ class AttachmentProcessor:
             size_bytes=0,
             download_url="",
             status="skipped",
+            # Set before the failure boundary below so a skipped, unsupported,
+            # or failed attachment still reports when it was uploaded.
+            created_at=self._created_at(attachment),
         )
         try:
             # Everything below (size/URL normalization, the caller callback,
@@ -308,6 +312,27 @@ class AttachmentProcessor:
         return str(
             attachment.get("title") or attachment.get("filename") or attachment.get("name") or ""
         )
+
+    @staticmethod
+    def _created_at(attachment: dict) -> str | None:
+        """Read when the provider recorded this attachment being uploaded.
+
+        JIRA returns ``created`` directly on the attachment. Confluence carries
+        the equivalent on ``version.when`` for the current file version, and on
+        ``history.createdDate`` for the original upload; prefer the former so
+        a re-uploaded file reports its current timestamp.
+        """
+        version = attachment.get("version")
+        history = attachment.get("history")
+        value = (
+            attachment.get("created")
+            or attachment.get("createdDate")
+            or (version.get("when") if isinstance(version, dict) else None)
+            or (history.get("createdDate") if isinstance(history, dict) else None)
+        )
+        if value is None:
+            return None
+        return str(value).strip() or None
 
     @staticmethod
     def _media_type(attachment: dict) -> str:

@@ -19,7 +19,7 @@ profile, a deployment selector, or proof that a caller is authorized.
 | Tenant-isolated vector and graph retrieval | Implemented | Qdrant and FalkorDB use different isolation mechanisms described below. |
 | Tenant-isolated object and workflow state storage | Implemented | Object keys, workflow state, checkpoints, and leases include a tenant namespace. |
 | Tenant-owned control-plane records | Implemented | Projects, sources, providers, members, activity, jobs, and settings carry tenant identity. |
-| Intra-tenant document permissions | Not implemented | A principal with access to a tenant can retrieve all active evidence in that tenant. |
+| Intra-tenant source and document permissions | Implemented with trusted resolved snapshots | Serving requires current readable decisions for both the source and document. Missing or expired decisions deny access; connectors do not automatically synchronize these snapshots. |
 | OIDC/JWKS authentication | Not implemented | `oidc` is a reserved API mode; the current application fails closed if it is selected. |
 | Auto-discovered `.harbor` workspace profiles | Not implemented | Configuration files and environment variables must be selected explicitly. |
 | Automatic per-tenant connector, parser, model, or credential selection | Not implemented | Process configuration is shared unless the embedding application composes separate runtimes. |
@@ -276,6 +276,7 @@ settings are:
 | `HARBORRAG_ENV` | `dev`; set `prod` for production | Enables production fail-closed checks. |
 | `HARBORRAG_AUTH_MODE` | `none`; use `hmac` for an exposed service | Selects the token verifier. `oidc` is reserved but not implemented. |
 | `HARBORRAG_AUTH_SECRET` | Required for HMAC; at least 32 UTF-8 bytes | Verifies HS256 signatures. Load it from protected deployment configuration. |
+| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat, agent, and user-scoped memory. Required in every token. |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required `iss` claim. |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required `aud` claim. |
 | `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | `3600` | Maximum accepted difference between `iat` and `exp`. |
@@ -291,6 +292,7 @@ A verified token must contain claims equivalent to this payload:
 ```json
 {
   "sub": "service-release-bot",
+  "oid": "user-42",
   "role": "editor",
   "tenants": ["tenant-1"],
   "iat": 1787558400,
@@ -299,6 +301,15 @@ A verified token must contain claims equivalent to this payload:
   "aud": "harborrag-api"
 }
 ```
+
+With `HARBORRAG_AUTH_USER_ID_CLAIM=oid`, the example request belongs to
+`user-42` while `sub` remains the credential actor. Issue a stable signed
+`oid` for each person behind a shared service credential. If the configured
+claim is missing or invalid, the request returns `401`. With the default
+setting, `sub` is both actor and user identity. The request body cannot set
+or override this identity. Sessions created under the former shared
+`DEFAULT_USER` identity need an explicit trusted owner mapping before they
+can be migrated to individual users.
 
 The `tenants` value must be a non-empty list of non-empty strings. Matching is
 exact and case-sensitive. `"*"` grants every tenant; a high role without a
@@ -468,7 +479,7 @@ Tenant isolation is enforced at multiple layers:
 | Control-plane repositories | Tenant-owned records carry `tenant_id`; repository contracts expose tenant-scope filters for data access. |
 | Canonical SQL repositories | Documents, versions, chunks, events, and outbox records store tenant identity and use it in reads and ownership checks. |
 | Qdrant | Each tenant receives a physically separate vector collection. `tenant_id` is deliberately not stored as a payload filter. |
-| FalkorDB | Tenants share one graph. `tenant_id` participates in node identity, uniqueness constraints, writes, and retrieval filters. |
+| FalkorDB | Each tenant receives a physically separate graph. `tenant_id` also participates in node identity, uniqueness constraints, writes, and retrieval filters. |
 | Filesystem and S3 object stores | Logical object keys are placed below an opaque SHA-256-derived tenant prefix. |
 | SQL and Redis workflow state | Workflow state, checkpoints, leases, and fencing counters include tenant in keys or ownership checks. |
 | Temporal ingestion | Tenant identity is persisted in workflow/source inputs so retries and resumed activities keep the original scope. |
@@ -476,57 +487,63 @@ Tenant isolation is enforced at multiple layers:
 | Model cache, singleflight, and budgets | Model request metadata supplies `tenant_id`; configured policies can require it and partition state by tenant. |
 | MCP tool policy | The tenant chooses effective enablement, defaults, and limits after transport authorization; the runtime context still provides data isolation. |
 
-Qdrant's physical partition and FalkorDB's logical partition are both required;
-one is not a substitute for the other. See [Projection and rebuild
+FalkorDB's physical partition and its in-graph tenant predicates are both
+required; one is not a substitute for the other. See [Projection and rebuild
 architecture](../../developers/architecture/projection-rebuild.md#the-tenant-spine)
 for the storage design.
 
-### Qdrant collection isolation
+### One tenant namespace in every store
 
-The Qdrant adapter derives a physical collection name from the optional process
-prefix, tenant, and logical index name:
+Every store names a tenant the same way, so finding or removing everything a
+tenant owns is one name per store:
 
 ```text
-{qdrant_collection_prefix}{tenant_id}_{logical_index}
+{storage_namespace_prefix}_{tenant_id}          # e.g. harborrag_DEFAULT
 ```
 
-Both tenant and logical index must use 1–128 ASCII letters, digits, `.`, `_`, or
-`-`, beginning with a letter or digit. The tenant selects the collection before
-metadata filters are built. Therefore, `tenant_id` is intentionally absent from
-the Qdrant payload and cannot be used as a user-supplied filter to jump between
-collections.
+| Store | Physical name |
+|---|---|
+| Qdrant | `harborrag_DEFAULT_{logical_index}` (one collection per logical index, e.g. `_evidence`) |
+| FalkorDB | graph `harborrag_DEFAULT` |
+| S3 / MinIO, filesystem | key prefix `harborrag_DEFAULT/{logical_key}` in each bucket |
+| Postgres | rows with `tenant_id = 'DEFAULT'` |
 
-Physical separation simplifies data-path isolation but affects lifecycle work:
-each tenant has separate collection creation, schema validation, inventory,
-rebuild, and deletion. Changing `HARBORRAG_QDRANT_COLLECTION_PREFIX` points the
-runtime at different physical names; it does not rename or repopulate existing
-collections.
+`HARBORRAG_STORAGE_NAMESPACE_PREFIX` (default `harborrag`) sets the prefix for all
+of them at once; it replaces the former `HARBORRAG_QDRANT_COLLECTION_PREFIX` and
+`HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`. Changing it points the runtime at
+different physical names; it does not rename or move existing data.
 
-### FalkorDB graph isolation
+The tenant must use 1–128 ASCII letters, digits, `.`, `_`, or `-`, beginning with
+a letter or digit, and the prefix 1–64 letters, digits, `_` or `-` beginning with
+a letter. The namespace is derived from the trusted operation context before any
+query or key is built, never from user input. Therefore `tenant_id` is
+intentionally absent from the Qdrant payload and cannot be used as a
+user-supplied filter to jump between collections.
 
-FalkorDB uses one configured graph, so tenant identity is part of every relevant
-node and relationship operation. The graph adapter includes `tenant_id` in
-merge identities, uniqueness constraints, traversal predicates, administrative
-counts, cleanup, and projection deletion. This is necessary even when a node key
-is deterministic: two tenants can ingest identical content and produce the same
-document-version or chunk key.
+Each evidence point also stores `graph_chunk_node_key` and
+`graph_source_node_key`: the chunk's node and its document's source entity in the
+tenant graph, so a vector hit joins the graph without re-deriving a node key.
+
+Tenant identity remains part of every relevant node and relationship operation.
+The graph adapter includes `tenant_id` in merge identities, uniqueness
+constraints, traversal predicates, administrative counts, cleanup, and projection
+deletion. This is necessary even when a node key is deterministic: two tenants
+can ingest identical content and produce the same document-version or chunk key.
 
 Graph queries must continue to use repository methods that receive
 `StorageOperationContext`. Do not run application-supplied Cypher directly
-against the shared graph, because doing so bypasses those tenant predicates.
+against a graph, because doing so bypasses those tenant predicates.
 
 ### Object-store isolation
 
-Filesystem and S3 adapters map a logical object key to an opaque physical
-namespace:
+Filesystem and S3 adapters map a logical object key into the tenant namespace:
 
 ```text
-.harborrag/tenants/{sha256(tenant_id)}/{logical_key}
+{storage_namespace_prefix}_{tenant_id}/{logical_key}
 ```
 
 Listing, reading, writing, presigning, and deletion calculate the prefix from
-`context.tenant_id`. The digest makes the prefix path-safe and avoids placing a
-raw tenant label in the object key; it is namespace derivation, not encryption.
+`context.tenant_id`; it is namespace derivation, not encryption.
 Bucket policy and infrastructure credentials must still prevent direct access
 that bypasses HarborRAG.
 
@@ -731,13 +748,13 @@ operations.
 - Restrict wildcard grants and trusted system contexts to internal operations.
 - Test isolation in both directions: tenant A must not retrieve tenant B's data,
   and tenant B must not retrieve tenant A's data.
-- Assume all principals in one tenant can see the same active retrieval
-  evidence. HarborRAG does not yet enforce document-level ACLs inside a tenant.
+- Supply current, trusted resolved permission snapshots for each active source
+  scope and document. Tenant access alone does not grant access to their evidence.
 - Never concatenate an unvalidated tenant into SQL, Cypher, a filesystem path,
   or a provider query. Use the typed contracts and repository adapters.
-- Keep source permissions in mind during ingestion: connector credentials may
-  read more source data than one tenant should receive, and current retrieval
-  does not enforce source-system ACLs per document.
+- Resolve source-system groups, inherited denies, and other access rules before
+  importing effective principal decisions. Connector credentials may read more
+  than the serving principal; a missing or expired snapshot denies retrieval.
 - Treat direct backend access as privileged administration because it can bypass
   application tenant checks.
 - Keep model request metadata free of credentials and sensitive content;
@@ -748,7 +765,7 @@ operations.
 
 | Symptom | Check |
 | --- | --- |
-| Retrieval returns no results after a successful ingestion | Compare the ingestion and retrieval tenant IDs exactly, including case. |
+| Retrieval returns no results after a successful ingestion | Compare tenant IDs, then run `harborrag topology indexing permissions-status --tenant <tenant>` from an initialized CLI project. Confirm current source and document snapshots and a readable grant for the caller. Indexed vectors alone do not establish access. |
 | A command reads data under `DEFAULT` | Pass `--tenant` explicitly instead of relying on a command default or runtime fallback. |
 | API returns `401` | Check that the bearer token is present, signed with the configured HMAC secret, unexpired, within the maximum lifetime, and uses the configured issuer and audience. |
 | API returns `403` | Confirm the role is sufficient and the token's `tenants` claim contains the exact requested tenant or a deliberate `*`. |
@@ -792,7 +809,8 @@ In particular, the current workspace concept does not provide:
   namespaces per tenant;
 - a complete tenant registry, invitation flow, suspension state, retention
   workflow, atomic rename, or cascading deletion;
-- source-system document ACL enforcement within one tenant;
+- automatic synchronization of source-system document ACLs into resolved
+  permission snapshots;
 - implemented OIDC/JWKS verification in the API.
 
 You can build stronger isolation around HarborRAG by running separate process

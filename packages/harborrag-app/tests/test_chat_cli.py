@@ -4,11 +4,16 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from app_test_fixtures import MockAppService
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
 from harborrag_runtime.chat import ChatPrompt
+
+# Every command below goes through the CLI's project gate; give each test its own
+# project instead of inheriting whatever directory pytest was started from.
+pytestmark = pytest.mark.usefixtures("cli_project")
 
 
 def test_chat_cli_creates_session_and_uses_default_prompt(monkeypatch, capsys) -> None:
@@ -45,3 +50,16 @@ def test_chat_cli_renders_the_assistant_message(monkeypatch, capsys) -> None:
     output = capsys.readouterr().out
     assert "HarborChat" in output
     assert "Harbor response" in output
+
+
+def test_chat_cli_forwards_the_project_scope(monkeypatch, capsys) -> None:
+    service = MockAppService()
+    monkeypatch.setattr(cli_runner, "runtime_app_service", lambda: service)
+
+    exit_code = cli.main(["chat", "Hello", "--project", "proj-1", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert exit_code == 0
+    assert payload["data"]["project_id"] == "proj-1"
+    assert service.chat_calls[0]["project_id"] == "proj-1"
+    assert service.chat_calls[0]["user_id"] is None

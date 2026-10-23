@@ -25,6 +25,9 @@ class GraphDocumentTarget:
     document_version_id: DocumentVersionId
     source_scope_id: str
     title: str | None = None
+    # The target's own declared links as (predicate, target_id): whether it declares a
+    # link back decides which end owns a symmetric or inverse link.
+    declared_relations: frozenset[tuple[str, str]] = frozenset()
 
     def __post_init__(self) -> None:
         if not all(
@@ -43,6 +46,10 @@ class GraphDocumentTarget:
 class UnresolvedGraphRelation:
     relation_type: str
     target_source_item_id: str
+    # The declared predicate (``is_blocked_by``, not just ``blocks``) and the far end's
+    # connector: repair persists both so a later run can find who points at a target.
+    predicate: str = ""
+    target_connector_type: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,6 +58,10 @@ class GraphProjectionInput:
     chunks: tuple[ChunkRecord, ...]
     resolved_targets: Mapping[str, GraphDocumentTarget]
     graph_projection_version: str
+    # Relation repair only: an unresolved link then points at an external stub. The
+    # structural build at publication resolves nothing yet, so it must not mint stubs
+    # for targets the same run is about to publish.
+    external_stubs: bool = False
 
     def __post_init__(self) -> None:
         if not self.chunks:
@@ -97,6 +108,11 @@ class GraphProjectionBatch:
         ):
             raise ValueError("every graph relation endpoint must exist in the batch")
         nodes_by_key = {node.node_key: node for node in self.nodes}
+        owning_versions = {
+            (node.document_id, node.document_version_id)
+            for node in self.nodes
+            if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
+        }
         for relation in self.relations:
             endpoints = (
                 nodes_by_key[relation.source_node_key],
@@ -105,12 +121,14 @@ class GraphProjectionBatch:
             if any(node.owner_id != relation.owner_id for node in endpoints):
                 raise ValueError("graph relation owner must match both endpoints")
             if relation.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION:
+                if (relation.document_id, relation.document_version_id) not in owning_versions:
+                    raise ValueError("version-owned relation must identify a document in its batch")
                 version_endpoints = tuple(
                     node
                     for node in endpoints
                     if node.ownership_scope == GraphOwnershipScope.DOCUMENT_VERSION
                 )
-                if not version_endpoints or any(
+                if any(
                     node.document_id != relation.document_id
                     or node.document_version_id != relation.document_version_id
                     for node in version_endpoints
