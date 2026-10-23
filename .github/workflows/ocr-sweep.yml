@@ -1,0 +1,217 @@
+name: OCR scheduled sweep
+on:
+  schedule:
+    - cron: "0 1 * * 0" # delta on main + active dev branch
+    - cron: "0 2 1 * *" # full scan of active dev branch
+  workflow_dispatch:
+    inputs:
+      mode: { type: choice, options: [delta, full], default: delta }
+      branch:
+        description: "Sweep only this branch (empty = main + newest dev/v* branch)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: { group: ocr-sweep, cancel-in-progress: false }
+
+jobs:
+  # 1) Decide what branch to sweep: mode + list of branches. (like dev/v2.0.0 for example)
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.plan.outputs.mode }}
+      branches: ${{ steps.plan.outputs.branches }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        # all branch refs + dates, no file contents
+        with:
+          { fetch-depth: 0, filter: "blob:none", persist-credentials: false }
+      - id: plan
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_BRANCH: ${{ inputs.branch }}
+          VAR_BRANCH: ${{ vars.OCR_SWEEP_BRANCH }} # Don't really need this unless we want to hard-code
+          SCHEDULE: ${{ github.event.schedule }}
+        run: |
+          MODE="$INPUT_MODE"
+          if [ -z "$MODE" ]; then
+            [ "$SCHEDULE" = "0 2 1 * *" ] && MODE=full || MODE=delta
+          fi
+          # Active release branch = most recently committed dev/v* (override via repo variable).
+          DEV="${VAR_BRANCH:-$(git for-each-ref --sort=-committerdate \
+            --format='%(refname:lstrip=3)' 'refs/remotes/origin/dev/v*' | head -1)}"
+          if [ -n "$INPUT_BRANCH" ]; then
+            BRANCHES="$INPUT_BRANCH"
+          elif [ "$MODE" = full ]; then
+            BRANCHES="${DEV:-main}"                  # full scan: dev only
+          else
+            BRANCHES="main${DEV:+ $DEV}"             # delta: main (hotfixes) + dev
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "branches=$(printf '%s\n' $BRANCHES | jq -R . | jq -sc unique)" >> "$GITHUB_OUTPUT"
+          echo "Mode: $MODE, branches: $BRANCHES"
+
+  # 2) Sweep each branch as its own matrix job.
+  sweep:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(needs.plan.outputs.branches) }}
+    env:
+      OCR_LLM_URL: ${{ vars.OCR_LLM_URL || 'https://api.openai.com/v1/responses' }}
+      OCR_LLM_TOKEN: ${{ secrets.OCR_LLM_TOKEN }}
+      OCR_LLM_MODEL: ${{ vars.OCR_LLM_MODEL }}
+      OCR_LLM_PROTOCOL: openai-responses # gpt-6-luna rejects tool calls with reasoning on /v1/chat/completions
+      OCR_USE_ANTHROPIC: "false" # sadly, we only have openAI
+      MODE: ${{ needs.plan.outputs.mode }}
+      BRANCH: ${{ matrix.branch }}
+      RULES: ${{ github.workspace }}/ocr-config/.opencodereview/harborrag-rules.json
+      DELTA_TOKEN_BUDGET: ${{ vars.OCR_DELTA_TOKEN_BUDGET || '3_000_000' }} # 3M tokens for delta jobs should be good
+      FULL_TOKEN_BUDGET: ${{ vars.OCR_FULL_TOKEN_BUDGET || '50_000_000' }} # 50M tokens for repo-wide monthly scan
+    defaults:
+      run: { working-directory: target }
+    steps:
+      # The code being reviewed
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          {
+            ref: "${{ matrix.branch }}",
+            fetch-depth: 0,
+            path: target,
+            persist-credentials: false,
+          }
+      # and the rules, from the branch this workflow runs from (main on schedule; the chosen
+      # branch on a manual run, so rule changes can be tested before merging), not from the
+      # swept branch, so dev branches don't need their own copy.
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          {
+            path: ocr-config,
+            sparse-checkout: .opencodereview,
+            persist-credentials: false,
+          }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 24 }
+
+      - name: Install OCR
+        run: |
+          npm install -g @alibaba-group/open-code-review@1.12.11
+          ocr config set language English
+
+      - name: Resolve marker tag and base
+        id: marker
+        run: |
+          SAFE="${BRANCH//\//-}"                       # just a safeguard for naming
+          echo "SAFE=$SAFE" >> "$GITHUB_ENV"
+          echo "safe=$SAFE" >> "$GITHUB_OUTPUT"
+          echo "TAG=ocr-sweep/$SAFE" >> "$GITHUB_ENV"
+          # Base candidates: every ocr-sweep/* tag already in this branch's history, plus,
+          # for release branches only, the point where the branch left main. main must not
+          # use merge-base: on main it equals HEAD, which would skip every hotfix.
+          CANDIDATES=""
+          for T in $(git tag --list 'ocr-sweep/*'); do
+            if git merge-base --is-ancestor "$T" HEAD; then
+              CANDIDATES="$CANDIDATES $(git rev-parse "$T^{commit}")"
+            fi
+          done
+          if [ "$BRANCH" != "main" ]; then
+            CANDIDATES="$CANDIDATES $(git merge-base origin/main HEAD)"
+          fi
+          # Closest already-reviewed point = fewest changed files to HEAD.
+          BASE=""; BEST_N=""
+          for C in $CANDIDATES; do
+            N=$(git diff --name-only "$C" HEAD | wc -l)
+            if [ -z "$BEST_N" ] || [ "$N" -lt "$BEST_N" ]; then BASE=$C; BEST_N=$N; fi
+          done
+          if [ -z "$BASE" ]; then
+            # No marker in this branch's history yet: start tracking now, don't review all history.
+            BASE=$(git rev-parse HEAD); BEST_N=0
+            echo "::notice::No ocr-sweep tag in $BRANCH history; starting from HEAD"
+          fi
+          echo "BASE=$BASE" >> "$GITHUB_ENV"
+          echo "$BRANCH: base ${BASE:0:8}, $BEST_N changed file(s) to HEAD $(git rev-parse --short HEAD)"
+
+      - name: Run sweep
+        run: |
+          if [ "$MODE" = "full" ]; then
+            ocr scan --path packages --rule "$RULES" --max-tokens-budget "$FULL_TOKEN_BUDGET" \
+              --format json --output result.json
+          elif [ "$BASE" = "$(git rev-parse HEAD)" ]; then
+            echo "Nothing new on $BRANCH since last sweep"
+            echo '{"status":"skipped","comments":[]}' > result.json
+          else
+            ocr review --from "$BASE" --to HEAD --rule "$RULES" --max-tokens-budget "$DELTA_TOKEN_BUDGET" \
+              --format json --output result.json
+          fi
+
+      # ocr exits 0 even when some files failed to review (known persisting issue raised in ocr repo),
+      # so completeness is read from the run manifest instead of the exit code.
+      - name: Check review completeness
+        id: coverage
+        run: |
+          STATE=$(jq -r '.manifest.terminal_state // .status' result.json)
+          FAILED=$(jq '[.manifest.coverage.failed[]?] | length' result.json)
+          echo "Review state: $STATE, failed item(s): $FAILED"
+          if { [ "$STATE" = complete ] || [ "$STATE" = skipped ]; } && [ "$FAILED" -eq 0 ]; then
+            echo "complete=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "complete=false" >> "$GITHUB_OUTPUT"
+            jq -r '.manifest.coverage.failed[]? | "::warning::Not reviewed: \(.path)"' result.json
+            if [ "$(jq -r '.summary.budget_exceeded // false' result.json)" = true ]; then
+              echo "::warning::Token budget reached ($(jq -r '.summary.total_tokens' result.json) tokens). Raise OCR_${MODE^^}_TOKEN_BUDGET or run this branch manually."
+            fi
+          fi
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          {
+            name: "ocr-${{ env.MODE }}-${{ steps.marker.outputs.safe }}-${{ github.run_id }}",
+            path: target/result.json,
+          }
+
+      # Publishes findings even from a partial review: they are real, just not the full picture.
+      - name: Raise alert issue
+        env:
+          GH_TOKEN: "${{ github.token }}"
+          COMPLETE: "${{ steps.coverage.outputs.complete }}"
+        run: |
+          # only counts critical and high findings from .comments[]
+          SEVERE='[.comments[]? | select(.severity == "critical" or .severity == "high")]'
+          COUNT=$(jq "$SEVERE | length" result.json)
+          [ "$COMPLETE" = true ] && SCOPE="" || SCOPE=" (PARTIAL)"
+          if [ "$COUNT" -gt 0 ]; then
+              { echo "OCR $MODE sweep of \`$BRANCH\`$SCOPE found $COUNT high/critical findings. Full JSON in the run artifact:"
+              echo "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+              [ "$COMPLETE" = true ] || echo "Some files were not reviewed; the marker was not advanced and they will be retried."
+              echo
+              jq -r "$SEVERE | sort_by(.severity != \"critical\") | .[] |
+                \"- **\(.severity)** \(.category // \"\") \`\(.path):\(.start_line)-\(.end_line)\`\n  \(.content | gsub(\"\n\"; \"\n  \"))\"" result.json
+              } | head -c 60000 > body.md
+          gh issue create --title "OCR $MODE sweep ($BRANCH)$SCOPE $(date +%F): $COUNT findings" \
+          --label ocr-sweep --body-file body.md
+          fi
+
+      - name: Advance sweep marker
+        if: env.MODE == 'delta' && github.ref == 'refs/heads/main' && steps.coverage.outputs.complete == 'true'
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          # Checkout does not persist credentials, so authenticate only this push.
+          AUTH=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$AUTH"
+          git tag -f "$TAG" HEAD
+          git -c http.https://github.com/.extraheader="AUTHORIZATION: basic $AUTH" \
+            push -f origin "refs/tags/$TAG"
+
+      # Runs last so findings are already published; the marker was kept, so the next sweep retries.
+      - name: Fail on incomplete review
+        if: steps.coverage.outputs.complete == 'false'
+        run: |
+          echo "::error::Review of $BRANCH was incomplete; marker not advanced. See warnings above for unreviewed files."
+          exit 1
