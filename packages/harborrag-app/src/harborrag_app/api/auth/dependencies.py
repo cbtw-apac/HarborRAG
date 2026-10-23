@@ -92,6 +92,27 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
+def _arrived_on_loopback(request: Request) -> bool:
+    """Whether the connection's local address is a loopback interface.
+
+    The startup check reads ``HARBORRAG_HOST``, but uvicorn binds whatever
+    ``--host`` it is given, so the socket is checked per request. The ASGI
+    server fills ``scope["server"]`` from the socket, never from a header. A
+    non-IP value (a Unix socket path, or a test transport) is not a network
+    listener and is left to the startup check.
+    """
+
+    server = request.scope.get("server")
+    if not server:
+        return True
+    host = str(server[0])
+    try:
+        ip_address(host.removeprefix("[").removesuffix("]"))
+    except ValueError:
+        return True
+    return _is_loopback_host(host)
+
+
 def get_principal(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
@@ -103,6 +124,13 @@ def get_principal(
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
+        if not settings.allow_insecure_dev and not _arrived_on_loopback(request):
+            raise HarborAuthError(
+                "auth_mode=none serves loopback connections only; set "
+                "HARBORRAG_ALLOW_INSECURE_DEV=true to acknowledge an unauthenticated "
+                "non-loopback development listener",
+                forbidden=True,
+            )
         return Principal(
             subject="dev",
             role="owner",

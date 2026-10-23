@@ -27,7 +27,7 @@ from harborrag_core.domain.source import SourceRecord
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
 from .drive import SharePointDriveAPI
-from .drive_paths import is_drive_file, item_mime_type, item_name
+from .drive_paths import is_drive_file, item_mime_type, item_name, stored_payload
 from .mappers import (
     build_document_metadata,
     build_page_document_metadata,
@@ -300,7 +300,7 @@ class SharePointConnector(BaseConnector):
             content=html,
             content_type="text/html",
             metadata=metadata.to_dict(),
-            raw=page,
+            raw=stored_payload(page),
         )
 
     def _load_file(self, record: SourceRecord, site: dict[str, Any]) -> RawDocument:
@@ -356,7 +356,7 @@ class SharePointConnector(BaseConnector):
             content=content,
             content_type=item_mime_type(item),
             metadata=metadata.to_dict(),
-            raw=item,
+            raw=stored_payload(item),
         )
 
     def _record_drive(

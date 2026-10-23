@@ -356,6 +356,24 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
 - SharePoint refresh-token saves use an exclusively created owner-only temp file, so concurrent
   saves no longer corrupt the cache and a pre-created or symlinked temp file cannot capture the
   token.
+- A tenant-wide reindex drains only its own tenant's projection-cleanup jobs. It used to claim
+  every tenant's pending jobs, run them under its own storage context (deleting nothing), and
+  mark them completed, so retention then purged their manifests and left the retired Qdrant
+  points and FalkorDB nodes orphaned. `IngestionReliabilityPort.pending_cleanup_jobs` now
+  requires `tenant_id`.
+- Credential field names written without separators (`apikey`, `accesstoken`, `clientsecret`,
+  `privatekey`, `secretkey`, `authtoken`, `passWord`) are refused as raw configuration and
+  redacted from model-error metadata; `redact_mapping` also applies that definition, so
+  `api.key` and `Private Key` are masked too.
+- Model configuration validation errors no longer echo their input, which arrives after
+  `${VAR}` expansion, so `python -m harborrag_adapters.models validate`, runtime startup and
+  tenant chat configuration errors no longer print API keys or credentialed Redis URLs.
+- The SharePoint connector no longer requests `@microsoft.graph.downloadUrl` and strips
+  `@microsoft.graph.*` annotations from the payload stored in the raw-metadata artifact. That
+  pre-authenticated link bypasses SharePoint permissions for about an hour.
+- With `HARBORRAG_AUTH_MODE=none`, a request that arrives on a non-loopback interface is refused
+  (403) unless `HARBORRAG_ALLOW_INSECURE_DEV=true`. The startup check read `HARBORRAG_HOST`, so
+  `uvicorn ... --host 0.0.0.0` with default settings served an implicit owner on every interface.
 ### Fixed
 
 - Report corrupt and encrypted legacy `.xls` workbooks as parser rejections

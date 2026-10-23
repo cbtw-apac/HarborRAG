@@ -276,7 +276,7 @@ async def test_metadata_refresh_reencodes_only_route_and_graph_failure_keeps_old
             await service.release(release_request(source_version="2"), connector)
 
         active = await control.document_versions.active_snapshot(first.document_id)
-        cleanup = await control.reliability.pending_cleanup_jobs()
+        cleanup = await control.reliability.pending_cleanup_jobs(tenant_id="default")
         assert active is not None
         assert str(active.document_version_id) == metadata.document_version_id
         assert any(str(job.document_version_id) != metadata.document_version_id for job in cleanup)
@@ -306,7 +306,7 @@ async def test_failed_release_replays_from_canonical_without_connector_or_parser
         with pytest.raises(ConnectionError, match="graph unavailable"):
             await service.release(release_request(source_version="2"), connector)
 
-        failed_jobs = await control.reliability.pending_cleanup_jobs()
+        failed_jobs = await control.reliability.pending_cleanup_jobs(tenant_id="default")
         failed_version_id = next(
             str(job.document_version_id)
             for job in failed_jobs

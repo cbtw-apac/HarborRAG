@@ -189,7 +189,10 @@ class SecurityBaseConfig(BaseModel):
 class ModelClientConfig(BaseModel):
     """Provide validated settings and loading behavior shared by every model family."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    # ``from_dict`` validates after ``${VAR}`` expansion, and pydantic repeats the
+    # input in its message, so a validation error printed every expanded key and
+    # credentialed URL. This hides the input for nested models too.
+    model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
     config_section: ClassVar[str]
 
     default_model: str = Field(min_length=1)
