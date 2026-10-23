@@ -2,8 +2,11 @@
 
 from .providers import DEFAULT_PROVIDER, PRESETS, ProviderPreset
 from .render import (
+    COMPOSE_FALLBACK,
+    COMPOSE_FILE,
     ENV_FALLBACK,
     ENV_FILE,
+    FORCE_HINT,
     SERVICE_PORTS,
     STATE_DIRECTORY,
     InitOptions,
@@ -21,8 +24,11 @@ __all__ = [
     "SourcePreset",
     "SourceVariable",
     "parse_sources",
+    "COMPOSE_FALLBACK",
+    "COMPOSE_FILE",
     "ENV_FALLBACK",
     "ENV_FILE",
+    "FORCE_HINT",
     "PRESETS",
     "SERVICE_PORTS",
     "STATE_DIRECTORY",

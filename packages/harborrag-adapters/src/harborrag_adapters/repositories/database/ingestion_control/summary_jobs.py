@@ -12,7 +12,6 @@ from harborrag_core.summaries import (
     SUMMARY_IMMEDIATE_RETRY_BLOCKERS,
     SUMMARY_PERMISSION_BLOCKERS,
     SUMMARY_TRANSIENT_BLOCKERS,
-    SummaryBinding,
     SummaryLease,
     SummaryPolicy,
 )
@@ -133,14 +132,15 @@ class SummaryJobOperations(SummaryAuthority):
                     .scalars()
                     .all()
                 )
-                current = [
-                    SummaryBinding.model_validate(value)
+                # Only the stored digest is compared. Validating every binding would
+                # re-hash every card of every idle scope on every poll, under the lock.
+                digests = [
+                    value["manifest"]["membership_digest"]
                     for value in bindings
                     if value["revision"] == row["revision"]
                 ]
-                if (not current and snapshot.document_versions) or any(
-                    binding.manifest.membership_digest != snapshot.membership_digest
-                    for binding in current
+                if (not digests and snapshot.document_versions) or any(
+                    value != snapshot.membership_digest for value in digests
                 ):
                     await invalidate_summary_scope(session, tenant_id, row["source_scope_id"])
                     repaired += 1
@@ -159,6 +159,27 @@ class SummaryJobOperations(SummaryAuthority):
         tenant whose sources carry non-public ACLs keeps needing ``backfill``,
         because no reader-independent decision can say who may see that card.
         """
+        tenant_scope = (
+            (
+                await session.execute(
+                    select(SUMMARY_SCOPES).where(
+                        SUMMARY_SCOPES.c.tenant_id == tenant_id,
+                        SUMMARY_SCOPES.c.source_scope_id == "@tenant",
+                    )
+                )
+            )
+            .mappings()
+            .one_or_none()
+        )
+        # Checked first: the tenant-wide snapshot reads every document and
+        # permission of the tenant, and most polls have no dirty idle rollup.
+        if not (
+            tenant_scope
+            and tenant_scope["policy"]
+            and tenant_scope["dirty_since"]
+            and tenant_scope["execution"] == "idle"
+        ):
+            return False
         try:
             snapshot = await self._snapshot(session, tenant_id, "@tenant")
         except HarborConflictError:
@@ -176,25 +197,6 @@ class SummaryJobOperations(SummaryAuthority):
                 resolved = acl.get((dependency.resource_kind, dependency.resource_id))
                 if resolved is None or not resolved.can_read(access, now=now):
                     return False
-        tenant_scope = (
-            (
-                await session.execute(
-                    select(SUMMARY_SCOPES).where(
-                        SUMMARY_SCOPES.c.tenant_id == tenant_id,
-                        SUMMARY_SCOPES.c.source_scope_id == "@tenant",
-                    )
-                )
-            )
-            .mappings()
-            .one_or_none()
-        )
-        if not (
-            tenant_scope
-            and tenant_scope["policy"]
-            and tenant_scope["dirty_since"]
-            and tenant_scope["execution"] == "idle"
-        ):
-            return False
         await session.execute(
             update(SUMMARY_SCOPES)
             .where(

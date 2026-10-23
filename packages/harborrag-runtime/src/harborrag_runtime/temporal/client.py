@@ -183,7 +183,10 @@ class IngestionTemporalClient:
 
     async def pause(self, task_id: str) -> None:
         await self._signal(task_id, "pause")
-        await self._wait_for_pause_relay(task_id)
+        if not await self._wait_for_pause_relay(task_id):
+            # Natively pausing now would stop the run before the boundary that
+            # persists PAUSED, leaving the task RUNNING and impossible to resume.
+            return
         await self._pause_execution(
             self._workflow_id(task_id),
             reason="Source ingestion pause requested",
@@ -292,17 +295,32 @@ class IngestionTemporalClient:
             result_type=SourceIngestionResult,
         )
 
-    async def _wait_for_pause_relay(self, task_id: str) -> None:
+    async def _wait_for_pause_relay(self, task_id: str) -> bool:
+        """Wait for the run to apply a delivered pause; False when it is still pending.
+
+        The workflow applies a pause at its next batch boundary, or through the
+        relay while a batch runs. During discovery or finalization neither happens
+        for minutes, but the signal is recorded and the run will honour it, so the
+        request is accepted rather than reported as an outage.
+        """
+
+        status = None
         for _ in range(300):
             status = await self.get_status(task_id)
             if status.pause_applied:
-                return
+                return True
             if status.status in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
                 raise WorkflowNotRunningError(
                     f"Could not pause ingestion task {task_id!r}: "
                     f"the task already finished ({status.status})"
                 )
             await asyncio.sleep(0.1)
+        if status is not None and status.paused and not status.cancel_requested:
+            logger.info(
+                "Ingestion pause accepted; applies at the next batch boundary task_id=%s",
+                task_id,
+            )
+            return False
         raise WorkflowOperationError(
             f"Could not pause ingestion task {task_id!r}: pause relay did not settle"
         )

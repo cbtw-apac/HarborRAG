@@ -43,7 +43,6 @@ def test_defaults_match_the_approved_policy() -> None:
     assert settings.memory_dedup_threshold == pytest.approx(0.92)
     assert settings.memory_model_profile == "memory"
     assert settings.memory_embed_profile is None
-    assert settings.memory_pii_redaction is False
 
 
 def test_environment_overrides_use_the_harborrag_prefix(monkeypatch: pytest.MonkeyPatch) -> None:

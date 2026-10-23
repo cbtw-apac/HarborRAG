@@ -8,7 +8,8 @@ construction so an invalid policy fails at wiring time, not mid-turn.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from math import isfinite
 
 from harborrag_core.ports.memory import MemoryScope
@@ -40,6 +41,44 @@ def _require_between(name: str, value: float, *, low: float, high: float) -> Non
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryRetention:
+    """Days a newly written memory is kept, per scope; 0 means no automatic expiry.
+
+    Retention becomes ``Memory.expires_at`` at write time, and repositories
+    stop returning a row once it has passed. RUN memories follow the session.
+    TENANT and GLOBAL memories are never written with an expiry. The default
+    expires nothing, so a library caller opts in. The runtime wires the
+    ``HARBORRAG_MEMORY_RETENTION_DAYS_*`` settings here.
+    """
+
+    session_days: int = 0
+    user_days: int = 0
+    project_days: int = 0
+
+    def __post_init__(self) -> None:
+        for name in ("session_days", "user_days", "project_days"):
+            if getattr(self, name) < 0:
+                raise MemoryConfigurationError(f"memory retention {name} must not be negative")
+
+    def days(self, scope: MemoryScope) -> int:
+        """Retention for ``scope`` in days; 0 means the scope never auto-expires."""
+
+        if scope is MemoryScope.SESSION or scope is MemoryScope.RUN:
+            return self.session_days
+        if scope is MemoryScope.USER:
+            return self.user_days
+        if scope is MemoryScope.PROJECT:
+            return self.project_days
+        return 0
+
+    def expires_at(self, scope: MemoryScope, now: datetime) -> datetime | None:
+        """When a memory written at ``now`` in ``scope`` expires, or ``None`` for never."""
+
+        days = self.days(scope)
+        return now + timedelta(days=days) if days > 0 else None
+
+
+@dataclass(frozen=True, slots=True)
 class MemoryPolicy:
     """How one turn assembles its conversation context.
 
@@ -58,6 +97,15 @@ class MemoryPolicy:
     the per-turn query rewrite reported the question wants -- 0 disables the
     type hint. It only ever re-ranks: recall still searches every recallable
     type, and retention stays keyed on scope.
+
+    ``extraction_project_scope`` lets extraction and the agent memory tools
+    store a fact at PROJECT scope, where every user of the project recalls it.
+    It is off by default because both write from model output that restates
+    retrieved, untrusted content; a project write is then stored for the
+    session instead (see ``write_scope``).
+
+    ``retention`` sets ``expires_at`` on every memory that extraction, the
+    rolling summary, and the agent memory tools write.
     """
 
     enabled: bool = True
@@ -75,6 +123,8 @@ class MemoryPolicy:
     entity_confidence_floor: float = 0.5
     entity_overlap_weight: float = 0.5
     type_affinity_weight: float = 0.5
+    extraction_project_scope: bool = False
+    retention: MemoryRetention = field(default_factory=MemoryRetention)
 
     def __post_init__(self) -> None:
         _require_positive("recent_max_messages", self.recent_max_messages)
@@ -99,6 +149,17 @@ class MemoryPolicy:
         if len(set(self.recall_scopes)) != len(self.recall_scopes):
             raise MemoryConfigurationError("memory policy recall_scopes must be unique")
 
+    def write_scope(self, requested: MemoryScope) -> MemoryScope:
+        """The scope a model-proposed memory may be written at, never wider.
+
+        The one gate every model-driven write path goes through: a PROJECT
+        write degrades to SESSION unless ``extraction_project_scope`` is on.
+        """
+
+        if requested is MemoryScope.PROJECT and not self.extraction_project_scope:
+            return MemoryScope.SESSION
+        return requested
+
     @classmethod
     def disabled(cls) -> MemoryPolicy:
         """Return the policy that replays a tiny window and calls no model.
@@ -116,4 +177,4 @@ class MemoryPolicy:
         )
 
 
-__all__ = ["DEFAULT_RECALL_SCOPES", "MemoryPolicy"]
+__all__ = ["DEFAULT_RECALL_SCOPES", "MemoryPolicy", "MemoryRetention"]

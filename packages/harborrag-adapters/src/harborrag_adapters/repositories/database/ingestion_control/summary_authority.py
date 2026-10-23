@@ -181,7 +181,11 @@ class SummaryAuthority:
 
     @staticmethod
     async def _documents(
-        session: AsyncSession, tenant_id: str, source_scope_id: str
+        session: AsyncSession,
+        tenant_id: str,
+        source_scope_id: str,
+        *,
+        document_id: str | None = None,
     ) -> tuple[dict, ...]:
         rows = (
             (
@@ -208,6 +212,7 @@ class SummaryAuthority:
                         if source_scope_id != "@tenant"
                         else true(),
                         DOCUMENT_VERSIONS.c.status == "ACTIVE",
+                        DOCUMENTS.c.document_id == document_id if document_id else true(),
                     )
                     .order_by(DOCUMENTS.c.document_id)
                     .limit(10001)
@@ -221,9 +226,23 @@ class SummaryAuthority:
         return tuple(dict(row) for row in rows)
 
     async def _snapshot(
-        self, session: AsyncSession, tenant_id: str, source_scope_id: str
+        self,
+        session: AsyncSession,
+        tenant_id: str,
+        source_scope_id: str,
+        *,
+        document_id: str | None = None,
     ) -> SummarySnapshot:
-        documents = await self._documents(session, tenant_id, source_scope_id)
+        """Snapshot the scope, or only one of its documents.
+
+        A ``document_id`` narrows the read to that document plus the scope's source
+        permission, with the same permission checks. Its ``membership_digest`` is
+        then not the scope's, so it only serves checks that never read the digest.
+        """
+
+        documents = await self._documents(
+            session, tenant_id, source_scope_id, document_id=document_id
+        )
         ids = tuple(row["document_id"] for row in documents)
         scopes: tuple[str, ...] = (source_scope_id,)
         if source_scope_id == "@tenant":

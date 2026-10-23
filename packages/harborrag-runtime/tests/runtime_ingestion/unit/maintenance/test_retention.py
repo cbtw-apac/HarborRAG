@@ -44,6 +44,7 @@ from ...fixtures.release import (
     build_release_resources,
     release_request,
 )
+from .retention_fixtures import expire_purge_lease
 
 _CONTEXT = StorageOperationContext.system("default")
 
@@ -292,6 +293,15 @@ async def test_a_storage_error_leaves_the_version_purging_for_the_next_run(
         assert snapshot.canonical_artifact is not None
         assert await control.reliability.projection_manifest(released.retired) is not None
 
+        # The failed purge keeps its lease as a backoff; once it lapses the next run
+        # resumes the purge.
+        assert (
+            await _service(control, store).run_scope(
+                tenant_id="default",
+                source_scope_id="docs",
+            )
+        ).eligible == 0
+        await expire_purge_lease(control, released.retired)
         store.fail = False
         retried = await _service(control, store).run_scope(
             tenant_id="default",

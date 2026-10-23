@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from threading import Event, Thread
 
@@ -227,3 +228,64 @@ def test_reload_holds_the_update_lock_while_reading(tmp_path, monkeypatch) -> No
     assert thread_errors == []
     assert replace_completed.is_set()
     assert store.snapshot().tools["search"].enabled is False
+
+
+def test_loaded_file_above_a_safety_maximum_is_clamped_with_a_warning(tmp_path, caplog) -> None:
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        "version: 1\ntools:\n  search:\n    defaults: {top_k: 25}\n    limits: {top_k: 30}\n"
+        "tenants:\n  acme:\n    tools:\n      search:\n        limits: {top_k: 40}\n",
+        encoding="utf-8",
+    )
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.mcp.configuration"):
+        store = McpConfigurationStore.load(
+            path=config_path,
+            specs=[ConfigurableTool.spec],
+            audit=McpAuditLog(path=tmp_path / "audit.jsonl"),
+            environment={},
+        )
+
+    assert store.resolve("search", None).defaults["top_k"] == 20
+    assert store.resolve("search", None).limits == {"top_k": 20}
+    assert store.resolve("search", "acme").limits == {"top_k": 20}
+    warnings = [record.getMessage() for record in caplog.records]
+    assert any("search.top_k default 25 exceeds its safety maximum 20" in m for m in warnings)
+    assert any("'acme' search.top_k limit 40" in m for m in warnings)
+
+    # reload() reads the same file, so it accepts what startup accepted.
+    assert store.reload(principal_id="owner")["effective"]["tools"]["search"]["limits"] == {
+        "top_k": 20
+    }
+    # The editor still refuses to write an out-of-range value.
+    with pytest.raises(ValueError, match="safety maximum"):
+        store.replace(
+            McpConfiguration.model_validate({"tools": {"search": {"limits": {"top_k": 21}}}}),
+            principal_id="owner",
+        )
+
+
+def test_alpha1_shipped_configuration_loads_against_the_current_catalog(tmp_path) -> None:
+    # The alpha1 config/mcp.yaml allowed graph max_depth 8 and max_paths 20; the
+    # current graph tools cap them at 4 and 5.
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        "version: 1\ntools:\n"
+        "  graph_path_search:\n"
+        "    defaults: {relationship_types: [], max_depth: 4, max_paths: 10, direction: both}\n"
+        "    limits: {max_depth: 8, max_paths: 20}\n"
+        "  graph_subgraph_search:\n"
+        "    defaults: {relationship_types: [], max_depth: 2, max_nodes: 20, direction: both}\n"
+        "    limits: {max_depth: 8, max_nodes: 20}\n",
+        encoding="utf-8",
+    )
+    registry = McpServer(audit=McpAuditLog(path=tmp_path / "audit.jsonl"))
+
+    store = McpConfigurationStore.load(
+        path=config_path, specs=registry.list_tools(), audit=registry.audit, environment={}
+    )
+
+    path = store.resolve("graph_path_search", None)
+    assert path.defaults["max_paths"] == 5
+    assert path.limits == {"max_depth": 4, "max_paths": 5}
+    assert store.resolve("graph_subgraph_search", None).limits["max_depth"] == 4

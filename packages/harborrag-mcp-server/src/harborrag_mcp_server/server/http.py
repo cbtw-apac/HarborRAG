@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 import secrets
 from collections.abc import Awaitable, Callable
@@ -40,6 +41,8 @@ if TYPE_CHECKING:
     from starlette.responses import HTMLResponse, JSONResponse, Response
 
     from harborrag_mcp_server.server.server import McpServer
+
+logger = logging.getLogger("harborrag.mcp.server.http")
 
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1"})
 _REQUIRED_SCOPE = "mcp:read"
@@ -102,6 +105,40 @@ def create_local_token_verifier(token: str, *, tenant_id: str = "*") -> TokenVer
             required_scopes=[_REQUIRED_SCOPE],
         ),
     )
+
+
+def create_api_key_owner_verifier(
+    *,
+    host: str,
+    port: int,
+    path: str,
+    bearer_token: str | None,
+    tenant_id: str | None,
+) -> TokenVerifier | None:
+    """The owner token to accept beside reader keys, or ``None`` to accept none.
+
+    ``api_key`` mode exists to serve remote callers through a TLS proxy, so the
+    loopback bind no longer limits who can present the static owner token. That
+    token never expires and cannot be revoked, so it is accepted only when
+    ``HARBORRAG_MCP_READER_TENANT_ID`` binds its reads to one concrete tenant;
+    the ``*`` default would let it read every tenant. Without that binding the
+    server starts with reader keys only and says how to enable the owner.
+    """
+
+    token = (bearer_token or "").strip()
+    if not token:
+        return None
+    tenant = (tenant_id or "").strip()
+    if not tenant or tenant == "*":
+        logger.warning(
+            "HARBORRAG_MCP_BEARER_TOKEN is ignored in api_key mode: the owner token is "
+            "accepted beside reader keys only when HARBORRAG_MCP_READER_TENANT_ID names "
+            "one tenant (not '*'). Set HARBORRAG_MCP_READER_TENANT_ID=<tenant> and "
+            "restart to enable the status UI's configuration editor."
+        )
+        return None
+    validated = validate_local_http_settings(host=host, port=port, path=path, bearer_token=token)
+    return create_local_token_verifier(validated, tenant_id=tenant)
 
 
 def register_http_routes(

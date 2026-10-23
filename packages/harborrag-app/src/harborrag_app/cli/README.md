@@ -335,7 +335,7 @@ Relevant `HARBORRAG_` variables include:
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` | S3/MinIO object store holding canonical chunk content |
 | `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` | unset | Object-store credential |
 | `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` | unset | Object-store credential |
-| `HARBORRAG_QDRANT_COLLECTION_PREFIX` | `""` | Vector collection name prefix |
+| `HARBORRAG_STORAGE_NAMESPACE_PREFIX` | `harborrag` | Per-tenant store namespace `{prefix}_{tenant_id}`: Qdrant collection stem, FalkorDB graph, object-store key prefix (replaces the removed `HARBORRAG_QDRANT_COLLECTION_PREFIX`) |
 | `HARBORRAG_FALKORDB_GRAPH` | `harborrag` | Graph projection name |
 | `HARBORRAG_LOG_LEVEL` | `WARNING` for CLI | Diagnostic logging |
 

@@ -67,7 +67,13 @@ class SourceActivitiesMixin:
                 )
             )
         except RPCError as error:
-            if error.status is RPCStatusCode.UNIMPLEMENTED:
+            # A batch that already closed (or is already paused) has nothing to
+            # pause; retrying would only hold up the source workflow's relay.
+            if error.status in {
+                RPCStatusCode.FAILED_PRECONDITION,
+                RPCStatusCode.NOT_FOUND,
+                RPCStatusCode.UNIMPLEMENTED,
+            }:
                 return
             raise
 
@@ -89,6 +95,7 @@ class SourceActivitiesMixin:
         except RPCError as error:
             if error.status in {
                 RPCStatusCode.FAILED_PRECONDITION,
+                RPCStatusCode.NOT_FOUND,
                 RPCStatusCode.UNIMPLEMENTED,
             }:
                 return

@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0a2] - 2026-10-22
+
+### Upgrading from 2.0.0a1
+
+Existing store data is not migrated: plan a reset and a full re-ingest.
+
+1. Stop schedules and API submissions, then let every running `harborrag.*` Temporal workflow
+   finish or terminate it (`temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'`).
+   Object keys are re-prefixed at read time, so an alpha1 run resumed by an alpha2 worker cannot
+   find its plans and artifacts.
+2. Back up the PostgreSQL control database. Restoring that backup (with the untouched alpha1
+   stores) is the only practical rollback: alpha1 cannot start against a database migrated to
+   0040, and the alembic downgrade to 0019 is lossy.
+3. Unset `HARBORRAG_QDRANT_COLLECTION_PREFIX` / `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX` (now
+   ignored with a startup warning) and set `HARBORRAG_STORAGE_NAMESPACE_PREFIX`; give each
+   deployment its own value when stores are shared.
+4. Drop the alpha1 Qdrant collections, FalkorDB graphs and object-store keys (or keep them for
+   rollback). The new names are `harborrag_{tenant}_{index}`, graph `harborrag_{tenant}` and keys
+   under `harborrag_{tenant}/`.
+5. Review `config/mcp.yaml` (graph `max_depth` above 4 and `max_paths` above 5 are lowered with
+   a warning) and remove `max_child_pages` from Confluence connectors (ignored with a warning).
+6. Run the migrations once (0019 -> 0040) from a single process before starting the other
+   services; on a large control database the 0021 backfill and the 0037 index hold table locks.
+7. Re-ingest every source scope. The graph projection version changed, so every document is
+   reprocessed without `--force-reprocess`; Jira `fields.*` keys for accented field names change
+   (see Changed).
+8. Summaries are off by default. To use them, enable `summarization` in
+   `config/topology/graph_build.yaml`, then run `harborrag topology summaries backfill`.
+
 ### Added
 
 - Parse legacy Microsoft Office binary files: Word 97-2003 `.doc`
@@ -165,10 +194,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ingestion is sized for the shared 4-vCPU / 15 GB host instead of for I/O latency.
   `worker.max_concurrent_activities` drops from 12 to 4 (24 slots and executor threads per
   worker process instead of 72), `ingestion.document_concurrency` from 32 to 8, and the example
-  worker replica count stays at 2. Every Compose service now has an overridable CPU and memory
-  ceiling (`HARBORRAG_<SERVICE>_CPUS` / `_MEMORY`), and Redis is bounded at 512 MB with
-  `volatile-lru`. Without the ceilings, a full Jira run drove the host into memory thrash: it
-  became unreachable and nothing was OOM-killed.
+  worker replica count stays at 2. The Compose files set no per-service CPU or memory limits,
+  so size the host for the corpus (FalkorDB holds the graph in RAM, roughly 12.6 KB per Jira
+  document).
 - Ingestion workers pass already-loaded HarborRAG modules through the Temporal workflow sandbox
   (`temporal/sandbox.py`), so it no longer re-imports them for every workflow run (about 320 ms
   to 1 ms of CPU per document workflow). Workflow modules and their parent packages stay
@@ -203,9 +231,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   PDF and the image parser off the `ppocr-server` container alias - for example to
   `http://localhost:8888/ocr` for a host run - without editing the catalog. A bare
   `${VARIABLE}` that is unset fails the load; secrets keep using the `secrets` block.
-- FalkorDB names a tenant's graph `{falkordb_tenant_graph_prefix}_{tenant_id}` instead of
-  appending a SHA-256 digest of the tenant, matching the Qdrant collection naming so a graph
-  is recognizable without a lookup. The tenant must use the same charset Qdrant requires
+- FalkorDB names a tenant's graph `{HARBORRAG_STORAGE_NAMESPACE_PREFIX}_{tenant_id}` (default
+  `harborrag_DEFAULT`) instead of appending a SHA-256 digest of the tenant, matching the Qdrant
+  collection naming so a graph is recognizable without a lookup. The tenant must use the same charset Qdrant requires
   (1-128 ASCII letters, digits, `.`, `_`, or `-`, beginning with a letter or digit).
   Deployments that already wrote digest-named graphs must rename them or reindex, and
   projection inventories now report the tenant's graph rather than `HARBORRAG_FALKORDB_GRAPH`.
@@ -237,6 +265,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `GET /ingestions/{id}` returns 200 with `execution_status: "not_found"` when Temporal no longer
   knows the run (it used to return 404); 404 now only means there is no such run.
 
+- Accepting a section or document summary card re-reads only its own document and permissions
+  instead of the whole source scope, and the summary reconcile poll no longer snapshots the whole
+  tenant unless a tenant rollup is due. Changing one `card_words` budget no longer invalidates the
+  cached section and document cards (leaf cards regenerate once after upgrading).
+- External-stub pruning runs once per source finalization, in bounded batches, instead of after
+  every 500-document repair page.
+- Entity summary index publication embeds cards in batches of 64 and upserts in chunks of 256;
+  publication failures are logged at ERROR.
+- The periodic retired-version sweep runs within a minute of worker start, drains its backlog in
+  one pass (10-minute budget), queues failed purges behind fresh ones, and exports
+  `harborrag_retention_purge_versions_total`, `harborrag_retention_purge_deleted_objects_total`
+  and `harborrag_retention_purge_backlog`. A purge holds a renewable lease on the version.
+- SharePoint throttles Microsoft Graph through the shared connector rate limiter and reports its
+  waits in the connector rate-limit metrics; `requests_per_minute` is now one budget shared by
+  all workers using the same app registration, not a per-process limit.
+- Jira custom-field filter keys fold accents instead of splitting on them (`Kỹ năng` ->
+  `fields.ky_nang`, `Résumé` -> `fields.resume`), and when display names collide the lowest
+  field id owns the readable key on every issue. Saved filters or facets that used the old keys
+  must be updated; re-ingest Jira sources.
+- `harborrag init` keeps an existing `.gitignore` (appending only missing entries, no `--force`
+  needed) and an existing `docker-compose.yml` (the new copy is written to
+  `docker-compose.harborrag.yml`), and a re-init keeps the port offset recorded in the
+  project's `.env`.
+- CLI path arguments (`topology evaluate`, `topology config --path`, `topology enable --profile`,
+  `topology indexing` files, `auth keys create --secret-output`) resolve against the directory
+  the command was run from, and project discovery stops at the nearest directory holding
+  `harborrag.yaml` or `config/connectors.yaml`.
+- The MCP Explorer sizes reads, evidence windows and searches to the calling tenant's limits.
+- Memory extraction and the agent `manage_memory` tool keep project-scope writes to the session
+  unless `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE=true`; the rolling session summary id is a
+  hash of tenant, user and session (a summary under the old `summary:{session_id}` id is carried
+  forward and deleted the next time its session builds context); summary prompts are bounded
+  (messages clipped head-and-tail, about 6k tokens per call).
+- Breaking (MCP tool contract): the graph chunk edge is `(:Structure)-[:HAS_CHUNK]->(:Chunk)`,
+  replacing alpha1's `(:Chunk)-[:SUPPORTS]->(:Structure)`; graph tools no longer accept
+  `supports` (use `has_chunk`, which points the other way), and graph `max_depth` / `max_paths`
+  are capped at 4 / 5.
+
+### Deprecated
+
+- The Confluence `max_child_pages` connector setting (removed after 2.0.0a1) is accepted and
+  ignored with a WARNING for this release; delete it (listed `content_ids` now ingest their
+  whole subtree).
+
 ### Removed
 
 - The Textual ingestion dashboard and the `textual` dependency of `harborrag-app`.
@@ -248,13 +320,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unknown tools. The Explorer's "Deep evidence" search mode goes with them, and the reader
   port and SDK drop `get_document_metadata` / `DocumentMetadataRequest` /
   `DocumentMetadataResponse`; `list_documents` still returns `DocumentMetadata`.
+- The unimplemented `HARBORRAG_MEMORY_PII_REDACTION` setting.
 
 ### Security
 
-- The MCP server connects to PostgreSQL as a read-only role (`SELECT` on the ingestion
-  tables and `mcp_api_keys`, `default_transaction_read_only`) and to MinIO as a user that can
-  only read the artifact bucket; it no longer holds the owner/root credentials or the
-  secrets encryption key. The MCP Compose file no longer opts into plaintext remote backends.
+- The MCP server no longer receives the secrets encryption key, and the MCP Compose file no
+  longer opts into plaintext remote backends. It still connects to PostgreSQL and MinIO with
+  the credentials from `env/.env.database` (the Postgres owner and the MinIO root user); a
+  least-privilege reader role and read-only bucket user are planned, so keep the MCP reader on
+  a trusted network until then.
 - Issued reader keys cannot name the `*` wildcard tenant, at issuance, verification and in the
   database constraint; the file-backed key list refuses it too.
 - Project discovery only trusts a `harborrag.yaml` whose directory is owned by the current
@@ -265,6 +339,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The CLI no longer prints tracebacks, which can contain credentials, above `DEBUG`; set
   `HARBORRAG_LOG_LEVEL=DEBUG` to see them.
 
+- In `HARBORRAG_MCP_AUTH_MODE=api_key`, the static owner token (`HARBORRAG_MCP_BEARER_TOKEN`)
+  is accepted beside reader keys only when `HARBORRAG_MCP_READER_TENANT_ID` names one tenant;
+  unset or `*`, the server starts with reader keys only and logs a WARNING.
+- The memory admin API no longer lets any tenant reader delete PROJECT or TENANT memories other
+  users wrote: deleting another user's PROJECT memory needs editor, a TENANT memory needs admin,
+  and listings omit source session/message ids on shared rows the caller did not write.
+- Memory extraction can no longer supersede a project memory another user wrote.
+- Over the document-enumeration budget, retrieval diagnostics (`candidate_hits` and the stale,
+  unpublished and malformed counts) count only documents the caller may read, so a hidden
+  document matching a filter is indistinguishable from no match.
+- The legacy `.ppt` parser decodes each slide and notes container once and enforces its output
+  limit while extracting, so a crafted slide list can no longer multiply a small file into
+  gigabytes of text; a presentation over the limit is rejected instead of re-parsed without its
+  notes.
+- SharePoint refresh-token saves use an exclusively created owner-only temp file, so concurrent
+  saves no longer corrupt the cache and a pre-created or symlinked temp file cannot capture the
+  token.
 ### Fixed
 
 - Report corrupt and encrypted legacy `.xls` workbooks as parser rejections
@@ -301,6 +392,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `harborrag --help` takes about 0.9 s instead of 2.0 s; a close failure after the output no
   longer changes the exit code.
 
+- A source ingestion no longer ends FAILED when its batch finishes, or is cancelled after a
+  pause, while the pause relay is persisting a pause or resume (gated by a new workflow patch,
+  so running histories replay unchanged).
+- Pausing or resuming an ingestion keeps its progress summary and start time, and a pause sent
+  during discovery or finalization is accepted (applied at the next batch boundary) instead of
+  returning 503.
+- Re-ingesting content whose retired version is being purged retries instead of failing the
+  document; an interrupted purge resumes after its lease lapses, even with retention `off`; the
+  raw-reference check runs right before shared raw objects are deleted, and siblings purged
+  together no longer orphan a shared raw object.
+- A retried chat completion can no longer take over the idempotency claim of a slow stream that
+  is still running (stale-claim window now 80 minutes).
+- Migration 0032 assigns each legacy secret to the tenant of the source that references it, and
+  legacy secret retirements queued before tenant scoping are replayed under DEFAULT; the 0035
+  downgrade maps PAUSED tasks to RUNNING. Databases already at 0040 are not re-backfilled.
+- Reverse relation repair skips (and logs) a failing declarer from another scope instead of
+  failing the current run, no longer re-repairs ambiguous cross-connector targets on every run,
+  and concurrent repairs of one declarer no longer hit a primary-key violation.
+- Graph reads that reach an external link-target stub no longer fail with a validation error,
+  and a shared stub's visibility no longer flips with ingestion order.
+- Entity-lane evidence honours the caller's scope, type, date and `fields.*` filters;
+  `facet.*` filters match case-insensitively; multi-valued source fields become one facet value
+  per member; `find_entities` rejects non-facet names and reports `unknown_facet` instead of a
+  complete empty answer.
+- Retrieval no longer fails with AUTHORIZATION_UNAVAILABLE for a principal who can read more than
+  10,000 documents; past that budget it pre-filters by readable source scopes, remembers the
+  over-budget result per principal for 60 s, and gives the fallback lookup its own timeout. Under
+  that fallback, `fields.*` filters are refused with AUTHORIZATION_UNAVAILABLE.
+- A failing summary dispatch is logged and backed off instead of shutting down every ingestion
+  worker in the process.
+- Per-tenant chat clients build under a per-tenant lock, close a replaced or evicted client only
+  after its in-flight turns finish, and retry a transient catalog or secret failure after 10 s
+  without evicting any cached client (the tenant keeps its existing client meanwhile).
+- A cancellation after an agent run's COMPLETED checkpoint no longer overwrites it with a
+  resumable CANCELLED one; both the SQL and the in-memory run repositories refuse any save over a
+  COMPLETED run.
+- SharePoint: a deleted item fails as a missing source item, throttling or 5xx after retries is a
+  retryable `source_unavailable` failure, retries re-read the token and a 401 refreshes it once,
+  discovery walks each library once, and path allowlists match percent-encoded folder names.
+- The MCP file key store no longer revokes every key when one entry's hash variable is unset; it
+  denies every key while the file is missing or cannot be parsed (so a broken revocation edit
+  fails closed), is cached by mtime and read off the event loop, and logs denials of expired or
+  revoked keys by key id. MCP clients again see schema, budget, disabled-tool and tenant-refusal
+  messages; errors raised inside a tool's own execution stay masked.
+- An `mcp.yaml` with defaults or limits above a tool's safety maximum (such as alpha1's graph
+  `max_depth: 8`) loads with those values lowered and a WARNING instead of stopping the server.
+- Setting the removed `HARBORRAG_QDRANT_COLLECTION_PREFIX` or `HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX`
+  logs a startup WARNING naming `HARBORRAG_STORAGE_NAMESPACE_PREFIX`.
+- `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION/USER/PROJECT` are enforced: extracted memories,
+  rolling summaries and agent-recorded memories get an `expires_at` for their scope (0 = never).
+- Memory recall without an embedder searches per significant query term (concurrently, keeping
+  partial results when one search fails); extraction still supersedes the contradicted fact when
+  indexing the replacement fails, and re-indexes a restated fact only when its earlier index
+  write never completed.
+- `env-example` no longer lists memory-cap and log-rotation variables that no Compose file reads.
 ### Security
 
 - Require operator-supplied PostgreSQL, MinIO, and Grafana passwords instead
@@ -994,6 +1140,7 @@ operator-facing alias.
 - Change detection for incremental updates [#21]
 - Signal handling for graceful shutdown [#21]
 
+[2.0.0a2]: https://github.com/cbtw-apac/HarborRAG/compare/harborrag-v2.0.0a1...harborrag-v2.0.0a2
 [2.0.0a1]: https://github.com/cbtw-apac/HarborRAG/compare/qdrant-loader-v1.0.3...harborrag-v2.0.0a1
 [1.0.3]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.2...qdrant-loader-v1.0.3
 [1.0.2]: https://github.com/martin-papy/qdrant-loader/compare/qdrant-loader-v1.0.1...qdrant-loader-v1.0.2

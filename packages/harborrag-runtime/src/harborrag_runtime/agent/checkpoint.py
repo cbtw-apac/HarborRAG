@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from harborrag_core.contracts.errors import HarborConflictError
-from harborrag_core.ports.agent_runs import AgentCheckpoint, AgentRunIdentity, AgentRunRepository
+from harborrag_core.ports.agent_runs import (
+    AgentCheckpoint,
+    AgentRunIdentity,
+    AgentRunRepository,
+    AgentRunStatus,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -38,8 +43,16 @@ class InMemoryAgentRunRepository:
         async with self._lock:
             run_id = checkpoint.identity.run_id
             current = self._checkpoints.get(run_id)
-            if current is None or current.version != checkpoint.version - 1:
-                raise HarborConflictError(f"agent run {run_id!r} checkpoint version conflict")
+            # COMPLETED is final: a late writer (a cancellation recorded after
+            # the commit) must not reopen the run, as in the SQL repository.
+            if (
+                current is None
+                or current.version != checkpoint.version - 1
+                or current.status is AgentRunStatus.COMPLETED
+            ):
+                raise HarborConflictError(
+                    f"agent run {run_id!r} checkpoint version conflict or the run already completed"
+                )
             self._checkpoints[run_id] = checkpoint
             self._checkpoints.move_to_end(run_id)
 

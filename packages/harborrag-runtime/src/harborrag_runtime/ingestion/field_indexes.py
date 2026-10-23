@@ -27,10 +27,13 @@ def declared_field_indexes(
 ) -> dict[str, tuple[SourceFieldIndex, ...]]:
     """Per tenant, the source fields its scopes declared as facets.
 
-    The payload key is the connector's normalization of the declared name, so a
+    The payload key is the connector's normalization of the declared name (the
+    same ``field_key``, accents folded: *Kỹ năng* -> ``fields.ky_nang``), so a
     facet must name a custom field by its display name to be indexed under the
     key evidence carries: a ``customfield_NNNNN`` id only becomes the payload key
-    when the display name could not be one.
+    when the display name could not be one. A name with no Latin letters or
+    digits (*経験年数*) normalizes to nothing, so such a facet must be declared by
+    its field id.
     """
 
     output: dict[str, tuple[SourceFieldIndex, ...]] = {}

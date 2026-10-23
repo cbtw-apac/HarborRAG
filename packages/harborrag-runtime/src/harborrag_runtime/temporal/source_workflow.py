@@ -9,7 +9,12 @@ from typing import Any, cast
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy, SearchAttributeKey
-from temporalio.exceptions import ActivityError, ChildWorkflowError, is_cancelled_exception
+from temporalio.exceptions import (
+    ActivityError,
+    ChildWorkflowError,
+    FailureError,
+    is_cancelled_exception,
+)
 from temporalio.workflow import ParentClosePolicy
 
 from harborrag_runtime.temporal.failure_handling import durable_failure
@@ -42,6 +47,7 @@ from .schemas import (
 _DISCOVER_FAILURE_STATUS_PATCH = "discover-failure-status"
 _RUN_FAILURE_STATUS_PATCH = "run-failure-status"
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
+_PAUSE_RELAY_TEARDOWN_PATCH = "harborrag-source-pause-relay-teardown"
 
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
@@ -200,6 +206,8 @@ class SourceIngestionWorkflow:
         self._paused = False
         self._pause_persisted = False
         self._pause_relay_applied = False
+        self._relay_busy = False
+        self._relay_stopping = False
         self._cancel_requested = False
 
     @workflow.run
@@ -357,6 +365,8 @@ class SourceIngestionWorkflow:
         )
         batch_future = asyncio.ensure_future(handle)
         cancel_future = asyncio.create_task(workflow.wait_condition(lambda: self._cancel_requested))
+        self._relay_busy = False
+        self._relay_stopping = False
         pause_relay = asyncio.create_task(self._relay_pause_signals(handle, request))
         try:
             done, _ = await workflow.wait(
@@ -370,9 +380,24 @@ class SourceIngestionWorkflow:
             await handle.signal("request_graceful_cancel")
             return cast(DocumentDispatchSummary, await batch_future), True
         finally:
+            await self._stop_pause_relay(pause_relay)
+
+    async def _stop_pause_relay(self, pause_relay: asyncio.Task[None]) -> None:
+        """End the batch's pause relay without failing the run.
+
+        Cancelling a relay mid-step resolved its activity or signal as cancelled,
+        which escaped as an `ActivityError` and recorded a successful batch FAILED;
+        the cancelled activity also kept running and could commit after a later
+        resume. A busy relay now finishes its step, skipping the closed child, and
+        returns. An idle one has nothing in flight and is still cancelled.
+        """
+
+        if self._relay_busy and workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
+            self._relay_stopping = True
+        else:
             pause_relay.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await pause_relay
+        with contextlib.suppress(asyncio.CancelledError):
+            await pause_relay
 
     async def _relay_pause_signals(
         self,
@@ -388,45 +413,84 @@ class SourceIngestionWorkflow:
         relayed = False
         while True:
 
-            def _paused_differs_from(current: bool = relayed) -> bool:
-                return self._paused != current
+            def _relay_wakes(current: bool = relayed) -> bool:
+                return self._paused != current or self._relay_stopping
 
-            await workflow.wait_condition(_paused_differs_from)
+            await workflow.wait_condition(_relay_wakes)
+            if self._paused == relayed:
+                # Woken only to stop: the batch closed with nothing left to relay.
+                return
             relayed = self._paused
-            if not workflow.patched(_PAUSE_PERSISTENCE_PATCH):
-                await handle.signal("pause" if relayed else "resume")
-                continue
-            await workflow.execute_activity(
-                "harborrag.pause_source_ingestion"
-                if relayed
-                else "harborrag.resume_source_ingestion",
-                SourcePauseInput(task_id=self._task_id)
-                if relayed
-                else SourceResumeInput(task_id=self._task_id),
-                task_queue=request.workflow_options.task_queues.discovery,
-                start_to_close_timeout=timedelta(minutes=2),
-                retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
-            )
-            if relayed:
-                await handle.signal("pause")
-                await workflow.execute_activity(
-                    "harborrag.pause_workflow_execution",
-                    WorkflowExecutionControlInput(workflow_id=handle.id),
-                    task_queue=request.workflow_options.task_queues.discovery,
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
-                )
+            self._relay_busy = True
+            await self._relay_step(handle, request, paused=relayed)
+            self._relay_busy = False
+
+    async def _relay_step(
+        self,
+        handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
+        request: SourceIngestionInput,
+        *,
+        paused: bool,
+    ) -> None:
+        if not workflow.patched(_PAUSE_PERSISTENCE_PATCH):
+            await self._signal_batch(handle, "pause" if paused else "resume")
+            return
+        # Persisted even while stopping, so the task row matches `_paused`.
+        await workflow.execute_activity(
+            "harborrag.pause_source_ingestion" if paused else "harborrag.resume_source_ingestion",
+            SourcePauseInput(task_id=self._task_id)
+            if paused
+            else SourceResumeInput(task_id=self._task_id),
+            task_queue=request.workflow_options.task_queues.discovery,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+        )
+        if paused:
+            await self._signal_batch(handle, "pause")
+            await self._control_batch(handle, request, "harborrag.pause_workflow_execution")
+            # A stopped relay leaves this to the batch boundary's own pause.
+            if not self._relay_stopping:
                 self._pause_relay_applied = True
-            else:
-                await workflow.execute_activity(
-                    "harborrag.unpause_workflow_execution",
-                    WorkflowExecutionControlInput(workflow_id=handle.id),
-                    task_queue=request.workflow_options.task_queues.discovery,
-                    start_to_close_timeout=timedelta(minutes=2),
-                    retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
-                )
-                await handle.signal("resume")
-                self._pause_relay_applied = False
+        else:
+            await self._control_batch(handle, request, "harborrag.unpause_workflow_execution")
+            await self._signal_batch(handle, "resume")
+            self._pause_relay_applied = False
+
+    async def _signal_batch(
+        self,
+        handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
+        name: str,
+    ) -> None:
+        if self._relay_stopping:
+            return
+        try:
+            await handle.signal(name)
+        except FailureError as error:
+            # Only a closed child rejects a signal: it closed before this workflow
+            # saw it finish, and there is nothing left to pause or resume.
+            if is_cancelled_exception(error) or not workflow.patched(_PAUSE_RELAY_TEARDOWN_PATCH):
+                raise
+            workflow.logger.info(
+                "Pause relay skipped signal=%s for closed batch workflow_id=%s",
+                name,
+                handle.id,
+            )
+
+    async def _control_batch(
+        self,
+        handle: workflow.ChildWorkflowHandle[Any, DocumentDispatchSummary],
+        request: SourceIngestionInput,
+        activity_name: str,
+    ) -> None:
+        if self._relay_stopping:
+            return
+        await workflow.execute_activity(
+            activity_name,
+            WorkflowExecutionControlInput(workflow_id=handle.id),
+            task_queue=request.workflow_options.task_queues.discovery,
+            start_to_close_timeout=timedelta(minutes=2),
+            retry_policy=temporal_retry_policy(request.workflow_options.retries.discovery),
+        )
 
     @staticmethod
     async def _record_hard_cancellation(request: SourceIngestionInput) -> None:

@@ -16,12 +16,23 @@ from .sources import DEFAULT_SOURCE, SOURCES
 _TEMPLATES = resources.files("harborrag_app.scaffold").joinpath("templates")
 ENV_FILE = ".env"
 ENV_FALLBACK = ".env.new"
+COMPOSE_FILE = "docker-compose.yml"
+COMPOSE_FALLBACK = "docker-compose.harborrag.yml"
+GITIGNORE_FILE = ".gitignore"
 STATE_DIRECTORY = ".harborrag"
+# Files a re-run never overwrites: the fresh copy goes next to them for the user to merge.
+# .env holds secrets the user filled in; a docker-compose.yml may be the user's own.
+_FALLBACKS = {ENV_FILE: ENV_FALLBACK, COMPOSE_FILE: COMPOSE_FALLBACK}
+# What --force does, for every refusal that suggests it: it never overwrites the files above.
+FORCE_HINT = (
+    f"pass --force to regenerate the scaffold ({ENV_FILE} and {COMPOSE_FILE} are kept;"
+    f" fresh copies go to {ENV_FALLBACK} and {COMPOSE_FALLBACK})"
+)
 _FILES: tuple[tuple[str, str], ...] = (
     ("harborrag.yaml", "harborrag.yaml.tmpl"),
     (ENV_FILE, "dotenv.tmpl"),
-    (".gitignore", "gitignore.tmpl"),
-    ("docker-compose.yml", "compose.yml.tmpl"),
+    (GITIGNORE_FILE, "gitignore.tmpl"),
+    (COMPOSE_FILE, "compose.yml.tmpl"),
     ("config/connectors.yaml", "connectors.yaml.tmpl"),
     ("config/models.yaml", "models.yaml.tmpl"),
     ("config/parsers.yaml", "parsers.yaml.tmpl"),
@@ -103,23 +114,38 @@ def build_scaffold(options: InitOptions, *, created_at: str) -> dict[str, str]:
 def existing_scaffold_files(root: Path) -> list[str]:
     """Scaffold paths already present under ``root`` (relative, in scaffold order)."""
 
-    return [relative for relative, _template in _FILES if (root / relative).exists()]
+    return [
+        relative
+        for relative, _template in _FILES
+        if relative != GITIGNORE_FILE and (root / relative).exists()
+    ]
 
 
 def write_scaffold(root: Path, files: Mapping[str, str], *, force: bool) -> tuple[Path, ...]:
-    """Write the rendered files under ``root``; never clobber an existing ``.env``."""
+    """Write the rendered files under ``root``; never clobber ``.env`` or ``.gitignore``.
 
-    existing = [relative for relative in files if (root / relative).exists()]
+    An existing ``.env`` or ``docker-compose.yml`` keeps its content and the fresh copy is
+    written beside it (see ``_FALLBACKS``). An existing ``.gitignore`` only gains the
+    scaffold's missing lines: every git repository already has one, so it must neither
+    block ``init`` nor be replaced by it.
+    """
+
+    existing = [
+        relative for relative in files if relative != GITIGNORE_FILE and (root / relative).exists()
+    ]
     if existing and not force:
         raise ScaffoldExistsError(
-            f"{root} already contains {', '.join(sorted(existing))}; pass --force to overwrite"
+            f"{root} already contains {', '.join(sorted(existing))}; {FORCE_HINT}"
         )
     written: list[Path] = []
     for relative, content in files.items():
         target = root / relative
-        if relative == ENV_FILE and target.exists():
-            # Secrets the user already filled in must survive a re-run.
-            target = root / ENV_FALLBACK
+        if relative == GITIGNORE_FILE and target.exists():
+            if _merge_ignore_lines(target, content):
+                written.append(target)
+            continue
+        if relative in _FALLBACKS and target.exists():
+            target = root / _FALLBACKS[relative]
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
         if relative == ENV_FILE:
@@ -128,6 +154,22 @@ def write_scaffold(root: Path, files: Mapping[str, str], *, force: bool) -> tupl
     # The SQLite control database lives here; aiosqlite does not create parent folders.
     (root / STATE_DIRECTORY).mkdir(exist_ok=True)
     return tuple(written)
+
+
+def _merge_ignore_lines(target: Path, content: str) -> bool:
+    """Append the scaffold's ignore rules ``target`` lacks; True when it changed."""
+
+    current = target.read_text(encoding="utf-8")
+    present = {line.strip() for line in current.splitlines()}
+    missing = [
+        line for line in content.splitlines() if line.strip() and line.strip() not in present
+    ]
+    if not missing:
+        return False
+    separator = "" if not current or current.endswith("\n") else "\n"
+    with target.open("a", encoding="utf-8") as stream:
+        stream.write(separator + "\n".join(missing) + "\n")
+    return True
 
 
 def _values(options: InitOptions, *, created_at: str) -> dict[str, str]:
@@ -228,8 +270,11 @@ def _read(name: str) -> str:
 
 
 __all__ = [
+    "COMPOSE_FALLBACK",
+    "COMPOSE_FILE",
     "ENV_FALLBACK",
     "ENV_FILE",
+    "FORCE_HINT",
     "SERVICE_PORTS",
     "STATE_DIRECTORY",
     "InitOptions",

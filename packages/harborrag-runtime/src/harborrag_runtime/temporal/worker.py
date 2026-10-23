@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 import signal
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent.futures import ThreadPoolExecutor
@@ -37,6 +38,7 @@ from .worker_registry import (
 logger = logging.getLogger("harborrag.runtime.temporal.worker")
 TASK_QUEUE_DEPTH_LOOKUP_TIMEOUT_SECONDS = 1.0
 SCHEDULE_METRICS_INTERVAL_SECONDS = 30.0
+FIRST_RETENTION_SWEEP_MAX_DELAY_SECONDS = 60.0
 
 
 def thread_pool_size(config: TemporalRuntimeConfig) -> int:
@@ -142,32 +144,94 @@ def _retention_runner(
     retention = getattr(runtime, "retention", None)
     if not interval_hours or retention is None:
         return None
-    return _sweep_retired_versions(retention, interval_hours * 3600.0, stop_event)
+    return _sweep_retired_versions(
+        retention,
+        interval_hours * 3600.0,
+        stop_event,
+        telemetry=getattr(runtime, "telemetry", None),
+    )
 
 
 async def _sweep_retired_versions(
     retention: Any,
     interval_seconds: float,
     stop_event: asyncio.Event | None,
+    *,
+    telemetry: Any | None = None,
 ) -> None:
+    """Sweep soon after start, then every interval.
+
+    Waiting a full interval first meant a worker restarted more often than the
+    interval (daily deploys, spot nodes) never swept at all. The first sweep waits
+    a short random delay instead, so replicas started together do not all claim
+    the same versions at once.
+    """
+
     stop = stop_event or asyncio.Event()
+    first_delay = min(interval_seconds, FIRST_RETENTION_SWEEP_MAX_DELAY_SECONDS)
+    delay = random.uniform(0.0, first_delay)  # noqa: S311 - jitter, not security
     while not stop.is_set():
         try:
-            await asyncio.wait_for(stop.wait(), timeout=interval_seconds)
+            await asyncio.wait_for(stop.wait(), timeout=delay)
             return
         except TimeoutError:
             pass
+        delay = interval_seconds
         try:
-            batch = await retention.run_all()
+            batch = await _unless_stopped(retention.run_all(), stop)
+        except _SweepStopped:
+            return
         except Exception as error:  # noqa: BLE001 - a failed sweep waits for the next one
-            logger.error("Retired version sweep failed error_type=%s", type(error).__name__)
+            logger.error(
+                "Retired version sweep failed error_type=%s",
+                type(error).__name__,
+                exc_info=True,
+            )
             continue
         logger.info(
-            "Retired version sweep completed eligible=%d purged=%d failed=%d",
+            "Retired version sweep completed eligible=%d purged=%d skipped=%d failed=%d "
+            "deleted_objects=%d backlog=%d",
             batch.eligible,
             batch.purged,
+            batch.skipped,
             batch.failed,
+            batch.deleted_objects,
+            batch.backlog,
         )
+        if telemetry is not None:
+            telemetry.record_retention_purge(
+                purged=batch.purged,
+                skipped=batch.skipped,
+                failed=batch.failed,
+                deleted_objects=batch.deleted_objects,
+                backlog=batch.backlog,
+            )
+
+
+class _SweepStopped(Exception):
+    """The worker is shutting down while a sweep is running."""
+
+
+async def _unless_stopped(sweep: Coroutine[Any, Any, Any], stop: asyncio.Event) -> Any:
+    """Run one sweep, cancelling it when the worker stops.
+
+    A sweep drains batches for minutes, and shutdown waits for this loop.
+    Cancelling mid-purge is safe: the version stays PURGING under its lease and
+    the next sweep, on any worker, resumes it.
+    """
+
+    task = asyncio.ensure_future(sweep)
+    stopped = asyncio.ensure_future(stop.wait())
+    try:
+        await asyncio.wait((task, stopped), return_when=asyncio.FIRST_COMPLETED)
+    finally:
+        stopped.cancel()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(stopped, task, return_exceptions=True)
+    if task.cancelled():
+        raise _SweepStopped
+    return task.result()
 
 
 def _summary_runner(

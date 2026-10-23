@@ -164,9 +164,16 @@ class SummaryPolicy(StrictModel):
         would be regenerated -- hundreds of model calls -- every time a scope tuned
         its filter vocabulary. Keying leaves without facets makes that edit cost
         exactly the entity cards it changes.
+
+        Word budgets are left out for the same reason. Every leaf generation key
+        already carries its own kind's budget, so keying leaves on all five would
+        regenerate every section and document card when only an entity budget
+        was widened.
         """
 
-        return digest(self.model_dump(exclude=set(self._SCHEDULING_FIELDS) | {"facets"}))
+        return digest(
+            self.model_dump(exclude=set(self._SCHEDULING_FIELDS) | {"facets", "card_words"})
+        )
 
 
 class SummaryManifest(StrictModel):

@@ -28,6 +28,8 @@ logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_
 
 _RETIRE_SECRET_KIND = "retire_secret"
 _LOG_ACTIVITY_KIND = "log_activity"
+# The tenant migration 0032 gives a legacy secret no source row still owns.
+LEGACY_SECRET_TENANT_ID = "DEFAULT"
 
 # Named lease AppService.recover_pending_control_plane_effects runs its drain
 # under (LeaseRepositoryPort), mirroring the ingestion progress bridge's
@@ -147,14 +149,16 @@ async def _replay_effect(
     if effect.kind == _RETIRE_SECRET_KIND:
         tenant_id = effect.payload.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id:
-            # A retirement queued before refs became tenant-scoped. There is no
-            # tenant to present, so it can never be replayed; report it once
-            # and drop it rather than retrying forever.
-            logger.error(
-                "pending secret retirement carries no tenant; dropping ref=%r",
+            # A retirement queued before refs became tenant-scoped (alpha1). Its
+            # ref was retired from the source that used it, so migration 0032
+            # found no owner and left the secret under DEFAULT: retire it there
+            # rather than drop it and orphan the ciphertext.
+            logger.warning(
+                "pending secret retirement carries no tenant; retiring under %s ref=%r",
+                LEGACY_SECRET_TENANT_ID,
                 effect.payload.get("ref"),
             )
-            return
+            tenant_id = LEGACY_SECRET_TENANT_ID
         await control_plane.secrets.delete(str(effect.payload["ref"]), tenant_id=tenant_id)
         return
     if effect.kind == _LOG_ACTIVITY_KIND:

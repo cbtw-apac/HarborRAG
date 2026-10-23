@@ -17,6 +17,7 @@ plain string.
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -216,7 +217,9 @@ async def build_tenant_chat_config(
                 for deployment in definition.deployments
             ]
         }
-    document = load_config_document(shared_config_path)
+    # A synchronous YAML file read: off the event loop, so a cold build for one
+    # tenant never stalls every other request this process is serving.
+    document = await asyncio.to_thread(load_config_document, shared_config_path)
     shared = document.get("chat")
     section: dict[str, Any] = dict(shared) if isinstance(shared, Mapping) else {}
     section["models"] = models

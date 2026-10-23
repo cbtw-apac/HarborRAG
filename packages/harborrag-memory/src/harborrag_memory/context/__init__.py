@@ -24,7 +24,7 @@ from .entities import recalled_entity_ids
 from .extraction import MemoryExtractor
 from .facts import ExtractedFact
 from .hashing import content_hash, normalize_content
-from .policy import DEFAULT_RECALL_SCOPES, MemoryPolicy
+from .policy import DEFAULT_RECALL_SCOPES, MemoryPolicy, MemoryRetention
 from .prompts import (
     CONDENSE_SYSTEM_PROMPT,
     CONDENSE_TYPED_SYSTEM_PROMPT,
@@ -73,6 +73,7 @@ __all__ = [
     "MemoryExtractor",
     "MemoryPolicy",
     "MemoryRecall",
+    "MemoryRetention",
     "ResolvedEntity",
     "ScoredMemory",
     "ScoringContext",

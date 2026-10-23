@@ -2,16 +2,31 @@
 
 from __future__ import annotations
 
+import re
 import socket
 from pathlib import Path
+from urllib.parse import urlparse
 
 from rich.console import Console
 from rich.panel import Panel
 
-from harborrag_app.scaffold import ENV_FALLBACK, SERVICE_PORTS, SOURCES, InitOptions
+from harborrag_app.scaffold import (
+    COMPOSE_FALLBACK,
+    COMPOSE_FILE,
+    ENV_FALLBACK,
+    ENV_FILE,
+    SERVICE_PORTS,
+    SOURCES,
+    InitOptions,
+)
 
 # Offsets tried, in order, when the default host ports are already taken.
 _PORT_OFFSETS = (0, 10000, 20000, 30000)
+_MAX_PORTS_OFFSET = 50000  # the --ports-offset bound
+# The Qdrant HTTP port anchors the offset: base 6333 in both .env and the compose file.
+_QDRANT_HTTP_BASE = next(base for name, base, _s in SERVICE_PORTS if name == "qdrant_http_port")
+_ENV_QDRANT_URL = re.compile(r"^\s*HARBORRAG_QDRANT_URL\s*=\s*(\S+)\s*$", re.MULTILINE)
+_COMPOSE_QDRANT_PORT = re.compile(rf"127\.0\.0\.1:(\d+):{_QDRANT_HTTP_BASE}\b")
 
 
 _SAMPLE_DOCUMENT = """# Your HarborRAG workspace
@@ -40,16 +55,54 @@ def seed_source_folder(root: Path, source_path: str) -> Path | None:
     return sample
 
 
-def select_ports_offset(explicit: int | None) -> tuple[int, str]:
+def recorded_ports_offset(root: Path) -> int | None:
+    """The port offset an earlier ``init`` left in ``root``'s .env, else its compose file.
+
+    Read from the Qdrant HTTP port, the one both files always publish. ``None`` when
+    neither file exists or the port does not decode to a valid offset (a hand edit).
+    """
+
+    env, compose = root / ENV_FILE, root / COMPOSE_FILE
+    port: int | None = None
+    if env.is_file():
+        match = _ENV_QDRANT_URL.search(env.read_text(encoding="utf-8", errors="replace"))
+        try:
+            port = urlparse(match.group(1)).port if match else None
+        except ValueError:
+            port = None
+    if port is None and compose.is_file():
+        match = _COMPOSE_QDRANT_PORT.search(compose.read_text(encoding="utf-8", errors="replace"))
+        port = int(match.group(1)) if match else None
+    if port is None or not 0 <= port - _QDRANT_HTTP_BASE <= _MAX_PORTS_OFFSET:
+        return None
+    return port - _QDRANT_HTTP_BASE
+
+
+def select_ports_offset(explicit: int | None, *, recorded: int | None = None) -> tuple[int, str]:
     """Pick the port offset for docker-compose.yml and .env, and a notice to print.
 
-    An explicit ``--ports-offset`` wins. Otherwise the default ports are used when free;
-    if another stack holds any of them, the first offset whose ports are all free is used
-    so ``docker compose up`` does not fail late with a bind error.
+    An explicit ``--ports-offset`` wins. A re-run then keeps the offset ``recorded`` in
+    the existing project without probing: the project's own running stack holds those
+    ports, and moving away from them would leave the kept .env pointing at the old ones.
+    Otherwise the default ports are used when free; if another stack holds any of them,
+    the first offset whose ports are all free is used so ``docker compose up`` does not
+    fail late with a bind error.
     """
 
     if explicit is not None:
-        return explicit, _ports_notice(explicit, forced=True) if explicit else ""
+        notice = _ports_notice(explicit, forced=True) if explicit else ""
+        if recorded is not None and recorded != explicit:
+            notice = (notice + "\n" if notice else "") + (
+                f"[yellow]![/] The existing {ENV_FILE} uses port offset {recorded} and is kept;"
+                f" copy only the port lines from {ENV_FALLBACK} into it."
+            )
+        return explicit, notice
+    if recorded is not None:
+        return recorded, (
+            f"[yellow]![/] Keeping port offset {recorded} from the existing project."
+            if recorded
+            else ""
+        )
     busy_by_offset: dict[int, list[tuple[int, str]]] = {}
     for offset in _PORT_OFFSETS:
         candidates = tuple((base + offset, service) for _name, base, service in SERVICE_PORTS)
@@ -98,8 +151,18 @@ def report(
             shown = path
         console.print(f"  [dim]{shown}[/]")
     steps: list[str] = []
-    if any(path.name == ENV_FALLBACK for path in written):
-        steps.append(f"Merge {ENV_FALLBACK} into your existing .env (it was left untouched)")
+    names = {path.name for path in written}
+    if ENV_FALLBACK in names:
+        # A fresh .env carries a new encryption key and MinIO secret; copying those over
+        # would make the secrets already stored with the old key unreadable.
+        steps.append(
+            f"Merge {ENV_FALLBACK} into your existing .env (it was left untouched); keep"
+            " your HARBORRAG_SECRETS_ENCRYPTION_KEY and object-store secret"
+        )
+    if COMPOSE_FALLBACK in names:
+        steps.append(
+            f"Merge {COMPOSE_FALLBACK} into your existing {COMPOSE_FILE} (it was left untouched)"
+        )
     blank = [options.preset.credential_variable] if not options.api_key else []
     blank += [
         variable.name
@@ -124,4 +187,4 @@ def report(
     console.print(Panel(prefix + body, title="Next steps", border_style="cyan"))
 
 
-__all__ = ["report", "seed_source_folder", "select_ports_offset"]
+__all__ = ["recorded_ports_offset", "report", "seed_source_folder", "select_ports_offset"]

@@ -6,7 +6,7 @@ from harborrag_memory import MemoryPolicy, approximate_tokens
 from harborrag_memory.context import DEFAULT_RECALL_SCOPES, summary_memory_id
 from harborrag_memory.context.condenser import sanitize_query
 from harborrag_memory.errors import MemoryConfigurationError
-from harborrag_memory.schemas import MemoryScope
+from harborrag_memory.schemas import MemoryOwner, MemoryScope
 
 pytestmark = [pytest.mark.unit]
 
@@ -77,9 +77,36 @@ def test_approximate_tokens_matches_the_runtime_estimator() -> None:
     assert approximate_tokens("abcd漢") == 2
 
 
+def _session(**fields: str) -> MemoryOwner:
+    values = {"tenant_id": "t-1", "user_id": "u-1", "principal_id": "p-1", "session_id": "s-1"}
+    values.update(fields)
+    return MemoryOwner(**values)
+
+
 def test_summary_memory_id_is_deterministic_per_session() -> None:
-    assert summary_memory_id("s-1") == summary_memory_id("s-1") == "summary:s-1"
-    assert summary_memory_id("s-2") != summary_memory_id("s-1")
+    assert summary_memory_id(_session()) == summary_memory_id(_session())
+    assert summary_memory_id(_session(session_id="s-2")) != summary_memory_id(_session())
+
+
+def test_summary_memory_id_separates_users_and_tenants_sharing_a_session_id() -> None:
+    """R1g-01: ``summary:{session_id}`` was one global row per session id."""
+
+    ids = {
+        summary_memory_id(_session(session_id="default")),
+        summary_memory_id(_session(session_id="default", user_id="u-2")),
+        summary_memory_id(_session(session_id="default", tenant_id="t-2")),
+    }
+    assert len(ids) == 3
+
+
+def test_summary_memory_id_is_shared_by_two_principals_of_one_user() -> None:
+    """SESSION scope keys on tenant/user/session, so the summary follows the history."""
+
+    assert summary_memory_id(_session(principal_id="p-2")) == summary_memory_id(_session())
+
+
+def test_summary_memory_id_fits_the_column_for_the_longest_session_id() -> None:
+    assert len(summary_memory_id(_session(session_id="s" * 128))) <= 128
 
 
 @pytest.mark.parametrize(

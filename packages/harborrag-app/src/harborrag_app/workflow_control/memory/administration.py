@@ -1,5 +1,9 @@
 """Introspection and right-to-erasure over one caller's remembered data.
 
+Reads cover everything visible to the caller, which includes PROJECT and
+TENANT rows other users authored; those come back without provenance and only
+their author (or a caller granted the scope) may delete them.
+
 Erasure spans three stores that are keyed differently: conversation history by
 ``(tenant, principal, session)``, canonical memories by the scope's owner
 fields (``user_id`` for USER, plus ``session_id`` for SESSION), and the vector
@@ -17,11 +21,16 @@ enumerates sessions, because no port does.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from harborrag_core.contracts.errors import HarborNotFoundError, HarborUnavailableError
+from harborrag_core.contracts.errors import (
+    HarborAuthError,
+    HarborNotFoundError,
+    HarborUnavailableError,
+)
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
@@ -46,6 +55,10 @@ _SESSION_SCOPES = (MemoryScope.SESSION,)
 # for them: PROJECT keys on (tenant_id, project_id) and RUN needs a run_id the
 # eraser does not have. Matched on the row's stored user instead.
 _AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.RUN, MemoryScope.TENANT)
+# Scopes whose rows are shared beyond their author: visible to anyone in the tenant (and
+# project) by design, but only the author -- or a caller granted the scope through
+# ``shared_scopes`` -- may delete one, and only the author sees its provenance.
+_SHARED_SCOPES = frozenset({MemoryScope.PROJECT, MemoryScope.TENANT})
 _NO_STORE = "long-term memory is not configured for this deployment"
 
 
@@ -110,21 +123,50 @@ class MemoryAdministrationService:
     ) -> tuple[Memory, ...]:
         """The memories visible to ``owner``, newest and most important first.
 
-        ``owner`` is always built from the authenticated principal, never from
-        request fields, so this can only ever return the caller's own rows.
+        ``owner``'s identity fields come from the authenticated principal, but its
+        ``project_id`` is the caller's chosen scope, so beside the caller's own
+        USER/SESSION rows this includes PROJECT and TENANT rows other users
+        authored -- shared by design, as recall shares them. Those rows come back
+        without provenance: which session and messages produced another user's
+        fact is that user's business, not the reader's.
         """
 
-        return await self._store().search(
+        rows = await self._store().search(
             MemoryQuery(owner=owner, scopes=scopes, limit=limit, include_invalid=True)
         )
+        return tuple(
+            row
+            if _authored_by(row, owner)
+            else dataclasses.replace(row, source_session_id=None, source_message_ids=())
+            for row in rows
+        )
 
-    async def delete_memory(self, owner: MemoryOwner, memory_id: str) -> None:
-        """Delete one memory the caller can see; 404 when they cannot see it."""
+    async def delete_memory(
+        self,
+        owner: MemoryOwner,
+        memory_id: str,
+        *,
+        shared_scopes: frozenset[MemoryScope] = frozenset(),
+    ) -> None:
+        """Delete one memory the caller can see; 404 when they cannot see it.
+
+        Seeing a shared (PROJECT/TENANT) row is not enough to delete it: that
+        takes being its author, or ``shared_scopes`` naming its scope (the
+        caller's role grants moderation of that scope). Otherwise ``403``.
+        """
 
         store = self._store()
         memory = await store.get(owner, memory_id)
         if memory is None:
             raise HarborNotFoundError("Memory was not found")
+        if (
+            memory.scope in _SHARED_SCOPES
+            and memory.scope not in shared_scopes
+            and not _authored_by(memory, owner)
+        ):
+            raise HarborAuthError(
+                f"only the author may delete this {memory.scope.value} memory", forbidden=True
+            )
         await self._erasure.erase_memory(memory)
         logger.info(
             "Memory deleted tenant=%s actor=%s memory_id=%s scope=%s",
@@ -312,6 +354,16 @@ class MemoryAdministrationService:
                 owner.user_id,
             )
             return 0
+
+
+def _authored_by(memory: Memory, caller: MemoryOwner) -> bool:
+    """Whether ``caller`` is the end user ``memory`` was stored under."""
+
+    return (
+        memory.owner.tenant_id == caller.tenant_id
+        and memory.owner.user_id is not None
+        and memory.owner.user_id == caller.user_id
+    )
 
 
 def _log_erasure(

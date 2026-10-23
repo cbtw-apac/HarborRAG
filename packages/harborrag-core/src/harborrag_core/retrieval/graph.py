@@ -117,12 +117,12 @@ class GraphPathQuery(StrictModel):
     relationship_types: tuple[RelationType, ...] = ()
     max_depth: int = Field(default=4, ge=1, le=8)
     max_paths: int = Field(default=10, ge=1, le=100)
-    # BOTH, not OUTGOING: the spine is not uniformly directed. A chunk attaches to its
-    # structure as (:Chunk)-[:SUPPORTS]->(:Structure), which points *into* the spine,
-    # while (:DocumentVersion)-[:CONTAINS]->(:Structure) points down it. So the most
-    # natural question -- which document does this chunk belong to -- traverses one edge
-    # forwards and one backwards, and returns nothing when restricted to a single
-    # direction. Callers wanting a directed path must now ask for it explicitly.
+    # BOTH, not OUTGOING: the spine points down, parent to child --
+    # (:DocumentVersion)-[:CONTAINS]->(:Structure)-[:HAS_CHUNK]->(:Chunk) -- so the most
+    # natural question, which document does this chunk belong to, walks every edge
+    # backwards and returns nothing under an OUTGOING default. Cross-links such as
+    # LINKS_TO and REPLY_TO point their own way, so no single direction suits every
+    # start node. Callers wanting a directed path must ask for it explicitly.
     direction: GraphDirection = GraphDirection.BOTH
     access_scope: GraphAccessScope | None = Field(default=None, exclude=True, repr=False)
 

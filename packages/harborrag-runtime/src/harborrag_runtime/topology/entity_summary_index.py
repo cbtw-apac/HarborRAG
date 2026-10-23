@@ -45,6 +45,11 @@ from harborrag_engine.topology.vector_values import canonical_dense_vector
 from .contextual import Embedder
 
 _MAX_SCAN_PAGE = 512
+# Cards per embedding request and points per upsert. One request per card made a
+# 20k-entity scope 20k sequential round trips; one upsert of every point was a
+# single request of 80+ MB of vectors, past what a vector store accepts.
+_EMBED_BATCH = 64
+_UPSERT_BATCH = 256
 
 
 FACET_PAYLOAD_ROOT = "facet"
@@ -143,12 +148,20 @@ class EntitySummaryIndex:
 
         context = StorageOperationContext.system(tenant_id)
         index = self.profile.entity_index_name
-        records = [
-            await self._record(tenant_id, source_scope_id, item, facets) for item in bindings
-        ]
+        records: list[VectorIndexRecord] = []
+        for start in range(0, len(bindings), _EMBED_BATCH):
+            batch = bindings[start : start + _EMBED_BATCH]
+            vectors = await self._vectors(tenant_id, batch)
+            records.extend(
+                self._record(tenant_id, source_scope_id, item, vector, facets)
+                for item, vector in zip(batch, vectors, strict=True)
+            )
         if records:
             await self._ensure_index(context, facets)
-            await self.vectors.upsert_records(index, records, context=context)
+            for start in range(0, len(records), _UPSERT_BATCH):
+                await self.vectors.upsert_records(
+                    index, records[start : start + _UPSERT_BATCH], context=context
+                )
         elif not await self.vectors.index_exists(index, context=context):
             return 0
         await self._prune(tenant_id, source_scope_id, {row.id for row in records}, context)
@@ -207,19 +220,17 @@ class EntitySummaryIndex:
             if cursor is None:
                 return
 
-    async def _record(
-        self,
-        tenant_id: str,
-        source_scope_id: str,
-        binding: SummaryBinding,
-        facets: tuple[SummaryFacet, ...],
-    ) -> VectorIndexRecord:
-        text = entity_embedding_text(binding)
-        if len(text.encode()) > self.profile.max_input_bytes:
+    async def _vectors(
+        self, tenant_id: str, bindings: tuple[SummaryBinding, ...]
+    ) -> tuple[tuple[float, ...], ...]:
+        """Embed a batch of cards in one request, each vector matched back by index."""
+
+        texts = tuple(entity_embedding_text(binding) for binding in bindings)
+        if any(len(text.encode()) > self.profile.max_input_bytes for text in texts):
             raise ValueError("entity summary exceeds embedding input budget")
         response = await self.embed.aembed(
             HarborEmbedRequest(
-                inputs=(text,),
+                inputs=texts,
                 logical_model=self.profile.model,
                 dimensions=self.profile.dimension,
                 purpose=EmbeddingPurpose.DOCUMENT,
@@ -228,15 +239,38 @@ class EntitySummaryIndex:
                 sensitive=True,
                 metadata=HarborEmbedMetadata(
                     tenant_id=tenant_id,
-                    document_ids=tuple(binding.manifest.input_document_versions),
+                    document_ids=tuple(
+                        dict.fromkeys(
+                            document
+                            for binding in bindings
+                            for document in binding.manifest.input_document_versions
+                        )
+                    ),
                 ),
             )
         )
-        if len(response.embeddings) != 1 or not isinstance(response.embeddings[0].value, tuple):
-            raise ValueError("entity summary embedding is not a single dense vector")
-        vector = canonical_dense_vector(response.embeddings[0].value)
-        if len(vector) != self.profile.dimension:
-            raise ValueError("entity summary embedding dimension mismatch")
+        by_index = {item.index: item.value for item in response.embeddings}
+        if len(response.embeddings) != len(texts) or set(by_index) != set(range(len(texts))):
+            raise ValueError("entity summary embeddings do not match the cards sent")
+        vectors: list[tuple[float, ...]] = []
+        for position in range(len(texts)):
+            value = by_index[position]
+            if not isinstance(value, tuple):
+                raise ValueError("entity summary embedding is not a dense vector")
+            vector = canonical_dense_vector(value)
+            if len(vector) != self.profile.dimension:
+                raise ValueError("entity summary embedding dimension mismatch")
+            vectors.append(vector)
+        return tuple(vectors)
+
+    def _record(  # noqa: PLR0913 - one card, its vector and where it is filed
+        self,
+        tenant_id: str,
+        source_scope_id: str,
+        binding: SummaryBinding,
+        vector: tuple[float, ...],
+        facets: tuple[SummaryFacet, ...],
+    ) -> VectorIndexRecord:
         identity = entity_point_id(
             tenant_id, binding.manifest.node_key, self.profile.entity_fingerprint
         )

@@ -57,6 +57,10 @@ class KnowledgeGraphMapper:
             "generated_description",
             "retrieval_context",
             "description_build_id",
+            # External-stub markers (knowledge_writes._node_row / upsert_nodes): the
+            # top-level flag stub pruning matches on, and its grace-period clock.
+            "external",
+            "stub_touched_at",
         }
     )
 

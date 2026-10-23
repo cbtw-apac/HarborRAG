@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.prompt import Confirm, Prompt
 
 from harborrag_app.cli.commands.init_support import (
+    recorded_ports_offset,
     report,
     seed_source_folder,
     select_ports_offset,
@@ -20,6 +21,7 @@ from harborrag_app.cli.commands.init_support import (
 from harborrag_app.scaffold import (
     DEFAULT_PROVIDER,
     DEFAULT_SOURCE,
+    FORCE_HINT,
     PRESETS,
     SOURCES,
     InitOptions,
@@ -77,7 +79,10 @@ def command(  # noqa: PLR0913 - Typer requires one parameter per public option
             "--ports-offset",
             min=0,
             max=50000,
-            help="Add N to every published service port (default: first free of 0/10000/20000).",
+            help=(
+                "Add N to every published service port (default: the offset this project"
+                " already uses, else the first free of 0/10000/20000)."
+            ),
         ),
     ] = None,
     source: Annotated[
@@ -98,7 +103,13 @@ def command(  # noqa: PLR0913 - Typer requires one parameter per public option
     ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", help="Overwrite existing scaffold files (never .env)."),
+        typer.Option(
+            "--force",
+            help=(
+                "Overwrite existing scaffold files (an existing .env or docker-compose.yml"
+                " is kept and the new copy written beside it; .gitignore is only extended)."
+            ),
+        ),
     ] = False,
 ) -> None:
     """Create harborrag.yaml, .env, config/ catalogs, and docker-compose.yml."""
@@ -116,7 +127,7 @@ def command(  # noqa: PLR0913 - Typer requires one parameter per public option
         sources = _select_sources(connectors, interactive=interactive)
     except ValueError as exc:
         raise typer.BadParameter(str(exc), param_hint="--connectors") from None
-    offset, port_notice = select_ports_offset(ports_offset)
+    offset, port_notice = select_ports_offset(ports_offset, recorded=recorded_ports_offset(root))
     try:
         options = _collect(
             root,
@@ -224,13 +235,14 @@ def _confirm_overwrite(root: Path, *, force: bool, interactive: bool, errors: Co
         return force
     if not interactive:
         errors.print(
-            f"[red]harborrag init:[/] {root} already contains {', '.join(existing)}; "
-            "pass --force to overwrite"
+            f"[red]harborrag init:[/] {root} already contains {', '.join(existing)}; {FORCE_HINT}"
         )
         raise typer.Exit(1)
     errors.print(f"{root} already contains: {', '.join(existing)}")
     if Confirm.ask(
-        "Overwrite these files? (.env is kept; a fresh copy goes to .env.new)", default=False
+        "Overwrite these files? (.env and docker-compose.yml are kept; fresh copies go to"
+        " .env.new and docker-compose.harborrag.yml)",
+        default=False,
     ):
         return True
     errors.print("Left the existing files untouched.")

@@ -10,6 +10,11 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
 from harborrag_core.ingestion import GRAPH_SCHEMA_VERSION, GraphSchemaMigrationVerification
 from harborrag_core.storage import StorageOperationContext
 
+# One prune read returns at most this many stubs, and one delete names at most this
+# many keys. Bounded per pass so a backlog of orphans cannot hold one call forever.
+_STUB_PRUNE_BATCH = 1_000
+_STUB_PRUNE_MAX_BATCHES = 100
+
 _COUNT_STATEMENTS = (
     """
     MATCH (node:KnowledgeNode)
@@ -94,6 +99,7 @@ async def prune_external_stubs(
     *,
     context: StorageOperationContext,
     grace_seconds: int = 3600,
+    batch_size: int = _STUB_PRUNE_BATCH,
 ) -> int:
     """Delete external stubs that no relationship references any more.
 
@@ -106,50 +112,60 @@ async def prune_external_stubs(
     a projection stages nodes before their relations. The grace period closes that
     race for stubs -- every upsert refreshes ``stub_touched_at``, so a stub another
     repair has just staged is younger than the grace period and survives.
+
+    Batched: each read stops at ``batch_size`` matches and each delete names at most
+    that many keys, so neither the result nor the ``IN`` list grows with the tenant.
+    A re-read needs no cursor, because a deleted stub, or one that has since gained a
+    relationship, no longer matches. A pass stops after ``_STUB_PRUNE_MAX_BATCHES``;
+    whatever is left is pruned by the next one.
     """
 
     if grace_seconds < 0:
         raise ValueError("stub pruning grace period must not be negative")
-    rows = await read_rows(
-        database,
-        """
-        MATCH (node:KnowledgeNode)
-        WHERE node.tenant_id = $tenant_id
-          AND node.graph_schema_version = $graph_schema_version
-          AND node.external = true
-          AND node.placeholder = true
-          AND NOT (node)--()
-          AND coalesce(node.stub_touched_at, 0) < timestamp() - $grace_ms
-        RETURN node.node_key AS node_key
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "grace_ms": grace_seconds * 1000,
-        },
-    )
-    node_keys = [str(row["node_key"]) for row in rows]
-    if not node_keys:
-        return 0
-    # Re-checked inside the delete: a relation written since the read keeps its stub.
-    await database.write(
-        """
-        MATCH (node:KnowledgeNode)
-        WHERE node.tenant_id = $tenant_id
-          AND node.graph_schema_version = $graph_schema_version
-          AND node.node_key IN $node_keys
-          AND node.external = true
-          AND node.placeholder = true
-          AND NOT (node)--()
-        DELETE node
-        """,
-        {
-            "tenant_id": str(context.tenant_id),
-            "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "node_keys": node_keys,
-        },
-    )
-    return len(node_keys)
+    if batch_size < 1:
+        raise ValueError("stub pruning batch size must be positive")
+    parameters = {
+        "tenant_id": str(context.tenant_id),
+        "graph_schema_version": GRAPH_SCHEMA_VERSION,
+    }
+    pruned = 0
+    for _ in range(_STUB_PRUNE_MAX_BATCHES):
+        rows = await read_rows(
+            database,
+            """
+            MATCH (node:KnowledgeNode)
+            WHERE node.tenant_id = $tenant_id
+              AND node.graph_schema_version = $graph_schema_version
+              AND node.external = true
+              AND node.placeholder = true
+              AND NOT (node)--()
+              AND coalesce(node.stub_touched_at, 0) < timestamp() - $grace_ms
+            RETURN node.node_key AS node_key
+            LIMIT $batch_size
+            """,
+            {**parameters, "grace_ms": grace_seconds * 1000, "batch_size": batch_size},
+        )
+        node_keys = [str(row["node_key"]) for row in rows]
+        if not node_keys:
+            break
+        # Re-checked inside the delete: a relation written since the read keeps its stub.
+        await database.write(
+            """
+            MATCH (node:KnowledgeNode)
+            WHERE node.tenant_id = $tenant_id
+              AND node.graph_schema_version = $graph_schema_version
+              AND node.node_key IN $node_keys
+              AND node.external = true
+              AND node.placeholder = true
+              AND NOT (node)--()
+            DELETE node
+            """,
+            {**parameters, "node_keys": node_keys},
+        )
+        pruned += len(node_keys)
+        if len(node_keys) < batch_size:
+            break
+    return pruned
 
 
 async def delete_source_scope(
@@ -177,12 +193,17 @@ async def delete_source_scope(
         """,
         parameters,
     )
+    # An external stub is shared by every scope linking its item, and its
+    # source_scope_id names only the declarer projected last; detaching it here would
+    # cut the other scopes' links. This scope's links to it went above, so an orphaned
+    # stub is left for ``prune_external_stubs``.
     await database.write(
         """
         MATCH (node:KnowledgeNode)
         WHERE node.tenant_id = $tenant_id
           AND node.graph_schema_version = $graph_schema_version
           AND node.source_scope_id = $source_scope_id
+          AND coalesce(node.external, false) = false
         DETACH DELETE node
         """,
         parameters,

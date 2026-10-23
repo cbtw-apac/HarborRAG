@@ -10,6 +10,7 @@ from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, Tool
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
+from harborrag_engine.tools.budgets import ToolBudget
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.references import KnowledgeReferenceStore
@@ -26,6 +27,9 @@ if TYPE_CHECKING:
 # these live outside the dataclass defaults to retain one audit trail and
 # policy across facade calls.
 _default_policy = McpToolPolicy()
+# Set on a refusal raised before the tool runs. The exception keeps its type, so
+# the audit record and the HTTP status mapping are unchanged.
+_CALLER_CORRECTABLE = "_harborrag_caller_correctable"
 _default_audit_log: McpAuditLog | None = None
 
 
@@ -114,7 +118,9 @@ class McpServer(BaseMcpServer):
         if context is not None:
             principal_id = context.access.principal_id
             if tenant_id is not None and tenant_id != str(context.access.tenant_id):
-                raise PermissionError("reader tool tenant does not match authenticated context")
+                refusal = PermissionError("reader tool tenant does not match authenticated context")
+                setattr(refusal, _CALLER_CORRECTABLE, True)
+                raise refusal
             tenant_id = str(context.access.tenant_id)
         # Off the event loop: each durable audit event opens, writes and
         # fsyncs under a lock, twice per call, and this dispatch runs inline in
@@ -127,31 +133,13 @@ class McpServer(BaseMcpServer):
             tenant_id=tenant_id,
         )
         try:
-            if self.tools is None:
-                raise HarborInvariantError("self.tools must not be None here")
-            tool = next((item for item in self.tools if item.spec.name == name), None)
-            if tool is None:
-                raise ValueError(f"Unknown MCP tool: {name}")
-            policy = self.policy
-            spec = tool.spec
-            defaults: dict[str, object] | None = None
-            if self.configuration is not None:
-                configured = self.configuration.resolve(name, tenant_id)
-                if not configured.enabled:
-                    raise PermissionError(f"MCP tool {name} is disabled")
-                defaults = configured.defaults
-                spec = self.configuration.tool_spec(spec, tenant_id)
-                policy = self.configuration.policy()
-            if context is None:
-                context = ToolInvocationContext(
-                    access=AccessContext(
-                        principal_id=principal_id,
-                        tenant_id=TenantId(tenant_id or "local"),
-                        corpus_mode=(
-                            self.corpus_mode if tenant_id == self.shared_tenant_id else "source_acl"
-                        ),
-                    ),
+            try:
+                spec, policy, defaults, context = self._admit(
+                    name, payload, principal_id, tenant_id, context
                 )
+            except (ValueError, TypeError, PermissionError) as exc:
+                setattr(exc, _CALLER_CORRECTABLE, True)
+                raise
             context = ToolInvocationContext(access=context.access, invocation_id=invocation_id)
             invoker = self.invoker
             if invoker is None:
@@ -180,3 +168,65 @@ class McpServer(BaseMcpServer):
                 tenant_id=tenant_id,
             )
             raise
+
+    def _admit(
+        self,
+        name: str,
+        payload: dict[str, object],
+        principal_id: str,
+        tenant_id: str | None,
+        context: ToolInvocationContext | None,
+    ) -> tuple[ToolSpec, ToolBudget, dict[str, object] | None, ToolInvocationContext]:
+        """Run every check that precedes the tool's own execution.
+
+        These refusals -- unknown or disabled tool, a tenant the access policy
+        denies, oversized or off-schema arguments -- are the caller's to correct,
+        so ``call_tool`` marks them and the transport reports them in full.
+        The invoker repeats the same checks on the same inputs, so they cannot
+        disagree; anything raised after this point comes from the tool itself
+        and stays masked.
+        """
+
+        if self.tools is None:
+            raise HarborInvariantError("self.tools must not be None here")
+        tool = next((item for item in self.tools if item.spec.name == name), None)
+        if tool is None:
+            raise ValueError(f"Unknown MCP tool: {name}")
+        policy: ToolBudget = self.policy
+        spec = tool.spec
+        defaults: dict[str, object] | None = None
+        if self.configuration is not None:
+            configured = self.configuration.resolve(name, tenant_id)
+            if not configured.enabled:
+                raise PermissionError(f"MCP tool {name} is disabled")
+            defaults = configured.defaults
+            spec = self.configuration.tool_spec(spec, tenant_id)
+            policy = self.configuration.policy()
+        if context is None:
+            context = ToolInvocationContext(
+                access=AccessContext(
+                    principal_id=principal_id,
+                    tenant_id=TenantId(tenant_id or "local"),
+                    corpus_mode=(
+                        self.corpus_mode if tenant_id == self.shared_tenant_id else "source_acl"
+                    ),
+                ),
+            )
+        invoker = self.invoker
+        if invoker is not None:
+            access_policy = invoker.access_policy
+            if access_policy is not None and not access_policy.allowed(context, name):
+                raise PermissionError(f"tool {name} is disabled")
+            values = {**(defaults or {}), **payload}
+            if "tenant_id" in spec.input_schema.get("properties", {}) and str(
+                context.access.tenant_id
+            ) != values.get("tenant_id"):
+                raise PermissionError("reader tool tenant does not match authenticated context")
+            invoker.budget.narrowed(policy).check_call(spec, values)
+        return spec, policy, defaults, context
+
+
+def is_caller_correctable(exc: BaseException) -> bool:
+    """Whether ``call_tool`` refused ``exc`` before the tool itself ran."""
+
+    return getattr(exc, _CALLER_CORRECTABLE, False) is True

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.repositories.graph.falkordb import knowledge_writes
+from harborrag_adapters.repositories.graph.falkordb import knowledge_admin, knowledge_writes
+from harborrag_adapters.repositories.graph.falkordb.knowledge_mapping import KnowledgeGraphMapper
+from harborrag_adapters.repositories.graph.falkordb.knowledge_support import access_predicate
+from harborrag_adapters.repositories.graph.falkordb.mapping import FalkorDBMapper
 from harborrag_core.ingestion import (
     GraphEntityType,
     GraphNodeRecord,
@@ -87,3 +90,72 @@ async def test_a_negative_grace_period_is_rejected() -> None:
         await repository(FakeFalkorDBClient()).prune_external_stubs(
             context=CONTEXT, grace_seconds=-1
         )
+
+
+@pytest.mark.asyncio
+async def test_pruning_pages_through_a_backlog_in_bounded_batches() -> None:
+    client = FakeFalkorDBClient()
+    client.read_results = [
+        FakeQueryResult([HeaderItem("node_key")], [["stub-1"], ["stub-2"]]),
+        FakeQueryResult([HeaderItem("node_key")], [["stub-3"]]),
+    ]
+
+    pruned = await knowledge_admin.prune_external_stubs(client, context=CONTEXT, batch_size=2)
+
+    assert pruned == 3
+    # A short page ends the pass: no third read.
+    assert len(client.read_calls) == 2
+    for statement, parameters in client.read_calls:
+        assert "LIMIT $batch_size" in statement
+        assert parameters["batch_size"] == 2
+    assert [parameters["node_keys"] for _, parameters in client.write_calls] == [
+        ["stub-1", "stub-2"],
+        ["stub-3"],
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_non_positive_prune_batch_is_rejected() -> None:
+    with pytest.raises(ValueError):
+        await knowledge_admin.prune_external_stubs(
+            FakeFalkorDBClient(), context=CONTEXT, batch_size=0
+        )
+
+
+def test_the_graph_acl_checks_a_stub_against_the_tenant_not_its_last_writer_scope() -> None:
+    # The stub key is scope-free, so the source_scope_id it carries is whichever
+    # declarer was projected last; checking it flipped visibility with ingestion order.
+    predicate = " ".join(access_predicate("node").split())
+
+    assert "node.external = true AND $tenant_visible" in predicate
+    assert (
+        "coalesce(node.external, false) = false "
+        "AND node.source_scope_id IN $authorized_source_scope_ids"
+    ) in predicate
+
+
+@pytest.mark.asyncio
+async def test_removing_a_scope_leaves_shared_stubs_for_pruning() -> None:
+    client = FakeFalkorDBClient()
+
+    await repository(client).delete_source_scope("scope-a", context=CONTEXT)
+
+    relations, nodes = (statement for statement, _ in client.write_calls)
+    # The scope's own links go; the stub other scopes may still link to does not.
+    assert "MATCH ()-[relation]->()" in relations
+    assert "DETACH DELETE node" in nodes
+    assert "coalesce(node.external, false) = false" in nodes
+
+
+def test_a_stub_read_back_from_the_graph_maps_to_a_node_record() -> None:
+    # The top-level ``external`` flag and ``stub_touched_at`` clock are write-side
+    # properties; left in, the strict record rejected every read that reached a stub.
+    row = FalkorDBMapper.encode_properties(
+        knowledge_writes._node_row(_stub(), tenant_id="tenant-1")
+    )
+    row["stub_touched_at"] = 1_760_000_000_000
+
+    node = KnowledgeGraphMapper.node(row)
+
+    assert node.node_key == _stub().node_key
+    assert node.logical_id == "RHR-2687"

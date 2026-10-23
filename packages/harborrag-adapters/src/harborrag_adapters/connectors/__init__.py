@@ -94,6 +94,7 @@ connector_registry.register_provider(
         SharePointConnector,
         aliases=("microsoft_sharepoint", "sharepoint_online"),
         config_factory=SharePointSiteConfig,
+        constructor_dependencies={"rate_limiter": "rate_limiter"},
         document_kind="file",
     )
 )

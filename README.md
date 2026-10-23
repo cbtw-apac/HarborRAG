@@ -21,7 +21,7 @@
 
 ---
 
-> **Release Note** `2.0.0a1` is the new public release. It is built for local
+> **Release Note** `2.0.0a2` is the current public release. It is built for local
 > development, integration testing, and controlled single-host staging. A hardened
 > multi-tenant production topology is not supplied yet - see
 > [Where HarborRAG is production-ready](#where-harborrag-is-production-ready).

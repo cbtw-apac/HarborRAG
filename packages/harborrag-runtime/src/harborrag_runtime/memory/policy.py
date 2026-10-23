@@ -9,7 +9,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from harborrag_memory import MemoryPolicy
+from harborrag_core.ports.memory import MemoryScope
+from harborrag_memory import MemoryPolicy, MemoryRetention
 
 if TYPE_CHECKING:
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -37,6 +38,12 @@ def memory_policy_from_settings(settings: RuntimeSettings) -> MemoryPolicy:
         block_budget_fraction=settings.memory_block_budget_fraction,
         type_affinity_weight=settings.memory_type_affinity_weight,
         query_rewrite=settings.memory_query_rewrite,
+        extraction_project_scope=settings.memory_extraction_project_scope,
+        retention=MemoryRetention(
+            session_days=settings.memory_retention_days(MemoryScope.SESSION),
+            user_days=settings.memory_retention_days(MemoryScope.USER),
+            project_days=settings.memory_retention_days(MemoryScope.PROJECT),
+        ),
     )
 
 

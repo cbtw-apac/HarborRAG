@@ -109,7 +109,8 @@ class GraphRelationRepairService:
             ),
             context=context,
         )
-        await self._prune_stubs(context)
+        # No stub pruning here: finalization calls this once per plan page, and a prune
+        # scans the tenant's whole graph. ``repair_resolvable`` prunes once, after it.
         return self._result(results)
 
     async def repair_resolvable(
@@ -126,11 +127,17 @@ class GraphRelationRepairService:
         Every repair persists what it could not resolve; this walks the declarers whose
         targets are now active and repairs them, which re-points their links at the real
         nodes (or drops them where the far end owns the edge) and orphans the stubs.
+
+        The declarers belong to other scopes and other runs, so one that fails to repair
+        is logged and skipped rather than failing the caller's task: its unresolved rows
+        stay, and a later run retries it. This is also where the stubs orphaned by this
+        pass and by the caller's forward repairs are pruned, once.
         """
 
         context = StorageOperationContext.system(tenant_id)
         cursor = ""
         totals: list[tuple[int, int, int]] = []
+        failed: list[str] = []
         visited = 0
         while visited < limit:
             page = await self._control.unresolved_relations.resolvable_declaring_documents(
@@ -151,12 +158,21 @@ class GraphRelationRepairService:
                         for document_id in page
                     ),
                     context=context,
+                    failed=failed,
                 )
             )
             visited += len(page)
-            # A cursor, not "until nothing is left": a target repair still declines
-            # (an ambiguous cross-connector match) would otherwise loop forever.
+            # A cursor, not "until nothing is left": a declarer whose repair still
+            # leaves the row (a failed or skipped repair) would otherwise loop forever.
             cursor = page[-1]
+        if failed:
+            logger.warning(
+                "Reverse relation repair skipped failing declarers tenant_id=%s "
+                "failed=%d visited=%d",
+                tenant_id,
+                len(failed),
+                visited,
+            )
         await self._prune_stubs(context)
         return self._result(totals)
 
@@ -211,17 +227,35 @@ class GraphRelationRepairService:
         targets: Sequence[_RepairTarget],
         *,
         context: StorageOperationContext,
+        failed: list[str] | None = None,
     ) -> tuple[tuple[int, int, int], ...]:
+        """Repair every target; with ``failed``, record a failing one there and go on."""
+
         slots = asyncio.Semaphore(self._max_concurrency)
 
         async def repair(target: _RepairTarget) -> tuple[int, int, int]:
             async with slots:
-                return await self._repair_one(
-                    target.document_id,
-                    expected_processing_fingerprint=target.processing_fingerprint,
-                    graph_projection_version=target.graph_projection_version,
-                    context=context,
-                )
+                try:
+                    return await self._repair_one(
+                        target.document_id,
+                        expected_processing_fingerprint=target.processing_fingerprint,
+                        graph_projection_version=target.graph_projection_version,
+                        context=context,
+                    )
+                except Exception as error:
+                    if failed is None:
+                        raise
+                    # Caught per target rather than gather(return_exceptions=True),
+                    # which would also swallow a cancelled activity's CancelledError.
+                    logger.warning(
+                        "Skipping relation repair of a resolvable declarer "
+                        "tenant_id=%s document_id=%s error_type=%s",
+                        context.tenant_id,
+                        target.document_id,
+                        type(error).__name__,
+                    )
+                    failed.append(target.document_id)
+                    return (0, 0, 0)
 
         return tuple(await asyncio.gather(*(repair(target) for target in targets)))
 

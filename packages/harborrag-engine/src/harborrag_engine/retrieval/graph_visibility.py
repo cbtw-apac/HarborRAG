@@ -13,6 +13,11 @@ from harborrag_core.storage import StorageOperationContext
 
 from .graph_metadata import selector_matches
 
+# ``external_source_entity_node_key``'s domain prefix. The key, not the ``external``
+# attribute, marks a stub here: a shared source entity is stored without attributes,
+# so the flag does not survive a read back from the graph store.
+_EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
+
 
 class GraphVisibilityAuthorizer(Protocol):
     """Resolve graph ownership scopes against canonical reader permissions."""
@@ -111,7 +116,8 @@ async def apply_graph_permissions(
     # such a record.
     tenant_visible = False
     if any(
-        record.document_id is None and record.source_scope_id is None for record in records.values()
+        (record.document_id is None and record.source_scope_id is None) or _is_external_stub(record)
+        for record in records.values()
     ):
         tenant_visible = await _tenant_readable(authorizer, context)
     for key, record in records.items():
@@ -203,9 +209,28 @@ def _record_authorized(
 ) -> bool:
     if record.document_id is not None:
         return str(record.document_id) in document_ids
+    if _is_external_stub(record):
+        return tenant_visible
     if record.source_scope_id is not None:
         return record.source_scope_id in source_scope_ids
     return record.ownership_scope == GraphOwnershipScope.TENANT and tenant_visible
+
+
+def _is_external_stub(record: GraphNodeRecord | GraphEdgeRecord) -> bool:
+    """Whether this is the stand-in for a link target no ingested scope has published.
+
+    Its key is scope-free, so every scope linking that item shares one stub, and the
+    ``source_scope_id`` it carries is whichever declarer was projected last. Checked
+    against that scope, the stub -- and every link through it -- would appear and vanish
+    for a reader with ingestion order rather than with permissions. It holds a provider
+    id and nothing else, and the links to it are version-owned supports checked against
+    their declaring document, so it is readable by anyone who can read the tenant.
+    """
+
+    return isinstance(record, GraphNodeRecord) and (
+        record.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX)
+        or record.attributes.get("external") is True
+    )
 
 
 __all__ = [

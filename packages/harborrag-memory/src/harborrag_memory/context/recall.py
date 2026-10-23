@@ -4,14 +4,17 @@ Recall is best-effort by construction. Every collaborator it touches -- the
 embedder, the semantic index, the canonical repository -- may be missing or
 may fail, and each failure degrades one step further instead of failing the
 turn: no embedder or a raising index falls back to the repository's own
-substring search, and a raising repository yields no candidates for that
-scope.
+substring search, one search per significant query term, and a raising
+repository yields no candidates for that scope.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from collections.abc import Callable, Sequence
+from dataclasses import replace
 from datetime import datetime
 
 from harborrag_core.base import utc_now
@@ -56,7 +59,53 @@ MAX_QUERY_LIMIT = 1000
 """``MemoryQuery`` rejects a larger limit."""
 
 FALLBACK_RELEVANCE = 1.0
-"""Substring search ranks nothing, so recency and importance decide the order."""
+"""Relevance of a fallback hit matching every query term; fewer terms halve it at most."""
+
+FALLBACK_MAX_TERMS = 6
+"""Repository searches per scope on the fallback path, one per significant term."""
+
+FALLBACK_MIN_TERM_LENGTH = 3
+"""Shorter words ("is", "an", "of") are too common to say anything about a memory."""
+
+_TERM = re.compile(r"\w+")
+
+_STOPWORDS = frozenset(
+    {
+        "about", "all", "and", "any", "are", "but", "can", "could", "did", "does",
+        "for", "from", "had", "has", "have", "how", "into", "its", "not", "our",
+        "should", "that", "the", "their", "them", "there", "these", "they", "this",
+        "those", "was", "were", "what", "when", "where", "which", "who", "whom",
+        "whose", "why", "will", "with", "would", "you", "your",
+    }
+)  # fmt: skip
+"""Question words and function words that every memory would match."""
+
+
+def fallback_terms(text: str) -> tuple[str, ...]:
+    """Return the significant casefolded terms of a recall query, longest first.
+
+    The repository's own search is a case-insensitive substring match, so the
+    whole question ("Who owns the ingest pipeline?") almost never appears
+    inside a stored fact. Searching per term instead finds the facts that
+    share the question's content words; longer words are kept first when the
+    query has more of them than ``FALLBACK_MAX_TERMS``.
+    """
+
+    words = dict.fromkeys(
+        word
+        for word in _TERM.findall(text.casefold())
+        if len(word) >= FALLBACK_MIN_TERM_LENGTH and word not in _STOPWORDS
+    )
+    return tuple(sorted(words, key=len, reverse=True)[:FALLBACK_MAX_TERMS])
+
+
+def term_overlap(content: str, terms: Sequence[str]) -> float:
+    """Return the share of ``terms`` found in ``content``, matched as the repository does."""
+
+    if not terms:
+        return 0.0
+    folded = content.casefold()
+    return sum(1 for term in terms if term in folded) / len(terms)
 
 
 class MemoryRecall:
@@ -188,12 +237,42 @@ class MemoryRecall:
         hits = await self._index_candidates(query, embedding)
         if hits is not None:
             return hits
-        try:
-            found = await self._memories.search(query)
-        except Exception:
-            logger.warning("long-term recall repository search failed", exc_info=True)
+        return await self._repository_candidates(query)
+
+    async def _repository_candidates(self, query: MemoryQuery) -> tuple[tuple[Memory, float], ...]:
+        """Search the repository once per significant term, boosting by overlap.
+
+        Every hit already matched at least one term in the repository, so the
+        overlap only re-ranks: relevance runs from half of
+        ``FALLBACK_RELEVANCE`` to all of it as more of the question's terms
+        appear in the memory -- a bounded 2x boost, like recency and
+        importance. A query with no significant term keeps the single
+        whole-text search. A scope yields nothing only when every one of its
+        searches failed.
+        """
+
+        terms = fallback_terms(query.text or "")
+        searches = [replace(query, text=term) for term in terms] or [query]
+        # At most FALLBACK_MAX_TERMS searches, run together. A failed one is
+        # logged and skipped, so the other terms' hits survive it.
+        results = await asyncio.gather(
+            *(self._memories.search(search) for search in searches), return_exceptions=True
+        )
+        found: dict[str, Memory] = {}
+        for result in results:
+            if isinstance(result, BaseException):
+                logger.warning("long-term recall repository search failed", exc_info=result)
+                continue
+            for memory in result:
+                found.setdefault(memory.memory_id, memory)
+        if all(isinstance(result, BaseException) for result in results):
             return ()
-        return tuple((memory, FALLBACK_RELEVANCE) for memory in found)
+        if not terms:
+            return tuple((memory, FALLBACK_RELEVANCE) for memory in found.values())
+        return tuple(
+            (memory, FALLBACK_RELEVANCE * (1.0 + term_overlap(memory.content, terms)) / 2.0)
+            for memory in found.values()
+        )
 
     async def _index_candidates(
         self,

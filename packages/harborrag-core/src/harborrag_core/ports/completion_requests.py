@@ -9,10 +9,15 @@ CompletionClaimStatus = Literal["claimed", "in_progress", "completed", "failed",
 
 # How long an ``in_progress`` claim is honoured before a retry may take it over.
 # Nothing else ends that state, so a worker killed mid-request would otherwise
-# wedge its key forever. Deliberately well beyond the longest a request can
-# legitimately stay in flight (``api_stream_timeout_seconds`` defaults to 600s),
-# so a claim this old means the holder is gone rather than slow.
-STALE_CLAIM_SECONDS = 900
+# wedge its key forever. Nothing refreshes a claim while its request runs, so
+# this must exceed the longest a request can legitimately hold one at the
+# largest settings the API accepts: the handler deadline before a stream
+# starts (``api_request_timeout_seconds``, at most 900s) plus the stream body
+# (``api_stream_timeout_seconds``, at most 3600s) plus the conversation-turn
+# wait, with margin. A claim this old then means the holder is gone rather
+# than slow; a shorter window handed a live stream's claim to a retry, which
+# ran the paid completion again and recorded its own outcome over the first.
+STALE_CLAIM_SECONDS = 4_800
 
 
 @dataclass(frozen=True, slots=True)

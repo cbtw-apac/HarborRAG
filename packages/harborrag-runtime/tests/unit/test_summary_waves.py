@@ -15,7 +15,13 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.schemas.ids import TenantId
-from harborrag_core.summaries import CardWordBudgets, SummaryCard, SummaryFacet, SummaryPolicy
+from harborrag_core.summaries import (
+    CardWordBudgets,
+    SummaryCard,
+    SummaryFacet,
+    SummaryPolicy,
+    generation_key,
+)
 from harborrag_engine.topology.summary_planner import SummaryPlanNode
 from harborrag_runtime.topology.summary_service import _shortcut, _waves
 
@@ -169,7 +175,25 @@ def test_leaf_cards_are_keyed_without_facets_so_a_facet_edit_leaves_them_cached(
     assert plain.leaf_fingerprint == faceted.leaf_fingerprint
     # Scheduling knobs never move either fingerprint.
     assert plain.model_copy(update={"max_concurrency": 9}).fingerprint == plain.fingerprint
-    assert (
-        plain.model_copy(update={"card_words": CardWordBudgets(source_entity=300)}).leaf_fingerprint
-        != plain.leaf_fingerprint
+    # A word budget moves the full fingerprint, so every level rebinds, but not the
+    # leaf one: each leaf generation key already carries its own kind's budget, so
+    # widening the entity budget must not miss the cache for every section and
+    # document card. (This used to assert the opposite, which cost one model call
+    # per leaf card for an edit that cannot change any leaf text.)
+    widened = plain.model_copy(update={"card_words": CardWordBudgets(source_entity=300)})
+    assert widened.fingerprint != plain.fingerprint
+    assert widened.leaf_fingerprint == plain.leaf_fingerprint
+    # A leaf kind's own budget still reaches its key through the payload.
+    narrow = plain.model_copy(update={"card_words": CardWordBudgets(structure=30)})
+    assert narrow.leaf_fingerprint == plain.leaf_fingerprint
+    assert generation_key(
+        "T",
+        plain,
+        ["c", [], plain.card_words.for_kind("Structure")],
+        fingerprint=plain.leaf_fingerprint,
+    ) != generation_key(
+        "T",
+        narrow,
+        ["c", [], narrow.card_words.for_kind("Structure")],
+        fingerprint=narrow.leaf_fingerprint,
     )

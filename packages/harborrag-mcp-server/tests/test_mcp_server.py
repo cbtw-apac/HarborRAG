@@ -440,6 +440,8 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
 
+    from fastmcp.exceptions import ToolError
+
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.server import _tool_handler
 
@@ -453,7 +455,8 @@ async def test_a_refused_request_is_audited_before_it_is_rejected(monkeypatch) -
     # bound to one, so it cannot express this refusal.
     handler = _tool_handler(server, "list_sources")
 
-    with pytest.raises(PermissionError):
+    # Delivered as a ToolError so the masked transport still names the refusal.
+    with pytest.raises(ToolError, match="requested tenant"):
         await handler(tenant_id="someone-else")
 
     entries = server.audit.entries
@@ -505,6 +508,8 @@ async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monk
 
     dependencies = pytest.importorskip("fastmcp.server.dependencies")
 
+    from fastmcp.exceptions import ToolError
+
     from harborrag_mcp_server.audit import McpAuditLog
     from harborrag_mcp_server.server import _tool_handler
 
@@ -515,7 +520,7 @@ async def test_a_tenant_free_tool_still_refuses_a_token_without_a_read_role(monk
     server = McpServer(audit=McpAuditLog())
     handler = _tool_handler(server, "describe_graph")
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(ToolError, match="reader or owner"):
         await handler()
 
     assert server.audit.entries[-1]["error_type"] == "PermissionError"
@@ -579,3 +584,101 @@ def test_one_predicate_decides_whether_a_result_failed() -> None:
     assert tool_reported_error({"status": "error"}) is True
     assert tool_reported_error({"ok": True}) is False
     assert tool_reported_error({"results": []}) is False
+
+
+class FailingProbe(BaseTool):
+    spec = ToolSpec(
+        "failing_probe",
+        "Raise an unexpected internal error in a test.",
+        {
+            "type": "object",
+            "properties": {
+                "tenant_id": {"type": "string"},
+                "top_k": {"type": "integer", "minimum": 1, "maximum": 5},
+                "failure": {"type": "string", "enum": ["runtime", "type", "value", "permission"]},
+            },
+            "required": ["tenant_id"],
+            "additionalProperties": False,
+        },
+        output_schema={"type": "object"},
+    )
+
+    async def call(self, arguments, *, principal_id):
+        # Every failure raised inside the tool's own execution, whatever its type,
+        # is internal: none of these may reach a remote client verbatim.
+        failure = {
+            "runtime": RuntimeError,
+            "type": TypeError,
+            "value": ValueError,
+            "permission": PermissionError,
+        }[arguments.get("failure", "runtime")]
+        raise failure("postgresql://user:secret@db/harbor is unreachable")
+
+
+@pytest.mark.asyncio
+async def test_caller_correctable_errors_survive_the_masked_transport(tmp_path) -> None:
+    """Schema, disabled-tool and tenant refusals are what a model corrects from.
+
+    ``mask_error_details`` reduced them to "Error calling tool 'x'"; an
+    unexpected failure must still be masked.
+    """
+
+    import fastmcp
+    from fastmcp.exceptions import ToolError
+
+    from harborrag_mcp_server.audit import McpAuditLog
+    from harborrag_mcp_server.configuration import McpConfigurationStore
+
+    config_path = tmp_path / "mcp.yaml"
+    config_path.write_text(
+        "version: 1\ntenants:\n  blocked:\n    tools:\n      failing_probe:\n"
+        "        enabled: false\n",
+        encoding="utf-8",
+    )
+    registry = McpServer(tools=[FailingProbe()], audit=McpAuditLog())
+    registry.configuration = McpConfigurationStore.load(
+        path=config_path, specs=registry.list_tools(), audit=registry.audit, environment={}
+    )
+    transport = create_mcp_server(registry=registry, allow_unauthenticated_local=True)
+
+    async with fastmcp.Client(transport) as client:
+        with pytest.raises(ToolError, match="do not match the tool schema"):
+            await client.call_tool("failing_probe", {"tenant_id": "demo", "top_k": 50})
+        with pytest.raises(ToolError, match="failing_probe is disabled"):
+            await client.call_tool("failing_probe", {"tenant_id": "blocked"})
+        masked = []
+        for failure in ("runtime", "type", "value", "permission"):
+            with pytest.raises(ToolError) as raised:
+                await client.call_tool("failing_probe", {"tenant_id": "demo", "failure": failure})
+            masked.append(str(raised.value))
+
+    assert all("secret" not in message for message in masked)
+    assert [entry["error_type"] for entry in registry.audit.entries[1::2]] == [
+        "ValueError",
+        "PermissionError",
+        "RuntimeError",
+        "TypeError",
+        "ValueError",
+        "PermissionError",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_a_tenant_refused_by_the_access_policy_is_reported(tmp_path) -> None:
+    import fastmcp
+    from fastmcp.exceptions import ToolError
+
+    from harborrag_engine.tools.dispatcher import ToolInvoker
+    from harborrag_mcp_server.audit import McpAuditLog
+
+    class DenyBlocked:
+        def allowed(self, context, name):
+            return str(context.access.tenant_id) != "blocked"
+
+    invoker = ToolInvoker([FailingProbe()], access_policy=DenyBlocked())
+    registry = McpServer(invoker=invoker, audit=McpAuditLog())
+    transport = create_mcp_server(registry=registry, allow_unauthenticated_local=True)
+
+    async with fastmcp.Client(transport) as client:
+        with pytest.raises(ToolError, match="failing_probe is disabled"):
+            await client.call_tool("failing_probe", {"tenant_id": "blocked"})

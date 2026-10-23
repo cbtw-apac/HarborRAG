@@ -15,7 +15,7 @@ from harborrag_core.security import AccessContext
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 from harborrag_mcp_server.server.http_auth import authorize_claimed_tenant
-from harborrag_mcp_server.server.server import McpServer
+from harborrag_mcp_server.server.server import McpServer, is_caller_correctable
 
 if TYPE_CHECKING:
     from fastmcp.server.auth import AuthProvider
@@ -284,7 +284,7 @@ def _tool_handler(
                 outcome="error",
                 error_type=type(exc).__name__,
             )
-            raise
+            raise _caller_error(exc) from exc
         try:
             result = await server.call_tool(
                 tool_name, arguments, principal_id=principal, context=context
@@ -295,6 +295,10 @@ def _tool_handler(
             raise ToolError(
                 "AUTHORIZATION_UNAVAILABLE: The server could not verify data access. Retry later."
             ) from exc
+        except (ValueError, TypeError, PermissionError) as exc:
+            if is_caller_correctable(exc):
+                raise _caller_error(exc) from exc
+            raise
         if tool_reported_error(result):
             from fastmcp.exceptions import ToolError
 
@@ -304,6 +308,23 @@ def _tool_handler(
 
     invoke.__name__ = tool_name
     return invoke
+
+
+def _caller_error(exc: Exception) -> Exception:
+    """Deliver a caller-correctable refusal in full through the masked transport.
+
+    ``mask_error_details`` reduces any other exception to "Error calling tool
+    'x'". Schema and argument-budget violations, an unknown or disabled tool and
+    a tenant refusal are the messages a model corrects its next call from. Only
+    refusals raised before the tool runs qualify -- the request-context check
+    here and those ``call_tool`` marks -- so an error from the tool's own
+    execution stays masked whatever its type. The audit trail has already
+    recorded the original type.
+    """
+
+    from fastmcp.exceptions import ToolError
+
+    return ToolError(str(exc))
 
 
 def _declares_tenant(server: McpServer, tool_name: str) -> bool:

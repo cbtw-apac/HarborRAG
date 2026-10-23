@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from typing import Any
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
@@ -26,6 +27,8 @@ _ADF_TABLE_CELL_TYPES = frozenset({"tableCell", "tableHeader"})
 _STARTS_MARKDOWN_BLOCK = re.compile(r"\||#{1,6} |> |[-*+] |\d+\. |```|~~~")
 
 _FIELD_KEY_SEPARATORS = re.compile(r"[^a-z0-9]+")
+# Latin letters NFKD does not decompose into a base letter plus a mark.
+_FIELD_KEY_LETTERS = str.maketrans({"đ": "d", "ø": "o", "ł": "l", "æ": "ae", "œ": "oe"})
 _MAX_FILTER_VALUE_CHARS = 256
 
 type FieldFilterValue = str | float | bool | list[str]
@@ -143,9 +146,16 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
 
 
 def field_key(name: str) -> str:
-    """The payload key one custom field is filtered by: ``Skill Set`` -> ``skill_set``."""
+    """The payload key one custom field is filtered by: ``Skill Set`` -> ``skill_set``.
 
-    return _FIELD_KEY_SEPARATORS.sub("_", name.casefold()).strip("_")
+    Accents are folded rather than treated as separators, so ``Kỹ năng`` is
+    ``ky_nang`` and ``Résumé`` is ``resume``. A name with no Latin letters or
+    digits left, such as ``経験年数``, normalizes to ``""``.
+    """
+
+    decomposed = unicodedata.normalize("NFKD", name.casefold())
+    unaccented = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return _FIELD_KEY_SEPARATORS.sub("_", unaccented.translate(_FIELD_KEY_LETTERS)).strip("_")
 
 
 def filterable_fields(
@@ -162,18 +172,36 @@ def filterable_fields(
     first or failing the whole document version.
     """
 
+    keys = filter_keys(fields)
     output: dict[str, FieldFilterValue] = {}
     for field in fields:
         if field.value_kind == JiraCustomFieldKind.PROSE:
             continue
         value = _filter_value(field)
-        if value is None:
-            continue
-        key = field_key(field.name)
-        if not key or key in output or is_runtime_field(key):
-            key = field_key(field.field_id)
-        output.setdefault(key, value)
+        if value is not None:
+            output[keys[field.field_id]] = value
     return output
+
+
+def filter_keys(fields: list[JiraCustomFieldMetadata]) -> dict[str, str]:
+    """Assign each custom field id its payload key from the issue's field schema.
+
+    Ownership is settled over every field, empty or prose ones included, so
+    ``fields.team`` names the same field on every issue whichever fields happen
+    to hold a value there (a field's kind can depend on its value). Among names
+    that normalize alike, the lowest field id in plain string order keeps the
+    readable key and the others fall back to their field id.
+    """
+
+    keys: dict[str, str] = {}
+    taken: set[str] = set()
+    for field_id, name in sorted({field.field_id: field.name for field in fields}.items()):
+        key = field_key(name)
+        if not key or key in taken or is_runtime_field(key):
+            key = field_key(field_id)
+        keys[field_id] = key
+        taken.add(key)
+    return keys
 
 
 def _filter_value(field: JiraCustomFieldMetadata) -> FieldFilterValue | None:

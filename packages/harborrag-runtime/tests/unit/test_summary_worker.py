@@ -154,3 +154,53 @@ async def test_poll_delay_supports_unbounded_and_timed_polling(monkeypatch) -> N
 
     monkeypatch.setattr(summary_worker.asyncio, "wait_for", timeout)
     await _poll_delay(2, asyncio.Event())
+
+
+@pytest.mark.asyncio
+async def test_dispatch_failure_is_logged_backed_off_and_never_stops_the_host(
+    monkeypatch, caplog
+) -> None:
+    """One failing reconcile must not end the loop that shares the ingestion gather."""
+    factory = SimpleNamespace(
+        settings=SimpleNamespace(
+            summary_task_queue="summaries",
+            temporal_max_concurrent_activities=2,
+            temporal_graceful_shutdown_seconds=30,
+            topology_poll_seconds=5,
+        ),
+        service=Mock(return_value=object()),
+        initialize=AsyncMock(),
+        synchronize=AsyncMock(),
+    )
+    monkeypatch.setattr(summary_worker, "Worker", Mock(return_value=_WorkerContext()))
+    stop = asyncio.Event()
+    calls: list[str] = []
+
+    async def dispatch(_client, _factory, tenant_id):
+        calls.append(tenant_id)
+        if len(calls) <= 4 and tenant_id == "broken":
+            raise ConnectionResetError("postgres failover")
+        if len(calls) >= 6:
+            stop.set()
+
+    monkeypatch.setattr(summary_worker, "_dispatch", dispatch)
+    delay = AsyncMock()
+    monkeypatch.setattr(summary_worker, "_poll_delay", delay)
+
+    await summary_worker.serve_summaries(object(), factory, ("broken", "healthy"), stop_event=stop)
+
+    # The healthy tenant is still dispatched on every pass.
+    assert calls == ["broken", "healthy"] * 3
+    # Consecutive failed passes back off; a clean pass returns to the base poll.
+    assert [call.args[0] for call in delay.await_args_list] == [10, 20, 5]
+    failures = [r for r in caplog.records if r.message.startswith("Summary dispatch failed")]
+    assert len(failures) == 2
+    assert all(
+        record.exc_info and record.exc_info[0] is ConnectionResetError for record in failures
+    )
+
+
+def test_backoff_is_capped() -> None:
+    assert summary_worker._backoff(5, 0) == 5
+    assert summary_worker._backoff(5, 30) == summary_worker._MAX_BACKOFF_SECONDS
+    assert summary_worker._backoff(600, 3) == 600

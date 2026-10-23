@@ -5,7 +5,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import and_, delete, insert, or_, select
+from sqlalchemy import Exists, Select, and_, delete, exists, insert, or_, select
+from sqlalchemy.sql.selectable import NamedFromClause
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
@@ -46,6 +47,11 @@ class UnresolvedRelationRepository:
         }
         now = utc_now()
         async with self._client.sessions.begin() as session:
+            # Serialize reconciliations of one declarer. Two runs can repair it at once
+            # (one's reverse pass, another's forward repair), and under READ COMMITTED
+            # the second DELETE cannot see rows the first is inserting, so its INSERT
+            # then collides with them on the primary key.
+            await session.execute(_declarer_lock(declaring_document_id))
             await session.execute(
                 delete(UNRESOLVED_SOURCE_RELATIONS).where(
                     UNRESOLVED_SOURCE_RELATIONS.c.declaring_document_id == declaring_document_id
@@ -103,8 +109,10 @@ class UnresolvedRelationRepository:
         """Declaring documents with a link whose target has since been published.
 
         Mirrors relation repair's own resolution: a same-connector target must be in
-        the declaring connection, a cross-connector target in any connection (repair
-        still declines an ambiguous one, which the caller's cursor tolerates). The
+        the declaring connection, a cross-connector target in exactly one connection.
+        Repair declines a cross-connector target active in several connections, so
+        offering its declarer would re-repair it on every run, to the same unresolved
+        row, and spend the caller's budget before later declarers are reached. The
         declaring document must itself be active, or repair has nothing to rebuild.
         """
 
@@ -137,8 +145,14 @@ class UnresolvedRelationRepository:
                 unresolved.c.declaring_document_id > after,
                 declaring.c.active_document_version_id.is_not(None),
                 or_(
-                    unresolved.c.target_connector_type != unresolved.c.connector_type,
-                    target.c.connection_id == unresolved.c.connection_id,
+                    and_(
+                        unresolved.c.target_connector_type == unresolved.c.connector_type,
+                        target.c.connection_id == unresolved.c.connection_id,
+                    ),
+                    and_(
+                        unresolved.c.target_connector_type != unresolved.c.connector_type,
+                        ~_active_in_another_connection(target),
+                    ),
                 ),
             )
             .distinct()
@@ -148,6 +162,51 @@ class UnresolvedRelationRepository:
         async with self._client.sessions() as session:
             result = await session.execute(statement)
             return tuple(result.scalars().all())
+
+
+def _declarer_lock(declaring_document_id: str) -> Select[tuple[str]]:
+    """Lock the declarer's document row for the rest of the transaction.
+
+    NO KEY UPDATE (``key_share``) is enough to serialize two reconciliations and still
+    lets other tables' foreign-key checks against the row proceed. SQLite, which
+    serializes writers anyway, renders no lock clause at all.
+    """
+
+    return (
+        select(DOCUMENTS.c.document_id)
+        .where(DOCUMENTS.c.document_id == declaring_document_id)
+        .with_for_update(key_share=True)
+    )
+
+
+def _active_in_another_connection(target: NamedFromClause) -> Exists:
+    """Whether the target's source item is also active under a different connection.
+
+    ``resolve_unambiguous_active_sources`` resolves a cross-connector target only when
+    exactly one connection holds it. ``uq_document_source_identity`` makes a connection
+    hold an item at most once, so one more active connection is what makes it ambiguous;
+    the same document's extra ``source_items`` rows (one per scope) are not.
+    """
+
+    other = DOCUMENTS.alias("unresolved_other_target")
+    other_item = SOURCE_ITEMS.alias("unresolved_other_target_item")
+    return exists(
+        select(other.c.document_id)
+        .join(
+            other_item,
+            and_(
+                other_item.c.document_id == other.c.document_id,
+                other_item.c.is_active.is_(True),
+            ),
+        )
+        .where(
+            other.c.tenant_id == target.c.tenant_id,
+            other.c.connector_type == target.c.connector_type,
+            other.c.source_item_id == target.c.source_item_id,
+            other.c.connection_id != target.c.connection_id,
+            other.c.active_document_version_id.is_not(None),
+        )
+    )
 
 
 __all__ = ["UnresolvedRelationRepository", "UnresolvedSourceRelation"]

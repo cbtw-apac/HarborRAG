@@ -256,6 +256,7 @@ async def test_extract_degrades_a_project_fact_when_the_owner_has_no_project(
     (saved,) = await extractor(
         memories,
         payload(fact("Ingest runs nightly.", scope="project")),
+        policy=MemoryPolicy(extraction_project_scope=True),
     ).extract(projectless, messages=MESSAGES)
 
     assert saved.scope is MemoryScope.SESSION

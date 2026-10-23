@@ -184,7 +184,8 @@ class SqlAgentRunRepository:
     stored row is still at ``checkpoint.version - 1``, so a stale writer (a
     second resume racing the still-running original, or a resume racing a
     step the original run just persisted) is rejected with
-    ``HarborConflictError`` rather than silently overwriting newer state.
+    ``HarborConflictError`` rather than silently overwriting newer state. A
+    COMPLETED row is never updated again, whatever the version says.
     ``lease_owner``/``lease_expires_at`` are written verbatim from every
     checkpoint, so a RUNNING save from the executing worker refreshes its
     lease and a terminal save releases it.
@@ -218,13 +219,17 @@ class SqlAgentRunRepository:
                         AgentRunRow.user_id == checkpoint.identity.user_id,
                         AgentRunRow.session_id == checkpoint.identity.session_id,
                         AgentRunRow.version == checkpoint.version - 1,
+                        # COMPLETED is final: a late writer (a cancellation
+                        # recorded after the commit) must not reopen the run.
+                        AgentRunRow.status != AgentRunStatus.COMPLETED.value,
                     )
                     .values(**_row_values(checkpoint))
                 ),
             )
             if result.rowcount == 0:
                 raise HarborConflictError(
-                    f"agent run {checkpoint.identity.run_id!r} checkpoint version conflict"
+                    f"agent run {checkpoint.identity.run_id!r} checkpoint version conflict "
+                    "or the run already completed"
                 )
 
     async def get(self, identity: AgentRunIdentity) -> AgentCheckpoint | None:
