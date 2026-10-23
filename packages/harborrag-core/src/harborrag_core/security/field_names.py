@@ -76,24 +76,46 @@ exception is deliberately narrow and applies to ``token`` alone.
 
 
 _SINGLE_WORD_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" not in t)
-_COMPOUND_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" in t)
+
+# Matched as substrings of the name with every separator removed, so ``apikey``,
+# ``x-apikey``, ``api_keys`` and ``passWord`` (which camel-case splitting turns
+# into ``pass_word``) are caught. Only entries that cannot occur inside an
+# unrelated word belong here; ``token`` and ``secret`` would match ``tokenizer``
+# and ``secretary``, and ``credential`` would match the ``allow_ambient_credentials``
+# flag.
+_UNSEPARATED_ENTRIES = frozenset(
+    {t.replace("_", "") for t in SENSITIVE_FIELD_TOKENS if "_" in t}
+    | {"secretkey", "authtoken", "passwd", "password", "authorization"}
+)
+
+
+def _token_carries(token: str, entry: str) -> bool:
+    # ``clientsecret`` and ``bearertoken`` end with the entry. Plurals are not
+    # matched: ``allow_ambient_credentials`` is a flag and ``secrets`` holds
+    # secret references, not values.
+    return token.endswith(entry)
 
 
 def is_sensitive_field_name(value: object) -> bool:
     """Whether a field name claims to carry a credential.
 
-    A compound entry is matched anywhere in the name at token boundaries, so
-    ``ssh_private_key`` and ``my_api_key`` are caught. Comparing the whole
-    canonical name against the set, as this used to, recognised ``api_key``
-    but not ``my_api_key`` -- a prefix was all it took to store a raw key.
+    A compound entry is matched anywhere in the name, with or without
+    separators, so ``ssh_private_key``, ``my_api_key`` and ``apikey`` are all
+    caught. Comparing the whole canonical name against the set, as this used
+    to, recognised ``api_key`` but not ``my_api_key``, and matching only at
+    separators let ``apikey`` and ``clientsecret`` through as plain config.
     """
 
     name = canonical_field_name(value)
-    padded = f"_{name}_"
-    if any(f"_{entry}_" in padded for entry in _COMPOUND_TOKENS):
+    squashed = name.replace("_", "")
+    if any(entry in squashed for entry in _UNSEPARATED_ENTRIES):
         return True
     tokens = canonical_field_tokens(value)
-    matched = tokens & _SINGLE_WORD_TOKENS
+    matched = {
+        entry
+        for entry in _SINGLE_WORD_TOKENS
+        if any(_token_carries(token, entry) for token in tokens)
+    }
     if matched == {"token"} and tokens & _COUNT_QUALIFIERS:
         return False
     return bool(matched)

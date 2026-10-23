@@ -48,6 +48,7 @@ class ProjectionCleanupService:
         limit: int = 100,
     ) -> ProjectionCleanupBatch:
         jobs = await self._control.reliability.pending_cleanup_jobs(
+            tenant_id=tenant_id,
             limit=limit,
             source_scope_id=source_scope_id,
         )
@@ -61,6 +62,7 @@ class ProjectionCleanupService:
         limit: int = 100,
     ) -> ProjectionCleanupBatch:
         jobs = await self._control.reliability.pending_cleanup_jobs(
+            tenant_id=tenant_id,
             limit=limit,
             document_ids=document_ids,
         )
@@ -72,9 +74,10 @@ class ProjectionCleanupService:
         tenant_id: str,
         limit: int = 1_000,
     ) -> ProjectionCleanupBatch:
-        """Drain unscoped jobs after a corpus-wide reindex."""
+        """Drain this tenant's jobs after a tenant-wide reindex."""
 
         jobs = await self._control.reliability.pending_cleanup_jobs(
+            tenant_id=tenant_id,
             limit=limit,
         )
         return await self._run(jobs, tenant_id=tenant_id)

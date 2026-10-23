@@ -4,9 +4,11 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-# Kept in step with ``SENSITIVE_FIELD_TOKENS``: this matches free text rather
-# than field names, so it stays a pattern, but a name the set knows and this
-# does not is a credential that reaches a log.
+from harborrag_core.security.field_names import is_sensitive_field_name
+
+# Kept in step with ``SENSITIVE_FIELD_TOKENS``. Broader than the field-name
+# predicate (it matches anywhere, plurals included), which is right for masking
+# output but would reject flags such as ``allow_ambient_credentials`` as config.
 _SENSITIVE_KEY_PATTERN = re.compile(
     r"(?i)api[_-]?key|access[_-]?key|private[_-]?key|token(?!s(?![a-z])|izer)|secret|passwd|password|credential|authorization"
 )
@@ -72,16 +74,18 @@ def redact_mapping(data: Mapping[str, Any], replacement: str = "<redacted>") -> 
     """Recursively mask values whose key looks credential-shaped.
 
     Defense-in-depth for DTO boundaries that serialize free-form config
-    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN is
-    masked regardless of what invariants upstream write-side code is
-    supposed to enforce. Mappings nested inside lists/tuples are recursed
-    into, and string values are additionally passed through
-    redact_secrets() to catch secrets embedded in free-form text (e.g. a
-    header line under a non-sensitive key).
+    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN or
+    ``is_sensitive_field_name`` is masked regardless of what invariants
+    upstream write-side code is supposed to enforce. Either one suffices: the
+    pattern alone missed ``api.key`` and ``Private Key``, and the predicate
+    alone leaves plurals such as ``vertex_credentials`` unmasked. Mappings
+    nested inside lists/tuples are recursed into, and string values are
+    additionally passed through redact_secrets() to catch secrets embedded in
+    free-form text (e.g. a header line under a non-sensitive key).
     """
     result: dict[str, Any] = {}
     for key, value in data.items():
-        if _SENSITIVE_KEY_PATTERN.search(key):
+        if _SENSITIVE_KEY_PATTERN.search(key) or is_sensitive_field_name(key):
             result[key] = replacement
         else:
             result[key] = _redact_value(value, replacement)

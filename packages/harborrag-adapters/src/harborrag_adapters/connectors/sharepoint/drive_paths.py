@@ -24,11 +24,33 @@ DRIVE_ITEM_SELECT = ",".join(
         "lastModifiedBy",
         "eTag",
         "cTag",
-        "@microsoft.graph.downloadUrl",
     )
 )
+"""Drive item fields to request.
+
+``@microsoft.graph.downloadUrl`` is deliberately absent: it is a pre-authenticated
+link that bypasses SharePoint permissions for about an hour, and content is
+downloaded through ``/content`` with the connector's own token instead.
+"""
 
 DRIVE_SELECT = "id,name,driveType,webUrl,createdDateTime,lastModifiedDateTime"
+
+_GRAPH_ANNOTATION_PREFIX = "@microsoft.graph."
+
+
+def stored_payload(item: dict[str, Any]) -> dict[str, Any]:
+    """Return a Graph item without its ``@microsoft.graph.*`` annotations.
+
+    The payload becomes ``RawDocument.raw`` and is written into the immutable
+    raw-metadata artifact, so an annotation such as ``downloadUrl`` -- a
+    credential-equivalent link -- must not travel with it even when an endpoint
+    returns it unrequested.
+    """
+    return {
+        key: value
+        for key, value in item.items()
+        if not str(key).startswith(_GRAPH_ANNOTATION_PREFIX)
+    }
 
 
 def parse_sharepoint_site_url(site_url: str) -> tuple[str, str]:

@@ -156,7 +156,9 @@ def test_configuration_loading_from_json_and_yaml(tmp_path: Path, suffix: str) -
 
 
 def test_unknown_and_incomplete_providers_are_rejected() -> None:
-    with pytest.raises(ValidationError, match="unknown-provider"):
+    # The message names the field, not the value: inputs are hidden because
+    # they arrive after ``${VAR}`` expansion.
+    with pytest.raises(ValidationError, match=r"deployments\.0\.provider"):
         HarborChatClientConfig.from_dict(chat_document(provider="unknown-provider"))
     incomplete = HarborChatClientConfig.from_dict(
         chat_document(

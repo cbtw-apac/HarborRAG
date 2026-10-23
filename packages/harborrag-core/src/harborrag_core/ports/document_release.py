@@ -119,6 +119,7 @@ class IngestionReliabilityPort(Protocol):
     async def pending_cleanup_jobs(
         self,
         *,
+        tenant_id: str,
         limit: int = 100,
         document_ids: Sequence[str] | None = None,
         source_scope_id: str | None = None,

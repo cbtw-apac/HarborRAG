@@ -302,3 +302,45 @@ def test_common_config_validation() -> None:
     config = chat_config()
     assert config.sanitized_dump()["models"]["primary"]["deployments"][0]["api_key"] == "**********"
     assert HarborChatSecurityConfig().allow_custom_providers is False
+
+
+def _deployment(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "provider": "openai",
+        "model": "openai/gpt-test",
+        "api_key": "${HARBOR_TEST_MODEL_KEY}",
+    }
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        # Two deployments with one name fail a model validator.
+        {"models": {"primary": {"deployments": [_deployment("a"), _deployment("a")]}}},
+        # Plaintext remote Redis, with the password in the URL.
+        {
+            "models": {"primary": {"deployments": [_deployment("a")]}},
+            "cache": {"enabled": True, "backend": "redis"},
+            "redis": {"url": "redis://:${HARBOR_TEST_MODEL_KEY}@10.0.0.5:6379"},
+        },
+    ],
+)
+def test_a_validation_error_never_echoes_an_expanded_secret(
+    monkeypatch: pytest.MonkeyPatch, overrides: dict[str, object]
+) -> None:
+    """Pydantic repeats the input in its message, after ``${VAR}`` expansion.
+
+    The ``models validate`` CLI prints that message and runtime startup raises
+    it, so every key in the environment reached stderr and logs.
+    """
+
+    from harborrag_adapters.models.chat import HarborChatClientConfig
+
+    monkeypatch.setenv("HARBOR_TEST_MODEL_KEY", "sk-ENVSECRET123456")
+    with pytest.raises(ValidationError) as caught:
+        HarborChatClientConfig.from_dict({"default_model": "primary", **overrides})
+    message = str(caught.value)
+    # Pydantic elides the middle of a long input, so look for either end too.
+    for fragment in ("sk-ENVSECRET123456", "sk-ENVS", "ET123456"):
+        assert fragment not in message

@@ -59,6 +59,70 @@ def test_load_downloads_file_content_and_builds_metadata():
     assert client.byte_calls == ["drives/drive1/items/file1/content"]
 
 
+_DOWNLOAD_URL = "@microsoft.graph.downloadUrl"
+
+
+def test_load_never_requests_the_pre_authenticated_download_url():
+    """Graph's ``downloadUrl`` ignores SharePoint permissions for about an hour."""
+
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/file1", file_item("file1", "Guide.docx"))
+    client.downloads["drives/drive1/items/file1/content"] = b"docx-bytes"
+    connector = SharePointConnector(
+        SharePointSiteConfig(
+            site_id="site1", drive_id="drive1", access_token="token", requests_per_minute=6000
+        ),
+        client=client,
+    )
+
+    connector.load(
+        SourceRecord(
+            "sharepoint://site1/drive1/file1",
+            "application/octet-stream",
+            "file1",
+            metadata={"drive_id": "drive1", "item_id": "file1"},
+        )
+    )
+
+    selects = [str((params or {}).get("$select", "")) for _, params in client.calls]
+    assert selects and all(_DOWNLOAD_URL not in select for select in selects)
+
+
+def test_load_drops_graph_annotations_from_the_stored_payload():
+    """``raw`` is written to the immutable raw-metadata artifact as is.
+
+    Graph can still return the pre-authenticated ``downloadUrl`` (an endpoint
+    without ``$select``), so it is removed from the payload, not just unrequested.
+    """
+
+    item = file_item("file1", "Guide.docx")
+    item[_DOWNLOAD_URL] = "https://tenant.sharepoint.com/_layouts/15/download.aspx?tempauth=x"
+    item["@odata.etag"] = '"etag"'
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/file1", item)
+    client.downloads["drives/drive1/items/file1/content"] = b"docx-bytes"
+    connector = SharePointConnector(
+        SharePointSiteConfig(
+            site_id="site1", drive_id="drive1", access_token="token", requests_per_minute=6000
+        ),
+        client=client,
+    )
+
+    document = connector.load(
+        SourceRecord(
+            "sharepoint://site1/drive1/file1",
+            "application/octet-stream",
+            "file1",
+            metadata={"drive_id": "drive1", "item_id": "file1"},
+        )
+    )
+
+    assert document.raw is not None
+    assert _DOWNLOAD_URL not in document.raw
+    assert "tempauth" not in str(document.raw)
+    assert document.raw["id"] == "file1"
+
+
 def test_load_rejects_oversized_files_before_download():
     client = FakeGraphClient()
     client.add("drives/drive1/items/file1", file_item("file1", "Guide.docx", size=99))
