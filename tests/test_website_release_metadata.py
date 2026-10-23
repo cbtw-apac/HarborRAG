@@ -94,3 +94,19 @@ def test_release_gate_workflows_exist() -> None:
         if match
     }
     assert CRITICAL_WORKFLOWS <= names
+
+
+def test_ci_matrices_and_root_test_config_cover_every_released_package() -> None:
+    """test.yml and the root pytest/coverage lists keep their own package copies."""
+
+    expected = set(get_packages_for_release())
+
+    matrices = re.findall(r"(?m)^ +package:\n((?: +- [\w-]+\n)+)", _workflow("test.yml"))
+    assert len(matrices) == 2
+    for matrix in matrices:
+        assert set(re.findall(r"- ([\w-]+)", matrix)) == expected
+
+    root = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))["tool"]
+    testpaths = root["pytest"]["ini_options"]["testpaths"]
+    assert {Path(path).parent.name for path in testpaths if path != "tests"} == expected
+    assert {Path(path).parent.name for path in root["coverage"]["run"]["source"]} == expected
