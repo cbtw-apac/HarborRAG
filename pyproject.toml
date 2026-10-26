@@ -191,6 +191,9 @@ addopts = [
     # CPU (`-n auto`) can exhaust a 16 GB machine. Override with `-n 0` or `-n N`.
     "-n",
     "8",
+    # Honour xdist_group marks (tests/conftest.py groups the shared-root workspace tests).
+    "--dist",
+    "loadgroup",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",

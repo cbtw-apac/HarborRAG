@@ -40,7 +40,7 @@ jobs:
           uv pip install -e packages/harborrag-core \
             -e "packages/harborrag-adapters[control-plane]" \
             -e packages/harborrag-engine \
-            -e "packages/harborrag-runtime[production]" \
+            -e packages/harborrag-runtime \
             -e "packages/harborrag-app[api]"
 
       - name: Export OpenAPI (head)
@@ -62,7 +62,7 @@ jobs:
               -e /tmp/base/packages/harborrag-core \
               -e "/tmp/base/packages/harborrag-adapters[control-plane]" \
               -e /tmp/base/packages/harborrag-engine \
-              -e "/tmp/base/packages/harborrag-runtime[production]" \
+              -e /tmp/base/packages/harborrag-runtime \
               -e "/tmp/base/packages/harborrag-app[api]"
             /tmp/base-venv/bin/python -m harborrag_app.api.export_openapi > /tmp/openapi-base.json
           else
