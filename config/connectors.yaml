@@ -95,11 +95,12 @@ connectors:
     environment:
       site_url: SHAREPOINT_SITE_URL
     settings:
-      auth_mode: client_credentials
+      auth_mode: device_code
+      root_path: Testing - SharePoint Connector/Folder_contain_unsupportted_file
       graph_api_url: https://graph.microsoft.com/v1.0
       crawl_all_drives: false
       recursive: true
-      allowed_extensions: [docx, pdf, pptx, xlsx, txt, md]
+      allowed_extensions: [md]
       excluded_extensions: []
       include_hidden: false
       include_pages: false

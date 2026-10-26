@@ -64,8 +64,8 @@ class SharePointConnector(BaseConnector):
     access denied, retries exhausted) are reported through ``skipped`` and
     logged; they never stop the run. Only authentication failure, a site the
     app cannot reach, and invalid config are fatal. On a direct load, a deleted
-    item fails as a missing source item and exhausted retries as a retryable
-    source-unavailable failure; the other reasons are non-retryable declines.
+    item fails as a missing source item and exhausted retries as a transient
+    failure the run does not retry again; the other reasons are declines.
 
     Every structured log entry carries ``run_id``. It defaults to a fresh ID
     per connector instance; the ingestion runtime binds its task ID through

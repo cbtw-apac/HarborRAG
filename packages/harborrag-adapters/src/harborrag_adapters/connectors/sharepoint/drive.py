@@ -115,29 +115,61 @@ class SharePointDriveAPI:
         Python call stack past its limit before ``query.limit`` ever has a
         chance to stop discovery. An explicit stack removes that ceiling
         while preserving the same depth-first yield order.
+
+        A subfolder whose listing fails for an item-level reason (deleted,
+        access denied, retries exhausted) is recorded as a skip and the walk
+        moves on, keeping whatever pages of it were already listed. The crawl
+        root carries no folder item, so a failure listing it stays fatal:
+        nothing in scope is reachable.
         """
         drive_id = str(drive["id"])
-        pending: list[tuple[str | None, str | None]] = [(item_id, path)]
+        pending: list[tuple[str | None, str | None, dict[str, Any] | None]] = [
+            (item_id, path, None)
+        ]
         seen_folder_ids = {item_id} if item_id else set()
         while pending:
-            current_item_id, current_path = pending.pop()
-            folder_ids: list[str] = []
-            for item in self.iter_children(drive_id, item_id=current_item_id, path=current_path):
-                if is_drive_file(item):
-                    if self.should_process_file(item, query):
-                        yield build_source_record(
-                            item,
-                            site_id=str(site["id"]),
-                            drive_id=drive_id,
-                        )
-                    continue
+            current_item_id, current_path, folder = pending.pop()
+            subfolders: list[tuple[str, dict[str, Any]]] = []
+            try:
+                for item in self.iter_children(
+                    drive_id, item_id=current_item_id, path=current_path
+                ):
+                    if is_drive_file(item):
+                        if self.should_process_file(item, query):
+                            yield build_source_record(
+                                item,
+                                site_id=str(site["id"]),
+                                drive_id=drive_id,
+                            )
+                        continue
 
-                child_id = self._folder_to_descend(item, query, seen_folder_ids)
-                if child_id:
-                    folder_ids.append(child_id)
+                    child_id = self._folder_to_descend(item, query, seen_folder_ids)
+                    if child_id:
+                        subfolders.append((child_id, item))
+            except (AuthorizationError, FetchError) as exc:
+                if folder is None or not self._skip_failed_folder(folder, exc):
+                    raise
 
-            for child_id in reversed(folder_ids):
-                pending.append((child_id, None))
+            for child_id, child in reversed(subfolders):
+                pending.append((child_id, None, child))
+
+    def _skip_failed_folder(self, folder: dict[str, Any], error: Exception) -> bool:
+        """Record a subfolder whose listing failed for an item-level reason.
+
+        Returns ``False`` for a failure that is not about this one folder, such
+        as a traversal cycle, so the caller re-raises it.
+        """
+        reason = skip_reason_for_error(error)
+        if reason is None:
+            return False
+        self.skips.record(
+            reason,
+            f"folder listing failed: {error}",
+            item_id=str(folder.get("id") or "") or None,
+            url=folder.get("webUrl"),
+            path=item_path(folder),
+        )
+        return True
 
     def _folder_to_descend(
         self,

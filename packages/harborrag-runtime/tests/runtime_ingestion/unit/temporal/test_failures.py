@@ -18,6 +18,7 @@ from harborrag_adapters.connectors.exceptions import (
     AuthorizationError,
     FetchError,
 )
+from harborrag_adapters.connectors.sharepoint.skips import SharePointItemUnavailableError
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.ingestion import FailureCategory
@@ -26,7 +27,11 @@ from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.temporal.activity_observability import (
     ActivityObservability,
 )
-from harborrag_runtime.temporal.failure_handling import durable_failure, terminal_failure_code
+from harborrag_runtime.temporal.failure_handling import (
+    durable_failure,
+    durable_skip_reason,
+    terminal_failure_code,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -166,6 +171,30 @@ def test_activity_boundary_emits_distinct_non_retryable_code_for_401_and_403(
     failure_type, _ = durable_failure(_FakeActivityError(captured.value))
 
     assert failure_type == expected_code
+
+
+def test_exhausted_connector_retries_skip_the_document_without_activity_retries() -> None:
+    """A SharePoint file still throttled after ``max_retries`` fails on attempt 1
+    with its skip reason, so the configured limit is the whole retry budget; a
+    plain outage keeps Temporal's retries."""
+    observability = ActivityObservability(
+        IngestionTelemetry(),
+        failures=IngestionFailureClassifier(),
+    )
+
+    with pytest.raises(ApplicationError) as exhausted:
+        with observability.boundary("FetchAndCaptureRaw"):
+            raise SharePointItemUnavailableError("throttled", status_code=429, item_id="file1")
+    with pytest.raises(ApplicationError) as outage:
+        with observability.boundary("FetchAndCaptureRaw"):
+            raise FetchError("down", status_code=503)
+
+    assert exhausted.value.non_retryable is True
+    assert exhausted.value.type == "source_retries_exhausted"
+    assert durable_skip_reason(_FakeActivityError(exhausted.value)) == (
+        "TRANSIENT_ERROR_MAX_RETRIES"
+    )
+    assert outage.value.non_retryable is False
 
 
 def _chain(*errors: BaseException) -> BaseException:

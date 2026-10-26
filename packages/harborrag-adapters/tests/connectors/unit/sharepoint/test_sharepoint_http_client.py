@@ -6,6 +6,8 @@ import pytest
 from harbor_test_builders import FakeResponse, FakeSession
 from sharepoint_http_test_helpers import sharepoint_client
 
+from harborrag_adapters.connectors.exceptions import FetchError, RateLimitError
+
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
@@ -140,6 +142,45 @@ def test_sharepoint_request_retries_429_then_succeeds():
         ]
     )
     assert client.get_json("sites/x") == {"ok": True}
+
+
+@pytest.mark.parametrize("retry_after", [7, 300])
+def test_sharepoint_waits_the_full_retry_after_before_retrying(monkeypatch, retry_after):
+    import time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    client = sharepoint_client(max_retries=1)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(status_code=429, headers={"Retry-After": str(retry_after)}, text=""),
+            FakeResponse(status_code=200, _json={"ok": True}),
+        ]
+    )
+
+    assert client.get_json("sites/x") == {"ok": True}
+    assert any(retry_after <= seconds <= retry_after + 1 for seconds in sleeps)
+
+
+@pytest.mark.parametrize(("status", "error_type"), [(429, RateLimitError), (503, FetchError)])
+def test_sharepoint_gives_up_rather_than_retry_before_a_long_retry_after(
+    monkeypatch, status, error_type
+):
+    import time
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(time, "sleep", sleeps.append)
+    client = sharepoint_client(max_retries=3)
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=status, headers={"Retry-After": "900"}, text="")]
+    )
+
+    with pytest.raises(error_type) as excinfo:
+        client.get_json("sites/x")
+
+    assert type(excinfo.value) is error_type
+    assert excinfo.value.status_code == status
+    assert sleeps == []
 
 
 def test_sharepoint_request_retries_5xx_then_succeeds():

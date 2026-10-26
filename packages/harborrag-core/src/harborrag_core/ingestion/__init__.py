@@ -25,6 +25,7 @@ from .errors import (
     SourceAuthorizationError,
     SourceForbiddenError,
     SourceItemNotFoundError,
+    SourceRetriesExhaustedError,
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
@@ -159,6 +160,7 @@ __all__ = [
     "SourceAuthorizationError",
     "SourceForbiddenError",
     "SourceItemNotFoundError",
+    "SourceRetriesExhaustedError",
     "SourceUnavailableError",
     "UnsupportedDocumentError",
     "ProjectionManifest",

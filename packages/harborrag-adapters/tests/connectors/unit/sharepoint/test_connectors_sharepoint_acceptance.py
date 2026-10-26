@@ -8,6 +8,7 @@ from typing import Any
 
 import pytest
 from sharepoint_test_helpers import (
+    SITE_URL,
     FakeGraphClient,
     add_site_and_default_drive,
     config,
@@ -342,6 +343,90 @@ def test_direct_item_failures_are_skipped_and_the_run_continues(error, reason):
 
     assert [record.locator for record in records] == ["file1"]
     assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [(reason, "bad")]
+
+
+def _subfolder_tree(client: RaisingGraphClient) -> None:
+    """Root holds a file plus a "Locked" folder walked before an "Open" one."""
+    locked = {**folder_item("locked", "Locked"), "webUrl": f"{SITE_URL}/Shared%20Documents/Locked"}
+    client.add(
+        "drives/drive1/root/children",
+        {"value": [file_item("file1", "A.docx"), locked, folder_item("open", "Open")]},
+    )
+    client.add(
+        "drives/drive1/items/open/children",
+        {"value": [file_item("file2", "B.docx", parent_id="open")]},
+    )
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (FetchError("gone", status_code=404), "DELETED"),
+        (AuthorizationError("forbidden", status_code=403), "ACCESS_DENIED"),
+        (RateLimitError("slow down", status_code=429), "TRANSIENT_ERROR_MAX_RETRIES"),
+        (FetchError("boom", status_code=503), "TRANSIENT_ERROR_MAX_RETRIES"),
+    ],
+)
+def test_a_failing_subfolder_is_skipped_and_its_siblings_still_crawl(error, reason):
+    client = RaisingGraphClient()
+    add_site_and_default_drive(client)
+    _subfolder_tree(client)
+    client.errors["drives/drive1/items/locked/children"] = error
+    connector = SharePointConnector(config(), client=client)
+
+    records = list(connector.discover())
+
+    assert [record.locator for record in records] == ["file1", "file2"]
+    assert [(skip.reason, skip.item_id, skip.url) for skip in connector.skipped] == [
+        (reason, "locked", f"{SITE_URL}/Shared%20Documents/Locked")
+    ]
+
+
+def test_a_subfolder_failing_mid_pagination_keeps_the_pages_already_listed():
+    client = RaisingGraphClient()
+    add_site_and_default_drive(client)
+    client.add("drives/drive1/root/children", {"value": [folder_item("big", "Big")]})
+    client.add(
+        "drives/drive1/items/big/children",
+        {"value": [file_item("file1", "A.docx", parent_id="big")], "@odata.nextLink": "page2"},
+    )
+    client.errors["page2"] = FetchError("boom", status_code=503)
+    connector = SharePointConnector(config(), client=client)
+
+    records = list(connector.discover())
+
+    assert [record.locator for record in records] == ["file1"]
+    assert [(skip.reason, skip.item_id) for skip in connector.skipped] == [
+        ("TRANSIENT_ERROR_MAX_RETRIES", "big")
+    ]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        AuthorizationError("forbidden", status_code=403),
+        FetchError("boom", status_code=503),
+    ],
+)
+def test_a_failing_crawl_root_still_stops_the_run(error):
+    client = RaisingGraphClient()
+    add_site_and_default_drive(client)
+    client.errors["drives/drive1/root:/Docs:/children"] = error
+    connector = SharePointConnector(config(root_path="Docs"), client=client)
+
+    with pytest.raises(type(error)):
+        list(connector.discover())
+
+
+def test_authentication_failure_in_a_subfolder_still_stops_the_run():
+    client = RaisingGraphClient()
+    add_site_and_default_drive(client)
+    _subfolder_tree(client)
+    client.errors["drives/drive1/items/locked/children"] = AuthenticationError("expired")
+    connector = SharePointConnector(config(), client=client)
+
+    with pytest.raises(AuthenticationError):
+        list(connector.discover())
 
 
 @pytest.mark.parametrize(

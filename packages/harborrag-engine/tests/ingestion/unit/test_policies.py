@@ -9,6 +9,7 @@ from harborrag_core.ingestion import (
     PublicationConflictError,
     SourceAdmissionDecision,
     SourceItemNotFoundError,
+    SourceRetriesExhaustedError,
     SourceUnavailableError,
     is_explicitly_retryable_failure_code,
     is_retryable_failure_code,
@@ -140,6 +141,20 @@ def test_failure_classifier_retries_infrastructure_faults_in_every_stage() -> No
             raise ValueError("invalid document") from None
     except ValueError as handled:
         assert classifier.classify("ParseAndNormalize", handled).retryable is False
+
+
+def test_failure_classifier_does_not_retry_a_source_that_exhausted_its_own_retries() -> None:
+    classifier = IngestionFailureClassifier()
+
+    failure = classifier.classify("FetchAndCaptureRaw", SourceRetriesExhaustedError("throttled"))
+
+    # The connector already spent its configured retry budget, so the run moves
+    # on; the failure is still transient, so a blanket retry offers it later.
+    assert failure.category == FailureCategory.TRANSIENT
+    assert failure.retryable is False
+    assert failure.code == "source_retries_exhausted"
+    assert is_retryable_failure_code(failure.code)
+    assert classifier.classify("FetchAndCaptureRaw", SourceUnavailableError("down")).retryable
 
 
 def test_retry_selection_codes_separate_blanket_and_explicit_retries() -> None:
