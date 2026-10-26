@@ -12,9 +12,11 @@ from collections.abc import MutableMapping, Sequence
 from pathlib import Path
 
 from harborrag_runtime.config.checkout import (
+    CONTROL_DB_URL,
     control_db_url_from_compose,
     missing_control_db_values,
     read_compose_env_file,
+    resolve_compose_references,
 )
 
 
@@ -72,6 +74,29 @@ def _checkout_defaults(root: Path, environ: MutableMapping[str, str], *, check: 
             environ[name] = str(_from_root(root, value))
 
 
+def _resolve_control_db_line(environ: MutableMapping[str, str], *, check: bool) -> None:
+    """Interpolate a file-supplied HARBORRAG_CONTROL_DB_URL against the merged values.
+
+    env/.env.database may carry the host CLI's line, written with ${POSTGRES_*}
+    references; serving the literal template would fail at connect time. An empty line
+    falls back to the derived owner URL.
+    """
+
+    if CONTROL_DB_URL not in environ:
+        return
+    try:
+        url = resolve_compose_references(environ[CONTROL_DB_URL], environ, label=CONTROL_DB_URL)
+    except ValueError:
+        # A catalog check never opens the database; serving must name the gap.
+        if not check:
+            raise
+        url = ""
+    if url.strip():
+        environ[CONTROL_DB_URL] = url
+    else:
+        del environ[CONTROL_DB_URL]
+
+
 def load_launch_environment(
     *,
     checkout_root: Path | None,
@@ -101,6 +126,8 @@ def load_launch_environment(
         for name, value in read_compose_env_file(path).items():
             if name not in protected:
                 pending[name] = value
+    if CONTROL_DB_URL not in protected:
+        _resolve_control_db_line(pending, check=check)
     if root is not None:
         _checkout_defaults(root, pending, check=check)
     target.update(pending)

@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_runtime.config.checkout import (
+    checkout_control_db_override,
     checkout_control_db_url,
     checkout_environment_name,
     checkout_object_store_credentials,
@@ -80,3 +81,43 @@ def test_object_store_credentials_are_empty_when_missing_or_partial(tmp_path: Pa
 
     assert checkout_object_store_credentials(tmp_path / "absent.env") == {}
     assert checkout_object_store_credentials(partial) == {}
+
+
+_URL_LINE = (
+    'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}'
+    '@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n'
+)
+
+
+def test_control_db_override_interpolates_the_file(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n" + _URL_LINE)
+
+    assert checkout_control_db_override(path, {}) == "postgresql+asyncpg://o:p@127.0.0.1:5432/d"
+
+
+def test_control_db_override_prefers_the_environment_like_compose(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n" + _URL_LINE)
+
+    url = checkout_control_db_override(path, {"POSTGRES_PORT": "5433", "POSTGRES_DB": "x"})
+
+    assert url == "postgresql+asyncpg://o:p@127.0.0.1:5433/x"
+
+
+def test_control_db_override_is_none_without_the_line(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n")
+
+    assert checkout_control_db_override(path, {}) is None
+    assert checkout_control_db_override(tmp_path / "absent.env", {}) is None
+
+
+def test_control_db_override_names_unresolved_references_without_values(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_PASSWORD=hunter2\n" + _URL_LINE)
+
+    with pytest.raises(ValueError, match="POSTGRES_USER, POSTGRES_DB") as raised:
+        checkout_control_db_override(path, {})
+
+    assert "hunter2" not in str(raised.value)

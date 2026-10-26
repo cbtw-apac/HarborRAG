@@ -58,6 +58,38 @@ def test_explicit_environment_file_overrides_checkout_file_but_not_process_env(
     assert environment["HARBORRAG_CONTROL_DB_URL"].endswith("/other")
 
 
+def test_control_db_line_in_the_database_file_is_interpolated(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    database = tmp_path / "env/.env.database"
+    database.write_text(
+        database.read_text()
+        + 'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}@127.0.0.1:'
+        '${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n',
+        encoding="utf-8",
+    )
+    environment = {"POSTGRES_DB": "process-db"}
+
+    load_launch_environment(checkout_root=tmp_path, environ=environment)
+
+    assert environment["HARBORRAG_CONTROL_DB_URL"] == (
+        "postgresql+asyncpg://reader@127.0.0.1:5432/process-db"
+    )
+
+
+def test_unresolved_control_db_line_names_the_variable_not_secrets(tmp_path: Path) -> None:
+    _checkout(tmp_path)
+    database = tmp_path / "env/.env.database"
+    database.write_text(
+        database.read_text() + "HARBORRAG_CONTROL_DB_URL=postgresql+asyncpg://${NOPE}@h/d\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="NOPE") as error:
+        load_launch_environment(checkout_root=tmp_path, environ={})
+
+    assert "p@ss" not in str(error.value)
+
+
 def test_invalid_env_line_reports_location_without_secret(tmp_path: Path) -> None:
     invalid = tmp_path / "invalid.env"
     invalid.write_text("SECRET=hidden\ninvalid statement hidden-secret\n", encoding="utf-8")

@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- From a repository checkout, the CLI reads an explicit `HARBORRAG_CONTROL_DB_URL` line from
+  `env/.env.database` (`${...}` resolved from the shell, then the file) when the variable is not
+  exported, so `ingest run`/`ingest start` no longer need it exported by hand. The `POSTGRES_*`
+  values alone still never select the database, and `harborrag init` projects ignore the file
+  unless `DATABASE_ENV_FILE` names it.
+- The MCP checkout launcher resolves `${...}` in that line instead of serving it literally.
+
 ## [2.0.0a2] - 2026-10-22
 
 ### Upgrading from 2.0.0a1

@@ -9,6 +9,8 @@ the same rules Compose applies) and on how the control-database URL is built.
 
 from __future__ import annotations
 
+import re
+from collections import ChainMap
 from collections.abc import Mapping
 from pathlib import Path
 from urllib.parse import quote
@@ -17,6 +19,10 @@ DATABASE_ENV_FILE = Path("env/.env.database")
 API_ENV_FILE = Path("env/.env.api")
 OWNER_USER = "POSTGRES_USER"
 OWNER_PASSWORD = "POSTGRES_PASSWORD"  # noqa: S105 - a variable name, not a value
+CONTROL_DB_URL = "HARBORRAG_CONTROL_DB_URL"
+
+# ``${NAME}`` and ``${NAME:-default}``: the two forms the env-example files use.
+_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
 
 
 def read_compose_env_file(path: Path) -> dict[str, str]:
@@ -39,9 +45,10 @@ def read_compose_env_file(path: Path) -> dict[str, str]:
 def checkout_object_store_credentials(path: Path) -> dict[str, str]:
     """Only the MinIO root pair, mapped to the object-store settings a host CLI reads.
 
-    The rest of ``env/.env.database`` (Postgres passwords above all) stays unread: the
-    control database remains whatever ``HARBORRAG_CONTROL_DB_URL`` says. A missing file,
-    or one without both values, yields ``{}``.
+    The rest of ``env/.env.database`` (Postgres passwords above all) is not mapped; the
+    control database is only taken from it through an explicit ``HARBORRAG_CONTROL_DB_URL``
+    line (see :func:`checkout_control_db_override`). A missing file, or one without both
+    values, yields ``{}``.
     """
 
     if not path.is_file():
@@ -95,6 +102,50 @@ def checkout_control_db_url(root: Path) -> str | None:
     return control_db_url_from_compose(read_compose_env_file(path))
 
 
+def resolve_compose_references(value: str, lookup: Mapping[str, str], *, label: str) -> str:
+    """Substitute ``${NAME}``/``${NAME:-default}`` in ``value`` from ``lookup``, verbatim.
+
+    Raises ValueError naming ``label`` and every reference that resolves to nothing, so a
+    caller never builds a URL with an empty user or database. Values are never echoed.
+    """
+
+    unresolved: list[str] = []
+
+    def substitute(match: re.Match[str]) -> str:
+        name, default = match.group(1), match.group(2)
+        resolved = lookup.get(name) or default
+        if resolved is None:
+            unresolved.append(name)
+            return ""
+        return resolved
+
+    resolved = _REFERENCE.sub(substitute, value)
+    if unresolved:
+        raise ValueError(f"{label} references unset variables: " + ", ".join(unresolved))
+    return resolved
+
+
+def checkout_control_db_override(path: Path, environ: Mapping[str, str]) -> str | None:
+    """The ``HARBORRAG_CONTROL_DB_URL`` line of ``path``, interpolated; None without one.
+
+    The line is opt-in: a file that only holds the ``POSTGRES_*`` values never points a
+    host process at the stack's database. References resolve as Compose resolves them,
+    ``environ`` first and then the file, so the line can reuse the file's credentials.
+    Substitution is verbatim, not URL-quoted. Raises ValueError naming any reference that
+    resolves to nothing, rather than yielding a URL with an empty user or database.
+    """
+
+    if not path.is_file():
+        return None
+    values = read_compose_env_file(path)
+    template = values.get(CONTROL_DB_URL, "").strip()
+    if not template:
+        return None
+    return resolve_compose_references(
+        template, ChainMap(dict(environ), values), label=f"{CONTROL_DB_URL} in {path}"
+    )
+
+
 def checkout_environment_name(root: Path) -> str | None:
     """``HARBORRAG_ENV`` as the checkout's API runs with, or None when unset."""
 
@@ -107,12 +158,15 @@ def checkout_environment_name(root: Path) -> str | None:
 
 __all__ = [
     "API_ENV_FILE",
+    "CONTROL_DB_URL",
     "DATABASE_ENV_FILE",
     "OWNER_PASSWORD",
     "OWNER_USER",
+    "checkout_control_db_override",
     "checkout_control_db_url",
     "checkout_environment_name",
     "control_db_url_from_compose",
     "missing_control_db_values",
     "read_compose_env_file",
+    "resolve_compose_references",
 ]

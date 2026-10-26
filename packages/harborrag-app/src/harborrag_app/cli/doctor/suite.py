@@ -173,8 +173,9 @@ def _control_db_check(settings: RuntimeSettings) -> Check | None:
         "warn",
         "using the local sqlite fallback, not the stack's Postgres",
         hint=(
-            "Export HARBORRAG_CONTROL_DB_URL to the stack's Postgres before ingesting "
-            f"(credentials: {env_hint('database')}); ingest run/start refuse the fallback in a checkout."
+            "Point HARBORRAG_CONTROL_DB_URL at the stack's Postgres before ingesting, exported "
+            f"or as a line in {env_hint('database')}; ingest run/start refuse the fallback in a "
+            "checkout."
         ),
         required=False,
     )

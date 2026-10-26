@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
+
 import pytest
 
 from ..smoke.configuration import build_config
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
+
+
+@pytest.fixture(autouse=True)
+def _restore_process_environment() -> Iterator[None]:
+    # build_config load_dotenv's the developer's env/.env.database into os.environ,
+    # which monkeypatch cannot undo; without this a HARBORRAG_CONTROL_DB_URL line there
+    # leaks into every later RuntimeSettings() in the same worker.
+    saved = dict(os.environ)
+    yield
+    os.environ.clear()
+    os.environ.update(saved)
 
 
 def _set_env(monkeypatch: pytest.MonkeyPatch, **overrides: str) -> None:

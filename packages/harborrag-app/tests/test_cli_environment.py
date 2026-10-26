@@ -208,6 +208,101 @@ def test_applied_minio_credentials_are_logged_by_path_only(
     assert "hunter2" not in caplog.text
 
 
+_CONTROL_DB = "HARBORRAG_CONTROL_DB_URL"
+_DATABASE_ENV = (
+    "POSTGRES_USER=pg\nPOSTGRES_PASSWORD=hunter2\nPOSTGRES_DB=harbor\n"
+    'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}'
+    '@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n'
+)
+
+
+def _clear_control_db(monkeypatch) -> None:
+    _clear_object_store(monkeypatch)
+    for name in (_CONTROL_DB, "POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PORT"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
+def test_checkout_reads_the_control_db_line(tmp_path: Path, monkeypatch) -> None:
+    path = _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_CONTROL_DB] == "postgresql+asyncpg://pg:hunter2@127.0.0.1:5432/harbor"
+    assert "POSTGRES_PASSWORD" not in os.environ
+    assert loaded == (path,)
+
+
+def test_an_exported_control_db_outranks_the_line(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.setenv(_CONTROL_DB, "postgresql+asyncpg://u@db.example/harbor")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_CONTROL_DB] == "postgresql+asyncpg://u@db.example/harbor"
+
+
+def test_control_db_line_is_ignored_outside_a_checkout(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _CONTROL_DB not in os.environ
+
+    _mark_checkout(tmp_path)
+    _activate_project(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _CONTROL_DB not in os.environ
+
+
+def test_unresolved_control_db_line_is_skipped_and_logged_by_path(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    body = _DATABASE_ENV.replace("POSTGRES_USER=pg\n", "")
+    _write(tmp_path, "env/.env.database", body)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert _CONTROL_DB not in os.environ
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert ".env.database" in warnings[0] and "POSTGRES_USER" in warnings[0]
+    assert "hunter2" not in caplog.text
+
+
+def test_applied_control_db_is_logged_by_path_only(tmp_path: Path, monkeypatch, caplog) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert any(".env.database" in record.getMessage() for record in caplog.records)
+    assert "hunter2" not in caplog.text
+
+
+def test_checkout_guard_passes_with_the_control_db_line(tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli.environment import checkout_write_refusal
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    assert checkout_write_refusal() is not None
+    load_project_environment(tmp_path)
+    assert checkout_write_refusal() is None
+
+
 def _checkout_cwd(tmp_path: Path, monkeypatch) -> None:
     _mark_checkout(tmp_path)
     monkeypatch.chdir(tmp_path)
