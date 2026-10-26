@@ -19,7 +19,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     if not arguments:
         raise SystemExit("parser_subprocess requires a command")
 
-    provider = bootstrap_tracing(service_name="harborrag-parser")
+    try:
+        provider = bootstrap_tracing(service_name="harborrag-parser")
+    except ImportError:
+        return subprocess.run(arguments, check=False).returncode
     carrier = {
         key: value
         for key, value in (
@@ -41,12 +44,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "process.executable.name": os.path.basename(arguments[0]),
             },
         ) as span:
-            returncode =  subprocess.run(arguments, check=False).returncode
+            returncode = subprocess.run(arguments, check=False).returncode
             span.set_attribute("process.exit.code", returncode)
             if returncode != 0:
                 span.set_status(trace.Status(trace.StatusCode.ERROR, f"exit code {returncode}"))
             return returncode
-        
     finally:
         provider.force_flush()
         provider.shutdown()

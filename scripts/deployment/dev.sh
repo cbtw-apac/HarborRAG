@@ -27,7 +27,8 @@ Commands:
   temporal           Start only Temporal server services; never starts a worker
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
-  monitoring         Start Prometheus, Grafana, Loki, and Tempo (needs GRAFANA_ADMIN_PASSWORD)
+  monitoring         Start Prometheus, Grafana, Loki, and Tempo
+                     (requires GRAFANA_ADMIN_PASSWORD in the environment)
   metrics            Show live queue and Temporal slot metrics from each worker
   api [--build]      Start only the API; reuse its image and never start a worker
 
@@ -162,7 +163,6 @@ validate_device() {
 
 monitoring_compose() {
     docker compose \
-        --env-file "${ROOT_DIR}/${MONITORING_ENV_FILE}" \
         --file "${ROOT_DIR}/deploy/compose/docker-compose.monitoring.yml" \
         "$@"
 }
@@ -274,9 +274,8 @@ start_worker() {
 
 start_monitoring() {
     [[ "$#" -eq 0 ]] || fail "monitoring accepts no options."
-    # bootstrap never creates this file; Grafana needs an admin password set first.
-    [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]] ||
-        fail "Missing ${MONITORING_ENV_FILE}. Copy env-example/.env.monitoring.example and set GRAFANA_ADMIN_PASSWORD."
+    [[ -n "${GRAFANA_ADMIN_PASSWORD:-}" ]] ||
+        fail "GRAFANA_ADMIN_PASSWORD must be set in the environment to start monitoring."
     require_data_network
     monitoring_compose up --detach
 }
@@ -388,11 +387,9 @@ stop_stack() {
 
     # Monitoring joins the data network, so it must go down before data services.
     echo "Stopping monitoring services..."
-    if [[ -f "${ROOT_DIR}/${MONITORING_ENV_FILE}" ]]; then
+    # Compose interpolates the password even for down; any value will do there.
+    GRAFANA_ADMIN_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-teardown}" \
         monitoring_compose "${down_args[@]}"
-    else
-        echo "Skipping monitoring teardown because the environment file is missing." >&2
-    fi
 
     echo "Stopping HarborRAG data services..."
     if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" ]]; then

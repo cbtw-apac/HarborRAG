@@ -193,7 +193,6 @@ class SummaryProjectionService:
             await self.repository.finish(lease, error_code=code[:128], blocked=blocked)
             return "blocked" if blocked else "failed"
 
-
     def _report_lag(self, published_at: datetime) -> None:
         if self.record_enrichment_lag is None:
             return

@@ -26,9 +26,9 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
     assert "start_temporal" in script
     assert "start_worker" in script
     assert "start_api" in script
-    assert "start_monitoring" not in script
-    assert "monitoring_compose" not in script
-    assert "    monitoring)" not in script
+    assert "start_monitoring" in script
+    assert "monitoring_compose" in script
+    assert "    monitoring)" in script
     assert "up [--no-worker] [--build]" in script
     assert "chmod 600" in script
 
@@ -150,6 +150,7 @@ def test_monitoring_credentials_are_configured_outside_the_development_script() 
     assert "MONITORING_ENV_FILE" not in script
     assert "ensure_monitoring_environment_file" not in script
     assert "env-example/.env.monitoring.example" not in script
+    assert "--env-file" not in script.split("monitoring_compose() {", 1)[1].split("\n}", 1)[0]
     assert "GRAFANA_ADMIN_PASSWORD" not in database_example
     assert "HARBORRAG_MONITORING_BIND_ADDRESS=127.0.0.1" in monitoring_example
     assert "GRAFANA_ADMIN_PASSWORD=\n" in monitoring_example

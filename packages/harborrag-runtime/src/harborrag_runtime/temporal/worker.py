@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import signal
-import functools
 from collections.abc import Callable, Coroutine, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
