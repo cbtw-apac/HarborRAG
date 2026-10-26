@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
 ROLE_ORDER: dict[Role, int] = {"reader": 0, "editor": 1, "admin": 2, "owner": 3}
@@ -21,6 +22,13 @@ class Principal:
     role: Role
     tenant_ids: frozenset[str]
     token_kind: str = "jwt"
+    # The verifier supplies a trusted end-user claim for authenticated calls.
+    # Direct callers and unauthenticated local development retain the default.
+    user_id: str = DEFAULT_USER
+
+    def __post_init__(self) -> None:
+        if not self.user_id or not self.user_id.strip():
+            raise ValueError("principal user_id must not be blank")
 
     def can_access_tenant(self, tenant_id: str) -> bool:
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids

@@ -11,6 +11,7 @@ from typing import Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -113,7 +114,19 @@ class ActivityRepositoryPort(Protocol):
 
 
 class SettingsRepositoryPort(Protocol):
-    """Single-document workspace settings (plan §5.5)."""
+    """Single-document workspace settings (plan §5.5).
+
+    NOT tenant-scoped, despite ``SettingsRepositoryProvider`` below being a
+    ``TenantScopedRepositoryProvider`` and ``WorkspaceSettings`` carrying a
+    ``tenant_id``. Neither method takes a scope and the SQL adapter addresses
+    one fixed row, so in a multi-tenant deployment every tenant reads and
+    overwrites the same document.
+
+    Closing this needs a unique constraint on ``workspace_settings.tenant_id``
+    and a migration to split the existing row, so it is a schema decision
+    rather than a code change. Until then, treat the document as workspace-wide
+    and do not store anything tenant-specific in it.
+    """
 
     async def get(self) -> WorkspaceSettings:
         """The settings document (empty document if never written)."""
@@ -160,15 +173,15 @@ class MemberRepositoryPort(Protocol):
 class PendingEffectRepositoryPort(Protocol):
     """Durable retry queue for control-plane side effects (ML2 recoverability hardening).
 
-    A row is enqueued only when a secondary effect -- secret retirement or
-    audit logging -- fails after the primary write it depends on has already
-    committed. It is never a step on the happy path. The recovery drain
+    Secret retirement and audit logging enqueue failed post-commit effects.
+    Erasure enqueues intent before deleting canonical identifiers, retaining
+    the keys needed to recover interrupted work across stores. The recovery drain
     retries each pending row and calls ``complete`` once the retry succeeds;
     a row that keeps failing simply stays pending for the next drain pass.
     """
 
     async def enqueue(self, effect: PendingControlPlaneEffect) -> None:
-        """Durably record a failed side effect for later retry."""
+        """Durably record replayable work before its recovery identifiers are lost."""
 
     async def list_pending(self, *, limit: int = 100) -> list[PendingControlPlaneEffect]:
         """Oldest-first pending effects, for the recovery drain."""
@@ -196,6 +209,53 @@ class LeaseRepositoryPort(Protocol):
         """
 
 
+class GraphConflictRepositoryPort(Protocol):
+    """Durable queue of graph disagreements awaiting human resolution (plan §5.5).
+
+    v1 is record-only: ``resolve`` persists the chosen action and closes the
+    conflict; it does not itself mutate FalkorDB (see ``GraphConflict``'s
+    docstring for why). ``report`` exists for future conflict-detection code
+    or manual seeding -- nothing calls it yet.
+    """
+
+    async def report(self, conflict: GraphConflict) -> GraphConflict:
+        """Durably record a newly detected conflict."""
+
+    async def list(
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        status: ConflictStatus | None = None,
+        cursor: str | None,
+        limit: int,
+    ) -> tuple[list[GraphConflict], str | None]:
+        """Conflicts within ``tenant_ids``, newest-detected first.
+
+        ``status`` narrows to only-open or only-resolved; omitted, both are
+        returned. Returns ``(items, next_cursor)``; ``next_cursor`` is
+        ``None`` once the caller has walked the whole set.
+        """
+
+    async def get(
+        self, conflict_id: str, *, tenant_ids: frozenset[str] | None
+    ) -> GraphConflict | None:
+        """One conflict by id within ``tenant_ids``, or None."""
+
+    async def resolve(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        resolved_by: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> GraphConflict:
+        """Close a conflict with the chosen action.
+
+        Raises ``HarborNotFoundError`` if missing within ``tenant_ids``,
+        ``HarborConflictError`` if already resolved.
+        """
+
+
 TRepository_co = TypeVar("TRepository_co", covariant=True)
 
 
@@ -217,3 +277,4 @@ ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPo
 SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]
 ProviderRepositoryProvider = TenantScopedRepositoryProvider[ProviderRepositoryPort]
 MemberRepositoryProvider = TenantScopedRepositoryProvider[MemberRepositoryPort]
+GraphConflictRepositoryProvider = TenantScopedRepositoryProvider[GraphConflictRepositoryPort]

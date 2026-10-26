@@ -2,19 +2,38 @@
 
 from __future__ import annotations
 
+import copy
+import logging
 import os
 import sys
+from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import chat, doctor, ingest, retrieve
+from harborrag_app.cli.commands import auth, chat, doctor, ingest, init, retrieve, topology
 from harborrag_app.cli.environment import load_project_environment
+from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
-from harborrag_core.observability.process_logging import LEVEL_ENV_VAR, configure_logging
+from harborrag_core.observability.process_logging import (
+    LEVEL_ENV_VAR,
+    _ManagedStreamHandler,
+    configure_logging,
+)
 
 _HELP_FLAGS = ("-h", "--help")
+# Global options declared by `configure()` that consume the following argv item. main()
+# scans argv before Click parses it, so `_command_name` has to skip those values itself;
+# a value-taking option missing from this set would be read as the sub-command name.
+# `test_global_value_options_are_all_declared` asserts this matches `configure()`.
+_VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
+# Commands that work without a project: `init` creates one, `doctor` reports its absence.
+_PROJECT_OPTIONAL_COMMANDS = frozenset({"init", "doctor"})
+_NO_PROJECT_MESSAGE = (
+    "harborrag: no project found. Run `harborrag init DIR` to create one, cd into a "
+    "directory containing harborrag.yaml, or pass --project DIR."
+)
 
 # One-shot commands render their own result envelope, so diagnostic logs stay
 # off unless an operator asks for them. Logs go to stderr either way, which
@@ -42,15 +61,29 @@ def configure(
             help="Disable ANSI color in one-shot command output.",
         ),
     ] = False,
+    project: Annotated[
+        Path | None,
+        typer.Option(
+            "--project",
+            metavar="DIR",
+            help="Project directory holding harborrag.yaml (default: walk up from CWD).",
+        ),
+    ] = None,
 ) -> None:
     """Configure presentation shared by all HarborRAG commands."""
 
+    del project  # consumed before Click ran; see main()
     context.obj = CliState(no_color=no_color)
 
 
 app.command(
+    "init",
+    help="Scaffold a project directory: harborrag.yaml, .env, config/, docker-compose.yml.",
+    rich_help_panel="Setup",
+)(init.command)
+app.command(
     "doctor",
-    help="Check Temporal runtime readiness.",
+    help="Check project, configuration, environment, and local services.",
     rich_help_panel="Operations",
 )(doctor.command)
 app.add_typer(
@@ -58,6 +91,13 @@ app.add_typer(
     name="ingest",
     help="Submit, observe, and control ingestion runs.",
     rich_help_panel="Ingestion",
+)
+app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
+app.add_typer(
+    auth.app,
+    name="auth",
+    help="Manage MCP reader keys (auth keys create|list|revoke).",
+    rich_help_panel="Operations",
 )
 app.command(
     "chat",
@@ -74,12 +114,38 @@ app.command(
 def main(argv: list[str] | None = None) -> int:
     """Run the Typer application and expose a test-friendly integer exit code."""
 
-    # Before logging is configured and before any command builds a service: connector
-    # and model credentials live in the project's env files, and every command that
-    # resolves a connector needs them present in os.environ.
-    load_project_environment()
-    configure_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
     args = list(argv) if argv is not None else sys.argv[1:]
+    # Before logging is configured and before any command builds a service: a project's
+    # harborrag.yaml and .env, then the checkout's env files, must be in os.environ.
+    # `init` creates a project and resolves its DIR argument from the caller's CWD, so it
+    # is the one command that never activates an enclosing project.
+    if _activates_project(args):
+        origin = Path.cwd()
+        try:
+            project = activate_from_argv(args)
+            # A checkout supplies catalogs without a marker file, so it is only consulted
+            # once marker discovery has come up empty -- and only for a command that needs
+            # catalogs, so `doctor` keeps reporting on the directory the user is in.
+            checkout = (
+                activate_legacy_checkout() if project is None and _requires_project(args) else None
+            )
+        except ProjectError as exc:
+            print(f"harborrag: {exc}", file=sys.stderr)
+            return 1
+        # Never configure a run from a directory the user cannot see they are in.
+        if project is not None:
+            if project.root != origin.resolve():
+                print(f"harborrag: using project {project.root}", file=sys.stderr)
+        elif checkout is not None:
+            if checkout != origin.resolve():
+                print(f"harborrag: using repository checkout {checkout}", file=sys.stderr)
+        elif _requires_project(args):
+            # Fail here with guidance instead of letting a catalog loader explain a missing
+            # file in Docker-image terms to someone who just ran `pip install harborrag`.
+            print(_NO_PROJECT_MESSAGE, file=sys.stderr)
+            return 1
+    load_project_environment()
+    _configure_cli_logging(os.environ.get(LEVEL_ENV_VAR, _DEFAULT_CLI_LOG_LEVEL))
     if not args or args[0] in _HELP_FLAGS:
         # Click resolves --help and no_args_is_help before the group callback
         # runs, so the banner can't live in configure(); print it here instead.
@@ -89,6 +155,80 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0
+
+
+def _command_name(args: list[str]) -> str | None:
+    """The sub-command being invoked, ignoring global options and their values."""
+
+    rest = list(args)
+    while rest and rest[0].startswith("-"):
+        option = rest.pop(0)
+        if option in _VALUE_TAKING_GLOBAL_OPTIONS and rest:
+            rest.pop(0)  # its value
+    return rest[0] if rest else None
+
+
+def _activates_project(args: list[str]) -> bool:
+    """Everything except `init` and pure help output runs inside the enclosing project."""
+
+    if any(arg in _HELP_FLAGS for arg in args):
+        return False
+    return _command_name(args) != "init"
+
+
+def _requires_project(args: list[str]) -> bool:
+    """True for a real command invocation that needs catalogs (not help, init, or doctor)."""
+
+    command = _command_name(args)
+    return (
+        command is not None
+        and command not in _PROJECT_OPTIONAL_COMMANDS
+        and command in _registered_names()
+    )
+
+
+def _registered_names() -> frozenset[str]:
+    """Names of every top-level command and group, so unknown ones skip project lookup."""
+
+    names = {
+        command.name or getattr(command.callback, "__name__", "")
+        for command in app.registered_commands
+    }
+    names.update(group.name for group in app.registered_groups if group.name)
+    return frozenset(names)
+
+
+_TRACEBACK_HINT = " (set HARBORRAG_LOG_LEVEL=DEBUG for the traceback)"
+
+
+class _QuietTracebackFilter(logging.Filter):
+    """Drop `exc_info` above DEBUG so a failure is one line, not a stack dump.
+
+    Returns a shortened copy instead of editing the record: every handler sees the
+    same LogRecord, and the others (a second sink, pytest's caplog) keep the traceback.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool | logging.LogRecord:
+        if record.exc_info and logging.getLogger("harborrag").getEffectiveLevel() > logging.DEBUG:
+            quiet = copy.copy(record)
+            quiet.msg = record.getMessage() + _TRACEBACK_HINT
+            quiet.args = None
+            quiet.exc_info = None
+            quiet.exc_text = None
+            return quiet
+        return True
+
+
+_QUIET_TRACEBACKS = _QuietTracebackFilter()
+
+
+def _configure_cli_logging(level: str) -> logging.Logger:
+    logger = configure_logging(level)
+    for handler in logger.handlers:
+        # Only the handler configure_logging owns; others (e.g. a test's capture) keep tracebacks.
+        if isinstance(handler, _ManagedStreamHandler):
+            handler.addFilter(_QUIET_TRACEBACKS)  # a no-op when already installed
+    return logger
 
 
 def _exit_code(value: Any) -> int:

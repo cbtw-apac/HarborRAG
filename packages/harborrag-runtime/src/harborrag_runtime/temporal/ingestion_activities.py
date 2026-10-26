@@ -1,16 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+from dataclasses import replace
+
 from temporalio import activity
+from temporalio.client import Client
+from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.composition import IngestionRuntime
-from harborrag_runtime.ingestion.document.models import DocumentReleaseRequest
-from harborrag_runtime.ingestion.document.preparation import DocumentPreparationStages
-from harborrag_runtime.ingestion.document.stage_models import (
-    PreparedDocumentStage,
-    RawCaptureStageResult,
-)
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
+from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .activity_observability import ActivityObservability
 from .conversion import (
@@ -19,20 +22,18 @@ from .conversion import (
     to_prepared_stage,
     to_raw_capture_result,
 )
+from .gateway import to_temporal_source
 from .heartbeats import heartbeat_while, last_heartbeat_detail
 from .plan_resolver import PlanDocumentResolver
-from .process_isolation import (
-    SubprocessCrashError,
-    SubprocessResultSerializationError,
-    SubprocessSerializationError,
-    run_in_isolated_subprocess,
-)
 from .retry_activities import RetryActivitiesMixin
 from .schemas import (
     DocumentFailureInput,
     DocumentIngestionInput,
     PreparedDocument,
     RawCaptureResult,
+    ScheduledRunMetricInput,
+    ScheduledSourcePreparation,
+    ScheduledSourcePreparationInput,
 )
 from .source_activities import SourceActivitiesMixin
 
@@ -44,11 +45,65 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         runtime: IngestionRuntime,
         *,
+        temporal_client: Client | None = None,
         telemetry: IngestionTelemetry | None = None,
+        settings: RuntimeSettings | None = None,
+        temporal_config: TemporalRuntimeConfig | None = None,
     ) -> None:
         self._runtime = runtime
+        self._settings = settings
+        # The config this worker polls with, so children go to queues it serves.
+        self._temporal_config = temporal_config
+        self._temporal_client = temporal_client
         self._observability = ActivityObservability(telemetry or IngestionTelemetry())
         self._documents = PlanDocumentResolver(runtime.source_plans)
+
+    @activity.defn(name="harborrag.prepare_scheduled_source")
+    async def prepare_scheduled_source(
+        self,
+        request: ScheduledSourcePreparationInput,
+    ) -> ScheduledSourcePreparation:
+        """Prepare a scheduled firing from this worker's current configuration."""
+
+        settings = self._settings
+        temporal_config = self._temporal_config
+        if settings is None or temporal_config is None:
+            raise ApplicationError(
+                "worker was started without runtime settings", non_retryable=True
+            )
+        try:
+            prepared = await asyncio.to_thread(
+                prepare_configured_source_submission,
+                settings,
+                SourceSubmission(
+                    task_id=request.task_id,
+                    tenant_id=request.tenant_id,
+                    connector_name=request.connection_id,
+                    connection_id=request.connection_id,
+                    source_scope_id=request.source_scope_id,
+                    force_reprocess=request.force_reprocess,
+                ),
+            )
+        except ValueError as error:
+            # Removed, disabled or invalid connector configuration cannot heal on retry.
+            raise ApplicationError(
+                str(error), type=type(error).__name__, non_retryable=True
+            ) from error
+        if await self._runtime.control.source_scans.has_running_scan(prepared.source_scope_id):
+            return ScheduledSourcePreparation(source=None, source_scope_id=prepared.source_scope_id)
+        source = replace(
+            to_temporal_source(prepared),
+            workflow_options=temporal_config.workflow_options(),
+        )
+        return ScheduledSourcePreparation(source=source, source_scope_id=prepared.source_scope_id)
+
+    @activity.defn(name="harborrag.record_scheduled_run_metrics")
+    async def record_scheduled_run_metrics(self, request: ScheduledRunMetricInput) -> None:
+        self._runtime.telemetry.record_scheduled_run(
+            request.schedule_id,
+            request.outcome,
+            schedule_to_start_seconds=request.schedule_to_start_seconds,
+        )
 
     @activity.defn(name="harborrag.fetch_and_capture_raw")
     async def fetch_and_capture_raw(
@@ -94,49 +149,22 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 "task_id": request.document.task_id,
                 "document_id": request.document_id,
                 "document_index": request.document.document_index,
-                "mode": "subprocess",
+                "mode": "in-process",
                 "resumed": prior is not None,
                 "prior_attempt_count": prior_attempt_count,
             }
-            try:
-                prepared_stage = await run_in_isolated_subprocess(
-                    _parse_and_normalize_sync,
-                    self._runtime.stages.preparation,
+            # Parsing runs in-process. The isolated-subprocess attempt that used to
+            # precede this could never succeed -- the preparation stages hold the
+            # parser registry's local closures, the database engine and the S3
+            # client, none of which pickle -- so every parse paid for a failed spawn
+            # attempt and then ran here anyway.
+            prepared_stage = await heartbeat_while(
+                self._runtime.stages.preparation.parse_and_normalize(
                     planned.request,
                     capture_stage,
-                    heartbeat_detail=heartbeat_detail,
-                )
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "success",
-                )
-            except SubprocessSerializationError as error:
-                is_result_error = isinstance(error, SubprocessResultSerializationError)
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "result_serialization_fail" if is_result_error else "serialization_fail",
-                )
-                prepared_stage = await heartbeat_while(
-                    self._runtime.stages.preparation.parse_and_normalize(
-                        planned.request,
-                        capture_stage,
-                    ),
-                    detail={
-                        **heartbeat_detail,
-                        "mode": "in-process-fallback",
-                        "fallback_reason": (
-                            "spawn-unpicklable-result"
-                            if is_result_error
-                            else "spawn-unpicklable-args"
-                        ),
-                    },
-                )
-            except SubprocessCrashError:
-                self._observability.record_subprocess_outcome(
-                    "ParseAndNormalize",
-                    "crash",
-                )
-                raise
+                ),
+                detail=heartbeat_detail,
+            )
             self._observability.record_prepared(prepared_stage)
             return to_prepared_document(request.document, prepared_stage)
 
@@ -323,18 +351,8 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 planned,
                 error_type=request.error_type,
                 failed_stage=request.failed_stage,
+                skip_reason=request.skip_reason,
             )
             self._observability.record_document_failure(
                 planned.request.source_identity.connector_type.value,
             )
-
-
-def _parse_and_normalize_sync(
-    preparation: DocumentPreparationStages,
-    request: DocumentReleaseRequest,
-    capture: RawCaptureStageResult,
-) -> PreparedDocumentStage:
-    """Module-level target for subprocess isolation; picklable by the spawn context."""
-    import asyncio
-
-    return asyncio.run(preparation.parse_and_normalize(request, capture))

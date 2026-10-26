@@ -6,10 +6,11 @@ state) and ``loop.py`` (which consumes it) can import it without a cycle.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
+from harborrag_core.models.cost import ModelCost
 from harborrag_core.ports.agent_runs import AgentRunIdentity, AgentStopReason, AgentToolExecution
 from harborrag_engine.conversation import ConversationIdentity
 
@@ -40,6 +41,7 @@ class LoopState:
     usage: HarborChatUsage
     step: int
     version: int
+    cost: ModelCost = field(default_factory=ModelCost)
 
 
 @dataclass(frozen=True, slots=True)

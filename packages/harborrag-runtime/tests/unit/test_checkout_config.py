@@ -1,0 +1,123 @@
+"""Host processes translate a checkout's Compose env files the same way Compose does."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from harborrag_runtime.config.checkout import (
+    checkout_control_db_override,
+    checkout_control_db_url,
+    checkout_environment_name,
+    checkout_object_store_credentials,
+    control_db_url_from_compose,
+    missing_control_db_values,
+    read_compose_env_file,
+)
+
+
+def test_quoted_values_are_unquoted_like_compose(tmp_path: Path) -> None:
+    path = tmp_path / ".env"
+    path.write_text(
+        "POSTGRES_USER=owner\n"
+        'POSTGRES_PASSWORD="it\'s a p@ss/word"\n'
+        "POSTGRES_DB='harbor'\n"
+        "# comment\n"
+        "POSTGRES_PORT=5433\n",
+        encoding="utf-8",
+    )
+
+    values = read_compose_env_file(path)
+
+    assert values["POSTGRES_PASSWORD"] == "it's a p@ss/word"
+    assert values["POSTGRES_DB"] == "harbor"
+    assert control_db_url_from_compose(values) == (
+        "postgresql+asyncpg://owner:it%27s%20a%20p%40ss%2Fword@localhost:5433/harbor"
+    )
+
+
+def test_missing_values_are_named() -> None:
+    assert missing_control_db_values({"POSTGRES_USER": "u"}) == ["POSTGRES_PASSWORD", "POSTGRES_DB"]
+    with pytest.raises(ValueError, match="POSTGRES_PASSWORD, POSTGRES_DB"):
+        control_db_url_from_compose({"POSTGRES_USER": "u"})
+
+
+def test_reader_credentials_can_be_selected() -> None:
+    values = {"POSTGRES_DB": "harbor", "R_USER": "reader", "R_PASS": "pw"}
+
+    url = control_db_url_from_compose(values, user_name="R_USER", password_name="R_PASS")
+
+    assert url == "postgresql+asyncpg://reader:pw@localhost:5432/harbor"
+
+
+def test_checkout_helpers_return_none_without_the_files(tmp_path: Path) -> None:
+    assert checkout_control_db_url(tmp_path) is None
+    assert checkout_environment_name(tmp_path) is None
+
+    (tmp_path / "env").mkdir()
+    (tmp_path / "env/.env.database").write_text(
+        "POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n", encoding="utf-8"
+    )
+    (tmp_path / "env/.env.api").write_text("HARBORRAG_ENV=prod\n", encoding="utf-8")
+
+    assert checkout_control_db_url(tmp_path) == "postgresql+asyncpg://o:p@localhost:5432/d"
+    assert checkout_environment_name(tmp_path) == "prod"
+
+
+def test_object_store_credentials_take_only_the_minio_pair(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD='p w'\nPOSTGRES_PASSWORD=x\n")
+
+    assert checkout_object_store_credentials(path) == {
+        "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID": "u",
+        "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY": "p w",
+    }
+
+
+def test_object_store_credentials_are_empty_when_missing_or_partial(tmp_path: Path) -> None:
+    partial = tmp_path / "partial.env"
+    partial.write_text("MINIO_ROOT_USER=u\n")
+
+    assert checkout_object_store_credentials(tmp_path / "absent.env") == {}
+    assert checkout_object_store_credentials(partial) == {}
+
+
+_URL_LINE = (
+    'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}'
+    '@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n'
+)
+
+
+def test_control_db_override_interpolates_the_file(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n" + _URL_LINE)
+
+    assert checkout_control_db_override(path, {}) == "postgresql+asyncpg://o:p@127.0.0.1:5432/d"
+
+
+def test_control_db_override_prefers_the_environment_like_compose(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n" + _URL_LINE)
+
+    url = checkout_control_db_override(path, {"POSTGRES_PORT": "5433", "POSTGRES_DB": "x"})
+
+    assert url == "postgresql+asyncpg://o:p@127.0.0.1:5433/x"
+
+
+def test_control_db_override_is_none_without_the_line(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_USER=o\nPOSTGRES_PASSWORD=p\nPOSTGRES_DB=d\n")
+
+    assert checkout_control_db_override(path, {}) is None
+    assert checkout_control_db_override(tmp_path / "absent.env", {}) is None
+
+
+def test_control_db_override_names_unresolved_references_without_values(tmp_path: Path) -> None:
+    path = tmp_path / ".env.database"
+    path.write_text("POSTGRES_PASSWORD=hunter2\n" + _URL_LINE)
+
+    with pytest.raises(ValueError, match="POSTGRES_USER, POSTGRES_DB") as raised:
+        checkout_control_db_override(path, {})
+
+    assert "hunter2" not in str(raised.value)

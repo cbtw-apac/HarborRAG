@@ -53,6 +53,7 @@ async def inspect_configured_source(
         if any(result.status == "failed" for result in results):
             raise AssertionError("configured smoke contains a failed document")
         pending_cleanup = await stores.control.reliability.pending_cleanup_jobs(
+            tenant_id=request.tenant_id,
             limit=1_000,
             document_ids=tuple(str(result.document_id) for result in results),
         )

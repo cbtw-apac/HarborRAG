@@ -33,6 +33,7 @@ from harborrag_core.schemas.object_store import (
     PutObjectRequest,
 )
 from harborrag_core.storage import (
+    DEFAULT_STORAGE_NAMESPACE_PREFIX,
     HealthStatus,
     RepositoryHealth,
     StorageFamily,
@@ -54,9 +55,11 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         root: Path | None = None,
         instance_name: str = "default",
     ) -> None:
+        self._namespace_prefix = DEFAULT_STORAGE_NAMESPACE_PREFIX
         if config is not None:
             root = config.root
             instance_name = config.instance_name
+            self._namespace_prefix = config.namespace_prefix
         if root is None:
             raise ValueError("filesystem object-store root is required")
         self._root = root.expanduser().resolve()
@@ -316,13 +319,15 @@ class FilesystemObjectStore(FilesystemAccessMixin, HarborObjectStore):
         context: StorageOperationContext,
     ) -> list[ObjectMetadata]:
         bucket_root = self._tenant_root(bucket, context)
+        # Keys map "\" to a path separator on disk, so compare prefixes the same way.
+        prefix = prefix.replace("\\", "/")
         try:
             if not bucket_root.exists():
                 return []
             output: list[ObjectMetadata] = []
             for meta_path in sorted(bucket_root.rglob(f"*{_META_SUFFIX}")):
                 target = Path(str(meta_path)[: -len(_META_SUFFIX)])
-                key = target.relative_to(bucket_root).as_posix()
+                key = self._key_for_path(target, bucket_root)
                 if not key.startswith(prefix):
                     continue
                 metadata = ObjectMetadata.model_validate_json(

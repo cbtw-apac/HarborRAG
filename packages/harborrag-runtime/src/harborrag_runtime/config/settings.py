@@ -1,20 +1,45 @@
 """Runtime process settings from HARBORRAG_* env vars (ST8).
 
-Imported lazily by CompositionRoot.production() only — pydantic-settings is
-part of the [production] extra, and the bare CLI install must keep working
-without it.
+pydantic-settings is a required dependency of this package and this module is
+imported eagerly, by ``execution`` and by ``sdk.configuration`` among others.
+The docstring used to claim the opposite -- an optional extra imported lazily
+by ``CompositionRoot.production()`` -- which misdescribed the dependency
+boundary to anyone deciding where a new import could go.
 """
 
 from __future__ import annotations
 
+import logging
+import os
+from decimal import Decimal
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, SecretStr, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.security import RemoteTransportPolicy
+from harborrag_core.storage import (
+    DEFAULT_STORAGE_NAMESPACE_PREFIX,
+    STORAGE_NAMESPACE_PREFIX_PATTERN,
+)
+from harborrag_core.summary_cards import SUMMARY_DESCRIPTION_MAX_WORDS
+from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+
+from .memory_settings import MemorySettingsMixin
+
+logger = logging.getLogger("harborrag.runtime.config")
+
+# Environment variables an earlier release read and this one does not. With
+# ``extra="ignore"`` a stale one would otherwise vanish without a word, and
+# the stores it used to separate would silently share one namespace.
+_REMOVED_ENVIRONMENT = {
+    "HARBORRAG_QDRANT_COLLECTION_PREFIX": "HARBORRAG_STORAGE_NAMESPACE_PREFIX",
+    "HARBORRAG_FALKORDB_TENANT_GRAPH_PREFIX": "HARBORRAG_STORAGE_NAMESPACE_PREFIX",
+}
+# Names already warned about: settings are built many times per process.
+_warned_removed_environment: set[str] = set()
 
 _REDIS_TRANSPORT = RemoteTransportPolicy(
     service="Redis",
@@ -38,21 +63,28 @@ def is_blank_secret(value: SecretStr | None) -> bool:
     return value is None or not value.get_secret_value().strip()
 
 
-class RuntimeSettings(BaseSettings):
+class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     """Environment-driven settings for runtime composition."""
 
     model_config = SettingsConfigDict(env_prefix="HARBORRAG_", extra="ignore")
 
-    env: Literal["dev", "prod"] = "dev"
+    # staging is held to every prod guard: each check below tests env != "dev".
+    env: Literal["dev", "staging", "prod"] = "dev"
     ingestion_tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
     )
+    corpus_access_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
+    corpus_shared_tenant_id: str | None = None
+    summary_processing_allowed: bool = False
+    summary_processing_revision: str = Field(default="v1", min_length=1, max_length=128)
     control_db_url: SecretStr = SecretStr("sqlite+aiosqlite:///./harborrag_control.db")
-    control_db_pool_size: int = Field(default=5, ge=1, le=100)
-    control_db_max_overflow: int = Field(default=10, ge=0, le=200)
+    # Matches the Compose defaults: config/temporal.yaml runs 12 activities on each of
+    # six task queues, and TemporalRuntimeConfig refuses 72 > pool + overflow.
+    control_db_pool_size: int = Field(default=40, ge=1, le=100)
+    control_db_max_overflow: int = Field(default=32, ge=0, le=200)
     secrets_encryption_key: SecretStr | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
@@ -70,6 +102,10 @@ class RuntimeSettings(BaseSettings):
     temporal_ingestion_batch_size: int = Field(default=200, ge=1, le=300)
     temporal_ingestion_document_concurrency: int = Field(default=8, ge=1, le=100)
     temporal_config_path: Path = Path("config/temporal.yaml")
+    schedule_config_path: Path = Path("config/schedules.yaml")
+    # How often a worker exports schedule pause/overlap gauges by describing every
+    # schedule. 0 disables it; with several replicas keep it on one of them.
+    schedule_metrics_interval_seconds: float = Field(default=30.0, ge=0, le=3600)
     metrics_port: int | None = Field(default=None, ge=1, le=65_535)
     metrics_bind_address: str = Field(default="0.0.0.0", min_length=1)
     langfuse_enabled: bool = False
@@ -83,25 +119,46 @@ class RuntimeSettings(BaseSettings):
     connector_config_path: Path = Path("config/connectors.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
+    graph_build_config_path: Path = Path("config/topology/graph_build.yaml")
+    object_store_provider: str = Field(default="s3", min_length=1)
+    object_store_root: Path = Path(".harborrag/objects")
+    vector_provider: str = Field(default="qdrant", min_length=1)
+    graph_provider: str = Field(default="falkordb", min_length=1)
     object_store_endpoint_url: str | None = "http://localhost:9000"
     object_store_allow_insecure_remote: bool = False
     object_store_region: str = "us-east-1"
     object_store_access_key_id: SecretStr | None = None
     object_store_secret_access_key: SecretStr | None = None
     object_store_session_token: SecretStr | None = None
+    # One namespace per tenant in every store: `{prefix}_{tenant_id}` names the Qdrant
+    # collections' stem, the FalkorDB graph and the object-store key prefix.
+    storage_namespace_prefix: str = Field(
+        default=DEFAULT_STORAGE_NAMESPACE_PREFIX, pattern=STORAGE_NAMESPACE_PREFIX_PATTERN
+    )
     qdrant_url: str = "http://localhost:6333"
     qdrant_api_key: SecretStr | None = None
     qdrant_prefer_grpc: bool = True
-    qdrant_collection_prefix: str = ""
     qdrant_allow_insecure_remote: bool = False
     falkordb_host: str = "localhost"
     falkordb_port: int = 6379
     falkordb_username: str | None = None
     falkordb_password: SecretStr | None = None
     falkordb_graph: str = "harborrag"
+    falkordb_read_username: str | None = None
+    falkordb_read_password: SecretStr | None = None
+    falkordb_max_cached_tenants: int = Field(default=64, ge=1, le=10000)
     falkordb_ssl: bool = False
     falkordb_max_connections: int = Field(default=32, ge=1, le=1000)
     graph_relation_repair_concurrency: int = Field(default=8, ge=1, le=1000)
+    # Days a RETIRED document version keeps its object-store artifacts and
+    # projection manifest after its projections were cleaned. Past that, the
+    # source-scope maintenance purges them and marks the version PURGED. Unset
+    # (blank, "none" or "off") keeps retired versions forever; 0 purges as soon
+    # as projection cleanup has completed.
+    retired_version_retention_days: int | None = Field(default=30, ge=0, le=36_500)
+    # How often each ingestion worker sweeps every scope for expired retired
+    # versions (besides the purge after each source run). 0 disables the sweep.
+    retired_version_purge_interval_hours: float = Field(default=24.0, ge=0, le=24 * 30)
     falkordb_allow_insecure_remote: bool = False
     embedding_model: str | None = None
     embedding_dimensions: int | None = None
@@ -113,25 +170,111 @@ class RuntimeSettings(BaseSettings):
     retrieval_dense_weight: float = Field(default=0.7, ge=0, le=1)
     chat_retrieval_top_k: int = Field(default=5, ge=1, le=50)
     chat_retrieval_graph_search: bool = False
+    # Lowest ``RetrievalResult.relevance`` a chunk may have and still be shown
+    # to the chat model or reported as a citation. Retrieval returns its top-k
+    # whatever the quality, so without a floor an off-topic question is
+    # answered beside five unrelated documents and cites all of them.
+    #
+    # Zero -- the default -- keeps every result, so no existing deployment
+    # changes behaviour on upgrade. The useful range depends on the embedding
+    # model: scores are normalized cosines, ``(cos + 1) / 2``, so unrelated
+    # text lands near 0.5 and a floor is worth setting only after measuring
+    # the corpus. Never threshold ``score`` instead; on the hybrid lane it is
+    # rank arithmetic and its top hit is near 1.0 however poor the match.
+    chat_retrieval_min_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    # Off by default: a tenant catalog moves chat credentials out of the
+    # process environment and into the control database, and gives every
+    # configured tenant its own client (its own connection pool). Existing
+    # deployments keep the single process-wide client until they opt in.
+    chat_tenant_catalogs_enabled: bool = False
+    # Upper bound on cached per-tenant chat clients; each holds a connection
+    # pool, so the least recently used one is disposed rather than kept.
+    chat_tenant_client_cache_size: int = Field(default=32, ge=1, le=1_024)
+    topology_operation_seconds: float = Field(default=120, gt=0, le=3600)
+    topology_job_seconds: float = Field(default=3600, gt=0, le=86400)
+    topology_lease_seconds: int = Field(default=300, ge=3, le=3600)
+    topology_max_chunks: int = Field(default=1000, ge=1, le=10000)
+    topology_task_queue: str = Field(default="harborrag-topology", min_length=1)
+    topology_poll_seconds: float = Field(default=5, ge=1, le=60)
+    topology_embedding_max_input_bytes: int = Field(default=8000, ge=100, le=100000)
+    topology_parent_enabled: bool = False
+    topology_parent_model: str | None = None
+    topology_parent_run_budget_usd: Decimal | None = None
+    topology_parent_max_output_tokens: int = Field(default=1024, ge=128, le=4096)
+    topology_parent_max_fan_in: int = Field(default=8, ge=2, le=32)
+    topology_parent_max_input_bytes: int = Field(default=24000, ge=100, le=30000)
+    topology_parent_max_input_tokens: int = Field(default=6000, ge=100, le=30000)
+    topology_parent_max_calls: int = Field(default=64, ge=1, le=10000)
+    summary_task_queue: str = Field(default="harborrag-summaries", min_length=1)
+    summary_debounce_seconds: float = Field(default=5, ge=0, le=300)
+    summary_max_wait_seconds: float = Field(default=60, ge=1, le=3600)
+    summary_tenant_enabled: bool = False
+    # A source entity is the first card that spans documents, so it is the one
+    # worth writing as a dossier rather than a navigation hint. Widening this
+    # regenerates source-entity cards and nothing else, because the budget is part
+    # of the summary policy fingerprint.
+    summary_entity_card_max_words: int = Field(default=60, ge=20, le=SUMMARY_DESCRIPTION_MAX_WORDS)
+    # Publishes each accepted source-entity card as its own searchable point, so a
+    # question about a whole issue reaches the issue instead of one chunk of it.
+    # Off by default: it needs a vector backend and one embedding per entity.
+    summary_entity_index_enabled: bool = False
+    # Explicit conservative per-operation price bounds are required before LLM dispatch.
+    topology_llm_operation_cost_usd: Decimal | None = Field(default=None, gt=0)
+    topology_derived_enabled: bool = False
+    topology_retrieval_policy: TopologyRetrievalPolicy = Field(
+        default_factory=TopologyRetrievalPolicy
+    )
+
+    @field_validator("retired_version_retention_days", mode="before")
+    @classmethod
+    def _disable_retention(cls, value: object) -> object:
+        if isinstance(value, str) and value.strip().lower() in {"", "none", "off", "disabled"}:
+            return None
+        return value
+
+    @model_validator(mode="after")
+    def _warn_removed_environment(self) -> RuntimeSettings:
+        for name, replacement in _REMOVED_ENVIRONMENT.items():
+            if name not in os.environ or name in _warned_removed_environment:
+                continue
+            _warned_removed_environment.add(name)
+            logger.warning(
+                "%s is no longer read and is ignored; every store is now namespaced "
+                "by %s (currently %r). Set that instead, and see the CHANGELOG for "
+                "the reset and re-ingest the namespace change requires.",
+                name,
+                replacement,
+                self.storage_namespace_prefix,
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
+        if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
+            raise ValueError(
+                "HARBORRAG_CORPUS_SHARED_TENANT_ID is required for tenant_shared access"
+            )
+        if self.summary_processing_allowed and self.corpus_access_mode != "tenant_shared":
+            raise ValueError(
+                "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
+            )
+        if (
+            self.summary_processing_allowed
+            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
+        ):
+            raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")
-        if self.env == "prod" and is_sqlite_control_db:
+        if self.env != "dev" and is_sqlite_control_db:
             raise ValueError(
                 "HARBORRAG_CONTROL_DB_URL must use a production database when "
-                "HARBORRAG_ENV=prod; SQLite is development-only"
+                "HARBORRAG_ENV is staging or prod; SQLite is development-only"
             )
-        if is_blank_secret(self.secrets_encryption_key) and not is_sqlite_control_db:
-            # env=dev with a real (non-SQLite) control DB is a legal combination, and
-            # it would otherwise silently encrypt stored secrets with the
-            # publicly-known dev-default key -- require an explicit key for any
-            # persistent control database, not only in prod.
-            raise ValueError(
-                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
-                "is not SQLite; the dev-only default key is not safe for stored secrets"
-            )
+        # The secrets encryption key is required only by the process that opens
+        # the control-plane secret store (CompositionRoot.production enforces it
+        # for any non-SQLite database). Reader-only processes such as the MCP
+        # server share these settings but never decrypt a stored secret, and
+        # demanding the key here handed it to a container that has no use for it.
         development = self.env == "dev"
         if self.redis_url is not None:
             try:

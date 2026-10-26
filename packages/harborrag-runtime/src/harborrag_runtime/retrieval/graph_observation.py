@@ -22,16 +22,23 @@ logger = logging.getLogger("harborrag.runtime.retrieval")
 # results it covers. The cap bounds the fan-out for large top_k.
 _GRAPH_SEED_LIMIT = 10
 # Depth 2 is exactly what provenance needs: a chunk reaches its Structure in one hop
-# (:Chunk)-[:SUPPORTS]->(:Structure) and the owning DocumentVersion in a second
+# (:Structure)-[:HAS_CHUNK]->(:Chunk) and the owning DocumentVersion in a second
 # (:DocumentVersion)-[:CONTAINS]->(:Structure). Depth 4 paid for two more hops the summary
 # never read. Note this is not a net saving -- raising the seed count from 3 to 10
 # outweighs the shallower walk (measured ~0.6ms -> ~2.2ms of FalkorDB time on a 3.2k-node
 # graph). The traversals are gathered concurrently, and observation is opt-in.
 _GRAPH_OBSERVE_DEPTH = 2
 _GRAPH_OBSERVE_MAX_NODES = 100
-# Undirected: SUPPORTS points from the chunk into the spine while CONTAINS points down
-# it, so a directed walk cannot reach a chunk's own document.
+# Undirected: HAS_CHUNK and CONTAINS both point down the spine towards the chunk, so an
+# outgoing walk from a chunk seed cannot reach its own document, and memory seeds are
+# arbitrary graph nodes whose relations point either way.
 _GRAPH_OBSERVE_DIRECTION = "both"
+# Caller-supplied seeds (the graph entities this session's recalled memories
+# reference) get their own allowance *on top of* the result-seed budget rather
+# than sharing it. Sharing would let memory crowd out result provenance, and
+# provenance that describes three of ten results is exactly what the comment
+# above rejects. Five is the same order as the recall top_k that produces them.
+_MEMORY_SEED_LIMIT = 5
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,15 +71,21 @@ class GraphObserver:
         *,
         context: StorageOperationContext,
         request_id: str,
+        memory_seeds: Sequence[str] = (),
     ) -> GraphObservation:
         """Return the surrounding structure, or an empty summary if observation fails.
 
         Graph observation is a diagnostic extra: a graph outage must degrade the
         response rather than fail a retrieval the vector store already answered.
+
+        ``memory_seeds`` widens the walk with nodes the caller already knows are
+        relevant -- the entities this session's recalled memories reference --
+        so the structure around them is summarised even when no vector result
+        landed on them.
         """
 
         try:
-            return await self._observe(candidates, context=context)
+            return await self._observe(candidates, context=context, memory_seeds=memory_seeds)
         except Exception:
             logger.warning(
                 "Optional graph observation failed",
@@ -86,35 +99,45 @@ class GraphObserver:
         candidates: Sequence[VectorSearchResult],
         *,
         context: StorageOperationContext,
+        memory_seeds: Sequence[str],
     ) -> GraphObservation:
-        seeds = tuple(
+        results = tuple(
             dict.fromkeys(required_text(candidate.payload, "chunk_id") for candidate in candidates)
         )[:_GRAPH_SEED_LIMIT]
-        if not seeds:
+        extra = tuple(
+            key
+            for key in dict.fromkeys(seed.strip() for seed in memory_seeds if seed.strip())
+            if key not in results
+        )[:_MEMORY_SEED_LIMIT]
+        if not results and not extra:
             return GraphObservation()
-        traversals = await asyncio.gather(
+        walks = await asyncio.gather(
             *(
                 self._graph.traverse(
-                    chunk_id,
+                    node_key,
                     max_depth=_GRAPH_OBSERVE_DEPTH,
                     max_nodes=_GRAPH_OBSERVE_MAX_NODES,
                     direction=_GRAPH_OBSERVE_DIRECTION,
                     context=context,
                 )
-                for chunk_id in seeds
+                for node_key in (*results, *extra)
             )
         )
-        nodes = {node.node_key: node for traversal in traversals for node in traversal.nodes}
+        nodes = {node.node_key: node for traversal in walks for node in traversal.nodes}
         relation_ids = {
-            relation.relation_id for traversal in traversals for relation in traversal.relations
+            relation.relation_id for traversal in walks for relation in traversal.relations
         }
         return GraphObservation(
             nodes=len(nodes),
             relations=len(relation_ids),
-            truncated=any(traversal.truncated for traversal in traversals),
+            truncated=any(traversal.truncated for traversal in walks),
+            # Every walk contributes documents, so a document only memory reached
+            # is still summarised -- but ``related_results`` is built from the
+            # result walks alone, because its ``result_id`` is contractually a
+            # vector result's chunk id and a memory seed is not one.
             documents=_summarise_documents(
                 tuple(nodes.values()),
-                tuple(zip(seeds, traversals, strict=True)),
+                tuple(zip(results, walks[: len(results)], strict=True)),
             ),
         )
 

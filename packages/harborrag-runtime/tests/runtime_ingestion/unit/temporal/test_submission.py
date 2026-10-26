@@ -8,6 +8,10 @@ import pytest
 
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.execution.source_submission import (
+    SourceSubmissionDefaults,
+    prepare_source_submission,
+)
 from harborrag_runtime.temporal.schemas import SourceQuery
 from harborrag_runtime.temporal.submission import (
     SourceSubmission,
@@ -79,7 +83,7 @@ def test_submission_builds_deterministic_secret_free_source_identity(
     assert first.connection_id == "docs"
     assert first.source_scope_id.startswith("scope-")
     assert first.processing.vector_projection_schema == "vector-v2"
-    assert first.processing.graph_projection_version == "graph-v3"
+    assert first.processing.graph_projection_version == "graph-v5-unique-visible-edges"
     assert first.discovery_page_size == 50
     assert first.discovery_concurrency == 4
     assert "first-secret" not in first.configuration_fingerprint
@@ -275,3 +279,80 @@ def test_explicit_batching_overrides_the_configured_ingestion_defaults(
 
     assert source.batch_size == 200
     assert source.document_concurrency == 8
+
+
+def test_neutral_preparation_uses_injected_defaults_without_reading_temporal_config(
+    tmp_path: Path,
+) -> None:
+    settings = _settings(tmp_path)
+    invalid_temporal = tmp_path / "temporal.yaml"
+    invalid_temporal.write_text("not: a temporal configuration", encoding="utf-8")
+    settings = settings.model_copy(update={"temporal_config_path": invalid_temporal})
+
+    source = prepare_source_submission(
+        settings,
+        _submission(),
+        environment={"JIRA_BASE_URL": "https://jira.example.test", "JIRA_PROJECT_KEYS": "DOCS"},
+        defaults=SourceSubmissionDefaults(batch_size=12, document_concurrency=3),
+    )
+
+    assert source.batch_size == 12
+    assert source.document_concurrency == 3
+    assert not hasattr(source, "workflow_options")
+
+
+def _local_settings(tmp_path: Path) -> RuntimeSettings:
+    source = tmp_path / "docs"
+    source.mkdir()
+    connectors = tmp_path / "local-connectors.yaml"
+    connectors.write_text(
+        f"""
+version: 1
+connectors:
+  files:
+    provider: local
+    enabled: true
+    settings:
+      source_path: {source}
+""".strip(),
+        encoding="utf-8",
+    )
+    parsers = tmp_path / "parsers.yaml"
+    parsers.write_text("version: 1\n", encoding="utf-8")
+    return RuntimeSettings(connector_config_path=connectors, parser_config_path=parsers)
+
+
+def test_unknown_local_filter_keys_are_rejected(tmp_path: Path) -> None:
+    settings = _local_settings(tmp_path)
+
+    with pytest.raises(ConnectorConfigurationError) as raised:
+        prepare_source_submission(
+            settings,
+            _submission(
+                connector_name="files",
+                query=SourceQuery(filters_json='{"bogus": 1}'),
+            ),
+            environment={},
+        )
+
+    message = str(raised.value)
+    assert "bogus" in message
+    assert "allowed_extensions" in message
+    assert "include_globs" in message
+
+
+def test_known_local_filter_keys_are_accepted(tmp_path: Path) -> None:
+    settings = _local_settings(tmp_path)
+
+    prepared = prepare_source_submission(
+        settings,
+        _submission(
+            connector_name="files",
+            query=SourceQuery(
+                filters_json='{"extensions": [".md"], "include_comments": false, "files": []}'
+            ),
+        ),
+        environment={},
+    )
+
+    assert prepared.connector_type == "local"

@@ -9,6 +9,7 @@ from pydantic import BaseModel, ValidationError
 from harborrag_core.models.chat import (
     HarborChatRequest,
     HarborChatResponse,
+    HarborChatUsage,
 )
 from harborrag_core.models.errors import (
     HarborChatInvalidRequestError,
@@ -17,6 +18,7 @@ from harborrag_core.models.errors import (
 
 from .configs import HarborChatClientConfig, HarborChatProviderConfig
 from .parameters import ChatMessageInput, prepare_chat_request
+from .structured_deadline import async_structured_deadline, structured_deadline
 from .structured_policy import (
     apply_structured_output_mode,
     resolve_structured_output_mode,
@@ -73,7 +75,7 @@ class StructuredOutputAttemptState[ResponseT: BaseModel]:
                     request=self.request,
                     completion_attempts=self.completion_attempts,
                 ) from exc
-            self.request = build_repair_request(self.request, content, self.schema)
+            self.request = build_repair_request(self.request, content, self.schema, error=exc)
             return None
 
 
@@ -83,7 +85,7 @@ class StructuredOutputPolicy:
     def __init__(self, config: HarborChatClientConfig) -> None:
         self._config = config
 
-    def prepare(
+    def prepare(  # noqa: PLR0913 - explicit structured-call policy inputs
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -130,8 +132,9 @@ class SyncStructuredOutputExecutor:
     ) -> None:
         self._client = client
         self._policy = StructuredOutputPolicy(config)
+        self._operation_seconds = config.timeouts.operation_seconds
 
-    def chat(
+    def chat(  # noqa: PLR0913 - public structured-call options
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -151,11 +154,51 @@ class SyncStructuredOutputExecutor:
             strategy=strategy,
             request_kwargs=request_kwargs,
         )
-        while True:
-            response = self._client.chat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
+        with structured_deadline(self._operation_seconds, state.request):
+            while True:
+                response = self._client.chat(request=state.request)
+                result = state.validate_or_prepare_repair(response.text)
+                if result is not None:
+                    return result
+
+
+@dataclass(frozen=True, slots=True)
+class StructuredResult[StructuredResponseT: BaseModel]:
+    """Carry a parsed response alongside the provider usage it actually cost.
+
+    ``estimated_cost_usd`` is the sum of LiteLLM's per-response price across every
+    call (repairs included), or None when any call came back unpriced. Tokens alone
+    are not enough for a spend ledger: a settlement without a cost keeps its whole
+    reservation ceiling, and the pricing LiteLLM already computed was being thrown
+    away here.
+    """
+
+    value: StructuredResponseT
+    usage: HarborChatUsage
+    provider_calls: int
+    estimated_cost_usd: float | None = None
+
+
+def _accumulated(total: HarborChatUsage, response: HarborChatResponse) -> HarborChatUsage:
+    """Sum billable usage across every call a single structured request required."""
+
+    usage = response.usage
+    return HarborChatUsage(
+        prompt_tokens=total.prompt_tokens + usage.prompt_tokens,
+        completion_tokens=total.completion_tokens + usage.completion_tokens,
+        total_tokens=total.total_tokens + usage.total_tokens,
+    )
+
+
+def _accumulated_cost(
+    total: float | None, response: HarborChatResponse, calls: int
+) -> float | None:
+    """Sum priced responses; one unpriced call makes the whole request unpriced."""
+
+    cost = response.estimated_cost_usd
+    if cost is None or (total is None and calls > 0):
+        return None
+    return (total or 0.0) + cost
 
 
 class AsyncStructuredOutputExecutor:
@@ -168,8 +211,9 @@ class AsyncStructuredOutputExecutor:
     ) -> None:
         self._client = client
         self._policy = StructuredOutputPolicy(config)
+        self._operation_seconds = config.timeouts.operation_seconds
 
-    async def achat(
+    async def achat(  # noqa: PLR0913 - public structured-call options
         self,
         messages: Sequence[ChatMessageInput] | None,
         *,
@@ -179,7 +223,7 @@ class AsyncStructuredOutputExecutor:
         max_repair_attempts: int | None,
         strategy: StructuredOutputStrategy | None,
         request_kwargs: Mapping[str, Any],
-    ) -> StructuredResponseT:
+    ) -> StructuredResult[StructuredResponseT]:
         state = self._policy.prepare(
             messages,
             response_model=response_model,
@@ -189,11 +233,18 @@ class AsyncStructuredOutputExecutor:
             strategy=strategy,
             request_kwargs=request_kwargs,
         )
-        while True:
-            response = await self._client.achat(request=state.request)
-            result = state.validate_or_prepare_repair(response.text)
-            if result is not None:
-                return result
+        usage = HarborChatUsage()
+        cost: float | None = None
+        calls = 0
+        async with async_structured_deadline(self._operation_seconds, state.request):
+            while True:
+                response = await self._client.achat(request=state.request)
+                usage = _accumulated(usage, response)
+                cost = _accumulated_cost(cost, response, calls)
+                calls += 1
+                result = state.validate_or_prepare_repair(response.text)
+                if result is not None:
+                    return StructuredResult(result, usage, calls, cost)
 
 
 def _validate_response_model(response_model: object) -> None:

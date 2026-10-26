@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from pathlib import Path
 
+# Tests patch fastmcp.server.dependencies.get_access_token, but fastmcp imports sessions
+# lazily and sessions binds that function by name. Imported first inside a patched test,
+# it would keep the fake for the rest of the worker; importing it here pins the real one.
+import fastmcp.server.sessions  # noqa: F401
 import pytest
 
 

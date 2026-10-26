@@ -14,6 +14,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.schema import conv
 
 from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
@@ -80,11 +81,18 @@ class SourceRow(Base):
 
 
 class SecretRefRow(Base):
-    """secrets: refs + provenance, plus the Fernet-encrypted value itself."""
+    """secrets: refs + provenance, plus the Fernet-encrypted value itself.
+
+    ``tenant_id`` is part of every lookup: a ref is only resolvable by the
+    tenant that stored it, so a ref that escapes its tenant reveals nothing.
+    """
 
     __tablename__ = "secrets"
 
     ref: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        sa.String(128), server_default="DEFAULT", nullable=False, index=True
+    )
     provider: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
@@ -201,7 +209,11 @@ class SingletonLeaseRow(Base):
 
 
 class ProviderRow(Base):
-    """providers: model provider registry; key material via secret_ref only."""
+    """providers: model provider registry; key material via secret_ref only.
+
+    ``updated_at`` exists so a per-tenant model catalog can be cache-validated
+    by a cheap aggregate; every writer MUST refresh it on every mutation.
+    """
 
     __tablename__ = "providers"
 
@@ -213,10 +225,15 @@ class ProviderRow(Base):
     family: Mapped[str] = mapped_column(sa.Text, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_ref: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class RoutingRuleRow(Base):
-    """routing_rules: model routing configuration (M4 fills semantics)."""
+    """routing_rules: model routing configuration (M4 fills semantics).
+
+    ``updated_at`` mirrors ProviderRow's: the tenant model-catalog fingerprint
+    covers these rows too, so every writer MUST refresh it on every mutation.
+    """
 
     __tablename__ = "routing_rules"
 
@@ -225,6 +242,7 @@ class RoutingRuleRow(Base):
     provider_id: Mapped[str] = mapped_column(sa.Text, sa.ForeignKey("providers.id"), nullable=False)
     rule_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
 
 class WorkspaceSettingsRow(Base):
@@ -266,8 +284,85 @@ class McpQueryLogRow(Base):
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False, index=True)
 
 
+class GraphConflictRow(Base):
+    """graph_conflicts: queued knowledge-graph disagreements awaiting resolution (M4 §5.5).
+
+    v1 is record-only -- ``action`` records the caller's choice but resolving
+    a conflict does not itself mutate FalkorDB.
+    """
+
+    __tablename__ = "graph_conflicts"
+    __table_args__ = (
+        sa.Index("ix_graph_conflicts_tenant_detected", "tenant_id", "detected_at", "id"),
+    )
+
+    id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), server_default="DEFAULT", nullable=False)
+    conflict_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    subject_node_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    competing_node_key: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    description: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    status: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="open")
+    action: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    resolved_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    detected_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+
+
 # Conversation/agent-run/memory rows live in schemas_agent_memory.py (file-length
 # gate); imported here, after Base/JSONVariant exist, so every class in that
 # module still registers on Base.metadata whenever schemas.py is imported --
 # required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_agent_memory as _schemas_agent_memory  # noqa: E402, F401
+from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
+from . import schemas_usage as _schemas_usage  # noqa: E402, F401
+
+
+class McpApiKeyRow(Base):
+    """mcp_api_keys: hashed, tenant-bound MCP reader keys issued by the CLI.
+
+    Only the SHA-256 of the key is stored. "Active" is never a column; it is
+    ``revoked_at IS NULL AND expires_at > now()``. Revoked rows are kept as the
+    audit trail of who issued and withdrew what. ``key_id`` and ``secret_hash``
+    must be lowercase hex of a fixed length on every dialect: PostgreSQL checks
+    a regex, SQLite (which has no ``~`` operator) checks length plus GLOB.
+    """
+
+    __tablename__ = "mcp_api_keys"
+
+    key_id: Mapped[str] = mapped_column(sa.String(24), primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    owner: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    name: Mapped[str] = mapped_column(sa.String(128), nullable=False)
+    secret_hash: Mapped[str] = mapped_column(sa.String(64), nullable=False)
+    environment: Mapped[str] = mapped_column(sa.String(16), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    revocation_reason: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+
+    # conv() keeps these names verbatim instead of expanding them through the
+    # "ck" naming convention, so they match what migrations 0036/0040 create.
+    __table_args__ = (
+        sa.CheckConstraint("key_id ~ '^[0-9a-f]{24}$'", name=conv("ck_mcp_key_id")).ddl_if(
+            dialect="postgresql"
+        ),
+        sa.CheckConstraint(
+            "length(key_id) = 24 AND key_id NOT GLOB '*[^0-9a-f]*'", name=conv("ck_mcp_key_id")
+        ).ddl_if(dialect="sqlite"),
+        sa.CheckConstraint("secret_hash ~ '^[0-9a-f]{64}$'", name=conv("ck_mcp_key_hash")).ddl_if(
+            dialect="postgresql"
+        ),
+        sa.CheckConstraint(
+            "length(secret_hash) = 64 AND secret_hash NOT GLOB '*[^0-9a-f]*'",
+            name=conv("ck_mcp_key_hash"),
+        ).ddl_if(dialect="sqlite"),
+        sa.CheckConstraint(
+            "environment IN ('dev', 'staging', 'prod')", name=conv("ck_mcp_key_env")
+        ),
+        sa.CheckConstraint("expires_at > created_at", name=conv("ck_mcp_key_expiry")),
+        sa.CheckConstraint("tenant_id <> '*'", name=conv("ck_mcp_api_keys_tenant")),
+        sa.Index("ix_mcp_api_keys_tenant_owner", "tenant_id", "owner"),
+    )

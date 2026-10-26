@@ -45,11 +45,30 @@ class HarborChatSecurityConfig(SecurityBaseConfig):
     )
 
 
+class ChatReasoningConfig(BaseModel):
+    """Opt into deployment-specific template controls and complete-response parsing."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True, strict=True)
+
+    enable_thinking: bool | None = None
+    parse_think_tags: bool = False
+
+
 class HarborChatProviderConfig(ProviderDeploymentConfig):
     """Describe one concrete provider deployment behind a logical model."""
 
     provider: HarborProvider
     capabilities: HarborChatCapabilities = Field(default_factory=HarborChatCapabilities)
+    reasoning: ChatReasoningConfig = Field(default_factory=ChatReasoningConfig)
+
+    @model_validator(mode="after")
+    def validate_reasoning_extensions(self) -> Self:
+        if self.reasoning.enable_thinking is not None and {
+            "extra_body",
+            "chat_template_kwargs",
+        }.intersection(self.extra_litellm_params):
+            raise ValueError("typed reasoning controls cannot be combined with body extensions")
+        return self
 
 
 class GenerationDefaults(BaseModel):

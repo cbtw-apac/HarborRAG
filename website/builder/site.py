@@ -50,6 +50,7 @@ class SiteBuildMixin:
 
         # Generate project info
         project_info = self.generate_project_info()
+        self.project_info = project_info
         self.markdown_processor.repository_url = project_info["github_url"]
         self.generate_web_manifest(project_info)
 

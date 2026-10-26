@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
@@ -83,6 +84,100 @@ async def test_worker_composes_all_six_task_queues(monkeypatch) -> None:
     runtime.close.assert_awaited_once()
     wait.assert_awaited_once()
     assert lifecycle[:2] == ["temporal-connect", "runtime-start"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("interval", "expected"), [(0.0, []), (45.0, [45.0])])
+async def test_schedule_metrics_loop_follows_its_interval_setting(
+    monkeypatch, interval: float, expected: list[float]
+) -> None:
+    runtime = SimpleNamespace(
+        start=AsyncMock(),
+        close=AsyncMock(),
+        telemetry=IngestionTelemetry(),
+        source_plans=object(),
+    )
+    started: list[float] = []
+
+    async def metrics_loop(_telemetry, _client, _config, _stop, *, interval):
+        started.append(interval)
+
+    async def wait_for_shutdown(*_args, **_kwargs):
+        # Yield once so a started metrics task gets to run.
+        await asyncio.sleep(0)
+
+    monkeypatch.setattr(
+        worker_module.TemporalRuntimeConfig,
+        "from_settings",
+        lambda _settings: TemporalRuntimeConfig(),
+    )
+    monkeypatch.setattr(worker_module, "build_ingestion_runtime", lambda _settings: runtime)
+    monkeypatch.setattr(worker_module, "connect_temporal_client", AsyncMock())
+    monkeypatch.setattr(worker_module, "_build_worker", lambda *_args, **_kwargs: _Worker())
+    monkeypatch.setattr(worker_module, "_wait_for_shutdown", wait_for_shutdown)
+    monkeypatch.setattr(worker_module, "_schedule_metrics_loop", metrics_loop)
+
+    await worker_module.run_workers(
+        SimpleNamespace(schedule_metrics_interval_seconds=interval),
+        stop_event=asyncio.Event(),
+    )
+
+    assert started == expected
+
+
+@pytest.mark.asyncio
+async def test_deployed_worker_attaches_enabled_summary_queue(monkeypatch, tmp_path) -> None:
+    policy = tmp_path / "graph-build.yaml"
+    policy.write_text(
+        "summarization:\n  enabled: true\ntenants:\n"
+        "  - tenant_id: DEFAULT\n    sources:\n      - source_scope_id: docs\n",
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(graph_build_config_path=policy)
+    runtime = SimpleNamespace(control=object(), object_store=object())
+    serve = AsyncMock()
+    monkeypatch.setattr(worker_module, "serve_summaries", serve)
+    stop = asyncio.Event()
+
+    runner = worker_module._summary_runner(settings, runtime, object(), stop)
+
+    assert runner is not None
+    await runner
+    assert serve.await_args.args[2] == ("DEFAULT",)
+    assert serve.await_args.kwargs["stop_event"] is stop
+    # A partial runtime still gets a factory; it just cannot publish entity points.
+    factory = serve.await_args.args[1]
+    assert factory.vectors is None and factory.embed is None
+
+
+@pytest.mark.asyncio
+async def test_deployed_worker_lends_its_vector_and_embed_clients_to_summaries(
+    monkeypatch, tmp_path
+) -> None:
+    """Entity cards become searchable on the durable worker, not only on the CLI."""
+
+    policy = tmp_path / "graph-build.yaml"
+    policy.write_text(
+        "summarization:\n  enabled: true\ntenants:\n"
+        "  - tenant_id: DEFAULT\n    sources:\n      - source_scope_id: docs\n",
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(graph_build_config_path=policy)
+    vectors, embed_client = object(), object()
+    runtime = SimpleNamespace(
+        control=object(),
+        object_store=object(),
+        vector_repository=vectors,
+        embed_client=embed_client,
+    )
+    serve = AsyncMock()
+    monkeypatch.setattr(worker_module, "serve_summaries", serve)
+
+    await worker_module._summary_runner(settings, runtime, object(), asyncio.Event())
+
+    factory = serve.await_args.args[1]
+    assert factory.vectors is vectors
+    assert factory.embed is not None and factory.embed.client is embed_client
 
 
 def test_worker_builds_sdk_worker_with_capacity_policy(monkeypatch) -> None:
@@ -262,3 +357,22 @@ def test_worker_installs_only_supported_signal_handlers(monkeypatch) -> None:
 
     assert installed == [signal.SIGINT]
     assert set(previous) == {signal.SIGINT}
+
+
+def test_thread_pool_covers_every_activity_slot_in_the_process() -> None:
+    # Loads, parses and chunking all block a thread; the default pool of
+    # cpu_count + 4 would cap a replica well below its activity slots.
+    config = TemporalRuntimeConfig()
+
+    assert worker_module.thread_pool_size(config) == 6 * config.worker.max_concurrent_activities
+
+
+@pytest.mark.asyncio
+async def test_worker_installs_the_sized_thread_pool_on_its_loop() -> None:
+    config = TemporalRuntimeConfig()
+
+    worker_module._size_thread_pool(config)
+
+    executor = asyncio.get_running_loop()._default_executor
+    assert executor is not None
+    assert executor._max_workers == worker_module.thread_pool_size(config)

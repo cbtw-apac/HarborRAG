@@ -9,6 +9,7 @@ from harborrag_adapters.repositories.database.postgresql.config import (
 from harborrag_adapters.repositories.database.sqlalchemy import (
     SQLAlchemyDatabaseBackend,
 )
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
 from harborrag_adapters.repositories.telemetry import StorageTelemetryHook
 
 
@@ -21,7 +22,7 @@ class PostgreSQLDatabaseBackend(SQLAlchemyDatabaseBackend):
         telemetry: StorageTelemetryHook | None = None,
     ) -> None:
         if find_spec("asyncpg") is None:
-            raise ImportError("asyncpg is not installed")
+            raise MissingOptionalDependencyError("asyncpg")
         super().__init__(
             client=SQLAlchemyDBClient(
                 backend="postgresql",

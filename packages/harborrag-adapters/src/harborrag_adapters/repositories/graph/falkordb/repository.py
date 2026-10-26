@@ -4,6 +4,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from harborrag_adapters.repositories.errors import (
+    HarborStorageConfigurationError,
     HarborUnsafeQueryError,
     StorageErrorContext,
 )
@@ -48,6 +49,23 @@ class FalkorDBGraphRepository(HarborGraphRepository):
         client: FalkorDBClient | None = None,
     ) -> None:
         self._config = config
+        if config.tenant_isolation and client is None:
+            # This repository opens one client on one graph. The topology and
+            # knowledge repositories honour per-tenant graphs through
+            # TenantGraphClientPool; this one never has. Accepting the setting
+            # and ignoring it left an operator believing tenants sat in separate
+            # graphs while every write still went to the shared one, isolated by
+            # predicate alone. Refuse instead of quietly disagreeing.
+            raise HarborStorageConfigurationError(
+                "falkordb tenant_isolation is not supported by the generic graph "
+                "repository; the topology and knowledge repositories honour it",
+                context=StorageErrorContext(
+                    family=StorageFamily.GRAPH,
+                    backend="falkordb",
+                    instance_name=config.graph_name,
+                    operation="create",
+                ),
+            )
         self._telemetry = RepositoryTelemetry(
             telemetry,
             family=StorageFamily.GRAPH,

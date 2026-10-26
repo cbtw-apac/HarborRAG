@@ -15,10 +15,10 @@ def mock_project_structure(temp_workspace):
 
     # Create pyproject.toml
     pyproject_content = """[project]
-name = "qdrant-loader"
+name = "harborrag-demo"
 version = "0.4.0"
 description = "Vector database toolkit for building searchable knowledge bases"
-authors = [{name = "Martin Papy", email = "martin.papy@example.com"}]
+authors = [{name = "HarborRAG Contributors"}]
 
 [project.optional-dependencies]
 docs = [
@@ -37,7 +37,7 @@ docs = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ page_title }} - QDrant Loader</title>
+    <title>{{ page_title }} - HarborRAG</title>
     <meta name="description" content="{{ page_description }}">
     <link rel="canonical" href="{{ canonical_url }}">
     <meta name="author" content="{{ author }}">
@@ -49,13 +49,13 @@ docs = [
 </html>"""
 
     index_template = """<div class="hero">
-    <h1>Welcome to QDrant Loader</h1>
+    <h1>Welcome to HarborRAG</h1>
     <p>Enterprise-ready vector database toolkit</p>
 </div>"""
 
     docs_template = """<div class="docs">
     <h1>Documentation</h1>
-    <p>Comprehensive documentation for QDrant Loader</p>
+    <p>Comprehensive documentation for HarborRAG</p>
 </div>"""
 
     privacy_policy_template = """<section class="py-5">
@@ -103,7 +103,7 @@ docs = [
 
     robots_template = """User-agent: *
 Allow: /
-Sitemap: https://qdrant-loader.net/sitemap.xml"""
+Sitemap: https://docs.example.com/sitemap.xml"""
 
     # Write templates
     templates_dir = temp_workspace / "website" / "templates"
@@ -114,7 +114,7 @@ Sitemap: https://qdrant-loader.net/sitemap.xml"""
     (templates_dir / "robots.txt").write_text(robots_template)
 
     # Create sample documentation files
-    (temp_workspace / "README.md").write_text("""# QDrant Loader
+    (temp_workspace / "README.md").write_text("""# HarborRAG Demo
 
 Enterprise-ready vector database toolkit for building searchable knowledge bases.
 
@@ -127,17 +127,17 @@ Enterprise-ready vector database toolkit for building searchable knowledge bases
 
     (temp_workspace / "docs" / "installation.md").write_text("""# Installation
 
-Install QDrant Loader using pip:
+Install HarborRAG using pip:
 
 ```bash
-pip install qdrant-loader
+pip install harborrag
 ```
 """)
 
     # Create sample assets
     assets_dir = temp_workspace / "website" / "assets"
     (assets_dir / "style.css").write_text("body { font-family: Arial, sans-serif; }")
-    (assets_dir / "script.js").write_text("console.log('QDrant Loader loaded');")
+    (assets_dir / "script.js").write_text("console.log('HarborRAG loaded');")
 
     # Create sample SVG logo
     svg_content = """<?xml version="1.0" encoding="UTF-8"?>
@@ -145,6 +145,6 @@ pip install qdrant-loader
     <rect width="100" height="100" fill="#667eea"/>
     <text x="50" y="55" text-anchor="middle" fill="white" font-size="20">Q</text>
 </svg>"""
-    (assets_dir / "logos" / "qdrant-loader-icon.svg").write_text(svg_content)
+    (assets_dir / "logos" / "harborrag-icon.svg").write_text(svg_content)
 
     return temp_workspace

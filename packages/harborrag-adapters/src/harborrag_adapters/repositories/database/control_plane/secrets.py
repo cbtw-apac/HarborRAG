@@ -3,6 +3,12 @@
 Values are Fernet-encrypted at rest; the ref is an opaque uuid4-derived
 string with no relationship to the plaintext, and no route/service code
 outside this file ever sees a Fernet key or ciphertext.
+
+Every read and write is tenant-scoped. A ref is stored against the tenant
+that put it and resolve/delete filter on `(ref, tenant_id)`, so a ref that
+leaks across a tenant boundary is indistinguishable from an unknown ref --
+the shared Fernet key never turns it back into plaintext for the wrong
+tenant.
 """
 
 from __future__ import annotations
@@ -14,7 +20,16 @@ from dataclasses import dataclass, field
 from uuid import uuid4
 
 import sqlalchemy as sa
-from cryptography.fernet import Fernet, InvalidToken
+
+from harborrag_adapters.repositories.errors import MissingOptionalDependencyError
+
+try:
+    from cryptography.fernet import Fernet, InvalidToken
+except ImportError as exc:  # pragma: no cover - exercised by the bare install check
+    # The registry turns this exact wording into a friendly configuration
+    # error naming the extra. Importing unguarded gave a bare traceback from
+    # a base install instead.
+    raise MissingOptionalDependencyError("cryptography") from exc
 
 from harborrag_core.contracts.errors import HarborNotFoundError, HarborSecretDecryptionError
 
@@ -42,14 +57,15 @@ class SqlSecretsRepository:
     def __post_init__(self) -> None:
         self._fernet = Fernet(_fernet_key(self.encryption_key))
 
-    async def put(self, value: str) -> str:
-        """Encrypt and store a raw value; return a fresh opaque ref."""
+    async def put(self, value: str, *, tenant_id: str) -> str:
+        """Encrypt and store a raw value for a tenant; return a fresh opaque ref."""
         ref = f"secret://db/{uuid4().hex}"
         ciphertext = self._fernet.encrypt(value.encode())
         async with self.sessions.begin() as session:
             session.add(
                 SecretRefRow(
                     ref=ref,
+                    tenant_id=tenant_id,
                     provider="db",
                     created_by=self.created_by,
                     created_at=utc_now(),
@@ -58,10 +74,13 @@ class SqlSecretsRepository:
             )
         return ref
 
-    async def resolve(self, ref: str) -> str:
-        """Decrypt and return the raw value behind a ref."""
+    async def resolve(self, ref: str, *, tenant_id: str) -> str:
+        """Decrypt and return the raw value behind one of the tenant's refs."""
+        statement = sa.select(SecretRefRow).where(
+            SecretRefRow.ref == ref, SecretRefRow.tenant_id == tenant_id
+        )
         async with self.sessions() as session:
-            row = await session.get(SecretRefRow, ref)
+            row = (await session.scalars(statement)).one_or_none()
         if row is None or row.ciphertext is None:
             raise HarborNotFoundError(f"secret ref not found: {ref!r}")
         try:
@@ -75,7 +94,10 @@ class SqlSecretsRepository:
             )
             raise HarborSecretDecryptionError(f"secret ref cannot be decrypted: {ref!r}") from exc
 
-    async def delete(self, ref: str) -> None:
-        """Forget the value behind a ref; a no-op if it's already gone."""
+    async def delete(self, ref: str, *, tenant_id: str) -> None:
+        """Forget the value behind the tenant's ref; a no-op if it's already gone."""
+        statement = sa.delete(SecretRefRow).where(
+            SecretRefRow.ref == ref, SecretRefRow.tenant_id == tenant_id
+        )
         async with self.sessions.begin() as session:
-            await session.execute(sa.delete(SecretRefRow).where(SecretRefRow.ref == ref))
+            await session.execute(statement)

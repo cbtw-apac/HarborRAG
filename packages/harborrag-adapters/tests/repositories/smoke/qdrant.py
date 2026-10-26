@@ -43,7 +43,7 @@ async def _run() -> tuple[str, str]:
             instance_name="smoke",
             url=_qdrant_url(),
             prefer_grpc=env_bool("HARBOR_SMOKE_QDRANT_PREFER_GRPC", False),
-            collection_prefix=env("HARBOR_SMOKE_QDRANT_PREFIX", "harborrag_smoke_"),
+            namespace_prefix=env("HARBOR_SMOKE_QDRANT_PREFIX", "harborrag_smoke"),
         )
     )
     async with backend:

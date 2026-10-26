@@ -48,10 +48,12 @@ def read_snapshot_beneath(
         relative = path.relative_to(scope.root_path)
     except ValueError as exc:
         raise DocumentProcessingError(
-            f"Local path is outside configured source scope: {path}"
+            f"Local path is outside configured source scope {scope.root_path}: {path}"
         ) from exc
     if scope.source_is_file and relative != scope.source_path.relative_to(scope.root_path):
-        raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
+        raise DocumentProcessingError(
+            f"Local path is outside configured source scope {scope.root_path}: {path}"
+        )
     if not relative.parts:
         raise DocumentProcessingError(f"Local path is not a file: {path}")
     if any(part in {"", ".", ".."} for part in relative.parts):

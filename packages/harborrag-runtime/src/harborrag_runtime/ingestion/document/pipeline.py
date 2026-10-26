@@ -19,6 +19,15 @@ from .stage_models import PreparedDocumentStage
 logger = logging.getLogger("harborrag.runtime.ingestion.document_pipeline")
 
 
+def tag_failure_stage(error: BaseException, stage: str) -> None:
+    """Record the failing stage on the original exception without ever raising."""
+
+    try:
+        error.harborrag_stage = stage  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - exceptions with __slots__ reject attributes
+        pass
+
+
 class DocumentStagePipeline:
     """Compose named, independently retryable document ingestion stages."""
 
@@ -44,6 +53,7 @@ class DocumentStagePipeline:
                 connector,
             )
         except Exception as error:
+            tag_failure_stage(error, "FetchAndCaptureRaw")
             logger.error(
                 "Document stage failed stage=FetchAndCaptureRaw connector_type=%s "
                 "error_type=%s duration_ms=%.1f",
@@ -67,6 +77,7 @@ class DocumentStagePipeline:
                 capture,
             )
         except Exception as error:
+            tag_failure_stage(error, "ParseAndNormalize")
             logger.error(
                 "Document stage failed stage=ParseAndNormalize document_id=%s "
                 "error_type=%s duration_ms=%.1f",
@@ -139,6 +150,7 @@ class DocumentStagePipeline:
             try:
                 await stage(request, prepared)
             except Exception as error:
+                tag_failure_stage(error, stage_name)
                 logger.error(
                     "Document stage failed document_id=%s document_version_id=%s "
                     "stage=%s error_type=%s duration_ms=%.1f",
@@ -166,6 +178,7 @@ class DocumentStagePipeline:
         try:
             outcome = await self.projections.publish_version(prepared)
         except Exception as error:
+            tag_failure_stage(error, "PublishVersion")
             logger.error(
                 "Document stage failed document_id=%s document_version_id=%s "
                 "stage=PublishVersion error_type=%s duration_ms=%.1f",

@@ -71,10 +71,10 @@ class TestWebsiteBuilderCore:
         """Test placeholder replacement."""
         builder = WebsiteBuilder()
         content = "Hello {{ name }}, welcome to {{ site }}!"
-        replacements = {"name": "John", "site": "QDrant Loader"}
+        replacements = {"name": "John", "site": "HarborRAG"}
 
         result = builder.replace_placeholders(content, replacements)
-        assert result == "Hello John, welcome to QDrant Loader!"
+        assert result == "Hello John, welcome to HarborRAG!"
 
     def test_replace_placeholders_empty(self):
         """Test placeholder replacement with empty replacements."""
@@ -140,7 +140,7 @@ class TestWebsiteBuilderMarkdown:
         """Test basic markdown link conversion."""
         builder = WebsiteBuilder()
 
-        markdown = "[QDrant Loader](https://github.com/user/repo)"
+        markdown = "[HarborRAG](https://github.com/user/repo)"
         html = builder.basic_markdown_to_html(markdown)
         assert 'class="text-decoration-none"' in html
         assert 'href="https://github.com/user/repo"' in html

@@ -4,18 +4,24 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy
 from harborrag_runtime.config.settings import RuntimeSettings
 
+from .chunking_profile import chunk_strategy_fingerprint, default_chunking_config
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
-# graph-v3: Jira parent/subtask placeholders switched identity from numeric issue id
-# to issue key; the bump forces a graph rebuild so id-keyed placeholders and their
-# edges written by graph-v2 builds are replaced instead of stranded alongside.
-GRAPH_PROJECTION_VERSION = "graph-v3"
+# Source assertions and metadata observations have independent document supports.
+# Legacy scope-owned assertions are rejected on reads until rebuilt and retired.
+GRAPH_PROJECTION_VERSION = "graph-v5-unique-visible-edges"
 VECTOR_PROJECTION_SCHEMA = "vector-v2"
 
 
-def build_processing_profile(settings: RuntimeSettings) -> ProcessingProfile:
+def build_processing_profile(
+    settings: RuntimeSettings,
+    *,
+    chunking_config: ChunkingConfig | None = None,
+    chunking_strategies: tuple[ChunkStrategy, ...] = (),
+) -> ProcessingProfile:
     """Build the deterministic processing identity shared by clients and workers."""
 
     return ProcessingProfile(
@@ -24,7 +30,9 @@ def build_processing_profile(settings: RuntimeSettings) -> ProcessingProfile:
             settings.parser_config_path,
         ),
         normalizer_version=CANONICAL_NORMALIZER_VERSION,
-        chunk_strategy="canonical-source-policies-route-evidence-v2",
+        chunk_strategy=chunk_strategy_fingerprint(
+            chunking_config or default_chunking_config(), chunking_strategies
+        ),
         dense_encoder_profile=settings.dense_encoder_profile,
         sparse_encoder_profile=settings.sparse_encoder_profile,
         graph_projection_version=GRAPH_PROJECTION_VERSION,

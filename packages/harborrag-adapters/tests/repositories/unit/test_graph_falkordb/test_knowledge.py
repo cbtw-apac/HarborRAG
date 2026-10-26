@@ -6,6 +6,9 @@ from harborrag_adapters.repositories.graph.falkordb import (
     FalkorDBGraphConfig,
     FalkorKnowledgeGraphRepository,
 )
+from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
+    RELATION_IDENTIFIERS,
+)
 from harborrag_core.chunking import RelationType
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
@@ -15,12 +18,15 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.retrieval import (
+    GraphAccessScope,
     GraphPathQuery,
     GraphTripletQuery,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
+
+_RELATION_INDEXES = ("tenant_id", "relation_id", "document_version_id")
 
 
 def repository(client: FakeFalkorDBClient) -> FalkorKnowledgeGraphRepository:
@@ -87,21 +93,37 @@ async def test_provision_creates_exact_indexes_and_unique_node_constraint() -> N
     await repository(client).connect()
 
     assert client.connected is True
-    assert all("CREATE INDEX" in statement for statement, _ in client.write_calls)
     node_indexes = {
-        statement for statement, _ in client.write_calls if "(node:KnowledgeNode)" in statement
+        statement
+        for statement, _ in client.write_calls
+        if "(node:KnowledgeNode)" in statement and "CREATE INDEX" in statement
     }
     relation_indexes = {
         statement for statement, _ in client.write_calls if "-[relation:" in statement
     }
-    assert len(node_indexes) + len(relation_indexes) == len(client.write_calls)
+    assert len(node_indexes) + len(relation_indexes) + 1 == len(client.write_calls)
+    assert any("SET node.title_key = toLower(node.title)" in call[0] for call in client.write_calls)
     # tenant_id is filtered by every read, delete, and count, so it must be indexed.
     assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.tenant_id)" in node_indexes
+    assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.logical_id)" in node_indexes
+    assert "CREATE INDEX FOR (node:KnowledgeNode) ON (node.title_key)" in node_indexes
     # owner_id duplicates tenant_id and is filtered by no query; indexing it is pure cost.
     assert not any("owner_id" in statement for statement in node_indexes)
-    # Relationship predicates were unindexed scans before; each written type is covered.
+    # Relationship predicates were unindexed scans before; each written type is covered,
+    # including the per-document lookups by relation_id and document_version_id that
+    # otherwise walk every edge of the type in a single-tenant graph.
     assert relation_indexes
-    assert all("ON (relation.tenant_id)" in statement for statement in relation_indexes)
+    for property_name in ("tenant_id", "relation_id", "document_version_id"):
+        covered = {
+            statement.split("-[relation:")[1].split("]")[0]
+            for statement in relation_indexes
+            if f"ON (relation.{property_name})" in statement
+        }
+        assert covered == set(RELATION_IDENTIFIERS.values()), property_name
+    assert all(
+        any(f"ON (relation.{name})" in statement for name in _RELATION_INDEXES)
+        for statement in relation_indexes
+    )
 
 
 @pytest.mark.asyncio
@@ -264,6 +286,8 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
     client = FakeFalkorDBClient()
     subject, object_node = nodes()
     client.read_results = [
+        # The subject selector is resolved to a node key first (node_key tier hits).
+        FakeQueryResult([HeaderItem("node")], [[subject.model_dump(mode="json")]]),
         FakeQueryResult(
             [HeaderItem("subject"), HeaderItem("predicate"), HeaderItem("object")],
             [
@@ -273,32 +297,50 @@ async def test_triplet_search_is_parameterized_and_tenant_scoped() -> None:
                     object_node.model_dump(mode="json"),
                 ]
             ],
-        )
+        ),
     ]
 
     result = await repository(client).search_triplets(
-        GraphTripletQuery(subject="node-document", limit=2),
+        GraphTripletQuery(
+            subject="node-document",
+            limit=2,
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    statement, parameters = client.read_calls[0]
+    resolution_statement, resolution_parameters = client.read_calls[0]
+    assert "node.node_key = $selector" in resolution_statement
+    assert resolution_parameters["selector"] == "node-document"
+    statement, parameters = client.read_calls[1]
     assert "subject.tenant_id = $tenant_id" in statement
     assert "node-document" not in statement
-    assert parameters["subject"] == "node-document"
+    # The relationship MATCH starts from the resolved, index-bound subject.
+    assert "node_key: $subject_key" in statement
+    assert "toLower" not in statement
+    assert "source_title" not in statement
+    assert parameters["subject_key"] == "node-document"
+    assert parameters["object_key"] is None
     assert parameters["tenant_id"] == "tenant-1"
+    assert parameters["authorized_document_ids"] == ["document-1"]
+    assert statement.count("$authorized_document_ids") == 3
+    assert statement.index("$authorized_document_ids") < statement.index("LIMIT $limit")
     assert result.triplets[0].predicate.relation_id == "relation-1"
 
 
 @pytest.mark.asyncio
 async def test_path_search_returns_explicit_canonical_paths() -> None:
     client = FakeFalkorDBClient()
-    path_nodes = [node.model_dump(mode="json") for node in nodes()]
+    document, section = nodes()
+    path_nodes = [node.model_dump(mode="json") for node in (document, section)]
     path_relations = [relation().model_dump(mode="json")]
     client.read_results = [
+        FakeQueryResult([HeaderItem("node")], [[document.model_dump(mode="json")]]),
+        FakeQueryResult([HeaderItem("node")], [[section.model_dump(mode="json")]]),
         FakeQueryResult(
             [HeaderItem("path_nodes"), HeaderItem("path_relations")],
             [[path_nodes, path_relations]],
-        )
+        ),
     ]
 
     result = await repository(client).find_paths(
@@ -310,10 +352,17 @@ async def test_path_search_returns_explicit_canonical_paths() -> None:
         context=StorageOperationContext.system("tenant-1"),
     )
 
-    statement, parameters = client.read_calls[0]
+    statement, parameters = client.read_calls[2]
     assert "all(node IN nodes(path) WHERE node.tenant_id = $tenant_id" in statement
-    # FalkorDB rejects ORDER BY over an unprojected path expression, so the ordering has
-    # to name the projected alias. Pinned because the failure is query-time only.
-    assert "ORDER BY size(path_relations)" in statement
+    assert "node_key: $start_node_key" in statement
+    assert "node_key: $end_node_key" in statement
+    assert "start.logical_id = $start_node" not in statement
+    # A bounded breadth-first shortest-path search, not an enumeration of every walk up
+    # to max_depth sorted by length -- that timed out even for neighbors of a hub.
+    assert "allShortestPaths(" in statement
+    assert "[:CONTAINS*1..4]" in statement
+    assert "ORDER BY" not in statement
     assert parameters["relationship_types"] == ["contains"]
+    assert parameters["start_node_key"] == "node-document"
+    assert parameters["end_node_key"] == "node-section"
     assert result.paths[0].nodes[1].node_key == "node-section"

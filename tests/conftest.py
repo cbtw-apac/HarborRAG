@@ -38,45 +38,50 @@ WORKSPACE_CLEANUP_PATTERNS = (
 )
 
 
-@pytest.fixture(scope="session", autouse=True)
-def cleanup_test_artifacts():
-    """Clean up test artifacts before and after test session."""
-    project_root = Path(__file__).parent.parent
+# Patterns for test artifacts that might be created in the project root
+SESSION_CLEANUP_PATTERNS = (
+    "test-site",
+    "test-artifacts",
+    "test-coverage.xml",
+    "coverage-website.xml",
+    "htmlcov-website",
+    # Keep names exact: pytest-cov owns .coverage.* worker databases while
+    # this session is running, and deleting them races xdist shutdown.
+    ".coverage.test",
+    "test.coverage",
+    "temp_test_dir",
+    "custom-site",
+    "custom-templates",
+)
 
-    # Patterns for test artifacts that might be created
-    cleanup_patterns = [
-        "test-site",
-        "test-artifacts",
-        "test-coverage.xml",
-        "coverage-website.xml",
-        "htmlcov-website",
-        # Keep names exact: pytest-cov owns .coverage.* worker databases while
-        # this session is running, and deleting them races xdist shutdown.
-        ".coverage.test",
-        "test.coverage",
-        "temp_test_dir",
-        "custom-site",
-        "custom-templates",
-    ]
 
-    def cleanup():
-        """Remove test artifacts from project root."""
-        for pattern in cleanup_patterns:
-            for path in glob.glob(str(project_root / pattern)):
-                path_obj = Path(path)
-                if path_obj.exists():
-                    if path_obj.is_dir():
-                        shutil.rmtree(path_obj, ignore_errors=True)
-                    else:
-                        path_obj.unlink(missing_ok=True)
+def _cleanup_test_artifacts():
+    """Remove test artifacts from project root."""
+    for pattern in SESSION_CLEANUP_PATTERNS:
+        for path in glob.glob(str(project_root / pattern)):
+            path_obj = Path(path)
+            if path_obj.exists():
+                if path_obj.is_dir():
+                    shutil.rmtree(path_obj, ignore_errors=True)
+                else:
+                    path_obj.unlink(missing_ok=True)
 
-    # Clean up before tests
-    cleanup()
 
-    yield
+def _is_xdist_worker(config) -> bool:
+    return hasattr(config, "workerinput")
 
-    # Clean up after tests
-    cleanup()
+
+# Session hooks rather than a session fixture: every xdist worker runs its own session,
+# so a fixture would wipe the shared project root while other workers' tests use it.
+# The controller runs these once, before any worker starts and after all have finished.
+def pytest_sessionstart(session):
+    if not _is_xdist_worker(session.config):
+        _cleanup_test_artifacts()
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if not _is_xdist_worker(session.config):
+        _cleanup_test_artifacts()
 
 
 @pytest.fixture
@@ -146,3 +151,16 @@ def pytest_configure(config):
     config.addinivalue_line(
         "markers", "requires_deps: mark test as requiring optional dependencies"
     )
+
+
+# tryfirst: xdist turns xdist_group marks into scheduling groups in its own hook.
+@pytest.hookimpl(tryfirst=True)
+def pytest_collection_modifyitems(config, items):
+    """Run every clean_workspace test on one xdist worker.
+
+    Its teardown deletes WORKSPACE_CLEANUP_PATTERNS from the shared project root, so on
+    separate workers one test's teardown removes another's artifacts mid-test.
+    """
+    for item in items:
+        if "clean_workspace" in getattr(item, "fixturenames", ()):
+            item.add_marker(pytest.mark.xdist_group("project-root-workspace"))

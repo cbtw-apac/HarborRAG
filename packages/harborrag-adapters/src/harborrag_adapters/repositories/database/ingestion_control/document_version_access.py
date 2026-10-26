@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
 from sqlalchemy import select, update
 from sqlalchemy.engine import RowMapping
@@ -8,7 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
-from harborrag_core.contracts import HarborConflictError, HarborNotFoundError
+from harborrag_core.contracts import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     ActiveSourceDocument,
@@ -107,8 +108,67 @@ class DocumentVersionReader:
         projection used.
         """
 
+        rows = await self._active_source_rows(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=connection_id,
+            source_item_ids=source_item_ids,
+        )
+        return {row["source_item_id"]: _active_source_from_row(row) for row in rows}
+
+    async def resolve_unambiguous_active_sources(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        source_item_ids: Sequence[str],
+    ) -> dict[str, ActiveSourceDocument]:
+        """Resolve connector-owned targets only when their connection is unique.
+
+        Cross-connector relation URIs identify their connector but do not identify a
+        configured connection. The documents table is authoritative for that mapping.
+        A target present under more than one connection in the tenant is deliberately
+        omitted rather than allowing repair to cross a connection boundary by guessing.
+        """
+
+        rows = await self._active_source_rows(
+            tenant_id=tenant_id,
+            connector_type=connector_type,
+            connection_id=None,
+            source_item_ids=source_item_ids,
+        )
+        by_source: dict[str, list[RowMapping]] = {}
+        for row in rows:
+            by_source.setdefault(required_text(row, "source_item_id"), []).append(row)
+        resolved: dict[str, ActiveSourceDocument] = {}
+        for source_item_id, candidates in by_source.items():
+            identities = {
+                (required_text(row, "connection_id"), required_text(row, "document_id"))
+                for row in candidates
+            }
+            if len(identities) == 1:
+                resolved[source_item_id] = _active_source_from_row(candidates[-1])
+        return resolved
+
+    async def _active_source_rows(
+        self,
+        *,
+        tenant_id: str,
+        connector_type: str,
+        connection_id: str | None,
+        source_item_ids: Sequence[str],
+    ) -> tuple[RowMapping, ...]:
         if not source_item_ids:
-            return {}
+            return ()
+        filters = [
+            DOCUMENTS.c.tenant_id == tenant_id,
+            DOCUMENTS.c.connector_type == connector_type,
+            DOCUMENTS.c.source_item_id.in_(tuple(source_item_ids)),
+            SOURCE_ITEMS.c.is_active.is_(True),
+            DOCUMENTS.c.active_document_version_id.is_not(None),
+        ]
+        if connection_id is not None:
+            filters.append(DOCUMENTS.c.connection_id == connection_id)
         async with self._client.sessions() as session:
             result = await session.execute(
                 select(
@@ -117,25 +177,16 @@ class DocumentVersionReader:
                     SOURCE_ITEMS.c.descriptor,
                     DOCUMENTS.c.document_id,
                     DOCUMENTS.c.active_document_version_id,
+                    DOCUMENTS.c.connection_id,
                 )
                 .join(SOURCE_ITEMS, SOURCE_ITEMS.c.document_id == DOCUMENTS.c.document_id)
-                .where(
-                    DOCUMENTS.c.tenant_id == tenant_id,
-                    DOCUMENTS.c.connector_type == connector_type,
-                    DOCUMENTS.c.connection_id == connection_id,
-                    DOCUMENTS.c.source_item_id.in_(tuple(source_item_ids)),
-                    SOURCE_ITEMS.c.is_active.is_(True),
-                    DOCUMENTS.c.active_document_version_id.is_not(None),
-                )
+                .where(*filters)
                 # One document can carry a source_items row per scope that discovered it.
                 # They agree on identity and differ only in descriptor, so order the
                 # duplicates to keep the title this returns stable across repair runs.
-                .order_by(SOURCE_ITEMS.c.source_scope_id)
+                .order_by(DOCUMENTS.c.connection_id, SOURCE_ITEMS.c.source_scope_id)
             )
-            return {
-                row["source_item_id"]: _active_source_from_row(row)
-                for row in result.mappings().all()
-            }
+            return tuple(result.mappings().all())
 
     async def active_relation_document_ids(
         self,
@@ -198,14 +249,22 @@ class DocumentVersionReplay:
             if row is None:
                 raise HarborNotFoundError(f"document version does not exist: {document_version_id}")
             current = DocumentVersionState(row["status"])
+            if current == DocumentVersionState.PURGING:
+                # Transient: once the purge finishes the version is PURGED, and the
+                # retried replay rebuilds it from the source.
+                raise HarborUnavailableError("document version is being purged")
+            # A PURGED version has no artifacts left, so it restores to PENDING and
+            # the same deterministic version id is rebuilt from the source again.
             if current not in {
                 DocumentVersionState.FAILED,
                 DocumentVersionState.RETIRED,
+                DocumentVersionState.PURGED,
             }:
                 return current
             cleanup = await self._locked_cleanup(session, document_version_id)
             if cleanup is not None and cleanup["status"] == CleanupJobState.RUNNING.value:
-                raise HarborConflictError("document version cleanup is currently running")
+                # Transient, like a purge: retrying after the cleanup finishes succeeds.
+                raise HarborUnavailableError("document version cleanup is currently running")
             restored = replay_state_from_row(row)
             now = utc_now()
             await session.execute(
@@ -260,4 +319,23 @@ def _active_source_from_row(row: DatabaseRow) -> ActiveSourceDocument:
         document_id=DocumentId(required_text(row, "document_id")),
         document_version_id=DocumentVersionId(required_text(row, "active_document_version_id")),
         title=title or None,
+        declared_relations=_declared_relations(descriptor),
     )
+
+
+def _declared_relations(descriptor: Mapping[str, object]) -> tuple[tuple[str, str], ...]:
+    """The (predicate, target_id) links a source item's descriptor declares."""
+
+    metadata = descriptor.get("metadata")
+    relations = metadata.get("relations") if isinstance(metadata, Mapping) else None
+    if not isinstance(relations, (list, tuple)):
+        return ()
+    declared: list[tuple[str, str]] = []
+    for relation in relations:
+        if not isinstance(relation, Mapping):
+            continue
+        predicate = relation.get("predicate")
+        target_id = relation.get("target_id")
+        if isinstance(predicate, str) and isinstance(target_id, str) and target_id.strip():
+            declared.append((predicate, target_id.strip()))
+    return tuple(dict.fromkeys(declared))

@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from harborrag_app.cli.environment import load_project_environment
 
 
@@ -73,3 +75,354 @@ def test_service_only_files_are_never_loaded(tmp_path: Path, monkeypatch) -> Non
     assert load_project_environment(tmp_path) == ()
     assert "HARBORRAG_CONTROL_DB_URL" not in os.environ
     assert "POSTGRES_PASSWORD" not in os.environ
+
+
+_ACCESS = "HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID"
+_SECRET = "HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY"  # noqa: S105 - a variable name
+
+
+def _clear_object_store(monkeypatch) -> None:
+    for name in (_ACCESS, _SECRET, "POSTGRES_PASSWORD", "DATABASE_ENV_FILE"):
+        # setenv first so teardown restores "absent" even though the loader sets it.
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
+def _mark_checkout(root: Path) -> None:
+    """A repository checkout is recognised by its config/connectors.yaml."""
+
+    _write(root, "config/connectors.yaml", "connectors: {}\n")
+
+
+def _activate_project(monkeypatch) -> None:
+    from harborrag_app.cli import project as project_module
+
+    monkeypatch.setattr(project_module, "active_project", lambda: object())
+
+
+def test_checkout_maps_minio_credentials_only(tmp_path: Path, monkeypatch) -> None:
+    _write(
+        tmp_path,
+        "env/.env.database",
+        "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\nPOSTGRES_PASSWORD=x\n",
+    )
+    _mark_checkout(tmp_path)
+    _clear_object_store(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "u"
+    assert os.environ[_SECRET] == "p"
+    assert "POSTGRES_PASSWORD" not in os.environ
+    assert [path.name for path in loaded] == [".env.database"]
+
+
+def test_project_object_store_values_win(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
+    _mark_checkout(tmp_path)
+    _clear_object_store(monkeypatch)
+    monkeypatch.setenv(_ACCESS, "proj")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "proj"
+
+
+def test_database_env_file_override_is_honoured(tmp_path: Path, monkeypatch) -> None:
+    custom = _write(tmp_path, "elsewhere/db.env", "MINIO_ROOT_USER=alt\nMINIO_ROOT_PASSWORD=altp\n")
+    _clear_object_store(monkeypatch)
+    monkeypatch.setenv("DATABASE_ENV_FILE", str(custom))
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "alt"
+    assert os.environ[_SECRET] == "altp"
+
+
+def test_partial_minio_credentials_are_ignored(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\n")
+    _mark_checkout(tmp_path)
+    _clear_object_store(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ
+
+
+def test_unreadable_database_env_file_is_skipped(tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli import environment
+
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
+    _mark_checkout(tmp_path)
+    _clear_object_store(monkeypatch)
+
+    def denied(path: Path) -> dict[str, str]:
+        raise PermissionError(13, "denied")
+
+    monkeypatch.setattr(environment, "checkout_object_store_credentials", denied)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ
+
+
+def test_minio_credentials_map_only_in_a_repo_checkout(tmp_path: Path, monkeypatch) -> None:
+    # A plain directory or a `harborrag init` project with an env/.env.database of its
+    # own is not the dev stack; its MinIO pair must not become the CLI's credentials.
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
+    _clear_object_store(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ
+
+    _mark_checkout(tmp_path)
+    _activate_project(monkeypatch)
+
+    assert load_project_environment(tmp_path) == ()
+    assert _ACCESS not in os.environ
+
+
+def test_explicit_database_env_file_maps_in_project_mode(tmp_path: Path, monkeypatch) -> None:
+    custom = _write(tmp_path, "elsewhere/db.env", "MINIO_ROOT_USER=alt\nMINIO_ROOT_PASSWORD=altp\n")
+    _clear_object_store(monkeypatch)
+    _activate_project(monkeypatch)
+    monkeypatch.setenv("DATABASE_ENV_FILE", str(custom))
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_ACCESS] == "alt"
+    assert loaded == (custom,)
+
+
+def test_applied_minio_credentials_are_logged_by_path_only(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    _mark_checkout(tmp_path)
+    _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=hunter2\n")
+    _clear_object_store(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    info = [record for record in caplog.records if record.levelname == "INFO"]
+    assert len(info) == 1
+    assert ".env.database" in info[0].getMessage()
+    assert "hunter2" not in caplog.text
+
+
+_CONTROL_DB = "HARBORRAG_CONTROL_DB_URL"
+_SECRETS_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"
+_KEY_VALUE = "stack-secrets-key-0123456789"
+_DATABASE_ENV = (
+    "POSTGRES_USER=pg\nPOSTGRES_PASSWORD=hunter2\nPOSTGRES_DB=harbor\n"
+    'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}'
+    '@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n'
+    f"{_SECRETS_KEY}={_KEY_VALUE}\n"
+)
+
+
+def _clear_control_db(monkeypatch) -> None:
+    _clear_object_store(monkeypatch)
+    for name in (_CONTROL_DB, _SECRETS_KEY, "POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PORT"):
+        monkeypatch.setenv(name, "")
+        monkeypatch.delenv(name)
+
+
+def test_checkout_reads_the_control_db_line(tmp_path: Path, monkeypatch) -> None:
+    path = _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ[_CONTROL_DB] == "postgresql+asyncpg://pg:hunter2@127.0.0.1:5432/harbor"
+    assert "POSTGRES_PASSWORD" not in os.environ
+    assert loaded == (path,)
+
+
+def test_an_exported_control_db_outranks_the_line(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.setenv(_CONTROL_DB, "postgresql+asyncpg://u@db.example/harbor")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_CONTROL_DB] == "postgresql+asyncpg://u@db.example/harbor"
+
+
+def test_control_db_line_is_ignored_outside_a_checkout(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _CONTROL_DB not in os.environ
+
+    _mark_checkout(tmp_path)
+    _activate_project(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _CONTROL_DB not in os.environ
+
+
+def test_unresolved_control_db_line_is_skipped_and_logged_by_path(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    body = _DATABASE_ENV.replace("POSTGRES_USER=pg\n", "")
+    _write(tmp_path, "env/.env.database", body)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert _CONTROL_DB not in os.environ
+    warnings = [record.getMessage() for record in caplog.records if record.levelname == "WARNING"]
+    assert len(warnings) == 1
+    assert ".env.database" in warnings[0] and "POSTGRES_USER" in warnings[0]
+    assert "hunter2" not in caplog.text
+
+
+def test_applied_control_db_is_logged_by_path_only(tmp_path: Path, monkeypatch, caplog) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert any(".env.database" in record.getMessage() for record in caplog.records)
+    assert "hunter2" not in caplog.text
+
+
+def test_the_control_db_line_brings_the_stacks_secrets_key(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """The runtime refuses a non-sqlite control DB without the key its secrets use."""
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert os.environ[_SECRETS_KEY] == _KEY_VALUE
+    assert _KEY_VALUE not in caplog.text
+
+
+@pytest.mark.parametrize("exported", ["shell-key", ""])
+def test_an_exported_secrets_key_outranks_the_file(
+    tmp_path: Path, monkeypatch, exported: str
+) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.setenv(_SECRETS_KEY, exported)
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_SECRETS_KEY] == exported
+
+
+def test_a_blank_secrets_key_in_the_file_is_not_applied(tmp_path: Path, monkeypatch) -> None:
+    body = _DATABASE_ENV.replace(f"{_SECRETS_KEY}={_KEY_VALUE}\n", f"{_SECRETS_KEY}=\n")
+    _write(tmp_path, "env/.env.database", body)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+
+    assert _CONTROL_DB in os.environ
+    assert _SECRETS_KEY not in os.environ
+
+
+def test_secrets_key_is_not_applied_without_the_control_db_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    unresolved = _DATABASE_ENV.replace("POSTGRES_USER=pg\n", "")
+    _write(tmp_path, "env/.env.database", unresolved)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
+
+    without_line = "\n".join(
+        line for line in _DATABASE_ENV.splitlines() if not line.startswith(_CONTROL_DB)
+    )
+    _write(tmp_path, "env/.env.database", without_line + "\n")
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _activate_project(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
+
+
+def test_checkout_guard_passes_with_the_control_db_line(tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli.environment import checkout_write_refusal
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    assert checkout_write_refusal() is not None
+    load_project_environment(tmp_path)
+    assert checkout_write_refusal() is None
+
+
+def _checkout_cwd(tmp_path: Path, monkeypatch) -> None:
+    _mark_checkout(tmp_path)
+    monkeypatch.chdir(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "sqlite+aiosqlite:///./harborrag_control.db",
+        "sqlite+aiosqlite:///harborrag_control.db",
+        "sqlite+aiosqlite:///./sub/../harborrag_control.db",
+        "sqlite:///harborrag_control.db",
+    ],
+)
+def test_checkout_refuses_every_spelling_of_the_default_sqlite_file(
+    url: str, tmp_path: Path, monkeypatch
+) -> None:
+    from harborrag_app.cli.environment import checkout_write_refusal
+
+    _checkout_cwd(tmp_path, monkeypatch)
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", url)
+
+    assert checkout_write_refusal() is not None
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "sqlite+aiosqlite:///./other_control.db",
+        "sqlite+aiosqlite:///./sub/harborrag_control.db",
+        "postgresql+asyncpg://u@db.example/harbor",
+    ],
+)
+def test_checkout_allows_another_control_db(url: str, tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli.environment import checkout_write_refusal
+
+    _checkout_cwd(tmp_path, monkeypatch)
+    monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", url)
+
+    assert checkout_write_refusal() is None
+
+
+def test_checkout_refuses_an_absolute_path_to_the_default_file(tmp_path: Path, monkeypatch) -> None:
+    from harborrag_app.cli.environment import checkout_write_refusal
+
+    _checkout_cwd(tmp_path, monkeypatch)
+    monkeypatch.setenv(
+        "HARBORRAG_CONTROL_DB_URL", f"sqlite+aiosqlite:///{tmp_path / 'harborrag_control.db'}"
+    )
+
+    assert checkout_write_refusal() is not None

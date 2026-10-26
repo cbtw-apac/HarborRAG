@@ -52,8 +52,12 @@ record with the active document version. The engine then applies these rules:
 - Missing record: apply the configured consecutive-miss policy before retiring it.
 
 This means `incremental` still detects removals and supports connectors whose
-change tokens are not sufficiently reliable. Connector-specific discovery
-filters and attachment/comment behavior remain in `config/connectors.yaml`.
+change tokens are not sufficiently reliable. Narrow a run with `--path` (a path
+inside the connector's source root; for the local connector, relative to
+`source_path`), `--pattern` (a case-insensitive substring, or a glob matched
+against the path relative to the source root) and `--filters-json` (connector
+filters as a JSON object; unknown keys are rejected for local connectors).
+Attachment/comment behavior remains in `config/connectors.yaml`.
 
 There are two change checkpoints. Descriptor admission runs before content is
 loaded and can skip a source item cheaply. Canonical admission runs after parsing
@@ -102,6 +106,36 @@ durable artifacts. Use the connector-free reindex workflow when canonical
 documents are unchanged but vector or graph projections must be rebuilt, such
 as after changing Qdrant collection names. See
 [Projection rebuild](../developers/architecture/projection-rebuild.md).
+
+## Running the CLI from a checkout
+
+From a repo checkout the CLI reads only `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWORD` from
+`env/.env.database` and maps them to
+`HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` / `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` when those are
+unset. A `harborrag init` project never reads that file; an explicit `DATABASE_ENV_FILE` is
+honoured in either mode. Values in the project `.env` win. Beyond those, it reads from that
+file an explicit `HARBORRAG_CONTROL_DB_URL` line, used when the variable is not exported:
+
+```bash
+HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+```
+
+`${...}` references resolve from the shell first, then from the file, and are substituted
+verbatim, so URL-encode a password that holds `@ : / # % ?`. A reference that resolves to nothing
+makes the CLI warn and ignore the line. Use `127.0.0.1`, not the in-cluster `postgres` host.
+When the line is used, the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY` comes with it (unless
+exported): the stack's stored secrets are encrypted under that key, and the CLI refuses a
+non-sqlite control database without one.
+Without the line, or an exported value, the control database stays sqlite. `ingest run` and
+`ingest start` refuse to run from a checkout on the default sqlite database (for the usual
+spellings of the default file path); read-only commands still work.
+
+CLI commands that open the control database run its migrations. Rebuild the images
+(`scripts/deployment/dev.sh up --build`) before pointing the CLI at the stack's Postgres, or the
+CLI can migrate the database ahead of the running services.
+
+`ingest start CONNECTOR` takes the connector positionally, and `--timeout SECONDS` on
+`--wait`, `watch` and `wait` exits 3 while the run keeps going.
 
 ## Choosing a mode
 

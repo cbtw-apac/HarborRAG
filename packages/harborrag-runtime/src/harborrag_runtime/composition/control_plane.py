@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
+    GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
     MemberRepositoryPort,
@@ -20,8 +21,11 @@ from harborrag_core.ports.control_plane import (
     SettingsRepositoryPort,
     SourceRepositoryPort,
 )
-from harborrag_core.ports.conversation import ConversationRepository
+from harborrag_core.ports.conversation import ConversationHistoryRepository
+from harborrag_core.ports.memory import MemoryRepository
+from harborrag_core.ports.model_catalog import TenantModelCatalogPort
 from harborrag_core.ports.secrets import SecretsPort
+from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_engine.config import EngineConfig
 from harborrag_engine.policy import EnginePolicy
 
@@ -49,11 +53,17 @@ class ControlPlaneRepositories:
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
-    conversation_memory: ConversationRepository
+    conversation_memory: ConversationHistoryRepository
     agent_runs: AgentRunRepository
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
+    graph_conflicts: GraphConflictRepositoryPort
+    memories: MemoryRepository | None = None
+    model_usage: ModelUsageRepository | None = None
+    # Read side of a tenant's own chat models; None when this deployment does
+    # not wire one, in which case every tenant uses the process-wide catalog.
+    model_catalog: TenantModelCatalogPort | None = None
 
 
 @dataclass(slots=True)
@@ -92,6 +102,9 @@ class CompositionRoot:
             create_control_plane_engine,
             create_session_factory,
         )
+        from harborrag_adapters.repositories.database.control_plane.graph_conflicts import (
+            SqlGraphConflictRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.jobs import (
             SqlActivityRepository,
             SqlJobRepository,
@@ -99,8 +112,14 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.leases import (
             SqlLeaseRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.memory import (
+            SqlMemoryRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.migrations import (
             run_migrations,
+        )
+        from harborrag_adapters.repositories.database.control_plane.model_catalog import (
+            SqlTenantModelCatalog,
         )
         from harborrag_adapters.repositories.database.control_plane.pending_effects import (
             SqlPendingEffectRepository,
@@ -111,6 +130,9 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.usage import (
+            SqlModelUsageRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.workspace import (
             SqlMemberRepository,
@@ -128,10 +150,20 @@ class CompositionRoot:
             settings.env,
             scheme,
         )
-        if settings.env == "prod" and scheme.startswith("sqlite"):
+        if settings.env != "dev" and scheme.startswith("sqlite"):
             raise HarborConfigurationError(
-                "SQLite control databases are not supported when HARBORRAG_ENV=prod; "
+                "SQLite control databases are not supported when HARBORRAG_ENV is staging or prod; "
                 "set HARBORRAG_CONTROL_DB_URL to a production database"
+            )
+        encryption_key = settings.secrets_encryption_key
+        if is_blank_secret(encryption_key) and not scheme.startswith("sqlite"):
+            # env=dev with a real control DB is a legal combination, and it would
+            # otherwise silently encrypt stored secrets with the publicly-known
+            # dev-default key. Checked before migrations so a misconfigured
+            # process never opens a connection.
+            raise HarborConfigurationError(
+                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
+                "is not SQLite; the dev-only default key is not safe for stored secrets"
             )
 
         try:
@@ -158,13 +190,12 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
-        encryption_key = settings.secrets_encryption_key
         if encryption_key is not None and not is_blank_secret(encryption_key):
             secrets_key = encryption_key.get_secret_value()
         else:
-            # Reached only if a blank key slipped past validate_secret_urls (e.g. a
-            # RuntimeSettings built without validation) -- fail closed to the known
-            # dev default rather than deriving a Fernet key from an empty string.
+            # Only a SQLite control DB reaches here with a blank key (see above).
+            # Fail closed to the known dev default rather than deriving a Fernet
+            # key from an empty string.
             secrets_key = _DEV_DEFAULT_SECRETS_KEY
             logger.warning(
                 "Using the dev-only default secrets encryption key against a SQLite "
@@ -184,6 +215,10 @@ class CompositionRoot:
             secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),
+            graph_conflicts=SqlGraphConflictRepository(sessions),
+            memories=SqlMemoryRepository(sessions),
+            model_usage=SqlModelUsageRepository(sessions),
+            model_catalog=SqlTenantModelCatalog(sessions),
         )
         composition = cls(
             control_plane=repositories,

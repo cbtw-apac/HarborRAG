@@ -31,9 +31,9 @@ def _healthy_report(**overrides: object) -> GraphHealthReport:
                 "item_count": 1,
             },
             {
-                "source_kind": "Chunk",
-                "relation_type": "supports",
-                "target_kind": "Structure",
+                "source_kind": "Structure",
+                "relation_type": "has_chunk",
+                "target_kind": "Chunk",
                 "item_count": 6,
             },
         ],
@@ -104,7 +104,7 @@ def test_report_serializes_to_plain_dict() -> None:
     payload = _healthy_report().as_dict()
     assert payload["tenant_id"] == "tenant-1"
     assert payload["gate_failures"] == []
-    assert payload["signature_census"]["Chunk supports Structure"] == 6
+    assert payload["signature_census"]["Structure has_chunk Chunk"] == 6
 
 
 def test_as_dict_returns_copies_not_references() -> None:

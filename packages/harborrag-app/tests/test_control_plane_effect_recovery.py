@@ -48,17 +48,17 @@ class _FlakySecrets:
     inner: FakeSecrets
     fail_times: int = 1
 
-    async def put(self, value: str) -> str:
-        return await self.inner.put(value)
+    async def put(self, value: str, *, tenant_id: str) -> str:
+        return await self.inner.put(value, tenant_id=tenant_id)
 
-    async def resolve(self, ref: str) -> str:
-        return await self.inner.resolve(ref)
+    async def resolve(self, ref: str, *, tenant_id: str) -> str:
+        return await self.inner.resolve(ref, tenant_id=tenant_id)
 
-    async def delete(self, ref: str) -> None:
+    async def delete(self, ref: str, *, tenant_id: str) -> None:
         if self.fail_times > 0:
             self.fail_times -= 1
             raise RuntimeError("secrets backend unavailable")
-        await self.inner.delete(ref)
+        await self.inner.delete(ref, tenant_id=tenant_id)
 
 
 @dataclass(slots=True)
@@ -155,7 +155,8 @@ async def test_update_source_survives_failed_stale_secret_retirement_and_activit
     )
 
     assert response.ok
-    assert old_ref in flaky_secrets.inner.values  # stale-ref delete failed, so it's still there
+    # The stale-ref delete failed, so it is still there.
+    assert ("DEFAULT", old_ref) in flaky_secrets.inner.values
     kinds = {effect.kind for effect in pending.effects.values()}
     assert kinds == {"retire_secret", "log_activity"}
 
@@ -163,7 +164,7 @@ async def test_update_source_survives_failed_stale_secret_retirement_and_activit
 
     assert recovered == 2
     assert not pending.effects
-    assert old_ref not in flaky_secrets.inner.values
+    assert ("DEFAULT", old_ref) not in flaky_secrets.inner.values
 
 
 @pytest.mark.asyncio
@@ -198,14 +199,14 @@ async def test_delete_source_survives_failed_secret_retirement_and_activity_log(
     response = await service.delete_source(source_id, actor="tester", tenant_ids=None)
 
     assert response.ok
-    assert ref in flaky_secrets.inner.values
+    assert ("DEFAULT", ref) in flaky_secrets.inner.values
     kinds = {effect.kind for effect in pending.effects.values()}
     assert kinds == {"retire_secret", "log_activity"}
 
     recovered = await service.recover_pending_control_plane_effects()
 
     assert recovered == 2
-    assert ref not in flaky_secrets.inner.values
+    assert ("DEFAULT", ref) not in flaky_secrets.inner.values
     assert len(flaky_activity.inner.entries) == 1
 
 

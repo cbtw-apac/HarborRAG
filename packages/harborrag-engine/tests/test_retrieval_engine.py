@@ -10,8 +10,6 @@ from harborrag_engine.policy import EnginePolicy
 from harborrag_engine.retrieval.evidence import EvidenceBuilder
 from harborrag_engine.retrieval.fusion import reciprocal_rank_fusion
 from harborrag_engine.retrieval.pipeline import RetrievalLimits, RetrievalPipeline
-from harborrag_engine.retrieval.reranking import keep_top
-from harborrag_engine.retrieval.rewriting import identity_rewrite
 
 
 def test_evidence_builder_numbers_results_in_order():
@@ -73,8 +71,6 @@ def test_retrieval_helpers():
 
     assert fused[0].id == "b"
     assert fused[0].score > fused[1].score
-    assert identity_rewrite("hello") == ["hello"]
-    assert keep_top(results, 1)[0].id == "b"
 
 
 def test_weighted_fusion_rejects_invalid_weights():

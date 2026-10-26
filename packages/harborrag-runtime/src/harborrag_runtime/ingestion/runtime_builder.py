@@ -7,6 +7,7 @@ import os
 
 from harborrag_adapters.chunking import RecursiveTextRefiner
 from harborrag_adapters.connectors.base import BaseConnector
+from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.registry import connector_registry
@@ -43,18 +44,24 @@ from harborrag_runtime.composition.resources import (
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
+    check_embedding_dimensions,
     embedding_dimensions,
+    resource_hints,
+    resource_targets,
 )
 from harborrag_runtime.config import (
     ConnectorConfigurationError,
+    ConnectorDefinition,
     connector_fingerprint,
     load_connector_catalog,
     load_parser_catalog,
 )
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
+from .chunking_profile import default_chunking_config
 from .composition import IngestionRuntime
 from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import (
@@ -63,15 +70,42 @@ from .document.normalizers import (
 )
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
+from .field_indexes import declared_field_indexes
 from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
+from .maintenance.retention import RetiredVersionPurgeService
 from .observability import IngestionTelemetry, build_model_telemetry
 from .profiles import build_processing_profile
 from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
+
+
+def _require_parseable_extensions(
+    definition: ConnectorDefinition,
+    parser: HarborParserRegistry,
+) -> None:
+    """Reject an ``allowed_extensions`` entry that no parser family can read.
+
+    Admitting such a file only spends a fetch and a parse attempt on a document
+    that can never publish, so the connector is refused while loading instead.
+    """
+
+    allowed = definition.settings.get("allowed_extensions") or ()
+    unsupported = sorted(
+        {
+            normalize_extension(str(extension))
+            for extension in allowed
+            if not parser.supports_extension(str(extension))
+        }
+    )
+    if unsupported:
+        raise ConnectorConfigurationError(
+            f"Connector {definition.name!r} allows extensions no parser supports: "
+            f"{', '.join(unsupported)}"
+        )
 
 
 class IngestionRuntimeBuilder:
@@ -113,7 +147,10 @@ class IngestionRuntimeBuilder:
         artifact_reader = ImmutableArtifactReader(object_store)
         vector_store = VectorProjectionStore(
             vectors,
-            VectorProjectionPolicy(dimension=dimensions),
+            VectorProjectionPolicy(
+                dimension=dimensions,
+                field_indexes=declared_field_indexes(GraphBuildConfig.from_settings(settings)),
+            ),
         )
         canonical_artifacts = CanonicalDocumentArtifactRepository(
             artifacts,
@@ -172,7 +209,11 @@ class IngestionRuntimeBuilder:
             connectors=connectors,
             connector_fingerprints=connector_fingerprints,
             connector_errors=connector_errors,
-            processing=build_processing_profile(settings),
+            processing=build_processing_profile(
+                settings,
+                chunking_config=self._chunking_config,
+                chunking_strategies=self._chunking_strategies,
+            ),
             control=control,
             documents=documents,
             stages=stages,
@@ -187,6 +228,11 @@ class IngestionRuntimeBuilder:
                 vector_store=vector_store,
                 graph_store=graph,
             ),
+            retention=RetiredVersionPurgeService(
+                control=control,
+                object_store=object_store,
+                retention_days=settings.retired_version_retention_days,
+            ),
             reindex=DocumentReindexService(dependencies, pipeline=stages),
             source_plans=SourcePlanRepository(artifacts, artifact_reader),
             object_store=object_store,
@@ -195,6 +241,8 @@ class IngestionRuntimeBuilder:
             embed_client=embed_client,
             connector_rate_limiter=rate_limiter,
             telemetry=telemetry,
+            resource_targets=resource_targets(settings),
+            resource_hints=resource_hints(settings),
         )
 
     def build_document_normalizer(self) -> BaseDocumentNormalizer:
@@ -234,6 +282,8 @@ class IngestionRuntimeBuilder:
             definition = catalog.get(name)
             connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
             try:
+                if isinstance(attachment_parser, HarborParserRegistry):
+                    _require_parseable_extensions(definition, attachment_parser)
                 connectors[name] = catalog.build(name, connector_kwargs=connector_kwargs)
             except ConnectorConfigurationError as exc:
                 logger.warning(
@@ -273,7 +323,11 @@ class IngestionRuntimeBuilder:
         settings = self._settings
         config = HarborEmbedClientConfig.from_file(settings.model_config_path)
         model = settings.embedding_model or config.default_model
-        dimensions = settings.embedding_dimensions or embedding_dimensions(config, model)
+        if settings.embedding_dimensions:
+            dimensions = settings.embedding_dimensions
+            check_embedding_dimensions(config, model, dimensions)
+        else:
+            dimensions = embedding_dimensions(config, model)
         client = HarborEmbedClient.from_config(
             config,
             telemetry=build_model_telemetry(
@@ -303,13 +357,7 @@ def build_default_chunker(
 
     token_counter = ApproximateTokenCounter()
     return build_chunking_service(
-        config=(
-            config
-            or ChunkingConfig(
-                configuration_version="canonical-source-policies",
-                create_route_chunks=True,
-            )
-        ),
+        config=config or default_chunking_config(),
         token_counter=token_counter,
         refiner=RecursiveTextRefiner(token_counter),
         additional_strategies=additional_strategies,

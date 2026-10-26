@@ -22,6 +22,7 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_core.domain.source_config import SourceConfig
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.providers import (
@@ -64,7 +65,7 @@ class ControlPlaneWritesMixin:
             raise HarborNotFoundError(f"project {project_id!r} not found")
         factory = _require_connector_factory(source_type)
         resolved_config, secret_refs, newly_put_refs, _stale = await _extract_secrets(
-            control_plane, factory, config
+            control_plane, factory, config, tenant_id=tenant_id
         )
         source = SourceConfig(
             id=f"src_{uuid4().hex}",
@@ -79,7 +80,7 @@ class ControlPlaneWritesMixin:
         try:
             created = await control_plane.sources.create(source)
         except Exception:
-            await _retire_refs(control_plane, newly_put_refs)
+            await _retire_refs(control_plane, newly_put_refs, tenant_id=tenant_id)
             raise
         await _log_activity(
             control_plane,
@@ -122,7 +123,11 @@ class ControlPlaneWritesMixin:
         if "config" in updates:
             factory = _require_connector_factory(source.source_type)
             resolved_config, secret_refs, newly_put_refs, stale_refs = await _extract_secrets(
-                control_plane, factory, updates["config"], existing=source.config
+                control_plane,
+                factory,
+                updates["config"],
+                tenant_id=source.tenant_id,
+                existing=source.config,
             )
             source.config = resolved_config
             source.secret_refs = secret_refs
@@ -131,12 +136,12 @@ class ControlPlaneWritesMixin:
         except Exception:
             # The source row never picked up the new refs -- retire them so they
             # don't linger as orphaned secrets pointing at nothing.
-            await _retire_refs(control_plane, newly_put_refs)
+            await _retire_refs(control_plane, newly_put_refs, tenant_id=source.tenant_id)
             raise
         # Only now that the source row durably references the new refs is it
         # safe to retire the old ones -- doing this before the write above
         # could leave a persisted source pointing at an already-deleted secret.
-        await _retire_refs(control_plane, stale_refs)
+        await _retire_refs(control_plane, stale_refs, tenant_id=source.tenant_id)
         await _log_activity(
             control_plane,
             ActivityEntry(
@@ -160,7 +165,7 @@ class ControlPlaneWritesMixin:
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
         await control_plane.sources.delete(source_id, tenant_ids=tenant_ids)
-        await _retire_refs(control_plane, source.secret_refs)
+        await _retire_refs(control_plane, source.secret_refs, tenant_id=source.tenant_id)
         await _log_activity(
             control_plane,
             ActivityEntry(
@@ -179,6 +184,33 @@ class ControlPlaneWritesMixin:
         """Retry durably-queued secret retirements and audit-log writes."""
         return await _recover_pending_effects(self._control_plane(), limit=limit)
 
+    async def resolve_graph_conflict(
+        self,
+        conflict_id: str,
+        *,
+        action: ConflictAction,
+        actor: str,
+        tenant_ids: frozenset[str] | None,
+    ) -> AppResponse:
+        """Close a graph conflict with ``action``; record-only, no graph mutation (M4 v1)."""
+        control_plane = self._control_plane()
+        resolved = await control_plane.graph_conflicts.resolve(
+            conflict_id, action=action, resolved_by=actor, tenant_ids=tenant_ids
+        )
+        await _log_activity(
+            control_plane,
+            ActivityEntry(
+                id=f"act_{uuid4().hex}",
+                tenant_id=resolved.tenant_id,
+                actor=actor,
+                verb="resolved",
+                entity_type="graph_conflict",
+                entity_id=resolved.id,
+                summary=f"Resolved graph conflict {resolved.id!r} with action {action!r}",
+            ),
+        )
+        return AppResponse(True, {"conflict": resolved})
+
 
 def _require_connector_factory(source_type: str) -> ConnectorConfigFactory:
     """Look up the provider config factory, or 501 for an unimplemented type."""
@@ -188,11 +220,12 @@ def _require_connector_factory(source_type: str) -> ConnectorConfigFactory:
     return factory
 
 
-async def _extract_secrets(
+async def _extract_secrets(  # noqa: PLR0913 - one tenant plus the merge inputs
     control_plane: ControlPlaneRepositories,
     factory: ConnectorConfigFactory,
     incoming: Mapping[str, Any],
     *,
+    tenant_id: str,
     existing: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str], list[str], list[str]]:
     """Merge ``incoming`` onto ``existing`` and extract secret-field values.
@@ -239,7 +272,7 @@ async def _extract_secrets(
             raise HarborValidationError(
                 f"config field {field_name!r} must contain a string secret value"
             )
-        ref = await control_plane.secrets.put(value)
+        ref = await control_plane.secrets.put(value, tenant_id=tenant_id)
         newly_put_refs.append(ref)
         if _is_secret_ref_shape(existing_value):
             stale_refs.append(existing_value["secret_ref"])

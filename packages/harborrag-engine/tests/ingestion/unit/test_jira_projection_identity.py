@@ -55,7 +55,15 @@ def _issue_keys(batch: GraphProjectionBatch, *, placeholder: bool) -> set[str]:
     }
 
 
-def test_parent_and_subtask_placeholders_share_the_real_issue_identity() -> None:
+def test_the_parent_placeholder_shares_the_real_issue_identity() -> None:
+    """The subtask owns parent -> child, so only its parent appears as a placeholder.
+
+    The parent's own `subtasks` list used to draw the same edge from the other side,
+    giving every pair a second, parent-owned edge. It now reaches its subtasks through
+    `parent_of` relations, which relation repair resolves (the subtask then owns the
+    edge) or points at an external stub.
+    """
+
     related = _batch(
         {
             "issue_key": "ENG-2",
@@ -65,9 +73,7 @@ def test_parent_and_subtask_placeholders_share_the_real_issue_identity() -> None
         }
     )
     placeholders = _issue_keys(related, placeholder=True)
-    assert len(placeholders) == 2
+    assert len(placeholders) == 1
 
     parent = _batch({"issue_key": "ENG-1", "issue_id": "10001"})
-    subtask = _batch({"issue_key": "ENG-3", "issue_id": "10003"})
-    real = _issue_keys(parent, placeholder=False) | _issue_keys(subtask, placeholder=False)
-    assert placeholders == real
+    assert placeholders == _issue_keys(parent, placeholder=False)

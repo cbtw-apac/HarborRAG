@@ -24,7 +24,9 @@ from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
     SqlSourceRepository,
 )
+from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.source_config import SourceConfig
@@ -114,3 +116,28 @@ async def test_job_repository_enforces_tenant_scope(sessions: SessionFactory) ->
     assert [j.id for j in await repo.list(tenant_ids=scope)] == ["mine"]
     assert await repo.get("theirs", tenant_ids=scope) is None
     assert await repo.count_by_status(tenant_ids=scope) == {"queued": 1}
+
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_secrets_repository_hides_refs_from_other_tenants(sessions: SessionFactory) -> None:
+    """A leaked ref must be a dud outside its tenant, and undeletable from there.
+
+    ``resolve`` used to be a bare primary-key ``get``, so any holder of a ref
+    decrypted it with the shared Fernet key regardless of which tenant stored
+    it -- a ref echoed into a log or an error body was a live credential for
+    every tenant in the deployment.
+    """
+    repo = SqlSecretsRepository(sessions, encryption_key="shared-key")
+    ref = await repo.put("tenant-a-api-key", tenant_id="tenant-a")
+
+    with pytest.raises(HarborNotFoundError, match="secret ref not found"):
+        await repo.resolve(ref, tenant_id="tenant-b")
+
+    # A cross-tenant delete must also miss rather than destroying the owner's row.
+    await repo.delete(ref, tenant_id="tenant-b")
+    assert await repo.resolve(ref, tenant_id="tenant-a") == "tenant-a-api-key"
+
+    await repo.delete(ref, tenant_id="tenant-a")
+    with pytest.raises(HarborNotFoundError):
+        await repo.resolve(ref, tenant_id="tenant-a")

@@ -1,6 +1,9 @@
 global:
   scrape_interval: 15s
 
+rule_files:
+  - /etc/prometheus/harborrag_alerts.yml
+
 scrape_configs:
   - job_name: harborrag-ingestion-worker
     metrics_path: /metrics

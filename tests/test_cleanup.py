@@ -8,14 +8,15 @@ import os
 import pytest
 
 
-def test_cleanup_session_fixture_removes_artifacts(project_root_dir):
+def test_cleanup_session_fixture_removes_artifacts(tmp_path):
     """Test that session-level cleanup removes test artifacts."""
-    # Create some test artifacts that should be cleaned up
+    # tmp_path, not the project root: under xdist, test_clean_workspace_prevents_artifact_pollution
+    # can delete the project-root test-site/ between this test's mkdir and exists().
     test_artifacts = [
-        project_root_dir / "test-site",
-        project_root_dir / "test-artifacts",
-        project_root_dir / "coverage-website.xml",
-        project_root_dir / ".coverage.test",
+        tmp_path / "test-site",
+        tmp_path / "test-artifacts",
+        tmp_path / "coverage-website.xml",
+        tmp_path / ".coverage.test",
     ]
 
     # Create the artifacts

@@ -21,6 +21,7 @@ from harborrag_core.chunking import (
     RecordKind,
     RelationType,
 )
+from harborrag_core.contracts import HarborConflictError
 from harborrag_core.domain import Document, DocumentElement, DocumentProvenance
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
@@ -268,3 +269,41 @@ async def test_graph_projection_read_rejects_an_unknown_record_type() -> None:
 
     with pytest.raises(ValueError, match="record type is invalid"):
         await repository.get_graph_projection(reference, context=context())
+
+
+@pytest.mark.asyncio
+async def test_canonical_put_conflicts_on_different_bytes_unless_adopting() -> None:
+    store = MemoryObjectStore()
+    async with store:
+        repository = CanonicalDocumentArtifactRepository(
+            ImmutableArtifactWriter(store),
+            ImmutableArtifactReader(store),
+        )
+        first = await repository.put(
+            document_id="document-1",
+            document_version_id="version-1",
+            document=canonical_document(),
+            context=context(),
+        )
+        # A re-parse of the same version that differs only in incidental metadata.
+        retried = canonical_document()
+        retried.provenance.extra["parser_note"] = "second attempt"
+
+        with pytest.raises(HarborConflictError):
+            await repository.put(
+                document_id="document-1",
+                document_version_id="version-1",
+                document=retried,
+                context=context(),
+            )
+        adopted = await repository.put(
+            document_id="document-1",
+            document_version_id="version-1",
+            document=retried,
+            context=context(),
+            adopt_existing=True,
+        )
+
+        assert adopted.key == first.key
+        assert adopted.sha256 == first.sha256
+        assert await repository.get(adopted, context=context()) == canonical_document()

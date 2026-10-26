@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Literal
 
 import jwt
 import pytest
@@ -154,14 +155,15 @@ def test_non_string_role_claim_is_401_not_500() -> None:
 
 
 @pytest.mark.blackbox
-def test_prod_env_refuses_disabled_auth() -> None:
-    """Fail closed: env=prod with auth_mode=none must not boot."""
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_prod_env_refuses_disabled_auth(env: Literal["staging", "prod"]) -> None:
+    """Fail closed: env=staging/prod with auth_mode=none must not boot."""
     from harborrag_core.contracts.errors import HarborConfigurationError
 
     with pytest.raises(HarborConfigurationError):
         create_fastapi_app(
             ApiSettings(
-                env="prod",
+                env=env,
                 auth_mode="none",
                 api_capacity_redis_url="rediss://localhost:6379/1",
             )
@@ -169,7 +171,7 @@ def test_prod_env_refuses_disabled_auth() -> None:
     with pytest.raises(HarborConfigurationError):
         create_fastapi_app(
             ApiSettings(
-                env="prod",
+                env=env,
                 host="0.0.0.0",
                 auth_mode="none",
                 allow_insecure_dev=True,
@@ -220,6 +222,39 @@ def test_disabled_auth_requires_explicit_opt_in_for_non_loopback_binding() -> No
 
     app = create_fastapi_app(ApiSettings(host="0.0.0.0", allow_insecure_dev=True))
     assert app.state.token_verifier is None
+
+
+@pytest.mark.blackbox
+def test_disabled_auth_refuses_a_request_that_arrived_on_a_network_interface() -> None:
+    """The startup guard reads ``HARBORRAG_HOST``, not the socket uvicorn binds.
+
+    ``uvicorn ... --factory --host 0.0.0.0`` with no environment set passed it
+    and served an implicit owner on every interface. The local address of the
+    connection is what decides.
+    """
+
+    app = create_fastapi_app(ApiSettings())
+    with TestClient(app, base_url="http://192.0.2.10") as client:
+        response = client.post(PROTECTED)
+    assert response.status_code == 403
+    assert "loopback" in response.json()["error"]["message"]
+
+
+@pytest.mark.blackbox
+def test_disabled_auth_serves_a_request_that_arrived_on_loopback() -> None:
+    app = create_fastapi_app(ApiSettings())
+    with TestClient(app, base_url="http://127.0.0.1:8000") as client:
+        response = client.post(PROTECTED)
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "INGESTION_NOT_FOUND"
+
+
+@pytest.mark.blackbox
+def test_disabled_auth_on_a_network_interface_needs_the_explicit_opt_in() -> None:
+    app = create_fastapi_app(ApiSettings(host="0.0.0.0", allow_insecure_dev=True))
+    with TestClient(app, base_url="http://192.0.2.10") as client:
+        response = client.post(PROTECTED)
+    assert response.status_code == 404
 
 
 def test_tenant_authorization_is_independent_of_global_role() -> None:

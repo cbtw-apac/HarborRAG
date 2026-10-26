@@ -68,14 +68,15 @@ def test_confluence_topology_includes_ancestry_and_attachments() -> None:
     assert {
         GraphEntityType.CONFLUENCE_SPACE,
         GraphEntityType.CONFLUENCE_PAGE,
-        GraphEntityType.CONFLUENCE_ATTACHMENT,
     } <= {node.entity_type for node in graph.nodes}
-    assert {"parent_of", "has_attachment", "has_version"} <= {
-        relation.relation_type.value for relation in graph.relations
-    }
+    relation_types = {relation.relation_type.value for relation in graph.relations}
+    assert {"parent_of", "has_version"} <= relation_types
+    # The page's attachment list draws nothing: each attachment owns page -> attachment.
+    assert "has_attachment" not in relation_types
+    assert GraphEntityType.CONFLUENCE_ATTACHMENT not in {node.entity_type for node in graph.nodes}
 
 
-def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
+def test_jira_topology_preserves_parent_and_defers_unresolved_native_issue_links() -> None:
     graph = _project(
         "jira",
         {
@@ -97,7 +98,8 @@ def test_jira_topology_preserves_parent_and_native_issue_links() -> None:
     assert {GraphEntityType.JIRA_PROJECT, GraphEntityType.JIRA_ISSUE} <= {
         node.entity_type for node in graph.nodes
     }
-    assert {"parent_of", "blocks"} <= {relation.relation_type.value for relation in graph.relations}
+    assert "parent_of" in {relation.relation_type.value for relation in graph.relations}
+    assert "blocks" not in {relation.relation_type.value for relation in graph.relations}
     assert graph.unresolved_relations[0].target_source_item_id == "ENG-3"
 
 
@@ -152,6 +154,40 @@ def test_sharepoint_missing_parent_builds_placeholder_folder_hierarchy() -> None
     assert all(node.attributes["placeholder"] is True for node in folders)
 
 
+def test_sharepoint_page_hangs_off_the_site_without_drive_or_folders() -> None:
+    graph = _project(
+        "sharepoint",
+        {
+            "record_kind": "page",
+            "site_id": "site-1",
+            "site_name": "Engineering",
+            "page_id": "page-1",
+            "item_name": "Onboarding.aspx",
+            "page_layout": "article",
+        },
+        source_item_id="sharepoint://site-1/pages/page-1",
+    )
+
+    nodes = {node.node_key: node for node in graph.nodes}
+    entity_types = {node.entity_type for node in graph.nodes}
+    assert GraphEntityType.SHAREPOINT_PAGE in entity_types
+    assert GraphEntityType.SHAREPOINT_DRIVE not in entity_types
+    assert GraphEntityType.SHAREPOINT_FOLDER not in entity_types
+    assert GraphEntityType.SHAREPOINT_FILE not in entity_types
+
+    (page,) = [n for n in graph.nodes if n.entity_type == GraphEntityType.SHAREPOINT_PAGE]
+    assert page.attributes["item_name"] == "Onboarding.aspx"
+    parents = {
+        (relation.relation_type, nodes[relation.source_node_key].entity_type)
+        for relation in graph.relations
+        if relation.target_node_key == page.node_key
+    }
+    assert parents == {
+        (RelationType.CONTAINS, GraphEntityType.SHAREPOINT_SITE),
+        (RelationType.PARENT_OF, GraphEntityType.SHAREPOINT_SITE),
+    }
+
+
 def test_local_topology_uses_only_portable_relative_paths() -> None:
     graph = _project(
         "local",
@@ -170,6 +206,26 @@ def test_local_topology_uses_only_portable_relative_paths() -> None:
         not str(node.attributes.get("relative_path", "")).startswith("/") for node in local_nodes
     )
     assert all("path" not in node.attributes for node in graph.nodes)
+
+
+def test_local_paths_from_a_windows_host_are_normalized_not_rejected() -> None:
+    """A drive-qualified path must reduce to the same node its POSIX twin does.
+
+    ``GraphNodeRecord`` rejects every host-specific path form, drive-qualified
+    ones included, so leaving the drive on would turn ingestion from a Windows
+    host into a hard validation failure instead of the portable path the
+    contract asks for.
+    """
+
+    graph = _project(
+        "local",
+        {"relative_path": "C:\\repo\\docs\\guide.md"},
+        source_item_id="C:\\repo\\docs\\guide.md",
+    )
+
+    files = [node for node in graph.nodes if node.entity_type is GraphEntityType.LOCAL_FILE]
+    assert [node.attributes["relative_path"] for node in files] == ["repo/docs/guide.md"]
+    assert [node.logical_id for node in files] == ["repo/docs/guide.md"]
 
 
 def test_custom_connector_uses_generic_source_item_fallback() -> None:
@@ -192,14 +248,19 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
         "jira": ({"project_key": "ENG", "issue_key": "ENG-1"}, "ENG-1"),
         "github": ({"owner": "acme", "repo": "core", "relative_path": "a/b.md"}, "a/b.md"),
         "sharepoint": ({"site_id": "site-1", "drive_id": "drive-1"}, "file-1"),
+        "sharepoint_page": (
+            {"record_kind": "page", "site_id": "site-1", "page_id": "page-1"},
+            "sharepoint://site-1/pages/page-1",
+        ),
         "local": ({"relative_path": "docs/guide.md"}, "docs/guide.md"),
         "catalog": ({"provider_id": "item-1"}, "item-1"),
     }
-    for connector, (extra, source_item_id) in cases.items():
+    for case, (extra, source_item_id) in cases.items():
+        connector = case.removesuffix("_page")
         graph = _project(connector, extra, source_item_id=source_item_id)
         nodes = {node.node_key: node for node in graph.nodes}
         tenants = [node for node in graph.nodes if node.node_kind is KnowledgeNodeKind.TENANT]
-        assert len(tenants) == 1, connector
+        assert len(tenants) == 1, case
 
         # Undirected, matching how traversals actually run: Chunk points *into* the spine
         # via (:Chunk)-[:SUPPORTS]->(:Structure), so a directed walk from the tenant would
@@ -218,8 +279,8 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             for edge in graph.relations
             if edge.relation_type is RelationType.HAS_DATA_SOURCE
         ]
-        assert len(data_sources) == 1, connector
-        assert nodes[data_sources[0]].node_kind is KnowledgeNodeKind.DATA_SOURCE, connector
+        assert len(data_sources) == 1, case
+        assert nodes[data_sources[0]].node_kind is KnowledgeNodeKind.DATA_SOURCE, case
 
         # Placeholder stubs for cross-document targets are resolved by relation repair and
         # are legitimately unanchored until then; every concrete node must be reachable.
@@ -228,4 +289,57 @@ def test_every_connector_hierarchy_descends_from_the_tenant_node() -> None:
             for node in graph.nodes
             if node.node_key not in reachable and not node.attributes.get("placeholder")
         }
-        assert not stranded, (connector, stranded)
+        assert not stranded, (case, stranded)
+
+
+def test_jira_issue_observation_describes_and_dates_the_issue() -> None:
+    """The observation a reader re-attaches to the shared issue node.
+
+    Source-entity node properties are written empty on purpose, so whatever this
+    omits is unreachable from the graph even though the document carries it.
+    """
+
+    graph = _project(
+        "jira",
+        {
+            "project_key": "ENG",
+            "project_name": "Harbor Ingestion",
+            "issue_key": "ENG-2",
+            "status": "In Progress",
+            "status_category": "In Progress",
+            "issue_type": "Bug",
+            "priority": "High",
+            "assignee": "Grace",
+            "reporter": "Alan",
+            "creator": "Alan",
+            "labels": ["ingestion", "urgent"],
+            "components": ["worker"],
+            "source_created_at": "2026-01-01T00:00:00+00:00",
+            "source_updated_at": "2026-03-09T00:00:00+00:00",
+        },
+        source_item_id="ENG-2",
+    )
+
+    issue = next(
+        node
+        for node in graph.nodes
+        if node.entity_type == GraphEntityType.JIRA_ISSUE
+        and node.attributes.get("placeholder") is not True
+    )
+
+    assert issue.attributes == {
+        "issue_key": "ENG-2",
+        "status": "In Progress",
+        "status_category": "In Progress",
+        "issue_type": "Bug",
+        "priority": "High",
+        "assignee": "Grace",
+        "reporter": "Alan",
+        "creator": "Alan",
+        "project_key": "ENG",
+        "project_name": "Harbor Ingestion",
+        "labels": ["ingestion", "urgent"],
+        "components": ["worker"],
+        "created_at": "2026-01-01T00:00:00+00:00",
+        "updated_at": "2026-03-09T00:00:00+00:00",
+    }

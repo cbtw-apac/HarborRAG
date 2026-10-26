@@ -9,7 +9,7 @@ import pytest
 from PIL import Image
 
 from harborrag_adapters.parsers.compat import ImageParser
-from harborrag_adapters.parsers.errors import ParseError
+from harborrag_adapters.parsers.errors import MaxPixelsExceededError, ParseError
 from harborrag_core.domain.parser import ParseInput
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
@@ -181,3 +181,99 @@ def test_image_parser_rejects_image_over_configured_max_pixels_with_clear_error(
         parser.parse(
             ParseInput(content=buffer.getvalue(), filename="dashboard_export_over_limit.png")
         )
+
+
+def test_image_past_pillows_bomb_ceiling_reports_the_configured_max_pixels(monkeypatch) -> None:
+    """Above twice Pillow's `MAX_IMAGE_PIXELS` (~179M pixels by default),
+    `Image.open()` raises before our own dimension check runs. When the
+    configured `max_pixels` sits below that ceiling the image certainly
+    breaks it, so the error must name the configured limit, not Pillow's."""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)  # ceiling: 20 pixels
+
+    with pytest.raises(MaxPixelsExceededError, match=r"exceeds max_pixels 15\b") as exc_info:
+        ImageParser(max_pixels=15).parse(
+            ParseInput(content=_png_bytes(), filename="dashboard_export_over_limit.png")
+        )
+
+    assert exc_info.value.max_pixels == 15
+    assert "dashboard_export_over_limit.png" in str(exc_info.value)
+
+
+def test_image_past_pillows_bomb_ceiling_names_the_ceiling_capping_max_pixels(
+    monkeypatch,
+) -> None:
+    """A configured `max_pixels` above Pillow's ceiling cannot be honored, and
+    the image may still be within it, so the error must not claim a
+    `max_pixels` breach but must say the ceiling is what rejected it."""
+    monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 10)  # ceiling: 20 pixels
+
+    with pytest.raises(ParseError) as exc_info:
+        ImageParser(max_pixels=1_000).parse(ParseInput(content=_png_bytes(), filename="huge.png"))
+
+    assert not isinstance(exc_info.value, MaxPixelsExceededError)
+    assert "decompression-bomb ceiling (20 pixels) is below the configured max_pixels 1000" in str(
+        exc_info.value
+    )
+
+
+def test_liteparse_sends_image_bytes_to_the_ocr_server_and_reuses_the_parser(monkeypatch) -> None:
+    built: list[dict[str, object]] = []
+    seen: list[bytes] = []
+
+    class _LiteParse:
+        def __init__(self, **options: object) -> None:
+            built.append(options)
+
+        def parse(self, data: bytes) -> object:
+            seen.append(data)
+            return SimpleNamespace(text=" extracted text ")
+
+    monkeypatch.setitem(sys.modules, "liteparse", SimpleNamespace(LiteParse=_LiteParse))
+    parser = ImageParser(
+        ocr_engine="LiteParse",
+        lang="en",
+        ocr_server_url="http://ppocr-server:8888/ocr",
+    )
+    parse_input = ParseInput(content=_png_bytes(), filename="scan.png")
+
+    first = parser.parse(parse_input)
+    second = parser.parse(parse_input)
+
+    assert first.content == "extracted text"
+    assert second.content == "extracted text"
+    assert first.metadata["ocr_engine"] == "liteparse"
+    # Constructing LiteParse is not free, so it is memoized across images.
+    assert len(built) == 1
+    assert built[0]["ocr_server_url"] == "http://ppocr-server:8888/ocr"
+    assert built[0]["ocr_language"] == "en"
+    # `dpi` rasterizes PDF pages; an image already has a native resolution.
+    assert "dpi" not in built[0]
+    assert seen[0] == _png_bytes()
+
+
+def test_liteparse_image_engine_reports_a_missing_package(monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "liteparse", None)
+    parser = ImageParser(ocr_engine="liteparse")
+
+    with pytest.raises(ParseError, match="pdf-liteparse"):
+        parser.parse(ParseInput(content=_png_bytes(), filename="scan.png"))
+
+
+def test_image_engine_rejects_an_unknown_ocr_engine() -> None:
+    with pytest.raises(ValueError, match="pytesseract, rapidocr, liteparse"):
+        ImageParser(ocr_engine="nonexistent")
+
+
+def test_liteparse_image_engine_strips_spurious_code_fences(monkeypatch) -> None:
+    class _LiteParse:
+        def __init__(self, **_options: object) -> None: ...
+
+        def parse(self, _data: bytes) -> object:
+            return SimpleNamespace(text="```python\nscanned prose\n```")
+
+    monkeypatch.setitem(sys.modules, "liteparse", SimpleNamespace(LiteParse=_LiteParse))
+    parser = ImageParser(ocr_engine="liteparse")
+
+    result = parser.parse(ParseInput(content=_png_bytes(), filename="scan.png"))
+
+    assert result.content == "scanned prose"

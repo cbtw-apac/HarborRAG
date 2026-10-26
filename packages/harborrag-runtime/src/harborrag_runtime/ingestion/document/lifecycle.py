@@ -4,15 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from harborrag_adapters.repositories.database import (
-    IngestionControlPlaneDatabase,
-)
 from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
-from harborrag_adapters.repositories.object_store import (
-    CanonicalDocumentArtifactRepository,
-    ChunkArtifactReader,
-    ProjectionArtifactRepository,
-)
 from harborrag_core.chunking import ChunkRecord
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
@@ -24,14 +16,39 @@ from harborrag_core.ingestion import (
     RawDocumentReference,
     RepresentationSet,
 )
+from harborrag_core.ports.artifacts import (
+    CanonicalDocumentArtifactPort,
+    ChunkArtifactReaderPort,
+    ProjectionArtifactPort,
+)
+from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     DocumentVersionTransitionPolicy,
-    IngestionFailureClassifier,
 )
 
+from ..failure_classification import ingestion_failure_classifier
+
 logger = logging.getLogger("harborrag.runtime.ingestion.version_lifecycle")
+
+# States whose replay the control plane decides. PURGING is included so its
+# transient "being purged" error reaches the activity, which then retries.
+_REPLAY_THROUGH_CONTROL = frozenset(
+    {
+        DocumentVersionState.FAILED,
+        DocumentVersionState.RETIRED,
+        DocumentVersionState.PURGING,
+        DocumentVersionState.PURGED,
+    }
+)
+_NOT_FAILABLE = frozenset(
+    {
+        DocumentVersionState.ACTIVE,
+        DocumentVersionState.PURGING,
+        DocumentVersionState.PURGED,
+    }
+)
 
 
 class DocumentVersionLifecycle:
@@ -40,16 +57,16 @@ class DocumentVersionLifecycle:
     def __init__(
         self,
         *,
-        control: IngestionControlPlaneDatabase,
-        canonical_artifacts: CanonicalDocumentArtifactRepository,
-        chunk_reader: ChunkArtifactReader,
-        projection_artifacts: ProjectionArtifactRepository,
+        control: DocumentControlPort,
+        canonical_artifacts: CanonicalDocumentArtifactPort,
+        chunk_reader: ChunkArtifactReaderPort,
+        projection_artifacts: ProjectionArtifactPort,
     ) -> None:
         self._control = control
         self._canonical_artifacts = canonical_artifacts
         self._chunk_reader = chunk_reader
         self._projection_artifacts = projection_artifacts
-        self._failures = IngestionFailureClassifier()
+        self._failures = ingestion_failure_classifier()
         self._transitions = DocumentVersionTransitionPolicy()
 
     async def prepare_replay(
@@ -57,10 +74,7 @@ class DocumentVersionLifecycle:
         document_version_id: str,
         current: DocumentVersionState,
     ) -> DocumentVersionState:
-        if current not in {
-            DocumentVersionState.FAILED,
-            DocumentVersionState.RETIRED,
-        }:
+        if current not in _REPLAY_THROUGH_CONTROL:
             return current
         return await self._control.document_versions.prepare_replay(document_version_id)
 
@@ -129,7 +143,9 @@ class DocumentVersionLifecycle:
         artifact: ArtifactReference | None = None,
     ) -> None:
         snapshot = await self._required_snapshot(document_version_id)
-        if snapshot.state == DocumentVersionState.FAILED:
+        if snapshot.state in {DocumentVersionState.FAILED, DocumentVersionState.PURGING}:
+            # A PURGING version raises the control plane's transient error here,
+            # so the activity retries once the purge finishes.
             await self._control.document_versions.prepare_replay(document_version_id)
             snapshot = await self._required_snapshot(document_version_id)
         if self._transitions.already_reached(snapshot.state, state):
@@ -187,7 +203,10 @@ class DocumentVersionLifecycle:
         error: Exception,
     ) -> None:
         snapshot = await self._control.document_versions.get_version(document_version_id)
-        if snapshot is None or snapshot.state == DocumentVersionState.ACTIVE:
+        if snapshot is None or snapshot.state in _NOT_FAILABLE:
+            # A PURGING or PURGED version belongs to the retention purge: it cannot
+            # become FAILED, and re-enqueuing its completed cleanup would hide it
+            # from the purge. The caller re-raises the original (transient) error.
             return
         failure = self._failures.classify(stage, error)
         artifact_references = await self._artifact_references(snapshot)

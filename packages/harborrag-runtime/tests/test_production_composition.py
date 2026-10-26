@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+from typing import Literal
 
 import pytest
 
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.project import Project
+from harborrag_core.ports.usage import ModelUsageRecord
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
@@ -33,10 +35,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0019"
+    assert control_db["migrations"] == "0040"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0019" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0040" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -54,6 +56,26 @@ async def test_production_repositories_hit_the_real_database(
         )
         fetched = await projects.get("p1", tenant_ids=None)
         assert fetched is not None and fetched.name == "Docs"
+        assert composition.control_plane.memories is not None
+        usage = composition.control_plane.model_usage
+        assert usage is not None
+        await usage.record(
+            ModelUsageRecord(
+                tenant_id="DEFAULT",
+                user_id="user-1",
+                principal_id="principal-1",
+                surface="chat",
+                logical_model="chat-default",
+                provider="openai",
+                provider_model="gpt-4.1-mini",
+                prompt_tokens=8,
+                completion_tokens=2,
+                total_tokens=10,
+            )
+        )
+        totals = await usage.totals(tenant_id="DEFAULT", user_id="user-1")
+        assert totals.requests == 1
+        assert totals.total_tokens == 10
     finally:
         await composition.aclose()
 
@@ -82,22 +104,26 @@ def test_production_probe_failure_aborts_startup(
 
 
 @pytest.mark.whitebox
-def test_prod_env_refuses_default_control_db_url() -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+def test_prod_env_refuses_default_control_db_url(env: Literal["staging", "prod"]) -> None:
     """Fail closed: env=prod with the default sqlite control_db_url must not
     boot, mirroring the auth_mode=none-in-prod guard. control_db_url is
     passed explicitly so the test exercises the intended default regardless
     of an ambient HARBORRAG_CONTROL_DB_URL in the environment."""
     with pytest.raises(ValueError, match="SQLite is development-only"):
-        RuntimeSettings(env="prod", control_db_url=DEFAULT_CONTROL_DB_URL)
+        RuntimeSettings(env=env, control_db_url=DEFAULT_CONTROL_DB_URL)
 
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_prod_env_rejects_every_explicit_sqlite_url(tmp_path: Path) -> None:
+@pytest.mark.parametrize("env", ["staging", "prod"])
+async def test_prod_env_rejects_every_explicit_sqlite_url(
+    tmp_path: Path, env: Literal["staging", "prod"]
+) -> None:
     """An alternate filename must not bypass the production database policy."""
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     with pytest.raises(ValueError, match="SQLite is development-only"):
-        RuntimeSettings(env="prod", control_db_url=dsn)
+        RuntimeSettings(env=env, control_db_url=dsn)
 
 
 @pytest.mark.asyncio
@@ -171,3 +197,24 @@ def test_migration_failure_logs_safe_actionable_diagnostics(
     assert "error_type=OperationalError" in message
     assert "already exists" not in message
     assert "hint=" in message, "the recoverable case must name its remedy"
+
+
+@pytest.mark.whitebox
+@pytest.mark.parametrize("env", ["dev", "prod"])
+@pytest.mark.parametrize("key", [None, "   "])
+def test_non_sqlite_control_db_refuses_a_blank_encryption_key_before_connecting(
+    env: str, key: str | None
+) -> None:
+    """The dev-default Fernet key must never protect secrets in a persistent
+    database, in any environment. The check runs before migrations, so this
+    unresolvable DSN is never dialled."""
+    settings = RuntimeSettings(
+        env=env,
+        control_db_url="postgresql+asyncpg://user:pass@database.invalid/control",
+        secrets_encryption_key=key,
+    )
+
+    with pytest.raises(
+        HarborConfigurationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"
+    ):
+        CompositionRoot.production(settings)

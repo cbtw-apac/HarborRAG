@@ -30,6 +30,7 @@ class ChunkIdentityInput:
     local_part_index: int
     chunk_kind: ChunkKind
     content_hash: str
+    section_anchors: Sequence[str] = ()
 
 
 class ChunkIdentityBuilder(CanonicalIdentityBuilder):
@@ -64,6 +65,7 @@ class ChunkIdentityBuilder(CanonicalIdentityBuilder):
         section_id = self.section_id(
             document_id=values.document_id,
             section_path=values.section_path,
+            stable_source_anchors=values.section_anchors,
         )
         logical_id = self.logical_chunk_id(
             section_id=section_id,

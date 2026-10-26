@@ -15,20 +15,22 @@ from harborrag_core.ingestion import (
     TaskRegistration,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
-from harborrag_runtime.temporal.schemas import RetryFailuresInput, SourceIngestionInput
-from harborrag_runtime.temporal.submission import SourceSubmission
+from harborrag_runtime.ingestion_contracts import (
+    IngestionGateway,
+    PreparedSourceSubmission,
+    SourceSubmission,
+)
 
-type ClientProvider = Callable[[], Awaitable["TemporalGateway"]]
+type ClientProvider = Callable[[], Awaitable[IngestionGateway]]
 type TaskStoreProvider = Callable[[], Awaitable["PublicTaskStore"]]
-type SourceInputBuilder = Callable[[RuntimeSettings, SourceSubmission], SourceIngestionInput]
+type SourceInputBuilder = Callable[[RuntimeSettings, SourceSubmission], PreparedSourceSubmission]
 type TaskIdFactory = Callable[[], str]
 
 
 class PublicTaskStore(Protocol):
     async def register(
         self,
-        source: SourceIngestionInput,
+        source: PreparedSourceSubmission,
         *,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
@@ -45,6 +47,10 @@ class PublicTaskStore(Protocol):
     async def get(self, task_id: str) -> IngestionTask | None: ...
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
+
+    async def claim_submission(self, task_id: str) -> str | None: ...
+
+    async def release_submission_claim(self, task_id: str, token: str) -> bool: ...
 
     async def list_tasks(
         self,
@@ -101,14 +107,3 @@ class PublicTaskStore(Protocol):
         self,
         document_ids: Sequence[str],
     ) -> dict[str, ActiveDocumentVersion]: ...
-
-
-class TemporalGateway(Protocol):
-    async def start_ingestion(self, source: SourceIngestionInput) -> RuntimeWorkflowRef: ...
-
-    async def cancel(self, task_id: str) -> None: ...
-
-    async def start_retry_failures(
-        self,
-        request: RetryFailuresInput,
-    ) -> RuntimeWorkflowRef: ...

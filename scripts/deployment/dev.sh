@@ -12,6 +12,7 @@ MCP_ENV_FILE="${MCP_ENV_FILE:-env/.env.mcp}"
 API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
+WORKER_DEVICE="cpu"
 
 usage() {
     cat <<'EOF'
@@ -19,13 +20,17 @@ Usage: scripts/deployment/dev.sh [--build] COMMAND [OPTION...]
 
 Commands:
   bootstrap          Create missing protected env files, then stop for review
-  up [--no-worker] [--build]
+  up [--no-worker] [--build] [--device cpu|gpu]
                      Start data, Temporal, worker (default), and API
   down [--volumes]   Stop API, Temporal/worker, and data services
   data               Start only PostgreSQL, Qdrant, FalkorDB, Redis, and MinIO
   temporal           Start only Temporal server services; never starts a worker
-  worker [--build]   Start only the ingestion worker; reuse its image by default
+  worker [--build] [--device cpu|gpu]
+                     Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
+  sharepoint-login [--logout] [--device cpu|gpu]
+                     Sign the worker in to SharePoint (auth_mode: device_code);
+                     the token stays in the harborrag-sharepoint-tokens volume
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
@@ -33,6 +38,13 @@ API_ENV_FILE, and MCP_ENV_FILE.
 Use --build after source, dependency, or baked worker configuration changes.
 For up, worker, and api, --build may appear before or after the command.
 If a local API or worker image is missing, the first start builds it automatically.
+
+--device selects the ingestion worker's Dockerfile and compose overlay:
+cpu (default) uses Dockerfile.temporal-worker; gpu uses the CUDA-enabled
+Dockerfile.temporal-worker.gpu and reserves an NVIDIA GPU (requires the
+NVIDIA Container Toolkit on the host). Each device builds its own image tag,
+so switching devices rebuilds automatically the first time:
+  scripts/deployment/dev.sh worker --device gpu --build
 EOF
 }
 
@@ -45,6 +57,24 @@ require_file() {
     local path="$1"
     local label="$2"
     [[ -f "${ROOT_DIR}/${path}" ]] || fail "Missing ${label}: ${path}. Run '$0 bootstrap'."
+}
+
+require_control_plane_encryption_key() {
+    require_file "${DATABASE_ENV_FILE}" "database environment"
+    local configured
+    if [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]]; then
+        configured="${HARBORRAG_SECRETS_ENCRYPTION_KEY}"
+    else
+        configured="$(
+            sed -n 's/^HARBORRAG_SECRETS_ENCRYPTION_KEY=//p' \
+                "${ROOT_DIR}/${DATABASE_ENV_FILE}" | tail -n 1
+        )"
+    fi
+    configured="${configured#"${configured%%[![:space:]]*}"}"
+    configured="${configured%"${configured##*[![:space:]]}"}"
+    if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
+        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker; set it in ${DATABASE_ENV_FILE}."
+    fi
 }
 
 ensure_environment_file() {
@@ -114,11 +144,21 @@ data_compose() {
 temporal_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
+    local -a compose_files=(
+        --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml"
+    )
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        compose_files+=(--file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.gpu.yml")
+    fi
     docker compose \
         --env-file "${ROOT_DIR}/${DATABASE_ENV_FILE}" \
         --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" \
-        --file "${ROOT_DIR}/deploy/compose/docker-compose.temporal.yml" \
+        "${compose_files[@]}" \
         "$@"
+}
+
+validate_device() {
+    [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
 }
 
 api_compose() {
@@ -198,17 +238,23 @@ start_temporal() {
 
 start_worker() {
     local rebuild="${1:-0}"
+    require_control_plane_encryption_key
     require_data_network
     require_temporal_server
     prepare_worker_mount
     local replicas
     replicas="$(worker_replicas)"
+    local worker_image="${TEMPORAL_WORKER_IMAGE}"
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        worker_image="${TEMPORAL_WORKER_IMAGE}-gpu"
+    fi
+    export HARBORRAG_TEMPORAL_WORKER_IMAGE="${worker_image}"
     local -a build_args=(--no-build)
-    if ((rebuild)) || ! docker image inspect "${TEMPORAL_WORKER_IMAGE}" >/dev/null 2>&1; then
+    if ((rebuild)) || ! docker image inspect "${worker_image}" >/dev/null 2>&1; then
         build_args=(--build)
-        echo "Building Temporal ingestion worker image..."
+        echo "Building Temporal ingestion worker image (${WORKER_DEVICE})..."
     else
-        echo "Reusing local worker image ${TEMPORAL_WORKER_IMAGE}."
+        echo "Reusing local worker image ${worker_image}."
     fi
     echo "Starting Temporal ingestion worker (${replicas} replica(s))..."
     temporal_compose --profile worker config --quiet
@@ -222,6 +268,7 @@ start_worker() {
 
 start_api() {
     local rebuild="${1:-0}"
+    require_control_plane_encryption_key
     require_data_network
     require_temporal_server
     [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
@@ -289,6 +336,23 @@ stop_stack() {
     fi
 }
 
+sharepoint_login() {
+    require_data_network
+    require_file "${CONNECTOR_ENV_FILE}" "connector environment"
+    local worker_image="${TEMPORAL_WORKER_IMAGE}"
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        worker_image="${TEMPORAL_WORKER_IMAGE}-gpu"
+    fi
+    docker image inspect "${worker_image}" >/dev/null 2>&1 ||
+        fail "Worker image ${worker_image} is missing; run '$0 worker --build' first."
+    export HARBORRAG_TEMPORAL_WORKER_IMAGE="${worker_image}"
+    # Runs in the worker image as the worker user, so the token lands in the volume the
+    # worker reads (and rotates); the IDs come from the worker's env/.env.connector.
+    echo "Signing in to SharePoint for the worker..."
+    temporal_compose --profile worker run --rm --no-deps temporal-worker \
+        python -m harborrag_adapters.connectors.sharepoint.login "$@"
+}
+
 global_rebuild=0
 while [[ "${1:-}" == "--build" ]]; do
     global_rebuild=1
@@ -323,6 +387,12 @@ case "${command}" in
             case "$1" in
                 --no-worker) start_worker_flag=0 ;;
                 --build) rebuild_images=1 ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
                 *) fail "Unknown up option: $1" ;;
             esac
             shift
@@ -331,6 +401,7 @@ case "${command}" in
         if ((created_environment)); then
             fail "Review the new environment files, then run '$0 up' again."
         fi
+        require_control_plane_encryption_key
         start_data
         start_temporal
         if ((start_worker_flag)); then
@@ -351,11 +422,19 @@ case "${command}" in
         ;;
     worker)
         rebuild_image="${global_rebuild}"
-        if [[ "${1:-}" == "--build" ]]; then
-            rebuild_image=1
+        while [[ "$#" -gt 0 ]]; do
+            case "$1" in
+                --build) rebuild_image=1 ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
+                *) fail "Unknown worker option: $1" ;;
+            esac
             shift
-        fi
-        [[ "$#" -eq 0 ]] || fail "Unknown worker option: $1"
+        done
         start_worker "${rebuild_image}"
         ;;
     api)
@@ -366,6 +445,23 @@ case "${command}" in
         fi
         [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
         start_api "${rebuild_image}"
+        ;;
+    sharepoint-login)
+        login_args=()
+        while [[ "$#" -gt 0 ]]; do
+            case "$1" in
+                --logout) login_args+=(--logout) ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
+                *) fail "Unknown sharepoint-login option: $1" ;;
+            esac
+            shift
+        done
+        sharepoint_login "${login_args[@]}"
         ;;
     -h|--help|help)
         usage

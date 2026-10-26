@@ -13,6 +13,26 @@ class SourceUnavailableError(IngestionDomainError):
     retryable = True
 
 
+class SourceRetriesExhaustedError(SourceUnavailableError):
+    """The source still failed transiently after the connector's own retries.
+
+    The connector already spent its configured retry budget on this item, so
+    the run moves on rather than multiplying that budget. The failure stays
+    transient: a later run or a blanket retry of failed documents tries again.
+    """
+
+    retryable = False
+
+
+class SourceItemNotFoundError(IngestionDomainError):
+    """The source no longer serves this item: deleted, moved, or no longer visible.
+
+    Unlike ``SourceUnavailableError`` this is not transient -- the same request gets
+    the same answer -- so it is not retried. Scan-based removal reconciliation, not
+    this error, decides whether an already-published version is retired.
+    """
+
+
 class SourceForbiddenError(IngestionDomainError):
     pass
 

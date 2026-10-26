@@ -116,8 +116,8 @@ def test_agent_completion_rejects_unknown_session(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_agent_completion_requires_session_and_prompt(client: TestClient) -> None:
-    assert client.post("/v1/agent/completions", json={"prompt": "Hello"}).status_code == 422
+def test_agent_completion_creates_session_but_requires_prompt(client: TestClient) -> None:
+    assert client.post("/v1/agent/completions", json={"prompt": "Hello"}).status_code == 200
     assert (
         client.post(
             "/v1/agent/completions",
@@ -167,3 +167,54 @@ def test_agent_run_resume_requires_session(client: TestClient) -> None:
     response = client.post("/v1/agent/runs/run-1/resume", json={"tenant": "ACME"})
 
     assert response.status_code == 422
+
+
+def test_agent_completion_forwards_request_deadline_and_token_budget(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client)
+    response = client.post(
+        "/v1/agent/completions",
+        json={"session_id": session_id, "prompt": "Hello"},
+    )
+
+    assert response.status_code == 200
+    call = service.agent_calls[0]
+    assert call["deadline_seconds"] == ApiSettings().api_request_timeout_seconds
+    assert call["token_budget"] == ApiSettings().api_agent_token_budget
+
+
+def test_agent_completion_accepts_a_chat_session(client: TestClient) -> None:
+    created = client.post("/v1/chat/sessions", json={"tenant": "DEFAULT"})
+    assert created.status_code == 201
+
+    response = client.post(
+        "/v1/agent/completions",
+        json={"session_id": created.json()["session_id"], "prompt": "Hello"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_agent_completion_forwards_project_and_user_identity(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client, "ACME")
+
+    response = client.post(
+        "/v1/agent/completions",
+        json={
+            "tenant": "ACME",
+            "session_id": session_id,
+            "prompt": "Connect the release policy to its owner.",
+            "project_id": "proj-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["project_id"] == "proj-1"
+    call = service.agent_calls[0]
+    assert call["project_id"] == "proj-1"
+    assert call["user_id"] == "DEFAULT_USER"

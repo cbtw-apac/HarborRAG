@@ -1,30 +1,34 @@
 [project]
 name = "harborrag-runtime"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "Direct and durable production execution for HarborRAG."
 requires-python = ">=3.12"
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 dependencies = [
-    "harborrag-core==2.0.0a1",
-    "harborrag-engine==2.0.0a1",
-    "harborrag-memory==2.0.0a1",
-    "harborrag-adapters==2.0.0a1",
+    "harborrag-core==2.0.0a2",
+    "harborrag-engine==2.0.0a2",
+    "harborrag-adapters==2.0.0a2",
+    "jsonschema>=4.26,<5",
     "PyYAML>=6.0.0",
     "pydantic>=2.13,<3",
     "pydantic-settings>=2.2",
-    "opentelemetry-api>=1.43,<2",
+    "opentelemetry-api>=1.45.1,<2",
     "prometheus-client>=0.19,<1",
 ]
 
 [project.optional-dependencies]
+reader = ["harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2"]
+chat = ["harborrag-adapters[llm]==2.0.0a2"]
+agent = []
+memory = ["harborrag-memory==2.0.0a2"]
 temporal = [
     "temporalio>=1.30,<2",
     "cloudpickle>=3.1,<4",
 ]
 production = [
-    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-docling,postgres,qdrant,redis,s3,tables]==2.0.0a1",
+    "harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]==2.0.0a2",
 ]
 dev = [
     "types-PyYAML>=6.0,<7",

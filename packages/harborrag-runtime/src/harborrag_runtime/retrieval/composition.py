@@ -9,7 +9,6 @@ from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClient
 from harborrag_adapters.models.runtime import ResourceOwnership
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
-    RAW_BUCKET,
     ChunkArtifactReader,
     ImmutableArtifactReader,
 )
@@ -21,11 +20,16 @@ from ..composition.resources import (
     build_knowledge_graph,
     build_object_store,
     build_vector_repository,
+    check_embedding_dimensions,
     embedding_dimensions,
 )
+from ..config.graph_build import GraphBuildConfig
 from ..config.settings import RuntimeSettings
-from ..ingestion.observability import IngestionTelemetry, build_model_telemetry
+from ..observability.model import IngestionTelemetry, build_model_telemetry
+from ..topology.embedding_profile import build_contextual_profile
+from .contextual import ContextualEvidenceSearch
 from .contracts import RetrievalPolicy, RetrievalResources
+from .entity_summary import EntitySummarySearch
 from .service import RuntimeRetrievalService
 
 
@@ -34,12 +38,15 @@ async def connect_retrieval_service(
 ) -> RuntimeRetrievalService:
     """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set."""
 
+    settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model
-    dimensions = settings.embedding_dimensions or embedding_dimensions(
-        embed_config,
-        model,
-    )
+    if settings.embedding_dimensions:
+        dimensions = settings.embedding_dimensions
+        check_embedding_dimensions(embed_config, model, dimensions)
+    else:
+        dimensions = embedding_dimensions(embed_config, model)
+    contextual_profile = build_contextual_profile(settings, embed_config)
     telemetry = IngestionTelemetry(
         metrics_port=settings.metrics_port,
         metrics_bind_address=settings.metrics_bind_address,
@@ -53,6 +60,10 @@ async def connect_retrieval_service(
         telemetry_ownership=ResourceOwnership.OWNED,
     )
     control = build_ingestion_control(settings)
+    if settings.summary_processing_allowed:
+        control.summaries.allow_shared_processing(
+            settings.ingestion_tenant_id, settings.summary_processing_revision
+        )
     object_store = build_object_store(settings)
     vector_repository = build_vector_repository(settings)
     graph_repository = build_knowledge_graph(settings)
@@ -68,7 +79,7 @@ async def connect_retrieval_service(
         ):
             await resource.connect()
             connected.append(resource.close)
-        await object_store.ensure_buckets((RAW_BUCKET, ARTIFACT_BUCKET))
+        await object_store.validate_buckets((ARTIFACT_BUCKET,))
     except BaseException:
         await asyncio.gather(
             *(close() for close in reversed(connected)),
@@ -91,11 +102,26 @@ async def connect_retrieval_service(
                 )
             ),
             graph_repository=graph_repository,
+            topology_repository=control.topology,
+            # Without summarization there are no summary views to join onto nodes.
+            summary_repository=(control.summaries if settings.topology_parent_enabled else None),
+            contextual_search=ContextualEvidenceSearch(
+                control.topology, vector_repository, contextual_profile
+            ),
+            entity_summary_search=(
+                EntitySummarySearch(control.summaries, vector_repository, contextual_profile)
+                if settings.summary_entity_index_enabled
+                else None
+            ),
+            document_snapshots=control.document_versions,
+            source_catalog=getattr(control, "source_scans", None),
         ),
         policy=RetrievalPolicy(
             embedding_model=model,
             embedding_dimensions=dimensions,
             dense_weight=settings.retrieval_dense_weight,
+            semantic_weight=settings.topology_retrieval_policy.semantic_weight,
+            topology=settings.topology_retrieval_policy,
         ),
         close_resources=(
             control.close,

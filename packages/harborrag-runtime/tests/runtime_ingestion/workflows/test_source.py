@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
+from datetime import timedelta
 
 import pytest
 
@@ -16,6 +17,7 @@ from harborrag_runtime.temporal.schemas import (
     SourceIngestionResult,
 )
 from harborrag_runtime.temporal.source_workflow import SourceIngestionWorkflow
+from harborrag_runtime.temporal_models import ActivityTimeoutConfig, TemporalWorkflowOptions
 
 from .fixtures import (
     plan_reference as _plan_reference,
@@ -117,6 +119,52 @@ async def test_source_workflow_passes_only_plan_reference_to_children(
     assert result.published == 3
     assert len(child_requests) == 2
     assert all(request.plan_reference == plan for request in child_requests)
+
+
+@pytest.mark.asyncio
+async def test_source_workflow_schedules_discovery_and_finalization_with_configured_budgets(
+    monkeypatch,
+) -> None:
+    source = replace(
+        _source(),
+        workflow_options=TemporalWorkflowOptions(
+            timeouts=ActivityTimeoutConfig(discovery_seconds=43_200, finalization_seconds=21_600)
+        ),
+    )
+    scheduled: dict[str, dict[str, object]] = {}
+
+    async def execute_activity(name, request, **options):
+        scheduled[name] = options
+        if name == "harborrag.discover_source_items":
+            return SourceDiscoveryResult(
+                scan_id="scan-1", plan_reference=_plan_reference(), document_count=0
+            )
+        if name == "harborrag.cleanup_source_projections":
+            return ProjectionCleanupResult(claimed=0, completed=0, cancelled=0, failed=0)
+        return SourceIngestionResult(
+            task_id="task-1",
+            scan_id="scan-1",
+            discovered=0,
+            published=0,
+            unchanged=0,
+            failed=0,
+            removal_candidates=(),
+            unresolved_relations=0,
+        )
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+
+    await SourceIngestionWorkflow().run(source)
+
+    discovery = scheduled["harborrag.discover_source_items"]
+    finalization = scheduled["harborrag.finalize_source_ingestion"]
+    assert discovery["start_to_close_timeout"] == timedelta(hours=12)
+    assert discovery["heartbeat_timeout"] == timedelta(minutes=2)
+    assert finalization["start_to_close_timeout"] == timedelta(hours=6)
+    assert finalization["heartbeat_timeout"] == timedelta(minutes=2)
 
 
 @pytest.mark.asyncio
@@ -266,13 +314,19 @@ async def test_source_workflow_records_failure_and_reraises_when_batch_child_fai
         "harborrag_runtime.temporal.source_workflow.workflow.start_child_workflow",
         _start_child(child),
     )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda _name: True,
+    )
 
+    instance = SourceIngestionWorkflow()
     with pytest.raises(ChildWorkflowError):
-        await SourceIngestionWorkflow().run(_source())
+        await instance.run(_source())
 
     assert len(recorded) == 1
     assert recorded[0].task_id == "task-1"
     assert recorded[0].error_code == "ChildWorkflowError"
+    assert instance.get_status().status == "FAILED"
 
 
 def test_source_workflow_pause_and_resume_status_are_explicit() -> None:
@@ -285,3 +339,90 @@ def test_source_workflow_pause_and_resume_status_are_explicit() -> None:
 
     assert paused.paused is True
     assert resumed.paused is False
+
+
+@pytest.mark.asyncio
+async def test_discover_failure_marks_query_status_failed(monkeypatch) -> None:
+    from temporalio.exceptions import ActivityError, ApplicationError
+
+    async def execute_activity(name, request, **options):
+        del request, options
+        if name == "harborrag.discover_source_items":
+            error = ActivityError(
+                "activity failed",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker",
+                activity_type=name,
+                activity_id="1",
+                retry_state=None,
+            )
+            error.__cause__ = ApplicationError("boom", type="source_unavailable")
+            raise error
+        assert name == "harborrag.record_source_failure"
+        return None
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda _name: True,
+    )
+
+    instance = SourceIngestionWorkflow()
+    with pytest.raises(ActivityError):
+        await instance.run(_source())
+
+    assert instance.get_status().status == "FAILED"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("patched", "expected"), [(True, "FAILED"), (False, "RUNNING")])
+async def test_finalization_failure_marks_query_status_failed(
+    monkeypatch, patched: bool, expected: str
+) -> None:
+    # A batch child or finalization failing hard used to leave get_status saying
+    # RUNNING on the closed workflow; histories recorded before the patch replay as before.
+    from temporalio.exceptions import ActivityError, ApplicationError
+
+    recorded: list[str] = []
+
+    async def execute_activity(name, request, **options):
+        del options
+        if name == "harborrag.discover_source_items":
+            return SourceDiscoveryResult(
+                scan_id="scan-1", plan_reference=_plan_reference(), document_count=0
+            )
+        if name == "harborrag.finalize_source_ingestion":
+            error = ActivityError(
+                "activity failed",
+                scheduled_event_id=1,
+                started_event_id=2,
+                identity="worker",
+                activity_type=name,
+                activity_id="1",
+                retry_state=None,
+            )
+            error.__cause__ = ApplicationError("boom", type="publication_failure")
+            raise error
+        assert name == "harborrag.record_source_failure"
+        recorded.append(request.error_code)
+        return None
+
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.execute_activity",
+        execute_activity,
+    )
+    monkeypatch.setattr(
+        "harborrag_runtime.temporal.source_workflow.workflow.patched",
+        lambda name: patched if name == "run-failure-status" else True,
+    )
+
+    instance = SourceIngestionWorkflow()
+    with pytest.raises(ActivityError):
+        await instance.run(_source())
+
+    assert len(recorded) == 1
+    assert instance.get_status().status == expected

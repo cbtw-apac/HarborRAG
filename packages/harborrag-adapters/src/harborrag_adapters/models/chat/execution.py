@@ -10,6 +10,7 @@ from harborrag_adapters.models.runtime.cache import (
     CacheDecision,
     ModelResponseCache,
     ResponseCacheController,
+    configuration_cache_fingerprint,
 )
 from harborrag_adapters.models.runtime.config import RoutingEngine
 from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
@@ -18,6 +19,7 @@ from harborrag_adapters.models.runtime.middleware import (
     MiddlewarePipeline,
     middleware_context,
 )
+from harborrag_adapters.models.runtime.operation_deadline import remaining_timeout
 from harborrag_adapters.models.runtime.routing_state import RoutingStateStore
 from harborrag_adapters.models.runtime.routing_types import RoutedAttempt
 from harborrag_adapters.models.runtime.singleflight import SingleFlightCoordinator
@@ -60,7 +62,12 @@ class ChatExecution:
         self.registry = registry
         self.middleware = middleware
         self.owns_cache = cache is None
-        self.cache = ResponseCacheController(config.cache, family="chat", backend=cache)
+        self.cache = ResponseCacheController(
+            config.cache,
+            family="chat",
+            backend=cache,
+            configuration_fingerprint=configuration_cache_fingerprint(config),
+        )
         self.telemetry = telemetry
         self.singleflight = singleflight
         self.budget = budget
@@ -271,7 +278,7 @@ class ChatExecution:
         parameters = build_litellm_parameters(
             attempt.deployment,
             routed_request,
-            timeout=self.config.timeouts.request_seconds,
+            timeout=remaining_timeout(self.config.timeouts.request_seconds),
             model_override=model_override,
             litellm_provider=descriptor.litellm_provider,
         )

@@ -39,10 +39,14 @@ connectors:
       max_attachment_size_bytes: 26214400
       max_comments: 1
       max_attachments: 1000
-      max_child_pages: 1
       fail_on_error: false
-      requests_per_minute: 60
-      page_size: 25
+      # Shared by every worker (Redis token bucket per host and credential).
+      # Discovery costs ~2 requests per page (comments + attachments) and each
+      # document at least one more, so 60/min capped a space at ~0.5 doc/s and
+      # ~2 s of discovery per page. 600/min matches jira-main; Retry-After on
+      # 429 still backs off. page_size 100 is the connector maximum.
+      requests_per_minute: 600
+      page_size: 100
       request_timeout_seconds: 30
       max_retries: 3
       backoff_factor: 0.5
@@ -70,7 +74,13 @@ connectors:
       max_attachments: 1000
       max_changelog_items: 1000
       fail_on_error: false
-      requests_per_minute: 60
+      # Redis-shared across every worker replica, so this is a global ceiling.
+      # A full project costs at least two requests per issue (the issue and its
+      # comments) plus one per attachment, so 300/min put a 200k-issue backfill
+      # past 22 hours; 600/min halves that and stays well under what Jira Cloud
+      # allows. 429s remain safe here: the client retries them with backoff, so
+      # raise this further if none appear in the worker logs.
+      requests_per_minute: 600
       page_size: 50
       request_timeout_seconds: 30
       max_retries: 3
@@ -78,3 +88,30 @@ connectors:
     secrets:
       token_env: JIRA_TOKEN
       email_env: JIRA_EMAIL
+
+  sharepoint-main:
+    provider: sharepoint
+    enabled: true
+    environment:
+      site_url: SHAREPOINT_SITE_URL
+    settings:
+      auth_mode: device_code
+      root_path: Testing - SharePoint Connector/Folder_contain_unsupportted_file
+      graph_api_url: https://graph.microsoft.com/v1.0
+      crawl_all_drives: false
+      recursive: true
+      allowed_extensions: [md]
+      excluded_extensions: []
+      include_hidden: false
+      include_pages: false
+      max_file_size_bytes: 104857600
+      fail_on_error: false
+      requests_per_minute: 120
+      page_size: 200
+      request_timeout_seconds: 60
+      max_retries: 3
+      backoff_factor: 0.5
+    secrets:
+      tenant_id_env: MICROSOFT_TENANT_ID
+      client_id_env: MICROSOFT_CLIENT_ID
+      # client_secret_env: MICROSOFT_CLIENT_SECRET

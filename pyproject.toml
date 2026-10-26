@@ -7,7 +7,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "harborrag-workspace"
-version = "2.0.0a1"
+version = "2.0.0a2"
 description = "A modular, provider-agnostic RAG framework for engineering knowledge with connectors, parsers, repositories, runtime, API, and MCP support"
 readme = "README.md"
 authors = [
@@ -49,8 +49,9 @@ dev = [
     "pytest-timeout>=2.3.0",
     "pytest-xdist>=3.8.0",
     "litellm>=1.90.0,<1.92.0",
-    "opentelemetry-api>=1.43,<2",
-    "opentelemetry-sdk>=1.43,<2",
+    "langchain-core>=1.5,<2",
+    "opentelemetry-api>=1.45.1,<2",
+    "opentelemetry-sdk>=1.45.1,<2",
     "Pillow>=10.0.0",
     "pytesseract>=0.3.13",
     "cairosvg>=2.7.0",
@@ -74,8 +75,8 @@ dev = [
     "xlwt>=1.3.0",
     "prometheus-client>=0.19.0,<1.0.0",
     "fastapi>=0.115",
-    "httpx>=0.27",
-    "httpx2>=2.7,<3",
+    "httpx>=0.28.1",
+    "httpx2>=2.10.0,<3",
 ]
 docs = [
     "tomli>=2.0.0",
@@ -128,6 +129,7 @@ module = [
     "docx2txt",
     "odf",
     "odf.*",
+    "olefile",
     "boto3",
     "google.cloud",
     "google.cloud.*",
@@ -185,6 +187,13 @@ addopts = [
     "--tb=short",
     "-m",
     "not integration and not e2e and not smoke",
+    # Eight xdist workers: each one imports the full suite (~0.5 GB), so one per
+    # CPU (`-n auto`) can exhaust a 16 GB machine. Override with `-n 0` or `-n N`.
+    "-n",
+    "8",
+    # Honour xdist_group marks (tests/conftest.py groups the shared-root workspace tests).
+    "--dist",
+    "loadgroup",
 ]
 markers = [
     "slow: marks tests as slow (deselect with '-m not slow')",
@@ -313,8 +322,13 @@ known-first-party = [
 
 [tool.uv]
 package = false
+# onnxruntime (RapidOCR) and torch publish no emscripten wheels, so a Pyodide
+# split has no solution. This stack targets CPython on Linux and macOS only.
 environments = [
-    "python_version == '3.12'",
+    "python_version == '3.12' and sys_platform != 'emscripten'",
+]
+override-dependencies = [
+    "pillow>=13.0.0",
 ]
 
 [tool.uv.workspace]
@@ -358,4 +372,10 @@ dev = [
     "pytest>=9.1.1",
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.4.0",
+    # The connector smoke scripts parse real documents through the shipped
+    # config/parsers.yaml, so its engines have to exist in the default
+    # `uv run` environment or every attachment fails as "unavailable".
+    # Narrowing the sync to one package instead drops harborrag-runtime's
+    # own dependencies, which those scripts import from source.
+    "harborrag-adapters[parsers,pdf-liteparse]",
 ]

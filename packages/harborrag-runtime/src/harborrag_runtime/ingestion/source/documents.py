@@ -8,11 +8,17 @@ from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome, TaskDocumentResult
+from harborrag_core.ingestion import (
+    BindingKind,
+    DocumentIngestionOutcome,
+    TaskDocumentResult,
+    is_retryable_failure_code,
+)
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from ..document.models import DocumentReleaseOutcome
 from ..document.service import DocumentReleaseService
+from ..failure_classification import ingestion_failure_classifier
 from .models import PlannedDocumentRelease
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")
@@ -39,10 +45,24 @@ class SourceDocumentService:
         try:
             return await self.publish_one(task_id, planned, connector)
         except Exception as error:
+            stage = getattr(error, "harborrag_stage", None)
+            if not isinstance(stage, str) or not stage:
+                stage = "FetchAndCaptureRaw"
+            code = ingestion_failure_classifier().classify(stage, error).code
+            logger.warning(
+                "Document release failed task_id=%s document=%s stage=%s code=%s",
+                task_id,
+                planned.document_id,
+                stage,
+                code,
+                exc_info=error if logger.isEnabledFor(logging.DEBUG) else None,
+            )
             await self.record_failed_document(
                 task_id,
                 planned,
-                error_type=type(error).__name__,
+                error_type=code,
+                failed_stage=stage,
+                skip_reason=getattr(error, "skip_reason", None),
             )
             return DocumentIngestionOutcome.FAILED
 
@@ -101,6 +121,7 @@ class SourceDocumentService:
         *,
         error_type: str,
         failed_stage: str = "FetchAndCaptureRaw",
+        skip_reason: str | None = None,
     ) -> None:
         normalized = error_type.strip().lower()
         if not normalized:
@@ -115,7 +136,8 @@ class SourceDocumentService:
                     **self._document_summary(planned),
                     "safe_error_code": safe_error_code,
                     "failure_stage": failed_stage,
-                    "retryable": self._retryable_failure_stage(failed_stage),
+                    "retryable": is_retryable_failure_code(safe_error_code),
+                    **({"skip_reason": skip_reason} if skip_reason else {}),
                 },
             )
         )
@@ -144,7 +166,3 @@ class SourceDocumentService:
             "document_kind": document_kind,
             "title": title,
         }
-
-    @staticmethod
-    def _retryable_failure_stage(stage: str) -> bool:
-        return stage not in {"PersistCanonical", "ChunkAndValidate"}

@@ -221,8 +221,27 @@ async def run_in_isolated_subprocess[ResultT](
                     raise SubprocessCrashError(f"{type(exc).__name__}: {exc}") from exc
 
         except asyncio.CancelledError:
-            if proc.is_alive():
-                logger.info("Activity cancelled; killing isolated subprocess pid=%s", proc.pid)
-                proc.kill()
-                await asyncio.shield(loop.run_in_executor(None, functools.partial(proc.join, 5)))
+            logger.info("Activity cancelled; killing isolated subprocess pid=%s", proc.pid)
             raise
+        finally:
+            await _kill_if_alive(proc, loop)
+
+
+async def _kill_if_alive(
+    proc: Any,
+    loop: asyncio.AbstractEventLoop,
+) -> None:
+    """Leave no child behind, whichever way the activity exited.
+
+    Only the cancellation path used to kill. A subprocess that stopped sending
+    alive signals was joined with a timeout and then abandoned once that join
+    expired -- so every hung parse leaked a live interpreter, and the document
+    stage retries five times before giving up. ``join`` returns whether or not
+    the process ended, so its outcome has to be checked rather than assumed.
+    """
+
+    if not proc.is_alive():
+        return
+    logger.warning("Killing isolated subprocess pid=%s that outlived its activity", proc.pid)
+    proc.kill()
+    await asyncio.shield(loop.run_in_executor(None, functools.partial(proc.join, 5)))

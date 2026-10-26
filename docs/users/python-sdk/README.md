@@ -72,6 +72,12 @@ await harbor.ingestion.cancel(task.task_id)
 `execution_mode: temporal` and the `harborrag[temporal]` extra. `run` executes
 directly and needs neither.
 
+Pause and resume are cooperative controls. A pause lets already-started document
+work finish, then prevents the next batch from starting; poll `status(task_id)`
+until `paused` is `True` before treating the run as paused. Resume allows new
+batches to start again. Cancelling a paused run releases that wait and converges
+on cancellation at the same safe boundary.
+
 `IngestionRequest` also accepts scoping and tuning fields: `connection_id`,
 `source_scope_id`, `path`, `pattern`, `recursive`, `updated_after`, `limit`,
 `include_attachments`, `filters`, `force_reprocess`, `discovery_page_size`,
@@ -82,7 +88,8 @@ directly and needs neither.
 [Ingestion modes](../ingestion-modes.md).
 
 To follow progress, poll `status(task_id)`. It returns a small `IngestionStatus` value
-object - `task_id`, `status`, `paused`, `cancel_requested` - and nothing more. There is no
+object - `task_id`, `status`, `paused`, `cancel_requested`, `pause_applied` - and nothing
+more. `pause_applied` confirms that the pause relay has reached the active batch. There is no
 stage sequence and no `progress` mapping on this surface.
 
 The CLI's `harborrag ingest watch` shows a richer view because it goes through the
@@ -90,7 +97,7 @@ application service, which combines workflow status, per-stage progress, and exe
 status. That composite payload is not exposed through the SDK facade.
 
 > `IngestionStatus` names two different things in HarborRAG: this SDK value object, and the
-> HTTP lifecycle enum (`PENDING`, `RUNNING`, `SUCCESS`, `PARTIAL`, `FAILED`, `CANCELLED`)
+> HTTP lifecycle enum (`PENDING`, `RUNNING`, `PAUSED`, `SUCCESS`, `PARTIAL`, `FAILED`, `CANCELLED`)
 > in the API schemas. The annotation above refers to the SDK one.
 
 ## Retrieval

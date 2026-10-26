@@ -8,7 +8,8 @@ from typing import Any, cast
 import pytest
 from pydantic import SecretStr
 
-from harborrag_runtime.composition.resources import embedding_dimensions
+from harborrag_runtime.composition.resources import check_embedding_dimensions, embedding_dimensions
+from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 
 
@@ -77,3 +78,29 @@ def test_rate_limiter_builds_the_configured_redis_backend(
             },
         )
     ]
+
+
+@pytest.mark.whitebox
+def test_explicit_dimension_conflicting_with_catalog_fails_fast() -> None:
+    with pytest.raises(RuntimeConfigurationError) as failure:
+        check_embedding_dimensions(_config(1536), "embedding", 768)
+
+    assert "HARBORRAG_EMBEDDING_DIMENSIONS=768" in str(failure.value)
+    assert "'embedding'" in str(failure.value) and "1536" in str(failure.value)
+    check_embedding_dimensions(_config(1536), "embedding", 1536)
+    # An ambiguous or unknown catalog entry leaves the explicit value in charge.
+    check_embedding_dimensions(_config(None), "embedding", 768)
+
+
+@pytest.mark.whitebox
+def test_explicit_dimension_overrides_a_model_without_deployment_dimensions() -> None:
+    """A configurable-dimension model's default is not a contradiction.
+
+    Only a deployment's ``expected_dimensions`` pins the width; ``default_params`` is
+    just what is requested when nothing overrides it.
+    """
+
+    check_embedding_dimensions(_config(None, default=1536), "embedding", 768)
+    check_embedding_dimensions(_config(default=1536), "embedding", 768)
+    with pytest.raises(RuntimeConfigurationError, match="HARBORRAG_EMBEDDING_DIMENSIONS=768"):
+        check_embedding_dimensions(_config(1536, None, default=1536), "embedding", 768)

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from harborrag_core.chunking import ChunkRecord, RecordKind, thaw_metadata
 from harborrag_core.contracts.chunking import TokenCounter
 
-from ..config import ChunkingProfile
+from ..config import ROUTE_MAXIMUM_TOKENS, ChunkingProfile
 from ..identity import content_fingerprint
 from ..schemas import ChunkingRequest, ChunkValidationResult
 
@@ -48,8 +48,13 @@ class ChunkValidator:
             }
         )
 
+        kind_counts: dict[RecordKind, int] = {}
+
         for expected_ordinal, record in enumerate(records):
             label = f"chunk[{expected_ordinal}]"
+            current_kind_count = kind_counts.get(record.record_kind, 0)
+            if record.ordinal != current_kind_count:
+                errors.append(f"{label} ordinal is not contiguous for {record.record_kind.value}")
             self._validate_content(record, profile, errors, warnings, label)
             self._validate_provenance(record, request, errors, label)
             self._validate_metadata(record, errors, label)
@@ -57,6 +62,7 @@ class ChunkValidator:
             self._validate_neighbors(records, expected_ordinal, errors, label)
             if source_validator is not None:
                 source_validator(record, errors, label)
+            kind_counts[record.record_kind] = current_kind_count + 1
 
         return ChunkValidationResult(
             valid=not errors,
@@ -103,7 +109,11 @@ class ChunkValidator:
             errors.append(f"{label} token_count is not exact")
         if exact_count < 1:
             errors.append(f"{label} token_count must be positive")
-        maximum_tokens = 512 if record.record_kind == RecordKind.ROUTE else profile.maximum_tokens
+        maximum_tokens = (
+            ROUTE_MAXIMUM_TOKENS
+            if record.record_kind == RecordKind.ROUTE
+            else profile.maximum_tokens
+        )
         if exact_count > maximum_tokens:
             errors.append(f"{label} exceeds maximum_tokens")
         if record.record_kind != RecordKind.ROUTE and exact_count < profile.minimum_tokens:
@@ -183,8 +193,6 @@ class ChunkValidator:
         label: str,
     ) -> None:
         record = records[ordinal]
-        if record.ordinal != ordinal:
-            errors.append(f"{label} ordinal is not contiguous")
         previous = str(records[ordinal - 1].logical_chunk_id) if ordinal else None
         next_ = str(records[ordinal + 1].logical_chunk_id) if ordinal + 1 < len(records) else None
         if cls._optional_id(record.hierarchy.previous_chunk_id) != previous:

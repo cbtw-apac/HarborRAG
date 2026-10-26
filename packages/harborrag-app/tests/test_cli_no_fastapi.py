@@ -56,3 +56,27 @@ def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
     )
 
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.smoke
+def test_cli_import_does_not_load_storage_clients() -> None:
+    """`harborrag --help` must not pay for the storage client libraries."""
+
+    heavy = ("qdrant_client", "aioboto3", "sqlalchemy", "falkordb")
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            (
+                "import sys; import harborrag_app.cli.main; "
+                f"loaded = [m for m in {heavy!r} if m in sys.modules]; "
+                "assert not loaded, loaded"
+            ),
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+
+    assert result.returncode == 0, result.stderr

@@ -167,6 +167,26 @@ def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestCl
     assert conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
 
 
+def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
+    client: TestClient,
+) -> None:
+    pause_accepted = client.post("/v1/ingestions/ing_1/pause")
+    pause_conflict = client.post("/v1/ingestions/complete/pause")
+
+    assert pause_accepted.status_code == 202
+    assert pause_accepted.json()["message"] == "Pause requested"
+    assert pause_conflict.status_code == 409
+    assert pause_conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
+
+    resume_accepted = client.post("/v1/ingestions/ing_1/resume")
+    resume_conflict = client.post("/v1/ingestions/complete/resume")
+
+    assert resume_accepted.status_code == 202
+    assert resume_accepted.json()["message"] == "Resume requested"
+    assert resume_conflict.status_code == 409
+    assert resume_conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
+
+
 def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) -> None:
     selected = client.post(
         "/v1/ingestions/ing_1/retry-failures",

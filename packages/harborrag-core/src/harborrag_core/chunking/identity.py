@@ -79,12 +79,23 @@ def manifest_fingerprint(chunk_ids: Iterable[str]) -> str:
 class CanonicalIdentityBuilder:
     """Build deterministic source-independent canonical identities."""
 
-    def section_id(self, *, document_id: str, section_path: Sequence[str]) -> str:
+    def section_id(
+        self,
+        *,
+        document_id: str,
+        section_path: Sequence[str],
+        stable_source_anchors: Sequence[str] = (),
+    ) -> str:
         return encoded_identifier(
             "section",
             {
                 "document_id": document_id,
                 "section_path": normalize_structural_path(section_path),
+                **(
+                    {"stable_source_anchors": tuple(stable_source_anchors)}
+                    if stable_source_anchors
+                    else {}
+                ),
             },
         )
 

@@ -87,14 +87,15 @@ def test_chat_completion_rejects_unknown_or_cross_tenant_session(client: TestCli
     assert wrong_tenant.status_code == 404
 
 
-def test_chat_completion_requires_session_and_prompt(client: TestClient) -> None:
+def test_chat_completion_creates_session_and_requires_prompt(client: TestClient) -> None:
     no_session = client.post("/v1/chat/completions", json={"prompt": "Hello"})
     no_prompt = client.post(
         "/v1/chat/completions",
         json={"session_id": "session-1"},
     )
 
-    assert no_session.status_code == 422
+    assert no_session.status_code == 200
+    assert no_session.json()["session_id"].startswith("session-")
     assert no_prompt.status_code == 422
 
 
@@ -108,6 +109,71 @@ def test_chat_completion_rejects_provider_specific_query_parameters(client: Test
             "prompt": "Hello",
             "model": "provider-secret-model",
         },
+    )
+
+    assert response.status_code == 422
+
+
+def test_chat_completion_accepts_an_agent_session(client: TestClient) -> None:
+    """Execution modes share the same conversation identity."""
+
+    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
+    assert created.status_code == 201
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": created.json()["session_id"], "prompt": "Hello"},
+    )
+
+    assert response.status_code == 200
+
+
+def test_chat_completion_exposes_memory_persisted_flag(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": session_id, "prompt": "Hello"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["memory_persisted"] is True
+    del service
+
+
+def test_chat_completion_forwards_project_and_user_identity(
+    client: TestClient,
+    service: MockAppService,
+) -> None:
+    session_id = _session(client, "ACME")
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={
+            "tenant": "ACME",
+            "session_id": session_id,
+            "prompt": "Explain HarborRAG",
+            "project_id": "proj-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["project_id"] == "proj-1"
+    call = service.chat_calls[0]
+    assert call["project_id"] == "proj-1"
+    # auth_mode=none: the implicit dev principal is also the end user.
+    assert call["user_id"] == "DEFAULT_USER"
+
+
+def test_chat_completion_rejects_a_malformed_project_id(client: TestClient) -> None:
+    session_id = _session(client)
+
+    response = client.post(
+        "/v1/chat/completions",
+        json={"session_id": session_id, "prompt": "Hi", "project_id": "../etc"},
     )
 
     assert response.status_code == 422

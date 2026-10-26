@@ -23,6 +23,21 @@ class FinishReason(StrEnum):
     ERROR = "error"
     UNKNOWN = "unknown"
 
+    @classmethod
+    def parse(cls, value: object) -> FinishReason:
+        """Map any provider value onto the enum, unrecognized ones to UNKNOWN.
+
+        A finish reason is metadata about a completed call, so an unfamiliar
+        one must not turn a successful response into a validation error.
+        """
+
+        if isinstance(value, cls):
+            return value
+        try:
+            return cls(str(value).strip().lower())
+        except ValueError:
+            return cls.UNKNOWN
+
 
 class StreamEventType(StrEnum):
     """Enumerate supported stream event type values."""

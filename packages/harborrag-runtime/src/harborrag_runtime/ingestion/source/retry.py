@@ -114,6 +114,7 @@ class SourceRetryService:
         original_task_id: str,
         planned: PlannedDocumentRelease,
         error_type: str,
+        skip_reason: str | None = None,
     ) -> None:
         previous = await self._control.tasks.document_result(
             original_task_id,
@@ -129,4 +130,5 @@ class SourceRetryService:
             planned,
             error_type=error_type,
             failed_stage=failed_stage,
+            skip_reason=skip_reason,
         )

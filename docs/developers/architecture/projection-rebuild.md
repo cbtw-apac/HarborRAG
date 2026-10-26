@@ -42,7 +42,7 @@ authoritative. Do not delete them. Qdrant and FalkorDB are rebuildable projectio
 
 Chunk text is stored only as `content` in the evidence payload. FalkorDB stores
 no content preview. Each evidence `chunk_id` is also an exact-key `Chunk` node
-linked to document structure by `SUPPORTS`, which enables the retrieval flow:
+linked from document structure by `HAS_CHUNK`, which enables the retrieval flow:
 vector search, exact `chunk_id` graph seed, then bounded subgraph expansion.
 
 ## Entering the graph
@@ -53,14 +53,19 @@ lowercased `title` - nothing partial, and `title` is null on every `Chunk` node.
 bridge that makes the graph reachable is that a vector payload's `chunk_id` *is* the
 `Chunk` node key, so `vector_search` resolves selectors for the graph tools.
 
-Two traversal defaults follow from the spine not being uniformly directed -
-`(:Chunk)-[:SUPPORTS]->(:Structure)` points *into* it while
-`(:DocumentVersion)-[:CONTAINS]->(:Structure)` points down it:
+Two traversal defaults follow from the spine pointing down, parent to child -
+`(:DocumentVersion)-[:CONTAINS]->(:Structure)-[:HAS_CHUNK]->(:Chunk)` - so a walk from
+a chunk to its document runs against every edge:
 
-- Path and subgraph queries default to `both`. A directed default cannot walk from a
+- Path and subgraph queries default to `both`. An `outgoing` default cannot walk from a
   chunk to its own document, which is the most common question asked of this graph.
 - Graph observation traverses undirected at depth 2, which is exactly far enough to
   reach a chunk's `Structure` and then its `DocumentVersion`.
+
+Before 2.0.0a2 the chunk edge was `(:Chunk)-[:SUPPORTS]->(:Structure)`. A graph
+written by 2.0.0a1 still holds `SUPPORTS` edges until it is reset and re-ingested, and
+the graph tools no longer accept `supports` as a relation filter: use `has_chunk`, and
+note that it points the other way.
 
 Version filtering happens after the store answers, so every graph read widens its
 request before rejecting stale records; otherwise a neighborhood dominated by superseded
@@ -89,7 +94,7 @@ of the chain to its own hierarchy:
 
 ```text
 (:Tenant)-[:HAS_DATA_SOURCE]->(:DataSource)-[:CONTAINS]->(:SourceEntity)
-    -[:HAS_VERSION]->(:DocumentVersion)-[:CONTAINS]->(:Structure)<-[:SUPPORTS]-(:Chunk)
+    -[:HAS_VERSION]->(:DocumentVersion)-[:CONTAINS]->(:Structure)-[:HAS_CHUNK]->(:Chunk)
 ```
 
 | Connector | `DataSource` expands to |
@@ -102,11 +107,12 @@ of the chain to its own hierarchy:
 
 Tenant isolation is enforced in two independent places, and both are required.
 Qdrant gives each tenant a physically separate collection, so `tenant_id` is
-deliberately not a payload field. FalkorDB shares one graph, so `tenant_id` is
-part of the node merge identity and of the uniqueness constraint, not merely a
-filter property - version-owned node keys (`DocumentVersion`, `Structure`,
-`Chunk`) do not hash the tenant, so without it two tenants that produced the same
-document version would share a node.
+deliberately not a payload field. FalkorDB likewise gives each tenant its own
+graph, named after the tenant in the same way. `tenant_id` also stays part of the
+node merge identity and of the uniqueness constraint, not merely a filter
+property - version-owned node keys (`DocumentVersion`, `Structure`, `Chunk`) do
+not hash the tenant, so without it two tenants that produced the same document
+version would share a node.
 
 ## Why chunk text lives in two places
 
@@ -130,11 +136,15 @@ The same asymmetry rules out storing `embedding_text` *as* `content`: `content` 
 what gets cited and shown to the model, while `embedding_text` is a retrieval-only
 representation carrying duplicated context headers.
 
-There is no intra-tenant permission model. Everyone in a tenant sees everything,
-which is why `security.permission_set_id` and `visibility` are carried on
-`ChunkRecord` and persisted to the object store but deliberately not projected
-into either store. `AuthoritativeProjectionSearch` validates version activeness,
-not access.
+Intra-tenant serving now requires current, readable source and document
+permission snapshots. `security.permission_set_id` and `visibility` remain on
+`ChunkRecord` in the object store rather than being projected as a grant into
+Qdrant or FalkorDB. Retrieval gets an authorized document allowlist from the
+canonical permission repository before vector ranking and checks it again
+before returning candidates. `AuthoritativeProjectionSearch` handles version
+activeness; the surrounding retrieval service applies access control. Missing
+or expired snapshots deny access, and connectors do not yet synchronize them
+automatically.
 
 For an existing development deployment:
 

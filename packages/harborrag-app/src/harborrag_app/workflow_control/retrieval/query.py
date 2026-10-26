@@ -8,7 +8,7 @@ from collections.abc import Callable, Mapping
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalRequest
+from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalMode, RetrievalRequest
 
 from ..errors import failure_response
 from ..schemas import AppResponse
@@ -29,6 +29,7 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
     top_k: int = 10,
     filters: Mapping[str, object] | None = None,
     lane: RetrievalLane = RetrievalLane.HYBRID,
+    mode: RetrievalMode = RetrievalMode.FLAT,
     observe_graph: bool = False,
     include_content: bool = False,
     include_metadata: bool = False,
@@ -46,6 +47,7 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
                 top_k=top_k,
                 filters=dict(filters or {}),
                 lane=lane,
+                mode=mode,
                 observe_graph=observe_graph,
             )
         )

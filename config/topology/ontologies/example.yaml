@@ -1,0 +1,40 @@
+# Worked example of an operator-authored extraction vocabulary.
+#
+# This is the CLOSED set of entity types and relation predicates the LLM may emit.
+# It is compiled into the structured-output JSON schema as Literal enums, so the
+# model physically cannot return a type that is not listed here.
+#
+# To use it, declare it in config/topology/graph_build.yaml and name it on a source:
+#
+#   ontologies:
+#     example: ontologies/example.yaml
+#   tenants:
+#     - tenant_id: DEFAULT
+#       sources:
+#         - source_scope_id: your-scope
+#           ontology: example
+#
+# Changing this file changes the extraction profile fingerprint, which forces
+# affected documents to be re-extracted rather than mixing two vocabularies.
+
+version: example-v1
+
+entity_types: [person, team, service, document, policy]
+
+relations:
+  - name: owns
+    subjects: [person, team]
+    objects: [service, document, policy]
+    examples: ["Team A owns Service B."]
+    exclusions: ["Proximity or shared names do not establish ownership."]
+
+  - name: depends_on
+    subjects: [service]
+    objects: [service]
+    examples: ["Service A depends on Service B."]
+    exclusions: ["Co-occurrence does not establish a dependency."]
+
+  - name: related_to
+    subjects: any
+    objects: any
+    exclusions: ["Shared passage membership alone is not a relationship."]

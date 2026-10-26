@@ -5,6 +5,8 @@ import json
 import re
 from pathlib import Path
 
+from .constants import UNKNOWN_PROJECT_VERSION
+
 
 class ProjectStructureMixin:
     """Focused website-build operations composed by ``WebsiteBuilder``."""
@@ -13,7 +15,7 @@ class ProjectStructureMixin:
         """Generate project information for templates."""
         project_info = {
             "name": "HarborRAG",
-            "version": "2.0.0a1",
+            "version": UNKNOWN_PROJECT_VERSION,
             "status": "Alpha",
             "license": "Apache-2.0",
             "description": "A modular, provider-agnostic RAG framework for engineering knowledge",
@@ -97,7 +99,7 @@ class ProjectStructureMixin:
             pass
 
         # Add build metadata
-        from datetime import datetime
+        from datetime import UTC, datetime
 
         commit_hash = project_info.get("commit_hash", "")
         project_info["commit"] = {
@@ -105,7 +107,9 @@ class ProjectStructureMixin:
             "short": commit_hash[:7] if isinstance(commit_hash, str) else "",
             "date": project_info.get("commit_date", ""),
         }
-        project_info["build"] = {"timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z"}
+        project_info["build"] = {
+            "timestamp": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        }
 
         # Write project info JSON file
         project_info_path = self.output_dir / "project-info.json"

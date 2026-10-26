@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import Field
 
 from harborrag_core.base import StrictModel
@@ -11,6 +13,7 @@ class AccessContext(StrictModel):
 
     principal_id: str = Field(min_length=1, max_length=255)
     tenant_id: TenantId
+    corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
 
     @classmethod
     def system(cls, tenant_id: str | TenantId) -> AccessContext:

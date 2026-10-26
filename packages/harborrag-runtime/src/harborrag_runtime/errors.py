@@ -7,8 +7,21 @@ class RuntimeConfigurationError(ValueError):
     """Raised when runtime configuration is internally inconsistent."""
 
 
+class MissingOptionalDependencyError(RuntimeConfigurationError):
+    """A requested runtime capability was not installed."""
+
+
+class VectorIndexSchemaError(RuntimeConfigurationError):
+    """The existing vector index does not match the configured vector schema.
+
+    Raised while a run provisions its projection structures. Retrying cannot
+    help, and the operator needs both dimensions to decide between changing the
+    configuration and re-creating the index.
+    """
+
+
 class RuntimeConnectionError(ConnectionError):
-    """Raised when the runtime cannot connect to Temporal."""
+    """Raised when the runtime cannot reach Temporal or a storage backend."""
 
 
 class WorkflowSubmissionError(RuntimeError):

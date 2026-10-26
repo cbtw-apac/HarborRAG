@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from sqlalchemy import insert, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.base import utc_now
@@ -11,6 +12,7 @@ from harborrag_core.contracts import HarborNotFoundError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DocumentFailure,
+    DocumentVersionState,
     ProjectionCleanupJob,
     ProjectionManifest,
 )
@@ -19,6 +21,8 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from .row_mapping import cleanup_job_from_row
 from .schema import (
     DOCUMENT_FAILURES,
+    DOCUMENT_VERSIONS,
+    DOCUMENTS,
     PROJECTION_CLEANUP_JOBS,
     PROJECTION_MANIFESTS,
     SOURCE_ITEMS,
@@ -127,7 +131,7 @@ class IngestionReliabilityRepository:
             if row["status"] in {
                 CleanupJobState.CANCELLED.value,
                 CleanupJobState.COMPLETED.value,
-            }:
+            } and not await _held_by_retention(session, document_version_id):
                 await session.execute(
                     update(PROJECTION_CLEANUP_JOBS)
                     .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup_id)
@@ -150,10 +154,13 @@ class IngestionReliabilityRepository:
     async def pending_cleanup_jobs(
         self,
         *,
+        tenant_id: str,
         limit: int = 100,
         document_ids: Sequence[str] | None = None,
         source_scope_id: str | None = None,
     ) -> tuple[ProjectionCleanupJob, ...]:
+        if not tenant_id.strip():
+            raise ValueError("cleanup tenant_id must be non-empty")
         if not 1 <= limit <= 1_000:
             raise ValueError("cleanup job limit must be between 1 and 1000")
         if document_ids is not None and source_scope_id is not None:
@@ -162,12 +169,20 @@ class IngestionReliabilityRepository:
             raise ValueError("cleanup source_scope_id must be non-empty")
         if document_ids is not None and not document_ids:
             return ()
-        statement = select(PROJECTION_CLEANUP_JOBS).where(
-            PROJECTION_CLEANUP_JOBS.c.status.in_(
-                (
-                    CleanupJobState.PENDING.value,
-                    CleanupJobState.FAILED.value,
-                )
+        # The caller runs every returned job under its own tenant's storage
+        # context, so a job owned by another tenant would delete nothing and
+        # still be marked COMPLETED.
+        statement = (
+            select(PROJECTION_CLEANUP_JOBS)
+            .join(DOCUMENTS, DOCUMENTS.c.document_id == PROJECTION_CLEANUP_JOBS.c.document_id)
+            .where(
+                DOCUMENTS.c.tenant_id == tenant_id,
+                PROJECTION_CLEANUP_JOBS.c.status.in_(
+                    (
+                        CleanupJobState.PENDING.value,
+                        CleanupJobState.FAILED.value,
+                    )
+                ),
             )
         )
         if document_ids is not None:
@@ -318,3 +333,18 @@ class IngestionReliabilityRepository:
                 .where(PROJECTION_CLEANUP_JOBS.c.cleanup_job_id == cleanup_job_id)
                 .values(**values)
             )
+
+
+async def _held_by_retention(session: AsyncSession, document_version_id: str) -> bool:
+    """Whether the retention purge owns the version, so its completed cleanup stays.
+
+    The purge selects only versions whose cleanup COMPLETED. Re-opening that job for
+    a PURGING version would hide an interrupted purge from every later run.
+    """
+
+    status = await session.scalar(
+        select(DOCUMENT_VERSIONS.c.status).where(
+            DOCUMENT_VERSIONS.c.document_version_id == document_version_id
+        )
+    )
+    return status in {DocumentVersionState.PURGING.value, DocumentVersionState.PURGED.value}

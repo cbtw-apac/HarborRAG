@@ -21,6 +21,7 @@ STATUS_STYLES = {
     "cancelled": "dim",
     "completed": "green",
     "failed": "red",
+    "partial": "yellow",
     # Temporal execution statuses, which use American spelling and cover
     # outcomes the workflow cannot report about itself.
     "canceled": "dim",

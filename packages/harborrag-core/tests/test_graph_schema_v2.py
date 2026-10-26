@@ -61,6 +61,46 @@ def test_graph_schema_v2_rejects_non_allowlisted_provider_attributes() -> None:
         )
 
 
+def _local_file_node(path: str) -> GraphNodeRecord:
+    return GraphNodeRecord(
+        node_key="stable-key",
+        node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
+        entity_type=GraphEntityType.LOCAL_FILE,
+        logical_id=path,
+        ownership_scope=GraphOwnershipScope.SOURCE_SCOPE,
+        owner_id="tenant-1",
+        source_scope_id="scope-1",
+        attributes={"relative_path": path},
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/srv/repo/notes.md",
+        "\\\\server\\share\\notes.md",
+        "C:\\repo\\notes.md",
+        "C:/repo/notes.md",
+        "C:repo/notes.md",
+    ],
+)
+def test_graph_schema_v2_rejects_host_specific_local_paths(path: str) -> None:
+    """A local path is only a document identity if it means the same elsewhere.
+
+    Every Windows drive form is as host-specific as a leading separator:
+    ``C:\\repo`` and ``C:/repo`` are rooted, and ``C:repo`` is relative to that
+    drive's own working directory.
+    """
+
+    with pytest.raises(ValidationError, match="portable relative paths"):
+        _local_file_node(path)
+
+
+@pytest.mark.parametrize("path", ["notes.md", "docs/notes.md", "docs/nested/notes.md"])
+def test_graph_schema_v2_accepts_portable_local_paths(path: str) -> None:
+    assert _local_file_node(path).attributes["relative_path"] == path
+
+
 def test_graph_schema_v2_requires_ids_only_for_version_owned_records() -> None:
     with pytest.raises(ValidationError, match="requires document and version IDs"):
         GraphNodeRecord(

@@ -22,7 +22,8 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.errors import HarborChatProviderError
 
 from .configs import HarborChatProviderConfig
-from .reasoning import normalize_reasoning_content, reasoning_metadata
+from .cost import response_cost
+from .reasoning import normalize_reasoning_content, reasoning_metadata, split_leading_think_block
 
 _FINISH_REASON_ALIASES = {
     "stop": FinishReason.STOP,
@@ -73,6 +74,8 @@ def normalize_chat_response(
         )
     hidden = sdk_hidden_parameters(raw, data)
     reasoning_content = normalize_reasoning_content(choice, message_data)
+    if deployment.reasoning.parse_think_tags:
+        content, reasoning_content = split_leading_think_block(content, reasoning_content)
     provider_model = str(data.get("model") or deployment.model)
     tool_calls = normalize_tool_calls(
         message_data.get("tool_calls"),
@@ -88,6 +91,7 @@ def normalize_chat_response(
         message=HarborChatMessage.assistant(content, tool_calls=tool_calls),
         finish_reason=normalize_finish_reason(choice.get("finish_reason")),
         usage=normalize_chat_usage(data.get("usage")),
+        estimated_cost_usd=response_cost(raw, deployment=deployment),
         latency_ms=latency_ms,
         request_id=request_id,
         provider_request_id=_provider_request_id(hidden),

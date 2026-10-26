@@ -16,16 +16,25 @@ from harborrag_adapters.repositories.graph.falkordb.knowledge_support import (
 _INDEXED_PROPERTIES = (
     "tenant_id",
     "node_key",
+    "logical_id",
+    "title_key",
     "graph_schema_version",
     "entity_type",
+    # node_kind was written on every node and filtered by nothing: the per-kind
+    # label served kind scans, so the property had no index and no reader. Health
+    # and admin queries that want one kind can now use either.
+    "node_kind",
     "ownership_scope",
     "source_scope_id",
     "document_id",
     "document_version_id",
 )
 # Relationship predicates were previously unindexed scans in every traversal, delete, and
-# count. Indexing tenant_id per relationship type covers the universal filter.
-_INDEXED_RELATION_PROPERTIES = ("tenant_id",)
+# count. Indexing tenant_id per relationship type covers the universal filter. It selects
+# nothing in a graph that holds one tenant, though, so the per-document lookups -- verify
+# by relation_id, retract and clean up by document_version_id -- need their own indexes,
+# or each one walks every edge of its type.
+_INDEXED_RELATION_PROPERTIES = ("tenant_id", "relation_id", "document_version_id")
 # The merge identity for a node is the full triple, so the uniqueness constraint must be
 # the same triple. node_key alone would both contradict the tenant merge key and reject a
 # future schema version writing the same key.
@@ -68,6 +77,12 @@ async def provision_graph(database: FalkorDBClient) -> None:
     for relationship_type in sorted(set(RELATION_IDENTIFIERS.values())):
         for property_name in _INDEXED_RELATION_PROPERTIES:
             await _create_relation_index(database, relationship_type, property_name)
+    await database.write(
+        "MATCH (node:KnowledgeNode) "
+        "WHERE node.title_key IS NULL AND node.title IS NOT NULL "
+        "SET node.title_key = toLower(node.title)",
+        {},
+    )
     # Drop before create, never the reverse. The tenant-keyed MERGE is already live by the
     # time this runs, so leaving UNIQUE(node_key) in place rejects the second tenant of a
     # shared node_key. Creating first and dropping second would leave exactly that state

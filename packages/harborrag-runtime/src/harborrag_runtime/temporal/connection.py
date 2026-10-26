@@ -37,6 +37,3 @@ async def connect_temporal_client(config: TemporalRuntimeConfig) -> Client:
             "stack), not an http(s) URL or the Web UI port (8080), and verify "
             "that the TLS mode matches the server."
         ) from error
-
-
-__all__ = ["connect_temporal_client"]

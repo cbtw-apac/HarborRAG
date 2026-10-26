@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -24,7 +25,21 @@ from harborrag_runtime.config.loading import (
     require_string_mapping,
 )
 
+logger = logging.getLogger("harborrag.runtime.config.connectors")
+
 _CONNECTOR_KEYS = frozenset({"enabled", "environment", "provider", "secrets", "settings"})
+# Settings a release removed but still accepts, ignored with a WARNING, so a
+# config file written for the previous release keeps loading for one more
+# release instead of turning that connector into an invalid definition.
+# provider -> {setting: what the operator should know}
+_DEPRECATED_SETTINGS: Mapping[str, Mapping[str, str]] = {
+    "confluence": {
+        "max_child_pages": (
+            "it was removed after 2.0.0a1 and has no effect: every listed content_ids "
+            "page is now ingested with its whole subtree of descendant pages"
+        ),
+    },
+}
 
 
 def parse_connector_definitions(
@@ -97,6 +112,7 @@ def _parse_definition(
         name,
         definition.get("secrets", {}),
     )
+    _drop_deprecated_settings(name, provider, settings, setting_environment)
     _validate_provider_fields(
         name,
         provider,
@@ -170,6 +186,29 @@ def _parse_setting_environment(name: str, raw: object) -> dict[str, str]:
         label=f"connector {name!r} environment",
         error_type=ConnectorConfigurationError,
     )
+
+
+def _drop_deprecated_settings(
+    name: str,
+    provider: str,
+    settings: dict[str, Any],
+    setting_environment: dict[str, str],
+) -> None:
+    """Remove removed-but-tolerated settings in place, with a WARNING each."""
+    for setting, consequence in _DEPRECATED_SETTINGS.get(provider, {}).items():
+        found = setting in settings or setting in setting_environment
+        settings.pop(setting, None)
+        setting_environment.pop(setting, None)
+        if found:
+            logger.warning(
+                "Connector %r sets the deprecated %s setting %r, which is ignored; %s. "
+                "Delete it from the connector configuration; a later release will "
+                "reject it.",
+                name,
+                provider,
+                setting,
+                consequence,
+            )
 
 
 def _validate_provider_fields(

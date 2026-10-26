@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import math
+import re
+import unicodedata
 from typing import Any
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
-from harborrag_adapters.parsers.common.normalization import compact_text, html_to_text
+from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
+from harborrag_adapters.parsers.common.markdown_tables import TableCell, markdown_table
+from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_core.ingestion import is_runtime_field
 
 from .schemas import (
     JiraCustomFieldKind,
@@ -14,6 +20,18 @@ from .schemas import (
 )
 
 CUSTOM_FIELD_PREFIX = "customfield_"
+
+_ADF_TABLE_CELL_TYPES = frozenset({"tableCell", "tableHeader"})
+
+# Markdown constructs that are only recognized at the start of a line.
+_STARTS_MARKDOWN_BLOCK = re.compile(r"\||#{1,6} |> |[-*+] |\d+\. |```|~~~")
+
+_FIELD_KEY_SEPARATORS = re.compile(r"[^a-z0-9]+")
+# Latin letters NFKD does not decompose into a base letter plus a mark.
+_FIELD_KEY_LETTERS = str.maketrans({"đ": "d", "ø": "o", "ł": "l", "æ": "ae", "œ": "oe"})
+_MAX_FILTER_VALUE_CHARS = 256
+
+type FieldFilterValue = str | float | bool | list[str]
 
 
 def build_raw_content(
@@ -37,7 +55,7 @@ def build_raw_content(
     ]
 
     custom_field_lines = [
-        f"{field.name}: {field.text}".strip()
+        labelled_block(field.name, field.text)
         for field in custom_field_metadata(issue)
         if field.text
     ]
@@ -49,15 +67,39 @@ def build_raw_content(
         for comment in comments:
             author = _display_name(comment.get("author") or {})
             body = field_text(comment.get("body") or comment.get("renderedBody"))
-            lines.append(f"{author}: {body}".strip(": "))
+            lines.append(labelled_block(author, body))
 
     processed = [item for item in attachments or [] if item.text]
     if processed and include_attachment_text:
         lines.extend(["", "## Attachments"])
         for attachment in processed:
-            lines.extend((f"### {attachment.title}", attachment.text or ""))
+            # Carry the upload time into the rendered text, not just structured
+            # metadata, so retrieval over an attachment's own content can still
+            # answer when the file was attached.
+            heading = f"### {attachment.title}"
+            if attachment.created_at:
+                heading = f"{heading} (attached {attachment.created_at})"
+            lines.extend((heading, attachment.text or ""))
 
     return compact_text("\n".join(lines))
+
+
+def labelled_block(label: str | None, text: str) -> str:
+    """Attach a comment author or field name to the text it introduces.
+
+    Text that opens a Markdown block starts on its own line instead: a table
+    header row, heading, or list item only counts as one when it begins the
+    line, so prefixing `label: ` onto it would render the block as prose and
+    lose the structure the label was meant to introduce.
+    """
+    label = (label or "").strip()
+    text = text.strip()
+    if not label:
+        return text
+    if not text:
+        return label
+    separator = "\n" if _STARTS_MARKDOWN_BLOCK.match(text) else " "
+    return f"{label}:{separator}{text}"
 
 
 def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata]:
@@ -101,6 +143,101 @@ def custom_field_metadata(issue: dict[str, Any]) -> list[JiraCustomFieldMetadata
             )
         )
     return values
+
+
+def field_key(name: str) -> str:
+    """The payload key one custom field is filtered by: ``Skill Set`` -> ``skill_set``.
+
+    Accents are folded rather than treated as separators, so ``Kỹ năng`` is
+    ``ky_nang`` and ``Résumé`` is ``resume``. A name with no Latin letters or
+    digits left, such as ``経験年数``, normalizes to ``""``.
+    """
+
+    decomposed = unicodedata.normalize("NFKD", name.casefold())
+    unaccented = "".join(char for char in decomposed if unicodedata.category(char) != "Mn")
+    return _FIELD_KEY_SEPARATORS.sub("_", unaccented.translate(_FIELD_KEY_LETTERS)).strip("_")
+
+
+def filterable_fields(
+    fields: list[JiraCustomFieldMetadata],
+) -> dict[str, FieldFilterValue]:
+    """Map every typed custom field to one exact, filterable value.
+
+    Prose fields are left out: they are evidence of their own, and nobody filters
+    on a paragraph. A number stays a number, so a range filter works on it; an
+    option or user list keeps each member, so set membership matches any one of
+    them. A display name that cannot be a key -- one that normalizes to a key
+    already taken, or to a runtime-only name knowledge records reject, such as
+    ``Request ID`` -- falls back to the field id rather than overwriting the
+    first or failing the whole document version.
+    """
+
+    keys = filter_keys(fields)
+    output: dict[str, FieldFilterValue] = {}
+    for field in fields:
+        if field.value_kind == JiraCustomFieldKind.PROSE:
+            continue
+        value = _filter_value(field)
+        if value is not None:
+            output[keys[field.field_id]] = value
+    return output
+
+
+def filter_keys(fields: list[JiraCustomFieldMetadata]) -> dict[str, str]:
+    """Assign each custom field id its payload key from the issue's field schema.
+
+    Ownership is settled over every field, empty or prose ones included, so
+    ``fields.team`` names the same field on every issue whichever fields happen
+    to hold a value there (a field's kind can depend on its value). Among names
+    that normalize alike, the lowest field id in plain string order keeps the
+    readable key and the others fall back to their field id.
+    """
+
+    keys: dict[str, str] = {}
+    taken: set[str] = set()
+    for field_id, name in sorted({field.field_id: field.name for field in fields}.items()):
+        key = field_key(name)
+        if not key or key in taken or is_runtime_field(key):
+            key = field_key(field_id)
+        keys[field_id] = key
+        taken.add(key)
+    return keys
+
+
+def _filter_value(field: JiraCustomFieldMetadata) -> FieldFilterValue | None:
+    raw = field.value
+    if field.value_kind == JiraCustomFieldKind.NUMBER:
+        try:
+            number = float(raw if isinstance(raw, (int, float)) else field.text)
+        except (TypeError, ValueError):
+            return None
+        return number if math.isfinite(number) else None
+    if field.value_kind == JiraCustomFieldKind.BOOLEAN:
+        return raw if isinstance(raw, bool) else None
+    # Read members from the raw value, not the rendered text: rendering turns an
+    # email into a Markdown link and a user list into one multi-line string.
+    values = list(dict.fromkeys(_member_texts(raw))) or ([field.text] if field.text else [])
+    values = [value[:_MAX_FILTER_VALUE_CHARS] for value in values]
+    if not values:
+        return None
+    return values[0] if len(values) == 1 else values
+
+
+def _member_texts(value: Any) -> list[str]:
+    if isinstance(value, bool):
+        return []
+    if isinstance(value, str):
+        return [value.strip()] if value.strip() else []
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, dict):
+        for key in ("value", "displayName", "name", "key"):
+            if isinstance(value.get(key), str) and value[key].strip():
+                return [value[key].strip()]
+        return []
+    if isinstance(value, list):
+        return [text for item in value for text in _member_texts(item)]
+    return []
 
 
 def _custom_field_kind(
@@ -155,12 +292,18 @@ def _optional_text(value: Any) -> str | None:
 
 
 def field_text(value: Any) -> str:
-    """Extract readable text from JIRA strings, HTML, ADF, lists, or scalars."""
+    """Extract readable text from JIRA strings, HTML, ADF, lists, or scalars.
+
+    HTML is rendered as Markdown rather than flattened to visible text: JIRA
+    descriptions, comments, and rendered custom fields routinely carry tables,
+    and flattening one emits a bare cell per line, so the rows and columns that
+    give each cell its meaning never reach chunk context.
+    """
     if value is None:
         return ""
     if isinstance(value, str):
         if "<" in value and ">" in value:
-            return html_to_text(value)
+            return html_to_markdown(value)
         return compact_text(value)
     if isinstance(value, dict):
         adf_text = compact_text("".join(_walk_adf(value)))
@@ -193,6 +336,13 @@ def _walk_adf(node: Any) -> list[str]:
         return [str(node.get("text") or "")]
     if node_type == "hardBreak":
         return ["\n"]
+    if node_type == "table":
+        # Walking a table like any other node would emit one cell per line,
+        # losing the row and column each cell belongs to. Jira Cloud sends
+        # every description and comment as ADF, so this is the only place a
+        # Cloud issue's tables can be kept for chunk context.
+        rendered = _adf_table(node)
+        return ["\n", rendered, "\n"] if rendered else []
 
     node_parts: list[str] = []
     for child in node.get("content", []) or []:
@@ -200,6 +350,42 @@ def _walk_adf(node: Any) -> list[str]:
     if node_type in {"paragraph", "heading", "listItem"} and node_parts:
         node_parts.append("\n")
     return node_parts
+
+
+def _adf_table(node: dict[str, Any]) -> str:
+    """Render one ADF `table` node as a Markdown table."""
+    rows: list[list[TableCell]] = []
+    for row in node.get("content", []) or []:
+        if not isinstance(row, dict) or row.get("type") != "tableRow":
+            continue
+        rows.append(
+            [
+                _adf_table_cell(cell)
+                for cell in row.get("content", []) or []
+                if isinstance(cell, dict) and cell.get("type") in _ADF_TABLE_CELL_TYPES
+            ]
+        )
+    return markdown_table([row for row in rows if row])
+
+
+def _adf_table_cell(cell: dict[str, Any]) -> TableCell:
+    """Convert one ADF `tableCell`/`tableHeader` into a renderable cell."""
+    raw_attributes = cell.get("attrs")
+    attributes: dict[str, Any] = raw_attributes if isinstance(raw_attributes, dict) else {}
+    return TableCell(
+        text=compact_text("".join(_walk_adf(cell.get("content") or []))),
+        row_span=_adf_span(attributes.get("rowspan")),
+        column_span=_adf_span(attributes.get("colspan")),
+        header=cell.get("type") == "tableHeader",
+    )
+
+
+def _adf_span(value: Any) -> int:
+    """Read one ADF span attribute, which is optional and may be malformed."""
+    try:
+        return max(int(value), 1)
+    except (TypeError, ValueError):
+        return 1
 
 
 def _name(value: Any) -> str | None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 from enum import StrEnum
 from pathlib import Path
@@ -22,6 +23,13 @@ class _AcceleratorDevice(StrEnum):
     CUDA = "cuda"
     MPS = "mps"
     XPU = "xpu"
+
+
+def _require_docling() -> None:
+    try:
+        importlib.import_module("docling")
+    except (ImportError, AttributeError) as exc:
+        pytest.skip(f"Docling is unavailable: {exc}")
 
 
 def _encrypted_pdf_bytes() -> bytes:
@@ -224,7 +232,7 @@ def test_docling_backend_surfaces_partial_failures_as_warnings():
 def test_docling_backend_pipeline_options_enable_image_generation_when_output_dir_set(
     tmp_path,
 ):
-    pytest.importorskip("docling")
+    _require_docling()
     backend = DoclingBackend(image_output_dir=tmp_path, images_scale=1.5)
 
     pipeline_options = backend._pipeline_options()
@@ -237,7 +245,7 @@ def test_docling_backend_pipeline_options_enable_image_generation_when_output_di
 
 @pytest.mark.whitebox
 def test_docling_backend_leaves_image_generation_off_by_default():
-    pytest.importorskip("docling")
+    _require_docling()
     backend = DoclingBackend()
 
     pipeline_options = backend._pipeline_options()

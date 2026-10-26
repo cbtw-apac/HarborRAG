@@ -23,7 +23,7 @@ class DocumentDispatchSummary:
         return DocumentDispatchSummary(
             published=self.published + (outcome is DocumentIngestionOutcome.PUBLISHED),
             unchanged=self.unchanged + (outcome is DocumentIngestionOutcome.UNCHANGED),
-            failed=self.failed + (outcome is DocumentIngestionOutcome.FAILED),
+            failed=self.failed + outcome.is_failure,
         )
 
     @property
@@ -36,6 +36,3 @@ class DocumentDispatchSummary:
             unchanged=self.unchanged + other.unchanged,
             failed=self.failed + other.failed,
         )
-
-
-__all__ = ["DocumentDispatchSummary"]

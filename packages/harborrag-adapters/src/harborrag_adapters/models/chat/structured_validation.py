@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from pydantic import BaseModel
+from pydantic_core import ValidationError
 
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
 from harborrag_core.models.errors import HarborChatStructuredOutputError
@@ -26,12 +27,15 @@ def build_repair_request(
     request: HarborChatRequest,
     invalid_content: str | None,
     schema: dict[str, Any],
+    *,
+    error: Exception,
 ) -> HarborChatRequest:
-    """Append one failed output and a constrained correction instruction."""
+    """Append one failed output and the bounded reason it needs correction."""
 
     previous = invalid_content if invalid_content is not None else "<empty response>"
     repair = (
-        "The previous response failed JSON schema validation. Correct it and return only "
+        "The previous response failed structured output validation. "
+        f"Validation error: {_repair_reason(error)}. Correct that error and return only "
         f"one JSON object matching this schema: {schema_json(schema)}"
     )
     messages = (
@@ -40,6 +44,18 @@ def build_repair_request(
         HarborChatMessage.user(repair),
     )
     return request.model_copy(update={"messages": messages})
+
+
+def _repair_reason(error: Exception) -> str:
+    """Report custom Pydantic checks that JSON Schema cannot express."""
+
+    if isinstance(error, ValidationError):
+        messages = [
+            str(item.get("msg", "invalid value"))
+            for item in error.errors(include_input=False, include_url=False)[:3]
+        ]
+        return "; ".join(messages)[:400]
+    return (str(error).splitlines() or [type(error).__name__])[0][:400]
 
 
 def structured_validation_error(

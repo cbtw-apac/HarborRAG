@@ -17,6 +17,11 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     qm = None  # type: ignore[assignment]
 
+# Named by field rather than resolved from the value, because a payload index is
+# created against an empty collection: there is no value to infer a type from.
+_INTEGER_PAYLOAD_FIELDS = frozenset({"token_count"})
+_FLOAT_PAYLOAD_FIELDS = frozenset({"quality_score"})
+
 
 class QdrantCollectionMixin:
     """Create and validate tenant-scoped Qdrant collections."""
@@ -64,7 +69,7 @@ class QdrantCollectionMixin:
                     await client.create_payload_index(
                         collection_name=name,
                         field_name=field,
-                        field_schema=self._payload_schema(field),
+                        field_schema=self._payload_schema(field, spec),
                         wait=True,
                     )
                 self._specs[self._queries.spec_key(spec.index_name, context)] = spec
@@ -93,15 +98,24 @@ class QdrantCollectionMixin:
             spec.sparse_idf,
         )
         if persisted_shape != requested_shape:
+            error_context = self._queries.error_context("ensure_index", spec.index_name)
+            # Both dimensions are plain integers, so callers may surface them to the
+            # operator; they are the usual reason a re-configured run cannot start.
+            error_context.metadata.update(
+                existing_dimension=persisted.dimension,
+                configured_dimension=spec.dimension,
+            )
             raise HarborStorageValidationError(
-                f"index {spec.index_name!r} already exists with another vector schema",
-                context=self._queries.error_context("ensure_index", spec.index_name),
+                f"index {spec.index_name!r} already exists with another vector schema "
+                f"(existing_dimension={persisted.dimension}, "
+                f"configured_dimension={spec.dimension})",
+                context=error_context,
             )
         info = await self._database.raw.get_collection(name)
         existing_indexes = getattr(info, "payload_schema", {}) or {}
         for field in spec.metadata_indexes:
             existing = existing_indexes.get(field)
-            if existing is not None and self._payload_schema_matches(field, existing):
+            if existing is not None and self._payload_schema_matches(field, existing, spec):
                 continue
             if existing is not None:
                 await self._database.raw.delete_payload_index(
@@ -110,7 +124,7 @@ class QdrantCollectionMixin:
             await self._database.raw.create_payload_index(
                 collection_name=name,
                 field_name=field,
-                field_schema=self._payload_schema(field),
+                field_schema=self._payload_schema(field, spec),
                 wait=True,
             )
         self._specs[self._queries.spec_key(spec.index_name, context)] = spec
@@ -138,12 +152,28 @@ class QdrantCollectionMixin:
         return options
 
     @staticmethod
-    def _payload_schema(field: str) -> Any:
-        del field
+    def _payload_schema(field: str, spec: VectorIndexSpec | None = None) -> Any:
+        """Choose the index kind a payload field can actually be filtered with.
+
+        A keyword index answers equality and set membership only. Giving one to a
+        numeric field would leave every range filter on it doing a full scan while
+        still reporting the field as indexed, so the numeric fields are named here
+        even before anything asks to index them -- or, for a declared source field
+        such as ``fields.years_of_experience``, named numeric by the spec.
+        """
+
+        if field in _INTEGER_PAYLOAD_FIELDS:
+            return qm.PayloadSchemaType.INTEGER
+        if field in _FLOAT_PAYLOAD_FIELDS or (
+            spec is not None and field in spec.float_metadata_indexes
+        ):
+            return qm.PayloadSchemaType.FLOAT
         return qm.PayloadSchemaType.KEYWORD
 
     @classmethod
-    def _payload_schema_matches(cls, field: str, existing: object) -> bool:
+    def _payload_schema_matches(
+        cls, field: str, existing: object, spec: VectorIndexSpec | None = None
+    ) -> bool:
         current = (
             existing.get("data_type")
             if isinstance(existing, Mapping)
@@ -151,7 +181,7 @@ class QdrantCollectionMixin:
         )
         if current is None:
             return True
-        expected = cls._payload_schema(field)
+        expected = cls._payload_schema(field, spec)
         return (
             str(getattr(current, "value", current)).lower()
             == str(getattr(expected, "value", expected)).lower()

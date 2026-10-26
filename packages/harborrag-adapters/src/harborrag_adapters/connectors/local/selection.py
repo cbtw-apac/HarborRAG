@@ -65,7 +65,9 @@ class LocalFileSelector:
         if not self.config.follow_symlinks and self._has_symlink_component(path):
             return False
         if not self._within_source_scope(path):
-            raise DocumentProcessingError(f"Local path is outside configured source scope: {path}")
+            raise DocumentProcessingError(
+                f"Local path is outside configured source scope {self.root_path}: {path}"
+            )
         return self.config.include_hidden or not is_hidden_path(path, self.root_path)
 
     def _candidate_stat(self, path: Path) -> os.stat_result | None:

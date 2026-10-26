@@ -11,19 +11,23 @@ from harborrag_core.contracts.errors import (
     HarborConnectionError,
     HarborValidationError,
 )
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
-from harborrag_runtime.temporal.schemas import (
-    RetryFailuresInput,
-    SourceIngestionInput,
+from harborrag_runtime.execution.source_submission import prepare_source_submission
+from harborrag_runtime.ingestion_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    SourceSubmission,
 )
-from harborrag_runtime.temporal.submission import SourceSubmission, build_source_input
 
 from ..errors import (
     IngestionAlreadyCompletedError,
+    IngestionAlreadyPausedError,
+    IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
     IngestionNotFoundError,
     IngestionRetryConflictError,
@@ -48,13 +52,34 @@ from .presenters import (
     task_response,
 )
 from .recovery import retry_from_task, source_from_task
+from .retry_selection import retryable_document_ids
 from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"
-_RETRY_PAGE_SIZE = 200
+
+
+async def record_control_action(
+    store: PublicTaskStore, task_id: str, *, action: str, actor: str | None
+) -> None:
+    """Append who asked for pause/resume/cancel to the run's own event trail.
+
+    ``cancelled_at_safe_boundary`` used to be the only trace a cancellation
+    left, with nothing saying whether an operator, the API or a script asked
+    for it. The event sits next to the run's progress events, where anyone
+    asking "why did this stop" already looks.
+    """
+
+    await store.append_task_event(
+        task_id,
+        HarborEvent(
+            name=f"task.{task_id}.control",
+            trace_id=task_id,
+            payload={"action": action, "actor": actor or "unknown"},
+        ),
+    )
 
 
 class IngestionApplicationService(TaskListingMixin):
@@ -66,7 +91,7 @@ class IngestionApplicationService(TaskListingMixin):
         *,
         client_provider: ClientProvider,
         task_store_provider: TaskStoreProvider,
-        source_input_builder: SourceInputBuilder = build_source_input,
+        source_input_builder: SourceInputBuilder = prepare_source_submission,
         task_id_factory: TaskIdFactory | None = None,
     ) -> None:
         self._settings = settings
@@ -152,29 +177,63 @@ class IngestionApplicationService(TaskListingMixin):
         return task_response(task, counts)
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
-        """Restart durable tasks left between database commit and Temporal start."""
+        """Restart durable tasks left between database commit and execution start.
+
+        Each task is claimed under its row lock before the start, so the submit path
+        cannot fail it in between (a started run would then hit FAILED -> RUNNING).
+        The claim is released only when nothing can have started (no client, or a
+        failure before the start call). A start call that fails is ambiguous: the
+        workflow may exist. Its claim, like that of a pass that dies mid-start,
+        stays until it is stale; the store then hands the task out again, and the
+        retry is idempotent because a start treats an existing workflow id as success.
+        """
 
         store = await self._task_store_provider()
         recovered = 0
         for task in await store.pending_submissions(limit=limit):
             try:
+                claim = await store.claim_submission(task.task_id)
+                if claim is None:
+                    continue  # another pass owns it, or it started or settled meanwhile
+            except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
+                logger.exception(
+                    "Pending ingestion submission claim failed task_id=%s", task.task_id
+                )
+                continue
+            start_called = False
+            try:
                 client = await self._client_provider()
                 if "retry_of" in task.request:
-                    await client.start_retry_failures(retry_from_task(task))
+                    retry = retry_from_task(task)
+                    start_called = True
+                    await client.start_retry_failures(retry)
                 else:
-                    await client.start_ingestion(source_from_task(task))
-                await store.update_summary(
-                    task.task_id,
-                    {_SUBMISSION_STATE_KEY: _SUBMITTED},
-                )
+                    source = source_from_task(task)
+                    start_called = True
+                    await client.start_ingestion(source)
             except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
                 logger.exception(
                     "Pending ingestion submission recovery failed task_id=%s",
                     task.task_id,
                 )
+                if not start_called:
+                    await self._release_claim(store, task.task_id, claim)
                 continue
+            try:
+                await store.update_summary(task.task_id, {_SUBMISSION_STATE_KEY: _SUBMITTED})
+            except Exception:  # noqa: BLE001 - the run started; a stale claim is re-tried
+                logger.exception(
+                    "Could not confirm the recovered submission task_id=%s", task.task_id
+                )
             recovered += 1
         return recovered
+
+    @staticmethod
+    async def _release_claim(store: PublicTaskStore, task_id: str, claim: str) -> None:
+        try:
+            await store.release_submission_claim(task_id, claim)
+        except Exception:  # noqa: BLE001 - the claim goes stale and is retried anyway
+            logger.exception("Could not release the submission claim task_id=%s", task_id)
 
     async def list_documents(
         self,
@@ -214,7 +273,43 @@ class IngestionApplicationService(TaskListingMixin):
             )
         return {"items": items, "next_cursor": next_cursor}
 
-    async def cancel(self, task_id: str) -> dict[str, object]:
+    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        store = await self._task_store_provider()
+        task = await self._required_task(store, task_id)
+        if task.status in TERMINAL_STATES:
+            raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        if task.status is IngestionTaskState.PAUSED:
+            raise IngestionAlreadyPausedError("The ingestion task is already paused.")
+        try:
+            await (await self._client_provider()).pause(task_id)
+        except WorkflowOperationError as error:
+            raise HarborConnectionError("Ingestion pause is temporarily unavailable.") from error
+        await record_control_action(store, task_id, action="pause", actor=actor)
+        return {
+            "task_id": task.task_id,
+            "status": STATUS_NAMES[IngestionTaskState.PENDING],
+            "message": "Pause requested",
+        }
+
+    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        store = await self._task_store_provider()
+        task = await self._required_task(store, task_id)
+        if task.status in TERMINAL_STATES:
+            raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
+        if task.status is IngestionTaskState.RUNNING:
+            raise IngestionAlreadyRunningError("The ingestion task is already running.")
+        try:
+            await (await self._client_provider()).resume(task_id)
+        except WorkflowOperationError as error:
+            raise HarborConnectionError("Ingestion resume is temporarily unavailable.") from error
+        await record_control_action(store, task_id, action="resume", actor=actor)
+        return {
+            "task_id": task.task_id,
+            "status": STATUS_NAMES[IngestionTaskState.RUNNING],
+            "message": "Resume requested",
+        }
+
+    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -225,6 +320,7 @@ class IngestionApplicationService(TaskListingMixin):
             raise HarborConnectionError(
                 "Ingestion cancellation is temporarily unavailable."
             ) from error
+        await record_control_action(store, task_id, action="cancel", actor=actor)
         return {
             "task_id": task.task_id,
             "status": STATUS_NAMES[task.status],
@@ -243,7 +339,7 @@ class IngestionApplicationService(TaskListingMixin):
             raise IngestionRetryConflictError(
                 "Failed documents can be retried after the ingestion task is complete."
             )
-        selected = await self._retryable_document_ids(
+        selected = await retryable_document_ids(
             store,
             task_id=task_id,
             requested=document_ids,
@@ -260,7 +356,7 @@ class IngestionApplicationService(TaskListingMixin):
         )
         try:
             tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
-            retry = RetryFailuresInput(
+            retry = IngestionRetryRequest(
                 retry_task_id=retry_task_id,
                 original_task_id=task_id,
                 tenant_id=tenant_id,
@@ -282,7 +378,7 @@ class IngestionApplicationService(TaskListingMixin):
             "message": "Failed documents accepted for retry",
         }
 
-    def _build_source(self, command: IngestionCreateCommand) -> SourceIngestionInput:
+    def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
         try:
             source = self._source_input_builder(
                 self._settings,
@@ -291,6 +387,7 @@ class IngestionApplicationService(TaskListingMixin):
                     tenant_id=command.tenant_id,
                     connector_name=command.connection_id,
                     connection_id=command.connection_id,
+                    source_scope_id=command.source_scope_id,
                     force_reprocess=command.force_reprocess,
                 ),
             )
@@ -307,38 +404,3 @@ class IngestionApplicationService(TaskListingMixin):
         if task is None:
             raise IngestionNotFoundError("Ingestion task was not found.")
         return task
-
-    @staticmethod
-    async def _retryable_document_ids(
-        store: PublicTaskStore,
-        *,
-        task_id: str,
-        requested: Sequence[str],
-    ) -> tuple[str, ...]:
-        requested_set = set(requested)
-        selected: list[str] = []
-        after_updated_at: datetime | None = None
-        after_document_id: str | None = None
-        while True:
-            page = await store.document_results_page(
-                task_id,
-                statuses=("failed",),
-                after_updated_at=after_updated_at,
-                after_document_id=after_document_id,
-                limit=_RETRY_PAGE_SIZE,
-            )
-            for result in page.items:
-                document_id = str(result.document_id)
-                if requested_set and document_id not in requested_set:
-                    continue
-                if result.result.get("retryable") is True:
-                    selected.append(document_id)
-            if not page.has_more or not page.items:
-                break
-            last = page.items[-1]
-            after_updated_at = require(
-                last.updated_at,
-                "paged document result is missing updated_at",
-            )
-            after_document_id = str(last.document_id)
-        return tuple(dict.fromkeys(selected))

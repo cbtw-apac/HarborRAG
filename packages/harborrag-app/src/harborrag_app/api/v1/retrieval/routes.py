@@ -17,6 +17,7 @@ from harborrag_core.retrieval import (
     GraphSubgraphQuery,
     GraphTripletQuery,
 )
+from harborrag_runtime.sdk import RetrievalMode
 
 from .dependencies import RetrievalServiceDependency
 from .schemas import (
@@ -68,6 +69,7 @@ async def vector_search(
         include_content=request.include_content,
         include_metadata=request.include_metadata,
         score_threshold=request.score_threshold,
+        **({"mode": request.mode} if request.mode != RetrievalMode.FLAT else {}),
     )
     return VectorSearchResponse.model_validate(_response_data(response, capability="Retrieval"))
 

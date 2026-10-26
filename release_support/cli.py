@@ -3,6 +3,7 @@
 import logging
 
 import click
+from dotenv import load_dotenv
 from packaging.version import Version
 
 from .checks import (
@@ -15,27 +16,30 @@ from .checks import (
     get_github_token,
     require_command,
 )
-from .config import PACKAGES, PRIMARY_PACKAGE
+from .config import PACKAGES, PRIMARY_PACKAGE, REPOSITORY_ROOT, release_name, release_tag
+from .diagnostics import setup_logging
 from .metadata import update_release_metadata
 from .releases import create_github_release
-from .versioning import (
-    calculate_new_version,
-    update_all_development_status_classifiers,
-    update_all_internal_dependencies_versions,
-)
 from .versions import (
+    BumpType,
     assert_release_files_exist,
+    calculate_new_version,
     get_all_package_versions,
     get_current_version,
     get_package_version,
     get_packages_for_release,
-    setup_logging,
-    sync_all_package_versions,
+    update_all_development_status_classifiers,
+    update_all_internal_dependencies_versions,
     update_all_package_versions,
 )
 from .workflows import check_github_workflows
 
-_BUMP_TYPES = {"major": 1, "minor": 2, "patch": 3, "beta": 4}
+_BUMP_TYPES = {
+    "major": BumpType.MAJOR,
+    "minor": BumpType.MINOR,
+    "patch": BumpType.PATCH,
+    "beta": BumpType.BETA,
+}
 
 
 def _run_initial_checks(dry_run: bool) -> dict[str, bool]:
@@ -57,7 +61,7 @@ def _show_checks(checks: dict[str, bool]) -> None:
 
 def _select_version(current_version: str, bump: str | None, version: str | None) -> str:
     if version is not None:
-        return calculate_new_version(current_version, 5, version)
+        return calculate_new_version(current_version, BumpType.CUSTOM, version)
     if bump is not None:
         return calculate_new_version(current_version, _BUMP_TYPES[bump])
 
@@ -69,11 +73,13 @@ def _select_version(current_version: str, bump: str | None, version: str | None)
     click.echo("─" * 42)
     for index, (name, candidate) in choices.items():
         click.echo(f"{index}. {name.title():<6} {current_version} → {candidate}")
-    click.echo("5. Custom")
-    selected = click.prompt("Select version bump type", type=click.IntRange(1, 5))
-    if selected == 5:
+    click.echo(f"{BumpType.CUSTOM}. Custom")
+    selected = click.prompt(
+        "Select version bump type", type=click.IntRange(BumpType.MAJOR, BumpType.CUSTOM)
+    )
+    if selected == BumpType.CUSTOM:
         explicit = click.prompt("New version", type=str).strip()
-        return calculate_new_version(current_version, 5, explicit)
+        return calculate_new_version(current_version, BumpType.CUSTOM, explicit)
     return choices[selected][1]
 
 
@@ -92,22 +98,20 @@ def _update_workspace(
 
 def _tag_release(version: str, dry_run: bool) -> None:
     package_names = get_packages_for_release()
-    tags = [f"{package_name}-v{version}" for package_name in package_names]
+    tags = [release_tag(package_name, version) for package_name in package_names]
     for package_name, tag in zip(package_names, tags, strict=True):
         if require_command(f"git tag --list {tag}", dry_run):
             continue
-        require_command(f'git tag -a {tag} -m "Release {package_name} v{version}"', dry_run)
+        require_command(
+            f'git tag -a {tag} -m "Release {release_name(package_name, version)}"', dry_run
+        )
     require_command(f"git push origin {' '.join(tags)}", dry_run)
 
 
 def _synchronize_versions(*, dry_run: bool, development_status: str | None) -> None:
     source_version = get_package_version(PRIMARY_PACKAGE)
     click.echo(f"Synchronizing workspace projects to {source_version}")
-    sync_all_package_versions(source_version, dry_run)
-    versions = dict.fromkeys(PACKAGES, source_version)
-    update_all_development_status_classifiers(versions, dry_run, development_status)
-    update_all_internal_dependencies_versions(source_version, dry_run)
-    update_release_metadata(source_version, dry_run)
+    _update_workspace(source_version, dry_run=dry_run, development_status=development_status)
     if not dry_run:
         click.echo("Workspace metadata synchronized; review and commit the changes.")
 
@@ -122,7 +126,7 @@ def _show_dry_run_plan(
     _show_checks({**checks, "changelog updated": changelog_ready})
     click.echo("\nFuture package tags after the prepared release is merged:")
     for package_name in get_packages_for_release():
-        click.echo(f"  • {package_name}-v{version}")
+        click.echo(f"  • {release_tag(package_name, version)}")
     _update_workspace(
         version,
         dry_run=True,
@@ -180,7 +184,7 @@ def _publish_release(*, dry_run: bool) -> None:
         _show_checks(checks)
         click.echo("\nPackage tags to publish:")
         for package_name in packages:
-            click.echo(f"  • {package_name}-v{current_version}")
+            click.echo(f"  • {release_tag(package_name, current_version)}")
         if not all(checks.values()):
             raise SystemExit(1)
         return
@@ -241,6 +245,9 @@ def release(  # noqa: PLR0913 - Click exposes each option as a callback argument
     """Prepare and publish one coordinated HarborRAG workspace release."""
 
     setup_logging(verbose)
+    # The repository .env applies to the whole run (git, uv, GitHub API) but
+    # never overrides a value already exported in the environment.
+    load_dotenv(REPOSITORY_ROOT / ".env", override=False)
     assert_release_files_exist()
     if bump and version:
         raise click.UsageError("Use either --bump or --version, not both.")
