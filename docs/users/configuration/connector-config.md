@@ -215,6 +215,26 @@ python -m harborrag_adapters.connectors.sharepoint.login \
   --tenant-id <tenant-guid> --client-id <app-guid>
 ```
 
+The IDs default to `MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`. If they are not
+exported, the command reads those two values (and nothing else) from
+`env/.env.connector`, or from `$CONNECTOR_ENV_FILE`, relative to the current directory,
+so from a checkout `uv run python -m harborrag_adapters.connectors.sharepoint.login` is
+enough.
+
+That sign-in serves ingestion that runs on your machine (`harborrag ingest run`). The
+Temporal worker (`harborrag ingest start`) runs in a container that cannot read your
+home directory, so sign it in separately:
+
+```bash
+scripts/deployment/dev.sh sharepoint-login            # add --device gpu for the GPU worker
+```
+
+This runs the same command inside the worker image and keeps the token in the
+`harborrag-sharepoint-tokens` Docker volume, which every worker replica reads and
+rotates. `dev.sh sharepoint-login --logout` removes it, and so does
+`dev.sh down --volumes`. Rebuild the worker image first (`dev.sh worker --build`) if it
+predates this command.
+
 The command prints a code to enter at `https://microsoft.com/devicelogin`,
 then stores the refresh token in
 `~/.harborrag/sharepoint/token-<tenant>-<client>.json` (override with

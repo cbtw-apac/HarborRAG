@@ -30,7 +30,10 @@ from .permissions import token_claims
 # token so connector runs do not need a fresh sign-in.
 DELEGATED_SCOPE = "https://graph.microsoft.com/.default offline_access"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
-LOGIN_HINT = "run `python -m harborrag_adapters.connectors.sharepoint.login` to sign in"
+LOGIN_HINT = (
+    "run `python -m harborrag_adapters.connectors.sharepoint.login` to sign in "
+    "(for the Temporal worker: `scripts/deployment/dev.sh sharepoint-login`)"
+)
 
 
 def identity_url(tenant_id: str, endpoint: str) -> str:

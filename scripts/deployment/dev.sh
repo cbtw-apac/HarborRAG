@@ -28,6 +28,9 @@ Commands:
   worker [--build] [--device cpu|gpu]
                      Start only the ingestion worker; reuse its image by default
   api [--build]      Start only the API; reuse its image and never start a worker
+  sharepoint-login [--logout] [--device cpu|gpu]
+                     Sign the worker in to SharePoint (auth_mode: device_code);
+                     the token stays in the harborrag-sharepoint-tokens volume
 
 Environment file paths can be overridden with DATABASE_ENV_FILE,
 TEMPORAL_ENV_FILE, CONNECTOR_ENV_FILE, PARSER_ENV_FILE, MODEL_ENV_FILE,
@@ -333,6 +336,23 @@ stop_stack() {
     fi
 }
 
+sharepoint_login() {
+    require_data_network
+    require_file "${CONNECTOR_ENV_FILE}" "connector environment"
+    local worker_image="${TEMPORAL_WORKER_IMAGE}"
+    if [[ "${WORKER_DEVICE}" == "gpu" ]]; then
+        worker_image="${TEMPORAL_WORKER_IMAGE}-gpu"
+    fi
+    docker image inspect "${worker_image}" >/dev/null 2>&1 ||
+        fail "Worker image ${worker_image} is missing; run '$0 worker --build' first."
+    export HARBORRAG_TEMPORAL_WORKER_IMAGE="${worker_image}"
+    # Runs in the worker image as the worker user, so the token lands in the volume the
+    # worker reads (and rotates); the IDs come from the worker's env/.env.connector.
+    echo "Signing in to SharePoint for the worker..."
+    temporal_compose --profile worker run --rm --no-deps temporal-worker \
+        python -m harborrag_adapters.connectors.sharepoint.login "$@"
+}
+
 global_rebuild=0
 while [[ "${1:-}" == "--build" ]]; do
     global_rebuild=1
@@ -425,6 +445,23 @@ case "${command}" in
         fi
         [[ "$#" -eq 0 ]] || fail "Unknown api option: $1"
         start_api "${rebuild_image}"
+        ;;
+    sharepoint-login)
+        login_args=()
+        while [[ "$#" -gt 0 ]]; do
+            case "$1" in
+                --logout) login_args+=(--logout) ;;
+                --device)
+                    [[ "$#" -ge 2 ]] || fail "--device requires a value: cpu or gpu."
+                    validate_device "$2"
+                    WORKER_DEVICE="$2"
+                    shift
+                    ;;
+                *) fail "Unknown sharepoint-login option: $1" ;;
+            esac
+            shift
+        done
+        sharepoint_login "${login_args[@]}"
         ;;
     -h|--help|help)
         usage

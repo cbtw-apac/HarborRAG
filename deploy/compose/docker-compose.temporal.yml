@@ -246,6 +246,10 @@ services:
       # scripts/deployment/dev.sh sets this from LOCAL_SOURCE_PATH in
       # env/.env.connector. The fallback only applies to a hand-run compose.
       - ${HARBORRAG_LOCAL_SOURCE_DIR:-../../docs}:/data/sources:ro
+      # SharePoint device-code sign-in (`dev.sh sharepoint-login`). Owned by the worker
+      # user, not bind-mounted from the host: the refresh token rotates on every run and
+      # the host's owner-only token file is unreadable to uid 10001.
+      - harborrag_sharepoint_tokens:/var/lib/harborrag/.harborrag/sharepoint
     expose:
       - "9464"
     init: true
@@ -266,3 +270,5 @@ volumes:
   harborrag_model_cache:
     name: harborrag-model-cache
     external: true
+  harborrag_sharepoint_tokens:
+    name: harborrag-sharepoint-tokens

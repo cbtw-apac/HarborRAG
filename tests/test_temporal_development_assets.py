@@ -153,3 +153,18 @@ def test_temporal_startup_and_dependents_require_cluster_health() -> None:
     assert "up --detach temporal-schema temporal" in temporal_function
     assert "require_temporal_server" in temporal_function
     assert "up --detach temporal-namespace temporal-ui" in temporal_function
+
+
+def test_worker_keeps_sharepoint_sign_in_in_a_volume_it_owns() -> None:
+    """Device-code tokens rotate on use, so the worker needs its own writable copy."""
+
+    compose = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
+    token_dir = "/var/lib/harborrag/.harborrag/sharepoint"
+
+    assert f"harborrag_sharepoint_tokens:{token_dir}" in compose
+    assert "name: harborrag-sharepoint-tokens" in compose
+    # A named volume copies ownership from the image path on first use; without the
+    # directory it would be created root-owned and the non-root worker could not write.
+    for dockerfile in ("Dockerfile.temporal-worker", "Dockerfile.temporal-worker.gpu"):
+        text = (ROOT / "deploy/docker" / dockerfile).read_text(encoding="utf-8")
+        assert token_dir in text.split("chown -R harborrag:harborrag", 1)[0]

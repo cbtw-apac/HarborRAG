@@ -15,6 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values alone still never select the database, and `harborrag init` projects ignore the file
   unless `DATABASE_ENV_FILE` names it.
 - The MCP checkout launcher resolves `${...}` in that line instead of serving it literally.
+- `python -m harborrag_adapters.connectors.sharepoint.login` reads `MICROSOFT_TENANT_ID` and
+  `MICROSOFT_CLIENT_ID` from `env/.env.connector` (or `$CONNECTOR_ENV_FILE`) when they are not
+  exported, instead of requiring them on the command line.
+- `scripts/deployment/dev.sh sharepoint-login` signs the Temporal worker in to SharePoint for
+  `auth_mode: device_code`; the token lives in the new `harborrag-sharepoint-tokens` volume,
+  owned by the worker user. Rebuild the worker image to pick up the volume's directory.
 - When the CLI uses that line it also applies the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY`
   (unless exported); without it every command failed with "HARBORRAG_SECRETS_ENCRYPTION_KEY must
   be set when HARBORRAG_CONTROL_DB_URL is not SQLite".

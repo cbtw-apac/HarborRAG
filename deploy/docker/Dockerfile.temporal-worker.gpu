@@ -70,6 +70,7 @@ RUN uv export --quiet --frozen --package harborrag-runtime \
     && mkdir -p \
         /var/lib/harborrag/.cache/huggingface \
         /var/lib/harborrag/objects \
+        /var/lib/harborrag/.harborrag/sharepoint \
     && chown -R harborrag:harborrag /var/lib/harborrag
 
 COPY packages/harborrag-core ./packages/harborrag-core

@@ -99,6 +99,8 @@ def _reader_token(tenants: list[str]) -> SimpleNamespace:
         claims={"sub": "reader-1", "role": "reader", "tenants": tenants},
         client_id="client",
         scopes=["mcp:read"],
+        # fastmcp 4.1 keys session state by the token's (client_id, issuer, subject).
+        subject="reader-1",
     )
 
 

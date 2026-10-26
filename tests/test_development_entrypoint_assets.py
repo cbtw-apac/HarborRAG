@@ -51,6 +51,17 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
             "Stopping HarborRAG API",
             "docker-compose.temporal.yml --profile worker down",
         ),
+        (
+            ("sharepoint-login",),
+            "Signing in to SharePoint for the worker",
+            "--profile worker run --rm --no-deps temporal-worker"
+            " python -m harborrag_adapters.connectors.sharepoint.login",
+        ),
+        (
+            ("sharepoint-login", "--logout"),
+            "Signing in to SharePoint for the worker",
+            "harborrag_adapters.connectors.sharepoint.login --logout",
+        ),
     ),
 )
 def test_development_entrypoint_supports_documented_argument_forms(
