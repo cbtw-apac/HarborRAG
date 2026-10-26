@@ -15,6 +15,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   values alone still never select the database, and `harborrag init` projects ignore the file
   unless `DATABASE_ENV_FILE` names it.
 - The MCP checkout launcher resolves `${...}` in that line instead of serving it literally.
+- When the CLI uses that line it also applies the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY`
+  (unless exported); without it every command failed with "HARBORRAG_SECRETS_ENCRYPTION_KEY must
+  be set when HARBORRAG_CONTROL_DB_URL is not SQLite".
 
 ## [2.0.0a2] - 2026-10-22
 

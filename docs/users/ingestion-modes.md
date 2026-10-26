@@ -113,8 +113,8 @@ From a repo checkout the CLI reads only `MINIO_ROOT_USER` and `MINIO_ROOT_PASSWO
 `env/.env.database` and maps them to
 `HARBORRAG_OBJECT_STORE_ACCESS_KEY_ID` / `HARBORRAG_OBJECT_STORE_SECRET_ACCESS_KEY` when those are
 unset. A `harborrag init` project never reads that file; an explicit `DATABASE_ENV_FILE` is
-honoured in either mode. Values in the project `.env` win. The only other value read from that
-file is an explicit `HARBORRAG_CONTROL_DB_URL` line, used when the variable is not exported:
+honoured in either mode. Values in the project `.env` win. Beyond those, it reads from that
+file an explicit `HARBORRAG_CONTROL_DB_URL` line, used when the variable is not exported:
 
 ```bash
 HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
@@ -123,6 +123,9 @@ HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSW
 `${...}` references resolve from the shell first, then from the file, and are substituted
 verbatim, so URL-encode a password that holds `@ : / # % ?`. A reference that resolves to nothing
 makes the CLI warn and ignore the line. Use `127.0.0.1`, not the in-cluster `postgres` host.
+When the line is used, the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY` comes with it (unless
+exported): the stack's stored secrets are encrypted under that key, and the CLI refuses a
+non-sqlite control database without one.
 Without the line, or an exported value, the control database stays sqlite. `ingest run` and
 `ingest start` refuse to run from a checkout on the default sqlite database (for the usual
 spellings of the default file path); read-only commands still work.

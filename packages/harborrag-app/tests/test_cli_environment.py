@@ -209,16 +209,19 @@ def test_applied_minio_credentials_are_logged_by_path_only(
 
 
 _CONTROL_DB = "HARBORRAG_CONTROL_DB_URL"
+_SECRETS_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"
+_KEY_VALUE = "stack-secrets-key-0123456789"
 _DATABASE_ENV = (
     "POSTGRES_USER=pg\nPOSTGRES_PASSWORD=hunter2\nPOSTGRES_DB=harbor\n"
     'HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}'
     '@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"\n'
+    f"{_SECRETS_KEY}={_KEY_VALUE}\n"
 )
 
 
 def _clear_control_db(monkeypatch) -> None:
     _clear_object_store(monkeypatch)
-    for name in (_CONTROL_DB, "POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PORT"):
+    for name in (_CONTROL_DB, _SECRETS_KEY, "POSTGRES_USER", "POSTGRES_DB", "POSTGRES_PORT"):
         monkeypatch.setenv(name, "")
         monkeypatch.delenv(name)
 
@@ -288,6 +291,74 @@ def test_applied_control_db_is_logged_by_path_only(tmp_path: Path, monkeypatch, 
 
     assert any(".env.database" in record.getMessage() for record in caplog.records)
     assert "hunter2" not in caplog.text
+
+
+def test_the_control_db_line_brings_the_stacks_secrets_key(
+    tmp_path: Path, monkeypatch, caplog
+) -> None:
+    """The runtime refuses a non-sqlite control DB without the key its secrets use."""
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    with caplog.at_level("INFO", logger="harborrag.app.cli.environment"):
+        load_project_environment(tmp_path)
+
+    assert os.environ[_SECRETS_KEY] == _KEY_VALUE
+    assert _KEY_VALUE not in caplog.text
+
+
+@pytest.mark.parametrize("exported", ["shell-key", ""])
+def test_an_exported_secrets_key_outranks_the_file(
+    tmp_path: Path, monkeypatch, exported: str
+) -> None:
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.setenv(_SECRETS_KEY, exported)
+
+    load_project_environment(tmp_path)
+
+    assert os.environ[_SECRETS_KEY] == exported
+
+
+def test_a_blank_secrets_key_in_the_file_is_not_applied(tmp_path: Path, monkeypatch) -> None:
+    body = _DATABASE_ENV.replace(f"{_SECRETS_KEY}={_KEY_VALUE}\n", f"{_SECRETS_KEY}=\n")
+    _write(tmp_path, "env/.env.database", body)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+
+    assert _CONTROL_DB in os.environ
+    assert _SECRETS_KEY not in os.environ
+
+
+def test_secrets_key_is_not_applied_without_the_control_db_line(
+    tmp_path: Path, monkeypatch
+) -> None:
+    unresolved = _DATABASE_ENV.replace("POSTGRES_USER=pg\n", "")
+    _write(tmp_path, "env/.env.database", unresolved)
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
+
+    without_line = "\n".join(
+        line for line in _DATABASE_ENV.splitlines() if not line.startswith(_CONTROL_DB)
+    )
+    _write(tmp_path, "env/.env.database", without_line + "\n")
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
+
+    _write(tmp_path, "env/.env.database", _DATABASE_ENV)
+    _activate_project(monkeypatch)
+
+    load_project_environment(tmp_path)
+    assert _SECRETS_KEY not in os.environ
 
 
 def test_checkout_guard_passes_with_the_control_db_line(tmp_path: Path, monkeypatch) -> None:

@@ -20,6 +20,7 @@ API_ENV_FILE = Path("env/.env.api")
 OWNER_USER = "POSTGRES_USER"
 OWNER_PASSWORD = "POSTGRES_PASSWORD"  # noqa: S105 - a variable name, not a value
 CONTROL_DB_URL = "HARBORRAG_CONTROL_DB_URL"
+SECRETS_ENCRYPTION_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"  # noqa: S105 - a variable name
 
 # ``${NAME}`` and ``${NAME:-default}``: the two forms the env-example files use.
 _REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -47,7 +48,8 @@ def checkout_object_store_credentials(path: Path) -> dict[str, str]:
 
     The rest of ``env/.env.database`` (Postgres passwords above all) is not mapped; the
     control database is only taken from it through an explicit ``HARBORRAG_CONTROL_DB_URL``
-    line (see :func:`checkout_control_db_override`). A missing file, or one without both
+    line (see :func:`checkout_control_db_override`), together with the secrets key that
+    database's stored secrets are encrypted under. A missing file, or one without both
     values, yields ``{}``.
     """
 
@@ -146,6 +148,19 @@ def checkout_control_db_override(path: Path, environ: Mapping[str, str]) -> str 
     )
 
 
+def checkout_secrets_encryption_key(path: Path) -> str | None:
+    """The stack's ``HARBORRAG_SECRETS_ENCRYPTION_KEY`` from ``path``; None when blank.
+
+    A host process that uses the file's control-database line reads secrets the API and
+    worker stored under this key, so the two must travel together.
+    """
+
+    if not path.is_file():
+        return None
+    key = read_compose_env_file(path).get(SECRETS_ENCRYPTION_KEY, "")
+    return key if key.strip() else None
+
+
 def checkout_environment_name(root: Path) -> str | None:
     """``HARBORRAG_ENV`` as the checkout's API runs with, or None when unset."""
 
@@ -162,9 +177,11 @@ __all__ = [
     "DATABASE_ENV_FILE",
     "OWNER_PASSWORD",
     "OWNER_USER",
+    "SECRETS_ENCRYPTION_KEY",
     "checkout_control_db_override",
     "checkout_control_db_url",
     "checkout_environment_name",
+    "checkout_secrets_encryption_key",
     "control_db_url_from_compose",
     "missing_control_db_values",
     "read_compose_env_file",

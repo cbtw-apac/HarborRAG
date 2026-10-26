@@ -21,8 +21,10 @@ import typer
 
 from harborrag_runtime.config.checkout import (
     CONTROL_DB_URL,
+    SECRETS_ENCRYPTION_KEY,
     checkout_control_db_override,
     checkout_object_store_credentials,
+    checkout_secrets_encryption_key,
 )
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL
 
@@ -34,8 +36,9 @@ logger = logging.getLogger("harborrag.app.cli.environment")
 # not loaded wholesale: they point services at in-cluster hostnames and at the API's own
 # control-plane DSN, which would silently repoint a host CLI at addresses it cannot reach.
 # From env/.env.database only the MinIO root pair (the host reaches the same MinIO on
-# localhost) and an explicit HARBORRAG_CONTROL_DB_URL line are read (see
-# load_project_environment); the POSTGRES_* values alone never select the database.
+# localhost) and an explicit HARBORRAG_CONTROL_DB_URL line, with the secrets key that
+# database's secrets are stored under, are read (see load_project_environment); the
+# POSTGRES_* values alone never select the database.
 _ENV_FILES: tuple[tuple[str, str], ...] = (
     ("CONNECTOR_ENV_FILE", "env/.env.connector"),
     ("PARSER_ENV_FILE", "env/.env.parser"),
@@ -120,7 +123,10 @@ def _apply_object_store_credentials(path: Path) -> bool:
 
 
 def _apply_control_db_url(path: Path) -> bool:
-    """Export the file's ``HARBORRAG_CONTROL_DB_URL`` line where unset; True when set."""
+    """Export the file's ``HARBORRAG_CONTROL_DB_URL`` line where unset; True when set.
+
+    Its ``HARBORRAG_SECRETS_ENCRYPTION_KEY`` comes along, again only where unset.
+    """
 
     # An exported value -- even an empty one -- is the operator being explicit.
     if CONTROL_DB_URL in os.environ:
@@ -137,6 +143,16 @@ def _apply_control_db_url(path: Path) -> bool:
     if url is None:
         return False
     os.environ[CONTROL_DB_URL] = url
+    # The stack's Postgres holds secrets the API and worker encrypted under the file's
+    # key, and the runtime refuses a non-sqlite control DB without one.
+    if SECRETS_ENCRYPTION_KEY not in os.environ:
+        try:
+            key = checkout_secrets_encryption_key(path)
+        except (ValueError, OSError):
+            key = None
+        if key is not None:
+            os.environ[SECRETS_ENCRYPTION_KEY] = key
+            logger.info("Applied %s from %s", SECRETS_ENCRYPTION_KEY, path)
     return True
 
 
