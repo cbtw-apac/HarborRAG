@@ -212,9 +212,18 @@
       for (const control of configControls) control.disabled = reader;
       show(reader ? 'Reader key: configuration requires the owner token.' : '', reader);
     }
+    // A new token may belong to another tenant: drop the previous key's lock and tenant.
+    token.addEventListener('input', () => {
+      tenant.disabled = false;
+      tenant.value = '';
+      for (const control of configControls) control.disabled = false;
+      show('', false);
+    });
     document.querySelector('#load-tools').addEventListener('click', async () => {
       try {
-        const query = tenant.value.trim() ? `?${new URLSearchParams({tenant_id: tenant.value.trim()})}` : '';
+        // A locked tenant field belongs to a reader key: let the token name its own tenant.
+        const query = tenant.value.trim() && !tenant.disabled
+          ? `?${new URLSearchParams({tenant_id: tenant.value.trim()})}` : '';
         const body = await responseJson(await fetch(`/api/tools${query}`, {headers: headers()}));
         toolCatalog = body.tools;
         applyRole(body.role, body.tenant_id);

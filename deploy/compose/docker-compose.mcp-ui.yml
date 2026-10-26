@@ -14,6 +14,7 @@ services:
     command: ["--http"]
     volumes: !override
       - ../../config:/app/config:ro
+      - ${HARBORRAG_MCP_AUTH_DSN_HOST_FILE:?set HARBORRAG_MCP_AUTH_DATABASE_DSN_FILE in the MCP environment file}:/run/secrets/mcp_auth_db_dsn:ro
       - harborrag_mcp_ui_audit:/var/lib/harborrag/.harborrag
     healthcheck:
       test:

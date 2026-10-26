@@ -20,11 +20,7 @@ from harborrag_mcp_server.server import (
     create_mcp_server,
     require_explorer_extra,
 )
-from harborrag_mcp_server.server.api_keys import (
-    create_api_key_verifier,
-    create_composite_verifier,
-    create_postgres_api_key_verifier,
-)
+from harborrag_mcp_server.server.api_keys import build_mcp_auth, create_composite_verifier
 from harborrag_mcp_server.server.http import (
     create_local_token_verifier,
     register_health_route,
@@ -36,8 +32,6 @@ from harborrag_mcp_server.server.http import (
 if TYPE_CHECKING:
     from fastmcp import FastMCP
     from fastmcp.server.auth import TokenVerifier
-
-    from harborrag_runtime.config.settings import RuntimeSettings
 
 
 class _TerminalStream(Protocol):
@@ -98,40 +92,32 @@ def _reject_interactive_stdio(parser: argparse.ArgumentParser, stdin: _TerminalS
     )
 
 
-def _http_auth(
-    parser: argparse.ArgumentParser, arguments: argparse.Namespace, settings: RuntimeSettings
-) -> TokenVerifier:
+def _http_auth(parser: argparse.ArgumentParser, arguments: argparse.Namespace) -> TokenVerifier:
     auth_mode = os.environ.get("HARBORRAG_MCP_AUTH_MODE", "local")
     try:
         if auth_mode == "api_key":
             validate_http_bind(host=arguments.host, port=arguments.port, path=arguments.path)
-            store = os.environ.get("HARBORRAG_MCP_KEY_STORE", "postgres")
-            if store == "file":
-                return create_api_key_verifier(
-                    os.environ.get("HARBORRAG_MCP_KEYS_PATH", "config/mcp_keys.yaml")
-                )
-            if store == "postgres":
-                from harborrag_runtime.composition.mcp_auth import build_api_key_verification
+            from harborrag_runtime.config.mcp_auth_settings import McpAuthSettings
 
-                keys = create_postgres_api_key_verifier(build_api_key_verification(settings))
-                # The loopback owner token stays valid beside the keys so the status
-                # UI can still edit configuration; leave HARBORRAG_MCP_BEARER_TOKEN
-                # unset on a deployment that must have no owner over HTTP.
-                bearer = (os.environ.get("HARBORRAG_MCP_BEARER_TOKEN") or "").strip()
-                if not bearer:
-                    return keys
-                owner = create_local_token_verifier(
-                    validate_local_http_settings(
-                        host=arguments.host,
-                        port=arguments.port,
-                        path=arguments.path,
-                        bearer_token=bearer,
-                    ),
-                    tenant_id=os.environ.get("HARBORRAG_MCP_READER_TENANT_ID", "*"),
-                )
-                print("MCP owner token enabled alongside reader keys.", file=sys.stderr)
-                return create_composite_verifier([owner, keys])
-            raise ValueError("HARBORRAG_MCP_KEY_STORE must be postgres or file")
+            # Required settings are validated here, before the server binds a port.
+            keys = build_mcp_auth(McpAuthSettings())  # type: ignore[call-arg]  # read from env
+            # The loopback owner token stays valid beside the keys so the status
+            # UI can still edit configuration; leave HARBORRAG_MCP_BEARER_TOKEN
+            # unset on a deployment that must have no owner over HTTP.
+            bearer = (os.environ.get("HARBORRAG_MCP_BEARER_TOKEN") or "").strip()
+            if not bearer:
+                return keys
+            owner = create_local_token_verifier(
+                validate_local_http_settings(
+                    host=arguments.host,
+                    port=arguments.port,
+                    path=arguments.path,
+                    bearer_token=bearer,
+                ),
+                tenant_id=os.environ.get("HARBORRAG_MCP_READER_TENANT_ID", "*"),
+            )
+            print("MCP owner token enabled alongside reader keys.", file=sys.stderr)
+            return create_composite_verifier([owner, keys])
         if auth_mode == "local":
             bearer_token = validate_local_http_settings(
                 host=arguments.host,
@@ -304,7 +290,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
     from harborrag_runtime.config.settings import RuntimeSettings
 
     settings = RuntimeSettings()
-    auth = _http_auth(parser, arguments, settings) if arguments.transport == "http" else None
+    auth = _http_auth(parser, arguments) if arguments.transport == "http" else None
     runtime = open_reader_application(settings)
     registry = McpServer(
         invoker=runtime.invoker,

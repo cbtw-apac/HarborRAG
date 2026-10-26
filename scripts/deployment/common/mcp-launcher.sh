@@ -54,6 +54,21 @@ prepare_compose() {
         HARBORRAG_ENV="$(sed -n 's/^HARBORRAG_ENV=//p' "${ROOT_DIR}/${API_ENV_FILE}" | tail -n 1)"
         export HARBORRAG_ENV="${HARBORRAG_ENV:-dev}"
     fi
+    # In api_key mode the container reads its key-store DSN from
+    # /run/secrets/mcp_auth_db_dsn; the host file mounted there is named by the MCP
+    # env file. Other modes never read it, so the (always present) env file stands in
+    # to keep the Compose mount valid.
+    local dsn_host_file
+    if [[ "$(mcp_env_value HARBORRAG_MCP_AUTH_MODE | tr -d '\r')" == "api_key" ]]; then
+        dsn_host_file="$(mcp_env_value HARBORRAG_MCP_AUTH_DATABASE_DSN_FILE | tr -d '\r')"
+        [[ -n "${dsn_host_file}" ]] ||
+            fail "Set HARBORRAG_MCP_AUTH_DATABASE_DSN_FILE in ${MCP_ENV_FILE} to a non-empty DSN file."
+        [[ -s "${dsn_host_file}" ]] ||
+            fail "HARBORRAG_MCP_AUTH_DATABASE_DSN_FILE (${dsn_host_file}) is missing or empty."
+    else
+        dsn_host_file="${ROOT_DIR}/${MCP_ENV_FILE}"
+    fi
+    export HARBORRAG_MCP_AUTH_DSN_HOST_FILE="${dsn_host_file}"
     export HARBORRAG_MCP_ENV_FILE="${ROOT_DIR}/${MCP_ENV_FILE}"
     export HARBORRAG_MODEL_ENV_FILE="${ROOT_DIR}/${MODEL_ENV_FILE}"
     export HARBORRAG_MCP_IMAGE="${MCP_IMAGE}"

@@ -182,9 +182,6 @@ credentials. Run it from the checkout root and it reads `env/.env.database`
 (and `HARBORRAG_ENV` from `env/.env.api`) itself; anywhere else, export
 `HARBORRAG_CONTROL_DB_URL` and `HARBORRAG_ENV` first. It warns when it would
 otherwise fall back to the local SQLite default, which no MCP server reads.
-The previous file-backed key list
-(`config/mcp_keys.yaml` with hashes in environment variables) still works with
-`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it.
 
 `HARBORRAG_CORPUS_ACCESS_MODE=source_acl` is the default and requires current
 source and document ACL snapshots. Set it to `tenant_shared` only for a tenant

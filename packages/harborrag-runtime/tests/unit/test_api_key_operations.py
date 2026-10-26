@@ -8,9 +8,14 @@ from pathlib import Path
 import pytest
 import sqlalchemy as sa
 
+from harborrag_adapters.repositories.database.control_plane.engine import (
+    create_control_plane_engine,
+    create_session_factory,
+)
+from harborrag_adapters.repositories.database.control_plane.mcp_api_keys import SqlApiKeyReader
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_adapters.repositories.database.ingestion_control.schema import INGESTION_TASKS
-from harborrag_runtime.composition.mcp_auth import build_api_key_verification
+from harborrag_engine.security import ApiKeyVerificationService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.security import api_key_operations
 
@@ -53,7 +58,14 @@ async def test_key_lifecycle(settings: RuntimeSettings) -> None:
         lifetime=timedelta(days=1),
     )
 
-    verifier = build_api_key_verification(settings)
+    verifier = ApiKeyVerificationService(
+        SqlApiKeyReader(
+            create_session_factory(
+                create_control_plane_engine(settings.control_db_url.get_secret_value())
+            )
+        ),
+        environment=settings.env,
+    )
     verified = await verifier.verify_key(created.raw_key)
     assert verified is not None and verified.tenant_id == "engineering"
 

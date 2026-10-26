@@ -1,4 +1,4 @@
-"""The database-backed key verifier hands FastMCP the claims this server authorises on."""
+"""The key verifier hands FastMCP the claims this server authorises on."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import pytest
 
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.security import VerifiedKey
-from harborrag_mcp_server.server.api_keys import create_postgres_api_key_verifier
+from harborrag_mcp_server.server.api_keys import HarborApiKeyVerifier
 
 
 class FakeService:
@@ -31,12 +31,14 @@ async def test_a_verified_key_becomes_a_reader_token_bound_to_its_tenant() -> No
         VerifiedKey(key_id="0" * 24, tenant_id="engineering", owner="user-huy", expires_at=expires)
     )
 
-    token = await create_postgres_api_key_verifier(service).verify_token("hrk_dev_v1_x.y")  # type: ignore[arg-type]
+    token = await HarborApiKeyVerifier(service).verify_token("hrk_dev_v1_x.y")  # type: ignore[arg-type]
 
     assert token is not None
     assert token.claims["role"] == "reader"
     assert token.claims["tenants"] == ["engineering"]
     assert token.claims["sub"] == "user-huy"
+    assert token.claims["tenant_id"] == "engineering"
+    assert token.claims["owner"] == "user-huy"
     assert token.claims["key_id"] == "0" * 24
     assert token.claims["auth_method"] == "api_key"
     assert token.scopes == ["mcp:read"]
@@ -46,47 +48,59 @@ async def test_a_verified_key_becomes_a_reader_token_bound_to_its_tenant() -> No
 
 
 @pytest.mark.asyncio
-async def test_a_rejected_key_and_a_store_outage_both_deny(caplog) -> None:
-    assert await create_postgres_api_key_verifier(FakeService(None)).verify_token("x") is None  # type: ignore[arg-type]
+async def test_a_rejected_key_denies_and_a_store_outage_is_not_swallowed() -> None:
+    assert await HarborApiKeyVerifier(FakeService(None)).verify_token("x") is None  # type: ignore[arg-type]
 
-    with caplog.at_level("WARNING", logger="harborrag.mcp.server.api_keys"):
-        denied = await create_postgres_api_key_verifier(FakeService(fail=True)).verify_token("x")  # type: ignore[arg-type]
+    # An outage must stay distinguishable from a bad key: the transport decides the status.
+    with pytest.raises(AuthStoreUnavailable):
+        await HarborApiKeyVerifier(FakeService(fail=True)).verify_token("x")  # type: ignore[arg-type]
 
-    assert denied is None
-    assert "MCP key store lookup failed" in caplog.text
+
+def test_auth_settings_fail_fast_on_missing_or_empty_configuration(tmp_path, monkeypatch) -> None:
+    from pydantic import ValidationError
+
+    from harborrag_runtime.config.mcp_auth_settings import McpAuthSettings
+
+    for name in ("AUTH_MODE", "KEY_STORE", "ENVIRONMENT", "AUTH_DATABASE_DSN_FILE"):
+        monkeypatch.delenv(f"HARBORRAG_MCP_{name}", raising=False)
+    with pytest.raises(ValidationError):
+        McpAuthSettings()
+
+    dsn = tmp_path / "dsn"
+    dsn.write_text("   ", encoding="utf-8")
+    monkeypatch.setenv("HARBORRAG_MCP_AUTH_MODE", "api_key")
+    monkeypatch.setenv("HARBORRAG_MCP_KEY_STORE", "postgres")
+    monkeypatch.setenv("HARBORRAG_MCP_ENVIRONMENT", "prod")
+    monkeypatch.setenv("HARBORRAG_MCP_AUTH_DATABASE_DSN_FILE", str(dsn))
+    settings = McpAuthSettings()
+    with pytest.raises(ValueError, match="empty"):
+        settings.read_database_dsn()
 
 
 @pytest.mark.asyncio
-async def test_the_wired_verifier_denies_when_the_key_table_is_missing(
-    tmp_path, monkeypatch
-) -> None:
-    """End to end through the runtime factory, without migrations: fail closed."""
+async def test_the_wired_verifier_fails_closed_when_the_key_table_is_missing(tmp_path) -> None:
+    """End to end through the runtime factory, without migrations."""
 
-    from harborrag_runtime.composition.mcp_auth import build_api_key_verification
-    from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_mcp_server.server.api_keys import build_mcp_auth
+    from harborrag_runtime.config.mcp_auth_settings import McpAuthSettings
 
-    settings = RuntimeSettings(control_db_url=f"sqlite+aiosqlite:///{tmp_path}/empty.db")
-    verifier = create_postgres_api_key_verifier(build_api_key_verification(settings))
+    dsn = tmp_path / "dsn"
+    dsn.write_text(f"sqlite+aiosqlite:///{tmp_path}/empty.db", encoding="utf-8")
+    settings = McpAuthSettings(
+        auth_mode="api_key",
+        key_store="postgres",
+        environment="dev",
+        auth_database_dsn_file=dsn,
+    )
+    verifier = build_mcp_auth(settings)
 
     raw = "hrk_dev_v1_" + "0" * 24 + "." + "a" * 43
-    assert await verifier.verify_token(raw) is None
+    with pytest.raises(AuthStoreUnavailable):
+        await verifier.verify_token(raw)
 
 
 def _expires_soon() -> datetime:
     return datetime.now(UTC) + timedelta(hours=1)
-
-
-@pytest.mark.asyncio
-async def test_any_unexpected_verifier_failure_denies_instead_of_erroring(caplog) -> None:
-    class Broken:
-        async def verify_key(self, raw_key: str):
-            raise RuntimeError("postgresql://user:hunter2@db/x")
-
-    with caplog.at_level("ERROR", logger="harborrag.mcp.server.api_keys"):
-        denied = await create_postgres_api_key_verifier(Broken()).verify_token("x")  # type: ignore[arg-type]
-
-    assert denied is None
-    assert "RuntimeError" in caplog.text and "hunter2" not in caplog.text
 
 
 @pytest.mark.asyncio
