@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     SourceAuthorizationError,
     SourceForbiddenError,
     SourceItemNotFoundError,
+    SourceRetriesExhaustedError,
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
@@ -73,6 +74,14 @@ _SIMPLE_FAILURES: tuple[
         FailureCategory.SOURCE_FORBIDDEN,
         False,
         "source_item_not_found",
+    ),
+    # Also before SourceUnavailableError: the connector already spent its own
+    # retry budget, so the run does not retry it again. It stays transient.
+    (
+        SourceRetriesExhaustedError,
+        FailureCategory.TRANSIENT,
+        False,
+        "source_retries_exhausted",
     ),
     (SourceUnavailableError, FailureCategory.TRANSIENT, True, "source_unavailable"),
     (UnsupportedDocumentError, FailureCategory.UNSUPPORTED, False, "document_unsupported"),

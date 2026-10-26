@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from pathlib import Path
 from typing import Any, Protocol
@@ -16,6 +17,7 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
+    DEFAULT_MAX_RETRY_DELAY_SECONDS,
     ResponseTooLargeError,
     read_capped_content,
     read_capped_json,
@@ -134,8 +136,11 @@ class _RequestsGraphClient:
                 self._sleep(attempt, exc)
                 continue
 
-            self._raise_for_final_status(response, final_attempt=attempt == self.config.max_retries)
-            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
+            final_attempt = attempt == self.config.max_retries or self._retry_after_too_long(
+                response
+            )
+            self._raise_for_final_status(response, final_attempt=final_attempt)
+            if response.status_code not in _RETRYABLE_STATUS or final_attempt:
                 return response
 
             last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
@@ -162,6 +167,26 @@ class _RequestsGraphClient:
             timeout=self.config.request_timeout_seconds,
             **kwargs,
         )
+
+    @staticmethod
+    def _retry_after_too_long(response: requests.Response) -> bool:
+        """Whether Graph asks for a longer wait than one retry may sleep.
+
+        Retrying before ``Retry-After`` only earns another throttle, so such a
+        response ends the request instead and the item is skipped for a later
+        run.
+        """
+        if response.status_code not in _RETRYABLE_STATUS:
+            return False
+        requested = retry_delay_seconds(response.headers, 0.0, max_delay=math.inf, jitter=False)
+        if requested <= DEFAULT_MAX_RETRY_DELAY_SECONDS:
+            return False
+        logger.warning(
+            "Microsoft Graph asked to retry after %.0fs, beyond the %.0fs retry wait; not retrying",
+            requested,
+            DEFAULT_MAX_RETRY_DELAY_SECONDS,
+        )
+        return True
 
     def _can_refresh_token(self) -> bool:
         """Whether a new token can be obtained; a configured one is used as-is."""

@@ -178,6 +178,12 @@ Items the connector declines are logged and reported through the connector's
 stops only on invalid config, rejected credentials, or a site the app has not
 been granted.
 
+On HTTP 429 or 5xx the connector retries up to `max_retries` times, waiting
+for `Retry-After` when Graph sends it and otherwise backing off exponentially
+with jitter. When `Retry-After` asks for more than 300 seconds, the connector
+does not retry early; it skips the item as `TRANSIENT_ERROR_MAX_RETRIES`, and
+the next run picks it up.
+
 #### Permissions
 
 The app registration must use the application permission `Sites.Selected`,

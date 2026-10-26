@@ -23,7 +23,7 @@ from harborrag_adapters.connectors.sharepoint.skips import (
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import (
     SourceItemNotFoundError,
-    SourceUnavailableError,
+    SourceRetriesExhaustedError,
     UnsupportedDocumentError,
 )
 
@@ -71,13 +71,14 @@ def test_a_deleted_item_fails_as_a_missing_source_item_not_unsupported():
     "graph_error",
     [RateLimitError("throttled", status_code=429), FetchError("down", status_code=503)],
 )
-def test_exhausted_retries_stay_a_retryable_source_unavailable_failure(graph_error):
+def test_exhausted_retries_end_the_item_without_retrying_it_again_in_the_run(graph_error):
     error = _load(graph_error)
 
     assert isinstance(error, SharePointItemUnavailableError)
-    assert isinstance(error, SourceUnavailableError)
+    assert isinstance(error, FetchError)
+    assert isinstance(error, SourceRetriesExhaustedError)
     assert not isinstance(error, (UnsupportedDocumentError, SourceItemNotFoundError))
-    assert error.retryable
+    assert not error.retryable
     assert error.skip_reason == "TRANSIENT_ERROR_MAX_RETRIES"
     assert error.status_code == graph_error.status_code
     assert error.item_id == "file1"

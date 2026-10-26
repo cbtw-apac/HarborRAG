@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - When the CLI uses that line it also applies the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY`
   (unless exported); without it every command failed with "HARBORRAG_SECRETS_ENCRYPTION_KEY must
   be set when HARBORRAG_CONTROL_DB_URL is not SQLite".
+- SharePoint: a subfolder that answers 404, 403, or 429/5xx after retries is skipped as `DELETED`,
+  `ACCESS_DENIED`, or `TRANSIENT_ERROR_MAX_RETRIES` and the crawl continues with its siblings;
+  before, it stopped discovery. A failure listing the crawl root still stops the run.
+- SharePoint: `max_retries` is now the whole retry budget for a file. Throttling or 5xx after it
+  fails the file at once as `source_retries_exhausted` (skip reason `TRANSIENT_ERROR_MAX_RETRIES`)
+  instead of the transient `source_unavailable` that Temporal retried (up to 12 attempts by
+  default); a blanket retry of failed documents still offers it. A `Retry-After` longer than 300 s ends the
+  request instead of retrying before Graph allows.
 
 ## [2.0.0a2] - 2026-10-22
 

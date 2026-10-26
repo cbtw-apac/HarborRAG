@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.schemas import ConnectorSkip
-from harborrag_core.ingestion import UnsupportedDocumentError
+from harborrag_core.ingestion import SourceRetriesExhaustedError, UnsupportedDocumentError
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 
@@ -75,12 +75,16 @@ class SharePointItemMissingError(ItemNotFoundError):
         self.url = url
 
 
-class SharePointItemUnavailableError(FetchError):
+class SharePointItemUnavailableError(FetchError, SourceRetriesExhaustedError):
     """Raised when Graph still throttles or fails one item after ``max_retries``.
 
-    A 429 or 5xx outlasting a few seconds of backoff says nothing about the
-    document, so this stays a retryable source-unavailable failure.
+    ``max_retries`` is the whole retry budget for the item, so the run skips it
+    rather than retrying it again. A 429 or 5xx says nothing about the
+    document itself, so it stays a transient failure: a later run or a blanket
+    retry of failed documents picks it up, unlike an unsupported document.
     """
+
+    retryable = False
 
     def __init__(
         self,
