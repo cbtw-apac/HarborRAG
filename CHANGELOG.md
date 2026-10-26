@@ -7,33 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Changed
-
-- From a repository checkout, the CLI reads an explicit `HARBORRAG_CONTROL_DB_URL` line from
-  `env/.env.database` (`${...}` resolved from the shell, then the file) when the variable is not
-  exported, so `ingest run`/`ingest start` no longer need it exported by hand. The `POSTGRES_*`
-  values alone still never select the database, and `harborrag init` projects ignore the file
-  unless `DATABASE_ENV_FILE` names it.
-- The MCP checkout launcher resolves `${...}` in that line instead of serving it literally.
-- `python -m harborrag_adapters.connectors.sharepoint.login` reads `MICROSOFT_TENANT_ID` and
-  `MICROSOFT_CLIENT_ID` from `env/.env.connector` (or `$CONNECTOR_ENV_FILE`) when they are not
-  exported, instead of requiring them on the command line.
-- `scripts/deployment/dev.sh sharepoint-login` signs the Temporal worker in to SharePoint for
-  `auth_mode: device_code`; the token lives in the new `harborrag-sharepoint-tokens` volume,
-  owned by the worker user. Rebuild the worker image to pick up the volume's directory.
-- When the CLI uses that line it also applies the file's `HARBORRAG_SECRETS_ENCRYPTION_KEY`
-  (unless exported); without it every command failed with "HARBORRAG_SECRETS_ENCRYPTION_KEY must
-  be set when HARBORRAG_CONTROL_DB_URL is not SQLite".
-- SharePoint: a subfolder that answers 404, 403, or 429/5xx after retries is skipped as `DELETED`,
-  `ACCESS_DENIED`, or `TRANSIENT_ERROR_MAX_RETRIES` and the crawl continues with its siblings;
-  before, it stopped discovery. A failure listing the crawl root still stops the run.
-- SharePoint: `max_retries` is now the whole retry budget for a file. Throttling or 5xx after it
-  fails the file at once as `source_retries_exhausted` (skip reason `TRANSIENT_ERROR_MAX_RETRIES`)
-  instead of the transient `source_unavailable` that Temporal retried (up to 12 attempts by
-  default); a blanket retry of failed documents still offers it. A `Retry-After` longer than 300 s ends the
-  request instead of retrying before Graph allows.
-
-## [2.0.0a2] - 2026-10-22
+## [2.0.0a2] - 2026-10-26
 
 ### Upgrading from 2.0.0a1
 
@@ -61,6 +35,11 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
    (see Changed).
 8. Summaries are off by default. To use them, enable `summarization` in
    `config/topology/graph_build.yaml`, then run `harborrag topology summaries backfill`.
+9. SharePoint connections: grant the app `Sites.Selected` on the configured sites only (a token
+   with a broad role such as `Sites.Read.All` is now refused at startup), and set
+   `allowed_extensions` if you ingest types beyond `docx, pdf, pptx, xlsx, txt, md`. For
+   `auth_mode: device_code` on the Docker stack, rebuild the worker image, then run
+   `scripts/deployment/dev.sh sharepoint-login`.
 
 ### Added
 
@@ -164,6 +143,20 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
   verified" warning when botocore is missing), probes Qdrant's gRPC port, warns when a checkout
   falls back to the sqlite control DB and names invalid connector definitions; runtime startup
   also probes FalkorDB.
+- The SharePoint connector crawls a whole site (`crawl_all_drives`), one library, one folder
+  (`root_path`, with `recursive`) or listed files (`item_ids`), narrowed by `allowed_tenant_ids`,
+  `allowed_sites` and `allowed_path_prefixes`; with `include_pages: true` it also ingests the
+  site's modern pages (one HTML document per page: the title, then its text web parts). Declined
+  items are reported in the connector's `skipped` list with a reason (`NOT_IN_ALLOWLIST`,
+  `UNSUPPORTED_EXTENSION`, `EXCEEDS_SIZE_LIMIT`, `DELETED`, `ACCESS_DENIED`,
+  `TRANSIENT_ERROR_MAX_RETRIES`) and never stop the run.
+- SharePoint delegated sign-in: `auth_mode: device_code` reads as a signed-in user, with no client
+  secret. Sign in once with `python -m harborrag_adapters.connectors.sharepoint.login` (tenant and
+  client ids default to `MICROSOFT_TENANT_ID` / `MICROSOFT_CLIENT_ID` from the environment or
+  `env/.env.connector`; `--logout` removes the sign-in); the refresh token is stored under
+  `~/.harborrag/sharepoint/` and rotated on every run. On the Docker stack,
+  `scripts/deployment/dev.sh sharepoint-login` signs the Temporal worker in and keeps the token in
+  the new `harborrag-sharepoint-tokens` volume, owned by the worker user.
 
 ### Changed
 
@@ -270,8 +263,12 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
 - `harborrag ingest start` without `--run-id` generates `ingest-<hex>` ids (the API still uses
   `ingestion-<hex>`); scripts matching the prefix must accept both.
 - From a repository checkout, `ingest run` and `ingest start` refuse to run on the default sqlite
-  control DB. Set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres, or use a `harborrag init`
-  project.
+  control DB. Point `HARBORRAG_CONTROL_DB_URL` at the stack's Postgres, or use a `harborrag init`
+  project. When the variable is not exported, the CLI reads an explicit `HARBORRAG_CONTROL_DB_URL`
+  line from `env/.env.database` (`${...}` resolved from the shell, then the file) and also applies
+  that file's `HARBORRAG_SECRETS_ENCRYPTION_KEY` unless exported; the MCP checkout launcher
+  resolves the line the same way. The `POSTGRES_*` values alone never select the database, and
+  `harborrag init` projects ignore the file unless `DATABASE_ENV_FILE` names it.
 - Local connectors reject unknown filter keys, and `--limit` / `--updated-after` scans no longer
   retire documents; run a full scan to retire deleted ones.
 - Failed documents record the classifier code (e.g. `document_release_parser_rejected_document`)
@@ -306,6 +303,19 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
 - SharePoint throttles Microsoft Graph through the shared connector rate limiter and reports its
   waits in the connector rate-limit metrics; `requests_per_minute` is now one budget shared by
   all workers using the same app registration, not a per-process limit.
+- SharePoint connections must run on the `Sites.Selected` permission: a token carrying a broad
+  role (`Sites.Read.All`, `Sites.ReadWrite.All`, `Sites.Manage.All`, `Sites.FullControl.All`,
+  `Files.Read.All`, `Files.ReadWrite.All`) is refused at startup. `allowed_extensions` now defaults
+  to `docx, pdf, pptx, xlsx, txt, md` instead of every extension, each entry must be one a
+  HarborRAG parser reads, and `max_file_size_bytes` must be greater than 0.
+- SharePoint: a subfolder that answers 404, 403, or 429/5xx after retries is skipped as `DELETED`,
+  `ACCESS_DENIED`, or `TRANSIENT_ERROR_MAX_RETRIES` and the crawl continues with its siblings;
+  before, it stopped discovery. A failure listing the crawl root still stops the run.
+- SharePoint: `max_retries` is the whole retry budget for a file. Throttling or 5xx that outlasts
+  it fails the file at once as `source_retries_exhausted` (skip reason
+  `TRANSIENT_ERROR_MAX_RETRIES`) and Temporal does not retry it; a blanket retry of failed
+  documents still offers it. A `Retry-After` longer than 300 s ends the request instead of
+  retrying before Graph allows.
 - Jira custom-field filter keys fold accents instead of splitting on them (`Kỹ năng` ->
   `fields.ky_nang`, `Résumé` -> `fields.resume`), and when display names collide the lowest
   field id owns the readable key on every issue. Saved filters or facets that used the old keys
@@ -400,6 +410,11 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
 - With `HARBORRAG_AUTH_MODE=none`, a request that arrives on a non-loopback interface is refused
   (403) unless `HARBORRAG_ALLOW_INSECURE_DEV=true`. The startup check read `HARBORRAG_HOST`, so
   `uvicorn ... --host 0.0.0.0` with default settings served an implicit owner on every interface.
+- Require operator-supplied PostgreSQL, MinIO, and Grafana passwords instead
+  of checked-in Compose fallbacks. Existing development environments must add
+  the required database credentials and create the separate protected
+  monitoring environment file before restarting the affected stacks.
+
 ### Fixed
 
 - Report corrupt and encrypted legacy `.xls` workbooks as parser rejections
@@ -472,9 +487,8 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
 - A cancellation after an agent run's COMPLETED checkpoint no longer overwrites it with a
   resumable CANCELLED one; both the SQL and the in-memory run repositories refuse any save over a
   COMPLETED run.
-- SharePoint: a deleted item fails as a missing source item, throttling or 5xx after retries is a
-  retryable `source_unavailable` failure, retries re-read the token and a 401 refreshes it once,
-  discovery walks each library once, and path allowlists match percent-encoded folder names.
+- SharePoint: a deleted item fails as a missing source item, retries re-read the token and a 401
+  refreshes it once, and discovery walks each library once.
 - The MCP file key store no longer revokes every key when one entry's hash variable is unset; it
   denies every key while the file is missing or cannot be parsed (so a broken revocation edit
   fails closed), is cached by mtime and read off the event loop, and logs denials of expired or
@@ -491,12 +505,6 @@ Existing store data is not migrated: plan a reset and a full re-ingest.
   indexing the replacement fails, and re-indexes a restated fact only when its earlier index
   write never completed.
 - `env-example` no longer lists memory-cap and log-rotation variables that no Compose file reads.
-### Security
-
-- Require operator-supplied PostgreSQL, MinIO, and Grafana passwords instead
-  of checked-in Compose fallbacks. Existing development environments must add
-  the required database credentials and create the separate protected
-  monitoring environment file before restarting the affected stacks.
 
 ## [2.0.0a1] - 2026-08-27
 
