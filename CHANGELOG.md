@@ -9,18 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [2.0.0a2] - 2026-10-26
 
-### Upgrading from 2.0.0a1
-
-Stored data is not migrated, so plan a reset and a full re-ingest.
-
-1. Stop schedules and let running ingestions finish, or cancel them.
-2. Back up the PostgreSQL control database; restoring it is the only rollback.
-3. Replace the old Qdrant and FalkorDB prefix settings with `HARBORRAG_STORAGE_NAMESPACE_PREFIX`.
-4. Clear the alpha1 Qdrant collections, FalkorDB graphs and object-store data.
-5. Run the database migrations once, from a single process, before starting the services.
-6. Re-ingest every source, and update saved Jira filters that use accented field names.
-7. Summaries are now off by default; to keep them, enable them in `config/topology/graph_build.yaml` and run `harborrag topology summaries backfill`.
-8. SharePoint: grant the app only the `Sites.Selected` permission.
+Stored data is not migrated from 2.0.0a1: back up the control database and re-ingest every
+source. Follow the [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked
+**Breaking** need action.
 
 ### Added
 
@@ -112,17 +103,17 @@ Stored data is not migrated, so plan a reset and a full re-ingest.
 
 #### harborrag-adapters
 
-- Breaking: one storage namespace per tenant across Qdrant, FalkorDB and the object store; re-ingest after upgrading [#85] [#96]
+- **Breaking:** one storage namespace per tenant across Qdrant, FalkorDB and the object store; re-ingest after upgrading [#85] [#96]
 - LiteParse is the default parser, and the OCR server is now opt-in [#85]
 - `config/parsers.yaml` supports environment variables [#85]
-- Breaking: SharePoint requires the `Sites.Selected` permission and limits file types by default [#90]
+- **Breaking:** SharePoint requires the `Sites.Selected` permission and limits file types by default [#90]
 - SharePoint shares one rate limit across workers, skips unreadable folders, and caps retries per file [#96] [#101]
-- Breaking: Jira custom-field filter keys handle accented names; update saved filters and re-ingest [#96]
+- **Breaking:** Jira custom-field filter keys handle accented names; update saved filters and re-ingest [#96]
 - Local connectors reject unknown filters, and partial scans no longer retire documents [#95]
 
 #### harborrag-app
 
-- Breaking: standardized CLI exit codes; failed or partial runs now exit 1 [#95]
+- **Breaking:** standardized CLI exit codes; failed or partial runs now exit 1 [#95]
 - In a repository checkout, ingestion uses the stack's PostgreSQL and object-store settings instead of a local SQLite database [#95] [#99]
 - `auth keys` requires an up-to-date control database and reports clearer errors [#95]
 - Run ids cannot be reused [#95]
@@ -141,7 +132,7 @@ Stored data is not migrated, so plan a reset and a full re-ingest.
 
 #### harborrag-mcp-server
 
-- Breaking: graph chunk edges now point from structure to chunk, and graph traversal limits are lower [#96]
+- **Breaking:** graph chunk edges now point from structure to chunk, and graph traversal limits are lower [#96]
 - The MCP Explorer respects each tenant's limits [#96]
 
 #### harborrag-memory
@@ -179,7 +170,7 @@ Stored data is not migrated, so plan a reset and a full re-ingest.
 
 #### harborrag-mcp-server
 
-- Breaking: `composed_evidence_search`, `verify_citations` and `get_document_metadata` tools; use `vector_search`, `fetch_evidence` and `get_document_context` instead [#85]
+- **Breaking:** `composed_evidence_search`, `verify_citations` and `get_document_metadata` tools; use `vector_search`, `fetch_evidence` and `get_document_context` instead [#85]
 
 #### harborrag-memory
 

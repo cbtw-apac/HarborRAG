@@ -28,6 +28,7 @@
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
   - [MCP Setup and Integration](users/detailed-guides/mcp-server/setup-and-integration.md)
 - [Troubleshooting](users/troubleshooting/README.md)
+- [Upgrading](users/upgrading.md)
 
 ## Developer guides
 

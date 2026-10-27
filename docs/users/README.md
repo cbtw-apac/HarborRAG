@@ -14,6 +14,7 @@ New here? Start with the [Quick Start](../getting-started/quick-start.md) -
 | Connect an IDE or agent | [MCP Tools](detailed-guides/mcp-server/README.md) |
 | Understand re-ingestion and retries | [Ingestion Modes](ingestion-modes.md) |
 | Fix something that broke | [Troubleshooting](troubleshooting/README.md) |
+| Upgrade an existing deployment | [Upgrading](upgrading.md) |
 
 ## Configuration in detail
 
