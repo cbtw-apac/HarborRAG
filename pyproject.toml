@@ -331,6 +331,8 @@ override-dependencies = [
     "pillow>=13.0.0",
     # paddlex pins PyYAML==6.0.2 exactly; litellm 1.106 needs >=6.0.3 (a patch release).
     "pyyaml>=6.0.3,<7",
+    # litellm 1.106 caps filelock<4; 4.2.1 fixes CVE-2026-112907/112913/112940.
+    "filelock>=4.2.1",
 ]
 
 [tool.uv.workspace]
