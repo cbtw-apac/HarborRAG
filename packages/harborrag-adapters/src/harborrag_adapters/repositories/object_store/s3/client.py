@@ -7,9 +7,9 @@ from harborrag_adapters.repositories.errors import MissingOptionalDependencyErro
 from harborrag_adapters.repositories.lifecycle import AsyncLifecycle
 
 try:
-    import aioboto3  # type: ignore
+    from aiobotocore.session import get_session  # type: ignore
 except ImportError:  # pragma: no cover - optional dependency
-    aioboto3 = None
+    get_session = None
 
 logger = logging.getLogger("harborrag.storage.s3")
 
@@ -26,8 +26,8 @@ class S3DBClient(AsyncLifecycle):
         secret_access_key: str | None,
         session_token: str | None,
     ) -> None:
-        if aioboto3 is None:
-            raise MissingOptionalDependencyError("aioboto3")
+        if get_session is None:
+            raise MissingOptionalDependencyError("aiobotocore")
         self._settings = {
             "endpoint_url": endpoint_url,
             "region_name": region,
@@ -52,9 +52,9 @@ class S3DBClient(AsyncLifecycle):
         if self._client is not None:
             return
         try:
-            session = aioboto3.Session()
+            session = get_session()
             kwargs = {key: value for key, value in self._settings.items() if value is not None}
-            self._client_manager = session.client("s3", **kwargs)
+            self._client_manager = session.create_client("s3", **kwargs)
             self._client = await self._client_manager.__aenter__()
         except BaseException:
             await self.close()
