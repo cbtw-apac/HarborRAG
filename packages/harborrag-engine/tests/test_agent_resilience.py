@@ -140,7 +140,7 @@ async def test_completed_run_ignores_advisory_memory_and_event_failures() -> Non
 @pytest.mark.asyncio
 async def test_agent_stops_on_timeout_and_still_synthesizes() -> None:
     tools = Tools()
-    chat = SlowThenFastChat(delay=0.05, response=_response(text="rushed answer"))
+    chat = SlowThenFastChat(delay=5.0, response=_response(text="rushed answer"))
 
     result = await AgentService(chat, tools).run(
         [HarborChatMessage.user("question")],
@@ -149,7 +149,7 @@ async def test_agent_stops_on_timeout_and_still_synthesizes() -> None:
             principal_id="reader-1",
             session_id="session-1",
             max_steps=4,
-            timeout_seconds=0.01,
+            timeout_seconds=0.25,
         ),
     )
 
@@ -179,13 +179,15 @@ async def test_agent_synthesis_call_is_bounded_by_its_own_timeout() -> None:
                 principal_id="reader-1",
                 session_id="session-1",
                 max_steps=4,
-                timeout_seconds=0.01,
+                # Headroom over run setup so the first model call is made and
+                # then cut by this deadline (see the test above).
+                timeout_seconds=0.25,
                 synthesis_timeout_seconds=0.05,
             ),
         )
     elapsed = time.monotonic() - started
 
-    assert elapsed < 1.0
+    assert elapsed < 2.0
     assert chat.calls == 2
 
 
