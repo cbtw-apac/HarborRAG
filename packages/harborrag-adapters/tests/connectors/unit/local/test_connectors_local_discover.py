@@ -9,7 +9,7 @@ from local_test_helpers import config, write_file
 
 from harborrag_adapters.connectors import LocalFileConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
-from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type
+from harborrag_adapters.connectors.local.filesystem_paths import guess_mime_type, local_record_id
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.blackbox]
@@ -37,7 +37,10 @@ def test_discover_recurses_and_filters_files(tmp_path: Path):
         "README.md",
         "src/app.py",
     ]
-    assert [record.id for record in records] == ["README.md", "src/app.py"]
+    assert [record.id for record in records] == [
+        local_record_id("README.md"),
+        local_record_id("src/app.py"),
+    ]
     assert records[0].source_type == guess_mime_type(tmp_path / "README.md")
     assert records[0].checksum.startswith("stat:")
     assert "mime_type" not in records[0].metadata

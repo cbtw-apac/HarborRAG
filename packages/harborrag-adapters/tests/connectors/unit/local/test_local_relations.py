@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from harborrag_adapters.connectors.local.filesystem_paths import local_record_id
 from harborrag_adapters.connectors.local.relations import (
     LocalDocumentRelationResolver,
 )
@@ -25,7 +26,7 @@ def test_local_markdown_links_resolve_to_source_document_ids(
     assert relations == [
         {
             "predicate": "links_to",
-            "target_id": "reference.md",
+            "target_id": local_record_id("reference.md"),
             "target_type": "document",
             "metadata": {"source_link": "../reference.md"},
         }
