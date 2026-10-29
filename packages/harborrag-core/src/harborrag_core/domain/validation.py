@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import Any, cast
 
 from harborrag_core.security.field_names import is_sensitive_field_name
+from harborrag_core.security.secret_refs import (
+    ENV_PREFIX,
+    REFERENCE_KEY,
+    STORED_PREFIX,
+    VAULT_PREFIX,
+    is_secret_shaped,
+)
 
 
 def require_id(value: str, *, label: str) -> None:
@@ -62,9 +69,12 @@ def _validate_secret_free_value(
             visited[0] += 1
             if visited[0] > _MAX_CONFIG_ITEMS:
                 raise ValueError("configuration exceeds the security validation item limit")
+            is_reference = _is_secret_reference(item)
             sensitive = isinstance(value, Mapping) and is_sensitive_field_name(raw_key)
-            if sensitive and not _is_secret_reference(item):
+            if sensitive and not is_reference:
                 raise ValueError(f"configuration field must use a secret reference: {raw_key}")
+            if is_reference:
+                continue
             _validate_secret_free_value(
                 item,
                 active=active,
@@ -77,8 +87,9 @@ def _validate_secret_free_value(
 
 def _is_secret_reference(value: object) -> bool:
     if isinstance(value, str):
-        return value.startswith("secret://")
-    if not isinstance(value, Mapping) or set(value) != {"secret_ref"}:
+        return value.startswith(STORED_PREFIX)
+    if not is_secret_shaped(value):
         return False
-    reference = value.get("secret_ref")
-    return isinstance(reference, str) and reference.startswith("secret://")
+    return str(cast(Mapping[str, Any], value)[REFERENCE_KEY]).startswith(
+        (STORED_PREFIX, ENV_PREFIX, VAULT_PREFIX)
+    )

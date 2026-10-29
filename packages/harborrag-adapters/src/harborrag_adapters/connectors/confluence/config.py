@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -19,6 +18,7 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
+from ..environment import environment_default
 from .query import is_cloud_hostname, validate_token
 
 _VALID_CONTENT_TYPES = {"page", "blogpost"}
@@ -66,8 +66,8 @@ class ConfluenceSpaceConfig:
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
-        self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
-        self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
+        self.token = self.token or environment_default("CONFLUENCE_TOKEN")
+        self.email = self.email or environment_default("CONFLUENCE_EMAIL")
 
         if self.deployment_type is None:
             self.deployment_type = (

@@ -5,6 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any, Self
 
+from harborrag_adapters.connectors.environment import without_environment_defaults
+
 from ...errors import ConnectorConfigurationError
 from ..providers import ConnectorConfigFactory, coerce_config_values
 from .registry import SourceTypeRegistry, source_types
@@ -55,7 +57,7 @@ class ConnectorConfigBuilder:
         return coerce_config_values(self._factory, flat)
 
     def build(self) -> object:
-        """Construct the provider config dataclass.
+        """Construct the provider config dataclass without process-environment fallbacks.
 
         Returns:
             An instance of the provider's config dataclass.
@@ -66,7 +68,8 @@ class ConnectorConfigBuilder:
         """
         values = self.values()
         try:
-            return self._factory(**values)
+            with without_environment_defaults():
+                return self._factory(**values)
         except (TypeError, ValueError) as error:
             raise ConnectorConfigurationError(
                 f"{self._spec.source_type} connection config is invalid: {error}"
