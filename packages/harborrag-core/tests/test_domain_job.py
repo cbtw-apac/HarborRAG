@@ -5,8 +5,8 @@ from typing import get_args
 
 import pytest
 
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
-from harborrag_core.domain.source_config import SourceConfig
 
 
 @pytest.mark.whitebox
@@ -62,9 +62,11 @@ def test_job_counters_default_to_zero() -> None:
 
 @pytest.mark.whitebox
 def test_source_config_defaults() -> None:
-    """A fresh SourceConfig is active, unscheduled, and carries only
+    """A fresh Connection is active, unscheduled, and carries only
     secret_ref placeholders (never secret values)."""
-    source = SourceConfig(
+    source = Connection(
+        connection_id="docs",
+        source_key="p1/docs",
         id="s1",
         tenant_id="DEFAULT",
         project_id="p1",
@@ -80,7 +82,7 @@ def test_source_config_defaults() -> None:
 @pytest.mark.whitebox
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_job_and_source_config_reject_blank_or_whitespace_ids(bad_id: str) -> None:
-    """A blank/whitespace id must never construct a Job or SourceConfig --
+    """A blank/whitespace id must never construct a Job or Connection --
     it would otherwise flow uncaught into the queue/repository layers."""
     with pytest.raises(ValueError, match="id must be non-empty"):
         Job(
@@ -91,7 +93,9 @@ def test_job_and_source_config_reject_blank_or_whitespace_ids(bad_id: str) -> No
             job_type="bulk_ingest",
         )
     with pytest.raises(ValueError, match="id must be non-empty"):
-        SourceConfig(
+        Connection(
+            connection_id="docs",
+            source_key="p1/docs",
             id=bad_id,
             tenant_id="DEFAULT",
             project_id="p1",

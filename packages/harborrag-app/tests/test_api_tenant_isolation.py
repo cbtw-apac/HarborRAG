@@ -19,9 +19,9 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project, ProjectStats
-from harborrag_core.domain.source_config import SourceConfig
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 
@@ -65,17 +65,21 @@ def _seeded_app():  # noqa: ANN202 - returns a FastAPI app wired for this module
             ),
         ],
         sources=[
-            SourceConfig(
+            Connection(
                 id="src-a",
                 tenant_id="tenant-a",
                 project_id="proj-a",
+                connection_id="src-a",
+                source_key="proj-a/src-a",
                 source_type="local_file",
                 name="Source A",
             ),
-            SourceConfig(
+            Connection(
                 id="src-b",
                 tenant_id="tenant-b",
                 project_id="proj-b",
+                connection_id="src-b",
+                source_key="proj-b/src-b",
                 source_type="local_file",
                 name="Source B",
             ),

@@ -8,8 +8,8 @@ import pytest
 from pydantic import ValidationError
 
 from harborrag_core.chunking import RelationType
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.provider import Provider
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.ingestion import (
     GraphEdgeRecord,
     GraphEntityType,
@@ -86,7 +86,9 @@ def test_tenant_owned_aggregates_and_secret_references_are_validated() -> None:
             config={"api-key": "raw-secret"},
         )
     with pytest.raises(ValueError, match="secret reference"):
-        SourceConfig(
+        Connection(
+            connection_id="docs",
+            source_key="p1/docs",
             id="source-1",
             tenant_id="DEFAULT",
             project_id="project-1",

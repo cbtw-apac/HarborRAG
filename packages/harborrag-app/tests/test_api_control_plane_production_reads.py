@@ -25,9 +25,9 @@ from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project, ProjectStats
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -45,11 +45,13 @@ async def _seed(dsn: str) -> None:
             stats=ProjectStats(documents=3, chunks=9),
         )
     )
-    await control_plane.sources.create(
-        SourceConfig(
+    await control_plane.connections.put(
+        Connection(
             id="src-1",
             tenant_id="DEFAULT",
             project_id="proj-1",
+            connection_id="src-1",
+            source_key="proj-1/src-1",
             source_type="local_file",
             name="Docs",
             config={"path": "./docs"},

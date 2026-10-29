@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project, ProjectStats
-from harborrag_core.domain.source_config import SourceConfig
 
 
 @pytest.mark.blackbox
@@ -56,10 +56,12 @@ def test_metrics_reflects_seeded_projects_and_sources() -> None:
             ),
         ],
         sources=[
-            SourceConfig(
+            Connection(
                 id="src-1",
                 tenant_id="DEFAULT",
                 project_id="proj-1",
+                connection_id="src-1",
+                source_key="proj-1/src-1",
                 source_type="local_file",
                 name="Docs",
             )

@@ -1,6 +1,8 @@
 from .control_plane import (
     ActivityRepositoryPort,
     ActivityRepositoryProvider,
+    ConnectionRepositoryPort,
+    ConnectionRepositoryProvider,
     JobRepositoryPort,
     JobRepositoryProvider,
     MemberRepositoryPort,
@@ -66,6 +68,8 @@ __all__ = [
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
+    "ConnectionRepositoryPort",
+    "ConnectionRepositoryProvider",
     "ConversationDirectory",
     "ConversationHistoryRepository",
     "ConversationIdentity",

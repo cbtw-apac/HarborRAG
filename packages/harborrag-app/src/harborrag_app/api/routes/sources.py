@@ -12,7 +12,7 @@ some other caller (CLI, MCP) skips a route-level check entirely.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, get_args
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
@@ -22,8 +22,10 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
-from harborrag_core.domain.source_config import SourceConfig, SourceStatus
+from harborrag_core.domain.connection import Connection, ConnectionStatus
 from harborrag_core.security.redaction import redact_mapping
+
+_SETTABLE_STATUSES: tuple[ConnectionStatus, ...] = ("active", "needs_reauth", "error")
 
 router = APIRouter(tags=["sources"], dependencies=[Depends(require_role("reader"))])
 
@@ -52,8 +54,8 @@ class SourceUpdateInput(ApiModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str | None) -> str | None:
-        if value is not None and value not in get_args(SourceStatus):
-            raise ValueError("status must be active, paused, or error")
+        if value is not None and value not in _SETTABLE_STATUSES:
+            raise ValueError(f"status must be one of {', '.join(_SETTABLE_STATUSES)}")
         return value
 
     @model_validator(mode="after")
@@ -76,14 +78,14 @@ class SourceOut(BaseModel):
     status: str
 
     @classmethod
-    def from_domain(cls, source: SourceConfig) -> SourceOut:
+    def from_domain(cls, source: Connection) -> SourceOut:
         return cls(
             id=source.id,
             tenant_id=source.tenant_id,
             project_id=source.project_id,
             source_type=source.source_type,
             name=source.name,
-            config=redact_mapping(source.config),
+            config=redact_mapping({**source.credentials, **source.config, **source.tuning}),
             secret_refs=source.secret_refs,
             schedule=source.schedule,
             status=source.status,

@@ -22,7 +22,6 @@ from harborrag_adapters.repositories.database.control_plane.pending_effects impo
 )
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
-    SqlSourceRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
@@ -36,7 +35,6 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
-from harborrag_core.domain.source_config import SourceConfig
 
 pytestmark = pytest.mark.integration
 
@@ -73,50 +71,6 @@ async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
         await repo.update(project)
     await repo.delete("p1", tenant_ids=None)
     assert await repo.get("p1", tenant_ids=None) is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.whitebox
-async def test_source_repository_roundtrip_and_project_filter(
-    sessions: SessionFactory,
-) -> None:
-    """Source CRUD + list(project_id=...) scoping; config keeps secret_refs only."""
-
-    projects = SqlProjectRepository(sessions)
-    await projects.create(Project(id="p1", tenant_id="tenant-a", name="A", collection="a"))
-    await projects.create(Project(id="p2", tenant_id="tenant-b", name="B", collection="b"))
-    repo = SqlSourceRepository(sessions)
-    source = SourceConfig(
-        id="s1",
-        tenant_id="tenant-a",
-        project_id="p1",
-        source_type="local_file",
-        name="docs",
-        config={"path": "/data", "token": {"secret_ref": "secret://x"}},
-        secret_refs=["secret://x"],
-    )
-    await repo.create(source)
-    await repo.create(
-        SourceConfig(
-            id="s2",
-            tenant_id="tenant-b",
-            project_id="p2",
-            source_type="github",
-            name="repo",
-        )
-    )
-    assert await repo.get("s1", tenant_ids=None) == source
-    assert [s.id for s in await repo.list(project_id="p1", tenant_ids=None)] == ["s1"]
-    assert len(await repo.list(tenant_ids=None)) == 2
-    source.status = "paused"
-    await repo.update(source)
-    paused = await repo.get("s1", tenant_ids=None)
-    assert paused is not None and paused.status == "paused"
-    source.tenant_id = "tenant-b"
-    with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
-        await repo.update(source)
-    await repo.delete("s2", tenant_ids=None)
-    assert await repo.get("s2", tenant_ids=None) is None
 
 
 @pytest.mark.asyncio

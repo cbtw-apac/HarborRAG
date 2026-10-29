@@ -1,25 +1,33 @@
 """In-memory control-plane repository fakes.
 
 Split out of fakes.py to keep that file under the repo's file-length gate;
-these are the tenant-scoped ProjectRepositoryPort/SourceRepositoryPort/... test
+these are the tenant-scoped ProjectRepositoryPort/ConnectionRepositoryPort/... test
 doubles used by both the test suite and local/dev composition.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
+from typing import Any
 
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborConflictError, HarborPreconditionFailedError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.connection import Connection, ConnectionPutOutcome, ConnectionStatus
+from harborrag_core.domain.connection_paging import (
+    connection_sort_key,
+    decode_connection_cursor,
+    encode_connection_cursor,
+)
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
     FakeGraphConflictRepository as FakeGraphConflictRepository,
 )
@@ -65,47 +73,138 @@ class FakeProjectRepository:
 
 
 @dataclass(slots=True)
-class FakeSourceRepository:
-    """Dict-backed SourceRepositoryPort."""
+class FakeConnectionRepository:
+    """Dict-backed ConnectionRepositoryPort mirroring the SQL adapter's rules."""
 
-    sources: dict[str, SourceConfig] = field(default_factory=dict)
+    connections: dict[str, Connection] = field(default_factory=dict)
 
-    async def list(
-        self,
-        project_id: str | None = None,
-        *,
-        tenant_ids: frozenset[str] | None,
-    ) -> list[SourceConfig]:
-        """Sources visible to ``tenant_ids`` (None: unrestricted), optionally filtered by project."""
-        values = [s for s in self.sources.values() if _in_scope(s.tenant_id, tenant_ids)]
-        if project_id is None:
-            return values
-        return [source for source in values if source.project_id == project_id]
+    def _find(self, tenant_id: str, project_id: str, connection_id: str) -> Connection | None:
+        """Return the stored connection with this public identity, if any."""
+        return next(
+            (
+                c
+                for c in self.connections.values()
+                if (c.tenant_id, c.project_id, c.connection_id)
+                == (tenant_id, project_id, connection_id)
+            ),
+            None,
+        )
 
     async def get(
-        self, source_id: str, *, tenant_ids: frozenset[str] | None
-    ) -> SourceConfig | None:
-        """Source by id within ``tenant_ids``, or None."""
-        source = self.sources.get(source_id)
-        if source is None or not _in_scope(source.tenant_id, tenant_ids):
+        self, *, tenant_id: str, project_id: str, connection_id: str
+    ) -> Connection | None:
+        """Connection by public identity, as a copy."""
+        found = self._find(tenant_id, project_id, connection_id)
+        return deepcopy(found) if found else None
+
+    async def get_by_source_key(self, *, tenant_id: str, source_key: str) -> Connection | None:
+        """Connection by ``source_key``, as a copy."""
+        found = next(
+            (
+                c
+                for c in self.connections.values()
+                if c.tenant_id == tenant_id and c.source_key == source_key
+            ),
+            None,
+        )
+        return deepcopy(found) if found else None
+
+    async def get_by_id(
+        self, connection_pk: str, *, tenant_ids: frozenset[str] | None
+    ) -> Connection | None:
+        """Connection by internal id within ``tenant_ids``, as a copy."""
+        found = self.connections.get(connection_pk)
+        if found is None or not _in_scope(found.tenant_id, tenant_ids):
             return None
-        return source
+        return deepcopy(found)
 
-    async def create(self, source: SourceConfig) -> SourceConfig:
-        """Store a new source."""
-        self.sources[source.id] = source
-        return source
+    async def list(  # noqa: PLR0913 - mirrors the port's filters
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        project_id: str | None = None,
+        source_type: str | None = None,
+        status: ConnectionStatus | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[Connection], str | None]:
+        """Attention-first keyset page, as copies."""
+        after = decode_connection_cursor(cursor) if cursor else None
+        matches = sorted(
+            (
+                c
+                for c in self.connections.values()
+                if _in_scope(c.tenant_id, tenant_ids)
+                and (project_id is None or c.project_id == project_id)
+                and (source_type is None or c.source_type == source_type)
+                and (status is None or c.status == status)
+                and (after is None or connection_sort_key(c) > after)
+            ),
+            key=connection_sort_key,
+        )
+        if limit is None or len(matches) <= limit:
+            return [deepcopy(c) for c in matches], None
+        page = matches[:limit]
+        return [deepcopy(c) for c in page], encode_connection_cursor(connection_sort_key(page[-1]))
 
-    async def update(self, source: SourceConfig) -> SourceConfig:
-        """Overwrite an existing source."""
-        self.sources[source.id] = source
-        return source
+    async def put(
+        self,
+        connection: Connection,
+        *,
+        expected_version: int | None = None,
+        create_only: bool = False,
+    ) -> tuple[Connection, ConnectionPutOutcome]:
+        """Create or overwrite with the SQL adapter's precondition semantics."""
+        stored = self._find(connection.tenant_id, connection.project_id, connection.connection_id)
+        if stored is None:
+            if expected_version is not None:
+                raise HarborPreconditionFailedError("connection does not exist")
+            if await self.get_by_source_key(
+                tenant_id=connection.tenant_id, source_key=connection.source_key
+            ):
+                raise HarborConflictError("source_key is already used in this tenant")
+            created = deepcopy(replace(connection, version=1))
+            self.connections[created.id] = created
+            return deepcopy(created), "created"
+        if create_only:
+            raise HarborPreconditionFailedError("connection already exists")
+        if expected_version is not None and expected_version != stored.version:
+            raise HarborPreconditionFailedError("connection version does not match")
+        updated = deepcopy(
+            replace(
+                connection,
+                id=stored.id,
+                source_key=stored.source_key,
+                created_by=stored.created_by,
+                created_at=stored.created_at,
+                version=stored.version + 1,
+            )
+        )
+        self.connections[stored.id] = updated
+        return deepcopy(updated), "overwritten"
 
-    async def delete(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Drop the source if present within ``tenant_ids``."""
-        source = self.sources.get(source_id)
-        if source is not None and _in_scope(source.tenant_id, tenant_ids):
-            del self.sources[source_id]
+    async def set_status(
+        self,
+        *,
+        tenant_id: str,
+        source_key: str,
+        status: ConnectionStatus,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Change status in place without touching ``version``."""
+        for connection in self.connections.values():
+            if connection.tenant_id == tenant_id and connection.source_key == source_key:
+                connection.status = status
+                connection.status_detail = detail
+
+    async def delete(self, *, tenant_id: str, project_id: str, connection_id: str) -> None:
+        """Drop the connection if present."""
+        found = self._find(tenant_id, project_id, connection_id)
+        if found is not None:
+            del self.connections[found.id]
+
+
+FakeSourceRepository = FakeConnectionRepository
 
 
 @dataclass(slots=True)

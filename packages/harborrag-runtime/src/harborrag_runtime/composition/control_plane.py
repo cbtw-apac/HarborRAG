@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
+    ConnectionRepositoryPort,
     GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
@@ -19,7 +20,6 @@ from harborrag_core.ports.control_plane import (
     ProjectRepositoryPort,
     ProviderRepositoryPort,
     SettingsRepositoryPort,
-    SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryRepository
@@ -47,7 +47,7 @@ class ControlPlaneRepositories:
     """Core-port view of the configured control-plane repositories."""
 
     projects: ProjectRepositoryPort
-    sources: SourceRepositoryPort
+    connections: ConnectionRepositoryPort
     jobs: JobRepositoryPort
     activity: ActivityRepositoryPort
     settings: SettingsRepositoryPort
@@ -95,6 +95,9 @@ class CompositionRoot:
         from harborrag_adapters.repositories.database.control_plane.agent_runs import (
             SqlAgentRunRepository,
         )
+        from harborrag_adapters.repositories.database.control_plane.connections import (
+            SqlConnectionRepository,
+        )
         from harborrag_adapters.repositories.database.control_plane.conversation import (
             SqlConversationMemoryRepository,
         )
@@ -126,7 +129,6 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.projects import (
             SqlProjectRepository,
-            SqlSourceRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
@@ -204,7 +206,7 @@ class CompositionRoot:
             )
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
-            sources=SqlSourceRepository(sessions),
+            connections=SqlConnectionRepository(sessions),
             jobs=SqlJobRepository(sessions),
             activity=SqlActivityRepository(sessions),
             settings=SqlSettingsRepository(sessions),

@@ -84,6 +84,12 @@ class HarborConflictError(HarborError):
     """Operation conflicts with current resource state."""
 
 
+class HarborPreconditionFailedError(HarborConflictError):
+    """A conditional write found a different resource version than the caller expected."""
+
+    error_code = "precondition_failed"
+
+
 class HarborAuthError(HarborError):
     """Authentication failed, or the principal lacks the required role.
 

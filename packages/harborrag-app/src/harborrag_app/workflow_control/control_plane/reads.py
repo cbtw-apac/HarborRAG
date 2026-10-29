@@ -38,12 +38,14 @@ class ControlPlaneReadsMixin:
         self, project_id: str | None = None, *, tenant_ids: frozenset[str] | None
     ) -> AppResponse:
         """Sources within ``tenant_ids``, optionally scoped to a project."""
-        sources = await self._control_plane().sources.list(project_id, tenant_ids=tenant_ids)
+        sources, _ = await self._control_plane().connections.list(
+            tenant_ids=tenant_ids, project_id=project_id
+        )
         return AppResponse(True, {"sources": sources})
 
     async def get_source(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> AppResponse:
         """One source by id within ``tenant_ids``; raises HarborNotFoundError when missing."""
-        source = await self._control_plane().sources.get(source_id, tenant_ids=tenant_ids)
+        source = await self._control_plane().connections.get_by_id(source_id, tenant_ids=tenant_ids)
         if source is None:
             raise HarborNotFoundError(f"source {source_id!r} not found")
         return AppResponse(True, {"source": source})
@@ -68,7 +70,7 @@ class ControlPlaneReadsMixin:
         """Dashboard summary counters aggregated within ``tenant_ids``."""
         control_plane = self._control_plane()
         projects = await control_plane.projects.list(tenant_ids=tenant_ids)
-        sources = await control_plane.sources.list(tenant_ids=tenant_ids)
+        sources, _ = await control_plane.connections.list(tenant_ids=tenant_ids)
         jobs_by_status = await control_plane.jobs.count_by_status(tenant_ids=tenant_ids)
         return AppResponse(True, summarize_metrics(projects, sources, jobs_by_status))
 

@@ -7,10 +7,11 @@ never on the adapter classes.
 
 from __future__ import annotations
 
-from typing import Protocol, TypeVar
+from typing import Any, Protocol, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.connection import Connection, ConnectionPutOutcome, ConnectionStatus
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
@@ -18,7 +19,6 @@ from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.context import AccessContext
 
 
@@ -47,30 +47,94 @@ class ProjectRepositoryPort(Protocol):
         """Remove a project within ``tenant_ids``; cascading tombstones are the engine's job."""
 
 
-class SourceRepositoryPort(Protocol):
-    """CRUD for configured sources (plan §5.2). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
+class ConnectionRepositoryPort(Protocol):
+    """Persistence for editable connections (``sources`` table).
 
-    async def list(
-        self,
-        project_id: str | None = None,
-        *,
-        tenant_ids: frozenset[str] | None,
-    ) -> list[SourceConfig]:
-        """Sources visible to ``tenant_ids``, optionally filtered to one project."""
+    A connection is addressed by ``(tenant_id, project_id, connection_id)``;
+    ingestion addresses it by ``(tenant_id, source_key)``. ``put`` is the only
+    write that changes configuration and advances ``version``. See
+    ``ProjectRepositoryPort`` for ``tenant_ids``.
+    """
 
     async def get(
-        self, source_id: str, *, tenant_ids: frozenset[str] | None
-    ) -> SourceConfig | None:
-        """One source by id within ``tenant_ids``, or None."""
+        self, *, tenant_id: str, project_id: str, connection_id: str
+    ) -> Connection | None:
+        """One connection by its public identity, or None."""
 
-    async def create(self, source: SourceConfig) -> SourceConfig:
-        """Persist a new source and return it."""
+    async def get_by_source_key(self, *, tenant_id: str, source_key: str) -> Connection | None:
+        """One connection by the key ingestion stores on documents and scopes, or None."""
 
-    async def update(self, source: SourceConfig) -> SourceConfig:
-        """Persist changes to an existing source and return it."""
+    async def get_by_id(
+        self, connection_pk: str, *, tenant_ids: frozenset[str] | None
+    ) -> Connection | None:
+        """One connection by its internal id within ``tenant_ids``, or None."""
 
-    async def delete(self, source_id: str, *, tenant_ids: frozenset[str] | None) -> None:
-        """Remove a source configuration within ``tenant_ids``."""
+    async def list(  # noqa: PLR0913 - the spec's list filters plus paging
+        self,
+        *,
+        tenant_ids: frozenset[str] | None,
+        project_id: str | None = None,
+        source_type: str | None = None,
+        status: ConnectionStatus | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> tuple[list[Connection], str | None]:
+        """Connections needing attention first, then by project and ``connection_id``.
+
+        Args:
+            tenant_ids: Allowed tenant scope; ``None`` is unrestricted.
+            project_id: Keep one project only.
+            source_type: Keep one source type only.
+            status: Keep one status only.
+            limit: Page size; ``None`` returns every match on one page.
+            cursor: ``next_cursor`` from the previous page.
+
+        Returns:
+            The page and the cursor of the next page, or ``None`` on the last one.
+
+        Raises:
+            HarborValidationError: ``cursor`` is malformed.
+        """
+
+    async def put(
+        self,
+        connection: Connection,
+        *,
+        expected_version: int | None = None,
+        create_only: bool = False,
+    ) -> tuple[Connection, ConnectionPutOutcome]:
+        """Create or overwrite a connection, advancing ``version`` on overwrite.
+
+        Args:
+            connection: The connection to store. On overwrite its internal id,
+                ``source_key`` and creation stamps are taken from the stored row.
+            expected_version: Fail unless the stored version equals this value.
+            create_only: Fail when the connection already exists.
+
+        Returns:
+            The stored connection and whether it was created or overwritten.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_version`` or ``create_only``
+                does not hold, including a concurrent writer winning the race.
+            HarborConflictError: ``source_key`` is already used in the tenant.
+        """
+
+    async def set_status(
+        self,
+        *,
+        tenant_id: str,
+        source_key: str,
+        status: ConnectionStatus,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Record a status change without touching ``version``."""
+
+    async def delete(self, *, tenant_id: str, project_id: str, connection_id: str) -> None:
+        """Remove the row; a missing row is a no-op."""
+
+
+SourceRepositoryPort = ConnectionRepositoryPort
 
 
 class JobRepositoryPort(Protocol):
@@ -271,7 +335,8 @@ class TenantScopedRepositoryProvider(Protocol[TRepository_co]):
 
 
 ProjectRepositoryProvider = TenantScopedRepositoryProvider[ProjectRepositoryPort]
-SourceRepositoryProvider = TenantScopedRepositoryProvider[SourceRepositoryPort]
+ConnectionRepositoryProvider = TenantScopedRepositoryProvider[ConnectionRepositoryPort]
+SourceRepositoryProvider = ConnectionRepositoryProvider
 JobRepositoryProvider = TenantScopedRepositoryProvider[JobRepositoryPort]
 ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPort]
 SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]

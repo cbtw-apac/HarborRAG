@@ -8,9 +8,9 @@ from harborrag_adapters.repositories.database.control_plane.schemas import (
     ProjectRow,
     SourceRow,
 )
+from harborrag_core.domain.connection import Connection, ConnectionStatus
 from harborrag_core.domain.job import Job, JobCounters, JobStatus, JobType
 from harborrag_core.domain.project import Project, ProjectStats, ProjectStatus
-from harborrag_core.domain.source_config import SourceConfig, SourceStatus
 
 
 def utc_now() -> datetime:
@@ -37,17 +37,27 @@ def project_to_domain(row: ProjectRow) -> Project:
     )
 
 
-def source_to_domain(row: SourceRow) -> SourceConfig:
-    return SourceConfig(
+def connection_to_domain(row: SourceRow) -> Connection:
+    return Connection(
         id=row.id,
         tenant_id=row.tenant_id,
         project_id=row.project_id,
+        connection_id=row.connection_id,
+        source_key=row.source_key,
         source_type=row.source_type,
         name=row.name,
+        credentials=dict(row.credentials),
         config=dict(row.config_json),
-        schedule=row.schedule,
-        status=cast(SourceStatus, row.status),
+        tuning=dict(row.tuning),
         secret_refs=list(row.secret_refs),
+        status=cast(ConnectionStatus, row.status),
+        status_detail=dict(row.status_detail) if row.status_detail is not None else None,
+        schedule=row.schedule,
+        version=row.version,
+        created_by=row.created_by,
+        updated_by=row.updated_by,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
     )
 
 

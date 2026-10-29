@@ -57,9 +57,15 @@ class ProjectRow(Base):
 
 
 class SourceRow(Base):
-    """sources: configured source instances; config stores secret_refs only."""
+    """sources: one editable connection per row; credentials store secret refs only."""
 
     __tablename__ = "sources"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "tenant_id", "project_id", "connection_id", name="uq_sources_connection"
+        ),
+        sa.UniqueConstraint("tenant_id", "source_key", name="uq_sources_source_key"),
+    )
 
     id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     tenant_id: Mapped[str] = mapped_column(
@@ -68,12 +74,22 @@ class SourceRow(Base):
     project_id: Mapped[str] = mapped_column(
         sa.Text, sa.ForeignKey("projects.id"), nullable=False, index=True
     )
+    connection_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    source_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
     source_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
     name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    credentials: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
+    tuning: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     secret_refs: Mapped[list[str]] = mapped_column(JSONVariant, default=list, nullable=False)
     schedule: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     status: Mapped[str] = mapped_column(sa.Text, default="active", nullable=False)
+    status_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONVariant, nullable=True)
+    version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
+    created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     last_run_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
     documents: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     chunks: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)

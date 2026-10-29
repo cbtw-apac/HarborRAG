@@ -26,6 +26,7 @@ from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeConnectionRepository,
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
@@ -34,7 +35,6 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
-    FakeSourceRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_runtime.agent import InMemoryAgentRunRepository
@@ -90,7 +90,7 @@ def _build_service(
 ) -> AppService:
     control_plane = ControlPlaneRepositories(
         projects=FakeProjectRepository(),
-        sources=FakeSourceRepository(),
+        connections=FakeConnectionRepository(),
         jobs=FakeJobRepository(),
         activity=FakeActivityRepository(),
         settings=FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT")),

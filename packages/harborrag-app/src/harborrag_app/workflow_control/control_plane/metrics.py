@@ -11,9 +11,9 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import Any
 
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import JobStatus
 from harborrag_core.domain.project import Project
-from harborrag_core.domain.source_config import SourceConfig
 
 JOB_STATUSES: tuple[JobStatus, ...] = (
     "queued",
@@ -26,7 +26,7 @@ JOB_STATUSES: tuple[JobStatus, ...] = (
 
 def summarize_metrics(
     projects: Sequence[Project],
-    sources: Sequence[SourceConfig],
+    sources: Sequence[Connection],
     jobs_by_status: Mapping[str, int],
 ) -> dict[str, Any]:
     """Aggregate dashboard counters from already-loaded rows.
