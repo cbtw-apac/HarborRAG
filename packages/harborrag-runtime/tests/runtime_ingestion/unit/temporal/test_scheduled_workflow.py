@@ -20,6 +20,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
+from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.schemas import (
@@ -190,10 +191,15 @@ def _activities(
     monkeypatch.setattr(
         activity_module,
         "prepare_configured_source_submission",
-        lambda _settings, submission: prepare(submission),
+        lambda _settings, submission, *, connection: prepare(submission),
     )
     scans = SimpleNamespace(has_running_scan=AsyncMock(return_value=busy))
-    runtime: Any = SimpleNamespace(control=SimpleNamespace(source_scans=scans), source_plans=None)
+    resolver = SimpleNamespace(resolve=AsyncMock(return_value=SimpleNamespace()))
+    runtime: Any = SimpleNamespace(
+        control=SimpleNamespace(source_scans=scans),
+        source_plans=None,
+        connection_resolver=resolver,
+    )
     activities = activity_module.IngestionActivities(
         runtime,
         settings=RuntimeSettings(),
@@ -236,10 +242,10 @@ async def test_prepare_activity_reports_a_busy_scope(monkeypatch) -> None:
 @pytest.mark.asyncio
 async def test_prepare_activity_fails_permanently_on_bad_connector_config(monkeypatch) -> None:
     def broken(submission: SourceSubmission) -> PreparedSourceSubmission:
-        raise ValueError("Configured connector 'local-docs' is disabled")
+        raise ConnectionNotFoundError("connection 'local-docs' does not exist")
 
     activities, _ = _activities(monkeypatch, busy=False, prepare=broken)
 
-    with pytest.raises(ApplicationError, match="disabled") as raised:
+    with pytest.raises(ApplicationError, match="does not exist") as raised:
         await activities.prepare_scheduled_source(_preparation_input())
     assert raised.value.non_retryable is True

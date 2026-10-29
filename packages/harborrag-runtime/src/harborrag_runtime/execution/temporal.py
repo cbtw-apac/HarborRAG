@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.composition.connection_stores import (
+    ConnectionStores,
+    build_connection_stores,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.contracts import (
@@ -9,7 +13,11 @@ from harborrag_runtime.contracts import (
     IngestionStatus,
     IngestionTaskReference,
 )
-from harborrag_runtime.execution.submission import build_ingestion_input
+from harborrag_runtime.execution.submission import (
+    build_ingestion_input,
+    resolve_request_connection,
+)
+from harborrag_runtime.ingestion.connections import ConnectionResolver
 from harborrag_runtime.temporal.client import IngestionTemporalClient
 from harborrag_runtime.temporal.gateway import to_temporal_source
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
@@ -21,6 +29,7 @@ class TemporalIngestionExecutor:
     def __init__(self, settings: RuntimeSettings) -> None:
         self._settings = settings
         self._client: IngestionTemporalClient | None = None
+        self._stores: ConnectionStores | None = None
 
     async def start(self) -> None:
         if self._client is None:
@@ -34,12 +43,19 @@ class TemporalIngestionExecutor:
             raise HarborInvariantError("Temporal client must be initialized after start")
         return self._client
 
-    def _input(self, request: IngestionRequest) -> SourceIngestionInput:
-        return to_temporal_source(build_ingestion_input(self._settings, request))
+    async def _input(self, request: IngestionRequest) -> SourceIngestionInput:
+        """Resolve the request's connection and build its workflow input."""
+        if self._stores is None:
+            self._stores = build_connection_stores(self._settings)
+        resolver = ConnectionResolver(self._stores.connections, self._stores.revisions)
+        connection = await resolve_request_connection(resolver, request)
+        return to_temporal_source(
+            build_ingestion_input(self._settings, request, connection=connection)
+        )
 
     async def submit(self, request: IngestionRequest) -> IngestionTaskReference:
         client = await self._connected_client()
-        reference = await client.start_ingestion(self._input(request))
+        reference = await client.start_ingestion(await self._input(request))
         return IngestionTaskReference(reference.run_id, reference.workflow_id)
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
@@ -79,3 +95,6 @@ class TemporalIngestionExecutor:
 
     async def aclose(self) -> None:
         self._client = None
+        if self._stores is not None:
+            await self._stores.aclose()
+            self._stores = None

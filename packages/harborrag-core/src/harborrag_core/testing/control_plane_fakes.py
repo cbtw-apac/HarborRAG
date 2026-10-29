@@ -22,6 +22,7 @@ from harborrag_core.domain.connection_paging import (
     decode_connection_cursor,
     encode_connection_cursor,
 )
+from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -190,12 +191,17 @@ class FakeConnectionRepository:
         source_key: str,
         status: ConnectionStatus,
         detail: dict[str, Any] | None = None,
-    ) -> None:
+        only_from: frozenset[ConnectionStatus] | None = None,
+    ) -> bool:
         """Change status in place without touching ``version``."""
         for connection in self.connections.values():
             if connection.tenant_id == tenant_id and connection.source_key == source_key:
+                if only_from is not None and connection.status not in only_from:
+                    return False
                 connection.status = status
                 connection.status_detail = detail
+                return True
+        return False
 
     async def delete(self, *, tenant_id: str, project_id: str, connection_id: str) -> None:
         """Drop the connection if present."""
@@ -205,6 +211,29 @@ class FakeConnectionRepository:
 
 
 FakeSourceRepository = FakeConnectionRepository
+
+
+@dataclass(slots=True)
+class FakeConnectionRevisionRepository:
+    """Dict-backed ConnectionRevisionRepositoryPort."""
+
+    revisions: dict[tuple[str, str], ConnectionSnapshot] = field(default_factory=dict)
+
+    async def save(self, snapshot: ConnectionSnapshot) -> None:
+        """Store the snapshot once per fingerprint."""
+        self.revisions.setdefault((snapshot.tenant_id, snapshot.fingerprint), snapshot)
+
+    async def get(self, *, tenant_id: str, fingerprint: str) -> ConnectionSnapshot | None:
+        """The snapshot with this fingerprint, or None."""
+        return self.revisions.get((tenant_id, fingerprint))
+
+    async def list_for_source(self, *, tenant_id: str, source_key: str) -> list[ConnectionSnapshot]:
+        """Snapshots of one connection in insertion order."""
+        return [
+            snapshot
+            for (tenant, _), snapshot in self.revisions.items()
+            if tenant == tenant_id and snapshot.source_key == source_key
+        ]
 
 
 @dataclass(slots=True)

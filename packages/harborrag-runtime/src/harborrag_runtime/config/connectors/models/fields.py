@@ -12,13 +12,13 @@ import re
 from typing import Annotated, Any, Literal, get_args, get_origin
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
-from pydantic import EmailStr as _EmailStr
 from pydantic.fields import FieldInfo
 
 Widget = Literal["text", "secret", "select", "textarea", "path"]
 
 WIDGET_MARKER = "x-widget"
 _HTTP_URL = re.compile(r"^https?://[^\s/]+\S*$")
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+$")
 
 
 class StrictModel(BaseModel):
@@ -39,6 +39,13 @@ class SecretMarker:
     """Annotation metadata that flags a field as a write-only secret."""
 
 
+def _require_email(value: str) -> str:
+    """Accept ``local@domain``; self-hosted sites often use internal domains."""
+    if not _EMAIL.match(value):
+        raise ValueError("must be an email address")
+    return value
+
+
 def _require_http_url(value: str) -> str:
     """Reject anything that is not an absolute http(s) URL."""
     if not _HTTP_URL.match(value):
@@ -56,7 +63,11 @@ HttpUrl = Annotated[
     AfterValidator(_require_http_url),
     WithJsonSchema({"type": "string", "format": "uri"}),
 ]
-Email = Annotated[_EmailStr, WithJsonSchema({"type": "string", "format": "email"})]
+Email = Annotated[
+    str,
+    AfterValidator(_require_email),
+    WithJsonSchema({"type": "string", "format": "email"}),
+]
 
 
 def widget(kind: Widget, **extra: Any) -> dict[str, Any]:

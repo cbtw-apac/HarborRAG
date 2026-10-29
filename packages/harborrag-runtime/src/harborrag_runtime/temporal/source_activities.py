@@ -144,26 +144,35 @@ class SourceActivitiesMixin:
                     plan_reference=to_workflow_artifact(replay),
                     document_count=replayed.document_count,
                 )
-            connector = self._runtime.connector(
-                source.connector_name,
+            connector = await self._runtime.connector(
+                tenant_id=source.tenant_id,
+                task_id=source.task_id,
                 configuration_fingerprint=source.configuration_fingerprint,
             )
-            if bool(getattr(getattr(connector, "capabilities", None), "pagination", False)):
-                discovery = await self._discover_checkpointed_pages(
-                    source,
-                    request=request,
-                    connector=connector,
-                    context=context,
-                    scan_id=scan_id,
+            health = self._runtime.connection_health
+            try:
+                if bool(getattr(getattr(connector, "capabilities", None), "pagination", False)):
+                    discovery = await self._discover_checkpointed_pages(
+                        source,
+                        request=request,
+                        connector=connector,
+                        context=context,
+                        scan_id=scan_id,
+                    )
+                else:
+                    discovery = await heartbeat_while(
+                        self._runtime.sources.prepare_discovery(
+                            request,
+                            connector,
+                        ),
+                        detail="discover-legacy-source",
+                    )
+            except Exception as error:
+                await health.record_failure(
+                    tenant_id=source.tenant_id, source_key=source.connection_id, error=error
                 )
-            else:
-                discovery = await heartbeat_while(
-                    self._runtime.sources.prepare_discovery(
-                        request,
-                        connector,
-                    ),
-                    detail="discover-legacy-source",
-                )
+                raise
+            await health.record_success(tenant_id=source.tenant_id, source_key=source.connection_id)
             # The plan is its page index, written last: paged discovery already
             # persisted every page, and an unpaged one is paged here. Nothing
             # writes, or holds, the whole plan at once.

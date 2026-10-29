@@ -24,8 +24,10 @@ from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
+from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.ports import SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
@@ -82,7 +84,10 @@ class AppService(
         self._instance_id = uuid.uuid4().hex
         selected = factories or AppServiceFactories()
         self._runtime_config = selected.ingestion_description(self._settings)
-        self._source_input_builder = selected.source_input_builder
+        self._source_input_builder: SourceInputBuilder = (
+            selected.source_input_builder
+            or ConnectionSourceInputBuilder(self._control_plane, selected.source_preparation)
+        )
         self._resources = AppResources(
             self._settings,
             factories=selected,

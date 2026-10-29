@@ -3,17 +3,11 @@
 from __future__ import annotations
 
 import logging
-import os
 
 from harborrag_adapters.chunking import RecursiveTextRefiner
-from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.file_filters import normalize_extension
-from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
-from harborrag_adapters.connectors.registry import connector_registry
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import ResourceOwnership
-from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_adapters.repositories.object_store import (
     CanonicalCommentArtifactRepository,
     CanonicalDocumentArtifactRepository,
@@ -39,6 +33,7 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
     build_ingestion_control,
     build_knowledge_graph,
@@ -49,20 +44,16 @@ from harborrag_runtime.composition.resources import (
     resource_hints,
     resource_targets,
 )
-from harborrag_runtime.config import (
-    ConnectorConfigurationError,
-    ConnectorDefinition,
-    connector_fingerprint,
-    load_connector_catalog,
-    load_parser_catalog,
-)
+from harborrag_runtime.config import load_parser_catalog
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.connections import default_secret_resolver
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .chunking_profile import default_chunking_config
 from .composition import IngestionRuntime
+from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
 from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import (
     SourceDocumentNormalizerBuilder,
@@ -81,31 +72,6 @@ from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
-
-
-def _require_parseable_extensions(
-    definition: ConnectorDefinition,
-    parser: HarborParserRegistry,
-) -> None:
-    """Reject an ``allowed_extensions`` entry that no parser family can read.
-
-    Admitting such a file only spends a fetch and a parse attempt on a document
-    that can never publish, so the connector is refused while loading instead.
-    """
-
-    allowed = definition.settings.get("allowed_extensions") or ()
-    unsupported = sorted(
-        {
-            normalize_extension(str(extension))
-            for extension in allowed
-            if not parser.supports_extension(str(extension))
-        }
-    )
-    if unsupported:
-        raise ConnectorConfigurationError(
-            f"Connector {definition.name!r} allows extensions no parser supports: "
-            f"{', '.join(unsupported)}"
-        )
 
 
 class IngestionRuntimeBuilder:
@@ -134,10 +100,7 @@ class IngestionRuntimeBuilder:
         )
         parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
         rate_limiter = self._rate_limiter(telemetry)
-        connectors, connector_fingerprints, connector_errors = self._connectors(
-            attachment_parser=parser,
-            rate_limiter=rate_limiter,
-        )
+        stores = build_connection_stores(settings)
         embed_client, model, dimensions = self._embedding_client()
         control = build_ingestion_control(settings)
         object_store = build_object_store(settings)
@@ -206,9 +169,15 @@ class IngestionRuntimeBuilder:
             max_concurrency=settings.graph_relation_repair_concurrency,
         )
         return IngestionRuntime(
-            connectors=connectors,
-            connector_fingerprints=connector_fingerprints,
-            connector_errors=connector_errors,
+            connector_pool=ConnectorPool(
+                revisions=stores.revisions,
+                secrets=default_secret_resolver(stores.secrets),
+                parser=parser,
+                rate_limiter=rate_limiter,
+            ),
+            connection_health=ConnectionHealth(stores.connections),
+            connection_resolver=ConnectionResolver(stores.connections, stores.revisions),
+            connection_stores=stores,
             processing=build_processing_profile(
                 settings,
                 chunking_config=self._chunking_config,
@@ -258,66 +227,6 @@ class IngestionRuntimeBuilder:
                 wait_seconds,
             ),
         )
-
-    def _connectors(
-        self,
-        *,
-        attachment_parser: HarborParserRegistry,
-        rate_limiter: ConnectorRateLimiter,
-    ) -> tuple[
-        dict[str, BaseConnector | HarborConnector],
-        dict[str, str],
-        dict[str, ConnectorConfigurationError],
-    ]:
-        catalog = load_connector_catalog(self._settings.connector_config_path)
-        names = catalog.names(enabled_only=True)
-        dependencies = {
-            "attachment_parser": attachment_parser,
-            "rate_limiter": rate_limiter,
-        }
-        connectors: dict[str, BaseConnector | HarborConnector] = {}
-        fingerprints: dict[str, str] = {}
-        errors: dict[str, ConnectorConfigurationError] = dict(catalog.errors)
-        for name in names:
-            definition = catalog.get(name)
-            connector_kwargs = self._connector_kwargs(definition.provider, dependencies)
-            try:
-                if isinstance(attachment_parser, HarborParserRegistry):
-                    _require_parseable_extensions(definition, attachment_parser)
-                connectors[name] = catalog.build(name, connector_kwargs=connector_kwargs)
-            except ConnectorConfigurationError as exc:
-                logger.warning(
-                    "Connector %r configuration is invalid; it will remain "
-                    "unavailable until fixed and other connectors are unaffected: %s",
-                    name,
-                    exc,
-                )
-                errors[name] = exc
-                continue
-            fingerprints[name] = connector_fingerprint(
-                catalog_version=catalog.version,
-                definition=definition,
-                environment=os.environ,
-            )
-        return connectors, fingerprints, errors
-
-    @staticmethod
-    def _connector_kwargs(
-        provider: str,
-        dependencies: dict[str, object],
-    ) -> dict[str, object]:
-        definition = connector_registry.get_definition(provider)
-        missing = set(definition.constructor_dependencies.values()).difference(dependencies)
-        if missing:
-            names = ", ".join(sorted(missing))
-            raise ValueError(
-                f"connector provider {provider!r} requires unavailable runtime "
-                f"dependencies: {names}"
-            )
-        return {
-            argument: dependencies[dependency]
-            for argument, dependency in definition.constructor_dependencies.items()
-        }
 
     def _embedding_client(self) -> tuple[HarborEmbedClient, str, int]:
         settings = self._settings

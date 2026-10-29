@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-import asyncio
 from dataclasses import replace
 
 from temporalio import activity
 from temporalio.client import Client
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.connections import require_fingerprint
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.ingestion_contracts import SourceSubmission
 
@@ -71,9 +72,14 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
             raise ApplicationError(
                 "worker was started without runtime settings", non_retryable=True
             )
+        resolver = self._runtime.connection_resolver
+        if resolver is None:
+            raise ApplicationError("worker has no connection store", non_retryable=True)
         try:
-            prepared = await asyncio.to_thread(
-                prepare_configured_source_submission,
+            connection = await resolver.resolve(
+                tenant_id=request.tenant_id, source_key=request.connection_id
+            )
+            prepared = prepare_configured_source_submission(
                 settings,
                 SourceSubmission(
                     task_id=request.task_id,
@@ -83,9 +89,10 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                     source_scope_id=request.source_scope_id,
                     force_reprocess=request.force_reprocess,
                 ),
+                connection=connection,
             )
-        except ValueError as error:
-            # Removed, disabled or invalid connector configuration cannot heal on retry.
+        except (ValueError, HarborValidationError, HarborConflictError) as error:
+            # A removed, deleting or invalid connection cannot heal on retry.
             raise ApplicationError(
                 str(error), type=type(error).__name__, non_retryable=True
             ) from error
@@ -112,13 +119,17 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
     ) -> RawCaptureResult:
         with self._observability.boundary("FetchAndCaptureRaw"):
             planned = await self._documents.get(request)
+            connector = await self._runtime.connector(
+                tenant_id=request.tenant_id,
+                task_id=request.task_id,
+                configuration_fingerprint=require_fingerprint(
+                    planned.request.configuration_fingerprint
+                ),
+            )
             result = await heartbeat_while(
                 self._runtime.stages.preparation.fetch_and_capture(
                     planned.request,
-                    self._runtime.connector(
-                        request.connector_name,
-                        configuration_fingerprint=(planned.request.configuration_fingerprint),
-                    ),
+                    connector,
                 ),
                 detail="fetch-and-capture",
             )

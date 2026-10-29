@@ -4,6 +4,7 @@ Handles:
 - lookups by public identity, ``source_key`` and internal id
 - the attention-first keyset listing shared with the in-memory fake
 - compare-and-swap writes that advance ``version`` exactly once per overwrite
+- immutable connection revisions keyed by content fingerprint
 """
 
 from __future__ import annotations
@@ -28,9 +29,10 @@ from harborrag_core.domain.connection_paging import (
     decode_connection_cursor,
     encode_connection_cursor,
 )
+from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 
-from .mapping import connection_to_domain
-from .schemas import SourceRow
+from .mapping import connection_to_domain, utc_now
+from .schemas import ConnectionRevisionRow, SourceRow
 from .session import SessionFactory
 
 _ATTENTION_RANK = sa.case((SourceRow.status.in_(sorted(ATTENTION_STATUSES)), 0), else_=1)
@@ -134,22 +136,27 @@ class SqlConnectionRepository:
         except IntegrityError as error:
             raise _integrity_conflict(create_only) from error
 
-    async def set_status(
+    async def set_status(  # noqa: PLR0913 - status plus its guard
         self,
         *,
         tenant_id: str,
         source_key: str,
         status: ConnectionStatus,
         detail: dict[str, Any] | None = None,
-    ) -> None:
+        only_from: frozenset[ConnectionStatus] | None = None,
+    ) -> bool:
         """Record a status change without touching ``version``."""
-        statement = (
-            sa.update(SourceRow)
-            .where(SourceRow.tenant_id == tenant_id, SourceRow.source_key == source_key)
-            .values(status=status, status_detail=detail)
+        statement = sa.update(SourceRow).where(
+            SourceRow.tenant_id == tenant_id, SourceRow.source_key == source_key
         )
+        if only_from is not None:
+            statement = statement.where(SourceRow.status.in_(sorted(only_from)))
         async with self.sessions.begin() as session:
-            await session.execute(statement)
+            result = cast(
+                CursorResult[Any],
+                await session.execute(statement.values(status=status, status_detail=detail)),
+            )
+        return bool(result.rowcount)
 
     async def delete(self, *, tenant_id: str, project_id: str, connection_id: str) -> None:
         """Remove the row; a missing row is a no-op."""
@@ -166,6 +173,51 @@ class SqlConnectionRepository:
         async with self.sessions() as session:
             row = await session.scalar(sa.select(SourceRow).where(*conditions))
             return connection_to_domain(row) if row is not None else None
+
+
+@dataclass(slots=True)
+class SqlConnectionRevisionRepository:
+    """ConnectionRevisionRepositoryPort over the connection_revisions table."""
+
+    sessions: SessionFactory
+
+    async def save(self, snapshot: ConnectionSnapshot) -> None:
+        """Insert the snapshot once; a second save of the same fingerprint is a no-op."""
+        row = ConnectionRevisionRow(
+            tenant_id=snapshot.tenant_id,
+            fingerprint=snapshot.fingerprint,
+            source_key=snapshot.source_key,
+            snapshot_json=snapshot.to_json(),
+            secret_refs=snapshot.secret_refs,
+            created_at=utc_now(),
+        )
+        try:
+            async with self.sessions.begin() as session:
+                if await session.get(ConnectionRevisionRow, (row.tenant_id, row.fingerprint)):
+                    return
+                session.add(row)
+        except IntegrityError:
+            return
+
+    async def get(self, *, tenant_id: str, fingerprint: str) -> ConnectionSnapshot | None:
+        """The snapshot with this fingerprint in the tenant, or None."""
+        async with self.sessions() as session:
+            row = await session.get(ConnectionRevisionRow, (tenant_id, fingerprint))
+            return ConnectionSnapshot.from_json(row.snapshot_json) if row else None
+
+    async def list_for_source(self, *, tenant_id: str, source_key: str) -> list[ConnectionSnapshot]:
+        """Every stored snapshot of one connection, oldest first."""
+        statement = (
+            sa.select(ConnectionRevisionRow)
+            .where(
+                ConnectionRevisionRow.tenant_id == tenant_id,
+                ConnectionRevisionRow.source_key == source_key,
+            )
+            .order_by(ConnectionRevisionRow.created_at, ConnectionRevisionRow.fingerprint)
+        )
+        async with self.sessions() as session:
+            rows = await session.scalars(statement)
+            return [ConnectionSnapshot.from_json(row.snapshot_json) for row in rows]
 
 
 def _after(rank: int, project_id: str, connection_id: str) -> sa.ColumnElement[bool]:

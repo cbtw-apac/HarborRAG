@@ -403,7 +403,7 @@ def test_declared_sync_ignores_singular_schedule_file(tmp_path: Path) -> None:
     schedules = ScheduleApplicationService(
         SimpleNamespace(schedule_config_path=tmp_path / "schedules.yaml"),
         backend_provider=backend_provider,
-        source_input_builder=lambda settings, submission: submission,
+        source_input_builder=_echo_submission,
     )
 
     assert asyncio.run(schedules.sync_declared()) is None
@@ -413,7 +413,7 @@ def _schedules(tmp_path: Path, backend_provider) -> ScheduleApplicationService:
     return ScheduleApplicationService(
         SimpleNamespace(schedule_config_path=tmp_path / "schedules.yaml"),
         backend_provider=backend_provider,
-        source_input_builder=lambda settings, submission: submission,
+        source_input_builder=_echo_submission,
     )
 
 
@@ -463,3 +463,7 @@ def test_invalid_schedule_stays_a_validation_error(tmp_path: Path) -> None:
 
     with pytest.raises(ScheduleInvalidError):
         asyncio.run(_schedules(tmp_path, backend_provider).create(invalid))
+
+
+async def _echo_submission(_settings: object, submission: object) -> object:
+    return submission

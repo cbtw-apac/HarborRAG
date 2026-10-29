@@ -21,6 +21,7 @@ from .source_submission import SourceSubmissionDefaults, prepare_source_submissi
 if TYPE_CHECKING:
     from temporalio.client import Client
 
+    from harborrag_runtime.ingestion.connections import ResolvedConnection
     from harborrag_runtime.temporal.client import IngestionTemporalClient
     from harborrag_runtime.temporal.schedules import TemporalScheduleBackend
 
@@ -45,7 +46,7 @@ def prepare_configured_source_submission(
     settings: RuntimeSettings,
     submission: SourceSubmission,
     *,
-    environment: Mapping[str, str] | None = None,
+    connection: ResolvedConnection,
 ) -> PreparedSourceSubmission:
     """Translate the shared ingestion batch policy at composition only.
 
@@ -57,7 +58,7 @@ def prepare_configured_source_submission(
     return prepare_source_submission(
         settings,
         submission,
-        environment=environment,
+        connection=connection,
         defaults=SourceSubmissionDefaults(
             batch_size=defaults.batch_size,
             document_concurrency=defaults.document_concurrency,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -86,7 +86,7 @@ class SourceRetryService:
         retry_task_id: str,
         original_task_id: str,
         planned: PlannedDocumentRelease,
-        connector_factory: Callable[[], BaseConnector | HarborConnector],
+        connector_factory: Callable[[], Awaitable[BaseConnector | HarborConnector]],
     ) -> DocumentIngestionOutcome:
         previous = await self._control.tasks.document_result(
             original_task_id,
@@ -95,7 +95,7 @@ class SourceRetryService:
         if previous is None or previous.status.lower() != "failed":
             raise ValueError("retry document is not a failed result of the original task")
         if previous.document_version_id is None:
-            outcome = await self._documents.release(planned.request, connector_factory())
+            outcome = await self._documents.release(planned.request, await connector_factory())
         else:
             outcome = await self._documents.replay(
                 planned.request,

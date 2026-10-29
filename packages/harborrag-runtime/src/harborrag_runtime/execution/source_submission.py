@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 import json
-import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
 from hashlib import sha256
-from inspect import Parameter, signature
 
-from harborrag_runtime.config import (
-    ConnectorDefinition,
-    connector_fingerprint,
-    load_connector_catalog,
-)
-from harborrag_runtime.config.connectors.models import source_types
-from harborrag_runtime.config.connectors.providers import coerce_config_values
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.ingestion.connections import ResolvedConnection
 from harborrag_runtime.ingestion.profiles import build_processing_profile
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.serialization import to_json_value
@@ -34,37 +26,34 @@ def prepare_source_submission(
     settings: RuntimeSettings,
     submission: SourceSubmission,
     *,
-    environment: Mapping[str, str] | None = None,
+    connection: ResolvedConnection,
     defaults: SourceSubmissionDefaults = SourceSubmissionDefaults(),
 ) -> PreparedSourceSubmission:
-    """Resolve a configured connector into a deterministic provider-neutral input."""
+    """Turn a resolved connection and a submission into a provider-neutral run input.
 
-    catalog = load_connector_catalog(settings.connector_config_path)
-    definition = catalog.get(submission.connector_name)
-    if not definition.enabled:
-        raise ConnectorConfigurationError(
-            f"Configured connector {submission.connector_name!r} is disabled"
-        )
-    if definition.provider == "local":
+    Args:
+        settings: Runtime settings that pick the processing profile.
+        submission: What the caller asked to ingest.
+        connection: The connection snapshot the run will use.
+        defaults: Batch and concurrency policy of the execution provider.
+
+    Returns:
+        The deterministic input every activity of the run receives.
+
+    Raises:
+        ConnectorConfigurationError: A local query names a filter the connector ignores.
+    """
+    if connection.provider == "local":
         _require_known_local_filters(submission.query)
-    source_environment = os.environ if environment is None else environment
-    effective_connection_id = submission.connection_id or submission.connector_name
-    configuration_fingerprint = connector_fingerprint(
-        catalog_version=catalog.version,
-        definition=definition,
-        environment=source_environment,
-    )
-    query = _effective_query(
-        definition,
-        submission.query,
-        environment=source_environment,
-    )
+    source_key = connection.snapshot.source_key
+    query, config_filter_keys = _effective_query(connection, submission.query)
     source_scope_id = submission.source_scope_id or _source_scope_id(
         tenant_id=submission.tenant_id,
-        connector_name=submission.connector_name,
-        connector_type=definition.provider,
-        connection_id=effective_connection_id,
+        connector_name=source_key,
+        connector_type=connection.provider,
+        connection_id=source_key,
         query=query,
+        excluded_filters=config_filter_keys,
     )
     processing = build_processing_profile(settings)
     batch_size = submission.batch_size if submission.batch_size is not None else defaults.batch_size
@@ -76,11 +65,11 @@ def prepare_source_submission(
     return PreparedSourceSubmission(
         task_id=submission.task_id,
         tenant_id=submission.tenant_id,
-        connector_name=submission.connector_name,
-        connector_type=definition.provider,
-        connection_id=effective_connection_id,
+        connector_name=source_key,
+        connector_type=connection.provider,
+        connection_id=source_key,
         source_scope_id=source_scope_id,
-        configuration_fingerprint=configuration_fingerprint,
+        configuration_fingerprint=connection.fingerprint,
         processing=ProcessingProfileInput(
             parser_profile=processing.parser_profile,
             normalizer_version=processing.normalizer_version,
@@ -117,62 +106,60 @@ def _require_known_local_filters(query: SourceQuery) -> None:
         )
 
 
-def _source_scope_id(
+def _source_scope_id(  # noqa: PLR0913 - the scope's identity fields
     *,
     tenant_id: str,
     connector_name: str,
     connector_type: str,
     connection_id: str,
     query: SourceQuery,
+    excluded_filters: frozenset[str] = frozenset(),
 ) -> str:
     payload = {
         "tenant_id": tenant_id,
         "connector_name": connector_name,
         "connector_type": connector_type,
         "connection_id": connection_id,
-        "query": _scope_query(query),
+        "query": _scope_query(query, excluded_filters),
     }
     return f"scope-{_digest(payload)[:32]}"
 
 
 def _effective_query(
-    definition: ConnectorDefinition,
-    query: SourceQuery,
-    *,
-    environment: Mapping[str, str],
-) -> SourceQuery:
-    """Apply connector-level feature ceilings to the durable query contract."""
+    connection: ResolvedConnection, query: SourceQuery
+) -> tuple[SourceQuery, frozenset[str]]:
+    """Apply the connection's feature ceilings and config filters to the run query.
 
-    if source_types.canonical(definition.provider) is None:
-        return query
-    factory = source_types.provider_factory(definition.provider)
-    parameter = signature(factory).parameters.get("include_attachments")
-    if parameter is None:
-        return query
-    settings = dict(definition.settings)
-    for field_name, variable_name in definition.setting_environment.items():
-        settings[field_name] = environment[variable_name]
-    values = coerce_config_values(factory, settings)
-    configured = values.get(
-        "include_attachments",
-        parameter.default,
-    )
-    if configured is Parameter.empty:
-        return query
-    return replace(
+    Returns:
+        The effective query and the filter keys that came from the connection's
+        config; those stay out of the scope identity so editing them keeps the scope.
+    """
+    filters = json.loads(query.filters_json)
+    from_config = {
+        key: value for key, value in connection.query_filters().items() if key not in filters
+    }
+    effective = replace(
         query,
-        include_attachments=query.include_attachments and bool(configured),
+        include_attachments=query.include_attachments and connection.include_attachments(),
+        filters_json=json.dumps(
+            {**from_config, **filters}, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
+        if from_config
+        else query.filters_json,
     )
+    return effective, frozenset(from_config)
 
 
-def _scope_query(query: SourceQuery) -> dict[str, object]:
-    """Keep execution controls out of the stable source membership scope."""
+def _scope_query(
+    query: SourceQuery, excluded_filters: frozenset[str] = frozenset()
+) -> dict[str, object]:
+    """Keep execution controls and connection config out of the stable source membership scope."""
 
     values = asdict(query)
     values.pop("include_attachments", None)
     filters = json.loads(query.filters_json)
     if isinstance(filters, dict):
-        for key in ("include_comments", "build_graph"):
+        for key in ("include_comments", "build_graph", *excluded_filters):
             filters.pop(key, None)
         values["filters_json"] = json.dumps(
             filters,

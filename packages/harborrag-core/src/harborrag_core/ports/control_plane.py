@@ -12,6 +12,7 @@ from typing import Any, Protocol, TypeVar
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection, ConnectionPutOutcome, ConnectionStatus
+from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.domain.member import Member
@@ -127,14 +128,43 @@ class ConnectionRepositoryPort(Protocol):
         source_key: str,
         status: ConnectionStatus,
         detail: dict[str, Any] | None = None,
-    ) -> None:
-        """Record a status change without touching ``version``."""
+        only_from: frozenset[ConnectionStatus] | None = None,
+    ) -> bool:
+        """Record a status change without touching ``version``.
+
+        Args:
+            tenant_id: Owning tenant.
+            source_key: Connection to update.
+            status: New status.
+            detail: Machine-readable explanation, e.g. field errors.
+            only_from: Change the status only when the current one is in this set.
+
+        Returns:
+            True when a row changed.
+        """
 
     async def delete(self, *, tenant_id: str, project_id: str, connection_id: str) -> None:
         """Remove the row; a missing row is a no-op."""
 
 
 SourceRepositoryPort = ConnectionRepositoryPort
+
+
+class ConnectionRevisionRepositoryPort(Protocol):
+    """Immutable connection snapshots, one per content fingerprint.
+
+    Submission saves the snapshot a run starts with; workers build connectors
+    from it, so a later edit never changes a run that is already going.
+    """
+
+    async def save(self, snapshot: ConnectionSnapshot) -> None:
+        """Store ``snapshot`` under its fingerprint; saving it again is a no-op."""
+
+    async def get(self, *, tenant_id: str, fingerprint: str) -> ConnectionSnapshot | None:
+        """The snapshot with this fingerprint in the tenant, or None."""
+
+    async def list_for_source(self, *, tenant_id: str, source_key: str) -> list[ConnectionSnapshot]:
+        """Every stored snapshot of one connection, oldest first."""
 
 
 class JobRepositoryPort(Protocol):

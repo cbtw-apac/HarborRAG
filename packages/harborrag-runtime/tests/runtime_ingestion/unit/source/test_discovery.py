@@ -7,6 +7,7 @@ import threading
 import time
 from types import SimpleNamespace
 from typing import Any, cast
+from unittest.mock import AsyncMock
 
 import pytest
 from temporalio.exceptions import ApplicationError
@@ -22,6 +23,7 @@ from harborrag_adapters.repositories.object_store import (
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_runtime.ingestion import SourceIngestionService, SourcePlanRepository
+from harborrag_runtime.ingestion.connections import ConnectionHealth
 from harborrag_runtime.temporal.ingestion_activities import (
     IngestionActivities,
 )
@@ -134,7 +136,8 @@ async def test_discovery_replay_uses_plan_written_before_scan_completion(
         runtime = SimpleNamespace(
             sources=sources,
             source_plans=plans,
-            connector=lambda _, **__: connector,
+            connector=AsyncMock(return_value=connector),
+            connection_health=ConnectionHealth(None),
         )
         activities = IngestionActivities(cast(Any, runtime))
 
@@ -175,7 +178,8 @@ async def test_native_discovery_resumes_from_immutable_page_checkpoint(tmp_path)
         runtime = SimpleNamespace(
             sources=sources,
             source_plans=plans,
-            connector=lambda _, **__: connector,
+            connector=AsyncMock(return_value=connector),
+            connection_health=ConnectionHealth(None),
         )
         activities = IngestionActivities(cast(Any, runtime))
         source = _source_input(

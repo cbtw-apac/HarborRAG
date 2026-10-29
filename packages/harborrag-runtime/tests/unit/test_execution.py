@@ -15,6 +15,7 @@ from harborrag_runtime.errors import WorkflowRunAlreadyStartedError
 from harborrag_runtime.execution import build_ingestion_executor
 from harborrag_runtime.execution.direct import DirectIngestionExecutor
 from harborrag_runtime.execution.temporal import TemporalIngestionExecutor
+from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 from harborrag_runtime.source_query import ProcessingProfileInput
 from harborrag_runtime.temporal.gateway import to_temporal_source
@@ -201,24 +202,31 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
         async def start(self) -> None:
             self.started += 1
 
-        def connector(self, name: str, *, configuration_fingerprint: str):
-            calls.append((name, configuration_fingerprint))
+        connection_resolver = object()
+
+        async def connector(self, *, tenant_id: str, task_id: str, configuration_fingerprint: str):
+            calls.append((task_id, configuration_fingerprint))
             return "connector"
 
         async def close(self) -> None:
             self.closed += 1
 
     runtime = Runtime()
-    source_input = SimpleNamespace(task_id="task-1", configuration_fingerprint="fingerprint-1")
+    source_input = SimpleNamespace(
+        tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="fingerprint-1"
+    )
     monkeypatch.setattr(
         direct_module,
         "build_ingestion_runtime",
         lambda _settings: runtime,
     )
     monkeypatch.setattr(
+        direct_module, "resolve_request_connection", AsyncMock(return_value="connection")
+    )
+    monkeypatch.setattr(
         direct_module,
         "build_ingestion_input",
-        lambda _settings, _request: source_input,
+        lambda _settings, _request, *, connection: source_input,
     )
     monkeypatch.setattr(
         direct_module,
@@ -235,7 +243,7 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
     assert runtime.started == 1
     assert runtime.closed == 1
     assert calls == [
-        ("docs", "fingerprint-1"),
+        ("task-1", "fingerprint-1"),
         (("converted", source_input), "connector"),
     ]
     assert result.task_id == "task-1"
@@ -312,11 +320,16 @@ async def test_temporal_executor_submits_controls_and_reads_results(
             cls.connect_calls += 1
             return client
 
+    stores = SimpleNamespace(connections=object(), revisions=object(), aclose=AsyncMock())
     monkeypatch.setattr(temporal_module, "IngestionTemporalClient", ClientFactory)
+    monkeypatch.setattr(temporal_module, "build_connection_stores", Mock(return_value=stores))
+    monkeypatch.setattr(
+        temporal_module, "resolve_request_connection", AsyncMock(return_value="connection")
+    )
     monkeypatch.setattr(
         temporal_module,
         "build_ingestion_input",
-        lambda _settings, _request: source_input,
+        lambda _settings, _request, *, connection: source_input,
     )
     executor = TemporalIngestionExecutor(RuntimeSettings())
     request = _request()
@@ -331,6 +344,7 @@ async def test_temporal_executor_submits_controls_and_reads_results(
     await executor.aclose()
 
     assert ClientFactory.connect_calls == 1
+    stores.aclose.assert_awaited_once_with()
     assert (reference.task_id, reference.workflow_id) == ("task-1", "workflow-1")
     assert result.status == "completed"
     assert (result.discovered, result.published, result.unchanged, result.failed) == (
@@ -390,17 +404,22 @@ def test_submission_maps_public_request_without_losing_query_controls(
     captured = None
     expected = object()
 
-    def capture(_settings, source):
+    connection = object()
+
+    def capture(_settings, source, *, connection: object):
         nonlocal captured
-        captured = source
+        captured = (source, connection)
         return expected
 
     monkeypatch.setattr(submission_module, "prepare_configured_source_submission", capture)
 
-    result = submission_module.build_ingestion_input(RuntimeSettings(), _request())
+    result = submission_module.build_ingestion_input(
+        RuntimeSettings(), _request(), connection=connection
+    )
 
     assert result is expected
-    assert captured is not None
+    assert captured is not None and captured[1] is connection
+    captured = captured[0]
     assert captured.task_id == "task-1"
     assert captured.tenant_id == "tenant-1"
     assert captured.connector_name == "docs"
@@ -420,24 +439,23 @@ def test_submission_maps_public_request_without_losing_query_controls(
 
 
 @pytest.mark.asyncio
-async def test_direct_validates_request_before_connecting(monkeypatch) -> None:
+async def test_direct_rejects_an_unknown_connection_before_connecting(monkeypatch) -> None:
     from harborrag_runtime.execution import direct as direct_module
 
-    runtime = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
-    builder = Mock(return_value=runtime)
-    monkeypatch.setattr(direct_module, "build_ingestion_runtime", builder)
+    runtime = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), connection_resolver=object())
+    monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
     monkeypatch.setattr(
         direct_module,
-        "build_ingestion_input",
-        Mock(side_effect=ConnectorConfigurationError("Unknown configured connector: 'x'")),
+        "resolve_request_connection",
+        AsyncMock(side_effect=ConnectionNotFoundError("connection 'x' does not exist")),
     )
     executor = DirectIngestionExecutor(RuntimeSettings())
 
-    with pytest.raises(ConnectorConfigurationError, match="Unknown configured connector"):
+    with pytest.raises(ConnectionNotFoundError, match="does not exist"):
         await executor.run(_request())
 
     runtime.start.assert_not_called()
-    builder.assert_not_called()
+    runtime.close.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
@@ -447,13 +465,19 @@ async def test_direct_resolves_connector_before_connecting(monkeypatch) -> None:
     runtime = SimpleNamespace(
         start=AsyncMock(),
         close=AsyncMock(),
-        connector=Mock(side_effect=ConnectorConfigurationError("source_path is missing")),
+        connection_resolver=object(),
+        connector=AsyncMock(side_effect=ConnectorConfigurationError("source_path is missing")),
     )
     monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
+    monkeypatch.setattr(direct_module, "resolve_request_connection", AsyncMock())
     monkeypatch.setattr(
         direct_module,
         "build_ingestion_input",
-        Mock(return_value=SimpleNamespace(configuration_fingerprint="f")),
+        Mock(
+            return_value=SimpleNamespace(
+                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f"
+            )
+        ),
     )
     executor = DirectIngestionExecutor(RuntimeSettings())
 
@@ -472,15 +496,21 @@ async def test_direct_rejects_reused_terminal_run_id(monkeypatch) -> None:
     runtime = SimpleNamespace(
         start=AsyncMock(),
         close=AsyncMock(),
-        connector=Mock(return_value="connector"),
+        connection_resolver=object(),
+        connector=AsyncMock(return_value="connector"),
         control=SimpleNamespace(tasks=SimpleNamespace(get=AsyncMock(return_value=finished))),
         sources=SimpleNamespace(ingest=AsyncMock()),
     )
     monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
+    monkeypatch.setattr(direct_module, "resolve_request_connection", AsyncMock())
     monkeypatch.setattr(
         direct_module,
         "build_ingestion_input",
-        Mock(return_value=SimpleNamespace(task_id="task-1", configuration_fingerprint="f")),
+        Mock(
+            return_value=SimpleNamespace(
+                tenant_id="tenant-1", task_id="task-1", configuration_fingerprint="f"
+            )
+        ),
     )
     executor = DirectIngestionExecutor(RuntimeSettings())
 

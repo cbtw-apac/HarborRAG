@@ -9,7 +9,10 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest, IngestionResult
 from harborrag_runtime.errors import WorkflowRunAlreadyStartedError
 from harborrag_runtime.execution.source_conversion import to_source_request
-from harborrag_runtime.execution.submission import build_ingestion_input
+from harborrag_runtime.execution.submission import (
+    build_ingestion_input,
+    resolve_request_connection,
+)
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.runtime_builder import build_ingestion_runtime
 
@@ -40,19 +43,19 @@ class DirectIngestionExecutor:
             await self._connect_runtime()
 
     async def run(self, request: IngestionRequest) -> IngestionResult:
-        # Everything that can be rejected from configuration alone happens
-        # before the first connection, so a bad request never waits on I/O.
-        source = build_ingestion_input(self._settings, request)
         async with self._lifecycle_lock:
             fresh = not self._runtime_started
             if fresh:
                 await self._rebuild_runtime()
             runtime = self._runtime
-            if runtime is None:
+            if runtime is None or runtime.connection_resolver is None:
                 raise HarborInvariantError("self._runtime must not be None here")
             try:
-                connector = runtime.connector(
-                    request.connector_name,
+                connection = await resolve_request_connection(runtime.connection_resolver, request)
+                source = build_ingestion_input(self._settings, request, connection=connection)
+                connector = await runtime.connector(
+                    tenant_id=source.tenant_id,
+                    task_id=source.task_id,
                     configuration_fingerprint=source.configuration_fingerprint,
                 )
             except Exception:

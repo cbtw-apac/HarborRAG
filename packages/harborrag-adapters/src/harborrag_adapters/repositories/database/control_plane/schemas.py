@@ -96,6 +96,23 @@ class SourceRow(Base):
     errors: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
 
 
+class ConnectionRevisionRow(Base):
+    """connection_revisions: immutable secret-free snapshots, one per fingerprint."""
+
+    __tablename__ = "connection_revisions"
+
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    fingerprint: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    source_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    snapshot_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
+    secret_refs: Mapped[list[str]] = mapped_column(JSONVariant, default=list, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        sa.Index("ix_connection_revisions_source", "tenant_id", "source_key", "created_at"),
+    )
+
+
 class SecretRefRow(Base):
     """secrets: refs + provenance, plus the Fernet-encrypted value itself.
 

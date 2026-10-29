@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
+from harborrag_runtime.ingestion.connections import ResolvedConnection
 from harborrag_runtime.ingestion_contracts import SourceSubmission as SourceSubmission
 
 from .gateway import to_temporal_source
@@ -16,8 +15,9 @@ def build_source_input(
     settings: RuntimeSettings,
     submission: SourceSubmission,
     *,
-    environment: Mapping[str, str] | None = None,
+    connection: ResolvedConnection,
 ) -> SourceIngestionInput:
+    """Build the Temporal workflow input for a submission and its resolved connection."""
     return to_temporal_source(
-        prepare_configured_source_submission(settings, submission, environment=environment)
+        prepare_configured_source_submission(settings, submission, connection=connection)
     )

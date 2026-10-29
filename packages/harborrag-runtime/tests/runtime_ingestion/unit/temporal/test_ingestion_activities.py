@@ -47,7 +47,7 @@ class RecordingOperations:
             self.calls.append((name, args, kwargs))
             connector_factory = kwargs.get("connector_factory")
             if callable(connector_factory):
-                connector_factory()
+                await connector_factory()
             return self.results.get(name)
 
         return operation
@@ -156,8 +156,8 @@ def _build_activities() -> tuple[
     )
     connector_calls: list[tuple[str, str]] = []
 
-    def connector(name: str, *, configuration_fingerprint: str) -> object:
-        connector_calls.append((name, configuration_fingerprint))
+    async def connector(*, tenant_id: str, task_id: str, configuration_fingerprint: str) -> object:
+        connector_calls.append((task_id, configuration_fingerprint))
         return "connector"
 
     runtime = SimpleNamespace(
@@ -295,7 +295,7 @@ async def test_document_activities_delegate_every_stage_and_record_outcomes(
         DocumentFailureInput(document, prepared, "chunk_and_validate", "ChunkError")
     )
 
-    assert connector_calls == [("jira-main", "config-v1")]
+    assert connector_calls == [("task-1", "config-v1")]
     assert heartbeat_details == [
         "fetch-and-capture",
         {

@@ -5,6 +5,7 @@ from temporalio import activity
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.storage import StorageOperationContext
 from harborrag_runtime.ingestion.composition import IngestionRuntime
+from harborrag_runtime.ingestion.connections import require_fingerprint
 from harborrag_runtime.ingestion.source.models import SourceDispatchSummary
 from harborrag_runtime.ingestion.source.tasks import source_scan_id
 
@@ -81,8 +82,11 @@ class RetryActivitiesMixin:
                 original_task_id=request.original_task_id,
                 planned=planned,
                 connector_factory=lambda: self._runtime.connector(
-                    planned.request.connector_name,
-                    configuration_fingerprint=(planned.request.configuration_fingerprint),
+                    tenant_id=request.tenant_id,
+                    task_id=request.retry_task_id,
+                    configuration_fingerprint=require_fingerprint(
+                        planned.request.configuration_fingerprint
+                    ),
                 ),
             )
 

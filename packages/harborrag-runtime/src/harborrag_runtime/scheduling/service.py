@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Protocol
 
+from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 
 from .config import ScheduleCatalog
@@ -33,7 +34,7 @@ from .validation import (
 
 logger = logging.getLogger("harborrag.runtime.scheduling")
 
-type SourcePreparer = Callable[[SourceSubmission], PreparedSourceSubmission]
+type SourcePreparer = Callable[[SourceSubmission], Awaitable[PreparedSourceSubmission]]
 
 
 class ScheduleBackend(Protocol):
@@ -74,7 +75,7 @@ class ScheduleService:
 
     async def create_schedule(self, definition: ScheduleDefinition) -> ScheduleView:
         validate_definition(definition)
-        self._validate_source(definition)
+        await self._validate_source(definition)
         await self._backend.create(definition)
         return await self._backend.describe(definition.schedule_id)
 
@@ -100,7 +101,7 @@ class ScheduleService:
         if existing.workflow is not definition.workflow:
             raise ScheduleValidationError("a schedule's workflow cannot change")
         schedule_id = definition.schedule_id
-        self._validate_source(definition)
+        await self._validate_source(definition)
         await self._backend.update(
             definition,
             desired_paused=definition.paused if apply_pause else current.desired_paused,
@@ -220,7 +221,7 @@ class ScheduleService:
         """Create or update one declared schedule; return whether it was created."""
 
         validate_definition(definition)
-        self._validate_source(definition)
+        await self._validate_source(definition)
         try:
             await self._backend.create(definition)
             return True
@@ -242,12 +243,12 @@ class ScheduleService:
         await self.update_schedule(definition, apply_pause=declared_changed)
         return False
 
-    def _validate_source(self, definition: ScheduleDefinition) -> None:
+    async def _validate_source(self, definition: ScheduleDefinition) -> None:
         """Check the target resolves now; each firing prepares its own input."""
 
         target: SourceScheduleTarget = definition.target
         try:
-            self._prepare_source(
+            await self._prepare_source(
                 SourceSubmission(
                     # Placeholder; each scheduled run derives its own task ID.
                     task_id=definition.schedule_id,
@@ -258,7 +259,7 @@ class ScheduleService:
                     force_reprocess=target.force_reprocess,
                 )
             )
-        except ValueError as error:
+        except (ValueError, HarborValidationError, HarborConflictError) as error:
             raise ScheduleValidationError(str(error)) from error
 
     @staticmethod

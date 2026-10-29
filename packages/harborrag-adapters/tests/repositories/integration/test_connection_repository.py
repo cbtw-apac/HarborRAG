@@ -11,6 +11,7 @@ from alembic import command
 
 from harborrag_adapters.repositories.database.control_plane.connections import (
     SqlConnectionRepository,
+    SqlConnectionRevisionRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import (
     _build_config,
@@ -24,6 +25,7 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_core.domain.connection import Connection, ConnectionBuilder
+from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.domain.project import Project
 
 pytestmark = [pytest.mark.integration, pytest.mark.whitebox]
@@ -182,6 +184,50 @@ async def test_scoped_reads_hide_other_tenants_and_delete_is_idempotent(
     await repository.delete(tenant_id="other", project_id="z", connection_id="theirs")
     await repository.delete(tenant_id="other", project_id="z", connection_id="theirs")
     assert await repository.get_by_id(theirs.id, tenant_ids=None) is None
+
+
+@pytest.mark.asyncio
+async def test_set_status_honours_its_from_status_guard(sessions: SessionFactory) -> None:
+    await _projects(sessions, ("acme", "cpm"))
+    repository = SqlConnectionRepository(sessions)
+    await repository.put(_connection("tickets"))
+    key = {"tenant_id": "acme", "source_key": "cpm/tickets"}
+
+    assert await repository.set_status(**key, status="error") is True
+    assert (
+        await repository.set_status(**key, status="active", only_from=frozenset({"needs_reauth"}))
+        is False
+    )
+    assert await repository.set_status(**key, status="active", only_from=frozenset({"error"}))
+    stored = await repository.get_by_source_key(**key)
+    assert stored is not None and stored.status == "active" and stored.version == 1
+
+
+@pytest.mark.asyncio
+async def test_revisions_are_saved_once_per_fingerprint_and_listed_per_connection(
+    sessions: SessionFactory,
+) -> None:
+    revisions = SqlConnectionRevisionRepository(sessions)
+    first = ConnectionSnapshot(
+        tenant_id="acme",
+        source_key="cpm/tickets",
+        source_type="jira",
+        credentials={"api_token": {"secret_ref": "secret://db/a", "last4": "9f2c"}},
+        config={"jql": "project = CPM"},
+    )
+    second = ConnectionSnapshot(
+        tenant_id="acme", source_key="cpm/tickets", source_type="jira", config={"jql": "x"}
+    )
+
+    await revisions.save(first)
+    await revisions.save(first)
+    await revisions.save(second)
+
+    assert await revisions.get(tenant_id="acme", fingerprint=first.fingerprint) == first
+    assert await revisions.get(tenant_id="other", fingerprint=first.fingerprint) is None
+    listed = await revisions.list_for_source(tenant_id="acme", source_key="cpm/tickets")
+    assert [snapshot.fingerprint for snapshot in listed] == [first.fingerprint, second.fingerprint]
+    assert listed[0].secret_refs == ["secret://db/a"]
 
 
 _LEGACY_ROWS = [

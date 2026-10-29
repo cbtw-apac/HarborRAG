@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from itertools import islice
 
 from harborrag_adapters.connectors.base import BaseConnector
@@ -74,7 +74,7 @@ class SourceDocumentOperations:
         retry_task_id: str,
         original_task_id: str,
         planned: PlannedDocumentRelease,
-        connector_factory: Callable[[], BaseConnector | HarborConnector],
+        connector_factory: Callable[[], Awaitable[BaseConnector | HarborConnector]],
     ) -> DocumentIngestionOutcome:
         return await self._retries.retry_one(
             retry_task_id=retry_task_id,

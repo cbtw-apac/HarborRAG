@@ -6,6 +6,7 @@ from dataclasses import replace
 
 import pytest
 
+from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
 from harborrag_runtime.scheduling import ScheduleService
 from harborrag_runtime.scheduling.config import ScheduleCatalog
 from harborrag_runtime.scheduling.errors import (
@@ -98,7 +99,7 @@ def _definition(**overrides) -> ScheduleDefinition:
 
 
 def _service(backend: _Backend) -> ScheduleService:
-    return ScheduleService(backend, lambda submission: object())  # type: ignore[arg-type,return-value]
+    return ScheduleService(backend, _prepared)  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio
@@ -296,10 +297,14 @@ async def test_concurrent_and_cancelling_overlaps_are_rejected(overlap: Schedule
 
 @pytest.mark.asyncio
 async def test_create_rejects_a_connector_that_does_not_resolve() -> None:
-    def prepare(submission):
-        raise ValueError(f"connector {submission.connector_name!r} is not configured")
+    async def prepare(submission):
+        raise ConnectionNotFoundError(f"connection {submission.connector_name!r} does not exist")
 
     service = ScheduleService(_Backend(), prepare)
 
-    with pytest.raises(ScheduleValidationError, match="not configured"):
+    with pytest.raises(ScheduleValidationError, match="does not exist"):
         await service.create_schedule(_definition())
+
+
+async def _prepared(_submission: object) -> object:
+    return object()
