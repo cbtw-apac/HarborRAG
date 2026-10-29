@@ -24,6 +24,7 @@ from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
 from harborrag_core.domain.connection import Connection, ConnectionStatus
 from harborrag_core.security.redaction import redact_mapping
+from harborrag_runtime.config.connectors.models import source_types
 
 _SETTABLE_STATUSES: tuple[ConnectionStatus, ...] = ("active", "needs_reauth", "error")
 
@@ -85,11 +86,19 @@ class SourceOut(BaseModel):
             project_id=source.project_id,
             source_type=source.source_type,
             name=source.name,
-            config=redact_mapping({**source.credentials, **source.config, **source.tuning}),
+            config=redact_mapping(_legacy_config(source)),
             secret_refs=source.secret_refs,
             schedule=source.schedule,
             status=source.status,
         )
+
+
+def _legacy_config(source: Connection) -> dict[str, Any]:
+    """Present a connection's stored parts under the dataclass names the legacy API used."""
+    if source_types.canonical(source.source_type) is None:
+        return {**source.credentials, **source.config, **source.tuning}
+    spec = source_types.get(source.source_type)
+    return spec.flatten(source.credentials, source.config, source.tuning)
 
 
 @router.get("/sources", response_model=list[SourceOut])

@@ -35,6 +35,8 @@ from harborrag_core.security.redaction import redact_mapping, redact_secrets
         "my_api_key",
         "ssh_private_key",
         "customer_access_token",
+        "secret_path",
+        "api_key_file",
     ],
 )
 def test_a_credential_field_is_recognized(name: str) -> None:
@@ -60,6 +62,8 @@ def test_a_credential_field_is_recognized(name: str) -> None:
         "allow_ambient_credentials",
         "supports_ambient_credentials",
         "secrets",
+        "token_cache_path",
+        "token_dir",
     ],
 )
 def test_a_quantity_is_not_mistaken_for_a_credential(name: str) -> None:
@@ -159,3 +163,9 @@ def test_every_consumer_agrees_on_one_definition() -> None:
         assert "raw-value" not in redact_secrets(f"{name}=raw-value"), name
         error = HarborModelError("failed", metadata={name: "raw-value"})
         assert error.metadata[name] == "<redacted>", name
+
+
+def test_a_token_cache_location_is_storable_configuration() -> None:
+    """A SharePoint refresh-token cache path names where a token lives, not the token."""
+
+    validate_secret_free_config({"token_cache_path": "/var/lib/harborrag/sharepoint.json"})

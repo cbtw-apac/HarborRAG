@@ -215,3 +215,34 @@ def test_update_and_delete_of_a_source_outside_the_callers_tenants_404s(project:
 
         del app.dependency_overrides[get_principal]
         assert client.get(f"/api/v1/sources/{created['id']}").json()["name"] == "Docs"
+
+
+@pytest.mark.blackbox
+def test_create_sharepoint_source_keeps_its_token_cache_path_out_of_the_secret_store(
+    project: Project,
+) -> None:
+    """``token_cache_path`` is a location, so the secret store is not asked to hold it."""
+    secrets = FakeSecrets()
+    with _client(projects=[project], secrets=secrets) as client:
+        response = client.post(
+            "/api/v1/sources",
+            json={
+                "tenant_id": "DEFAULT",
+                "project_id": "proj-a",
+                "source_type": "sharepoint",
+                "name": "Knowledge",
+                "config": {
+                    "site_url": "https://acme.sharepoint.com/sites/knowledge",
+                    "tenant_id": "tenant",
+                    "client_id": "client",
+                    "auth_mode": "device_code",
+                    "token_cache_path": "/var/lib/harborrag/sharepoint.json",
+                },
+            },
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["config"]["auth_mode"] == "device_code"
+    assert body["secret_refs"] == []
+    assert secrets.values == {}

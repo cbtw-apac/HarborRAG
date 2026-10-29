@@ -1,0 +1,50 @@
+"""Local file source type: a directory or file on the worker's file system."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import Field
+
+from .common import NoCredentials, NoTuning
+from .fields import StrictModel, widget
+from .spec import AuthMethodSpec, Capabilities, SourceTypeSpec
+
+
+class LocalFileSyncConfig(StrictModel):
+    """What to sync from the file system."""
+
+    source_path: str = Field(
+        min_length=1,
+        description="Absolute path as the worker sees it",
+        examples=["/data/handbook"],
+        json_schema_extra=widget("path"),
+    )
+    allowed_extensions: list[str] = Field(default_factory=list, description="File types to keep")
+    excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
+    include_paths: list[str] = Field(default_factory=list)
+    exclude_paths: list[str] = Field(default_factory=list)
+    include_globs: list[str] = Field(default_factory=list)
+    exclude_globs: list[str] = Field(default_factory=list)
+    excluded_dir_names: list[str] | None = Field(default=None, description="Folders to skip")
+    include_hidden: bool = Field(default=False, description="Include hidden files and folders")
+    follow_symlinks: bool = Field(default=False, description="Follow links inside the path")
+    max_depth: int | None = Field(default=None, ge=0, description="Folder depth limit")
+    max_file_size_bytes: int | None = Field(default=None, ge=0)
+    checksum_mode: Literal["none", "stat", "sha256"] = Field(
+        default="stat", description="How file changes are detected"
+    )
+    fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
+
+
+LOCAL_FILE = SourceTypeSpec(
+    source_type="local_file",
+    name="Local files",
+    category="files",
+    provider="local",
+    auth_methods=(AuthMethodSpec("none", "No authentication", NoCredentials),),
+    config_model=LocalFileSyncConfig,
+    tuning_model=NoTuning,
+    capabilities=Capabilities(incremental=True, attachments=False),
+    aliases=("local", "local_files", "filesystem", "files"),
+)

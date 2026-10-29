@@ -7,12 +7,10 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.providers import (
     PYTHON_ONLY_CONFIG_FIELDS,
-    SECRET_CONFIG_FIELDS,
     canonical_provider_name,
-    config_factory,
-    config_field_names,
     supported_provider_names,
     validate_literal_collection_shapes,
 )
@@ -120,16 +118,16 @@ def _parse_definition(
         setting_environment,
         secret_environment,
     )
-    factory = config_factory(provider)
-    if factory is not None:
+    if source_types.canonical(provider) is not None:
         try:
-            validate_literal_collection_shapes(factory, settings)
+            validate_literal_collection_shapes(source_types.provider_factory(provider), settings)
         except ValueError as exc:
             raise ConnectorConfigurationError(
                 f"Connector {name!r} ({provider}) is invalid: {exc}"
             ) from exc
     _validate_yaml_boundaries(
         name,
+        provider,
         settings,
         setting_environment,
         secret_environment,
@@ -151,7 +149,7 @@ def _parse_provider(name: str, raw_provider: object) -> str:
     if not isinstance(raw_provider, str) or not raw_provider.strip():
         raise ConnectorConfigurationError(f"Connector {name!r} must define a non-empty provider")
     provider = canonical_provider_name(raw_provider)
-    if config_factory(provider) is None:
+    if source_types.canonical(provider) is None:
         supported = ", ".join(supported_provider_names())
         raise ConnectorConfigurationError(
             f"Connector {name!r} uses unsupported provider {raw_provider!r}; "
@@ -219,12 +217,11 @@ def _validate_provider_fields(
     secret_environment: dict[str, str],
 ) -> None:
     """Reject fields absent from the selected provider config dataclass."""
-    factory = config_factory(provider)
-    if factory is None:  # Provider support was checked before this call.
+    if source_types.canonical(provider) is None:
         raise ConnectorConfigurationError(
             f"Connector {name!r} uses unsupported provider {provider!r}"
         )
-    known_fields = config_field_names(factory)
+    known_fields = source_types.dataclass_fields(provider)
     configured_fields = set(settings) | set(setting_environment) | set(secret_environment)
     unknown = sorted(configured_fields - known_fields)
     if unknown:
@@ -235,19 +232,21 @@ def _validate_provider_fields(
 
 def _validate_yaml_boundaries(
     name: str,
+    provider: str,
     settings: dict[str, Any],
     setting_environment: dict[str, str],
     secret_environment: dict[str, str],
 ) -> None:
     """Keep plaintext secrets and Python objects outside declarative YAML."""
-    protected = sorted(set(settings) & SECRET_CONFIG_FIELDS)
+    secret_fields = source_types.secret_dataclass_fields(provider)
+    protected = sorted(set(settings) & secret_fields)
     if protected:
         raise ConnectorConfigurationError(
             f"Connector {name!r} must reference secret setting(s) through "
             f"secrets/*_env: {', '.join(protected)}"
         )
 
-    environment_secrets = sorted(set(setting_environment) & SECRET_CONFIG_FIELDS)
+    environment_secrets = sorted(set(setting_environment) & secret_fields)
     if environment_secrets:
         raise ConnectorConfigurationError(
             f"Connector {name!r} must reference secret setting(s) through "

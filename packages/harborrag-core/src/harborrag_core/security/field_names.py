@@ -75,6 +75,14 @@ exception is deliberately narrow and applies to ``token`` alone.
 """
 
 
+_LOCATION_QUALIFIERS = frozenset({"path", "dir", "directory", "file"})
+"""Words that make a neighbouring ``token`` the location of a credential, not its value.
+
+``token_cache_path`` names where a refresh token is kept on disk; the path is
+not itself a secret. Like ``_COUNT_QUALIFIERS`` this applies to ``token`` alone.
+"""
+
+
 _SINGLE_WORD_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" not in t)
 
 # Matched as substrings of the name with every separator removed, so ``apikey``,
@@ -116,7 +124,7 @@ def is_sensitive_field_name(value: object) -> bool:
         for entry in _SINGLE_WORD_TOKENS
         if any(_token_carries(token, entry) for token in tokens)
     }
-    if matched == {"token"} and tokens & _COUNT_QUALIFIERS:
+    if matched == {"token"} and tokens & (_COUNT_QUALIFIERS | _LOCATION_QUALIFIERS):
         return False
     return bool(matched)
 

@@ -29,13 +29,7 @@ from harborrag_core.domain.connection import (
 )
 from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.config.connectors.providers import (
-    SECRET_CONFIG_FIELDS,
-    ConnectorConfigFactory,
-    canonical_provider_name,
-    config_factory,
-    config_field_names,
-)
+from harborrag_runtime.config.connectors.models import SourceTypeSpec, source_types
 
 from ..schemas import AppResponse
 from .effect_recovery import log_activity as _log_activity
@@ -67,19 +61,22 @@ class ControlPlaneWritesMixin:
         tenant_ids = frozenset({tenant_id})
         if await control_plane.projects.get(project_id, tenant_ids=tenant_ids) is None:
             raise HarborNotFoundError(f"project {project_id!r} not found")
-        factory = _require_connector_factory(source_type)
+        spec = _require_spec(source_type)
         connection_id = await _free_connection_id(control_plane, tenant_id, project_id, name)
         resolved_config, secret_refs, newly_put_refs, _stale = await _extract_secrets(
-            control_plane, factory, config, tenant_id=tenant_id
+            control_plane, spec, config, tenant_id=tenant_id
         )
+        credentials, sync_config, tuning = spec.split_flat(resolved_config)
         try:
             source = (
                 ConnectionBuilder.for_new(
                     tenant_id=tenant_id, project_id=project_id, connection_id=connection_id
                 )
-                .source_type(source_type)
+                .source_type(spec.source_type)
                 .name(name)
-                .config(resolved_config)
+                .credentials(credentials)
+                .config(sync_config)
+                .tuning(tuning)
                 .secret_refs(secret_refs)
                 .schedule(schedule)
                 .actor(actor)
@@ -129,15 +126,17 @@ class ControlPlaneWritesMixin:
         newly_put_refs: list[str] = []
         stale_refs: list[str] = []
         if "config" in updates:
-            factory = _require_connector_factory(source.source_type)
+            spec = _require_spec(source.source_type)
             resolved_config, secret_refs, newly_put_refs, stale_refs = await _extract_secrets(
                 control_plane,
-                factory,
+                spec,
                 updates["config"],
                 tenant_id=source.tenant_id,
-                existing=source.config,
+                existing=spec.flatten(source.credentials, source.config, source.tuning),
             )
-            builder.config(resolved_config).secret_refs(secret_refs)
+            credentials, sync_config, tuning = spec.split_flat(resolved_config)
+            builder.credentials(credentials).config(sync_config).tuning(tuning)
+            builder.secret_refs(secret_refs)
         try:
             updated, _ = await control_plane.connections.put(
                 builder.build(), expected_version=source.version
@@ -236,17 +235,16 @@ async def _free_connection_id(
     return unique_connection_id(slugify_connection_id(name), taken)
 
 
-def _require_connector_factory(source_type: str) -> ConnectorConfigFactory:
-    """Look up the provider config factory, or 501 for an unimplemented type."""
-    factory = config_factory(canonical_provider_name(source_type))
-    if factory is None:
+def _require_spec(source_type: str) -> SourceTypeSpec:
+    """Look up the source type spec, or 501 for an unimplemented type."""
+    if source_types.canonical(source_type) is None:
         raise HarborCapabilityError(f"source_type {source_type!r} is not supported")
-    return factory
+    return source_types.get(source_type)
 
 
 async def _extract_secrets(  # noqa: PLR0913 - one tenant plus the merge inputs
     control_plane: ControlPlaneRepositories,
-    factory: ConnectorConfigFactory,
+    spec: SourceTypeSpec,
     incoming: Mapping[str, Any],
     *,
     tenant_id: str,
@@ -269,12 +267,12 @@ async def _extract_secrets(  # noqa: PLR0913 - one tenant plus the merge inputs
     up front would leave a persisted source pointing at nothing if the write
     later fails.
     """
-    valid_fields = config_field_names(factory)
+    valid_fields = source_types.dataclass_fields(spec.source_type)
     unknown = set(incoming) - valid_fields
     if unknown:
         raise HarborValidationError(f"unsupported config fields: {sorted(unknown)}")
     merged: dict[str, Any] = {**(existing or {}), **incoming}
-    secret_fields = SECRET_CONFIG_FIELDS & valid_fields
+    secret_fields = source_types.secret_dataclass_fields(spec.source_type)
     secret_refs: list[str] = []
     newly_put_refs: list[str] = []
     stale_refs: list[str] = []

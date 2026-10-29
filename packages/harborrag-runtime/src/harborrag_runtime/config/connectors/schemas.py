@@ -10,10 +10,8 @@ from types import MappingProxyType
 from typing import Any
 
 from harborrag_adapters.connectors import HarborConnector, connector_registry
-from harborrag_runtime.config.connectors.providers import (
-    coerce_config_values,
-    config_factory,
-)
+from harborrag_runtime.config.connectors.models import ConnectionValidationError, source_types
+from harborrag_runtime.config.connectors.providers import coerce_config_values
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 
 
@@ -98,11 +96,12 @@ class ConnectorDefinition:
             raise ConnectorConfigurationError(
                 f"Connector {self.name!r} is disabled (enabled: false) and cannot be built"
             )
-        factory = config_factory(self.provider)
-        if factory is None:  # Defensive for manually-created definitions.
+        try:
+            factory = source_types.provider_factory(self.provider)
+        except ConnectionValidationError as exc:
             raise ConnectorConfigurationError(
                 f"Connector {self.name!r} uses unsupported provider {self.provider!r}"
-            )
+            ) from exc
 
         try:
             values = coerce_config_values(

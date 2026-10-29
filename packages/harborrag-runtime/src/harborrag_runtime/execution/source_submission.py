@@ -12,10 +12,8 @@ from harborrag_runtime.config import (
     connector_fingerprint,
     load_connector_catalog,
 )
-from harborrag_runtime.config.connectors.providers import (
-    coerce_config_values,
-    config_factory,
-)
+from harborrag_runtime.config.connectors.models import source_types
+from harborrag_runtime.config.connectors.providers import coerce_config_values
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.profiles import build_processing_profile
@@ -145,9 +143,9 @@ def _effective_query(
 ) -> SourceQuery:
     """Apply connector-level feature ceilings to the durable query contract."""
 
-    factory = config_factory(definition.provider)
-    if factory is None:
+    if source_types.canonical(definition.provider) is None:
         return query
+    factory = source_types.provider_factory(definition.provider)
     parameter = signature(factory).parameters.get("include_attachments")
     if parameter is None:
         return query
