@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.events import InProcessEventBus
@@ -48,6 +48,16 @@ type EventBusFactory = Callable[[], EventBusPort]
 
 
 class TaskRegistry(PublicTaskStore, Protocol):
+    async def latest_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None: ...
+
+    async def active_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None: ...
+
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int: ...
+
     async def fail_if_unsubmitted(
         self,
         task_id: str,

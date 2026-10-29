@@ -27,7 +27,10 @@ from harborrag_runtime.composition import ControlPlaneRepositories
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_recovery")
 
 _RETIRE_SECRET_KIND = "retire_secret"
+_RETIRE_WHEN_IDLE_KIND = "retire_secret_when_idle"
 _LOG_ACTIVITY_KIND = "log_activity"
+
+type ConnectionBusy = Callable[[str, str], Awaitable[bool]]
 # The tenant migration 0032 gives a legacy secret no source row still owns.
 LEGACY_SECRET_TENANT_ID = "DEFAULT"
 
@@ -78,11 +81,28 @@ async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityE
         await _queue_effect(control_plane, _LOG_ACTIVITY_KIND, _activity_payload(entry))
 
 
+async def defer_retirement(
+    control_plane: ControlPlaneRepositories,
+    refs: list[str],
+    *,
+    tenant_id: str,
+    source_key: str,
+) -> None:
+    """Queue stored refs to be deleted once no run of the connection still uses them."""
+    for ref in refs:
+        await _queue_effect(
+            control_plane,
+            _RETIRE_WHEN_IDLE_KIND,
+            {"ref": ref, "tenant_id": tenant_id, "source_key": source_key},
+        )
+
+
 async def recover_pending_control_plane_effects(
     control_plane: ControlPlaneRepositories,
     *,
     limit: int = 100,
     erasure_handler: Callable[[PendingControlPlaneEffect], Awaitable[bool]] | None = None,
+    connection_busy: ConnectionBusy | None = None,
 ) -> int:
     """Retry queued effects and authorized cross-store erasure intents.
 
@@ -94,6 +114,8 @@ async def recover_pending_control_plane_effects(
     recovered = 0
     for effect in await control_plane.pending_effects.list_pending(limit=limit):
         try:
+            if await _still_in_use(effect, connection_busy):
+                continue
             if erasure_handler is None or not await erasure_handler(effect):
                 await _replay_effect(control_plane, effect)
         except Exception:
@@ -143,9 +165,27 @@ async def _queue_effect(
         )
 
 
+async def _still_in_use(
+    effect: PendingControlPlaneEffect, connection_busy: ConnectionBusy | None
+) -> bool:
+    """True while a deferred retirement's connection still has an active run."""
+    if effect.kind != _RETIRE_WHEN_IDLE_KIND:
+        return False
+    if connection_busy is None:
+        return True
+    return await connection_busy(
+        str(effect.payload["tenant_id"]), str(effect.payload["source_key"])
+    )
+
+
 async def _replay_effect(
     control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
 ) -> None:
+    if effect.kind == _RETIRE_WHEN_IDLE_KIND:
+        await control_plane.secrets.delete(
+            str(effect.payload["ref"]), tenant_id=str(effect.payload["tenant_id"])
+        )
+        return
     if effect.kind == _RETIRE_SECRET_KIND:
         tenant_id = effect.payload.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id:

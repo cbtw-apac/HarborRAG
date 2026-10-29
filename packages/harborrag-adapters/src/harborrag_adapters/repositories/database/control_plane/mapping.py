@@ -34,6 +34,7 @@ def project_to_domain(row: ProjectRow) -> Project:
             size_bytes=row.size_bytes,
             last_sync_at=row.last_sync_at,
         ),
+        version=row.version,
     )
 
 

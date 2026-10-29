@@ -29,6 +29,7 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborNotFoundError,
+    HarborPreconditionFailedError,
     HarborSecretDecryptionError,
 )
 from harborrag_core.contracts.events import HarborEvent
@@ -66,6 +67,10 @@ async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
     assert updated is not None and updated.name == "Docs v2"
     assert updated.updated_at >= project.created_at
     assert [p.id for p in await repo.list(tenant_ids=None)] == ["p1"]
+    assert updated.version == 2
+    with pytest.raises(HarborPreconditionFailedError):
+        await repo.update(project, expected_version=1)
+    assert (await repo.update(project, expected_version=2)).version == 3
     project.tenant_id = "tenant-b"
     with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
         await repo.update(project)

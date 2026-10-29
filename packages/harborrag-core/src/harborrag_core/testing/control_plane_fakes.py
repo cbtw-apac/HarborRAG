@@ -57,12 +57,17 @@ class FakeProjectRepository:
         return project
 
     async def create(self, project: Project) -> Project:
-        """Store a new project."""
+        """Store a new project at version 1."""
+        project.version = 1
         self.projects[project.id] = project
         return project
 
-    async def update(self, project: Project) -> Project:
-        """Overwrite an existing project."""
+    async def update(self, project: Project, *, expected_version: int | None = None) -> Project:
+        """Overwrite an existing project and advance its version."""
+        stored = self.projects.get(project.id)
+        if expected_version is not None and (stored is None or stored.version != expected_version):
+            raise HarborPreconditionFailedError("project version does not match")
+        project.version = (stored.version if stored else 0) + 1
         self.projects[project.id] = project
         return project
 

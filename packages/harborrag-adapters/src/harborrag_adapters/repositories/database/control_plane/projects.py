@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import sqlalchemy as sa
 
 from harborrag_adapters.repositories.database.control_plane.schemas import (
     ProjectRow,
 )
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import HarborConflictError, HarborPreconditionFailedError
 from harborrag_core.domain.project import Project
 
 from .mapping import project_to_domain, utc_now
@@ -56,18 +56,27 @@ class SqlProjectRepository:
                     chunks=project.stats.chunks,
                     size_bytes=project.stats.size_bytes,
                     last_sync_at=project.stats.last_sync_at,
+                    version=1,
                 )
             )
-        return project
+        return replace(project, version=1)
 
-    async def update(self, project: Project) -> Project:
-        """Overwrite the mutable fields of an existing project."""
+    async def update(self, project: Project, *, expected_version: int | None = None) -> Project:
+        """Overwrite the mutable fields of an existing project and advance its version.
+
+        Raises:
+            HarborConflictError: The project belongs to another tenant.
+            HarborPreconditionFailedError: ``expected_version`` is not the stored version.
+        """
         async with self.sessions.begin() as session:
-            row = await session.get(ProjectRow, project.id)
+            row = await session.get(ProjectRow, project.id, with_for_update=True)
             if row is None:
                 raise KeyError(project.id)
             if row.tenant_id != project.tenant_id:
                 raise HarborConflictError("project tenant identity is immutable")
+            if expected_version is not None and expected_version != row.version:
+                raise HarborPreconditionFailedError("project version does not match")
+            row.version += 1
             row.name = project.name
             row.description = project.description
             row.collection = project.collection
@@ -77,7 +86,8 @@ class SqlProjectRepository:
             row.chunks = project.stats.chunks
             row.size_bytes = project.stats.size_bytes
             row.last_sync_at = project.stats.last_sync_at
-        return project
+            stored = project_to_domain(row)
+        return stored
 
     async def delete(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> None:
         """Delete the project row within ``tenant_ids`` (index tombstones are the engine's job)."""

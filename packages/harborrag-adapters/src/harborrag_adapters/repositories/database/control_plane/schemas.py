@@ -54,6 +54,7 @@ class ProjectRow(Base):
     chunks: Mapped[int] = mapped_column(sa.Integer, default=0, nullable=False)
     size_bytes: Mapped[int] = mapped_column(sa.BigInteger, default=0, nullable=False)
     last_sync_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
+    version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
 
 
 class SourceRow(Base):

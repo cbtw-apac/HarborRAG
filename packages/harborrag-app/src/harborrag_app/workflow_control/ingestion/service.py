@@ -22,6 +22,7 @@ from harborrag_runtime.ingestion_contracts import (
     PreparedSourceSubmission,
     SourceSubmission,
 )
+from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import (
     IngestionAlreadyCompletedError,
@@ -388,6 +389,7 @@ class IngestionApplicationService(TaskListingMixin):
                     connection_id=command.connection_id,
                     source_scope_id=command.source_scope_id,
                     force_reprocess=command.force_reprocess,
+                    query=SourceQuery(updated_after=command.updated_after),
                 ),
             )
         except ConnectorConfigurationError as error:

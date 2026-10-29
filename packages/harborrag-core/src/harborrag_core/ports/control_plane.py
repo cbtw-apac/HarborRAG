@@ -41,8 +41,12 @@ class ProjectRepositoryPort(Protocol):
     async def create(self, project: Project) -> Project:
         """Persist a new project and return it."""
 
-    async def update(self, project: Project) -> Project:
-        """Persist changes to an existing project and return it."""
+    async def update(self, project: Project, *, expected_version: int | None = None) -> Project:
+        """Persist changes to an existing project, advance its version and return it.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_version`` is not the stored version.
+        """
 
     async def delete(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> None:
         """Remove a project within ``tenant_ids``; cascading tombstones are the engine's job."""

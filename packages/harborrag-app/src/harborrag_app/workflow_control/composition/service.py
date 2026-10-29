@@ -15,11 +15,13 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
     EFFECT_RECOVERY_LEASE_TTL_SECONDS,
     recover_pending_control_plane_effects,
 )
+from ..control_plane.projects import ProjectService
 from ..control_plane.reads import ControlPlaneReadsMixin
 from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
@@ -53,6 +55,8 @@ from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse
 from .factories import AppServiceFactories
 from .resources import AppResources
+
+REMOVAL_RECOVERY_LEASE_NAME = "connection_removal_recovery"
 
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
@@ -164,6 +168,41 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
+        self._connection_service = ConnectionService(
+            control_plane=self._control_plane,
+            runs=self._resources.task_registry,
+            ingestions=self._public_ingestions,
+            removal=self._resources.connection_removal,
+            instance_id=self._instance_id,
+        )
+        self._project_service = ProjectService(
+            control_plane=self._control_plane,
+            runs=self._resources.task_registry,
+            connections=self._connection_service,
+        )
+
+    @property
+    def connection_service(self) -> ConnectionService:
+        """Connection use cases behind the ``/v1/admin`` connection routes."""
+        return self._connection_service
+
+    @property
+    def project_service(self) -> ProjectService:
+        """Project use cases behind the ``/v1/admin/projects`` routes."""
+        return self._project_service
+
+    async def resume_connection_removals(self) -> int:
+        """Finish removals a previous process left running; one API process at a time."""
+        acquired = await self._control_plane().leases.try_acquire(
+            REMOVAL_RECOVERY_LEASE_NAME,
+            self._instance_id,
+            ttl_seconds=EFFECT_RECOVERY_LEASE_TTL_SECONDS,
+        )
+        if not acquired:
+            return 0
+        return await self._connection_service.resume_deletions() + (
+            await self._project_service.resume_deletions()
+        )
 
     def _control_plane(self) -> ControlPlaneRepositories:
         control_plane = self._composition.control_plane
@@ -255,7 +294,10 @@ class AppService(
         if not acquired:
             return 0
         return await recover_pending_control_plane_effects(
-            self._control_plane(), limit=limit, erasure_handler=self._memory_admin.recover_erasure
+            self._control_plane(),
+            limit=limit,
+            erasure_handler=self._memory_admin.recover_erasure,
+            connection_busy=self._connection_service.connection_busy,
         )
 
     async def sync_ingestion_progress(self) -> int:
@@ -399,6 +441,7 @@ class AppService(
 
     async def aclose(self) -> None:
         try:
+            await self._connection_service.aclose()
             await self.drain_memory_extraction()
         finally:
             try:

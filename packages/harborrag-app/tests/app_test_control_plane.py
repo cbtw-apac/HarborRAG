@@ -18,6 +18,7 @@ from harborrag_core.ports.secrets import SecretsPort
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
+    FakeConnectionRevisionRepository,
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
@@ -70,6 +71,7 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
         graph_conflicts=FakeGraphConflictRepository(
             {conflict.id: conflict for conflict in graph_conflicts or []}
         ),
+        connection_revisions=FakeConnectionRevisionRepository(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

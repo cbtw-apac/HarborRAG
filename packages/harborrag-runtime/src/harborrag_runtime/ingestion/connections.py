@@ -168,17 +168,42 @@ def build_connector(
         ConnectorConfigurationError: The values are rejected or allow unparseable files.
         ConnectionValidationError: A secret reference has no resolved value.
     """
-    spec = source_types.get(snapshot.source_type)
-    config = (
+    return build_connector_from_parts(
+        snapshot.source_type,
+        credentials=snapshot.credentials,
+        config=snapshot.config,
+        tuning=snapshot.tuning,
+        secret_values=secret_values,
+        parser=parser,
+        rate_limiter=rate_limiter,
+    )
+
+
+def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
+    source_type: str,
+    *,
+    credentials: Mapping[str, Any],
+    config: Mapping[str, Any],
+    tuning: Mapping[str, Any],
+    secret_values: Mapping[str, str],
+    parser: HarborParserRegistry | None = None,
+    rate_limiter: ConnectorRateLimiter | None = None,
+) -> HarborConnector:
+    """Construct a connector from validated parts; credentials may hold raw values.
+
+    The connection test uses this for form values that were never saved.
+    """
+    spec = source_types.get(source_type)
+    config_object = (
         ConnectorConfigBuilder.for_source_type(spec.source_type)
-        .credentials(snapshot.credentials)
-        .config(snapshot.config)
-        .tuning(snapshot.tuning)
+        .credentials(credentials)
+        .config(config)
+        .tuning(tuning)
         .secret_values(secret_values)
         .build()
     )
     if parser is not None:
-        _require_parseable_extensions(snapshot, parser)
+        _require_parseable_extensions(spec.source_type, config, parser)
     available: dict[str, object | None] = {
         "attachment_parser": parser,
         "rate_limiter": rate_limiter,
@@ -189,14 +214,14 @@ def build_connector(
         for argument, dependency in definition.constructor_dependencies.items()
         if available.get(dependency) is not None
     }
-    return HarborConnector(spec.provider, config=config, **kwargs)
+    return HarborConnector(spec.provider, config=config_object, **kwargs)
 
 
 def _require_parseable_extensions(
-    snapshot: ConnectionSnapshot, parser: HarborParserRegistry
+    source_type: str, config: Mapping[str, Any], parser: HarborParserRegistry
 ) -> None:
     """Reject an ``allowed_extensions`` entry that no parser family can read."""
-    allowed = snapshot.config.get("allowed_extensions") or ()
+    allowed = config.get("allowed_extensions") or ()
     unsupported = sorted(
         {
             normalize_extension(str(extension))
@@ -206,7 +231,7 @@ def _require_parseable_extensions(
     )
     if unsupported:
         raise ConnectorConfigurationError(
-            f"Connection {snapshot.source_key!r} allows extensions no parser supports: "
+            f"The {source_type} connection allows extensions no parser supports: "
             f"{', '.join(unsupported)}"
         )
 

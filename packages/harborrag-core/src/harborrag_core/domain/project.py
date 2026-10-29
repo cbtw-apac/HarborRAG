@@ -36,6 +36,7 @@ class Project:
     created_at: datetime = field(default_factory=utc_now)
     updated_at: datetime = field(default_factory=utc_now)
     stats: ProjectStats = field(default_factory=ProjectStats)
+    version: int = 1
 
     def __post_init__(self) -> None:
         require_id(self.id, label="Project")

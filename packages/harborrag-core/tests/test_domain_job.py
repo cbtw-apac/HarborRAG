@@ -24,8 +24,14 @@ def test_job_status_includes_cancelled() -> None:
 
 @pytest.mark.whitebox
 def test_job_type_literals() -> None:
-    """JobType matches the three M0 job types from the plan (§5.3)."""
-    assert set(get_args(JobType)) == {"bulk_ingest", "incremental_pull", "dry_run"}
+    """JobType lists every job kind the control plane records."""
+    assert set(get_args(JobType)) == {
+        "bulk_ingest",
+        "incremental_pull",
+        "dry_run",
+        "delete_connection",
+        "delete_project",
+    }
 
 
 @pytest.mark.whitebox
