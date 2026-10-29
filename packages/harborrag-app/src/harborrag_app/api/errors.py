@@ -29,6 +29,7 @@ from harborrag_core.contracts.errors import (
     HarborError,
     HarborNoIndexedContentError,
     HarborNotFoundError,
+    HarborPreconditionFailedError,
     HarborRateLimitError,
     HarborSecretDecryptionError,
     HarborSecurityError,
@@ -48,7 +49,16 @@ nothing has vetted their wording: a configuration failure names the DSN or the
 settings key it could not read.
 """
 
+
+class TenantRequiredError(HarborError):
+    """The credential holds several tenants and the request names none."""
+
+    error_code = "tenant_required"
+
+
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
+    TenantRequiredError: 400,
+    HarborPreconditionFailedError: 412,
     HarborValidationError: 422,
     HarborNotFoundError: 404,
     # 409, not 404: the tenant and project exist, their index just has no
@@ -75,6 +85,67 @@ def documented_error_responses(
         status_code: {"model": ErrorResponse, "description": description}
         for status_code, description in descriptions.items()
     }
+
+
+_SPEC_PREFIXES = (
+    "/v1/admin/source-types",
+    "/v1/admin/connections",
+    "/v1/admin/projects",
+    "/v1/projects/",
+)
+_SPEC_CODES = {
+    400: "bad_request",
+    401: "unauthenticated",
+    403: "forbidden",
+    404: "not_found",
+    409: "conflict",
+    412: "precondition_failed",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    501: "not_supported",
+    503: "dependency_unavailable",
+    504: "deadline_exceeded",
+}
+_SPEC_EXPLICIT_CODES = frozenset(
+    {
+        "tenant_required",
+        "tenant_forbidden",
+        "already_exists",
+        "already_running",
+        "in_use",
+        "immutable_field",
+        "invalid_state",
+        "precondition_failed",
+        "validation_error",
+        "reference_not_found",
+    }
+)
+
+
+def is_spec_route(request: Request) -> bool:
+    """True for routes that answer with the HTTP API spec's error codes."""
+    return request.url.path.startswith(_SPEC_PREFIXES)
+
+
+def _spec_error(exc: Exception, status: int) -> str:
+    """The spec's code for an error raised on a spec route."""
+    explicit = getattr(exc, "error_code", None)
+    if isinstance(explicit, str) and explicit in _SPEC_EXPLICIT_CODES:
+        return explicit
+    return _SPEC_CODES.get(status, "internal_error")
+
+
+def _spec_details(exc: Exception, details: object) -> object:
+    """Field errors as the spec's ``[{field, issue}]`` list; other details as given."""
+    if isinstance(exc, HarborValidationError):
+        errors = details.get("errors") if isinstance(details, dict) else None
+        if isinstance(errors, list) and all(
+            isinstance(item, dict) and "field" in item for item in errors
+        ):
+            return errors
+        return [{"field": "", "issue": str(exc)}]
+    return details or None
 
 
 def _code_for(exc: Exception) -> str:
@@ -108,7 +179,7 @@ def error_envelope(
     request: Request,
     code: str,
     message: str,
-    details: dict[str, object],
+    details: object,
 ) -> dict[str, object]:
     """Build the single error envelope every non-2xx response uses.
 
@@ -157,6 +228,14 @@ def register_error_handlers(app: FastAPI) -> None:
         headers = None
         if isinstance(exc, HarborRateLimitError):
             headers = {"Retry-After": str(exc.details["retry_after_seconds"])}
+        if is_spec_route(request):
+            return JSONResponse(
+                status_code=status,
+                content=error_envelope(
+                    request, _spec_error(exc, status), message, _spec_details(exc, details)
+                ),
+                headers=headers,
+            )
         return JSONResponse(
             status_code=status,
             content=error_envelope(request, _code_for(exc), message, details),
@@ -166,6 +245,22 @@ def register_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
         """Envelope FastAPI request-validation failures as 422."""
+        if is_spec_route(request):
+            fields = [
+                {
+                    "field": ".".join(
+                        str(part) for part in error["loc"] if part not in {"body", "query", "path"}
+                    ),
+                    "issue": str(error["msg"]),
+                }
+                for error in exc.errors()
+            ]
+            return JSONResponse(
+                status_code=422,
+                content=error_envelope(
+                    request, "validation_error", "Request validation failed", fields
+                ),
+            )
         details: dict[str, object] = {
             "errors": jsonable_encoder(
                 [

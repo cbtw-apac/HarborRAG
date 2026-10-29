@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from harborrag_app.api.deprecation import DeprecatedEndpointsMiddleware
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.v1.admin import router as admin_router
+from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
 from harborrag_app.api.v1.agent import router as agent_router
 from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.connections import router as connections_router
@@ -36,5 +37,6 @@ def register_routes(app: FastAPI) -> None:
         memory_router,
         admin_router,
         schedules_router,
+        *connection_admin_routers,
     ):
         app.include_router(router, prefix=PUBLIC_PREFIX)

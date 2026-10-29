@@ -8,12 +8,22 @@ from starlette.types import ASGIApp, Message, Receive, Scope, Send
 SUNSET = "Sun, 07 Feb 2027 00:00:00 GMT"
 
 
-def replacement(path: str) -> str | None:
+_CONNECTIONS_SUCCESSOR = "/v1/admin/connections"
+_SYNC_SUCCESSOR = "/v1/admin/projects/{project_id}/connections/{connection_id}/sync"
+
+
+def replacement(path: str, method: str = "GET") -> str | None:
+    """Successor of a deprecated route, or ``None`` for a current one."""
     exact = {
         "/v1/graph/traverse": "/v1/retrieval/graph/subgraphs",
+        "/v1/connections": _CONNECTIONS_SUCCESSOR,
     }
     if path in exact:
         return exact[path]
+    if method == "POST" and path == "/v1/ingestions":
+        return _SYNC_SUCCESSOR
+    if path == "/api/v1/sources" or path.startswith("/api/v1/sources/"):
+        return _CONNECTIONS_SUCCESSOR
     prefixes = {
         "/v1/memory/sessions/": "/v1/chat/sessions/",
     }
@@ -30,7 +40,11 @@ class DeprecatedEndpointsMiddleware:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        target = replacement(scope.get("path", "")) if scope["type"] == "http" else None
+        target = (
+            replacement(scope.get("path", ""), scope.get("method", "GET"))
+            if scope["type"] == "http"
+            else None
+        )
         if target is None:
             await self.app(scope, receive, send)
             return

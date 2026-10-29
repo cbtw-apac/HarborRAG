@@ -15,8 +15,6 @@ from .control_plane import (
     ProviderRepositoryProvider,
     SettingsRepositoryPort,
     SettingsRepositoryProvider,
-    SourceRepositoryPort,
-    SourceRepositoryProvider,
     TenantScopedRepositoryProvider,
 )
 from .conversation import (
@@ -105,8 +103,6 @@ __all__ = [
     "SecretsPort",
     "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
-    "SourceRepositoryProvider",
-    "SourceRepositoryPort",
     "TenantChatCatalog",
     "TenantModelCatalogPort",
     "TenantModelDefinition",

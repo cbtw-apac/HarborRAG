@@ -145,7 +145,7 @@ class IngestionServiceFixture:
             "next_cursor": "eyJzdWJtaXR0ZWRfYXQiOiIyMDI2LTA4LTAxVDA5OjI0OjAwKzAwOjAwIn0",
         }
 
-    async def list_connections(self) -> dict[str, object]:
+    async def list_connections(self, *, tenant_ids: frozenset[str] | None) -> dict[str, object]:
         return {
             "items": [
                 {"connection_id": "confluence-main", "source_type": "confluence"},

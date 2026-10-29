@@ -101,7 +101,7 @@ def _legacy_config(source: Connection) -> dict[str, Any]:
     return spec.flatten(source.credentials, source.config, source.tuning)
 
 
-@router.get("/sources", response_model=list[SourceOut])
+@router.get("/sources", response_model=list[SourceOut], deprecated=True)
 async def list_sources(
     service: Annotated[BaseAppService, Depends(get_app_service)],
     principal: Annotated[Principal, Depends(require_role("reader"))],
@@ -112,7 +112,7 @@ async def list_sources(
     return [SourceOut.from_domain(source) for source in response.data["sources"]]
 
 
-@router.get("/sources/{source_id}", response_model=SourceOut)
+@router.get("/sources/{source_id}", response_model=SourceOut, deprecated=True)
 async def get_source(
     source_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],
@@ -123,7 +123,7 @@ async def get_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.post("/sources", status_code=201, response_model=SourceOut)
+@router.post("/sources", status_code=201, response_model=SourceOut, deprecated=True)
 async def create_source(
     payload: SourceCreateInput,
     service: Annotated[BaseAppService, Depends(get_app_service)],
@@ -143,7 +143,7 @@ async def create_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.patch("/sources/{source_id}", response_model=SourceOut)
+@router.patch("/sources/{source_id}", response_model=SourceOut, deprecated=True)
 async def update_source(
     source_id: str,
     payload: SourceUpdateInput,
@@ -160,7 +160,7 @@ async def update_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.delete("/sources/{source_id}", status_code=204)
+@router.delete("/sources/{source_id}", status_code=204, deprecated=True)
 async def delete_source(
     source_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],

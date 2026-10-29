@@ -90,6 +90,7 @@ def ingestion_view(
     connection_ref: str,
     progress: Mapping[str, int] | None = None,
     triggered_by: str | None = None,
+    mode: str | None = None,
 ) -> dict[str, Any]:
     """Return the spec's ``Ingestion`` object for a durable task."""
     counts = dict(progress or {})
@@ -98,7 +99,7 @@ def ingestion_view(
     return {
         "id": task.task_id,
         "connection": connection_ref,
-        "mode": "full" if request.get("force_reprocess") else "incremental",
+        "mode": mode or ("full" if request.get("force_reprocess") else "incremental"),
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "counters": {
             "discovered": _count(summary, "discovered"),

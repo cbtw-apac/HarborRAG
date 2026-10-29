@@ -151,9 +151,6 @@ class ConnectionRepositoryPort(Protocol):
         """Remove the row; a missing row is a no-op."""
 
 
-SourceRepositoryPort = ConnectionRepositoryPort
-
-
 class ConnectionRevisionRepositoryPort(Protocol):
     """Immutable connection snapshots, one per content fingerprint.
 
@@ -370,7 +367,6 @@ class TenantScopedRepositoryProvider(Protocol[TRepository_co]):
 
 ProjectRepositoryProvider = TenantScopedRepositoryProvider[ProjectRepositoryPort]
 ConnectionRepositoryProvider = TenantScopedRepositoryProvider[ConnectionRepositoryPort]
-SourceRepositoryProvider = ConnectionRepositoryProvider
 JobRepositoryProvider = TenantScopedRepositoryProvider[JobRepositoryPort]
 ActivityRepositoryProvider = TenantScopedRepositoryProvider[ActivityRepositoryPort]
 SettingsRepositoryProvider = TenantScopedRepositoryProvider[SettingsRepositoryPort]

@@ -186,6 +186,10 @@ class AppService(
         """Connection use cases behind the ``/v1/admin`` connection routes."""
         return self._connection_service
 
+    async def list_connections(self, *, tenant_ids: frozenset[str] | None) -> dict[str, object]:
+        """Connection identities for the deprecated ``GET /v1/connections``."""
+        return {"items": await self._connection_service.catalog(tenant_ids=tenant_ids)}
+
     @property
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""

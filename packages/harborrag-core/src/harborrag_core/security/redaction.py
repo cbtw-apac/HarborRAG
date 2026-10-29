@@ -74,7 +74,7 @@ def redact_mapping(data: Mapping[str, Any], replacement: str = "<redacted>") -> 
     """Recursively mask values whose key looks credential-shaped.
 
     Defense-in-depth for DTO boundaries that serialize free-form config
-    (e.g. SourceConfig.config): a key matching _SENSITIVE_KEY_PATTERN or
+    (e.g. Connection.config): a key matching _SENSITIVE_KEY_PATTERN or
     ``is_sensitive_field_name`` is masked regardless of what invariants
     upstream write-side code is supposed to enforce. Either one suffices: the
     pattern alone missed ``api.key`` and ``Private Key``, and the predicate

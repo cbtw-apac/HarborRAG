@@ -215,9 +215,6 @@ class FakeConnectionRepository:
             del self.connections[found.id]
 
 
-FakeSourceRepository = FakeConnectionRepository
-
-
 @dataclass(slots=True)
 class FakeConnectionRevisionRepository:
     """Dict-backed ConnectionRevisionRepositoryPort."""

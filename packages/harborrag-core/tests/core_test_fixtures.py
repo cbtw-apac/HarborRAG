@@ -13,7 +13,6 @@ from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source import SourceRecord
-from harborrag_core.domain.source_config import SourceConfig
 
 
 @dataclass(slots=True)
@@ -72,38 +71,6 @@ class FakeProjectRepository:
     async def delete(self, project_id: str) -> None:
         """Drop the project if present."""
         self.projects.pop(project_id, None)
-
-
-@dataclass(slots=True)
-class FakeSourceRepository:
-    """Dict-backed SourceRepositoryPort."""
-
-    sources: dict[str, SourceConfig] = field(default_factory=dict)
-
-    async def list(self, project_id: str | None = None) -> list[SourceConfig]:
-        """Sources, optionally filtered by project."""
-        values = list(self.sources.values())
-        if project_id is None:
-            return values
-        return [source for source in values if source.project_id == project_id]
-
-    async def get(self, source_id: str) -> SourceConfig | None:
-        """Source by id, or None."""
-        return self.sources.get(source_id)
-
-    async def create(self, source: SourceConfig) -> SourceConfig:
-        """Store a new source."""
-        self.sources[source.id] = source
-        return source
-
-    async def update(self, source: SourceConfig) -> SourceConfig:
-        """Overwrite an existing source."""
-        self.sources[source.id] = source
-        return source
-
-    async def delete(self, source_id: str) -> None:
-        """Drop the source if present."""
-        self.sources.pop(source_id, None)
 
 
 # Use shared test fakes from harborrag_core.testing.fakes to avoid

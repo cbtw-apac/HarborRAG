@@ -236,6 +236,8 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
                 "Deprecation",
                 "Sunset",
                 "Link",
+                "ETag",
+                "Location",
             ],
         )
     register_error_handlers(app)

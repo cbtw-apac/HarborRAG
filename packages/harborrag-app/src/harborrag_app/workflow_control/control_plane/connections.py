@@ -172,6 +172,18 @@ class ConnectionService:
         )
         return [await self._view(connection) for connection in connections], next_cursor
 
+    async def catalog(self, *, tenant_ids: frozenset[str] | None) -> list[dict[str, str]]:
+        """Connection identities ``POST /v1/ingestions`` accepts, by ``source_key``."""
+        connections, _ = await self._control_plane().connections.list(tenant_ids=tenant_ids)
+        return sorted(
+            (
+                {"connection_id": connection.source_key, "source_type": connection.source_type}
+                for connection in connections
+                if connection.status != "deleting"
+            ),
+            key=lambda item: item["connection_id"],
+        )
+
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
         """Connections of one project as reader filter chips.
 
@@ -371,6 +383,7 @@ class ConnectionService:
             connection_ref=connection.ref,
             progress=await runs.progress(task.task_id),
             triggered_by=actor,
+            mode=mode,
         )
 
     async def delete(self, key: ConnectionKey, *, actor: str, purge: bool = False) -> str:

@@ -72,6 +72,7 @@ LIST_ERROR_RESPONSES = documented_error_responses(
     response_model=IngestionAcceptedResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
+    deprecated=True,
 )
 async def create_ingestion(
     request: IngestionCreateRequest,
