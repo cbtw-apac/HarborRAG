@@ -34,7 +34,7 @@ _LOCAL_BLOCK = """\
     environment:
       source_path: LOCAL_SOURCE_PATH
     settings:
-      allowed_extensions: [md, markdown, txt, pdf, docx, pptx, csv, xlsx]
+      allowed_extensions: [md, markdown, txt, pdf, docx, doc, epub, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []
       include_paths: []
       exclude_paths: []
@@ -43,7 +43,7 @@ _LOCAL_BLOCK = """\
       include_hidden: false
       follow_symlinks: false
       max_depth: null
-      max_file_size_bytes: 104857600
+      max_file_size_bytes: 20971520
       checksum_mode: stat
       fail_on_error: false
 """
@@ -57,13 +57,13 @@ _GITHUB_BLOCK = """\
     settings:
       branch: @{GITHUB_BRANCH}
       root_path: ""
-      allowed_extensions: [md, markdown, txt, pdf, docx, pptx, csv, xlsx]
+      allowed_extensions: [md, markdown, txt, pdf, docx, doc, epub, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []
       include_paths: []
       exclude_paths: []
       include_globs: []
       exclude_globs: []
-      max_file_size_bytes: 104857600
+      max_file_size_bytes: 20971520
       fail_on_error: false
       requests_per_minute: 120
       request_timeout_seconds: 30

@@ -51,15 +51,14 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     connector_option: Annotated[
         str | None,
         typer.Option(
-            # --connector-id is the truer name: the value is a key under `connectors:`
-            # in config/connectors.yaml, which that file documents as the public
-            # connection_id. --connector stays as the original spelling.
+            # --connector-id is the truer name: the value is a stored connection's
+            # source_key. --connector stays as the original spelling.
             "--connector-id",
             "--connector",
             metavar="NAME",
             help=(
-                "Configured connector name from config/connectors.yaml "
-                "(for example jira-main), not a provider type."
+                "Connection source_key, such as default/jira-cpm or an imported key "
+                "like jira-main; not a source type."
             ),
         ),
     ] = None,

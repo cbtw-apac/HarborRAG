@@ -32,9 +32,9 @@ _COMPOSE_QDRANT_PORT = re.compile(rf"127\.0\.0\.1:(\d+):{_QDRANT_HTTP_BASE}\b")
 _SAMPLE_DOCUMENT = """# Your HarborRAG workspace
 
 Files in this folder are what `harborrag ingest run workspace` indexes: Markdown, text,
-PDF, Word, PowerPoint, CSV and Excel documents (see `allowed_extensions` in
-`config/connectors.yaml`). Replace this file with your own content, or point
-`LOCAL_SOURCE_PATH` in `.env` at another folder.
+HTML, PDF, Word, OpenDocument, EPUB, PowerPoint, CSV, Excel and image files up to 20 MiB
+each (the connection's `allowed_extensions` and `max_file_size_bytes`). Replace this file
+with your own content, or point `LOCAL_SOURCE_PATH` in `.env` at another folder.
 
 HarborRAG keeps one authoritative version per document, so re-running the ingestion after
 editing a file replaces the old chunks instead of duplicating them.

@@ -675,7 +675,7 @@ async def test_result_translates_workflow_failure_to_error_code() -> None:
 
 
 @pytest.mark.asyncio
-async def test_result_names_unconfigured_worker_connector() -> None:
+async def test_result_points_a_missing_connection_at_the_connection_api() -> None:
     sdk = _SdkClient()
     sdk.source_handle.result.side_effect = _workflow_failure("discoversourceitems_keyerror")
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
@@ -684,8 +684,9 @@ async def test_result_names_unconfigured_worker_connector() -> None:
         await client.result("task-1")
 
     message = str(raised.value)
-    assert "not configured on the worker" in message
-    assert "config/connectors.yaml" in message
+    assert "connection is missing or invalid" in message
+    assert "GET /v1/admin/connections" in message
+    assert "connectors.yaml" not in message
     assert "hunter2" not in message
 
 

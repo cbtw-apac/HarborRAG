@@ -53,9 +53,9 @@ def _failure_message(label: str, code: str) -> str:
         ("_keyerror", "_connectorconfigurationerror")
     ):
         return (
-            f"Could not {label}: the run failed (error_code={code}). The source's connector "
-            "is not configured on the worker; add it to config/connectors.yaml for the "
-            "worker and restart it"
+            f"Could not {label}: the run failed (error_code={code}). The source's connection "
+            "is missing or invalid; check its status with GET /v1/admin/connections and fix "
+            "it with PUT /v1/admin/projects/{project_id}/connections/{connection_id}"
         )
     return (
         f"Could not {label}: the run failed (error_code={code}); "

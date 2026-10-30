@@ -45,7 +45,10 @@ _QDRANT_HTTP_PORT = 6333
 _QDRANT_GRPC_PORT = 6334
 
 _INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
-_CONNECTORS_HINT = "Fix or remove the connector named above in config/connectors.yaml."
+_CONNECTORS_HINT = (
+    "Fix or remove the connector named above in config/connectors.yaml before the first "
+    "start; after it, change connections through /v1/admin/projects/.../connections."
+)
 _TEMPORAL_HINT = (
     "Durable mode needs the Temporal stack (scripts/deployment/dev.sh up in a checkout)."
 )
