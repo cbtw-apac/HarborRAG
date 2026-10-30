@@ -5,6 +5,8 @@ import contextlib
 
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.composition.connection_stores import migrate_control_plane
+from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest, IngestionResult
 from harborrag_runtime.errors import WorkflowRunAlreadyStartedError
@@ -34,6 +36,7 @@ class DirectIngestionExecutor:
         self._runtime: IngestionRuntime | None = None
         self._runtime_started = False
         self._lifecycle_lock = asyncio.Lock()
+        self._imported = False
 
     async def start(self) -> None:
         async with self._lifecycle_lock:
@@ -51,6 +54,7 @@ class DirectIngestionExecutor:
             if runtime is None or runtime.connection_resolver is None:
                 raise HarborInvariantError("self._runtime must not be None here")
             try:
+                await self._import_connectors_once(runtime)
                 connection = await resolve_request_connection(runtime.connection_resolver, request)
                 source = build_ingestion_input(self._settings, request, connection=connection)
                 connector = await runtime.connector(
@@ -83,6 +87,20 @@ class DirectIngestionExecutor:
             unchanged=outcome.unchanged,
             failed=outcome.failed,
         )
+
+    async def _import_connectors_once(self, runtime: IngestionRuntime) -> None:
+        """Migrate the control database, then import ``connectors.yaml`` if it never ran."""
+        stores = runtime.connection_stores
+        if stores is None or self._imported:
+            return
+        await asyncio.to_thread(migrate_control_plane, self._settings)
+        await import_connectors_once(
+            self._settings.connector_config_path,
+            projects=stores.projects,
+            connections=stores.connections,
+            settings=stores.settings,
+        )
+        self._imported = True
 
     async def _rebuild_runtime(self) -> None:
         await self._close_runtime()

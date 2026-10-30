@@ -94,6 +94,21 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _import_connectors_once(service: object) -> None:
+    """Carry an existing ``config/connectors.yaml`` into the database on the first start."""
+
+    importer = getattr(service, "import_connectors_once", None)
+    if importer is None:
+        return
+    try:
+        imported = await importer()
+    except Exception:
+        logger.exception("Importing config/connectors.yaml failed; add connections through the API")
+        return
+    if imported:
+        logger.info("Imported %d connections from config/connectors.yaml", imported)
+
+
 async def _resume_connection_removals(app: FastAPI) -> None:
     """Finish connection and project removals a crash or failure left unfinished."""
 
@@ -151,6 +166,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
     if owns_memory_extraction:
         await service.start_memory_extraction()
+    await _import_connectors_once(service)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(

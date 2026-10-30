@@ -92,3 +92,11 @@ def _reset_active_project(monkeypatch: pytest.MonkeyPatch) -> None:
     """
 
     monkeypatch.setattr(project_module, "_ACTIVE", None)
+
+
+@pytest.fixture
+def absent_connectors_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Point the one-time connector import at a file that does not exist."""
+    path = tmp_path / "absent-connectors.yaml"
+    monkeypatch.setenv("HARBORRAG_CONNECTOR_CONFIG_PATH", str(path))
+    return path

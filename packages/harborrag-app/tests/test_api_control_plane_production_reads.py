@@ -31,6 +31,8 @@ from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_runtime.composition import CompositionRoot
 from harborrag_runtime.config.settings import RuntimeSettings
 
+pytestmark = pytest.mark.usefixtures("absent_connectors_file")
+
 
 async def _seed(dsn: str) -> None:
     composition = CompositionRoot.production(RuntimeSettings(control_db_url=dsn))

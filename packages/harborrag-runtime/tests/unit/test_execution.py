@@ -203,6 +203,7 @@ async def test_direct_executor_runs_and_closes_runtime(monkeypatch) -> None:
             self.started += 1
 
         connection_resolver = object()
+        connection_stores = None
 
         async def connector(self, *, tenant_id: str, task_id: str, configuration_fingerprint: str):
             calls.append((task_id, configuration_fingerprint))
@@ -442,7 +443,9 @@ def test_submission_maps_public_request_without_losing_query_controls(
 async def test_direct_rejects_an_unknown_connection_before_connecting(monkeypatch) -> None:
     from harborrag_runtime.execution import direct as direct_module
 
-    runtime = SimpleNamespace(start=AsyncMock(), close=AsyncMock(), connection_resolver=object())
+    runtime = SimpleNamespace(
+        start=AsyncMock(), close=AsyncMock(), connection_resolver=object(), connection_stores=None
+    )
     monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
     monkeypatch.setattr(
         direct_module,
@@ -466,6 +469,7 @@ async def test_direct_resolves_connector_before_connecting(monkeypatch) -> None:
         start=AsyncMock(),
         close=AsyncMock(),
         connection_resolver=object(),
+        connection_stores=None,
         connector=AsyncMock(side_effect=ConnectorConfigurationError("source_path is missing")),
     )
     monkeypatch.setattr(direct_module, "build_ingestion_runtime", Mock(return_value=runtime))
@@ -497,6 +501,7 @@ async def test_direct_rejects_reused_terminal_run_id(monkeypatch) -> None:
         start=AsyncMock(),
         close=AsyncMock(),
         connection_resolver=object(),
+        connection_stores=None,
         connector=AsyncMock(return_value="connector"),
         control=SimpleNamespace(tasks=SimpleNamespace(get=AsyncMock(return_value=finished))),
         sources=SimpleNamespace(ingest=AsyncMock()),
@@ -519,3 +524,33 @@ async def test_direct_rejects_reused_terminal_run_id(monkeypatch) -> None:
 
     runtime.control.tasks.get.assert_awaited_once_with("task-1")
     runtime.sources.ingest.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_direct_mode_migrates_then_imports_on_a_fresh_database(tmp_path, monkeypatch) -> None:
+    from harborrag_runtime.composition.connection_stores import build_connection_stores
+
+    source = tmp_path / "docs"
+    source.mkdir()
+    connectors = tmp_path / "connectors.yaml"
+    connectors.write_text(
+        f"version: 1\nconnectors:\n  workspace:\n    provider: local\n"
+        f"    settings:\n      source_path: {source}\n",
+        encoding="utf-8",
+    )
+    settings = RuntimeSettings(
+        control_db_url=f"sqlite+aiosqlite:///{tmp_path}/fresh.db",
+        connector_config_path=connectors,
+    )
+    stores = build_connection_stores(settings)
+    runtime = SimpleNamespace(connection_stores=stores)
+    executor = DirectIngestionExecutor(settings)
+
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
+    await executor._import_connectors_once(runtime)  # type: ignore[arg-type]
+
+    imported = await stores.connections.get_by_source_key(
+        tenant_id="DEFAULT", source_key="workspace"
+    )
+    assert imported is not None and imported.source_type == "local_file"
+    await stores.aclose()

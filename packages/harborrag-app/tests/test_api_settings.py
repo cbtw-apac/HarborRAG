@@ -13,6 +13,7 @@ from harborrag_core.domain.settings import WorkspaceSettings
 
 
 @pytest.mark.blackbox
+@pytest.mark.usefixtures("absent_connectors_file")
 def test_get_settings_empty_document_by_default() -> None:
     """A workspace that never called put() gets an empty document, not 404."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:

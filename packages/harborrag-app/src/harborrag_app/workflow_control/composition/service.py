@@ -11,6 +11,7 @@ from datetime import datetime
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
+from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from ..agent import AgentApplicationService, AgentClientMixin
@@ -194,6 +195,17 @@ class AppService(
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
+
+    async def import_connectors_once(self) -> int:
+        """Import ``connectors.yaml`` on the first start of an install with no connections."""
+        control_plane = self._control_plane()
+        plan = await import_connectors_once(
+            self._settings.connector_config_path,
+            projects=control_plane.projects,
+            connections=control_plane.connections,
+            settings=control_plane.settings,
+        )
+        return len(plan.writes) if plan is not None else 0
 
     async def resume_connection_removals(self) -> int:
         """Finish removals a previous process left running; one API process at a time."""

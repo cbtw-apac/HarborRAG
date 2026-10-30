@@ -13,6 +13,7 @@ from harborrag_core.domain.project import Project
 
 
 @pytest.mark.blackbox
+@pytest.mark.usefixtures("absent_connectors_file")
 def test_list_projects_empty_in_development_mode() -> None:
     """Development composition has no persisted projects yet."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:

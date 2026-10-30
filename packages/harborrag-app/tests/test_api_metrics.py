@@ -14,6 +14,7 @@ from harborrag_core.domain.project import Project, ProjectStats
 
 
 @pytest.mark.blackbox
+@pytest.mark.usefixtures("absent_connectors_file")
 def test_metrics_all_zero_on_a_fresh_workspace() -> None:
     """A brand-new workspace must not crash the metrics aggregation."""
     with TestClient(create_fastapi_app(ApiSettings())) as client:

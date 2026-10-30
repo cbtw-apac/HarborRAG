@@ -1,11 +1,12 @@
 """Control-plane stores an ingestion worker needs to build connectors.
 
 Handles:
-- connection rows (status updates and scheduled runs), connection revisions
-  and stored secrets, over one control-plane engine
+- connection rows (status updates and scheduled runs), connection revisions,
+  stored secrets, projects and the import marker, over one control-plane engine
 - the same encryption-key rule the API applies, checked at worker start
 
-Does NOT run migrations; the API process owns the schema.
+Workers never migrate: the API process owns the schema. ``migrate_control_plane``
+is for direct mode, where no API process runs.
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from typing import TYPE_CHECKING
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ConnectionRevisionRepositoryPort,
+    ProjectRepositoryPort,
+    SettingsRepositoryPort,
 )
 from harborrag_core.ports.secrets import SecretsPort
 
@@ -34,6 +37,8 @@ class ConnectionStores:
     connections: ConnectionRepositoryPort
     revisions: ConnectionRevisionRepositoryPort
     secrets: SecretsPort
+    projects: ProjectRepositoryPort
+    settings: SettingsRepositoryPort
     engine: AsyncEngine
 
     async def aclose(self) -> None:
@@ -61,8 +66,14 @@ def build_connection_stores(settings: RuntimeSettings) -> ConnectionStores:
         create_control_plane_engine,
         create_session_factory,
     )
+    from harborrag_adapters.repositories.database.control_plane.projects import (
+        SqlProjectRepository,
+    )
     from harborrag_adapters.repositories.database.control_plane.secrets import (
         SqlSecretsRepository,
+    )
+    from harborrag_adapters.repositories.database.control_plane.workspace import (
+        SqlSettingsRepository,
     )
 
     key = secrets_encryption_key(settings)
@@ -72,5 +83,16 @@ def build_connection_stores(settings: RuntimeSettings) -> ConnectionStores:
         connections=SqlConnectionRepository(sessions),
         revisions=SqlConnectionRevisionRepository(sessions),
         secrets=SqlSecretsRepository(sessions, encryption_key=key),
+        projects=SqlProjectRepository(sessions),
+        settings=SqlSettingsRepository(sessions),
         engine=engine,
     )
+
+
+def migrate_control_plane(settings: RuntimeSettings) -> None:
+    """Bring the control database to the latest schema; a no-op when it is current."""
+    from harborrag_adapters.repositories.database.control_plane.migrations import (
+        run_migrations,
+    )
+
+    run_migrations(settings.control_db_url.get_secret_value())
