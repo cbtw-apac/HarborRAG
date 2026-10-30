@@ -5,6 +5,8 @@ from __future__ import annotations
 import io
 from pathlib import Path
 
+import pytest
+
 from harborrag_app.cli import main as cli
 
 
@@ -232,10 +234,10 @@ def test_init_leaves_the_key_blank_when_nothing_supplies_one(tmp_path: Path, mon
     assert "OPENAI_API_KEY=\n" in (tmp_path / ".env").read_text()
 
 
-def test_init_reports_a_sample_folder_outside_the_project_root(
+def test_init_never_creates_a_source_folder_outside_the_project_root(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """`--source` may name an absolute path; the completion report must still print."""
+    """`--source` may name an absolute path; init reports it but creates nothing there."""
 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     root = tmp_path / "project"
@@ -245,4 +247,53 @@ def test_init_reports_a_sample_folder_outside_the_project_root(
 
     out = capsys.readouterr().out
     assert "Created HarborRAG project" in out
-    assert (outside / "README.md").is_file()
+    assert "and put the files to index there" in out
+    assert not outside.exists()
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        (
+            "--api-base",
+            "https://llm.example.com\nHARBORRAG_ENV=prod",
+            "--api-base must not contain",
+        ),
+        ("--chat-model", "m1\nprovider: evil", "--chat-model must not contain"),
+        ("--chat-model", "m1 #comment", "--chat-model may only contain"),
+        ("--api-base", "ftp://llm.example.com", "--api-base must be an http:// or https:// URL"),
+    ],
+)
+def test_init_refuses_answers_that_would_rewrite_the_generated_files(
+    tmp_path: Path, monkeypatch, capsys, case: tuple[str, str, str]
+) -> None:
+    option, value, problem = case
+    monkeypatch.delenv("OPENAI_COMPATIBLE_API_KEY", raising=False)
+    root = tmp_path / "project"
+    arguments = ["init", str(root), "--yes", "--provider", "openai-compatible"]
+    arguments += ["--embed-dimensions", "8", "--api-base", "https://llm.example.com"]
+
+    assert cli.main([*arguments, option, value]) == 1
+
+    assert problem in capsys.readouterr().err
+    assert not (root / ".env").exists()
+
+
+def test_init_writes_env_private_and_never_through_a_symbolic_link(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    root = tmp_path / "project"
+    outside = tmp_path / "outside.yaml"
+    outside.write_text("keep: me\n", encoding="utf-8")
+
+    assert cli.main(["init", str(root), "--yes"]) == 0
+    mode = (root / ".env").stat().st_mode & 0o777
+    (root / "config" / "models.yaml").unlink()
+    (root / "config" / "models.yaml").symlink_to(outside)
+    capsys.readouterr()
+
+    assert cli.main(["init", str(root), "--yes", "--force"]) == 1
+    assert mode == 0o600
+    assert "is a symbolic link" in capsys.readouterr().err
+    assert outside.read_text(encoding="utf-8") == "keep: me\n"

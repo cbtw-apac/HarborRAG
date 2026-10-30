@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import secrets
+import tempfile
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from importlib import resources
@@ -12,6 +14,7 @@ from urllib.parse import urlparse
 
 from .providers import PRESETS, ProviderPreset
 from .sources import DEFAULT_SOURCE, SOURCES
+from .validation import ScaffoldInputPolicy
 
 _TEMPLATES = resources.files("harborrag_app.scaffold").joinpath("templates")
 ENV_FILE = ".env"
@@ -38,6 +41,7 @@ _FILES: tuple[tuple[str, str], ...] = (
     ("config/parsers.yaml", "parsers.yaml.tmpl"),
     ("config/temporal.yaml", "temporal.yaml.tmpl"),
 )
+_PRIVATE_MODE = 0o600
 _DEPLOYMENT_INDENT = " " * 10
 _CAPABILITY_INDENT = " " * 12
 # Host ports docker-compose.yml publishes at offset 0, with the service each belongs to.
@@ -78,6 +82,9 @@ class InitOptions:
     sources: tuple[str, ...] = (DEFAULT_SOURCE,)
     # Answers for SourceVariable prompts, keyed by variable name.
     source_values: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        ScaffoldInputPolicy().check(self)
 
     @property
     def connector_names(self) -> tuple[str, ...]:
@@ -127,7 +134,12 @@ def write_scaffold(root: Path, files: Mapping[str, str], *, force: bool) -> tupl
     An existing ``.env`` or ``docker-compose.yml`` keeps its content and the fresh copy is
     written beside it (see ``_FALLBACKS``). An existing ``.gitignore`` only gains the
     scaffold's missing lines: every git repository already has one, so it must neither
-    block ``init`` nor be replaced by it.
+    block ``init`` nor be replaced by it. Every target is checked for symbolic links
+    before the first file is written.
+
+    Raises:
+        ScaffoldExistsError: Scaffold files exist and ``force`` is False.
+        ValueError: A target or a folder on its way is a symbolic link.
     """
 
     existing = [
@@ -137,6 +149,10 @@ def write_scaffold(root: Path, files: Mapping[str, str], *, force: bool) -> tupl
         raise ScaffoldExistsError(
             f"{root} already contains {', '.join(sorted(existing))}; {FORCE_HINT}"
         )
+    for relative in files:
+        refuse_symbolic_links(root, root / relative)
+        if relative in _FALLBACKS:
+            refuse_symbolic_links(root, root / _FALLBACKS[relative])
     written: list[Path] = []
     for relative, content in files.items():
         target = root / relative
@@ -147,13 +163,45 @@ def write_scaffold(root: Path, files: Mapping[str, str], *, force: bool) -> tupl
         if relative in _FALLBACKS and target.exists():
             target = root / _FALLBACKS[relative]
         target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(content, encoding="utf-8")
-        if relative == ENV_FILE:
-            target.chmod(0o600)
+        write_file(root, target, content, mode=_PRIVATE_MODE if relative == ENV_FILE else 0o644)
         written.append(target)
     # The SQLite control database lives here; aiosqlite does not create parent folders.
     (root / STATE_DIRECTORY).mkdir(exist_ok=True)
     return tuple(written)
+
+
+def write_file(root: Path, target: Path, content: str, *, mode: int) -> None:
+    """Replace ``target`` atomically, created with ``mode`` from the start.
+
+    The content goes to a temporary file in the same folder, which then replaces
+    ``target``; a crash leaves the old file or the new one, never half of one.
+
+    Raises:
+        ValueError: ``target`` or a folder between ``root`` and it is a symbolic link.
+    """
+    refuse_symbolic_links(root, target)
+    descriptor, temporary = tempfile.mkstemp(dir=target.parent, prefix=f".{target.name}.")
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+        os.replace(temporary, target)
+    except BaseException:
+        Path(temporary).unlink(missing_ok=True)
+        raise
+
+
+def refuse_symbolic_links(root: Path, target: Path) -> None:
+    """Raise unless ``target`` and every folder from ``root`` down to it are real paths.
+
+    Raises:
+        ValueError: A path on the way is a symbolic link, which could point outside ``root``.
+    """
+    current = root
+    for part in target.relative_to(root).parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"{current} is a symbolic link; init only writes real files")
 
 
 def _merge_ignore_lines(target: Path, content: str) -> bool:
@@ -166,6 +214,7 @@ def _merge_ignore_lines(target: Path, content: str) -> bool:
     ]
     if not missing:
         return False
+    refuse_symbolic_links(target.parent, target)
     separator = "" if not current or current.endswith("\n") else "\n"
     with target.open("a", encoding="utf-8") as stream:
         stream.write(separator + "\n".join(missing) + "\n")

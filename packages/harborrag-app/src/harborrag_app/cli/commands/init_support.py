@@ -42,12 +42,14 @@ editing a file replaces the old chunks instead of duplicating them.
 
 
 def seed_source_folder(root: Path, source_path: str) -> Path | None:
-    """Create a missing source folder with one sample document; never touch an existing one."""
+    """Create a missing source folder inside ``root`` with one sample document.
 
-    folder = Path(source_path)
-    if not folder.is_absolute():
-        folder = root / folder
-    if folder.exists():
+    An existing folder is never touched, and a folder outside the project is used as
+    it is: ``init`` does not create directories elsewhere on the machine.
+    """
+
+    folder = (root / source_path).resolve()
+    if folder.exists() or not folder.is_relative_to(root.resolve()):
         return None
     folder.mkdir(parents=True)
     sample = folder / "README.md"
@@ -174,11 +176,14 @@ def report(
         steps.append(f"Edit .env and set {', '.join(blank)}")
     if options.has_local_source:
         source = options.source_path.removeprefix("./").rstrip("/")
-        steps.append(
-            f"Put the files to index in {source}/ (a sample README.md is there to start with)"
-            if sample
-            else f"Files to index are read from {source}/"
-        )
+        if sample:
+            steps.append(
+                f"Put the files to index in {source}/ (a sample README.md is there to start with)"
+            )
+        elif (root / options.source_path).exists():
+            steps.append(f"Files to index are read from {source}/")
+        else:
+            steps.append(f"Create {source}/ and put the files to index there")
     steps += ["docker compose up -d", "harborrag doctor"]
     steps += [f"harborrag ingest run {name}" for name in options.connector_names]
     steps += ['harborrag retrieve "your question"', 'harborrag chat "your question"']
