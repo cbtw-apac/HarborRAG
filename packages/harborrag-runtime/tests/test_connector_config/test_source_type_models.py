@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -290,3 +291,19 @@ def test_to_connector_config_builds_the_same_dataclass_as_the_catalog(
     )
 
     assert built == expected
+
+
+def test_every_source_type_offers_deployments_with_known_methods() -> None:
+    for spec in source_types.all():
+        assert spec.deployments, spec.source_type
+        for deployment in spec.deployments:
+            assert spec.auth_method(deployment.method).id == deployment.method
+
+
+def test_connector_defaults_are_json_values() -> None:
+    sharepoint = source_types.connector_defaults("sharepoint")
+
+    assert sharepoint["allowed_extensions"] == [".docx", ".md", ".pdf", ".pptx", ".txt", ".xlsx"]
+    assert source_types.connector_defaults("jira")["max_comments"] == 1000
+    for spec in source_types.all():
+        json.dumps(source_types.connector_defaults(spec.source_type))

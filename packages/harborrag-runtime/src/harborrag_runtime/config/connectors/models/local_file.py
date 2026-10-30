@@ -11,7 +11,7 @@ from pydantic import Field
 
 from .common import NoCredentials, NoTuning
 from .fields import StrictModel, widget
-from .spec import AuthMethodSpec, Capabilities, FieldIssue, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Deployment, FieldIssue, SourceTypeSpec
 
 LOCAL_SOURCE_ROOT_VARIABLE = "HARBORRAG_LOCAL_SOURCE_ROOT"
 LOCAL_SOURCE_PATH_VARIABLE = "LOCAL_SOURCE_PATH"
@@ -78,4 +78,12 @@ LOCAL_FILE = SourceTypeSpec(
     capabilities=Capabilities(incremental=True, attachments=False),
     aliases=("local", "local_files", "filesystem", "files"),
     policy=local_source_issues,
+    deployments=(
+        Deployment(
+            "folder",
+            "Local files",
+            "none",
+            "Read a folder the workers can see, inside HARBORRAG_LOCAL_SOURCE_ROOT when it is set",
+        ),
+    ),
 )

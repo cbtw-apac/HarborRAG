@@ -9,7 +9,10 @@ Handles:
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from dataclasses import MISSING, fields, is_dataclass
+from enum import Enum
 from inspect import signature
+from pathlib import PurePath
 from typing import Any
 
 from harborrag_adapters.connectors import connector_registry
@@ -76,6 +79,26 @@ class SourceTypeRegistry:
             raise ConnectionValidationError([FieldIssue("source_type", "provider not installed")])
         return factory
 
+    def connector_defaults(self, name: str) -> dict[str, Any]:
+        """Return each provider config field's default as a JSON value.
+
+        Fields without a default are left out; a provider that is not
+        installed gives an empty mapping.
+        """
+        try:
+            factory = self.provider_factory(name)
+        except ConnectionValidationError:
+            return {}
+        if not is_dataclass(factory):
+            return {}
+        defaults: dict[str, Any] = {}
+        for item in fields(factory):
+            if item.default is not MISSING:
+                defaults[item.name] = _json_value(item.default)
+            elif item.default_factory is not MISSING:
+                defaults[item.name] = _json_value(item.default_factory())
+        return defaults
+
     def dataclass_fields(self, name: str) -> frozenset[str]:
         """Keyword arguments the provider config dataclass accepts."""
         return frozenset(signature(self.provider_factory(name)).parameters)
@@ -84,6 +107,21 @@ class SourceTypeRegistry:
         """Dataclass keywords that receive a secret value."""
         spec = self.get(name)
         return frozenset(spec.credential_renames.get(f, f) for f in spec.secret_fields)
+
+
+def _json_value(value: Any) -> Any:
+    """Return ``value`` as JSON would carry it; sets become sorted lists."""
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, PurePath):
+        return str(value)
+    if isinstance(value, set | frozenset):
+        return sorted(_json_value(item) for item in value)
+    if isinstance(value, list | tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    return value
 
 
 source_types = SourceTypeRegistry((JIRA, CONFLUENCE, SHAREPOINT, LOCAL_FILE, GITHUB))

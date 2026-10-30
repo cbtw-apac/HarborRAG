@@ -11,7 +11,7 @@ from pydantic import Field
 
 from .common import PagedHttpTuning
 from .fields import HttpUrl, Secret, StrictModel, widget
-from .spec import AuthMethodSpec, Capabilities, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Deployment, SourceTypeSpec
 
 _GRAPH_HELP = "Microsoft Graph endpoint; change only for sovereign clouds"
 _TENANT_HELP = "Directory (tenant) ID of the Entra ID app registration"
@@ -102,4 +102,13 @@ SHAREPOINT = SourceTypeSpec(
     tuning_model=PagedHttpTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
     aliases=("microsoft_sharepoint", "sharepoint_online"),
+    deployments=(
+        Deployment(
+            "online",
+            "SharePoint Online",
+            "app",
+            "Sign in with an Entra ID app registration and client secret; set method to oauth "
+            "for device-code sign-in or pat for a Microsoft Graph access token",
+        ),
+    ),
 )

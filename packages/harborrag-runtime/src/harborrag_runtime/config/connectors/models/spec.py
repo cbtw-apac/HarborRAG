@@ -65,6 +65,22 @@ class AuthMethodSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class Deployment:
+    """Where a source type runs, with the auth method and values that setup implies.
+
+    Connection templates are built per deployment, such as Jira Cloud or
+    Jira Data Center, rather than per auth method.
+    """
+
+    id: str
+    title: str
+    method: AuthMethodId
+    note: str
+    credentials: Mapping[str, Any] = field(default_factory=dict)
+    config: Mapping[str, Any] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class Capabilities:
     """What a source type supports, as published to the connection form."""
 
@@ -88,7 +104,8 @@ class SourceTypeSpec:
 
     ``credential_renames`` maps a public credential name to the dataclass
     keyword it feeds; ``query_fields`` are config fields that travel in the
-    run's query filters instead of the dataclass.
+    run's query filters instead of the dataclass; ``deployments`` are the
+    setups a connection template is offered for.
     """
 
     source_type: str
@@ -104,6 +121,7 @@ class SourceTypeSpec:
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
+    deployments: tuple[Deployment, ...] = ()
 
     @property
     def credential_fields(self) -> frozenset[str]:

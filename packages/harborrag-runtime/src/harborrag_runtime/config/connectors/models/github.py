@@ -6,7 +6,7 @@ from pydantic import Field
 
 from .common import HttpTuning
 from .fields import HttpUrl, Secret, StrictModel
-from .spec import AuthMethodSpec, Capabilities, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Deployment, SourceTypeSpec
 
 _API_HELP = "REST API root; change for GitHub Enterprise Server"
 
@@ -67,4 +67,24 @@ GITHUB = SourceTypeSpec(
     tuning_model=HttpTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
     aliases=("github_repo", "github_repository"),
+    deployments=(
+        Deployment(
+            "github_com",
+            "GitHub.com",
+            "pat",
+            "Sign in with a token that can read the repository; set method to none and leave "
+            "out the token for a public repository",
+        ),
+        Deployment(
+            "enterprise",
+            "GitHub Enterprise Server",
+            "pat",
+            "Sign in with a token from your GitHub Enterprise Server",
+            credentials={
+                "api_url": "https://github.acme.internal/api/v3",
+                "web_url": "https://github.acme.internal",
+            },
+            config={"repository_url": "https://github.acme.internal/acme/handbook"},
+        ),
+    ),
 )

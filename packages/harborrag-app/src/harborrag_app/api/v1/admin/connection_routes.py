@@ -34,7 +34,6 @@ from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
 
-from .connection_examples import ConnectionExampleBuilder
 from .connection_schemas import (
     ID_PATTERN,
     ConnectionChipPage,
@@ -55,6 +54,7 @@ from .connection_schemas import (
     SpecErrorResponse,
     SyncRequest,
 )
+from .connection_templates import ConnectionTemplateBuilder
 
 
 class ConnectionAdministration(Protocol):
@@ -112,8 +112,8 @@ def _errors(*codes: int) -> dict[int | str, dict[str, Any]]:
     return {code: {"model": SpecErrorResponse} for code in codes}
 
 
-_WRITE_EXAMPLES = ConnectionExampleBuilder(source_types).with_sync_now(False).build()
-_TEST_EXAMPLES = ConnectionExampleBuilder(source_types).build()
+_WRITE_TEMPLATES = ConnectionTemplateBuilder(source_types).with_sync_now(False).build()
+_TEST_TEMPLATES = ConnectionTemplateBuilder(source_types).build()
 
 source_types_router = APIRouter(
     prefix="/admin/source-types",
@@ -213,7 +213,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
     principal: Editor,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_WRITE_EXAMPLES)],
+    body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_WRITE_TEMPLATES)],
     response: Response,
     if_match: IfMatch = None,
     if_none_match: IfNoneMatch = None,
@@ -271,7 +271,7 @@ async def test_connection(
     tenant: TenantDependency,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: Annotated[ConnectionTestRequest | None, Body(openapi_examples=_TEST_EXAMPLES)] = None,
+    body: Annotated[ConnectionTestRequest | None, Body(openapi_examples=_TEST_TEMPLATES)] = None,
 ) -> dict[str, Any]:
     """Check form values, or the saved connection without a body; saves nothing."""
     write = (

@@ -17,6 +17,7 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.config.connectors.models import to_connector_config, validate
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _PATH = "/v1/admin/projects/cpm/connections/cpm-tickets"
@@ -282,29 +283,65 @@ def test_local_connections_stay_inside_the_source_root(
     assert accepted.status_code == 201
 
 
-def test_every_swagger_example_creates_a_connection(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
+def _templates(client: TestClient, route: str, method: str) -> dict[str, Any]:
+    operation = client.app.openapi()["paths"][route][method]  # type: ignore[attr-defined]
+    return operation["requestBody"]["content"]["application/json"]["examples"]
+
+
+def test_templates_are_offered_per_deployment(client: TestClient) -> None:
+    templates = _templates(client, _ROUTE, "put")
+
+    assert {name: template["summary"] for name, template in templates.items()} == {
+        "jira-cloud": "Jira Cloud",
+        "jira-datacenter": "Jira Data Center",
+        "confluence-cloud": "Confluence Cloud",
+        "confluence-datacenter": "Confluence Data Center",
+        "sharepoint-online": "SharePoint Online",
+        "local_file-folder": "Local files",
+        "github-github_com": "GitHub.com",
+        "github-enterprise": "GitHub Enterprise Server",
+    }
+    assert all(template["description"].startswith("Template: ") for template in templates.values())
+    assert not any(template["value"]["sync_now"] for template in templates.values())
+    for template in templates.values():
+        assert {"allowed_extensions", "excluded_extensions"} <= set(template["value"]["config"])
+
+
+def test_every_template_creates_a_connection_that_builds_its_connector(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
     monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
     monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
-    put = client.app.openapi()["paths"][_ROUTE]["put"]  # type: ignore[attr-defined]
-    examples = put["requestBody"]["content"]["application/json"]["examples"]
+    templates = _templates(client, _ROUTE, "put")
 
     created = {
         name: client.put(
-            f"/v1/admin/projects/cpm/connections/{name.replace('_', '-')}", json=ex["value"]
+            f"/v1/admin/projects/cpm/connections/{name.replace('_', '-')}",
+            json=template["value"],
         )
-        for name, ex in examples.items()
+        for name, template in templates.items()
     }
+    built = {}
+    for name, template in templates.items():
+        body = template["value"]
+        config = (
+            {**body["config"], "source_path": str(tmp_path)}
+            if "source_path" in body["config"]
+            else body["config"]
+        )
+        checked = validate(body["source_type"], body["credentials"], config, body["advanced"])
+        built[name] = to_connector_config(
+            body["source_type"], checked.credentials, checked.config, checked.tuning, {}
+        )
 
-    assert len(examples) == 10
     assert {name: response.status_code for name, response in created.items()} == dict.fromkeys(
-        examples, 201
+        templates, 201
     )
-    assert not any(example["value"]["sync_now"] for example in examples.values())
+    assert created["jira-cloud"].json()["advanced"]["page_size"] == 50
+    assert set(built) == set(templates)
 
 
-def test_test_route_examples_are_the_put_bodies_without_sync_now(client: TestClient) -> None:
+def test_test_route_templates_are_the_put_bodies_without_sync_now(client: TestClient) -> None:
     paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
     put = paths[_ROUTE]["put"]["requestBody"]["content"]["application/json"]["examples"]
     test = paths[f"{_ROUTE}/test"]["post"]["requestBody"]["content"]["application/json"]
