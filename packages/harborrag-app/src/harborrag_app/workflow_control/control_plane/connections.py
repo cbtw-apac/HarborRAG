@@ -534,12 +534,22 @@ class ConnectionService:
         return connection
 
     async def _require_project(self, key: ConnectionKey) -> None:
-        """Raise not found unless the project exists in the tenant."""
-        project = await self._control_plane().projects.get(
-            key.project_id, tenant_ids=frozenset({key.tenant_id})
+        """Raise not found unless the project exists in the tenant, naming a near match."""
+        projects = self._control_plane().projects
+        tenants = frozenset({key.tenant_id})
+        if await projects.get(key.project_id, tenant_ids=tenants) is not None:
+            return
+        wanted = key.project_id.casefold()
+        match = next(
+            (
+                project.id
+                for project in await projects.list(tenant_ids=tenants)
+                if wanted in {project.id.casefold(), project.name.casefold()}
+            ),
+            None,
         )
-        if project is None:
-            raise HarborNotFoundError(f"project {key.project_id!r} not found")
+        hint = f"; did you mean {match!r}?" if match else ""
+        raise HarborNotFoundError(f"project {key.project_id!r} not found{hint}")
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
         """Return the API view with the latest run and document count."""

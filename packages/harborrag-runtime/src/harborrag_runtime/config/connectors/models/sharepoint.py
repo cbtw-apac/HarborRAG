@@ -16,22 +16,26 @@ from .spec import AuthMethodSpec, Capabilities, SourceTypeSpec
 _GRAPH_HELP = "Microsoft Graph endpoint; change only for sovereign clouds"
 _TENANT_HELP = "Directory (tenant) ID of the Entra ID app registration"
 _CLIENT_HELP = "Application (client) ID of the Entra ID app registration"
+_TENANT_EXAMPLE = "11111111-2222-3333-4444-555555555555"
+_CLIENT_EXAMPLE = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"
 
 
 class SharePointAppCredentials(StrictModel):
     """App-only access with a client secret."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP)
-    client_id: str = Field(min_length=1, description=_CLIENT_HELP)
-    client_secret: Secret = Field(description="Client secret of the app registration")
+    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
+    client_secret: Secret = Field(
+        description="Client secret of the app registration", examples=["Q~8xr…"]
+    )
     graph_api_url: HttpUrl | None = Field(default=None, description=_GRAPH_HELP)
 
 
 class SharePointDelegatedCredentials(StrictModel):
     """Delegated access as the user who signed in with the device-code flow."""
 
-    tenant_id: str = Field(min_length=1, description=_TENANT_HELP)
-    client_id: str = Field(min_length=1, description=_CLIENT_HELP)
+    tenant_id: str = Field(min_length=1, description=_TENANT_HELP, examples=[_TENANT_EXAMPLE])
+    client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     token_cache_path: str | None = Field(
         default=None,
         description="Where the worker keeps the refresh token; defaults under ~/.harborrag",
@@ -43,7 +47,7 @@ class SharePointDelegatedCredentials(StrictModel):
 class SharePointTokenCredentials(StrictModel):
     """A pre-issued Microsoft Graph access token."""
 
-    access_token: Secret = Field(description="Microsoft Graph bearer token")
+    access_token: Secret = Field(description="Microsoft Graph bearer token", examples=["eyJ0eXAi…"])
     graph_api_url: HttpUrl | None = Field(default=None, description=_GRAPH_HELP)
 
 

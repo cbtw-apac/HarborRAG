@@ -7,27 +7,15 @@ The shapes follow the HTTP API spec's ``Connection``, ``SourceType``,
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal, cast
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue
+from pydantic import BaseModel, ConfigDict, Field
 
 from harborrag_app.api.schemas import ApiModel
 
 SourceTypeName = Literal["jira", "confluence", "sharepoint", "local_file", "github"]
 ConnectionStatusName = Literal["active", "needs_reauth", "error"]
 ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,62}$"
-
-_JIRA_EXAMPLE: dict[str, Any] = {
-    "source_type": "jira",
-    "name": "CPM tickets",
-    "credentials": {
-        "base_url": "https://acme.atlassian.net",
-        "email": "bot@acme.com",
-        "api_token": "ATATT3xFfGF0…",
-    },
-    "config": {"jql": "project = CPM"},
-    "sync_now": True,
-}
 
 
 class SpecApiError(BaseModel):
@@ -72,8 +60,6 @@ CredentialValueOut = str | SecretStatusOut | None
 
 class ConnectionWriteRequest(ApiModel):
     """``PUT`` body: everything about one connection, config replaced as a whole."""
-
-    model_config = ConfigDict(json_schema_extra={"examples": [cast(JsonValue, _JIRA_EXAMPLE)]})
 
     source_type: SourceTypeName = Field(description="Required on create; can't change later")
     name: str | None = Field(

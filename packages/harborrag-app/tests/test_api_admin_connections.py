@@ -20,6 +20,7 @@ from harborrag_core.domain.project import Project
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _PATH = "/v1/admin/projects/cpm/connections/cpm-tickets"
+_ROUTE = "/v1/admin/projects/{project_id}/connections/{connection_id}"
 _BODY = {
     "source_type": "jira",
     "name": "CPM tickets",
@@ -279,3 +280,44 @@ def test_local_connections_stay_inside_the_source_root(
     assert (refused.status_code, refused.json()["error"]["code"]) == (422, "validation_error")
     assert refused.json()["error"]["details"][0]["field"] == "config.source_path"
     assert accepted.status_code == 201
+
+
+def test_every_swagger_example_creates_a_connection(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
+    monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
+    put = client.app.openapi()["paths"][_ROUTE]["put"]  # type: ignore[attr-defined]
+    examples = put["requestBody"]["content"]["application/json"]["examples"]
+
+    created = {
+        name: client.put(
+            f"/v1/admin/projects/cpm/connections/{name.replace('_', '-')}", json=ex["value"]
+        )
+        for name, ex in examples.items()
+    }
+
+    assert len(examples) == 10
+    assert {name: response.status_code for name, response in created.items()} == dict.fromkeys(
+        examples, 201
+    )
+    assert not any(example["value"]["sync_now"] for example in examples.values())
+
+
+def test_test_route_examples_are_the_put_bodies_without_sync_now(client: TestClient) -> None:
+    paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
+    put = paths[_ROUTE]["put"]["requestBody"]["content"]["application/json"]["examples"]
+    test = paths[f"{_ROUTE}/test"]["post"]["requestBody"]["content"]["application/json"]
+
+    assert {name: example["value"] for name, example in test["examples"].items()} == {
+        name: {key: value for key, value in example["value"].items() if key != "sync_now"}
+        for name, example in put.items()
+    }
+    assert paths[_ROUTE]["put"]["summary"] == "Create or replace a connection"
+
+
+def test_a_project_named_by_its_display_name_points_at_its_id(client: TestClient) -> None:
+    response = client.put("/v1/admin/projects/CPM/connections/cpm-tickets", json=_BODY)
+
+    assert response.status_code == 404
+    assert response.json()["error"]["message"] == "project 'CPM' not found; did you mean 'cpm'?"

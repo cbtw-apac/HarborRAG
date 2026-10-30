@@ -14,7 +14,9 @@ _API_HELP = "REST API root; change for GitHub Enterprise Server"
 class GitHubTokenCredentials(StrictModel):
     """A personal access token or fine-grained token."""
 
-    token: Secret = Field(description="Token with read access to the repository")
+    token: Secret = Field(
+        description="Token with read access to the repository", examples=["github_pat_11A…"]
+    )
     api_url: HttpUrl | None = Field(default=None, description=_API_HELP)
     web_url: HttpUrl | None = Field(default=None, description="Web root used for document links")
     api_version: str | None = Field(default=None, description="X-GitHub-Api-Version header")

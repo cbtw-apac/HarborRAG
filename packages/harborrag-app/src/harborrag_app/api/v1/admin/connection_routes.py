@@ -34,6 +34,7 @@ from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
 
+from .connection_examples import ConnectionExampleBuilder
 from .connection_schemas import (
     ID_PATTERN,
     ConnectionChipPage,
@@ -74,9 +75,19 @@ def _administration(request: Request) -> ConnectionAdministration:
 Administration = Annotated[ConnectionAdministration, Depends(_administration)]
 Editor = Annotated[Principal, Depends(require_role("editor"))]
 Admin = Annotated[Principal, Depends(require_role("admin"))]
-ProjectId = Annotated[str, Path(description="A project in the tenant")]
+ProjectId = Annotated[
+    str,
+    Path(
+        description="Project id, such as default; not its display name",
+        openapi_examples={"default": {"summary": "The default project", "value": "default"}},
+    ),
+]
 ConnectionId = Annotated[
-    str, Path(pattern=ID_PATTERN, description="Chosen by you; unique in the project")
+    str,
+    Path(
+        pattern=ID_PATTERN,
+        description="Lowercase letters, digits, - and _; a new id creates the connection",
+    ),
 ]
 IfMatch = Annotated[
     str | None,
@@ -101,6 +112,9 @@ def _errors(*codes: int) -> dict[int | str, dict[str, Any]]:
     return {code: {"model": SpecErrorResponse} for code in codes}
 
 
+_WRITE_EXAMPLES = ConnectionExampleBuilder(source_types).with_sync_now(False).build()
+_TEST_EXAMPLES = ConnectionExampleBuilder(source_types).build()
+
 source_types_router = APIRouter(
     prefix="/admin/source-types",
     tags=["Connections"],
@@ -123,7 +137,12 @@ reader_router = APIRouter(
 )
 
 
-@source_types_router.get("", response_model=SourceTypePage, response_model_by_alias=True)
+@source_types_router.get(
+    "",
+    summary="List source types",
+    response_model=SourceTypePage,
+    response_model_by_alias=True,
+)
 async def list_source_types(
     category: Annotated[str | None, Query(pattern=r"^(issue_tracker|wiki|files|code)$")] = None,
 ) -> dict[str, Any]:
@@ -132,7 +151,12 @@ async def list_source_types(
     return {"items": [spec.describe() for spec in source_types.all(selected)]}
 
 
-@connections_router.get("/connections", response_model=ConnectionPage, responses=_errors(422))
+@connections_router.get(
+    "/connections",
+    summary="List connections",
+    response_model=ConnectionPage,
+    responses=_errors(422),
+)
 async def list_connections(  # noqa: PLR0913 - the spec's list filters plus paging
     service: Administration,
     tenant: TenantDependency,
@@ -156,6 +180,7 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
 
 @connections_router.get(
     "/projects/{project_id}/connections/{connection_id}",
+    summary="Get a connection",
     response_model=ConnectionOut,
     responses=_errors(404),
 )
@@ -176,6 +201,7 @@ async def get_connection(
 
 @connections_router.put(
     "/projects/{project_id}/connections/{connection_id}",
+    summary="Create or replace a connection",
     response_model=ConnectionPutOut,
     response_model_exclude_none=False,
     status_code=200,
@@ -187,7 +213,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
     principal: Editor,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: ConnectionWriteRequest,
+    body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_WRITE_EXAMPLES)],
     response: Response,
     if_match: IfMatch = None,
     if_none_match: IfNoneMatch = None,
@@ -213,6 +239,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
 
 @connections_router.delete(
     "/projects/{project_id}/connections/{connection_id}",
+    summary="Delete a connection",
     response_model=JobAcceptedOut,
     status_code=202,
     responses=_errors(404, 409),
@@ -234,6 +261,7 @@ async def delete_connection(  # noqa: PLR0913 - path, flag and caller
 
 @connections_router.post(
     "/projects/{project_id}/connections/{connection_id}/test",
+    summary="Test a connection",
     response_model=ConnectionTestOut,
     responses=_errors(404, 422),
 )
@@ -242,7 +270,7 @@ async def test_connection(
     tenant: TenantDependency,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: Annotated[ConnectionTestRequest | None, Body()] = None,
+    body: Annotated[ConnectionTestRequest | None, Body(openapi_examples=_TEST_EXAMPLES)] = None,
 ) -> dict[str, Any]:
     """Check form values, or the saved connection without a body; saves nothing."""
     write = (
@@ -262,6 +290,7 @@ async def test_connection(
 
 @connections_router.post(
     "/projects/{project_id}/connections/{connection_id}/sync",
+    summary="Start a sync",
     response_model=IngestionOut,
     status_code=202,
     responses=_errors(404, 409, 422, 501),
@@ -288,7 +317,9 @@ async def sync_connection(  # noqa: PLR0913 - path, body and caller
     return ingestion
 
 
-@projects_router.get("", response_model=ProjectPage, responses=_errors(422))
+@projects_router.get(
+    "", summary="List projects", response_model=ProjectPage, responses=_errors(422)
+)
 async def list_projects(
     service: Administration,
     tenant: TenantDependency,
@@ -303,7 +334,9 @@ async def list_projects(
     return {"items": items, "next_cursor": next_cursor}
 
 
-@projects_router.get("/{project_id}", response_model=ProjectOut, responses=_errors(404))
+@projects_router.get(
+    "/{project_id}", summary="Get a project", response_model=ProjectOut, responses=_errors(404)
+)
 async def get_project(
     service: Administration, tenant: TenantDependency, project_id: ProjectId, response: Response
 ) -> dict[str, Any]:
@@ -315,6 +348,7 @@ async def get_project(
 
 @projects_router.put(
     "/{project_id}",
+    summary="Create or replace a project",
     response_model=ProjectOut,
     status_code=200,
     responses={**_documented(201, ProjectOut, "Created"), **_errors(409, 412, 422)},
@@ -346,6 +380,7 @@ async def put_project(  # noqa: PLR0913 - path, body, preconditions and caller
 
 @projects_router.delete(
     "/{project_id}",
+    summary="Delete a project",
     status_code=204,
     responses={
         **_documented(202, JobAcceptedOut, "cascade=true: removal runs in the background"),
@@ -371,7 +406,10 @@ async def delete_project(  # noqa: PLR0913 - path, flag and caller
 
 
 @reader_router.get(
-    "/{project_id}/connections", response_model=ConnectionChipPage, responses=_errors(404)
+    "/{project_id}/connections",
+    summary="List a project's connections",
+    response_model=ConnectionChipPage,
+    responses=_errors(404),
 )
 async def list_searchable_connections(
     service: Administration, tenant: TenantDependency, project_id: ProjectId
