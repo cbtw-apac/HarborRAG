@@ -12,7 +12,7 @@ from pydantic import Field
 
 from .common import PagedHttpTuning
 from .fields import Email, HttpUrl, Secret, StrictModel, widget
-from .spec import AuthMethodSpec, Capabilities, Deployment, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
 
 DeploymentType = Literal["cloud", "datacenter"]
 
@@ -98,17 +98,17 @@ def _auth_methods() -> tuple[AuthMethodSpec, ...]:
     )
 
 
-def _deployments(product: str, cloud_url: str, datacenter_url: str) -> tuple[Deployment, ...]:
+def _setups(product: str, cloud_url: str, datacenter_url: str) -> tuple[Setup, ...]:
     """Return the Cloud and Data Center setups of an Atlassian product."""
     return (
-        Deployment(
+        Setup(
             "cloud",
             f"{product} Cloud",
             "api_token",
             "Sign in with the account email and an API token from id.atlassian.com",
             credentials={"base_url": cloud_url, "deployment_type": "cloud"},
         ),
-        Deployment(
+        Setup(
             "datacenter",
             f"{product} Data Center",
             "pat",
@@ -130,7 +130,7 @@ JIRA = SourceTypeSpec(
     credential_renames={"api_token": "token"},
     query_fields=frozenset({"jql"}),
     aliases=("jira_cloud", "jira_datacenter"),
-    deployments=_deployments("Jira", "https://acme.atlassian.net", "https://jira.acme.internal"),
+    setups=_setups("Jira", "https://acme.atlassian.net", "https://jira.acme.internal"),
 )
 
 CONFLUENCE = SourceTypeSpec(
@@ -144,7 +144,7 @@ CONFLUENCE = SourceTypeSpec(
     capabilities=Capabilities(incremental=True, attachments=True),
     credential_renames={"api_token": "token"},
     aliases=("confluence_cloud", "confluence_datacenter"),
-    deployments=_deployments(
+    setups=_setups(
         "Confluence", "https://acme.atlassian.net/wiki", "https://confluence.acme.internal"
     ),
 )

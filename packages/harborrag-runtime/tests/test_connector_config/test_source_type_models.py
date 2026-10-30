@@ -295,9 +295,9 @@ def test_to_connector_config_builds_the_same_dataclass_as_the_catalog(
 
 def test_every_source_type_offers_deployments_with_known_methods() -> None:
     for spec in source_types.all():
-        assert spec.deployments, spec.source_type
-        for deployment in spec.deployments:
-            assert spec.auth_method(deployment.method).id == deployment.method
+        assert spec.setups, spec.source_type
+        for setup in spec.setups:
+            assert spec.auth_method(setup.method).id == setup.method
 
 
 def test_connector_defaults_are_json_values() -> None:

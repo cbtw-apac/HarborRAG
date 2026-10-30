@@ -1,4 +1,4 @@
-"""Connection templates for Swagger UI: one complete request body per source type deployment."""
+"""Connection templates for Swagger UI: one complete request body per source type setup."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from pydantic_core import PydanticUndefined
 
 from harborrag_runtime.config.connectors.models import (
     METHOD_KEY,
-    Deployment,
+    Setup,
     SourceTypeRegistry,
     SourceTypeSpec,
 )
@@ -22,7 +22,7 @@ _PLACEHOLDERS: Mapping[object, Any] = {str: "…", int: 0, float: 0.0, bool: Fal
 
 
 class ConnectionTemplateBuilder:
-    """Build one connection template per deployment, such as Jira Cloud or Jira Data Center.
+    """Build one connection template per setup, such as Jira Cloud or Jira Data Center.
 
     A template lists every config and advanced field with the value a sync
     would use when it is left as is; ``FieldValueFactory`` picks each value.
@@ -38,33 +38,33 @@ class ConnectionTemplateBuilder:
         return self
 
     def build(self) -> dict[str, Example]:
-        """Return the templates keyed ``<source_type>-<deployment>``, in registration order."""
+        """Return the templates keyed ``<source_type>-<setup>``, in registration order."""
         templates: dict[str, Example] = {}
         for spec in self._registry.all():
             defaults = self._registry.connector_defaults(spec.source_type)
-            for deployment in spec.deployments:
-                body = self._body(spec, deployment, defaults)
-                templates[f"{spec.source_type}-{deployment.id}"] = Example(
-                    summary=deployment.title,
-                    description=f"Template: {deployment.note}. Replace the placeholder values.",
+            for setup in spec.setups:
+                body = self._body(spec, setup, defaults)
+                templates[f"{spec.source_type}-{setup.id}"] = Example(
+                    summary=setup.title,
+                    description=f"Template: {setup.note}. Replace the placeholder values.",
                     value=body,
                 )
         return templates
 
     def _body(
-        self, spec: SourceTypeSpec, deployment: Deployment, defaults: Mapping[str, Any]
+        self, spec: SourceTypeSpec, setup: Setup, defaults: Mapping[str, Any]
     ) -> dict[str, Any]:
-        """Return the request body of one deployment."""
-        method = spec.auth_method(deployment.method)
-        values = FieldValueFactory(deployment.credentials).values(method.model)
+        """Return the request body of one setup."""
+        method = spec.auth_method(setup.method)
+        values = FieldValueFactory(setup.credentials).values(method.model)
         credentials = {name: value for name, value in values.items() if value is not None}
         if spec.has_method_choice:
             credentials = {METHOD_KEY: method.id, **credentials}
         body: dict[str, Any] = {
             "source_type": spec.source_type,
-            "name": deployment.title,
+            "name": setup.title,
             "credentials": credentials,
-            "config": FieldValueFactory(deployment.config, defaults).values(spec.config_model),
+            "config": FieldValueFactory(setup.config, defaults).values(spec.config_model),
             "advanced": FieldValueFactory(connector_defaults=defaults).values(spec.tuning_model),
         }
         if self._sync_now is not None:
@@ -76,7 +76,7 @@ class ConnectionTemplateBuilder:
 class FieldValueFactory:
     """Create a template value for each field of a model from the first source that has one.
 
-    The sources, in order: the deployment's preset, the field's first example,
+    The sources, in order: the setup's preset, the field's first example,
     the connector's own default, the schema default, and for a required field
     a placeholder of its type.
     """

@@ -7,8 +7,8 @@ from .spec import (
     AuthMethodSpec,
     Capabilities,
     ConnectionValidationError,
-    Deployment,
     FieldIssue,
+    Setup,
     SourceTypeSpec,
     ValidatedConnection,
 )
@@ -19,7 +19,7 @@ __all__ = [
     "Capabilities",
     "ConnectionValidationError",
     "ConnectorConfigBuilder",
-    "Deployment",
+    "Setup",
     "FieldIssue",
     "SourceTypeRegistry",
     "SourceTypeSpec",

@@ -288,7 +288,7 @@ def _templates(client: TestClient, route: str, method: str) -> dict[str, Any]:
     return operation["requestBody"]["content"]["application/json"]["examples"]
 
 
-def test_templates_are_offered_per_deployment(client: TestClient) -> None:
+def test_templates_are_offered_per_setup(client: TestClient) -> None:
     templates = _templates(client, _ROUTE, "put")
 
     assert {name: template["summary"] for name, template in templates.items()} == {
@@ -296,10 +296,11 @@ def test_templates_are_offered_per_deployment(client: TestClient) -> None:
         "jira-datacenter": "Jira Data Center",
         "confluence-cloud": "Confluence Cloud",
         "confluence-datacenter": "Confluence Data Center",
-        "sharepoint-online": "SharePoint Online",
+        "sharepoint-app": "SharePoint app registration",
+        "sharepoint-device_code": "SharePoint device-code sign-in",
         "local_file-folder": "Local files",
-        "github-github_com": "GitHub.com",
-        "github-enterprise": "GitHub Enterprise Server",
+        "github-public": "GitHub public repository",
+        "github-token": "GitHub private repository",
     }
     assert all(template["description"].startswith("Template: ") for template in templates.values())
     assert not any(template["value"]["sync_now"] for template in templates.values())
