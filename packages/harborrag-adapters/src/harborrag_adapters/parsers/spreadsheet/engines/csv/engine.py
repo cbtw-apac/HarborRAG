@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 from typing import ClassVar
 
+from harborrag_adapters.parsers.common.limits import SPREADSHEET_MAX_ROWS
 from harborrag_adapters.parsers.common.resources import (
     parse_input_suffix,
     read_parse_input_bytes,
@@ -13,7 +14,6 @@ from harborrag_adapters.parsers.common.utils import (
     parser_log_extra,
 )
 from harborrag_adapters.parsers.common.validation import (
-    MAX_TABLE_ROWS,
     ParseResourceBudget,
     guard_input_size,
 )
@@ -84,8 +84,8 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
             - data.count(b"\r\n")
             + int(bool(data) and not data.endswith((b"\n", b"\r")))
         )
-        if physical_rows > MAX_TABLE_ROWS:
-            raise ParseError(f"CSV physical row count exceeds parser limit {MAX_TABLE_ROWS}")
+        if physical_rows > SPREADSHEET_MAX_ROWS:
+            raise ParseError(f"CSV physical row count exceeds parser limit {SPREADSHEET_MAX_ROWS}")
         lines, warnings = self._decode_lines(parse_input, data)
         sample = "".join(lines)[:4096]
         try:
@@ -97,7 +97,7 @@ class CsvSpreadsheetEngine(HarborSpreadsheetEngine):
         rendered_rows: list[str] = []
         malformed_rows: list[dict[str, object]] = []
         expected_fields: int | None = None
-        budget = ParseResourceBudget()
+        budget = ParseResourceBudget.for_spreadsheet()
         while True:
             try:
                 row = next(reader)

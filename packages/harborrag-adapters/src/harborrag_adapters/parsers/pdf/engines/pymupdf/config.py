@@ -2,9 +2,11 @@
 
 from dataclasses import dataclass
 
+from harborrag_adapters.parsers.common.limits import PDF_MAX_PAGES
+
 # PyMuPDF runs in-process, so a page-count cap provides an early bound on
 # degenerate inputs when no subprocess timeout is available.
-DEFAULT_MAX_PAGES = 1000
+DEFAULT_MAX_PAGES = PDF_MAX_PAGES
 
 
 @dataclass(slots=True)

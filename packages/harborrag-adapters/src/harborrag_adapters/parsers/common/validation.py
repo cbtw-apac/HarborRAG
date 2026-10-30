@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
 
+from harborrag_adapters.parsers.common.limits import SPREADSHEET_MAX_CELLS, SPREADSHEET_MAX_ROWS
 from harborrag_adapters.parsers.errors import ParseError, PasswordProtectedError
 from harborrag_core.domain.parser import ParseInput
 
@@ -42,6 +43,11 @@ class ParseResourceBudget:
     rows: int = 0
     cells: int = 0
     output_characters: int = 0
+
+    @classmethod
+    def for_spreadsheet(cls) -> ParseResourceBudget:
+        """Return the budget of one workbook or CSV file: 50,000 rows and 200,000 cells."""
+        return cls(max_rows=SPREADSHEET_MAX_ROWS, max_cells=SPREADSHEET_MAX_CELLS)
 
     def consume_row(self, cell_count: int, *, output_characters: int = 0) -> None:
         """Account for one tabular row and its rendered text atomically."""

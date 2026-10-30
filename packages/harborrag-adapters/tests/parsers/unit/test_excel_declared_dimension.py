@@ -136,9 +136,9 @@ def test_a_repaired_sheet_is_still_rejected_when_it_exceeds_the_budget(
     """
 
     monkeypatch.setattr(
-        excel_engine,
-        "ParseResourceBudget",
-        lambda: ParseResourceBudget(max_rows=4),
+        excel_engine.ParseResourceBudget,
+        "for_spreadsheet",
+        staticmethod(lambda: ParseResourceBudget(max_rows=4)),
     )
     data = _workbook_bytes(declared_dimension=_WHOLE_SHEET_ROWS, extra_rows=20)
 

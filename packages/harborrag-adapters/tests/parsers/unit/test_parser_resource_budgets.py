@@ -34,7 +34,7 @@ def test_resource_budget_rejects_rows_cells_and_output() -> None:
 def test_csv_rejects_excessive_physical_rows_before_splitting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(csv_engine, "MAX_TABLE_ROWS", 2)
+    monkeypatch.setattr(csv_engine, "SPREADSHEET_MAX_ROWS", 2)
 
     with pytest.raises(ParseError, match="physical row count"):
         csv_engine.CsvSpreadsheetEngine().parse(
@@ -58,3 +58,15 @@ def test_excel_rejects_hostile_declared_dimensions_before_iteration() -> None:
             columns=5,
             budget=budget,
         )
+
+
+def test_spreadsheets_allow_50000_rows_and_200000_cells() -> None:
+    budget = ParseResourceBudget.for_spreadsheet()
+    rows = "a\n" + "1\n" * 50_000
+    cells = ",".join(["h"] * 201) + "\n" + ("," * 200 + "\n") * 999
+
+    with pytest.raises(ParseError, match="physical row count exceeds parser limit 50000"):
+        csv_engine.CsvSpreadsheetEngine().parse(ParseInput(content=rows, filename="rows.csv"))
+    with pytest.raises(ParseError, match="cell count exceeds parser limit 200000"):
+        csv_engine.CsvSpreadsheetEngine().parse(ParseInput(content=cells, filename="cells.csv"))
+    assert (budget.max_rows, budget.max_cells) == (50_000, 200_000)
