@@ -194,6 +194,11 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     The connection test uses this for form values that were never saved.
     """
     spec = source_types.get(source_type)
+    refused = spec.policy_issues(config)
+    if refused:
+        raise ConnectorConfigurationError(
+            "; ".join(f"{issue.field}: {issue.issue}" for issue in refused)
+        )
     config_object = (
         ConnectorConfigBuilder.for_source_type(spec.source_type)
         .credentials(credentials)

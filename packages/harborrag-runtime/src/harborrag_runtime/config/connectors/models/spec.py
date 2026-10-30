@@ -10,7 +10,7 @@ Does NOT resolve secret references or build connectors; see ``builder.py``.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
@@ -103,6 +103,7 @@ class SourceTypeSpec:
     query_fields: frozenset[str] = frozenset()
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
+    policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
 
     @property
     def credential_fields(self) -> frozenset[str]:
@@ -178,11 +179,17 @@ class SourceTypeSpec:
         checked_credentials = _check(method.model, values, "credentials", issues)
         checked_config = _check(self.config_model, config, "config", issues)
         checked_tuning = _check(self.tuning_model, tuning or {}, "tuning", issues)
+        if checked_config:
+            issues.extend(self.policy_issues(checked_config))
         if issues:
             raise ConnectionValidationError(issues)
         if self.has_method_choice:
             checked_credentials = {METHOD_KEY: method.id, **checked_credentials}
         return ValidatedConnection(checked_credentials, checked_config, checked_tuning)
+
+    def policy_issues(self, config: Mapping[str, Any]) -> list[FieldIssue]:
+        """Install-level rules a schema cannot express, such as allowed local roots."""
+        return self.policy(config) if self.policy is not None else []
 
     def describe(self) -> dict[str, Any]:
         """Return the API's ``SourceType`` object for this type."""

@@ -2,13 +2,43 @@
 
 from __future__ import annotations
 
-from typing import Literal
+import os
+from collections.abc import Mapping
+from pathlib import Path
+from typing import Any, Literal
 
 from pydantic import Field
 
 from .common import NoCredentials, NoTuning
 from .fields import StrictModel, widget
-from .spec import AuthMethodSpec, Capabilities, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, FieldIssue, SourceTypeSpec
+
+LOCAL_SOURCE_ROOT_VARIABLE = "HARBORRAG_LOCAL_SOURCE_ROOT"
+LOCAL_SOURCE_PATH_VARIABLE = "LOCAL_SOURCE_PATH"
+
+
+def local_source_root(environ: Mapping[str, str] | None = None) -> Path | None:
+    """The directory local connections must stay inside, when the install sets one.
+
+    ``HARBORRAG_LOCAL_SOURCE_ROOT`` wins; otherwise the ``LOCAL_SOURCE_PATH``
+    directory the scaffold and compose files configure.
+    """
+    env = os.environ if environ is None else environ
+    value = env.get(LOCAL_SOURCE_ROOT_VARIABLE) or env.get(LOCAL_SOURCE_PATH_VARIABLE)
+    return Path(value).expanduser().resolve() if value else None
+
+
+def local_source_issues(config: Mapping[str, Any]) -> list[FieldIssue]:
+    """Refuse a ``source_path`` outside the configured root, or relative while one is set."""
+    root = local_source_root()
+    if root is None or not isinstance(config.get("source_path"), str):
+        return []
+    path = Path(config["source_path"]).expanduser()
+    if not path.is_absolute():
+        return [FieldIssue("config.source_path", "must be an absolute path")]
+    if not path.resolve().is_relative_to(root):
+        return [FieldIssue("config.source_path", f"must be inside {root}")]
+    return []
 
 
 class LocalFileSyncConfig(StrictModel):
@@ -47,4 +77,5 @@ LOCAL_FILE = SourceTypeSpec(
     tuning_model=NoTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
     aliases=("local", "local_files", "filesystem", "files"),
+    policy=local_source_issues,
 )

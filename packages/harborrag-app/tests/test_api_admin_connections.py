@@ -262,3 +262,20 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
     assert paths["/v1/connections"]["get"]["deprecated"] is True
     assert paths["/v1/ingestions"]["post"]["deprecated"] is True
     assert paths["/api/v1/sources"]["post"]["deprecated"] is True
+
+
+def test_local_connections_stay_inside_the_source_root(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
+    body = {"source_type": "local_file", "credentials": {}, "config": {"source_path": "/proc/self"}}
+
+    refused = client.put("/v1/admin/projects/cpm/connections/files", json=body)
+    accepted = client.put(
+        "/v1/admin/projects/cpm/connections/files",
+        json={**body, "config": {"source_path": str(tmp_path)}},
+    )
+
+    assert (refused.status_code, refused.json()["error"]["code"]) == (422, "validation_error")
+    assert refused.json()["error"]["details"][0]["field"] == "config.source_path"
+    assert accepted.status_code == 201
