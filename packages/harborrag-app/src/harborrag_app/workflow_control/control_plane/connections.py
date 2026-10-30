@@ -39,7 +39,11 @@ from harborrag_core.ingestion import IngestionTask
 from harborrag_core.security.secret_refs import all_refs, stored_refs
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.composition.connection_removal import ConnectionRemoval
-from harborrag_runtime.config.connectors.models import SourceTypeSpec, source_types
+from harborrag_runtime.config.connectors.models import (
+    SourceTypeSpec,
+    ValidatedConnection,
+    source_types,
+)
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.connections import (
     CredentialSecretWriter,
@@ -100,6 +104,13 @@ class ConnectionWrite:
     credentials: Mapping[str, Any]
     config: Mapping[str, Any]
     name: str | None = None
+    tuning: Mapping[str, Any] | None = None
+
+    def effective_tuning(self, existing: Connection | None) -> Mapping[str, Any]:
+        """Return the tuning to apply: as sent, else what is stored, else none."""
+        if self.tuning is not None:
+            return self.tuning
+        return existing.tuning if existing else {}
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,7 +235,8 @@ class ConnectionService:
     ) -> ConnectionPutResult:
         """Create or overwrite a connection.
 
-        ``config`` is replaced whole. In ``credentials`` an omitted secret keeps
+        ``config`` is replaced whole, and so is ``tuning`` unless it is left out,
+        which keeps the stored tuning. In ``credentials`` an omitted secret keeps
         its value, a value rotates it, a ``{"secret_ref"}`` points it elsewhere
         and ``null`` clears it; replaced stored secrets are deleted once no
         running ingestion still uses them.
@@ -256,7 +268,7 @@ class ConnectionService:
         )
         _check_preconditions(existing, spec, expected_version, create_only)
         effective = _effective_credentials(write.credentials, existing, spec.secret_fields)
-        validated = spec.validate(effective, write.config, existing.tuning if existing else None)
+        validated = spec.validate(effective, write.config, write.effective_tuning(existing))
         written = await CredentialSecretWriter(
             control_plane.secrets, tenant_id=key.tenant_id
         ).apply(
@@ -265,7 +277,7 @@ class ConnectionService:
             existing=existing.credentials if existing else None,
         )
         credentials = _merge_secrets(validated.credentials, written.credentials, spec.secret_fields)
-        connection = _build(key, existing, spec, write, credentials, validated.config, actor)
+        connection = _build(key, existing, spec, write, credentials, validated, actor)
         try:
             stored, outcome = await control_plane.connections.put(
                 connection, expected_version=expected_version, create_only=create_only
@@ -302,12 +314,14 @@ class ConnectionService:
         if write is None:
             if existing is None:
                 raise HarborNotFoundError(f"connection {key.connection_id!r} not found")
-            write = ConnectionWrite(existing.source_type, existing.credentials, existing.config)
+            write = ConnectionWrite(
+                existing.source_type, existing.credentials, existing.config, tuning=existing.tuning
+            )
         else:
             await self._require_project(key)
         spec = source_types.get(write.source_type)
         effective = _effective_credentials(write.credentials, existing, spec.secret_fields)
-        validated = spec.validate(effective, write.config, existing.tuning if existing else None)
+        validated = spec.validate(effective, write.config, write.effective_tuning(existing))
         try:
             secret_values = await default_secret_resolver(
                 control_plane.secrets
@@ -678,7 +692,7 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
     spec: SourceTypeSpec,
     write: ConnectionWrite,
     credentials: dict[str, Any],
-    config: dict[str, Any],
+    validated: ValidatedConnection,
     actor: str,
 ) -> Connection:
     """Assemble the connection to store; a write that fixes it clears an error status."""
@@ -689,7 +703,8 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
         )
     )
-    builder.source_type(spec.source_type).name(write.name).credentials(credentials).config(config)
+    builder.source_type(spec.source_type).name(write.name).credentials(credentials)
+    builder.config(validated.config).tuning(validated.tuning)
     builder.secret_refs(all_refs(credentials)).actor(actor)
     if existing is not None and (existing.status == "error" or existing.credentials != credentials):
         builder.status("active")
@@ -697,13 +712,17 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
 
 
 def _changed_fields(before: Connection, after: Connection) -> list[str]:
-    """Names of fields a write changed, ``credentials.<name>`` and ``config.<name>`` included."""
+    """Names of fields a write changed, as ``name`` or ``<part>.<field>``."""
     changed = ["name"] if before.name != after.name else []
-    for part in ("credentials", "config"):
+    for part, label in (
+        ("credentials", "credentials"),
+        ("config", "config"),
+        ("tuning", "advanced"),
+    ):
         old: Mapping[str, Any] = getattr(before, part)
         new: Mapping[str, Any] = getattr(after, part)
         changed.extend(
-            f"{part}.{name}"
+            f"{label}.{name}"
             for name in sorted(set(old) | set(new))
             if old.get(name) != new.get(name)
         )

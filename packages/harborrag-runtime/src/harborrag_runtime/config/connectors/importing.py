@@ -486,7 +486,7 @@ def _field_path(spec: SourceTypeSpec, dataclass_field: str) -> str:
     if name in spec.credential_fields:
         return f"credentials.{name}"
     if dataclass_field in spec.tuning_fields:
-        return f"tuning.{dataclass_field}"
+        return f"advanced.{dataclass_field}"
     return f"config.{dataclass_field}"
 
 

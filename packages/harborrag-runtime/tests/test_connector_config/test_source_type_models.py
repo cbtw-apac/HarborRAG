@@ -30,6 +30,7 @@ _SPEC_TYPE_KEYS = {
     "docs_url",
     "auth_methods",
     "config_schema",
+    "advanced_schema",
     "ui",
     "capabilities",
 }
@@ -190,7 +191,7 @@ def test_validation_lists_every_failing_field() -> None:
     assert fields["credentials.email"] == "required"
     assert fields["credentials.api_token"] == "required"
     assert fields["config.bogus"] == "unknown field"
-    assert "credentials.base_url" in fields and "tuning.page_size" in fields
+    assert "credentials.base_url" in fields and "advanced.page_size" in fields
     assert caught.value.details == {"errors": [issue.as_dict() for issue in caught.value.issues]}
 
 

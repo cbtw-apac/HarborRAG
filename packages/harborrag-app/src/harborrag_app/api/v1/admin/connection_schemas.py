@@ -77,6 +77,14 @@ class ConnectionWriteRequest(ApiModel):
     config: dict[str, Any] = Field(
         description="What to sync, per the source type's config_schema; replaced as a whole"
     )
+    advanced: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Request rate, paging, timeout and retries per the source type's advanced_schema, "
+            "replaced as a whole; leave it out to keep the stored values, a null field uses "
+            "the connector default"
+        ),
+    )
     sync_now: bool = Field(default=False, description="Start the first ingestion right away")
 
 
@@ -87,6 +95,14 @@ class ConnectionTestRequest(ApiModel):
     name: str | None = Field(default=None, min_length=1, max_length=255)
     credentials: dict[str, CredentialValueIn] = Field(default_factory=dict)
     config: dict[str, Any] = Field(default_factory=dict)
+    advanced: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Request rate, paging, timeout and retries per the source type's advanced_schema, "
+            "replaced as a whole; leave it out to keep the stored values, a null field uses "
+            "the connector default"
+        ),
+    )
 
 
 class SyncRequest(ApiModel):
@@ -144,6 +160,9 @@ class ConnectionOut(BaseModel):
         description="Fields from the source type's auth schema. Secret fields read back as SecretStatus."
     )
     config: dict[str, Any] = Field(description="What to sync, per the source type's config_schema")
+    advanced: dict[str, Any] = Field(
+        description="Request settings per the advanced_schema; a missing field uses the default"
+    )
     status: Literal["active", "needs_reauth", "error", "deleting"]
     last_ingestion: LastIngestionOut | None
     stats: ConnectionStatsOut
@@ -241,6 +260,9 @@ class SourceTypeOut(BaseModel):
     docs_url: str
     auth_methods: list[AuthMethodOut]
     config_schema: dict[str, Any] = Field(description="JSON Schema of what to sync")
+    advanced_schema: dict[str, Any] = Field(
+        description="JSON Schema of the request rate, paging, timeout and retry settings"
+    )
     ui: dict[str, UiHintOut] = Field(description="Form hints per field name")
     capabilities: CapabilitiesOut
 

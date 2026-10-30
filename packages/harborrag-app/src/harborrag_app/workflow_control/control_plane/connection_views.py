@@ -59,6 +59,7 @@ def connection_view(
         "name": connection.name,
         "credentials": credentials_view(connection.credentials),
         "config": dict(connection.config),
+        "advanced": dict(connection.tuning),
         "status": connection.status,
         "last_ingestion": _last_ingestion(last_ingestion),
         "stats": {"documents": documents, "chunks": None, "entities": None, "errors": None}

@@ -321,3 +321,29 @@ def test_a_project_named_by_its_display_name_points_at_its_id(client: TestClient
 
     assert response.status_code == 404
     assert response.json()["error"]["message"] == "project 'CPM' not found; did you mean 'cpm'?"
+
+
+def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> None:
+    created = client.put(_PATH, json={**_BODY, "advanced": {"page_size": 20}})
+    kept = client.put(_PATH, json=_BODY)
+    replaced = client.put(_PATH, json={**_BODY, "advanced": {"page_size": None, "max_retries": 5}})
+    reset = client.put(_PATH, json={**_BODY, "advanced": {}})
+    refused = client.put(_PATH, json={**_BODY, "advanced": {"page_size": 0}})
+
+    assert created.json()["advanced"] == {"page_size": 20}
+    assert kept.json()["advanced"] == {"page_size": 20}
+    assert replaced.json()["advanced"] == {"max_retries": 5}
+    assert replaced.headers["ETag"] == 'W/"rev-3"'
+    assert reset.json()["advanced"] == {}
+    assert refused.status_code == 422
+    assert refused.json()["error"]["details"][0]["field"] == "advanced.page_size"
+    assert client.get(_PATH).json()["advanced"] == {}
+
+
+def test_source_types_publish_their_advanced_schema(client: TestClient) -> None:
+    items = {
+        item["source_type"]: item for item in client.get("/v1/admin/source-types").json()["items"]
+    }
+
+    assert "page_size" in items["jira"]["advanced_schema"]["properties"]
+    assert items["jira"]["ui"]["page_size"]["group"] == "Advanced"

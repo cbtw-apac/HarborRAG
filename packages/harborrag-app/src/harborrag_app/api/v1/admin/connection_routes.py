@@ -226,6 +226,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
             credentials=_credentials(body.credentials),
             config=body.config,
             name=body.name,
+            tuning=body.advanced,
         ),
         actor=principal.subject,
         expected_version=version_from_etag(if_match),
@@ -279,6 +280,7 @@ async def test_connection(
             credentials=_credentials(body.credentials),
             config=body.config,
             name=body.name,
+            tuning=body.advanced,
         )
         if body is not None
         else None

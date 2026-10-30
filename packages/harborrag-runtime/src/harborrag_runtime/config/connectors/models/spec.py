@@ -159,10 +159,10 @@ class SourceTypeSpec:
         Args:
             credentials: Effective credentials; secrets as values or references.
             config: What to sync.
-            tuning: Per-connection overrides of connector defaults.
+            tuning: Per-connection overrides of connector defaults; ``None`` means the default.
 
         Returns:
-            The normalized values, holding only fields the caller set.
+            The normalized values, holding only fields the caller set; tuning drops ``None``.
 
         Raises:
             ConnectionValidationError: Any field fails; every failing field is listed.
@@ -178,7 +178,11 @@ class SourceTypeSpec:
         values = {key: value for key, value in credentials.items() if key != METHOD_KEY}
         checked_credentials = _check(method.model, values, "credentials", issues)
         checked_config = _check(self.config_model, config, "config", issues)
-        checked_tuning = _check(self.tuning_model, tuning or {}, "tuning", issues)
+        checked_tuning = {
+            key: value
+            for key, value in _check(self.tuning_model, tuning or {}, "advanced", issues).items()
+            if value is not None
+        }
         if checked_config:
             issues.extend(self.policy_issues(checked_config))
         if issues:
@@ -205,6 +209,7 @@ class SourceTypeSpec:
                 for method in self.auth_methods
             ],
             "config_schema": publish_schema(self.config_model),
+            "advanced_schema": publish_schema(self.tuning_model),
             "ui": self._ui_hints(),
             "capabilities": {
                 "incremental": self.capabilities.incremental,
@@ -328,6 +333,7 @@ class SourceTypeSpec:
         sections = [
             ("Connection", [method.model for method in self.auth_methods]),
             ("Sync", [self.config_model]),
+            ("Advanced", [self.tuning_model]),
         ]
         for group, models in sections:
             for model in models:
