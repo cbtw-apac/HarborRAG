@@ -1,8 +1,5 @@
 version: 1
 
-# Each key under `connectors` is a public ingestion API `connection_id`.
-# Requests select a preconfigured connection by this key; credentials remain
-# environment references and must never be sent in the HTTP request.
 connectors:
   harborrag-workspace:
     provider: local
@@ -10,7 +7,7 @@ connectors:
     environment:
       source_path: LOCAL_SOURCE_PATH
     settings:
-      allowed_extensions: [md, markdown, txt, pdf, docx, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
+      allowed_extensions: [md, markdown, txt, pdf, docx, doc, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []
       include_paths: []
       exclude_paths: []
@@ -40,11 +37,6 @@ connectors:
       max_comments: 1
       max_attachments: 1000
       fail_on_error: false
-      # Shared by every worker (Redis token bucket per host and credential).
-      # Discovery costs ~2 requests per page (comments + attachments) and each
-      # document at least one more, so 60/min capped a space at ~0.5 doc/s and
-      # ~2 s of discovery per page. 600/min matches jira-main; Retry-After on
-      # 429 still backs off. page_size 100 is the connector maximum.
       requests_per_minute: 600
       page_size: 100
       request_timeout_seconds: 30
@@ -74,12 +66,6 @@ connectors:
       max_attachments: 1000
       max_changelog_items: 1000
       fail_on_error: false
-      # Redis-shared across every worker replica, so this is a global ceiling.
-      # A full project costs at least two requests per issue (the issue and its
-      # comments) plus one per attachment, so 300/min put a 200k-issue backfill
-      # past 22 hours; 600/min halves that and stays well under what Jira Cloud
-      # allows. 429s remain safe here: the client retries them with backoff, so
-      # raise this further if none appear in the worker logs.
       requests_per_minute: 600
       page_size: 50
       request_timeout_seconds: 30

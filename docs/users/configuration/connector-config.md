@@ -1,5 +1,12 @@
 # Connector Configuration
 
+> From 2.0.0, connections live in the control database and are managed
+> through the API ([Connections](../connections.md)). The service reads this
+> file once, at the first start of an install, and imports each entry
+> ([Upgrading](../upgrading.md)). Later edits to the file do not reach the
+> service. `harborrag init`, `harborrag doctor` and the Python loader below
+> still read it.
+
 The runtime loader reads versioned YAML containing named connector instances. Start from [`config/connectors.example.yaml`](../../../config/connectors.example.yaml).
 
 ## Supported providers

@@ -2,7 +2,8 @@
 
 The public ingestion API supports two admission modes: `incremental` and
 `force`. The mode controls how discovered source records are evaluated. It does
-not replace the connector configuration in `config/connectors.yaml`.
+not replace the connection's stored configuration; see
+[Connections](connections.md).
 
 Every mode below is reachable from three surfaces, and they set the same underlying knob:
 
@@ -57,7 +58,7 @@ inside the connector's source root; for the local connector, relative to
 `source_path`), `--pattern` (a case-insensitive substring, or a glob matched
 against the path relative to the source root) and `--filters-json` (connector
 filters as a JSON object; unknown keys are rejected for local connectors).
-Attachment/comment behavior remains in `config/connectors.yaml`.
+Attachment/comment behavior remains in the connection's `config`.
 
 There are two change checkpoints. Descriptor admission runs before content is
 loaded and can skip a source item cheaply. Canonical admission runs after parsing

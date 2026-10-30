@@ -508,10 +508,25 @@ uv run harborrag ingest start \
   --wait
 ```
 
-`--connector-id` names a connector defined in
-[`config/connectors.yaml`](config/connectors.yaml) - the checked-in catalog defines
-`harborrag-workspace`, `confluence-main`, and `jira-main`. It is not a source *type*, so
-`--connector-id local` fails with the list of valid IDs.
+`--connector-id` names a stored connection by its `source_key`. At the first start, the
+service imports [`config/connectors.yaml`](config/connectors.yaml) once, so the
+checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` become
+connections under those keys. It is not a source *type*, so `--connector-id local` fails.
+
+After that first start, add and change connections through the API: list the source
+types, test the form values, then save with `sync_now`. For example, a GitHub repository:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/v1/admin/projects/default/connections/docs-repo \
+  -d '{"source_type": "github", "name": "Docs repository",
+       "credentials": {"token": {"secret_ref": "env:GITHUB_TOKEN"}},
+       "config": {"owner": "acme", "repo": "docs"},
+       "sync_now": true}'
+```
+
+See [Connections](docs/users/connections.md) for the full flow and
+[Upgrading](docs/users/upgrading.md) for what changes from 2.0.0a2.
 
 Save the returned run ID - add `--json` for machine-readable output - and drive it with the
 operator commands:
