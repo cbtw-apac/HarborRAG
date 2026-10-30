@@ -12,7 +12,7 @@ the credential or ``X-Tenant-Id``, ``ETag`` and ``If-Match``, and status codes.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Protocol, cast
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, Depends, Header, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
@@ -21,16 +21,15 @@ from harborrag_app.api.auth.dependencies import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
     version_from_etag,
 )
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
-    ConnectionService,
     ConnectionWrite,
 )
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
 
@@ -55,16 +54,6 @@ from .connection_schemas import (
     SyncRequest,
 )
 from .connection_templates import ConnectionTemplateBuilder
-
-
-class ConnectionAdministration(Protocol):
-    """The part of the app service these routes use."""
-
-    @property
-    def connection_service(self) -> ConnectionService: ...
-
-    @property
-    def project_service(self) -> ProjectService: ...
 
 
 def _administration(request: Request) -> ConnectionAdministration:
