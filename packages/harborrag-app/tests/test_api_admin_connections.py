@@ -367,6 +367,7 @@ def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> No
     replaced = client.put(_PATH, json={**_BODY, "advanced": {"page_size": None, "max_retries": 5}})
     reset = client.put(_PATH, json={**_BODY, "advanced": {}})
     refused = client.put(_PATH, json={**_BODY, "advanced": {"page_size": 0}})
+    too_large = client.put(_PATH, json={**_BODY, "advanced": {"page_size": 101}})
 
     assert created.json()["advanced"] == {"page_size": 20}
     assert kept.json()["advanced"] == {"page_size": 20}
@@ -375,6 +376,7 @@ def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> No
     assert reset.json()["advanced"] == {}
     assert refused.status_code == 422
     assert refused.json()["error"]["details"][0]["field"] == "advanced.page_size"
+    assert too_large.json()["error"]["details"][0]["field"] == "advanced.page_size"
     assert client.get(_PATH).json()["advanced"] == {}
 
 

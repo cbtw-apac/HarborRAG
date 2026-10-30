@@ -43,6 +43,12 @@ class AtlassianDataCenterCredentials(StrictModel):
     )
 
 
+class AtlassianTuning(PagedHttpTuning):
+    """Request settings of Jira and Confluence, whose REST APIs return at most 100 items a page."""
+
+    page_size: int | None = Field(default=None, ge=1, le=100)
+
+
 class JiraConfig(StrictModel):
     """What to sync from Jira."""
 
@@ -125,7 +131,7 @@ JIRA = SourceTypeSpec(
     provider="jira",
     auth_methods=_auth_methods(),
     config_model=JiraConfig,
-    tuning_model=PagedHttpTuning,
+    tuning_model=AtlassianTuning,
     capabilities=Capabilities(incremental=True, attachments=True),
     credential_renames={"api_token": "token"},
     query_fields=frozenset({"jql"}),
@@ -140,7 +146,7 @@ CONFLUENCE = SourceTypeSpec(
     provider="confluence",
     auth_methods=_auth_methods(),
     config_model=ConfluenceConfig,
-    tuning_model=PagedHttpTuning,
+    tuning_model=AtlassianTuning,
     capabilities=Capabilities(incremental=True, attachments=True),
     credential_renames={"api_token": "token"},
     aliases=("confluence_cloud", "confluence_datacenter"),
