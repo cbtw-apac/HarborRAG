@@ -86,11 +86,11 @@ def test_should_process_file_raises_when_fail_on_error_and_file_unreadable(
 
 
 def test_should_process_file_include_and_exclude_paths(tmp_path: Path):
-    write_file(tmp_path / "src" / "app.py")
+    write_file(tmp_path / "src" / "app.txt")
     write_file(tmp_path / "docs" / "guide.md")
     connector = LocalFileConnector(config(tmp_path, include_paths=["src"]))
     records = list(connector.discover())
-    assert [r.metadata["relative_path"] for r in records] == ["src/app.py"]
+    assert [r.metadata["relative_path"] for r in records] == ["src/app.txt"]
 
     connector = LocalFileConnector(config(tmp_path, exclude_paths=["src"]))
     records = list(connector.discover())

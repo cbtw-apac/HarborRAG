@@ -18,7 +18,11 @@ DeploymentType = Literal["cloud", "datacenter"]
 
 _BASE_URL_HELP = "Root URL of the site, without a trailing path"
 _TOKEN_HELP = "Create one at id.atlassian.com › Security › API tokens"
-_ALLOWED_HELP = "Attachment file types to keep, such as pdf; empty keeps every type"
+_ALLOWED_HELP = (
+    "Attachment file types to keep, such as pdf; left out, common document and image "
+    "types; [] keeps every type"
+)
+_SIZE_HELP = "Largest attachment to read, in bytes; left out, 20 MiB"
 _EXCLUDED_HELP = "Attachment file types to drop; wins over allowed_extensions"
 
 
@@ -70,7 +74,7 @@ class JiraConfig(StrictModel):
     )
     include_all_fields: bool = Field(default=True, description="Fetch every issue field")
     fields: list[str] | None = Field(default=None, description="Issue fields to fetch")
-    max_attachment_size_bytes: int | None = Field(default=None, ge=0)
+    max_attachment_size_bytes: int | None = Field(default=None, ge=0, description=_SIZE_HELP)
     allowed_extensions: list[str] = Field(default_factory=list, description=_ALLOWED_HELP)
     excluded_extensions: list[str] = Field(default_factory=list, description=_EXCLUDED_HELP)
     max_comments: int | None = Field(default=None, ge=0)
@@ -88,7 +92,7 @@ class ConfluenceConfig(StrictModel):
     exclude_labels: list[str] = Field(default_factory=list, description="Drop pages with a label")
     include_comments: bool = Field(default=False, description="Index page comments")
     include_attachments: bool = Field(default=False, description="Download and parse attachments")
-    max_attachment_size_bytes: int | None = Field(default=None, ge=0)
+    max_attachment_size_bytes: int | None = Field(default=None, ge=0, description=_SIZE_HELP)
     allowed_extensions: list[str] = Field(default_factory=list, description=_ALLOWED_HELP)
     excluded_extensions: list[str] = Field(default_factory=list, description=_EXCLUDED_HELP)
     max_comments: int | None = Field(default=None, ge=0)

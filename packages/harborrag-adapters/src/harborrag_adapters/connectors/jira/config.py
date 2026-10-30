@@ -20,6 +20,7 @@ from harborrag_adapters.connectors.policies.validation import (
 
 from ..environment import environment_default
 from ..file_filters import ExtensionFilter
+from ..limits import DEFAULT_ALLOWED_EXTENSIONS
 from .query import is_cloud_hostname
 
 
@@ -80,7 +81,7 @@ class JiraProjectConfig:
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
     process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
-    allowed_extensions: list[str] = field(default_factory=list)
+    allowed_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS))
     excluded_extensions: list[str] = field(default_factory=list)
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS

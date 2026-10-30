@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
 from harborrag_runtime.config import load_connector_catalog
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
@@ -303,7 +304,11 @@ def test_every_source_type_offers_deployments_with_known_methods() -> None:
 def test_connector_defaults_are_json_values() -> None:
     sharepoint = source_types.connector_defaults("sharepoint")
 
-    assert sharepoint["allowed_extensions"] == [".docx", ".md", ".pdf", ".pptx", ".txt", ".xlsx"]
+    assert sharepoint["allowed_extensions"] == sorted(DEFAULT_ALLOWED_EXTENSIONS)
+    assert sharepoint["max_file_size_bytes"] == 20 * 1024 * 1024
+    assert source_types.connector_defaults("jira")["allowed_extensions"] == list(
+        DEFAULT_ALLOWED_EXTENSIONS
+    )
     assert source_types.connector_defaults("jira")["max_comments"] == 1000
     for spec in source_types.all():
         json.dumps(source_types.connector_defaults(spec.source_type))

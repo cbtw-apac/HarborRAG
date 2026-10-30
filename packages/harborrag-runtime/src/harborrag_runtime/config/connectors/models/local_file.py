@@ -50,7 +50,13 @@ class LocalFileSyncConfig(StrictModel):
         examples=["/data/handbook"],
         json_schema_extra=widget("path"),
     )
-    allowed_extensions: list[str] = Field(default_factory=list, description="File types to keep")
+    allowed_extensions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "File types to keep, such as pdf; left out, common document and image types; "
+            "[] keeps every type"
+        ),
+    )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
     include_paths: list[str] = Field(default_factory=list)
     exclude_paths: list[str] = Field(default_factory=list)
@@ -60,7 +66,9 @@ class LocalFileSyncConfig(StrictModel):
     include_hidden: bool = Field(default=False, description="Include hidden files and folders")
     follow_symlinks: bool = Field(default=False, description="Follow links inside the path")
     max_depth: int | None = Field(default=None, ge=0, description="Folder depth limit")
-    max_file_size_bytes: int | None = Field(default=None, ge=0)
+    max_file_size_bytes: int | None = Field(
+        default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
+    )
     checksum_mode: Literal["none", "stat", "sha256"] = Field(
         default="stat", description="How file changes are detected"
     )

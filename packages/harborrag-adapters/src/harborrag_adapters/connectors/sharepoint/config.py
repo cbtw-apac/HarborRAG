@@ -8,6 +8,10 @@ from enum import StrEnum
 from pathlib import Path
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
+from harborrag_adapters.connectors.limits import (
+    DEFAULT_ALLOWED_EXTENSIONS as SHARED_ALLOWED_EXTENSIONS,
+)
+from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_https_url,
@@ -39,8 +43,8 @@ class SharePointAuthMode(StrEnum):
 # Fallbacks for fields a connection omits. Deployments set these per connection
 # under `settings` in config/connectors.yaml; see config/connectors.example.yaml.
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
-DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
-DEFAULT_ALLOWED_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".xlsx", ".txt", ".md"})
+DEFAULT_MAX_FILE_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
+DEFAULT_ALLOWED_EXTENSIONS = frozenset(SHARED_ALLOWED_EXTENSIONS)
 
 
 @dataclass(slots=True)

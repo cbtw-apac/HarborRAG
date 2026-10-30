@@ -44,13 +44,21 @@ class GitHubConfig(StrictModel):
     branch: str | None = Field(default=None, description="Branch to read")
     commit_sha: str | None = Field(default=None, description="Commit to read")
     root_path: str | None = Field(default=None, description="Folder inside the repository")
-    allowed_extensions: list[str] = Field(default_factory=list, description="File types to keep")
+    allowed_extensions: list[str] = Field(
+        default_factory=list,
+        description=(
+            "File types to keep, such as pdf; left out, common document and image types; "
+            "[] keeps every type"
+        ),
+    )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
     include_paths: list[str] = Field(default_factory=list)
     exclude_paths: list[str] = Field(default_factory=list)
     include_globs: list[str] = Field(default_factory=list)
     exclude_globs: list[str] = Field(default_factory=list)
-    max_file_size_bytes: int | None = Field(default=None, ge=0)
+    max_file_size_bytes: int | None = Field(
+        default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
+    )
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
 
 

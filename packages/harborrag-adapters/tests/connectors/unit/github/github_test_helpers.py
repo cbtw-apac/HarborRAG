@@ -35,6 +35,7 @@ def config(**overrides: Any) -> GitHubRepositoryConfig:
     values = {
         "repository_url": "https://github.com/acme/harbor-rag.git",
         "requests_per_minute": 6000,
+        "allowed_extensions": [],
     }
     values.update(overrides)
     return GitHubRepositoryConfig(**values)

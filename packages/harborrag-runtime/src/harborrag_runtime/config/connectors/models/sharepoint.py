@@ -71,11 +71,16 @@ class SharePointConfig(StrictModel):
     allowed_tenant_ids: list[str] | None = Field(default=None)
     allowed_sites: list[str] | None = Field(default=None)
     allowed_path_prefixes: list[str] | None = Field(default=None)
-    allowed_extensions: list[str] | None = Field(default=None, description="File types to keep")
+    allowed_extensions: list[str] | None = Field(
+        default=None,
+        description="File types to keep, such as pdf; left out, common document and image types",
+    )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
     include_hidden: bool = Field(default=False, description="Include hidden files")
     include_pages: bool = Field(default=False, description="Also index the site's modern pages")
-    max_file_size_bytes: int | None = Field(default=None, ge=0)
+    max_file_size_bytes: int | None = Field(
+        default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
+    )
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
 
 

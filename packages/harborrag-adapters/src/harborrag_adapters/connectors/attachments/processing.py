@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal
 
 from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.file_filters import ExtensionFilter
+from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_core.domain.parser import ParseInput
 from harborrag_core.security.redaction import redact_secrets
 
@@ -19,7 +20,7 @@ from ..policies.http import require_same_origin_url
 
 AttachmentStatus = Literal["processed", "skipped", "unsupported", "failed"]
 CustomAttachmentParser = Callable[[bytes, str], str]
-DEFAULT_MAX_ATTACHMENT_SIZE_BYTES = 50 * 1024 * 1024
+DEFAULT_MAX_ATTACHMENT_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
 
 
 class FileType(StrEnum):
