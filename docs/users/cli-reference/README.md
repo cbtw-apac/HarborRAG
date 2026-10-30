@@ -102,6 +102,61 @@ database, and - only with `--temporal` - the Temporal workflow service. Exit 1 w
 required check fails. `--json` returns `{"ok", "data": {"checks": [...], "summary": {...},
 "diagnostics": {...}}, "error"}`.
 
+## Connections
+
+```bash
+harborrag source list [--project-id ID] [--type TYPE] [--status STATUS] [--limit N]
+                      [--cursor CURSOR] [--tenant TENANT_ID] [--json]
+harborrag source show PROJECT/CONNECTION [--json]
+harborrag source add PROJECT/CONNECTION --file BODY [--sync-now] [--json]
+harborrag source update PROJECT/CONNECTION --file BODY [--if-version N] [--json]
+harborrag source test PROJECT/CONNECTION [--file BODY] [--json]
+harborrag source sync PROJECT/CONNECTION [--mode incremental|full] [--json]
+harborrag source remove PROJECT/CONNECTION [--purge] [--yes] [--json]
+```
+
+`source` manages the same stored connections as
+`/v1/admin/projects/{project_id}/connections/{connection_id}`, through the same service, so
+validation, secrets, change records and statuses match the API. Name a connection as
+`PROJECT/CONNECTION`, using the project's id, such as `default/jira-cpm`. `--tenant` defaults
+to `DEFAULT`.
+
+`BODY` is a YAML or JSON file in the shape of the `PUT` body: `source_type`, `name`,
+`credentials`, `config` and `advanced`. A Swagger UI template saved to a file works as is.
+A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret.
+
+```yaml
+source_type: jira
+name: CPM tickets
+credentials:
+  method: api_token
+  base_url: https://acme.atlassian.net
+  email: bot@acme.com
+  api_token: {secret_ref: env:JIRA_TOKEN}
+config:
+  jql: project = CPM
+advanced:
+  page_size: 50
+```
+
+- `add` creates the connection and refuses an id that already exists; `--sync-now` starts
+  the first ingestion.
+- `update` replaces `config`, and `advanced` when the file has it. A secret left out of the
+  file keeps its stored value. The write fails if someone changed the connection after it
+  was read, or since `--if-version N`.
+- `show` and `list` print secrets as their status (`set`, `last4`), never the value.
+- `test` checks sign-in, reachability and a sample of items without saving; with `--file` it
+  tests those values. It exits 1 when a check fails.
+- `sync` starts an ingestion and prints the command that follows it,
+  `harborrag ingest watch ID`. A second start while one runs fails.
+- `remove` deletes the connection's documents, stored secrets and row in the background. It
+  asks to confirm on a terminal and needs `--yes` otherwise; `--purge` also drops its
+  ingestion history.
+
+A failed call exits 1 and, for a validation error, names each field, such as
+`config.space_key: required`. From a repository checkout, writes refuse the local SQLite
+control database; set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres.
+
 ## Ingestion
 
 ```bash
@@ -145,8 +200,9 @@ harborrag ingest cancel RUN_ID [--json]
 The connector is the only required input: give it positionally (`harborrag ingest start workspace`)
 or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
 is an error.
-The value is a connection name from `config/connectors.yaml`, not a source type, so
-`--connector-id local` fails with the list of valid IDs. `--tenant` defaults to `DEFAULT`.
+The value is a stored connection's `source_key`, such as `default/jira-cpm`, or the key a
+connection imported from `connectors.yaml` keeps, such as `workspace`. It is not a source
+type, so `--connector-id local` fails. `--tenant` defaults to `DEFAULT`.
 
 `--batch-size` (1–300) and `--document-concurrency` (1–100) override the
 `ingestion.batch_size` and `ingestion.document_concurrency` values in

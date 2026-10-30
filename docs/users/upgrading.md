@@ -38,7 +38,7 @@ Each entry becomes a connection:
 - `secrets: <field>_env: NAME` becomes the reference
   `{"secret_ref": "env:NAME"}`. The value stays in the worker's environment.
 - Tuning such as `requests_per_minute` and `page_size` is kept on the
-  connection.
+  connection and shown as its `advanced` settings.
 - An entry with `project_id` goes to that project; others go to `default`,
   created when missing.
 - A disabled entry is skipped. An entry with a missing environment variable or
@@ -70,6 +70,23 @@ a row whose type is unknown becomes `error`.
 - **`GET /v1/connections` lists stored connections** in the caller's tenants.
   Its `source_type` for local files is now `local_file`, and `connection_id`
   is the `source_key` that `POST /v1/ingestions` accepts.
+- **Request settings can be edited.** A connection's `advanced` object holds
+  `requests_per_minute`, `page_size`, `request_timeout_seconds`,
+  `max_retries` and `backoff_factor`; see
+  [Advanced settings](connections.md#advanced-settings).
+- **Every connector reads a fixed list of file types by default**: `md`,
+  `markdown`, `txt`, `pdf`, `docx`, `doc`, `epub`, `odt`, `pptx`, `csv`,
+  `xlsx`, `png`, `jpg`, `jpeg` and `html`. This covers Jira and Confluence
+  attachments, which can now be filtered with `allowed_extensions` and
+  `excluded_extensions`. A connection that does not set `allowed_extensions`
+  stops reading other types, and its next full sync removes documents already
+  read from them, such as source code in a GitHub repository. Set
+  `"allowed_extensions": []` to keep every type.
+- **Documents above 20 MiB are skipped by default.** A connection that sets
+  `max_file_size_bytes` or `max_attachment_size_bytes` keeps its own value.
+- **Parsers refuse oversized documents**: PDFs above 200 pages, images above
+  25 megapixels, and spreadsheets above 50,000 rows or 200,000 cells. See
+  [Document limits](connections.md#document-limits).
 - **Local paths can be restricted.** With `HARBORRAG_LOCAL_SOURCE_ROOT` or
   `LOCAL_SOURCE_PATH` set, a `local_file` connection must stay inside it.
 - **Deprecated:** `GET /v1/connections`, `/api/v1/sources*` and

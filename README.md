@@ -525,6 +525,12 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
        "sync_now": true}'
 ```
 
+To fill the body in a browser, open <http://localhost:8000/api/v1/docs>, go to
+**Create or replace a connection**, and pick a template such as "Jira Cloud" or
+"GitHub private repository". Each template lists every setting with its default.
+From a terminal, save the same body to a file and run
+`uv run harborrag source add default/docs-repo --file docs-repo.yaml`.
+
 See [Connections](docs/users/connections.md) for the full flow and
 [Upgrading](docs/users/upgrading.md) for what changes from 2.0.0a2.
 
