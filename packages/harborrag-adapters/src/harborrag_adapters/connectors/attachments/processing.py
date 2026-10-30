@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
 from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
 from harborrag_core.domain.parser import ParseInput
 from harborrag_core.security.redaction import redact_secrets
 
@@ -131,6 +132,15 @@ def classify_attachment(media_type: str, title: str) -> tuple[FileType, str] | N
     return MEDIA_TYPE_MAP.get(media_type)
 
 
+def attachment_extension(media_type: str, title: str) -> str:
+    """Return the dot-prefixed extension of an attachment, from its title or its media type."""
+    suffix = Path(title).suffix.lower()
+    if suffix:
+        return suffix
+    classified = classify_attachment(media_type, title)
+    return f".{classified[1]}" if classified else ""
+
+
 class AttachmentProcessor:
     """Download source attachments and extract text through Harbor parsers.
 
@@ -151,6 +161,7 @@ class AttachmentProcessor:
         max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
         fail_on_error: bool = False,
         logger_: logging.Logger | None = None,
+        extension_filter: ExtensionFilter | None = None,
     ) -> None:
         """Configure attachment download, parsing, limits, and error policy.
 
@@ -169,6 +180,7 @@ class AttachmentProcessor:
         self.process_attachment_callback = process_attachment_callback
         self.max_attachment_size_bytes = max_attachment_size_bytes
         self.fail_on_error = fail_on_error
+        self.extension_filter = extension_filter or ExtensionFilter()
         self.logger = logger_ or logger
 
     def process(self, attachments: list[dict]) -> list[AttachmentMetadata]:
@@ -214,6 +226,11 @@ class AttachmentProcessor:
                 if not should_process:
                     metadata.reason = reason
                     return metadata
+
+            filtered = self.extension_filter.rejection(attachment_extension(media_type, title))
+            if filtered is not None:
+                metadata.reason = filtered
+                return metadata
 
             if (
                 self.max_attachment_size_bytes is not None

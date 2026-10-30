@@ -34,6 +34,8 @@ connectors:
       include_comments: true
       include_attachments: true
       max_attachment_size_bytes: 26214400
+      allowed_extensions: []
+      excluded_extensions: []
       max_comments: 1
       max_attachments: 1000
       fail_on_error: false
@@ -62,6 +64,8 @@ connectors:
       include_changelog: false
       include_attachment_text_in_content: true
       max_attachment_size_bytes: 26214400
+      allowed_extensions: []
+      excluded_extensions: []
       max_comments: 1000
       max_attachments: 1000
       max_changelog_items: 1000

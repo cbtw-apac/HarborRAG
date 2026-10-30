@@ -97,6 +97,7 @@ class JiraConnector(BaseConnector):
             max_attachment_size_bytes=config.max_attachment_size_bytes,
             fail_on_error=config.fail_on_error,
             logger_=logger,
+            extension_filter=config.attachment_filter(),
         )
         attachment_sources = AttachmentSourceGateway(
             download_fn=self.client.download_bytes,
@@ -105,6 +106,7 @@ class JiraConnector(BaseConnector):
                 process_callback=config.process_attachment_callback,
                 max_size_bytes=config.max_attachment_size_bytes,
                 fail_on_error=config.fail_on_error,
+                extensions=config.attachment_filter(),
             ),
             logger_=logger,
         )

@@ -18,6 +18,8 @@ DeploymentType = Literal["cloud", "datacenter"]
 
 _BASE_URL_HELP = "Root URL of the site, without a trailing path"
 _TOKEN_HELP = "Create one at id.atlassian.com › Security › API tokens"
+_ALLOWED_HELP = "Attachment file types to keep, such as pdf; empty keeps every type"
+_EXCLUDED_HELP = "Attachment file types to drop; wins over allowed_extensions"
 
 
 class AtlassianCloudCredentials(StrictModel):
@@ -63,6 +65,8 @@ class JiraConfig(StrictModel):
     include_all_fields: bool = Field(default=True, description="Fetch every issue field")
     fields: list[str] | None = Field(default=None, description="Issue fields to fetch")
     max_attachment_size_bytes: int | None = Field(default=None, ge=0)
+    allowed_extensions: list[str] = Field(default_factory=list, description=_ALLOWED_HELP)
+    excluded_extensions: list[str] = Field(default_factory=list, description=_EXCLUDED_HELP)
     max_comments: int | None = Field(default=None, ge=0)
     max_attachments: int | None = Field(default=None, ge=0)
     max_changelog_items: int | None = Field(default=None, ge=0)
@@ -79,6 +83,8 @@ class ConfluenceConfig(StrictModel):
     include_comments: bool = Field(default=False, description="Index page comments")
     include_attachments: bool = Field(default=False, description="Download and parse attachments")
     max_attachment_size_bytes: int | None = Field(default=None, ge=0)
+    allowed_extensions: list[str] = Field(default_factory=list, description=_ALLOWED_HELP)
+    excluded_extensions: list[str] = Field(default_factory=list, description=_EXCLUDED_HELP)
     max_comments: int | None = Field(default=None, ge=0)
     max_attachments: int | None = Field(default=None, ge=0)
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")

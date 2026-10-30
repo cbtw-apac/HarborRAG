@@ -65,6 +65,8 @@ connectors:
       deployment_type: cloud
       content_types: [page]
       include_comments: false
+      allowed_extensions: [pdf, docx]
+      excluded_extensions: [exe]
       max_comments: 1000
       requests_per_minute: 600
       page_size: 100
@@ -79,6 +81,8 @@ connectors:
       deployment_type: cloud
       project_keys: [ENG]
       include_comments: true
+      allowed_extensions: [pdf, docx]
+      excluded_extensions: [exe]
       include_changelog: false
       max_changelog_items: 1000
       requests_per_minute: 60

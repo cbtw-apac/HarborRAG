@@ -10,6 +10,7 @@ from harborrag_adapters.connectors.attachments.processing import (
     classify_attachment,
 )
 from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -339,3 +340,23 @@ def test_failed_attachment_still_reports_its_upload_time():
 
     assert result.status == "skipped"
     assert result.created_at == "2026-09-14T10:22:31.000+0700"
+
+
+def test_attachment_skipped_when_its_extension_is_excluded():
+    processor = _text_processor(extension_filter=ExtensionFilter.of(excluded=["TXT"]))
+
+    [result] = processor.process([_attachment()])
+
+    assert result.status == "skipped"
+    assert result.reason == "extension .txt is in excluded_extensions"
+
+
+def test_attachment_kept_by_media_type_when_its_title_has_no_extension():
+    processor = _text_processor(extension_filter=ExtensionFilter.of(allowed=["txt"]))
+
+    [kept] = processor.process([_attachment(title="notes")])
+    [dropped] = processor.process([_attachment(title="deck.pptx")])
+
+    assert kept.status == "processed"
+    assert dropped.status == "skipped"
+    assert dropped.reason == "extension .pptx is not in allowed_extensions"

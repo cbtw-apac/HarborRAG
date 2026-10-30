@@ -7,6 +7,7 @@ from harborrag_adapters.connectors.attachments import (
     AttachmentSourcePolicy,
 )
 from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
 
 
 def _gateway(downloads: dict[str, bytes]) -> AttachmentSourceGateway:
@@ -64,3 +65,27 @@ def test_descriptor_rejects_untrusted_download_origin() -> None:
     assert descriptor.download_url == ""
     with pytest.raises(FetchError, match="not admitted"):
         _gateway({}).fetch(descriptor)
+
+
+def test_descriptor_skips_an_attachment_the_extension_filter_drops() -> None:
+    gateway = AttachmentSourceGateway(
+        download_fn=lambda url, *, max_bytes: b"",
+        policy=AttachmentSourcePolicy(
+            base_url="https://source.example",
+            extensions=ExtensionFilter.of(allowed=["pdf", "md"], excluded=["md"]),
+        ),
+    )
+    attachment = {"mimeType": "text/markdown", "size": 7, "content": "https://source.example/f"}
+
+    kept, dropped = gateway.describe(
+        [
+            {**attachment, "id": "1", "filename": "report.pdf"},
+            {**attachment, "id": "2", "filename": "runbook.md"},
+        ]
+    )
+
+    assert kept.status == "admitted"
+    assert (dropped.status, dropped.reason) == (
+        "skipped",
+        "extension .md is in excluded_extensions",
+    )
