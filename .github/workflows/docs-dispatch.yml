@@ -1,0 +1,140 @@
+name: Documentation dispatch
+on:
+  release:
+    types: [published]
+  push:
+    branches: [main]
+    paths: ["docs/**", "README.md", "CHANGELOG.md", "CONTRIBUTING.md", "SECURITY.md",
+            "pyproject.toml", "packages/*/README.md", "packages/*/pyproject.toml"]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: { persist-credentials: false }
+      - id: meta
+        run: |
+          VERSION=$(python3 -c "import tomllib;print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          # PEP 440 pre-release/dev markers (a, b, rc, alpha, beta, pre, dev) - no third-party module needed on the runner
+          PRE=$(python3 -c "import re,sys;print(str(bool(re.search(r'(a|b|c|rc|alpha|beta|pre|preview|dev)\d*$', sys.argv[1]))).lower())" "$VERSION")
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"; PKG="${TAG%-v*}"
+            CHANNEL=$([ "$PRE" = "true" ] && echo prerelease || echo stable); REASON=release
+          else
+            TAG=""; PKG=""; CHANNEL=main; REASON=$GITHUB_EVENT_NAME
+          fi
+          printf 'version=%s\ntag=%s\npackage=%s\nchannel=%s\nreason=%s\n' "$VERSION" "$TAG" "$PKG" "$CHANNEL" "$REASON" >> "$GITHUB_OUTPUT"
+      - name: Dispatch to harborrag-doc-website
+        env:
+          TOKEN: ${{ secrets.DOCS_DISPATCH_TOKEN }}
+        run: |
+          jq -n --arg ref "$GITHUB_REF" --arg sha "$GITHUB_SHA" \
+            --arg tag "${{ steps.meta.outputs.tag }}" --arg pkg "${{ steps.meta.outputs.package }}" \
+            --arg ver "${{ steps.meta.outputs.version }}" --arg ch "${{ steps.meta.outputs.channel }}" \
+            --arg reason "${{ steps.meta.outputs.reason }}" \
+            --arg run "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            '{event_type: "harborrag-docs-sync",
+              client_payload: (
+                {
+                  source_repo:"cbtw-apac/HarborRAG", ref:$ref, sha:$sha,
+                  product_version:$ver, channel:$ch, reason:$reason, run_url:$run
+                }
+                +
+                (
+                  {tag: $tag, package: $pkg} | with_entries(select(.value != ""))
+                )
+              )}' \
+          | curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+              https://api.github.com/repos/cbtw-apac/harborrag-doc-website/dispatches -d @-
+      - name: Notify Teams on failure
+        if: failure()
+        continue-on-error: true
+        env:
+          # This message will be sent to DEV team
+          WEBHOOK: ${{ secrets.DEV_TEAMS_WEBHOOK_URL }}
+          CHANNEL: ${{ steps.meta.outputs.channel }}
+          PKG: ${{ steps.meta.outputs.package }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          REASON: ${{ steps.meta.outputs.reason }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "DEV_TEAMS_WEBHOOK_URL not set, skipping notification"
+            exit 0
+          fi
+          RUN_URL="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          case "$GITHUB_EVENT_NAME" in
+            workflow_dispatch)   TRIGGER="Manual run" ;;
+            release) TRIGGER="HarborRAG release" ;;
+            push)            TRIGGER="Documentation updates" ;;
+            *)                   TRIGGER="$GITHUB_EVENT_NAME" ;;
+          esac
+          PAYLOAD=$(jq -n \
+            --arg repo "$GITHUB_REPOSITORY" \
+            --arg run_url "$RUN_URL" \
+            --arg run_no "$GITHUB_RUN_NUMBER" \
+            --arg attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg actor "$GITHUB_ACTOR" \
+            --arg trigger "$TRIGGER" \
+            --arg channel "$CHANNEL" \
+            --arg ref "$GITHUB_REF" \
+            --arg sha "$GITHUB_SHA" \
+            --arg version "$VERSION" \
+            --arg package "${PKG:-}" \
+            --arg reason "${REASON:-}" \
+            --arg time "$(TZ=Asia/Ho_Chi_Minh date '+%Y-%m-%d %H:%M (GMT+7)')" \
+            '
+            ($sha | if . == "" then "not resolved" else .[0:7] end) as $short_sha
+            | {
+              type: "message",
+              attachments: [{
+                contentType: "application/vnd.microsoft.card.adaptive",
+                content: {
+                  type: "AdaptiveCard",
+                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                  version: "1.6",
+                  msteams: { width: "full" },
+                  body: [
+                    {
+                      type: "Container",
+                      style: "attention",
+                      bleed: true,
+                      items: [
+                        { type: "TextBlock", text: "❌ Docs dispatch failed", weight: "Bolder", size: "Large", wrap: true },
+                        { type: "TextBlock", text: "\($repo) · run #\($run_no) (attempt \($attempt))", isSubtle: true, spacing: "None", wrap: true }
+                      ]
+                    },
+                    {
+                      type: "TextBlock",
+                      wrap: true,
+                      spacing: "Medium",
+                      text: "Hello team, the docs dispatch to harborrag-doc-website failed, so no docs sync was started. Could someone please check the run logs? Thank you!"
+                    },
+                    {
+                      type: "FactSet",
+                      spacing: "Medium",
+                      facts: [
+                        { title: "Channel",         value: $channel },
+                        { title: "Package",         value: $package },
+                        { title: "Version",         value: $version },
+                        { title: "Reason",          value: $reason },
+                        { title: "Source ref",      value: $ref },
+                        { title: "Source commit",   value: $short_sha },
+                        { title: "Trigger",         value: $trigger },
+                        { title: "Started by",      value: $actor },
+                        { title: "Reported at",     value: $time }
+                      ]
+                    }
+                  ],
+                  actions: ([
+                    { type: "Action.OpenUrl", title: "View run logs", url: $run_url, style: "positive" }
+                  ]
+                  + (if $sha != "" then [{ type: "Action.OpenUrl", title: "View source commit", url: "https://github.com/cbtw-apac/HarborRAG/commit/\($sha)" }] else [] end))
+                }
+              }]
+            }')
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "$WEBHOOK"
