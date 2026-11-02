@@ -188,11 +188,9 @@ api_compose() {
         "$@"
 }
 
-prepare_worker_mount() {
+# The API and the workers mount the same folder, so connection tests see what runs read.
+resolve_local_source_dir() {
     require_file "${CONNECTOR_ENV_FILE}" "connector environment"
-    require_file "${PARSER_ENV_FILE}" "parser environment"
-    require_file "${MODEL_ENV_FILE}" "model environment"
-
     local local_source_path
     local_source_path="$(
         sed -n 's/^LOCAL_SOURCE_PATH=//p' \
@@ -207,6 +205,12 @@ prepare_worker_mount() {
     [[ -d "${HARBORRAG_LOCAL_SOURCE_DIR}" ]] ||
         fail "Local connector source directory does not exist: ${HARBORRAG_LOCAL_SOURCE_DIR}"
     export HARBORRAG_LOCAL_SOURCE_DIR
+}
+
+prepare_worker_mount() {
+    require_file "${PARSER_ENV_FILE}" "parser environment"
+    require_file "${MODEL_ENV_FILE}" "model environment"
+    resolve_local_source_dir
 
     if ! docker volume inspect harborrag-model-cache >/dev/null 2>&1; then
         docker volume create harborrag-model-cache >/dev/null
@@ -279,6 +283,7 @@ start_api() {
     require_data_network
     require_temporal_server
     require_positive_integer HARBORRAG_API_STARTUP_TIMEOUT "${API_STARTUP_TIMEOUT}"
+    resolve_local_source_dir
 
     api_compose config --quiet
     mapfile -t compose_services < <(api_compose config --services)

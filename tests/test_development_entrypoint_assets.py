@@ -456,3 +456,59 @@ def _copy_dev_checks(script: Path) -> None:
     checks = script.parent / "common/dev-checks.sh"
     checks.parent.mkdir(exist_ok=True)
     checks.write_text(DEV_CHECKS.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+@pytest.mark.parametrize("folder_exists", [True, False])
+def test_dev_api_mounts_the_folder_the_workers_read(tmp_path: Path, folder_exists: bool) -> None:
+    project = tmp_path / "project"
+    script = project / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
+    environment = project / "env"
+    environment.mkdir()
+    for filename in (".env.temporal", ".env.parser", ".env.models", ".env.api"):
+        (environment / filename).write_text("", encoding="utf-8")
+    (environment / ".env.database").write_text(
+        "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n", encoding="utf-8"
+    )
+    (environment / ".env.connector").write_text("LOCAL_SOURCE_PATH=./notes\n", encoding="utf-8")
+    if folder_exists:
+        (project / "notes").mkdir()
+    fake_bin = project / "fake-bin"
+    fake_bin.mkdir()
+    docker_log = project / "docker.log"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env sh
+printf '%s source_dir=%s\\n' "$*" "${HARBORRAG_LOCAL_SOURCE_DIR:-}" >> "$DEV_DOCKER_LOG"
+case " $* " in
+  *" config --services "*) printf 'api\\n' ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(script), "api"],
+        cwd=project,
+        env={
+            **{k: v for k, v in os.environ.items() if k != "HARBORRAG_LOCAL_SOURCE_DIR"},
+            "DEV_DOCKER_LOG": str(docker_log),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    calls = docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+    api_up = [line for line in calls.splitlines() if "docker-compose.yml up" in line]
+    if folder_exists:
+        assert result.returncode == 0, result.stderr
+        assert api_up and api_up[0].endswith(f"source_dir={project / 'notes'}")
+    else:
+        assert result.returncode == 2
+        assert "Local connector source directory does not exist" in result.stderr
+        assert api_up == []

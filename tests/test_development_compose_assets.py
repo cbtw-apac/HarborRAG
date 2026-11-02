@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import tomllib
 from pathlib import Path
+from typing import Any
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -184,3 +187,28 @@ def test_mcp_compose_does_not_receive_the_secrets_encryption_key() -> None:
 
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${" not in mcp
     assert "HARBORRAG_SECRETS_ENCRYPTION_KEY: ${HARBORRAG_SECRETS_ENCRYPTION_KEY:?" in api
+
+
+def _service(path: str, name: str) -> dict[str, Any]:
+    """Return one service of a Compose file, parsed."""
+    document: dict[str, Any] = yaml.safe_load((ROOT / path).read_text(encoding="utf-8"))
+    service: dict[str, Any] = document["services"][name]
+    return service
+
+
+def test_the_api_reads_the_same_local_sources_as_the_workers() -> None:
+    """Connection tests run in the API, so it must see the folder runs read, read-only."""
+    api = _service("deploy/compose/docker-compose.yml", "api")
+    worker = _service("deploy/compose/docker-compose.temporal.yml", "temporal-worker")
+
+    def source_mounts(service: dict[str, Any]) -> list[str]:
+        return [
+            str(volume)
+            for volume in service.get("volumes") or []
+            if ":/data/sources" in str(volume)
+        ]
+
+    api_mounts, worker_mounts = source_mounts(api), source_mounts(worker)
+    assert api_mounts == worker_mounts
+    assert len(api_mounts) == 1 and api_mounts[0].endswith(":/data/sources:ro")
+    assert api["environment"]["LOCAL_SOURCE_PATH"] == worker["environment"]["LOCAL_SOURCE_PATH"]
