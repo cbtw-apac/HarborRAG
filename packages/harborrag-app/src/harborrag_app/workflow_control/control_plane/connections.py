@@ -290,7 +290,9 @@ class ConnectionService:
         _check_preconditions(existing, spec, expected_version, create_only)
         _refuse_operator_fields(spec, write, existing, origin)
         sent, keep = _plan_credentials(write.credentials, existing, spec)
-        validated = _validate(spec, _effective_credentials(sent, existing, keep), write, existing)
+        validated = _validate(
+            spec, _effective_credentials(sent, existing, keep), write, existing, key.tenant_id
+        )
         written = await CredentialSecretWriter(
             control_plane.secrets,
             tenant_id=key.tenant_id,
@@ -365,7 +367,7 @@ class ConnectionService:
         )
         if issues:
             raise ConnectionValidationError(issues)
-        validated = _validate(spec, effective, write, existing)
+        validated = _validate(spec, effective, write, existing, key.tenant_id)
         try:
             secret_values = await default_secret_resolver(
                 control_plane.secrets
@@ -378,7 +380,8 @@ class ConnectionService:
             report.passed("schema")
             report.failed("auth", "auth_invalid", "a referenced secret cannot be read")
             return report.as_dict()
-        return (await self._run_checks(spec, validated, effective, secret_values)).as_dict()
+        report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
+        return report.as_dict()
 
     async def sync(
         self,
@@ -551,12 +554,13 @@ class ConnectionService:
         if self._background:
             await asyncio.gather(*self._background, return_exceptions=True)
 
-    async def _run_checks(
+    async def _run_checks(  # noqa: PLR0913 - the parts of one connection test
         self,
         spec: SourceTypeSpec,
         validated: Any,
         effective: Mapping[str, Any],
         secret_values: Mapping[str, str],
+        tenant_id: str,
     ) -> ConnectionTestReport:
         """Build the connector off the event loop and run the check chain under a deadline."""
         credentials = _merge_secrets(validated.credentials, effective, spec.secret_fields)
@@ -565,6 +569,7 @@ class ConnectionService:
             try:
                 connector = build_connector_from_parts(
                     spec.source_type,
+                    tenant_id=tenant_id,
                     credentials=credentials,
                     config=validated.config,
                     tuning=validated.tuning,
@@ -792,6 +797,7 @@ def _validate(
     credentials: Mapping[str, Any],
     write: ConnectionWrite,
     existing: Connection | None,
+    tenant_id: str,
 ) -> ValidatedConnection:
     """Check the write against the source type's schemas, then against its connector.
 
@@ -799,7 +805,7 @@ def _validate(
         ConnectionValidationError: A schema or the connector rejects the values.
     """
     validated = spec.validate(credentials, write.config, write.effective_tuning(existing))
-    issues = connector_config_issues(spec, validated)
+    issues = connector_config_issues(spec, validated, tenant_id=tenant_id)
     if issues:
         raise ConnectionValidationError(issues)
     return validated

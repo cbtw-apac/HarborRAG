@@ -111,7 +111,9 @@ class SourceTypeSpec:
     run's query filters instead of the dataclass; ``endpoints`` are the
     credential fields naming the host secrets are sent to;
     ``operator_fields`` are credential fields only the CLI and
-    ``connectors.yaml`` may set, such as a worker file path; ``build_check``
+    ``connectors.yaml`` may set, such as a worker file path;
+    ``tenant_keyword`` is the dataclass keyword that receives the connection's
+    tenant, which no caller can set; ``build_check``
     is False when building the config reads the worker's file system, so
     the API cannot check it; ``setups`` are the setups a connection
     template is offered for.
@@ -128,6 +130,7 @@ class SourceTypeSpec:
     credential_renames: Mapping[str, str] = field(default_factory=dict)
     endpoints: frozenset[str] = frozenset()
     operator_fields: frozenset[str] = frozenset()
+    tenant_keyword: str | None = None
     build_check: bool = True
     query_fields: frozenset[str] = frozenset()
     aliases: tuple[str, ...] = ()

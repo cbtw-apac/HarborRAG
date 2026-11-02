@@ -25,6 +25,7 @@ class ConnectorConfigBuilder:
         self._config: Mapping[str, Any] = {}
         self._tuning: Mapping[str, Any] = {}
         self._secret_values: Mapping[str, str] = {}
+        self._tenant_id: str | None = None
 
     @classmethod
     def for_source_type(cls, source_type: str, registry: SourceTypeRegistry = source_types) -> Self:
@@ -51,12 +52,24 @@ class ConnectorConfigBuilder:
         self._secret_values = value
         return self
 
+    def tenant(self, tenant_id: str) -> Self:
+        """Set the tenant the connection belongs to, for types that scope state by tenant."""
+        self._tenant_id = tenant_id
+        return self
+
     def values(self) -> dict[str, Any]:
-        """Return the coerced dataclass keywords without constructing the dataclass."""
+        """Return the coerced dataclass keywords without constructing the dataclass.
+
+        The type's ``tenant_keyword`` always takes the tenant set here, so a stored
+        value can never point at another tenant's state.
+        """
         flat = self._spec.to_connector_values(
             self._credentials, self._config, self._tuning, self._secret_values
         )
-        return coerce_config_values(self._factory, flat)
+        values = coerce_config_values(self._factory, flat)
+        if self._spec.tenant_keyword is not None:
+            values[self._spec.tenant_keyword] = self._tenant_id
+        return values
 
     def build(self) -> object:
         """Construct the provider config dataclass without process-environment fallbacks.
@@ -78,12 +91,14 @@ class ConnectorConfigBuilder:
             ) from error
 
 
-def to_connector_config(
+def to_connector_config(  # noqa: PLR0913 - the parts of one stored connection
     source_type: str,
     credentials: Mapping[str, Any],
     config: Mapping[str, Any],
     tuning: Mapping[str, Any],
     secret_values: Mapping[str, str],
+    *,
+    tenant_id: str,
 ) -> object:
     """Build the provider config dataclass for a stored connection.
 
@@ -93,6 +108,7 @@ def to_connector_config(
         config: Validated config.
         tuning: Merged tuning overrides.
         secret_values: Resolved plaintext for each secret held as a reference.
+        tenant_id: Tenant that owns the connection.
 
     Returns:
         An instance of the provider's config dataclass.
@@ -107,12 +123,13 @@ def to_connector_config(
         .config(config)
         .tuning(tuning)
         .secret_values(secret_values)
+        .tenant(tenant_id)
         .build()
     )
 
 
 def connector_config_issues(
-    spec: SourceTypeSpec, validated: ValidatedConnection
+    spec: SourceTypeSpec, validated: ValidatedConnection, *, tenant_id: str
 ) -> list[FieldIssue]:
     """Build the provider config with placeholder secrets and report what it rejects.
 
@@ -122,6 +139,7 @@ def connector_config_issues(
     Args:
         spec: The connection's source type.
         validated: Values that passed the source type's schemas.
+        tenant_id: Tenant that owns the connection.
 
     Returns:
         One issue naming the rejected field when it can be told, else ``config``;
@@ -141,6 +159,7 @@ def connector_config_issues(
             .config(validated.config)
             .tuning(validated.tuning)
             .secret_values(placeholders)
+            .tenant(tenant_id)
             .build()
         )
     except ConnectorConfigurationError as error:

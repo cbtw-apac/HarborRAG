@@ -14,6 +14,7 @@ from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
 from harborrag_runtime.config import load_connector_catalog
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
+    ConnectorConfigBuilder,
     source_types,
     to_connector_config,
     validate,
@@ -306,7 +307,9 @@ def test_aliases_resolve_to_canonical_types(alias: str, canonical: str) -> None:
 
 def test_unresolved_secret_reference_is_reported() -> None:
     with pytest.raises(ConnectionValidationError, match="does not match"):
-        to_connector_config("github", {"token": {"secret_ref": "env:X"}}, {"repo": "r"}, {}, {})
+        to_connector_config(
+            "github", {"token": {"secret_ref": "env:X"}}, {"repo": "r"}, {}, {}, tenant_id="acme"
+        )
 
 
 def test_migration_0041_field_layout_matches_the_registry() -> None:
@@ -365,13 +368,21 @@ def test_to_connector_config_builds_the_same_dataclass_as_the_catalog(
     definition = catalog.get(name)
     flat = definition.resolve_settings(environment=_ENVIRONMENT)
     factory = source_types.provider_factory(definition.provider)
-    expected = factory(**coerce_config_values(factory, flat))
-
     spec = source_types.get(definition.provider)
+    values = coerce_config_values(factory, flat)
+    if spec.tenant_keyword is not None:
+        values[spec.tenant_keyword] = "DEFAULT"
+    expected = factory(**values)
+
     credentials, config, tuning = spec.split_flat(flat)
     validated = validate(spec.source_type, credentials, config, tuning)
     built = to_connector_config(
-        spec.source_type, validated.credentials, validated.config, validated.tuning, {}
+        spec.source_type,
+        validated.credentials,
+        validated.config,
+        validated.tuning,
+        {},
+        tenant_id="DEFAULT",
     )
 
     assert built == expected
@@ -395,3 +406,20 @@ def test_connector_defaults_are_json_values() -> None:
     assert source_types.connector_defaults("jira")["max_comments"] == 1000
     for spec in source_types.all():
         json.dumps(source_types.connector_defaults(spec.source_type))
+
+
+def test_the_builder_always_scopes_sharepoint_state_by_the_connection_tenant() -> None:
+    values = (
+        ConnectorConfigBuilder.for_source_type("sharepoint")
+        .credentials({"method": "oauth", "tenant_id": "tid", "client_id": "cid"})
+        .config(
+            {
+                "site_url": "https://ex.sharepoint.com/sites/s",
+                "harborrag_tenant_id": "another-tenant",
+            }
+        )
+        .tenant("acme")
+        .values()
+    )
+
+    assert values["harborrag_tenant_id"] == "acme"

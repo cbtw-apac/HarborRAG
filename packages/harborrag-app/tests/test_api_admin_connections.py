@@ -335,7 +335,12 @@ def test_every_template_creates_a_connection_that_builds_its_connector(
         )
         checked = validate(body["source_type"], body["credentials"], config, body["advanced"])
         built[name] = to_connector_config(
-            body["source_type"], checked.credentials, checked.config, checked.tuning, {}
+            body["source_type"],
+            checked.credentials,
+            checked.config,
+            checked.tuning,
+            {},
+            tenant_id="acme",
         )
 
     assert {name: response.status_code for name, response in created.items()} == dict.fromkeys(

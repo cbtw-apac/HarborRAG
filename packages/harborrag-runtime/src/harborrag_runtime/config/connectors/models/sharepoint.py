@@ -151,6 +151,7 @@ SHAREPOINT = SourceTypeSpec(
     capabilities=Capabilities(incremental=True, attachments=False),
     endpoints=frozenset({"graph_api_url"}),
     operator_fields=frozenset({"token_cache_path"}),
+    tenant_keyword="harborrag_tenant_id",
     aliases=("microsoft_sharepoint", "sharepoint_online"),
     setups=(
         Setup(

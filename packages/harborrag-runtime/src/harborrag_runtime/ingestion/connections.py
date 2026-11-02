@@ -170,6 +170,7 @@ def build_connector(
     """
     return build_connector_from_parts(
         snapshot.source_type,
+        tenant_id=snapshot.tenant_id,
         credentials=snapshot.credentials,
         config=snapshot.config,
         tuning=snapshot.tuning,
@@ -182,6 +183,7 @@ def build_connector(
 def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     source_type: str,
     *,
+    tenant_id: str,
     credentials: Mapping[str, Any],
     config: Mapping[str, Any],
     tuning: Mapping[str, Any],
@@ -205,6 +207,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
         .config(config)
         .tuning(tuning)
         .secret_values(secret_values)
+        .tenant(tenant_id)
         .build()
     )
     if parser is not None:

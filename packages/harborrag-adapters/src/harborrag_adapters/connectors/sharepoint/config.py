@@ -99,6 +99,7 @@ class SharePointSiteConfig:
     client_secret: str | None = field(default=None, repr=False)  # secret
     auth_mode: SharePointAuthMode | str | None = None
     token_cache_path: str | None = None
+    harborrag_tenant_id: str | None = None
     graph_api_url: str = DEFAULT_GRAPH_API_URL
     allowed_extensions: set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     excluded_extensions: set[str] = field(default_factory=set)
@@ -185,11 +186,22 @@ class SharePointSiteConfig:
                 raise ValueError("auth_mode device_code requires tenant_id and client_id")
             if self.client_secret or self.access_token:
                 raise ValueError("auth_mode device_code does not use client_secret or access_token")
-            self.token_cache_path = str(
-                Path(self.token_cache_path).expanduser()
-                if self.token_cache_path
-                else default_token_cache_path(self.tenant_id, self.client_id)
-            )
+            self.token_cache_path = str(self._token_cache())
+
+    def _token_cache(self) -> Path:
+        """Return the explicit cache path, or the default inside the HarborRAG tenant's folder.
+
+        Raises:
+            ValueError: No path is set and no HarborRAG tenant is known to scope the default.
+        """
+        if self.token_cache_path:
+            return Path(self.token_cache_path).expanduser()
+        harborrag_tenant = self.harborrag_tenant_id or environment_default(
+            "HARBORRAG_INGESTION_TENANT_ID"
+        )
+        if not harborrag_tenant:
+            raise ValueError("auth_mode device_code needs token_cache_path or harborrag_tenant_id")
+        return default_token_cache_path(harborrag_tenant, str(self.tenant_id), str(self.client_id))
 
     def _normalize_scope_and_allowlists(self) -> None:
         if self.item_ids is not None:

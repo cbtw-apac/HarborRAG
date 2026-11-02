@@ -270,8 +270,12 @@ predates this command.
 
 The command prints a code to enter at `https://microsoft.com/devicelogin`,
 then stores the refresh token in
-`~/.harborrag/sharepoint/token-<tenant>-<client>.json` (override with
-`token_cache_path` on both the connection and `--token-cache-path`). Each run
+`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the
+folder of the HarborRAG tenant the connection belongs to, so two tenants never
+share a sign-in. The tenant comes from `--harborrag-tenant`, else
+`HARBORRAG_INGESTION_TENANT_ID` (which the worker image sets), else `DEFAULT`.
+Override the whole path with `token_cache_path` on both the connection and
+`--token-cache-path`. Each run
 redeems it and stores the rotated token. If the token expires or access is
 revoked, the run fails with an authentication error asking you to sign in
 again. `--logout` deletes the stored sign-in. The broad-permission check above

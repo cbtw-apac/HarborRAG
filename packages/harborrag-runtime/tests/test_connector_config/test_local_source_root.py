@@ -66,6 +66,7 @@ def test_workers_refuse_to_build_a_connection_outside_the_root(root: Path) -> No
     with pytest.raises(ConnectorConfigurationError, match="must be inside"):
         build_connector_from_parts(
             "local_file",
+            tenant_id="acme",
             credentials={},
             config={"source_path": "/proc/self"},
             tuning={},

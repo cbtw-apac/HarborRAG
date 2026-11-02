@@ -68,6 +68,13 @@ a row whose type is unknown becomes `error`.
 
 ### Behaviour that changes
 
+- **SharePoint delegated sign-ins move under the HarborRAG tenant.** Without a
+  `token_cache_path`, the refresh token now lives in
+  `~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`
+  instead of one file shared by every tenant. Sign in again with
+  `scripts/deployment/dev.sh sharepoint-login` (or the `login` command with
+  `--harborrag-tenant`) before the next sync; connections with an explicit
+  `token_cache_path` are unaffected.
 - **Configuration fingerprints change once.** Runs now check a fingerprint of
   the stored connection. Retrying the failures of a run started before the
   upgrade reports a configuration difference; start a new sync instead.

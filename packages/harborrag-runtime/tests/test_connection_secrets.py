@@ -233,13 +233,16 @@ def test_connections_built_from_stored_values_never_borrow_environment_credentia
     monkeypatch.setenv("GITHUB_TOKEN", "operator-token")
     monkeypatch.setenv("JIRA_EMAIL", "operator@acme.com")
 
-    public = to_connector_config("github", {"method": "none"}, {"owner": "a", "repo": "b"}, {}, {})
+    public = to_connector_config(
+        "github", {"method": "none"}, {"owner": "a", "repo": "b"}, {}, {}, tenant_id="acme"
+    )
     data_center = to_connector_config(
         "jira",
         {"method": "pat", "base_url": "https://jira.acme.internal", "api_token": "t-12345678"},
         {"project_keys": ["ENG"]},
         {},
         {},
+        tenant_id="acme",
     )
 
     assert public.token is None
