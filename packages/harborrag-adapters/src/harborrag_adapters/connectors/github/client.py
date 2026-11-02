@@ -21,6 +21,7 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
+from harborrag_adapters.connectors.policies.network import guarded_session
 
 from .config import GitHubRepositoryConfig
 
@@ -51,7 +52,7 @@ class _RequestsGitHubClient:
 
     def __init__(self, config: GitHubRepositoryConfig) -> None:
         self.config = config
-        self.session = requests.Session()
+        self.session = guarded_session()
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",

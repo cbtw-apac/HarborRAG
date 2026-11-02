@@ -25,6 +25,7 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
+from harborrag_adapters.connectors.policies.network import guarded_session
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -70,7 +71,7 @@ class _RequestsGraphClient:
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         self.config = config
-        self.session = requests.Session()
+        self.session = guarded_session()
         self.session.headers.update({"Accept": "application/json"})
         # Graph throttles per app registration and tenant, so every worker
         # sharing them draws from one lane of the shared limiter.
