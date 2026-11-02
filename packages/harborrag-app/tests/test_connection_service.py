@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import pytest
 from app_test_connections import (
@@ -512,3 +513,33 @@ async def test_only_operators_set_the_sharepoint_token_cache_path(world: Connect
     for caught in (on_put, on_test, on_change, on_omit):
         assert [issue.field for issue in caught.value.issues] == ["credentials.token_cache_path"]
     assert echoed.connection["credentials"]["token_cache_path"] == "/var/lib/harborrag/kb.json"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_test_never_retries_and_runs_on_its_own_threads(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    from harborrag_app.workflow_control.control_plane import connections as module
+    from harborrag_runtime.config.errors import ConnectorConfigurationError
+
+    seen: dict[str, Any] = {}
+
+    def record(source_type: str, **parts: Any) -> Any:
+        seen.update(tuning=parts["tuning"], thread=threading.current_thread().name)
+        raise ConnectorConfigurationError("stop after recording")
+
+    monkeypatch.setattr(module, "build_connector_from_parts", record)
+    slow = ConnectionWrite(
+        "jira",
+        JIRA_WRITE.credentials,
+        JIRA_WRITE.config,
+        tuning={"max_retries": 5, "request_timeout_seconds": 120},
+    )
+
+    await world.service.test(CONNECTION_KEY, slow)
+
+    assert seen["tuning"]["max_retries"] == 0
+    assert seen["tuning"]["request_timeout_seconds"] == 10.0
+    assert seen["thread"].startswith("connection-test")

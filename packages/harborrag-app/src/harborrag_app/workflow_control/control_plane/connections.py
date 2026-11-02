@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import Any, Literal, Protocol
 from uuid import uuid4
@@ -74,6 +75,9 @@ from .effect_recovery import defer_retirement, log_activity, retire_refs
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
 
 TEST_TIMEOUT_SECONDS = 15.0
+TEST_REQUEST_TIMEOUT_SECONDS = 10.0
+TEST_WORKERS = 4
+_TEST_EXECUTOR = ThreadPoolExecutor(max_workers=TEST_WORKERS, thread_name_prefix="connection-test")
 SYNC_LEASE_TTL_SECONDS = 5.0
 
 WriteOrigin = Literal["api", "operator"]
@@ -562,8 +566,14 @@ class ConnectionService:
         secret_values: Mapping[str, str],
         tenant_id: str,
     ) -> ConnectionTestReport:
-        """Build the connector off the event loop and run the check chain under a deadline."""
+        """Build the connector off the event loop and run the check chain under a deadline.
+
+        Checks run on a small pool of their own, with no retries and short request
+        timeouts, so a source that never answers cannot hold the API's shared
+        threads after the deadline.
+        """
         credentials = _merge_secrets(validated.credentials, effective, spec.secret_fields)
+        tuning = _test_tuning(spec, validated.tuning)
 
         def check() -> ConnectionTestReport:
             try:
@@ -572,7 +582,7 @@ class ConnectionService:
                     tenant_id=tenant_id,
                     credentials=credentials,
                     config=validated.config,
-                    tuning=validated.tuning,
+                    tuning=tuning,
                     secret_values=secret_values,
                 )
             except ConnectorConfigurationError as error:
@@ -583,7 +593,8 @@ class ConnectionService:
             return run_connection_checks(connector)
 
         try:
-            return await asyncio.wait_for(asyncio.to_thread(check), TEST_TIMEOUT_SECONDS)
+            running = asyncio.get_running_loop().run_in_executor(_TEST_EXECUTOR, check)
+            return await asyncio.wait_for(running, TEST_TIMEOUT_SECONDS)
         except TimeoutError:
             return timed_out_report()
 
@@ -768,6 +779,19 @@ def _refuse_operator_fields(
     ]
     if issues:
         raise ConnectionValidationError(issues)
+
+
+def _test_tuning(spec: SourceTypeSpec, tuning: Mapping[str, Any]) -> dict[str, Any]:
+    """Return ``tuning`` for a connection test: no retries, no request past a short timeout."""
+    capped = dict(tuning)
+    if "max_retries" in spec.tuning_fields:
+        capped["max_retries"] = 0
+    if "request_timeout_seconds" in spec.tuning_fields:
+        configured = capped.get("request_timeout_seconds")
+        capped["request_timeout_seconds"] = min(
+            configured or TEST_REQUEST_TIMEOUT_SECONDS, TEST_REQUEST_TIMEOUT_SECONDS
+        )
+    return capped
 
 
 def _secret_sources(origin: WriteOrigin) -> frozenset[SecretSource]:
