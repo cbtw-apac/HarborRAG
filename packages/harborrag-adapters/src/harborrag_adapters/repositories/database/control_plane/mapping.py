@@ -39,6 +39,7 @@ def project_to_domain(row: ProjectRow) -> Project:
 
 
 def connection_to_domain(row: SourceRow) -> Connection:
+    """Map a ``sources`` row to its ``Connection``."""
     return Connection(
         id=row.id,
         tenant_id=row.tenant_id,

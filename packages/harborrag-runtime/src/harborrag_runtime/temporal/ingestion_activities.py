@@ -64,7 +64,13 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
         self,
         request: ScheduledSourcePreparationInput,
     ) -> ScheduledSourcePreparation:
-        """Prepare a scheduled firing from this worker's current configuration."""
+        """Prepare a scheduled firing from this worker's current configuration.
+
+        Raises:
+            ApplicationError: Non-retryable when the worker lacks settings or a
+                connection store, or the connection is removed, being deleted or
+                invalid, since none of these heal on retry.
+        """
 
         settings = self._settings
         temporal_config = self._temporal_config
@@ -92,7 +98,6 @@ class IngestionActivities(RetryActivitiesMixin, SourceActivitiesMixin):
                 connection=connection,
             )
         except (ValueError, HarborValidationError, HarborConflictError) as error:
-            # A removed, deleting or invalid connection cannot heal on retry.
             raise ApplicationError(
                 str(error), type=type(error).__name__, non_retryable=True
             ) from error

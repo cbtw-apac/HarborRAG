@@ -62,9 +62,11 @@ class DestinationPolicy:
     def check_host(self, host: str, port: int) -> None:
         """Refuse ``host`` before connecting when any address it resolves to is refused.
 
-        Checking first means no packet reaches a private address, so a refused host
-        reads the same whether its port is open, closed or filtered. An unresolvable
-        host is left to the connection, which reports it.
+        Checking first means a host that resolves to a private address is refused
+        before any connection, so it reads the same whether its port is open, closed
+        or filtered. A DNS answer that changes after this check can still complete a
+        TCP handshake; the peer check then refuses the socket before any request is
+        sent. An unresolvable host is left to the connection, which reports it.
 
         Raises:
             BlockedDestinationError: An address of ``host`` is private and not allowed.
@@ -130,6 +132,11 @@ class _PeerCheck:
     port: int
 
     def _new_conn(self) -> Any:
+        """Connect only to an allowed host, then refuse a peer address the policy refuses.
+
+        Raises:
+            BlockedDestinationError: The host or the address reached is not allowed.
+        """
         self.destination_policy.check_host(self.host, self.port)
         sock = super()._new_conn()  # type: ignore[misc]
         try:

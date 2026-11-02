@@ -80,6 +80,7 @@ class SourceOut(BaseModel):
 
     @classmethod
     def from_domain(cls, source: Connection) -> SourceOut:
+        """Return the legacy view of ``source``, with its config redacted."""
         return cls(
             id=source.id,
             tenant_id=source.tenant_id,

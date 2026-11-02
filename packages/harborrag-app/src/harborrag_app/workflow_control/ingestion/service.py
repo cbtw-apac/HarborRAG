@@ -379,6 +379,11 @@ class IngestionApplicationService(TaskListingMixin):
         }
 
     async def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
+        """Prepare the submission of the connection ``command`` names.
+
+        Raises:
+            HarborValidationError: The connection's settings cannot build its connector.
+        """
         try:
             source = await self._source_input_builder(
                 self._settings,

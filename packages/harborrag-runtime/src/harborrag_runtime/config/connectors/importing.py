@@ -197,6 +197,7 @@ class ConnectionImportService:
         )
         return ImportResult(created, updated, plan.projects_to_create)
 
+    # TODO: expose as `harborrag source export`; only tests call it today.
     async def export(self, *, tenant_id: str, project_id: str) -> str:
         """Return a project's connections as an importable YAML document.
 

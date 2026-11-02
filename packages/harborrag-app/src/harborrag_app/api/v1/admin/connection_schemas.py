@@ -220,6 +220,8 @@ class ConnectionOut(BaseModel):
 
 
 class CountersOut(BaseModel):
+    """Items an ingestion found, processed, skipped and failed."""
+
     discovered: int
     processed: int
     skipped: int
@@ -227,11 +229,15 @@ class CountersOut(BaseModel):
 
 
 class TriggeredByOut(BaseModel):
+    """Who started an ingestion, read from the credential."""
+
     type: Literal["user", "api_key"]
     id: str
 
 
 class LinksOut(BaseModel):
+    """Where to follow an ingestion in Temporal, Grafana and Langfuse."""
+
     temporal: str
     grafana: str
     langfuse: str
@@ -273,6 +279,8 @@ class ConnectionPutOut(ConnectionOut):
 
 
 class ConnectionPage(BaseModel):
+    """One page of connections, the ones needing attention first."""
+
     items: list[ConnectionOut]
     next_cursor: str | None = Field(
         description="Pass as cursor to get the next page; null on the last page"
@@ -280,6 +288,8 @@ class ConnectionPage(BaseModel):
 
 
 class UiHintOut(BaseModel):
+    """How a form renders one field."""
+
     group: str
     order: int
     widget: Literal["text", "secret", "select", "textarea", "path", "list", "toggle", "number"]
@@ -288,6 +298,8 @@ class UiHintOut(BaseModel):
 
 
 class AuthMethodOut(BaseModel):
+    """One way to sign in to a source type, with its credential fields."""
+
     model_config = ConfigDict(populate_by_name=True)
 
     id: Literal["api_token", "oauth", "pat", "app", "none"]
@@ -304,6 +316,8 @@ class AuthMethodOut(BaseModel):
 
 
 class CapabilitiesOut(BaseModel):
+    """What a source type supports."""
+
     incremental: bool
     acl_sync: bool = Field(description="v2.1")
     attachments: bool
@@ -333,21 +347,29 @@ class SourceTypeOut(BaseModel):
 
 
 class SourceTypePage(BaseModel):
+    """Every installed source type."""
+
     items: list[SourceTypeOut]
 
 
 class CheckOut(BaseModel):
+    """One connection-test check and why it failed, if it did."""
+
     name: Literal["schema", "auth", "reachable", "permissions", "preview"]
     ok: bool
     message: str | None
 
 
 class SampleItemOut(BaseModel):
+    """An item the source would ingest."""
+
     ref: str
     title: str
 
 
 class PreviewOut(BaseModel):
+    """How many items the source holds, when it can tell, and a few of them."""
+
     estimated_items: int | None
     sample: list[SampleItemOut] = Field(description="Up to 5 items")
 
@@ -365,6 +387,8 @@ class ConnectionTestOut(BaseModel):
 
 
 class JobAcceptedOut(BaseModel):
+    """A removal that runs in the background."""
+
     job_id: str
 
 
@@ -382,11 +406,15 @@ class ProjectOut(BaseModel):
 
 
 class ProjectPage(BaseModel):
+    """One page of projects."""
+
     items: list[ProjectOut]
     next_cursor: str | None
 
 
 class ConnectionChipOut(BaseModel):
+    """A connection a reader can search, for filter chips."""
+
     ref: str
     connection_id: str
     source_type: str
@@ -395,4 +423,6 @@ class ConnectionChipOut(BaseModel):
 
 
 class ConnectionChipPage(BaseModel):
+    """The connections a reader can search in a project."""
+
     items: list[ConnectionChipOut]

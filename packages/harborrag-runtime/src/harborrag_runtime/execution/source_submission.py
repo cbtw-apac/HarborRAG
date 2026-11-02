@@ -115,6 +115,7 @@ def _source_scope_id(  # noqa: PLR0913 - the scope's identity fields
     query: SourceQuery,
     excluded_filters: frozenset[str] = frozenset(),
 ) -> str:
+    """Return the stable scope id of one connection and query."""
     payload = {
         "tenant_id": tenant_id,
         "connector_name": connector_name,

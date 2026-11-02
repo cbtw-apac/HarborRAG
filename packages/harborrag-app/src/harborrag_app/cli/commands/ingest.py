@@ -51,8 +51,6 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
     connector_option: Annotated[
         str | None,
         typer.Option(
-            # --connector-id is the truer name: the value is a stored connection's
-            # source_key. --connector stays as the original spelling.
             "--connector-id",
             "--connector",
             metavar="NAME",
