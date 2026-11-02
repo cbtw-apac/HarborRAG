@@ -193,7 +193,7 @@ def test(
     """Check sign-in, reachability and a sample of items; exits 1 when a check fails."""
 
     key = _key(ref, tenant)
-    write = _write(body) if body is not None else None
+    write = _write(body, partial=True) if body is not None else None
 
     async def operation(connections: ConnectionService) -> dict[str, Any]:
         return await connections.test(key, write, origin="operator")
@@ -275,10 +275,10 @@ def _key(ref: str, tenant: str) -> ConnectionKey:
         raise typer.BadParameter(str(error), param_hint="PROJECT/CONNECTION") from None
 
 
-def _write(path: Path) -> ConnectionWrite:
-    """Read a body file or stop with a usage error."""
+def _write(path: Path, *, partial: bool = False) -> ConnectionWrite:
+    """Read a body file or stop with a usage error; ``partial`` allows a test's partial body."""
     try:
-        return ConnectionWriteBuilder().from_file(path).build()
+        return ConnectionWriteBuilder().from_file(path).build(partial=partial)
     except ValueError as error:
         raise typer.BadParameter(str(error), param_hint="--file") from None
 

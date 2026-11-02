@@ -25,6 +25,7 @@ from harborrag_core.contracts.errors import (
 )
 
 BODY_FIELDS = frozenset({"source_type", "name", "credentials", "config", "advanced"})
+WHOLE_BODY_FIELDS = ("credentials", "config")
 
 type ConnectionCall = Callable[[ConnectionService], Awaitable[Mapping[str, Any]]]
 
@@ -95,18 +96,30 @@ class ConnectionWriteBuilder:
         self._document = dict(document)
         return self
 
-    def build(self) -> ConnectionWrite:
+    def build(self, *, partial: bool = False) -> ConnectionWrite:
         """Return the write.
 
+        Args:
+            partial: True for a connection test, which takes any part; a save
+                needs ``credentials`` and ``config``, as the API's ``PUT`` does,
+                because ``config`` replaces the stored one whole.
+
         Raises:
-            ValueError: ``source_type`` is missing or a part has the wrong shape.
+            ValueError: ``source_type`` is missing, a save leaves out a whole part,
+                or a part has the wrong shape.
         """
         source_type = self._document.get("source_type")
         if not isinstance(source_type, str) or not source_type:
             raise ValueError("the body needs a source_type, such as jira")
+        missing = [part for part in WHOLE_BODY_FIELDS if part not in self._document]
+        if missing and not partial:
+            raise ValueError(
+                f"the body needs {' and '.join(missing)}; config replaces the stored one whole, "
+                "so copy it from harborrag source show --json"
+            )
         name = self._document.get("name")
-        if name is not None and not isinstance(name, str):
-            raise ValueError("name must be text")
+        if name is not None and (not isinstance(name, str) or not name.strip()):
+            raise ValueError("name must be non-empty text")
         advanced = self._document.get("advanced")
         return ConnectionWrite(
             source_type=source_type,

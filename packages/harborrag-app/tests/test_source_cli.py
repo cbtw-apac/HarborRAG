@@ -176,9 +176,15 @@ def test_a_body_file_refuses_unknown_fields_and_a_bad_reference() -> None:
     with pytest.raises(ValueError, match="PROJECT/CONNECTION"):
         SourceRef.parse("jira-cpm")
 
-    write = ConnectionWriteBuilder().from_mapping({"source_type": "github"}).build()
+    partial = ConnectionWriteBuilder().from_mapping({"source_type": "github"}).build(partial=True)
 
-    assert (write.credentials, write.config, write.tuning) == ({}, {}, None)
+    assert (partial.credentials, partial.config, partial.tuning) == ({}, {}, None)
+    with pytest.raises(ValueError, match="needs credentials and config"):
+        ConnectionWriteBuilder().from_mapping({"source_type": "github"}).build()
+    with pytest.raises(ValueError, match="name must be non-empty"):
+        ConnectionWriteBuilder().from_mapping(
+            {"source_type": "github", "name": " ", "credentials": {}, "config": {}}
+        ).build()
 
 
 def test_a_terminal_gets_a_table_and_the_next_command(
@@ -193,3 +199,23 @@ def test_a_terminal_gets_a_table_and_the_next_command(
 
     assert "default/jira-cpm" in table and "active" in table
     assert "Follow it: harborrag ingest watch ing_" in started
+
+
+def test_update_without_config_is_refused_and_keeps_the_stored_scope(
+    world: ConnectionWorld, body: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _run(capsys, "add", "default/jira-cpm", "--file", str(body))
+    rotation = tmp_path / "rotate.yaml"
+    rotation.write_text(
+        "source_type: jira\ncredentials:\n  api_token: ATATT3xFfGF0-rotated-1a2b\n",
+        encoding="utf-8",
+    )
+    capsys.readouterr()
+
+    code = cli.main(["source", "update", "default/jira-cpm", "--file", str(rotation)])
+    error = capsys.readouterr().err
+    _, shown = _run(capsys, "show", "default/jira-cpm")
+
+    assert code == 2
+    assert "needs config" in error
+    assert shown["data"]["config"] == {"jql": "project = CPM"}

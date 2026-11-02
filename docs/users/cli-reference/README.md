@@ -123,6 +123,9 @@ to `DEFAULT`.
 
 `BODY` is a YAML or JSON file in the shape of the `PUT` body: `source_type`, `name`,
 `credentials`, `config` and `advanced`. A Swagger UI template saved to a file works as is.
+`add` and `update` need `credentials` and `config`, as the `PUT` does: `config` replaces the
+stored one whole, so start an update from `harborrag source show --json`. A secret left out
+of `credentials` keeps its stored value. `test` takes any part.
 A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret. The
 CLI and `config/connectors.yaml` are the only places an `env:` reference can be set; the
 HTTP API takes values. The worker reads `NAME` from its own environment.
