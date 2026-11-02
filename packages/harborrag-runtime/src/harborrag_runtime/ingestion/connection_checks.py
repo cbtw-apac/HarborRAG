@@ -20,6 +20,7 @@ from typing import Any, Literal
 
 from harborrag_adapters.connectors.exceptions import RateLimitError
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_adapters.connectors.policies.network import BlockedDestinationError
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion.errors import (
@@ -29,6 +30,9 @@ from harborrag_core.ingestion.errors import (
 
 CheckName = Literal["schema", "auth", "reachable", "permissions", "preview"]
 ErrorCategory = Literal["auth_invalid", "auth_expired", "forbidden", "unreachable", "rate_limited"]
+
+_SOURCE_CHECKS: tuple[CheckName, ...] = ("reachable", "auth", "permissions", "preview")
+_NOT_PERMITTED = frozenset({403, 404})
 
 PREVIEW_SIZE = 5
 
@@ -91,10 +95,23 @@ class CheckStep(ABC):
             self.run(connector, report)
         except Exception as error:
             check, category, message = classify(error, default=self.default_check)
+            recorded = {result.name for result in report.checks}
+            if check in recorded:
+                check = self.default_check
+            report.passed(
+                *(
+                    name
+                    for name in _SOURCE_CHECKS[: _SOURCE_CHECKS.index(check)]
+                    if name in self.implied and name not in recorded
+                )
+            )
             report.failed(check, category, message)
             return
         if self._successor is not None:
             self._successor.handle(connector, report)
+
+    implied: tuple[CheckName, ...] = ()
+    """Checks a failure in this step proves passed when it fails a later check."""
 
     @property
     @abstractmethod
@@ -107,9 +124,10 @@ class CheckStep(ABC):
 
 
 class ConnectStep(CheckStep):
-    """Open the connector: proves the source answers and accepts the credentials."""
+    """Open the connector: each connector's ``connect`` calls the source with the credentials."""
 
     default_check: CheckName = "reachable"
+    implied: tuple[CheckName, ...] = ("reachable",)
 
     def run(self, connector: HarborConnector, report: ConnectionTestReport) -> None:
         """Connect and record ``reachable`` and ``auth``."""
@@ -121,6 +139,7 @@ class PreviewStep(CheckStep):
     """List the first items: proves read permission and shows a sample."""
 
     default_check: CheckName = "permissions"
+    implied: tuple[CheckName, ...] = ("reachable", "auth", "permissions")
 
     def __init__(self, successor: CheckStep | None = None, *, size: int = PREVIEW_SIZE) -> None:
         super().__init__(successor)
@@ -155,18 +174,26 @@ def run_connection_checks(connector: HarborConnector) -> ConnectionTestReport:
 
 
 def classify(error: BaseException, *, default: CheckName) -> tuple[CheckName, ErrorCategory, str]:
-    """Map a connector error to the failing check, its category and a safe message."""
+    """Map a connector error to the failing check, its category and a safe message.
+
+    An error with no HTTP status means the source never answered, so it fails
+    ``reachable`` whichever step raised it, as does a blocked private address,
+    whose message is HarborRAG's own; 403 and 404 fail ``permissions``.
+    """
     status = getattr(error, "status_code", None)
     prefix = f"{status} from the source: " if status else ""
+    if isinstance(error, BlockedDestinationError):
+        return "reachable", "unreachable", str(error)
     if isinstance(error, SourceAuthenticationError):
         return "auth", "auth_invalid", f"{prefix}the credentials were rejected"
-    if isinstance(error, SourceAuthorizationError):
+    if isinstance(error, SourceAuthorizationError) or status in _NOT_PERMITTED:
         return "permissions", "forbidden", f"{prefix}the credentials cannot read this content"
     if isinstance(error, RateLimitError):
         return "reachable", "rate_limited", f"{prefix}the source is rate limiting requests"
     if isinstance(error, TimeoutError):
         return "reachable", "unreachable", "the source did not answer in time"
-    return default, "unreachable", f"{prefix}the source could not be read ({type(error).__name__})"
+    check = default if status else "reachable"
+    return check, "unreachable", f"{prefix}the source could not be read ({type(error).__name__})"
 
 
 def timed_out_report() -> ConnectionTestReport:

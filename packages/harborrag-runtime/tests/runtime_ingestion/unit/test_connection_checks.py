@@ -111,3 +111,25 @@ def test_a_timeout_reports_the_source_unreachable() -> None:
     assert report["ok"] is False
     assert report["error_category"] == "unreachable"
     assert [check["name"] for check in report["checks"]] == ["schema", "reachable"]
+
+
+@pytest.mark.parametrize(
+    ("errors", "checks"),
+    [
+        ({"connect_error": FetchError("refused")}, [("reachable", False)]),
+        (
+            {"connect_error": FetchError("not found", status_code=404)},
+            [("reachable", True), ("permissions", False)],
+        ),
+        (
+            {"discover_error": FetchError("reset")},
+            [("reachable", True), ("auth", True), ("permissions", False)],
+        ),
+    ],
+)
+def test_only_what_a_step_proved_is_marked_passed(
+    errors: dict[str, Exception], checks: list[tuple[str, bool]]
+) -> None:
+    report, _ = _run(**errors)
+
+    assert [(check["name"], check["ok"]) for check in report["checks"][1:]] == checks
