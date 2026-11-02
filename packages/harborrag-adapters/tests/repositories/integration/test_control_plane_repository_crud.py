@@ -202,7 +202,21 @@ async def test_lease_repository_grants_exactly_one_live_holder_at_a_time(
     assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True  # b takes over
     assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is False  # a is now the rival
 
-    assert await repo.try_acquire("no_such_lease", "holder-a", ttl_seconds=1000) is False
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_creates_an_unseeded_lease_on_first_acquire(
+    sessions: SessionFactory,
+) -> None:
+    """A lease name with no migration row, such as a per-connection sync lease, still works."""
+
+    repo = SqlLeaseRepository(sessions)
+    name = "connection-sync:acme:cpm/cpm-tickets"
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=-1) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True
 
 
 @pytest.mark.asyncio
@@ -255,15 +269,7 @@ async def test_lease_repository_ignores_a_skewed_local_clock(
 async def test_lease_repository_has_a_seeded_row_for_effect_recovery(
     sessions: SessionFactory,
 ) -> None:
-    """try_acquire returns False for any lease name with no row (it can only
-    ever UPDATE an existing row). AppService.recover_pending_control_plane_effects
-    acquires "control_plane_effect_recovery" (see
-    harborrag_app.workflow_control.control_plane.effect_recovery.EFFECT_RECOVERY_LEASE_NAME)
-    before every drain pass, so migrations must seed that row the same way
-    migration 0017 seeded "ingestion_progress_bridge" -- otherwise recovery
-    silently never acquires the lease in production and pending effects
-    (secret retirement, audit logging) never drain.
-    """
+    """Migration 0018 seeds the effect-recovery lease row as already lapsed."""
 
     repo = SqlLeaseRepository(sessions)
     name = "control_plane_effect_recovery"  # seeded (already-expired) by migration 0018
