@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Self
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from .common import HttpTuning
 from .fields import HttpsUrl, HttpUrl, Secret, StrictModel
@@ -86,15 +86,27 @@ class GitHubConfig(StrictModel):
     )
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
 
+    @field_validator("branch")
+    @classmethod
+    def _branch_without_ref(cls, value: str | None, info: ValidationInfo) -> str | None:
+        """Refuse ``branch`` beside ``ref``, reported on ``branch``."""
+        if value and info.data.get("ref"):
+            raise ValueError("set ref or branch, not both")
+        return value
+
+    @field_validator("commit_sha")
+    @classmethod
+    def _commit_alone(cls, value: str | None, info: ValidationInfo) -> str | None:
+        """Refuse ``commit_sha`` beside ``ref`` or ``branch``, reported on ``commit_sha``."""
+        if value and (info.data.get("ref") or info.data.get("branch")):
+            raise ValueError("set commit_sha or ref/branch, not both")
+        return value
+
     @model_validator(mode="after")
-    def _one_repository_at_one_ref(self) -> Self:
-        """Require a repository and at most one of ``ref``, ``branch`` and ``commit_sha``."""
+    def _one_repository(self) -> Self:
+        """Require ``repository_url``, or ``owner`` and ``repo``."""
         if not self.repository_url and not (self.owner and self.repo):
             raise ValueError("set repository_url, or owner and repo")
-        if self.ref and self.branch:
-            raise ValueError("set ref or branch, not both")
-        if self.commit_sha and (self.ref or self.branch):
-            raise ValueError("set commit_sha or ref/branch, not both")
         return self
 
 

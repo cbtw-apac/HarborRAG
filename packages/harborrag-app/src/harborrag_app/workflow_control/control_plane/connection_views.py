@@ -145,9 +145,9 @@ def _last_ingestion(task: IngestionTask | None) -> dict[str, Any] | None:
 
 
 def _errors(task: IngestionTask | None) -> dict[str, int | None]:
-    """Failed item count of the latest run, when it recorded one."""
+    """Failed item count of the latest run, when it recorded one; 0 before any run."""
     if task is None:
-        return {}
+        return {"errors": 0}
     failed = task.summary.get("failed")
     return {"errors": failed} if isinstance(failed, int) and not isinstance(failed, bool) else {}
 

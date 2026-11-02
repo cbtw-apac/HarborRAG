@@ -95,6 +95,10 @@ class HarborImmutableFieldError(HarborConflictError):
 
     error_code = "immutable_field"
 
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = {"field": field} if field else {}
+
 
 class HarborAlreadyRunningError(HarborConflictError):
     """A run, sync or job is already active for the resource; ``details`` points to it."""

@@ -12,6 +12,7 @@ only after the connection row commits.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import os
 from collections.abc import Mapping, Sequence
@@ -213,8 +214,9 @@ class CredentialSecretWriter:
     """Apply a credentials write: secrets kept, rotated, referenced or cleared.
 
     Secret fields left out of ``incoming`` keep their stored value; a string
-    rotates it, a ``{"secret_ref"}`` points it elsewhere and ``None`` clears it.
-    Non-secret fields are replaced by what ``incoming`` holds.
+    equal to the stored value keeps it, any other string rotates it, a
+    ``{"secret_ref"}`` points it elsewhere and ``None`` clears it. Non-secret
+    fields are replaced by what ``incoming`` holds.
     """
 
     def __init__(
@@ -259,6 +261,8 @@ class CredentialSecretWriter:
         for name, value in incoming.items():
             if name not in secret_fields:
                 plan[name] = value
+            elif await self._holds(stored_before.get(name), value):
+                plan[name] = stored_before[name]
             elif value is not None:
                 plan[name] = self._classify(name, value, stored_before.get(name), issues)
         for name in secret_fields - set(incoming):
@@ -267,6 +271,17 @@ class CredentialSecretWriter:
         if issues:
             raise ConnectionValidationError(issues)
         return await self._commit(plan, stored_before, secret_fields)
+
+    async def _holds(self, before: Any, value: Any) -> bool:
+        """True when ``value`` is the plaintext the stored secret ``before`` already holds."""
+        stored = StoredSecret.from_json(before)
+        if not isinstance(value, str) or not value or stored is None or not stored.ref.is_stored:
+            return False
+        try:
+            current = await self._secrets.resolve(stored.ref.value, tenant_id=self._tenant_id)
+        except Exception:  # noqa: BLE001 - an unreadable secret is replaced, not kept
+            return False
+        return hmac.compare_digest(current.encode(), value.encode())
 
     def _classify(self, name: str, value: Any, before: Any, issues: list[FieldIssue]) -> Any:
         """Validate one incoming secret value and return its planned stored form."""

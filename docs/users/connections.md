@@ -151,7 +151,7 @@ leave it out, or paste the status back, to keep the stored value.
 | --- | --- |
 | `GET /v1/admin/connections` | Every connection in the tenant, needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
 | `GET …/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
-| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`). With `sync_now`, a sync that cannot start, for example because one is running, leaves `ingestion` null and explains why in `sync_error`; the connection is saved either way. |
+| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. With `sync_now`, a sync that cannot start, for example because one is running, leaves `ingestion` null and explains why in `sync_error`; the connection is saved either way. |
 | `POST …/connections/{connection_id}/sync` | Starts an `incremental` or `force` sync and answers `202` with the ingestion. A second start while one runs answers `409 already_running` with the running ingestion's id. |
 | `DELETE …/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Readers: the project's connections for filter chips. |
@@ -165,10 +165,10 @@ A secret field accepts a value or a reference:
 
 | You send | What is stored |
 | --- | --- |
-| `"api_token": "ATATT3x..."` | The value, encrypted in the control database. |
+| `"api_token": "ATATT3x..."` | The value, encrypted in the control database. Sending the value already stored keeps it, and clears a `needs_reauth` status. |
 | `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/connectors.yaml` and the `harborrag source` CLI can set one; the API answers `422` and asks for the value. |
 | The field left out, or its status sent back | The stored value or reference is kept. Re-saving a form without the key keeps it. |
-| `"api_token": null` | The stored value is cleared. |
+| `"api_token": null` | Refused with `422` and `required`; the stored value is kept. Every secret is required by its auth method, so switch `method` to drop it. |
 
 A stored secret is kept only for the same auth method and the same endpoint.
 Switching `method` drops the old method's secrets, and they are deleted like a

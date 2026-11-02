@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -59,6 +60,7 @@ async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
     }
     assert view["credentials"]["base_url"] == "https://acme.atlassian.net"
     assert view["stats"]["documents"] == 7
+    assert view["stats"]["errors"] == 0
     assert (view["created_by"], view["updated_by"]) == ("u_huy", "u_huy")
     assert "sentinel" not in repr(view)
     entries = await world.control_plane.activity.list(tenant_ids=None)
@@ -106,12 +108,13 @@ async def test_put_preconditions_and_immutable_fields(world: ConnectionWorld) ->
         await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", expected_version=9)
     with pytest.raises(HarborPreconditionFailedError):
         await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", create_only=True)
-    with pytest.raises(HarborImmutableFieldError):
+    with pytest.raises(HarborImmutableFieldError) as immutable:
         await world.service.put(
             CONNECTION_KEY,
             ConnectionWrite("confluence", JIRA_WRITE.credentials, {"space_key": "ENG"}),
             actor="u",
         )
+    assert immutable.value.details == {"field": "source_type"}
 
 
 @pytest.mark.asyncio
@@ -420,10 +423,51 @@ async def test_if_match_star_matches_any_existing_version(world: ConnectionWorld
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
 
     updated = await world.service.put(
-        CONNECTION_KEY, JIRA_WRITE, actor="u", expected_version=ANY_VERSION
+        CONNECTION_KEY, replace(JIRA_WRITE, name="Renamed"), actor="u", expected_version=ANY_VERSION
     )
 
     assert updated.version == 2
+
+
+@pytest.mark.asyncio
+async def test_a_write_that_changes_nothing_stores_nothing(world: ConnectionWorld) -> None:
+    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    stored = dict(world.secrets.values)
+
+    again = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_ops")
+
+    assert (again.created, again.version) == (False, 1)
+    assert again.connection["updated_at"] == first.connection["updated_at"]
+    assert again.connection["updated_by"] == "u_huy"
+    assert again.connection["credentials"] == first.connection["credentials"]
+    assert world.secrets.values == stored
+    entries = await world.control_plane.activity.list(tenant_ids=None)
+    assert [entry.verb for entry in entries] == ["created"]
+
+
+@pytest.mark.asyncio
+async def test_sending_the_same_token_again_clears_needs_reauth(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    await world.control_plane.connections.set_status(
+        tenant_id="acme", source_key="cpm/cpm-tickets", status="needs_reauth"
+    )
+    stored = dict(world.secrets.values)
+
+    again = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+
+    assert again.connection["status"] == "active"
+    assert again.version == 2
+    assert world.secrets.values == stored
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_write_still_starts_sync_now(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+
+    again = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)
+
+    assert again.version == 1
+    assert again.ingestion is not None and again.sync_error is None
 
 
 @pytest.mark.asyncio

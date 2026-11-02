@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -116,8 +117,29 @@ def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _Con
     assert read.status_code == 200 and read.headers["ETag"] == 'W/"rev-1"'
     assert "sentinel" not in read.text
 
-    overwritten = client.put(_PATH, json=_BODY, headers={"If-Match": 'W/"rev-1"'})
+    unchanged = client.put(_PATH, json=_BODY, headers={"If-Match": 'W/"rev-1"'})
+    assert unchanged.status_code == 200 and unchanged.headers["ETag"] == 'W/"rev-1"'
+    assert unchanged.json()["updated_at"] == body["updated_at"]
+
+    overwritten = client.put(
+        _PATH, json={**_BODY, "name": "Renamed"}, headers={"If-Match": 'W/"rev-1"'}
+    )
     assert overwritten.status_code == 200 and overwritten.headers["ETag"] == 'W/"rev-2"'
+
+
+def test_the_raw_token_reaches_no_log_line(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    caplog.set_level(logging.DEBUG)
+
+    client.put(_PATH, json={**_BODY, "sync_now": True})
+    client.put(_PATH, json={**_BODY, "name": "Renamed"})
+    client.get(_PATH)
+    client.get("/v1/admin/connections")
+    client.post(f"{_PATH}/test", json=_BODY)
+
+    assert caplog.records
+    assert "sentinel" not in caplog.text
 
 
 def test_put_errors_follow_the_spec(client: TestClient) -> None:
@@ -138,6 +160,7 @@ def test_put_errors_follow_the_spec(client: TestClient) -> None:
     assert (stale.status_code, stale.json()["error"]["code"]) == (412, "precondition_failed")
     assert (exists.status_code, exists.json()["error"]["code"]) == (412, "precondition_failed")
     assert (other_type.status_code, other_type.json()["error"]["code"]) == (409, "immutable_field")
+    assert other_type.json()["error"]["details"] == {"field": "source_type"}
     assert (bad_field.status_code, bad_field.json()["error"]["code"]) == (422, "validation_error")
     assert bad_field.json()["error"]["details"] == [
         {
@@ -384,8 +407,9 @@ def test_advanced_settings_are_kept_replaced_and_reset(client: TestClient) -> No
 
     assert created.json()["advanced"] == {"page_size": 20}
     assert kept.json()["advanced"] == {"page_size": 20}
+    assert kept.headers["ETag"] == 'W/"rev-1"'
     assert replaced.json()["advanced"] == {"max_retries": 5}
-    assert replaced.headers["ETag"] == 'W/"rev-3"'
+    assert replaced.headers["ETag"] == 'W/"rev-2"'
     assert reset.json()["advanced"] == {}
     assert refused.status_code == 422
     assert refused.json()["error"]["details"][0]["field"] == "advanced.page_size"

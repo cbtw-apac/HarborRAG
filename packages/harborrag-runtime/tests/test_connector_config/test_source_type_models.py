@@ -231,8 +231,15 @@ def test_each_auth_method_publishes_its_own_hints_and_its_method() -> None:
             "github",
             {"method": "none"},
             {"owner": "o", "repo": "r", "ref": "a", "branch": "b"},
-            "config",
+            "config.branch",
             "set ref or branch, not both",
+        ),
+        (
+            "github",
+            {"method": "none"},
+            {"owner": "o", "repo": "r", "branch": "b", "commit_sha": "c"},
+            "config.commit_sha",
+            "set commit_sha or ref/branch, not both",
         ),
         (
             "sharepoint",

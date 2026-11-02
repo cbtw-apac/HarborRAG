@@ -255,8 +255,9 @@ class ConnectionService:
         """Create or overwrite a connection.
 
         ``config`` is replaced whole, and so is ``tuning`` unless it is left out,
-        which keeps the stored tuning. In ``credentials`` an omitted secret keeps
-        its value while the auth method and endpoints stay the same, a value
+        which keeps the stored tuning. A body that changes nothing stores nothing:
+        the version and ``updated_at`` stay. In ``credentials`` an omitted secret keeps
+        its value while the auth method and endpoints stay the same, a new value
         rotates it, a ``{"secret_ref"}`` points it elsewhere and ``null`` clears
         it; replaced stored secrets are deleted once no running ingestion still
         uses them. A failed ``sync_now`` keeps the saved connection.
@@ -349,6 +350,8 @@ class ConnectionService:
         )
         credentials = _merge_secrets(validated.credentials, written.credentials, spec.secret_fields)
         connection = _build(key, existing, spec, write, credentials, validated, actor)
+        if existing is not None and not written.created and _unchanged(existing, connection):
+            return await self._result(key, existing, actor, created=False, sync_now=sync_now)
         try:
             stored, outcome = await control_plane.connections.put(
                 connection,
@@ -367,6 +370,20 @@ class ConnectionService:
         await self._record(
             stored, "created" if outcome == "created" else "updated", actor, existing
         )
+        return await self._result(
+            key, stored, actor, created=outcome == "created", sync_now=sync_now
+        )
+
+    async def _result(
+        self,
+        key: ConnectionKey,
+        stored: Connection,
+        actor: str,
+        *,
+        created: bool,
+        sync_now: bool,
+    ) -> ConnectionPutResult:
+        """Return the saved connection, after starting the ``sync_now`` ingestion when asked."""
         ingestion: dict[str, Any] | None = None
         sync_error: HarborError | None = None
         if sync_now:
@@ -381,7 +398,7 @@ class ConnectionService:
                 )
         return ConnectionPutResult(
             connection=await self._view(stored),
-            created=outcome == "created",
+            created=created,
             version=stored.version,
             ingestion=ingestion,
             sync_error=sync_error,
@@ -774,7 +791,8 @@ def _check_preconditions(
         raise ConnectionUnavailableError(f"connection {existing.ref!r} is being deleted")
     if existing.source_type != spec.source_type:
         raise HarborImmutableFieldError(
-            "source_type cannot change; delete the connection or pick another connection_id"
+            "source_type cannot change; delete the connection or pick another connection_id",
+            field="source_type",
         )
     if create_only:
         raise HarborPreconditionFailedError("connection already exists")
@@ -910,7 +928,7 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
     validated: ValidatedConnection,
     actor: str,
 ) -> Connection:
-    """Assemble the connection to store; a write that fixes it clears an error status."""
+    """Assemble the connection to store; a write that may fix it clears an attention status."""
     builder = (
         ConnectionBuilder.from_existing(existing)
         if existing
@@ -921,9 +939,31 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
     builder.source_type(spec.source_type).name(write.name).credentials(credentials)
     builder.config(validated.config).tuning(validated.tuning)
     builder.secret_refs(all_refs(credentials)).actor(actor)
-    if existing is not None and (existing.status == "error" or existing.credentials != credentials):
+    if existing is not None and (
+        existing.status == "error"
+        or existing.credentials != credentials
+        or (existing.status == "needs_reauth" and _sends_secret_value(write, spec))
+    ):
         builder.status("active")
     return builder.build()
+
+
+def _sends_secret_value(write: ConnectionWrite, spec: SourceTypeSpec) -> bool:
+    """True when the write carries a secret as a value, not a status or reference."""
+    return any(
+        isinstance(write.credentials.get(name), str) and write.credentials.get(name)
+        for name in spec.secret_fields
+    )
+
+
+def _unchanged(before: Connection, after: Connection) -> bool:
+    """True when a write would store exactly what ``before`` holds."""
+    return (
+        before.name == after.name
+        and before.status == after.status
+        and before.status_detail == after.status_detail
+        and not _changed_fields(before, after)
+    )
 
 
 def _changed_fields(before: Connection, after: Connection) -> list[str]:

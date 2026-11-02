@@ -76,6 +76,37 @@ async def test_echoing_the_ref_or_the_status_keeps_the_stored_value() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sending_the_stored_value_again_keeps_it_without_a_new_secret() -> None:
+    secrets = FakeSecrets()
+    stored = await _writer(secrets).apply({"api_token": _SENTINEL}, secret_fields=_FIELDS)
+
+    result = await _writer(secrets).apply(
+        {"api_token": _SENTINEL}, secret_fields=_FIELDS, existing=stored.credentials
+    )
+
+    assert result.credentials["api_token"] == stored.credentials["api_token"]
+    assert (result.created, result.retired) == ([], [])
+    assert list(secrets.values.values()) == [_SENTINEL]
+
+
+@pytest.mark.asyncio
+async def test_an_unreadable_stored_secret_is_replaced_by_the_sent_value() -> None:
+    secrets = FakeSecrets()
+    stored = await _writer(secrets).apply({"api_token": _SENTINEL}, secret_fields=_FIELDS)
+    secrets.values.clear()
+
+    result = await _writer(secrets).apply(
+        {"api_token": _SENTINEL}, secret_fields=_FIELDS, existing=stored.credentials
+    )
+
+    assert (
+        result.credentials["api_token"]["secret_ref"]
+        != stored.credentials["api_token"]["secret_ref"]
+    )
+    assert len(result.created) == 1
+
+
+@pytest.mark.asyncio
 async def test_an_env_reference_replaces_a_stored_value_and_has_no_last4() -> None:
     secrets = FakeSecrets()
     stored = await _writer(secrets).apply({"api_token": _SENTINEL}, secret_fields=_FIELDS)
