@@ -10,7 +10,9 @@ Handles:
 A legacy entry's key becomes its ``source_key`` (and ``connection_id`` when the
 key is a valid id), so documents ingested before the upgrade keep their ids. An
 entry that fails its schema, or names an unset environment variable, is still
-imported, with status ``error`` and its field issues, so nothing is lost.
+imported, with status ``error`` and its field issues, so nothing is lost. An
+entry that cannot become a connection at all, such as a key with a space or a
+malformed ``secret_ref``, is listed as invalid and the others still import.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ from typing import Any, Literal
 import yaml
 
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborConflictError, HarborPreconditionFailedError
 from harborrag_core.domain.connection import (
     CONNECTION_ID_PATTERN,
     SYSTEM_ACTOR,
@@ -170,21 +173,34 @@ class ConnectionImportService:
         return ImportPlan(tenant_id, changes, tuple(missing_projects))
 
     async def apply(self, plan: ImportPlan) -> ImportResult:
-        """Create missing projects, then write every create and update of ``plan``."""
+        """Create missing projects, then write every create and update of ``plan``.
+
+        A row another process wrote first, such as a second worker running the
+        same first-start import, counts as already done.
+        """
         for project_id in plan.projects_to_create:
-            await self._projects.create(
-                Project(
-                    id=project_id,
-                    name=project_id.capitalize(),
-                    collection=project_id,
-                    tenant_id=plan.tenant_id,
+            try:
+                await self._projects.create(
+                    Project(
+                        id=project_id,
+                        name=project_id.capitalize(),
+                        collection=project_id,
+                        tenant_id=plan.tenant_id,
+                    )
                 )
-            )
+            except (HarborConflictError, HarborPreconditionFailedError):
+                logger.info("Connection import found project %s already created", project_id)
         created = updated = 0
         for change in plan.writes:
             if change.connection is None:
                 continue
-            await self._connections.put(change.connection)
+            try:
+                await self._connections.put(change.connection)
+            except (HarborConflictError, HarborPreconditionFailedError):
+                logger.info(
+                    "Connection import found %s already written", change.connection.source_key
+                )
+                continue
             if change.action == "create":
                 created += 1
             else:
@@ -249,7 +265,10 @@ class ConnectionImportService:
                     ImportChange("skip", name, project_id, _connection_id(name), reason="disabled")
                 )
                 continue
-            changes.append(self._desired(tenant_id, project_id, name, definition))
+            try:
+                changes.append(self._desired(tenant_id, project_id, name, definition))
+            except ValueError as error:
+                changes.append(_invalid(name, project_id, str(error)))
         return changes
 
     def _desired(
@@ -364,12 +383,17 @@ class ConnectionImportService:
         except ConnectionValidationError as error:
             problems.extend(error.issues)
         now = utc_now()
-        stored = {
-            key: StoredSecret.for_reference(SecretRef.parse(value[REFERENCE_KEY]), now).to_json()
-            if isinstance(value, Mapping) and REFERENCE_KEY in value
-            else value
-            for key, value in credentials.items()
-        }
+        try:
+            stored = {
+                key: StoredSecret.for_reference(
+                    SecretRef.parse(value[REFERENCE_KEY]), now
+                ).to_json()
+                if isinstance(value, Mapping) and REFERENCE_KEY in value
+                else value
+                for key, value in credentials.items()
+            }
+        except ValueError as error:
+            return _invalid(source_key, project_id, str(error), connection_id=connection_id)
         builder = (
             ConnectionBuilder.for_new(
                 tenant_id=tenant_id, project_id=project_id, connection_id=connection_id
@@ -387,6 +411,10 @@ class ConnectionImportService:
         if problems:
             builder.status("error", {"errors": [problem.as_dict() for problem in problems]})
             reason = "; ".join(f"{problem.field}: {problem.issue}" for problem in problems)
+        try:
+            connection = builder.build(now=now)
+        except ValueError as error:
+            return _invalid(source_key, project_id, str(error), connection_id=connection_id)
         return ImportChange(
             "create",
             source_key,
@@ -394,7 +422,7 @@ class ConnectionImportService:
             connection_id,
             spec.source_type,
             reason=reason,
-            connection=builder.build(now=now),
+            connection=connection,
         )
 
     async def _compare(self, change: ImportChange) -> ImportChange:
@@ -440,8 +468,10 @@ async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it 
 
     It runs only when the file exists, the install has at most one tenant, no
     connection a person created (rows migration 0041 carried over from
-    ``/api/v1/sources`` do not count), and no earlier import was recorded. The
-    outcome is recorded in the workspace settings so the file is never read again.
+    ``/api/v1/sources``, and rows an interrupted import wrote, do not count), and
+    no earlier import was recorded. An interrupted import therefore resumes:
+    rows it wrote compare unchanged and the rest are written. The outcome is
+    recorded in the workspace settings so the file is never read again.
 
     Returns:
         The applied plan, or None when the import did not run.
@@ -451,7 +481,8 @@ async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it 
         return None
     existing, _ = await connections.list(tenant_ids=None)
     tenants = {project.tenant_id for project in await projects.list(tenant_ids=None)}
-    if any(connection.created_by != SYSTEM_ACTOR for connection in existing) or len(tenants) > 1:
+    automatic = {SYSTEM_ACTOR, IMPORT_ACTOR}
+    if any(connection.created_by not in automatic for connection in existing) or len(tenants) > 1:
         return None
     tenant_id = next(iter(tenants), "DEFAULT")
     service = ConnectionImportService(projects=projects, connections=connections, environ=environ)

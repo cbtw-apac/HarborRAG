@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -285,3 +286,90 @@ async def test_first_start_imports_next_to_rows_carried_over_from_api_v1_sources
     assert plan is not None and len(plan.writes) == 3
     assert await connections.get_by_source_key(tenant_id="DEFAULT", source_key="jira-main")
     assert blocked is None
+
+
+@pytest.mark.asyncio
+async def test_an_entry_that_cannot_become_a_connection_does_not_stop_the_others(
+    stores: Any,
+) -> None:
+    legacy = (
+        _LEGACY + "  jira prod:\n    provider: jira\n    settings:\n      project_keys: [OPS]\n"
+    )
+    export = {
+        "connections": [
+            {
+                "source_type": "github",
+                "source_key": "bad-ref",
+                "credentials": {"method": "pat", "token": {"secret_ref": "nope"}},
+                "config": {"owner": "o", "repo": "r"},
+            },
+            {
+                "source_type": "github",
+                "source_key": "public-repo",
+                "credentials": {"method": "none"},
+                "config": {"owner": "o", "repo": "r"},
+            },
+        ]
+    }
+
+    legacy_plan = await _service(stores).plan(legacy, tenant_id="DEFAULT")
+    export_plan = await _service(stores).plan(export, tenant_id="DEFAULT")
+
+    legacy_actions = {change.source_key: change.action for change in legacy_plan.changes}
+    export_actions = {change.source_key: change.action for change in export_plan.changes}
+    assert legacy_actions["jira prod"] == "invalid"
+    assert legacy_actions["jira-main"] == "create"
+    assert export_actions == {"bad-ref": "invalid", "public-repo": "create"}
+    bad = next(change for change in export_plan.changes if change.source_key == "bad-ref")
+    assert bad.reason is not None and "secret_ref must start with" in bad.reason
+
+
+@pytest.mark.asyncio
+async def test_an_interrupted_first_start_import_resumes(tmp_path: Path) -> None:
+    path = tmp_path / "connectors.yaml"
+    path.write_text(_LEGACY, encoding="utf-8")
+    projects, connections = FakeProjectRepository(), FakeConnectionRepository()
+    settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
+    service = ConnectionImportService(
+        projects=projects, connections=connections, environ=_ENVIRONMENT
+    )
+    plan = await service.plan(_LEGACY, tenant_id="DEFAULT")
+    first_write = plan.writes[0]
+    await projects.create(
+        Project(id="default", name="Default", collection="default", tenant_id="DEFAULT")
+    )
+    assert first_write.connection is not None
+    await connections.put(first_write.connection)
+
+    resumed = await import_connectors_once(
+        path, projects=projects, connections=connections, settings=settings, environ=_ENVIRONMENT
+    )
+
+    assert resumed is not None
+    actions = {change.source_key: change.action for change in resumed.changes}
+    assert actions[first_write.source_key] == "unchanged"
+    assert IMPORT_MARKER_KEY in (await settings.get()).data
+    stored, _ = await connections.list(tenant_ids=None)
+    assert len(stored) == 3
+
+
+class _RacedConnections(FakeConnectionRepository):
+    """A connection store where another process already wrote ``jira-main``."""
+
+    async def put(self, connection: Any, **kwargs: Any) -> Any:
+        if connection.source_key == "jira-main":
+            raise HarborConflictError("source_key is already used in this tenant")
+        return await super().put(connection, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_a_row_another_process_wrote_first_does_not_fail_the_import() -> None:
+    projects, connections = FakeProjectRepository(), _RacedConnections()
+    service = ConnectionImportService(
+        projects=projects, connections=connections, environ=_ENVIRONMENT
+    )
+
+    result = await service.apply(await service.plan(_LEGACY, tenant_id="DEFAULT"))
+
+    assert result.created == 2
+    assert await connections.get_by_source_key(tenant_id="DEFAULT", source_key="broken")
