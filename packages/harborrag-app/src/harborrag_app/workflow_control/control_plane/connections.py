@@ -327,6 +327,11 @@ class ConnectionService:
                 ingestion = await self.sync(key, actor=actor)
             except HarborError as error:
                 sync_error = error
+            except Exception:  # noqa: BLE001 - the connection is saved; report, do not fail
+                logger.exception("sync_now could not start an ingestion for %s", key)
+                sync_error = HarborUnavailableError(
+                    "the ingestion could not start; the connection was saved"
+                )
         return ConnectionPutResult(
             connection=await self._view(stored),
             created=outcome == "created",

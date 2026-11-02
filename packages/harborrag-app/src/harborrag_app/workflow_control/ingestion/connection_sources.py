@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import Callable
 
 from harborrag_core.contracts.errors import HarborUnavailableError
@@ -12,6 +14,8 @@ from harborrag_runtime.ingestion.connections import ConnectionResolver, Resolved
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 
 type SourcePreparation = Callable[..., PreparedSourceSubmission]
+
+logger = logging.getLogger("harborrag.app.workflow_control.ingestion.connection_sources")
 
 
 class ConnectionSourceInputBuilder:
@@ -25,6 +29,7 @@ class ConnectionSourceInputBuilder:
         self._control_plane = control_plane
         self._prepare = prepare
         self._import_checked = False
+        self._import_lock = asyncio.Lock()
 
     async def __call__(
         self, settings: RuntimeSettings, submission: SourceSubmission
@@ -41,17 +46,28 @@ class ConnectionSourceInputBuilder:
         return self._prepare(settings, submission, connection=connection)
 
     async def _import_once(self, settings: RuntimeSettings) -> None:
-        """Run the one-time ``connectors.yaml`` import before this process's first submit."""
-        if self._import_checked:
-            return
-        control_plane = self._control_plane()
-        await import_connectors_once(
-            settings.connector_config_path,
-            projects=control_plane.projects,
-            connections=control_plane.connections,
-            settings=control_plane.settings,
-        )
-        self._import_checked = True
+        """Run the one-time ``connectors.yaml`` import before this process's first submit.
+
+        One attempt per process: a file that fails to import is logged and left
+        for the operator, so submits of stored connections keep working.
+        """
+        async with self._import_lock:
+            if self._import_checked:
+                return
+            control_plane = self._control_plane()
+            try:
+                await import_connectors_once(
+                    settings.connector_config_path,
+                    projects=control_plane.projects,
+                    connections=control_plane.connections,
+                    settings=control_plane.settings,
+                )
+            except Exception:  # noqa: BLE001 - a broken file must not block stored connections
+                logger.warning(
+                    "connectors.yaml import failed; submits use the stored connections",
+                    exc_info=True,
+                )
+            self._import_checked = True
 
     async def resolve(self, submission: SourceSubmission) -> ResolvedConnection:
         """Load and snapshot the connection a submission names."""

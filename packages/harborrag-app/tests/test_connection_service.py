@@ -543,3 +543,56 @@ async def test_a_connection_test_never_retries_and_runs_on_its_own_threads(
     assert seen["tuning"]["max_retries"] == 0
     assert seen["tuning"]["request_timeout_seconds"] == 10.0
     assert seen["thread"].startswith("connection-test")
+
+
+@pytest.mark.asyncio
+async def test_a_sync_now_that_breaks_still_saves_and_reports_why(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(command: Any, *, idempotency_key: str | None) -> dict[str, object]:
+        raise RuntimeError("temporal client exploded")
+
+    monkeypatch.setattr(world.submitter, "submit", broken)
+
+    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)
+
+    assert result.created and result.ingestion is None
+    assert type(result.sync_error).__name__ == "HarborUnavailableError"
+    assert "temporal" not in str(result.sync_error)
+    assert (await world.service.get(CONNECTION_KEY))[1] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_broken_connectors_yaml_does_not_block_submits(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from dataclasses import replace
+
+    from harborrag_app.workflow_control.ingestion import connection_sources
+    from harborrag_core.contracts.errors import HarborUnavailableError
+    from harborrag_runtime.ingestion_contracts import SourceSubmission
+
+    imports: list[object] = []
+
+    async def broken_import(path: object, **repositories: object) -> None:
+        imports.append(path)
+        raise ValueError("connectors.yaml: bad entry")
+
+    monkeypatch.setattr(connection_sources, "import_connectors_once", broken_import)
+    no_revisions = replace(world.control_plane, connection_revisions=None)
+    builder = connection_sources.ConnectionSourceInputBuilder(
+        lambda: no_revisions, prepare=lambda *args, **kwargs: None
+    )
+    settings = type("Settings", (), {"connector_config_path": "connectors.yaml"})()
+    submission = SourceSubmission(
+        task_id="t",
+        tenant_id="acme",
+        connector_name="cpm/cpm-tickets",
+        connection_id="cpm/cpm-tickets",
+    )
+
+    for _ in range(2):
+        with pytest.raises(HarborUnavailableError, match="revisions are not configured"):
+            await builder(settings, submission)  # type: ignore[arg-type]
+
+    assert imports == ["connectors.yaml"]
