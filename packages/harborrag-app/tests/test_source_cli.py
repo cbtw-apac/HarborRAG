@@ -276,3 +276,25 @@ def test_an_unexpected_failure_is_logged_but_never_printed(
     assert code == 1
     assert "hunter2" not in json.dumps(response)
     assert any(record.exc_info for record in caplog.records)
+
+
+def test_the_next_page_command_keeps_the_filters(
+    world: ConnectionWorld, body: Path, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import shlex
+
+    _run(capsys, "add", "default/jira-cpm", "--file", str(body))
+    _run(capsys, "add", "default/jira-ops", "--file", str(body))
+
+    _, first = _run(capsys, "list", "--project-id", "default", "--type", "jira", "--limit", "1")
+    command = first["data"]["next_command"]
+    _, second = _run(capsys, *shlex.split(command)[2:])
+    assert cli.main(["source", "list", "--project-id", "default", "--limit", "1"]) == 0
+    table = capsys.readouterr().out
+
+    assert shlex.split(command)[:3] == ["harborrag", "source", "list"]
+    assert "--project-id default" in command and "--type jira" in command
+    assert "--limit 1" in command and "--cursor" in command
+    refs = [item["ref"] for item in first["data"]["items"] + second["data"]["items"]]
+    assert sorted(refs) == ["default/jira-cpm", "default/jira-ops"]
+    assert "More: harborrag source list --project-id default --limit 1 --cursor" in table

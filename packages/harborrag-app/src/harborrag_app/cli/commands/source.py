@@ -7,6 +7,7 @@ API. The control database stays the source of truth; a body file is only input.
 
 from __future__ import annotations
 
+import shlex
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -32,6 +33,8 @@ from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionService,
     ConnectionWrite,
 )
+
+_DEFAULT_PAGE_SIZE = 20
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -71,12 +74,16 @@ def list_sources(  # noqa: PLR0913 - one parameter per documented filter
         Literal["active", "needs_reauth", "error", "deleting"] | None,
         typer.Option("--status", help="Only connections in this status."),
     ] = None,
-    limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = 20,
+    limit: Annotated[int, typer.Option("--limit", min=1, max=100)] = _DEFAULT_PAGE_SIZE,
     cursor: Annotated[str | None, typer.Option("--cursor", help="From an earlier page.")] = None,
     tenant: Tenant = "DEFAULT",
     as_json: JsonOption = False,
 ) -> None:
-    """List connections, the ones needing attention first."""
+    """List connections, the ones needing attention first.
+
+    A page with more after it carries ``next_command``: this command with the same
+    filters and the next ``--cursor``.
+    """
 
     async def operation(connections: ConnectionService) -> dict[str, Any]:
         items, next_cursor = await connections.list_page(
@@ -87,7 +94,19 @@ def list_sources(  # noqa: PLR0913 - one parameter per documented filter
             limit=limit,
             cursor=cursor,
         )
-        return {"items": items, "next_cursor": next_cursor}
+        page: dict[str, Any] = {"items": items, "next_cursor": next_cursor}
+        if next_cursor:
+            filters = {
+                "--project-id": project,
+                "--type": source_type,
+                "--status": status,
+                "--limit": None if limit == _DEFAULT_PAGE_SIZE else str(limit),
+                "--tenant": None if tenant == "DEFAULT" else tenant,
+                "--cursor": next_cursor,
+            }
+            arguments = [part for flag, value in filters.items() if value for part in (flag, value)]
+            page["next_command"] = shlex.join(["harborrag", "source", "list", *arguments])
+        return page
 
     _invoke(context, "list", operation, as_json=as_json)
 

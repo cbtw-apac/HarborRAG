@@ -30,7 +30,7 @@ class SourceViews:
         return views.get(action or "")
 
     def connections(self, data: Mapping[str, Any]) -> None:
-        """Print one row per connection, then how to read the next page."""
+        """Print one row per connection, then the command that reads the next page."""
         table = Table(box=box.SIMPLE, show_header=True, pad_edge=False)
         for column in ("Connection", "Type", "Status", "Last ingestion", "Documents"):
             table.add_column(column, no_wrap=column != "Connection")
@@ -46,9 +46,9 @@ class SourceViews:
                 text(mapping(item.get("stats")).get("documents")),
             )
         self.console.print(table)
-        cursor = data.get("next_cursor")
-        if cursor:
-            self.console.print(Text(f"More: harborrag source list --cursor {cursor}", style="dim"))
+        next_command = data.get("next_command")
+        if next_command:
+            self.console.print(Text(f"More: {next_command}", style="dim"))
 
     def ingestion(self, data: Mapping[str, Any]) -> None:
         """Print the started ingestion and the command that follows it."""
