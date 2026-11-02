@@ -37,7 +37,7 @@ from harborrag_core.domain.connection import (
 )
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
-from harborrag_core.security.secret_refs import all_refs, stored_refs
+from harborrag_core.security.secret_refs import SecretSource, all_refs, stored_refs
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 from harborrag_runtime.config.connectors.models import (
@@ -54,7 +54,7 @@ from harborrag_runtime.connections import (
     CredentialSecretWriter,
     SecretUnavailableError,
     default_secret_resolver,
-    new_env_references,
+    reference_issues,
     reuses_stored_reference,
 )
 from harborrag_runtime.ingestion.connection_checks import (
@@ -292,7 +292,7 @@ class ConnectionService:
         written = await CredentialSecretWriter(
             control_plane.secrets,
             tenant_id=key.tenant_id,
-            sources=frozenset({"stored", "env"} if origin == "operator" else {"stored"}),
+            sources=_secret_sources(origin),
         ).apply(
             sent,
             secret_fields=spec.secret_fields,
@@ -338,8 +338,8 @@ class ConnectionService:
         Raises:
             HarborNotFoundError: No body and no saved connection, or the project is missing.
             ConnectionValidationError: The values fail the source type's schema, change an
-                endpoint while a stored secret would be kept, or, from ``api``, set a new
-                ``env:`` reference.
+                endpoint while a stored secret would be kept, name a stored secret the
+                field does not hold, or, from ``api``, set a new ``env:`` reference.
         """
         control_plane = self._control_plane()
         existing = await control_plane.connections.get(
@@ -356,10 +356,8 @@ class ConnectionService:
         spec = source_types.get(write.source_type)
         sent, keep = _plan_credentials(write.credentials, existing, spec)
         effective = _effective_credentials(sent, existing, keep)
-        issues = (
-            new_env_references(sent, existing.credentials if existing else None)
-            if origin == "api"
-            else []
+        issues = reference_issues(
+            sent, existing.credentials if existing else None, sources=_secret_sources(origin)
         )
         if issues:
             raise ConnectionValidationError(issues)
@@ -742,6 +740,11 @@ def _plan_credentials(
             ]
         )
     return sent, keep
+
+
+def _secret_sources(origin: WriteOrigin) -> frozenset[SecretSource]:
+    """Reference sources a caller may set: ``env:`` only from operator paths."""
+    return frozenset({"stored", "env"}) if origin == "operator" else frozenset({"stored"})
 
 
 def _is_status_echo(value: Any) -> bool:

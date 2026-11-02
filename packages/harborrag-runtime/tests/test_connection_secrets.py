@@ -19,7 +19,7 @@ from harborrag_runtime.connections import (
     SecretResolver,
     SecretUnavailableError,
     default_secret_resolver,
-    new_env_references,
+    reference_issues,
 )
 
 _NOW = datetime(2026, 10, 29, tzinfo=UTC)
@@ -170,15 +170,35 @@ async def test_a_writer_without_env_refuses_a_new_env_reference_but_keeps_a_stor
     assert kept.credentials == stored.credentials
 
 
-def test_new_env_references_names_only_references_the_connection_lacks() -> None:
-    stored = {"api_token": {"secret_ref": "env:JIRA_TOKEN", "last4": None}}
+@pytest.mark.parametrize(
+    ("sent", "sources", "issue"),
+    [
+        ("env:JIRA_TOKEN", frozenset({"stored"}), None),
+        ("secret://db/held", frozenset({"stored"}), None),
+        ("env:OTHER", frozenset({"stored"}), OPERATOR_ONLY_HELP),
+        ("env:OTHER", frozenset({"stored", "env"}), None),
+        ("secret://db/another-connection", frozenset({"stored", "env"}), "stored references"),
+        ("vault:kv/jira", frozenset({"stored", "env"}), "vault references"),
+        ("nope", frozenset({"stored", "env"}), "secret_ref must start with"),
+    ],
+)
+def test_reference_issues_allow_only_the_held_reference_or_a_permitted_new_one(
+    sent: str, sources: frozenset[Any], issue: str | None
+) -> None:
+    stored = {
+        "api_token": {"secret_ref": "env:JIRA_TOKEN", "last4": None},
+        "client_secret": {"secret_ref": "secret://db/held", "last4": "9f2c"},
+    }
+    field = "client_secret" if sent == "secret://db/held" else "api_token"
 
-    assert new_env_references({"api_token": {"secret_ref": "env:JIRA_TOKEN"}}, stored) == []
-    assert new_env_references({"api_token": "a-value"}, None) == []
-    assert [
-        issue.field
-        for issue in new_env_references({"api_token": {"secret_ref": "env:OTHER"}}, stored)
-    ] == ["credentials.api_token"]
+    issues = reference_issues({field: {"secret_ref": sent}}, stored, sources=sources)
+
+    if issue is None:
+        assert issues == []
+    else:
+        assert [found.field for found in issues] == [f"credentials.{field}"]
+        assert issue in issues[0].issue
+    assert reference_issues({"api_token": "a-value"}, None, sources=frozenset()) == []
 
 
 @pytest.mark.asyncio

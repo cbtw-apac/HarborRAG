@@ -9,7 +9,7 @@ from .secrets import (
     SecretWriteResult,
     StoredSecretResolver,
     default_secret_resolver,
-    new_env_references,
+    reference_issues,
     reuses_stored_reference,
 )
 
@@ -22,6 +22,6 @@ __all__ = [
     "SecretWriteResult",
     "StoredSecretResolver",
     "default_secret_resolver",
-    "new_env_references",
+    "reference_issues",
     "reuses_stored_reference",
 ]

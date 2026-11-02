@@ -169,20 +169,43 @@ def reuses_stored_reference(value: Any, stored: Any) -> bool:
     )
 
 
-def new_env_references(
-    incoming: Mapping[str, Any], existing: Mapping[str, Any] | None
+def reference_issue(
+    value: Mapping[str, Any], stored: Any, sources: frozenset[SecretSource]
+) -> str | None:
+    """Return why the ``{"secret_ref"}`` ``value`` may not be written, or None when it may.
+
+    A field may keep the reference it already holds. A new reference must parse,
+    must not name a stored secret, which only a value creates, and must use a
+    source in ``sources``: ``env:`` only from operator paths.
+    """
+    if reuses_stored_reference(value, stored):
+        return None
+    try:
+        ref = SecretRef.parse(str(value[REFERENCE_KEY]))
+    except ValueError as error:
+        return str(error)
+    if ref.source == "env" and "env" not in sources:
+        return OPERATOR_ONLY_HELP
+    if ref.is_stored or ref.source not in sources:
+        return f"{ref.source} references are not supported here"
+    return None
+
+
+def reference_issues(
+    incoming: Mapping[str, Any],
+    existing: Mapping[str, Any] | None,
+    *,
+    sources: frozenset[SecretSource],
 ) -> list[FieldIssue]:
-    """List credential fields that set an ``env:`` reference the connection does not hold yet."""
+    """List the credential fields whose ``{"secret_ref"}`` the caller may not write."""
     stored = existing or {}
     issues: list[FieldIssue] = []
     for name, value in incoming.items():
         if not isinstance(value, Mapping) or not isinstance(value.get(REFERENCE_KEY), str):
             continue
-        if not value[REFERENCE_KEY].startswith("env:"):
-            continue
-        previous = StoredSecret.from_json(stored.get(name))
-        if previous is None or previous.ref.value != value[REFERENCE_KEY]:
-            issues.append(FieldIssue(f"credentials.{name}", OPERATOR_ONLY_HELP))
+        problem = reference_issue(value, stored.get(name), sources)
+        if problem is not None:
+            issues.append(FieldIssue(f"credentials.{name}", problem))
     return issues
 
 
@@ -257,15 +280,12 @@ class CredentialSecretWriter:
             return self._issue(issues, name, "must be a string or a secret reference")
         if reuses_stored_reference(value, before):
             return before
-        try:
-            ref = SecretRef.parse(value[REFERENCE_KEY])
-        except ValueError as error:
-            return self._issue(issues, name, str(error))
-        if ref.source == "env" and "env" not in self._sources:
-            return self._issue(issues, name, OPERATOR_ONLY_HELP)
-        if ref.is_stored or ref.source not in self._sources:
-            return self._issue(issues, name, f"{ref.source} references are not supported here")
-        return StoredSecret.for_reference(ref, self._now).to_json()
+        problem = reference_issue(value, before, self._sources)
+        if problem is not None:
+            return self._issue(issues, name, problem)
+        return StoredSecret.for_reference(
+            SecretRef.parse(value[REFERENCE_KEY]), self._now
+        ).to_json()
 
     async def _commit(
         self,

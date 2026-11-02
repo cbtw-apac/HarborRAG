@@ -18,6 +18,7 @@ from harborrag_app.workflow_control.control_plane.connection_views import ANY_VE
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionWrite,
+    WriteOrigin,
 )
 from harborrag_app.workflow_control.control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
@@ -330,6 +331,33 @@ async def test_a_reference_sent_back_does_not_carry_a_secret_to_a_new_host(
         actor="u",
     )
     assert same_host.connection["credentials"]["api_token"]["from"] == held
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("origin", ["api", "operator"])
+async def test_a_test_cannot_borrow_another_connections_stored_secret(
+    world: ConnectionWorld, origin: WriteOrigin
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    stored = await world.control_plane.connections.get(
+        tenant_id="acme", project_id="cpm", connection_id="cpm-tickets"
+    )
+    assert stored is not None
+    borrowed = ConnectionWrite(
+        "jira",
+        {
+            "base_url": "https://attacker.example",
+            "email": "x@y.z",
+            "api_token": {"secret_ref": stored.credentials["api_token"]["secret_ref"]},
+        },
+        {},
+    )
+
+    with pytest.raises(ConnectionValidationError) as caught:
+        await world.service.test(ConnectionKey("acme", "cpm", "brand-new"), borrowed, origin=origin)
+
+    assert [issue.field for issue in caught.value.issues] == ["credentials.api_token"]
+    assert "stored references are not supported" in caught.value.issues[0].issue
 
 
 @pytest.mark.asyncio
