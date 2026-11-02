@@ -62,7 +62,7 @@ def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
 def test_cli_import_does_not_load_storage_clients() -> None:
     """`harborrag --help` must not pay for the storage client libraries."""
 
-    heavy = ("qdrant_client", "aioboto3", "sqlalchemy", "falkordb")
+    heavy = ("qdrant_client", "aiobotocore", "sqlalchemy", "falkordb")
     result = subprocess.run(
         [
             sys.executable,

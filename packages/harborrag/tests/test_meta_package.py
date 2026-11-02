@@ -106,7 +106,7 @@ import harborrag
 from harborrag import HarborRAG
 
 assert HarborRAG.__name__ == "HarborRAG"
-for module in ("aioboto3", "falkordb", "litellm", "qdrant_client", "temporalio"):
+for module in ("aiobotocore", "falkordb", "litellm", "qdrant_client", "temporalio"):
     assert module not in sys.modules, module
 """
 

@@ -16,7 +16,6 @@
   - [Agent](users/chat/agent.md)
   - [Limits and Accounting](users/chat/limits.md)
 - [Connections](users/connections.md)
-- [Upgrading](users/upgrading.md)
 - [Ingestion Modes](users/ingestion-modes.md)
 - [Scheduled Ingestion](users/scheduled-ingestion.md)
 - [Python SDK](users/python-sdk/README.md)
@@ -30,6 +29,7 @@
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
   - [MCP Setup and Integration](users/detailed-guides/mcp-server/setup-and-integration.md)
 - [Troubleshooting](users/troubleshooting/README.md)
+- [Upgrading](users/upgrading.md)
 
 ## Developer guides
 

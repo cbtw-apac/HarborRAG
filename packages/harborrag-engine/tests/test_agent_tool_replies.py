@@ -34,7 +34,7 @@ async def test_tool_gather_timeout_replies_to_every_admitted_call_before_synthes
             tenant_id="ACME",
             principal_id="reader-1",
             session_id="session-1",
-            timeout_seconds=0.05,
+            timeout_seconds=0.25,
         ),
     )
 

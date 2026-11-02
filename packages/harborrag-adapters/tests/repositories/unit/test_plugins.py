@@ -147,7 +147,7 @@ def test_qdrant_vector_plugin_builds_unconnected_repository(
 def test_s3_object_store_plugin_builds_unconnected_store(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(s3_client_module, "aioboto3", _Sentinel(Session=_Sentinel))
+    monkeypatch.setattr(s3_client_module, "get_session", _Sentinel)
     plugin = S3ObjectStorePlugin()
     store = plugin.create(S3ObjectStoreConfig(), RepositoryDependencies())
     assert isinstance(store, S3ObjectStore)

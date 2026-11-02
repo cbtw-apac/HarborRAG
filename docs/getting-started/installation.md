@@ -144,7 +144,7 @@ Most extras add only the third-party clients their providers require. Four -
 | `harborrag[qdrant]` | `qdrant-client` | Qdrant vector storage |
 | `harborrag[falkordb]` | `falkordb` | FalkorDB graph storage |
 | `harborrag[postgres]` | `asyncpg` plus the control plane | PostgreSQL-backed control plane |
-| `harborrag[s3]` | `aioboto3` | S3 artifact storage |
+| `harborrag[s3]` | `aiobotocore` | S3 artifact storage |
 | `harborrag[redis]` | `redis` | Redis-backed features |
 | `harborrag[all]` | every extra above | you want the full surface |
 

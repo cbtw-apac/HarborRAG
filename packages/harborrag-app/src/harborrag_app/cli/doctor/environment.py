@@ -63,7 +63,7 @@ _ENV_REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _LOCAL_STACK_CLIENTS: tuple[tuple[str, str], ...] = (
     ("qdrant_client", "qdrant-client"),
     ("falkordb", "falkordb"),
-    ("aioboto3", "aioboto3"),
+    ("aiobotocore", "aiobotocore"),
     ("litellm", "litellm"),
     ("sqlalchemy", "SQLAlchemy"),
     ("alembic", "alembic"),

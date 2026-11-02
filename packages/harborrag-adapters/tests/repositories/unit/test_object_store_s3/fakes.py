@@ -47,7 +47,7 @@ def make_store(raw: FakeS3Raw) -> S3ObjectStore:
 
 
 class FakeAsyncBody:
-    """Minimal async context-managed stream mimicking aioboto3's StreamingBody."""
+    """Minimal async context-managed stream mimicking aiobotocore's StreamingBody."""
 
     def __init__(self, data: bytes) -> None:
         self._data = data

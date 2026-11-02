@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import types
 from typing import Any
 
 import pytest
@@ -37,7 +36,7 @@ class FakeSession:
         self.client_kwargs: dict[str, Any] | None = None
         self.manager: FakeClientManager | None = None
 
-    def client(self, service_name: str, **kwargs: Any) -> FakeClientManager:
+    def create_client(self, service_name: str, **kwargs: Any) -> FakeClientManager:
         assert service_name == "s3"
         self.client_kwargs = kwargs
         self.manager = FakeClientManager(FakeRawClient())
@@ -53,7 +52,7 @@ class FailingEnterClientManager(FakeClientManager):
 
 
 class FakeFailingSession(FakeSession):
-    def client(self, service_name: str, **kwargs: Any) -> FakeClientManager:
+    def create_client(self, service_name: str, **kwargs: Any) -> FakeClientManager:
         assert service_name == "s3"
         self.client_kwargs = kwargs
         self.manager = FailingEnterClientManager(FakeRawClient())
@@ -70,8 +69,8 @@ def make_client() -> S3DBClient:
     )
 
 
-def test_missing_aioboto3_raises_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(client_module, "aioboto3", None)
+def test_missing_aiobotocore_raises_import_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(client_module, "get_session", None)
 
     with pytest.raises(ImportError):
         make_client()
@@ -80,7 +79,7 @@ def test_missing_aioboto3_raises_import_error(monkeypatch: pytest.MonkeyPatch) -
 def test_raw_before_connect_raises_runtime_error(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(client_module, "aioboto3", types.SimpleNamespace(Session=FakeSession))
+    monkeypatch.setattr(client_module, "get_session", FakeSession)
     db = make_client()
 
     assert db.backend == "s3"
@@ -93,9 +92,7 @@ async def test_connect_is_idempotent_and_filters_none_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_session = FakeSession()
-    monkeypatch.setattr(
-        client_module, "aioboto3", types.SimpleNamespace(Session=lambda: fake_session)
-    )
+    monkeypatch.setattr(client_module, "get_session", lambda: fake_session)
     db = S3DBClient(
         endpoint_url="http://localhost:9000",
         region=None,
@@ -117,9 +114,7 @@ async def test_connect_is_idempotent_and_filters_none_settings(
 @pytest.mark.asyncio
 async def test_ping_calls_list_buckets(monkeypatch: pytest.MonkeyPatch) -> None:
     fake_session = FakeSession()
-    monkeypatch.setattr(
-        client_module, "aioboto3", types.SimpleNamespace(Session=lambda: fake_session)
-    )
+    monkeypatch.setattr(client_module, "get_session", lambda: fake_session)
     db = make_client()
     await db.connect()
 
@@ -134,9 +129,7 @@ async def test_close_after_connect_exits_the_client_manager(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     fake_session = FakeSession()
-    monkeypatch.setattr(
-        client_module, "aioboto3", types.SimpleNamespace(Session=lambda: fake_session)
-    )
+    monkeypatch.setattr(client_module, "get_session", lambda: fake_session)
     db = make_client()
     await db.connect()
 
@@ -152,7 +145,7 @@ async def test_close_after_connect_exits_the_client_manager(
 async def test_close_without_connect_is_a_no_op(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(client_module, "aioboto3", types.SimpleNamespace(Session=FakeSession))
+    monkeypatch.setattr(client_module, "get_session", FakeSession)
     db = make_client()
 
     await db.close()
@@ -167,9 +160,7 @@ async def test_connect_cleans_up_client_manager_when_aenter_fails(
 ) -> None:
     """A failed handshake must not leak the underlying client-manager/session."""
     fake_session = FakeFailingSession()
-    monkeypatch.setattr(
-        client_module, "aioboto3", types.SimpleNamespace(Session=lambda: fake_session)
-    )
+    monkeypatch.setattr(client_module, "get_session", lambda: fake_session)
     db = make_client()
 
     with pytest.raises(ConnectionError, match="simulated handshake failure"):
@@ -186,6 +177,6 @@ async def test_connect_cleans_up_client_manager_when_aenter_fails(
     # stale manager is still live) and should succeed against a healthy session.
     fake_session.manager = None
     healthy_manager = FakeClientManager(FakeRawClient())
-    fake_session.client = lambda service_name, **kwargs: healthy_manager  # type: ignore[method-assign]
+    fake_session.create_client = lambda service_name, **kwargs: healthy_manager  # type: ignore[method-assign]
     await db.connect()
     assert db.raw is healthy_manager._client
