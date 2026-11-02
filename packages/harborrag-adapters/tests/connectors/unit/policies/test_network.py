@@ -18,6 +18,9 @@ from harborrag_adapters.connectors.policies.network import (
     guarded_session,
 )
 
+_LOOPBACK_REFUSED = r"private address (127\.0\.0\.1|::1);"
+"""``localhost`` resolves to either loopback address first, depending on the host."""
+
 
 @pytest.mark.parametrize(
     "address",
@@ -62,7 +65,7 @@ def local_server() -> Iterator[str]:
 
 
 def test_the_session_checks_the_address_it_actually_connected_to(local_server: str) -> None:
-    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+    with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
         guarded_session(DestinationPolicy()).get(local_server, timeout=5)
 
     allowed = guarded_session(DestinationPolicy(hosts=frozenset({"localhost"})))
@@ -79,7 +82,7 @@ def test_a_closed_private_port_reads_the_same_as_an_open_one() -> None:
     port = probe.getsockname()[1]
     probe.close()
 
-    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+    with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
         guarded_session(DestinationPolicy()).get(f"https://localhost:{port}/", timeout=5)
 
 
@@ -97,7 +100,7 @@ def dead_proxy(monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def test_a_proxy_variable_does_not_switch_the_guard_off(local_server: str, dead_proxy: str) -> None:
-    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+    with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
         guarded_session(DestinationPolicy()).get(local_server, timeout=5)
 
 
@@ -106,7 +109,7 @@ def test_an_opted_in_proxy_still_refuses_a_private_target(
 ) -> None:
     proxied = guarded_session(DestinationPolicy(use_proxy=True))
 
-    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+    with pytest.raises(BlockedDestinationError, match=_LOOPBACK_REFUSED):
         proxied.get(local_server, timeout=5)
     with pytest.raises(requests.exceptions.ProxyError):
         proxied.get("http://93.184.216.34/", timeout=5)
