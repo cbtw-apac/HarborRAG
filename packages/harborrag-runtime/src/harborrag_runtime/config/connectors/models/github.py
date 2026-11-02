@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Self
+
+from pydantic import ConfigDict, Field, model_validator
 
 from .common import HttpTuning
-from .fields import HttpUrl, Secret, StrictModel
+from .fields import HttpsUrl, HttpUrl, Secret, StrictModel
 from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
 
-_API_HELP = "REST API root; change for GitHub Enterprise Server"
+_API_HELP = "REST API root; left out, https://api.github.com. Change for GitHub Enterprise Server"
+_WEB_HELP = "Web root used for document links; left out, https://github.com"
+_VERSION_HELP = "X-GitHub-Api-Version header; left out, GitHub's default"
 
 
 class GitHubTokenCredentials(StrictModel):
@@ -17,21 +21,32 @@ class GitHubTokenCredentials(StrictModel):
     token: Secret = Field(
         description="Token with read access to the repository", examples=["github_pat_11A…"]
     )
-    api_url: HttpUrl | None = Field(default=None, description=_API_HELP)
-    web_url: HttpUrl | None = Field(default=None, description="Web root used for document links")
-    api_version: str | None = Field(default=None, description="X-GitHub-Api-Version header")
+    api_url: HttpsUrl | None = Field(default=None, description=_API_HELP)
+    web_url: HttpsUrl | None = Field(default=None, description=_WEB_HELP)
+    api_version: str | None = Field(default=None, description=_VERSION_HELP)
 
 
 class GitHubPublicCredentials(StrictModel):
     """Anonymous access to a public repository."""
 
-    api_url: HttpUrl | None = Field(default=None, description=_API_HELP)
-    web_url: HttpUrl | None = Field(default=None, description="Web root used for document links")
-    api_version: str | None = Field(default=None, description="X-GitHub-Api-Version header")
+    api_url: HttpsUrl | None = Field(default=None, description=_API_HELP)
+    web_url: HttpsUrl | None = Field(default=None, description=_WEB_HELP)
+    api_version: str | None = Field(default=None, description=_VERSION_HELP)
 
 
 class GitHubConfig(StrictModel):
-    """What to sync from a repository."""
+    """What to sync from a repository: ``repository_url`` or ``owner`` and ``repo``, at one ref."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "anyOf": [{"required": ["repository_url"]}, {"required": ["owner", "repo"]}],
+            "allOf": [
+                {"not": {"required": ["ref", "branch"]}},
+                {"not": {"required": ["commit_sha", "ref"]}},
+                {"not": {"required": ["commit_sha", "branch"]}},
+            ],
+        }
+    )
 
     repository_url: HttpUrl | None = Field(
         default=None,
@@ -40,10 +55,16 @@ class GitHubConfig(StrictModel):
     )
     owner: str | None = Field(default=None, description="Repository owner")
     repo: str | None = Field(default=None, description="Repository name")
-    ref: str | None = Field(default=None, description="Branch, tag or commit to read")
-    branch: str | None = Field(default=None, description="Branch to read")
-    commit_sha: str | None = Field(default=None, description="Commit to read")
-    root_path: str | None = Field(default=None, description="Folder inside the repository")
+    ref: str | None = Field(
+        default=None, description="Branch, tag or commit to read; left out, the default branch"
+    )
+    branch: str | None = Field(default=None, description="Branch to read; not with ref")
+    commit_sha: str | None = Field(
+        default=None, description="Commit to read; not with ref or branch"
+    )
+    root_path: str | None = Field(
+        default=None, description="Folder inside the repository; left out, the whole repository"
+    )
     allowed_extensions: list[str] = Field(
         default_factory=list,
         description=(
@@ -52,14 +73,29 @@ class GitHubConfig(StrictModel):
         ),
     )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
-    include_paths: list[str] = Field(default_factory=list)
-    exclude_paths: list[str] = Field(default_factory=list)
-    include_globs: list[str] = Field(default_factory=list)
-    exclude_globs: list[str] = Field(default_factory=list)
+    include_paths: list[str] = Field(
+        default_factory=list, description="Paths to read; empty reads every path"
+    )
+    exclude_paths: list[str] = Field(default_factory=list, description="Paths to skip")
+    include_globs: list[str] = Field(
+        default_factory=list, description="Glob patterns to read, such as docs/**/*.md"
+    )
+    exclude_globs: list[str] = Field(default_factory=list, description="Glob patterns to skip")
     max_file_size_bytes: int | None = Field(
         default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
     )
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
+
+    @model_validator(mode="after")
+    def _one_repository_at_one_ref(self) -> Self:
+        """Require a repository and at most one of ``ref``, ``branch`` and ``commit_sha``."""
+        if not self.repository_url and not (self.owner and self.repo):
+            raise ValueError("set repository_url, or owner and repo")
+        if self.ref and self.branch:
+            raise ValueError("set ref or branch, not both")
+        if self.commit_sha and (self.ref or self.branch):
+            raise ValueError("set commit_sha or ref/branch, not both")
+        return self
 
 
 GITHUB = SourceTypeSpec(
@@ -74,6 +110,7 @@ GITHUB = SourceTypeSpec(
     config_model=GitHubConfig,
     tuning_model=HttpTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
+    endpoints=frozenset({"api_url", "web_url"}),
     aliases=("github_repo", "github_repository"),
     setups=(
         Setup(

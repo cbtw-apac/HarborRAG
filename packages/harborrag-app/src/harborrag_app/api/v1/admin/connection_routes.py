@@ -137,7 +137,9 @@ async def list_source_types(
 ) -> dict[str, Any]:
     """The data source picker: each type with its credential and config schemas and form hints."""
     selected = cast(Category | None, category)
-    return {"items": [spec.describe() for spec in source_types.all(selected)]}
+    return {
+        "items": [source_types.describe(spec.source_type) for spec in source_types.all(selected)]
+    }
 
 
 @connections_router.get(

@@ -46,8 +46,8 @@ class LocalFileSyncConfig(StrictModel):
 
     source_path: str = Field(
         min_length=1,
-        description="Absolute path as the worker sees it",
-        examples=["/data/handbook"],
+        description="Absolute path as the worker sees it, inside the install's local source root",
+        examples=["/data/sources"],
         json_schema_extra=widget("path"),
     )
     allowed_extensions: list[str] = Field(
@@ -58,10 +58,14 @@ class LocalFileSyncConfig(StrictModel):
         ),
     )
     excluded_extensions: list[str] = Field(default_factory=list, description="File types to drop")
-    include_paths: list[str] = Field(default_factory=list)
-    exclude_paths: list[str] = Field(default_factory=list)
-    include_globs: list[str] = Field(default_factory=list)
-    exclude_globs: list[str] = Field(default_factory=list)
+    include_paths: list[str] = Field(
+        default_factory=list, description="Paths under source_path to read; empty reads all"
+    )
+    exclude_paths: list[str] = Field(default_factory=list, description="Paths to skip")
+    include_globs: list[str] = Field(
+        default_factory=list, description="Glob patterns to read, such as **/*.pdf"
+    )
+    exclude_globs: list[str] = Field(default_factory=list, description="Glob patterns to skip")
     excluded_dir_names: list[str] | None = Field(default=None, description="Folders to skip")
     include_hidden: bool = Field(default=False, description="Include hidden files and folders")
     follow_symlinks: bool = Field(default=False, description="Follow links inside the path")
@@ -85,6 +89,7 @@ LOCAL_FILE = SourceTypeSpec(
     tuning_model=NoTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
     aliases=("local", "local_files", "filesystem", "files"),
+    build_check=False,
     policy=local_source_issues,
     setups=(
         Setup(

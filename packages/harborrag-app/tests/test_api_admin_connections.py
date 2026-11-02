@@ -94,7 +94,7 @@ def test_source_types_publish_every_v2_type(client: TestClient) -> None:
         "github",
     }
     assert jira["auth_methods"][0]["schema"]["properties"]["api_token"]["writeOnly"] is True
-    assert jira["ui"]["api_token"]["widget"] == "secret"
+    assert jira["auth_methods"][0]["ui"]["api_token"]["widget"] == "secret"
     files = client.get("/v1/admin/source-types", params={"category": "files"}).json()["items"]
     assert {item["source_type"] for item in files} == {"sharepoint", "local_file"}
 
@@ -140,7 +140,10 @@ def test_put_errors_follow_the_spec(client: TestClient) -> None:
     assert (other_type.status_code, other_type.json()["error"]["code"]) == (409, "immutable_field")
     assert (bad_field.status_code, bad_field.json()["error"]["code"]) == (422, "validation_error")
     assert bad_field.json()["error"]["details"] == [
-        {"field": "credentials.base_url", "issue": "must be an absolute http(s) URL"}
+        {
+            "field": "credentials.base_url",
+            "issue": "must be an https:// URL without a user or password in it",
+        }
     ]
     assert (unknown_type.status_code, unknown_type.json()["error"]["code"]) == (
         422,

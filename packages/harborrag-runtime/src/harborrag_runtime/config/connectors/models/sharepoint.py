@@ -7,13 +7,18 @@ lives in ``token_cache_path``, and ``pat`` is a pre-issued Graph token.
 
 from __future__ import annotations
 
-from pydantic import Field
+from typing import Self
+
+from pydantic import ConfigDict, Field, model_validator
 
 from .common import PagedHttpTuning
-from .fields import HttpUrl, Secret, StrictModel, widget
+from .fields import HttpsUrl, Secret, StrictModel, widget
 from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
 
-_GRAPH_HELP = "Microsoft Graph endpoint; change only for sovereign clouds"
+_GRAPH_HELP = (
+    "Microsoft Graph endpoint; left out, https://graph.microsoft.com/v1.0. "
+    "Change only for sovereign clouds"
+)
 _TENANT_HELP = "Directory (tenant) ID of the Entra ID app registration"
 _CLIENT_HELP = "Application (client) ID of the Entra ID app registration"
 _TENANT_EXAMPLE = "11111111-2222-3333-4444-555555555555"
@@ -28,7 +33,7 @@ class SharePointAppCredentials(StrictModel):
     client_secret: Secret = Field(
         description="Client secret of the app registration", examples=["Q~8xr…"]
     )
-    graph_api_url: HttpUrl | None = Field(default=None, description=_GRAPH_HELP)
+    graph_api_url: HttpsUrl | None = Field(default=None, description=_GRAPH_HELP)
 
 
 class SharePointDelegatedCredentials(StrictModel):
@@ -41,36 +46,64 @@ class SharePointDelegatedCredentials(StrictModel):
         description="Where the worker keeps the refresh token; defaults under ~/.harborrag",
         json_schema_extra=widget("path"),
     )
-    graph_api_url: HttpUrl | None = Field(default=None, description=_GRAPH_HELP)
+    graph_api_url: HttpsUrl | None = Field(default=None, description=_GRAPH_HELP)
 
 
 class SharePointTokenCredentials(StrictModel):
     """A pre-issued Microsoft Graph access token."""
 
     access_token: Secret = Field(description="Microsoft Graph bearer token", examples=["eyJ0eXAi…"])
-    graph_api_url: HttpUrl | None = Field(default=None, description=_GRAPH_HELP)
+    graph_api_url: HttpsUrl | None = Field(default=None, description=_GRAPH_HELP)
 
 
 class SharePointConfig(StrictModel):
-    """What to sync from SharePoint."""
+    """What to sync from SharePoint: one site by ``site_url``, ``site_id`` or ``hostname`` and ``site_path``."""
 
-    site_url: HttpUrl | None = Field(
+    model_config = ConfigDict(
+        json_schema_extra={
+            "anyOf": [
+                {"required": ["site_url"]},
+                {"required": ["site_id"]},
+                {"required": ["hostname", "site_path"]},
+            ]
+        }
+    )
+
+    site_url: HttpsUrl | None = Field(
         default=None,
         description="Site to crawl",
         examples=["https://acme.sharepoint.com/sites/knowledge"],
     )
-    hostname: str | None = Field(default=None, description="Site host, when not using site_url")
-    site_path: str | None = Field(default=None, description="Site path, when not using site_url")
-    site_id: str | None = Field(default=None, description="Graph site ID")
-    drive_id: str | None = Field(default=None, description="Document library ID")
-    drive_name: str | None = Field(default=None, description="Document library name")
-    root_path: str | None = Field(default=None, description="Folder inside the library")
-    item_ids: list[str] | None = Field(default=None, description="Explicit files to sync")
+    hostname: str | None = Field(
+        default=None, description="Site host, with site_path, when not using site_url"
+    )
+    site_path: str | None = Field(
+        default=None, description="Site path, such as /sites/knowledge, with hostname"
+    )
+    site_id: str | None = Field(default=None, description="Graph site ID, instead of site_url")
+    drive_id: str | None = Field(
+        default=None, description="Document library ID; left out, the site's default library"
+    )
+    drive_name: str | None = Field(
+        default=None, description="Document library name, instead of drive_id"
+    )
+    root_path: str | None = Field(
+        default=None, description="Folder inside the library; not with item_ids"
+    )
+    item_ids: list[str] | None = Field(
+        default=None, description="Explicit files to sync; not with root_path"
+    )
     crawl_all_drives: bool = Field(default=False, description="Walk every document library")
     recursive: bool = Field(default=True, description="Descend into subfolders")
-    allowed_tenant_ids: list[str] | None = Field(default=None)
-    allowed_sites: list[str] | None = Field(default=None)
-    allowed_path_prefixes: list[str] | None = Field(default=None)
+    allowed_tenant_ids: list[str] | None = Field(
+        default=None, description="Entra tenant IDs the site must belong to"
+    )
+    allowed_sites: list[str] | None = Field(
+        default=None, description="Graph site IDs the connection may read"
+    )
+    allowed_path_prefixes: list[str] | None = Field(
+        default=None, description="Folder prefixes the connection may read"
+    )
     allowed_extensions: list[str] | None = Field(
         default=None,
         description="File types to keep, such as pdf; left out, common document and image types",
@@ -82,6 +115,13 @@ class SharePointConfig(StrictModel):
         default=None, ge=0, description="Largest file to read, in bytes; left out, 20 MiB"
     )
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
+
+    @model_validator(mode="after")
+    def _one_site(self) -> Self:
+        """Require a site: ``site_url``, ``site_id`` or ``hostname`` with ``site_path``."""
+        if not (self.site_url or self.site_id or (self.hostname and self.site_path)):
+            raise ValueError("set site_url, site_id, or hostname and site_path")
+        return self
 
 
 SHAREPOINT = SourceTypeSpec(
@@ -106,6 +146,7 @@ SHAREPOINT = SourceTypeSpec(
     config_model=SharePointConfig,
     tuning_model=PagedHttpTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
+    endpoints=frozenset({"graph_api_url"}),
     aliases=("microsoft_sharepoint", "sharepoint_online"),
     setups=(
         Setup(

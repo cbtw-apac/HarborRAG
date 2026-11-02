@@ -99,6 +99,10 @@ class SourceTypeRegistry:
                 defaults[item.name] = _json_value(item.default_factory())
         return defaults
 
+    def describe(self, name: str) -> dict[str, Any]:
+        """Return the ``SourceType`` object of ``name`` with its connector defaults published."""
+        return self.get(name).describe(self.connector_defaults(name))
+
     def dataclass_fields(self, name: str) -> frozenset[str]:
         """Keyword arguments the provider config dataclass accepts."""
         return frozenset(signature(self.provider_factory(name)).parameters)

@@ -223,6 +223,14 @@ class ConnectionPage(BaseModel):
     )
 
 
+class UiHintOut(BaseModel):
+    group: str
+    order: int
+    widget: Literal["text", "secret", "select", "textarea", "path", "list", "toggle", "number"]
+    help: str
+    placeholder: str
+
+
 class AuthMethodOut(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -231,16 +239,12 @@ class AuthMethodOut(BaseModel):
     schema_: dict[str, Any] = Field(
         alias="schema",
         serialization_alias="schema",
-        description="JSON Schema of the credential fields; secret fields have writeOnly: true",
+        description=(
+            "JSON Schema of the credential fields; secret fields have writeOnly: true. When the "
+            "type has several methods, the method property names this one"
+        ),
     )
-
-
-class UiHintOut(BaseModel):
-    group: str
-    order: int
-    widget: Literal["text", "secret", "select", "textarea", "path"]
-    help: str
-    placeholder: str
+    ui: dict[str, UiHintOut] = Field(description="Form hints of this method's credential fields")
 
 
 class CapabilitiesOut(BaseModel):
@@ -263,7 +267,12 @@ class SourceTypeOut(BaseModel):
     advanced_schema: dict[str, Any] = Field(
         description="JSON Schema of the request rate, paging, timeout and retry settings"
     )
-    ui: dict[str, UiHintOut] = Field(description="Form hints per field name")
+    ui: dict[str, UiHintOut] = Field(
+        description=(
+            "Form hints of the config and advanced fields, and of credential fields that read "
+            "the same in every auth method; auth_methods[].ui has each method's own"
+        )
+    )
     capabilities: CapabilitiesOut
 
 

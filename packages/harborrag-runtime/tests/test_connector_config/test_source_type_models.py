@@ -23,6 +23,7 @@ from harborrag_runtime.config.connectors.providers import coerce_config_values
 from .conftest import REPO_ROOT, write_config
 
 _SPEC_UI_KEYS = {"group", "order", "widget", "help", "placeholder"}
+_WIDGETS = {"text", "secret", "select", "textarea", "path", "list", "toggle", "number"}
 _SPEC_TYPE_KEYS = {
     "source_type",
     "name",
@@ -155,13 +156,93 @@ def test_every_type_publishes_the_spec_shape(spec: Any) -> None:
     for method in described["auth_methods"]:
         assert method["id"] in {"api_token", "oauth", "pat", "app", "none"}
         assert method["schema"]["type"] == "object"
-    for name, hint in described["ui"].items():
-        assert set(hint) == _SPEC_UI_KEYS, name
-        assert hint["widget"] in {"text", "secret", "select", "textarea", "path"}
+    hints = [described["ui"], *(method["ui"] for method in described["auth_methods"])]
+    for ui in hints:
+        for name, hint in ui.items():
+            assert set(hint) == _SPEC_UI_KEYS, name
+            assert hint["widget"] in _WIDGETS
+            assert hint["help"], f"{spec.source_type}.{name} has no help"
+    for method in described["auth_methods"]:
+        assert set(method["ui"]) == set(method["schema"]["properties"]) - {"method"}
     for name in spec.secret_fields:
-        assert described["ui"][name]["widget"] == "secret"
         schemas = [m["schema"]["properties"] for m in described["auth_methods"]]
         assert all(props[name]["writeOnly"] is True for props in schemas if name in props)
+        assert all(
+            m["ui"][name]["widget"] == "secret"
+            for m in described["auth_methods"]
+            if name in m["ui"]
+        )
+
+
+@pytest.mark.parametrize("spec", source_types.all(), ids=lambda spec: spec.source_type)
+def test_every_advanced_field_publishes_its_connector_default(spec: Any) -> None:
+    described = source_types.describe(spec.source_type)
+
+    for name, prop in described["advanced_schema"]["properties"].items():
+        assert "default" in prop, f"{spec.source_type}.{name}"
+
+
+def test_each_auth_method_publishes_its_own_hints_and_its_method() -> None:
+    jira = source_types.describe("jira")
+    cloud, datacenter = jira["auth_methods"]
+
+    assert cloud["schema"]["properties"]["method"] == {
+        "const": "api_token",
+        "default": "api_token",
+        "description": "Auth method; may be left out for the first method only",
+    }
+    assert "method" not in cloud["schema"]["required"]
+    assert datacenter["schema"]["required"][0] == "method"
+    assert "id.atlassian.com" in cloud["ui"]["api_token"]["help"]
+    assert "id.atlassian.com" not in datacenter["ui"]["api_token"]["help"]
+    assert "api_token" not in jira["ui"]
+    assert jira["ui"]["project_keys"]["widget"] == "list"
+    assert jira["advanced_schema"]["properties"]["page_size"]["default"] == 50
+    confluence = source_types.describe("confluence")
+    assert confluence["config_schema"]["properties"]["content_types"]["default"] == ["page"]
+    github = source_types.describe("github")
+    assert "method" not in github["auth_methods"][0]["schema"]["required"]
+    assert github["config_schema"]["anyOf"] == [
+        {"required": ["repository_url"]},
+        {"required": ["owner", "repo"]},
+    ]
+
+
+@pytest.mark.parametrize(
+    ("source_type", "credentials", "config", "field", "issue"),
+    [
+        (
+            "jira",
+            {"base_url": "http://jira.acme.internal", "email": "a@b.c", "api_token": "t"},
+            {},
+            "credentials.base_url",
+            "must be an https:// URL",
+        ),
+        ("github", {"method": "none"}, {}, "config", "set repository_url, or owner and repo"),
+        (
+            "github",
+            {"method": "none"},
+            {"owner": "o", "repo": "r", "ref": "a", "branch": "b"},
+            "config",
+            "set ref or branch, not both",
+        ),
+        (
+            "sharepoint",
+            {"method": "pat", "access_token": "t"},
+            {},
+            "config",
+            "set site_url, site_id, or hostname and site_path",
+        ),
+    ],
+)
+def test_schemas_refuse_what_the_connector_would_refuse(
+    source_type: str, credentials: dict[str, Any], config: dict[str, Any], field: str, issue: str
+) -> None:
+    with pytest.raises(ConnectionValidationError) as caught:
+        validate(source_type, credentials, config)
+
+    assert caught.value.issues[0].field == field
+    assert issue in caught.value.issues[0].issue
 
 
 def test_jira_accepts_the_spec_example_body() -> None:
@@ -209,7 +290,9 @@ def test_unknown_method_and_unknown_type_are_field_errors() -> None:
 
 def test_secret_fields_accept_values_and_references() -> None:
     for value in ("ghp_x", {"secret_ref": "env:GITHUB_TOKEN"}):
-        validated = validate("github", {"method": "pat", "token": value}, {"repo": "r"})
+        validated = validate(
+            "github", {"method": "pat", "token": value}, {"owner": "o", "repo": "r"}
+        )
         assert validated.credentials["token"] == value
 
 

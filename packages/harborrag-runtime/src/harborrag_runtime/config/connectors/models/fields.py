@@ -2,7 +2,7 @@
 
 Handles:
 - ``Secret``: a write-only credential that is a value or a secret reference
-- ``HttpUrl`` and ``Email``: string fields with a published JSON Schema format
+- ``HttpUrl``, ``HttpsUrl`` and ``Email``: string fields with a published JSON Schema format
 - widget markers that turn into ``ui`` hints for the connection form
 """
 
@@ -10,11 +10,12 @@ from __future__ import annotations
 
 import re
 from typing import Annotated, Any, Literal, get_args, get_origin
+from urllib.parse import urlparse
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.fields import FieldInfo
 
-Widget = Literal["text", "secret", "select", "textarea", "path"]
+Widget = Literal["text", "secret", "select", "textarea", "path", "list", "toggle", "number"]
 
 WIDGET_MARKER = "x-widget"
 _HTTP_URL = re.compile(r"^https?://[^\s/]+\S*$")
@@ -53,6 +54,19 @@ def _require_http_url(value: str) -> str:
     return value.rstrip("/")
 
 
+def _require_https_url(value: str) -> str:
+    """Accept only an ``https://`` URL with a host and no embedded user or password."""
+    parsed = urlparse(value)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("must be an https:// URL without a user or password in it")
+    return value.rstrip("/")
+
+
 Secret = Annotated[
     str | SecretReference,
     SecretMarker(),
@@ -62,6 +76,11 @@ HttpUrl = Annotated[
     str,
     AfterValidator(_require_http_url),
     WithJsonSchema({"type": "string", "format": "uri"}),
+]
+HttpsUrl = Annotated[
+    str,
+    AfterValidator(_require_https_url),
+    WithJsonSchema({"type": "string", "format": "uri", "pattern": "^https://"}),
 ]
 Email = Annotated[
     str,

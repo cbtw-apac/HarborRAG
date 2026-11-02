@@ -10,7 +10,9 @@ from harborrag_adapters.connectors.environment import without_environment_defaul
 from ...errors import ConnectorConfigurationError
 from ..providers import ConnectorConfigFactory, coerce_config_values
 from .registry import SourceTypeRegistry, source_types
-from .spec import SourceTypeSpec
+from .spec import FieldIssue, SourceTypeSpec, ValidatedConnection
+
+_PLACEHOLDER_SECRET = "placeholder"
 
 
 class ConnectorConfigBuilder:
@@ -107,3 +109,54 @@ def to_connector_config(
         .secret_values(secret_values)
         .build()
     )
+
+
+def connector_config_issues(
+    spec: SourceTypeSpec, validated: ValidatedConnection
+) -> list[FieldIssue]:
+    """Build the provider config with placeholder secrets and report what it rejects.
+
+    Catches the rules a JSON Schema cannot hold, such as SharePoint's
+    ``item_ids`` against ``root_path``, before the values are saved.
+
+    Args:
+        spec: The connection's source type.
+        validated: Values that passed the source type's schemas.
+
+    Returns:
+        One issue naming the rejected field when it can be told, else ``config``;
+        none for a type whose ``build_check`` is off.
+    """
+    if not spec.build_check:
+        return []
+    placeholders = {
+        name: _PLACEHOLDER_SECRET
+        for name, value in validated.credentials.items()
+        if isinstance(value, Mapping)
+    }
+    try:
+        (
+            ConnectorConfigBuilder.for_source_type(spec.source_type)
+            .credentials(validated.credentials)
+            .config(validated.config)
+            .tuning(validated.tuning)
+            .secret_values(placeholders)
+            .build()
+        )
+    except ConnectorConfigurationError as error:
+        text = str(error.__cause__ or error)
+        return [FieldIssue(_field_of(spec, text), text)]
+    return []
+
+
+def _field_of(spec: SourceTypeSpec, text: str) -> str:
+    """Name the field a provider error starts with, as ``<part>.<field>``, else ``config``."""
+    first = text.split(" ", 1)[0].strip(":,.'\"")
+    public = {target: name for name, target in spec.credential_renames.items()}.get(first, first)
+    if public in spec.credential_fields:
+        return f"credentials.{public}"
+    if public in spec.tuning_fields:
+        return f"advanced.{public}"
+    if public in spec.config_fields:
+        return f"config.{public}"
+    return "config"

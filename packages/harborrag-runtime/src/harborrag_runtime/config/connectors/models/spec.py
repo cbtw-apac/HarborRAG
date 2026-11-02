@@ -25,6 +25,8 @@ AuthMethodId = Literal["api_token", "oauth", "pat", "app", "none"]
 Category = Literal["issue_tracker", "wiki", "files", "code"]
 
 METHOD_KEY = "method"
+_COMBINATORS = ("anyOf", "allOf", "oneOf", "not")
+_WIDGET_BY_TYPE = {"array": "list", "boolean": "toggle", "integer": "number", "number": "number"}
 _ICON_BASE = "https://cdn.harborrag.dev/icons"
 _DOCS_BASE = "https://docs.harborrag.dev/connectors"
 
@@ -105,8 +107,11 @@ class SourceTypeSpec:
 
     ``credential_renames`` maps a public credential name to the dataclass
     keyword it feeds; ``query_fields`` are config fields that travel in the
-    run's query filters instead of the dataclass; ``setups`` are the
-    setups a connection template is offered for.
+    run's query filters instead of the dataclass; ``endpoints`` are the
+    credential fields naming the host secrets are sent to; ``build_check``
+    is False when building the config reads the worker's file system, so
+    the API cannot check it; ``setups`` are the setups a connection
+    template is offered for.
     """
 
     source_type: str
@@ -118,6 +123,8 @@ class SourceTypeSpec:
     tuning_model: type[StrictModel]
     capabilities: Capabilities
     credential_renames: Mapping[str, str] = field(default_factory=dict)
+    endpoints: frozenset[str] = frozenset()
+    build_check: bool = True
     query_fields: frozenset[str] = frozenset()
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
@@ -138,6 +145,15 @@ class SourceTypeSpec:
             for name, info in method.model.model_fields.items()
             if is_secret(info)
         )
+
+    def method_secret_fields(self, method_id: str | None) -> frozenset[str]:
+        """Secret fields of the auth method ``method_id`` names, or of the default one.
+
+        Raises:
+            KeyError: ``method_id`` names no auth method of this type.
+        """
+        model = self.auth_method(method_id).model
+        return frozenset(name for name, info in model.model_fields.items() if is_secret(info))
 
     @property
     def config_fields(self) -> frozenset[str]:
@@ -214,8 +230,19 @@ class SourceTypeSpec:
         """Install-level rules a schema cannot express, such as allowed local roots."""
         return self.policy(config) if self.policy is not None else []
 
-    def describe(self) -> dict[str, Any]:
-        """Return the API's ``SourceType`` object for this type."""
+    def describe(self, defaults: Mapping[str, Any] | None = None) -> dict[str, Any]:
+        """Return the API's ``SourceType`` object for this type.
+
+        Args:
+            defaults: Connector defaults by dataclass keyword, published as the
+                ``default`` of config and advanced fields that leave a value out.
+
+        Returns:
+            The ``SourceType`` object; each auth method carries its own ``ui`` hints.
+        """
+        known = dict(defaults or {})
+        config_schema = _with_defaults(publish_schema(self.config_model), known)
+        advanced_schema = _with_defaults(publish_schema(self.tuning_model), known)
         return {
             "source_type": self.source_type,
             "name": self.name,
@@ -224,12 +251,17 @@ class SourceTypeSpec:
             "version": self.version,
             "docs_url": f"{_DOCS_BASE}/{self.source_type}",
             "auth_methods": [
-                {"id": method.id, "title": method.title, "schema": publish_schema(method.model)}
+                {
+                    "id": method.id,
+                    "title": method.title,
+                    "schema": self._method_schema(method),
+                    "ui": _hints(_model_hints(method.model, "Connection")),
+                }
                 for method in self.auth_methods
             ],
-            "config_schema": publish_schema(self.config_model),
-            "advanced_schema": publish_schema(self.tuning_model),
-            "ui": self._ui_hints(),
+            "config_schema": config_schema,
+            "advanced_schema": advanced_schema,
+            "ui": self._ui_hints(config_schema, advanced_schema),
             "capabilities": {
                 "incremental": self.capabilities.incremental,
                 "acl_sync": self.capabilities.acl_sync,
@@ -346,29 +378,70 @@ class SourceTypeSpec:
                 return method.id
         return self.auth_methods[0].id
 
-    def _ui_hints(self) -> dict[str, dict[str, Any]]:
-        """Build per-field form hints from the models' field metadata."""
-        hints: dict[str, dict[str, Any]] = {}
-        sections = [
-            ("Connection", [method.model for method in self.auth_methods]),
-            ("Sync", [self.config_model]),
-            ("Advanced", [self.tuning_model]),
-        ]
-        for group, models in sections:
-            for model in models:
-                published = publish_schema(model)["properties"]
-                for name, info in model.model_fields.items():
-                    if name in hints:
-                        continue
-                    examples = info.examples or []
-                    hints[name] = {
-                        "group": group,
-                        "order": len(hints) + 1,
-                        "widget": _widget_for(info, published.get(name, {})),
-                        "help": info.description or "",
-                        "placeholder": str(examples[0]) if examples else "",
-                    }
-        return hints
+    def _method_schema(self, method: AuthMethodSpec) -> dict[str, Any]:
+        """Publish an auth method's schema, naming it in ``method`` when the type has several."""
+        schema = publish_schema(method.model)
+        if not self.has_method_choice:
+            return schema
+        is_default = method is self.auth_methods[0]
+        selector: dict[str, Any] = {
+            "const": method.id,
+            "description": "Auth method; may be left out for the first method only",
+        }
+        if is_default:
+            selector["default"] = method.id
+        schema["properties"] = {METHOD_KEY: selector, **schema["properties"]}
+        if not is_default:
+            schema["required"] = [METHOD_KEY, *schema.get("required", [])]
+        return schema
+
+    def _ui_hints(
+        self, config_schema: Mapping[str, Any], advanced_schema: Mapping[str, Any]
+    ) -> dict[str, dict[str, Any]]:
+        """Form hints of config and advanced fields, plus credential fields every method shares."""
+        per_method = [_model_hints(method.model, "Connection") for method in self.auth_methods]
+        shared = {
+            name: hint
+            for name, hint in per_method[0].items()
+            if all(hints.get(name) == hint for hints in per_method[1:])
+        }
+        return _hints(
+            {
+                **shared,
+                **_model_hints(self.config_model, "Sync", config_schema),
+                **_model_hints(self.tuning_model, "Advanced", advanced_schema),
+            }
+        )
+
+
+def _model_hints(
+    model: type[StrictModel], group: str, published: Mapping[str, Any] | None = None
+) -> dict[str, dict[str, Any]]:
+    """Build the form hint of each field of ``model``, without its ``order``."""
+    properties = (published or publish_schema(model))["properties"]
+    hints: dict[str, dict[str, Any]] = {}
+    for name, info in model.model_fields.items():
+        examples = info.examples or []
+        hints[name] = {
+            "group": group,
+            "widget": _widget_for(info, properties.get(name, {})),
+            "help": info.description or "",
+            "placeholder": str(examples[0]) if examples else "",
+        }
+    return hints
+
+
+def _hints(hints: Mapping[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Number the hints in form order."""
+    return {name: {**hint, "order": order} for order, (name, hint) in enumerate(hints.items(), 1)}
+
+
+def _with_defaults(schema: dict[str, Any], defaults: Mapping[str, Any]) -> dict[str, Any]:
+    """Publish the connector's default, which a left-out field gets, on each property."""
+    for name, prop in schema["properties"].items():
+        if defaults.get(name) is not None:
+            prop["default"] = defaults[name]
+    return schema
 
 
 def publish_schema(model: type[StrictModel]) -> dict[str, Any]:
@@ -379,6 +452,7 @@ def publish_schema(model: type[StrictModel]) -> dict[str, Any]:
     if raw.get("required"):
         schema["required"] = list(raw["required"])
     schema["properties"] = properties
+    schema.update({key: raw[key] for key in _COMBINATORS if key in raw})
     return schema
 
 
@@ -400,13 +474,15 @@ def _clean(prop: dict[str, Any]) -> dict[str, Any]:
 
 
 def _widget_for(info: FieldInfo, published: Mapping[str, Any]) -> str:
-    """Choose the form widget of a field: secret, an explicit marker, select for enums, text."""
+    """Choose the form widget of a field from its marker, secrecy or published type."""
     if is_secret(info):
         return "secret"
     extra = info.json_schema_extra if isinstance(info.json_schema_extra, dict) else {}
     if WIDGET_MARKER in extra:
         return str(extra[WIDGET_MARKER])
-    return "select" if "enum" in published else "text"
+    if "enum" in published or "const" in published:
+        return "select"
+    return _WIDGET_BY_TYPE.get(str(published.get("type")), "text")
 
 
 def _check(
