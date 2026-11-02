@@ -8,7 +8,9 @@ Handles:
   resolves to before connecting, then the address the socket actually reached,
   so neither a closed port nor a DNS answer that changes in between slips through
 
-Does NOT guard traffic sent through a proxy; the proxy decides where it goes.
+Proxy variables such as ``HTTPS_PROXY`` are ignored unless the operator sets
+``HARBORRAG_CONNECTOR_USE_PROXY``. Through a proxy, only the target host's own
+addresses are checked; the proxy then decides where the request goes.
 """
 
 from __future__ import annotations
@@ -20,15 +22,19 @@ from dataclasses import dataclass
 from functools import lru_cache
 from ipaddress import IPv4Network, IPv6Address, IPv6Network, ip_address, ip_network
 from typing import Any, Self
+from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
+from requests.utils import select_proxy
 from urllib3.connection import HTTPConnection, HTTPSConnection
 from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
 
 from ..exceptions import FetchError
 
 ALLOWED_HOSTS_VARIABLE = "HARBORRAG_CONNECTOR_ALLOWED_HOSTS"
+USE_PROXY_VARIABLE = "HARBORRAG_CONNECTOR_USE_PROXY"
+_TRUE = frozenset({"1", "true", "yes", "on"})
 
 
 class BlockedDestinationError(FetchError):
@@ -43,11 +49,17 @@ class DestinationPolicy:
 
     hosts: frozenset[str] = frozenset()
     networks: tuple[IPv4Network | IPv6Network, ...] = ()
+    use_proxy: bool = False
 
     @classmethod
     def from_environ(cls, environ: Mapping[str, str] | None = None) -> Self:
-        """Read ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS``: comma-separated host names or CIDRs."""
-        raw = (os.environ if environ is None else environ).get(ALLOWED_HOSTS_VARIABLE, "")
+        """Read ``HARBORRAG_CONNECTOR_ALLOWED_HOSTS`` and ``HARBORRAG_CONNECTOR_USE_PROXY``.
+
+        Allowed hosts are comma-separated host names or CIDRs; proxies are used
+        only when the second is ``true``.
+        """
+        variables = os.environ if environ is None else environ
+        raw = variables.get(ALLOWED_HOSTS_VARIABLE, "")
         hosts: set[str] = set()
         networks: list[IPv4Network | IPv6Network] = []
         for item in (part.strip() for part in raw.split(",")):
@@ -57,7 +69,8 @@ class DestinationPolicy:
                 networks.append(ip_network(item, strict=False))
             except ValueError:
                 hosts.add(item.casefold().rstrip("."))
-        return cls(frozenset(hosts), tuple(networks))
+        use_proxy = variables.get(USE_PROXY_VARIABLE, "").strip().casefold() in _TRUE
+        return cls(frozenset(hosts), tuple(networks), use_proxy)
 
     def check_host(self, host: str, port: int) -> None:
         """Refuse ``host`` before connecting when any address it resolves to is refused.
@@ -114,8 +127,34 @@ class _GuardedAdapter(HTTPAdapter):
     """Adapter whose connection pools check each new socket's peer address."""
 
     def __init__(self, policy: DestinationPolicy) -> None:
+        self._policy = policy
         self._pools = _guarded_pools(policy)
         super().__init__()
+
+    def send(  # noqa: PLR0913 - requests' adapter signature
+        self,
+        request: requests.PreparedRequest,
+        stream: bool = False,
+        timeout: Any = None,
+        verify: bool | str = True,
+        cert: Any = None,
+        proxies: dict[str, str] | None = None,
+    ) -> requests.Response:
+        """Send directly through the guarded pools unless the operator opted in to proxies.
+
+        Raises:
+            BlockedDestinationError: Through a proxy, the target host resolves to a
+                refused address.
+        """
+        if not self._policy.use_proxy:
+            proxies = {}
+        elif select_proxy(str(request.url), proxies or {}):
+            target = urlparse(str(request.url))
+            default_port = 443 if target.scheme == "https" else 80
+            self._policy.check_host(target.hostname or "", target.port or default_port)
+        return super().send(
+            request, stream=stream, timeout=timeout, verify=verify, cert=cert, proxies=proxies
+        )
 
     def init_poolmanager(self, *args: Any, **kwargs: Any) -> None:
         """Build the pool manager with this adapter's guarded pools."""

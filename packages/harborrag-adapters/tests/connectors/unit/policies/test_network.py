@@ -8,9 +8,11 @@ import threading
 from collections.abc import Iterator
 
 import pytest
+import requests
 
 from harborrag_adapters.connectors.policies.network import (
     ALLOWED_HOSTS_VARIABLE,
+    USE_PROXY_VARIABLE,
     BlockedDestinationError,
     DestinationPolicy,
     guarded_session,
@@ -79,3 +81,38 @@ def test_a_closed_private_port_reads_the_same_as_an_open_one() -> None:
 
     with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
         guarded_session(DestinationPolicy()).get(f"https://localhost:{port}/", timeout=5)
+
+
+@pytest.fixture
+def dead_proxy(monkeypatch: pytest.MonkeyPatch) -> str:
+    probe = socket.socket()
+    probe.bind(("127.0.0.1", 0))
+    proxy = f"http://127.0.0.1:{probe.getsockname()[1]}"
+    probe.close()
+    for name in ("NO_PROXY", "no_proxy"):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        monkeypatch.setenv(name, proxy)
+    return proxy
+
+
+def test_a_proxy_variable_does_not_switch_the_guard_off(local_server: str, dead_proxy: str) -> None:
+    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+        guarded_session(DestinationPolicy()).get(local_server, timeout=5)
+
+
+def test_an_opted_in_proxy_still_refuses_a_private_target(
+    local_server: str, dead_proxy: str
+) -> None:
+    proxied = guarded_session(DestinationPolicy(use_proxy=True))
+
+    with pytest.raises(BlockedDestinationError, match="private address 127.0.0.1"):
+        proxied.get(local_server, timeout=5)
+    with pytest.raises(requests.exceptions.ProxyError):
+        proxied.get("http://93.184.216.34/", timeout=5)
+
+
+def test_proxies_are_used_only_when_the_operator_opts_in() -> None:
+    assert DestinationPolicy.from_environ({USE_PROXY_VARIABLE: " True "}).use_proxy is True
+    assert DestinationPolicy.from_environ({USE_PROXY_VARIABLE: "no"}).use_proxy is False
+    assert DestinationPolicy.from_environ({}).use_proxy is False
