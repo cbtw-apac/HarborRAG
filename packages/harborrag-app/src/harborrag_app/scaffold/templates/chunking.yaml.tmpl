@@ -1,0 +1,61 @@
+version: 1
+
+# Chunking policy. Every value below is part of the processing identity:
+# changing one re-chunks (and re-embeds) documents on their next ingestion.
+# Without this file the same values apply as built-in defaults.
+
+# Bump to force a re-chunk without changing any other value.
+configuration_version: canonical-source-policies
+# Emit compact document/section route chunks alongside evidence chunks.
+create_route_chunks: true
+
+# How a unit still above its profile's maximum_tokens is split.
+refiner:
+  # structure: code at syntax boundaries (tree-sitter), Markdown at headings,
+  #            fences and list items, prose at paragraph/sentence ends, tables
+  #            and logs at line breaks.
+  # recursive: LangChain recursive character splitter
+  #            (needs harborrag-adapters[chunking]).
+  strategy: structure
+  # true: fail startup when the tree-sitter grammars of
+  # harborrag-adapters[chunking-code] are missing or at another version.
+  # false: log a warning and split code at definition keywords and blank lines.
+  require_code_grammars: false
+
+# Profile used by every source not listed under source_profiles.
+default_profile: canonical
+
+# Token limits per profile: minimum <= target <= maximum.
+# soft_maximum_tokens (packing ceiling) defaults to maximum_tokens.
+# overlap_tokens repeats the end of the previous split; it must stay below
+# target_tokens, and code, JSON, log and table units never overlap.
+profiles:
+  canonical:
+    strategy: canonical
+    limits:
+      minimum_tokens: 120
+      target_tokens: 700
+      maximum_tokens: 1100
+      overlap_tokens: 0
+  jira:
+    strategy: jira
+    limits:
+      minimum_tokens: 80
+      target_tokens: 600
+      maximum_tokens: 1000
+      overlap_tokens: 40
+  confluence:
+    strategy: confluence
+    limits:
+      minimum_tokens: 120
+      target_tokens: 750
+      maximum_tokens: 1200
+      overlap_tokens: 0
+    # merge_small_peers: true      # join small adjacent units of one section
+    # preserve_sections: true      # carry the heading path on every chunk
+    # repeat_table_headers: true   # repeat column headers on every table part
+
+# Connector type -> profile name.
+source_profiles:
+  confluence: confluence
+  jira: jira
