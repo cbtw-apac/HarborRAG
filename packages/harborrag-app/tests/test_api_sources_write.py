@@ -218,10 +218,10 @@ def test_update_and_delete_of_a_source_outside_the_callers_tenants_404s(project:
 
 
 @pytest.mark.blackbox
-def test_create_sharepoint_source_keeps_its_token_cache_path_out_of_the_secret_store(
+def test_create_sharepoint_source_refuses_a_token_cache_path_from_the_api(
     project: Project,
 ) -> None:
-    """``token_cache_path`` is a location, so the secret store is not asked to hold it."""
+    """``token_cache_path`` is a worker file path, so only the CLI and connectors.yaml set it."""
     secrets = FakeSecrets()
     with _client(projects=[project], secrets=secrets) as client:
         response = client.post(
@@ -241,8 +241,35 @@ def test_create_sharepoint_source_keeps_its_token_cache_path_out_of_the_secret_s
             },
         )
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["config"]["auth_mode"] == "device_code"
-    assert body["secret_refs"] == []
+    assert response.status_code == 422
+    assert "config.token_cache_path" in response.text
     assert secrets.values == {}
+
+
+@pytest.mark.blackbox
+def test_update_refuses_a_token_cache_path_and_keeps_merging_other_fields(
+    project: Project,
+) -> None:
+    with _client(projects=[project]) as client:
+        created = client.post(
+            "/api/v1/sources",
+            json={
+                "tenant_id": "DEFAULT",
+                "project_id": "proj-a",
+                "source_type": "sharepoint",
+                "name": "Knowledge",
+                "config": {
+                    "site_url": "https://acme.sharepoint.com/sites/knowledge",
+                    "tenant_id": "tenant",
+                    "client_id": "client",
+                    "auth_mode": "device_code",
+                },
+            },
+        ).json()
+        path = f"/api/v1/sources/{created['id']}"
+        moved = client.patch(path, json={"config": {"token_cache_path": "/etc/harborrag.json"}})
+        renamed = client.patch(path, json={"config": {"client_id": "client-2"}})
+
+    assert moved.status_code == 422
+    assert "config.token_cache_path" in moved.text
+    assert renamed.status_code == 200

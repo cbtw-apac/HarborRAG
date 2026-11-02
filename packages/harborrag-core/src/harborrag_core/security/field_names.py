@@ -75,11 +75,12 @@ exception is deliberately narrow and applies to ``token`` alone.
 """
 
 
-_LOCATION_QUALIFIERS = frozenset({"path", "dir", "directory", "file"})
-"""Words that make a neighbouring ``token`` the location of a credential, not its value.
+_CREDENTIAL_LOCATIONS = frozenset({"token_cache_path"})
+"""Exact names that hold where a credential is kept, not the credential itself.
 
-``token_cache_path`` names where a refresh token is kept on disk; the path is
-not itself a secret. Like ``_COUNT_QUALIFIERS`` this applies to ``token`` alone.
+``token_cache_path`` names the file a SharePoint refresh token lives in. Only
+this exact name is exempt: ``token_file`` or ``token_dir`` may still hold or
+point at a value, so they stay sensitive.
 """
 
 
@@ -115,6 +116,8 @@ def is_sensitive_field_name(value: object) -> bool:
     """
 
     name = canonical_field_name(value)
+    if name in _CREDENTIAL_LOCATIONS:
+        return False
     squashed = name.replace("_", "")
     if any(entry in squashed for entry in _UNSEPARATED_ENTRIES):
         return True
@@ -124,7 +127,7 @@ def is_sensitive_field_name(value: object) -> bool:
         for entry in _SINGLE_WORD_TOKENS
         if any(_token_carries(token, entry) for token in tokens)
     }
-    if matched == {"token"} and tokens & (_COUNT_QUALIFIERS | _LOCATION_QUALIFIERS):
+    if matched == {"token"} and tokens & _COUNT_QUALIFIERS:
         return False
     return bool(matched)
 

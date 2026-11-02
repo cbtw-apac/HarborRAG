@@ -479,3 +479,33 @@ async def test_only_operator_writes_may_set_an_env_reference(world: ConnectionWo
         assert "connectors.yaml or with the harborrag CLI" in caught.value.issues[0].issue
     assert operator.connection["credentials"]["api_token"]["from"] == "env"
     assert renamed.connection["credentials"]["api_token"]["from"] == "env"
+
+
+_DELEGATED = {"method": "oauth", "tenant_id": "entra-tenant", "client_id": "entra-app"}
+_SITE = {"site_url": "https://acme.sharepoint.com/sites/knowledge"}
+
+
+@pytest.mark.asyncio
+async def test_only_operators_set_the_sharepoint_token_cache_path(world: ConnectionWorld) -> None:
+    key = ConnectionKey("acme", "cpm", "knowledge")
+    with_path = ConnectionWrite(
+        "sharepoint", {**_DELEGATED, "token_cache_path": "/var/lib/harborrag/kb.json"}, _SITE
+    )
+    moved = ConnectionWrite(
+        "sharepoint", {**_DELEGATED, "token_cache_path": "/etc/harborrag.json"}, _SITE
+    )
+
+    with pytest.raises(ConnectionValidationError) as on_put:
+        await world.service.put(key, with_path, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_test:
+        await world.service.test(key, with_path)
+    await world.service.put(key, with_path, actor="ops", origin="operator")
+    echoed = await world.service.put(key, with_path, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_change:
+        await world.service.put(key, moved, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_omit:
+        await world.service.put(key, ConnectionWrite("sharepoint", _DELEGATED, _SITE), actor="u")
+
+    for caught in (on_put, on_test, on_change, on_omit):
+        assert [issue.field for issue in caught.value.issues] == ["credentials.token_cache_path"]
+    assert echoed.connection["credentials"]["token_cache_path"] == "/var/lib/harborrag/kb.json"

@@ -29,7 +29,12 @@ from harborrag_core.domain.connection import (
 )
 from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.config.connectors.models import SourceTypeSpec, source_types
+from harborrag_runtime.config.connectors.models import (
+    ConnectionValidationError,
+    FieldIssue,
+    SourceTypeSpec,
+    source_types,
+)
 
 from ..schemas import AppResponse
 from .effect_recovery import log_activity as _log_activity
@@ -62,6 +67,7 @@ class ControlPlaneWritesMixin:
         if await control_plane.projects.get(project_id, tenant_ids=tenant_ids) is None:
             raise HarborNotFoundError(f"project {project_id!r} not found")
         spec = _require_spec(source_type)
+        _refuse_issues(spec.operator_field_issues(config, None, part="config"))
         connection_id = await _free_connection_id(control_plane, tenant_id, project_id, name)
         resolved_config, secret_refs, newly_put_refs, _stale = await _extract_secrets(
             control_plane, spec, config, tenant_id=tenant_id
@@ -127,12 +133,16 @@ class ControlPlaneWritesMixin:
         stale_refs: list[str] = []
         if "config" in updates:
             spec = _require_spec(source.source_type)
+            stored = spec.flatten(source.credentials, source.config, source.tuning)
+            _refuse_issues(
+                spec.operator_field_issues(updates["config"], stored, part="config", merge=True)
+            )
             resolved_config, secret_refs, newly_put_refs, stale_refs = await _extract_secrets(
                 control_plane,
                 spec,
                 updates["config"],
                 tenant_id=source.tenant_id,
-                existing=spec.flatten(source.credentials, source.config, source.tuning),
+                existing=stored,
             )
             credentials, sync_config, tuning = spec.split_flat(resolved_config)
             builder.credentials(credentials).config(sync_config).tuning(tuning)
@@ -233,6 +243,16 @@ async def _free_connection_id(
     )
     taken = {connection.connection_id for connection in existing}
     return unique_connection_id(slugify_connection_id(name), taken)
+
+
+def _refuse_issues(issues: list[FieldIssue]) -> None:
+    """Raise when a legacy write sets a field only operators may set.
+
+    Raises:
+        ConnectionValidationError: ``issues`` is not empty.
+    """
+    if issues:
+        raise ConnectionValidationError(issues)
 
 
 def _require_spec(source_type: str) -> SourceTypeSpec:

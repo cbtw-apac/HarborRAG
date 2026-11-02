@@ -71,7 +71,9 @@ For GitHub Enterprise Server, set `credentials.api_url` and
 SharePoint device-code sign-in reads as a user who signed in once with
 `python -m harborrag_adapters.connectors.sharepoint.login --tenant-id … --client-id …`
 on a host whose `token_cache_path` the workers can also read. The API cannot
-show the sign-in prompt itself.
+show the sign-in prompt itself. `token_cache_path` is a path on the worker, so
+only `config/connectors.yaml` and the `harborrag source` CLI can set or change
+it; through the API, leave it as read or leave it out when it was never set.
 
 **2. Test it.** Send the form values; nothing is saved:
 

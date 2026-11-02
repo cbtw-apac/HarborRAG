@@ -37,6 +37,10 @@ from harborrag_core.security.redaction import redact_mapping, redact_secrets
         "customer_access_token",
         "secret_path",
         "api_key_file",
+        # Only token_cache_path is exempt as a location; these may hold the value.
+        "token_file",
+        "token_dir",
+        "token_path",
     ],
 )
 def test_a_credential_field_is_recognized(name: str) -> None:
@@ -63,7 +67,7 @@ def test_a_credential_field_is_recognized(name: str) -> None:
         "supports_ambient_credentials",
         "secrets",
         "token_cache_path",
-        "token_dir",
+        "tokenCachePath",
     ],
 )
 def test_a_quantity_is_not_mistaken_for_a_credential(name: str) -> None:

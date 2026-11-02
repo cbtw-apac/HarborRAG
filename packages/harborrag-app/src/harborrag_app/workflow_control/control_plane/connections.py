@@ -77,7 +77,8 @@ TEST_TIMEOUT_SECONDS = 15.0
 SYNC_LEASE_TTL_SECONDS = 5.0
 
 WriteOrigin = Literal["api", "operator"]
-"""Who writes: ``api`` callers may not set new ``env:`` references; the CLI (``operator``) may."""
+"""Who writes: ``api`` callers may not set new ``env:`` references or operator-only
+fields such as a worker file path; the CLI (``operator``) may."""
 
 
 class ConnectionRuns(Protocol):
@@ -271,7 +272,7 @@ class ConnectionService:
             HarborNotFoundError: The project does not exist in the tenant.
             ConnectionValidationError: The type is unknown, a field fails its schema,
                 an endpoint changed while a stored secret would be kept, or an ``api``
-                write sets a new ``env:`` reference.
+                write sets a new ``env:`` reference or changes an operator-only field.
             HarborImmutableFieldError: The connection exists with another source type.
             HarborPreconditionFailedError: ``If-Match`` or ``If-None-Match`` does not hold.
             ConnectionUnavailableError: The connection is being deleted.
@@ -287,6 +288,7 @@ class ConnectionService:
             expected_version, existing.version if existing else None
         )
         _check_preconditions(existing, spec, expected_version, create_only)
+        _refuse_operator_fields(spec, write, existing, origin)
         sent, keep = _plan_credentials(write.credentials, existing, spec)
         validated = _validate(spec, _effective_credentials(sent, existing, keep), write, existing)
         written = await CredentialSecretWriter(
@@ -339,7 +341,8 @@ class ConnectionService:
             HarborNotFoundError: No body and no saved connection, or the project is missing.
             ConnectionValidationError: The values fail the source type's schema, change an
                 endpoint while a stored secret would be kept, name a stored secret the
-                field does not hold, or, from ``api``, set a new ``env:`` reference.
+                field does not hold, or, from ``api``, set a new ``env:`` reference or
+                change an operator-only field.
         """
         control_plane = self._control_plane()
         existing = await control_plane.connections.get(
@@ -356,6 +359,7 @@ class ConnectionService:
         spec = source_types.get(write.source_type)
         sent, keep = _plan_credentials(write.credentials, existing, spec)
         effective = _effective_credentials(sent, existing, keep)
+        _refuse_operator_fields(spec, write, existing, origin)
         issues = reference_issues(
             sent, existing.credentials if existing else None, sources=_secret_sources(origin)
         )
@@ -740,6 +744,23 @@ def _plan_credentials(
             ]
         )
     return sent, keep
+
+
+def _refuse_operator_fields(
+    spec: SourceTypeSpec, write: ConnectionWrite, existing: Connection | None, origin: WriteOrigin
+) -> None:
+    """Refuse an API write that changes a field only operators may set, such as a worker path.
+
+    Raises:
+        ConnectionValidationError: ``origin`` is ``api`` and an operator-only field changes.
+    """
+    if origin != "api":
+        return
+    issues = spec.operator_field_issues(
+        write.credentials, existing.credentials if existing else None
+    )
+    if issues:
+        raise ConnectionValidationError(issues)
 
 
 def _secret_sources(origin: WriteOrigin) -> frozenset[SecretSource]:

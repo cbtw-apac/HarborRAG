@@ -25,6 +25,7 @@ AuthMethodId = Literal["api_token", "oauth", "pat", "app", "none"]
 Category = Literal["issue_tracker", "wiki", "files", "code"]
 
 METHOD_KEY = "method"
+OPERATOR_FIELD_HELP = "can be set only in connectors.yaml or with the harborrag CLI"
 _COMBINATORS = ("anyOf", "allOf", "oneOf", "not")
 _WIDGET_BY_TYPE = {"array": "list", "boolean": "toggle", "integer": "number", "number": "number"}
 _ICON_BASE = "https://cdn.harborrag.dev/icons"
@@ -108,7 +109,9 @@ class SourceTypeSpec:
     ``credential_renames`` maps a public credential name to the dataclass
     keyword it feeds; ``query_fields`` are config fields that travel in the
     run's query filters instead of the dataclass; ``endpoints`` are the
-    credential fields naming the host secrets are sent to; ``build_check``
+    credential fields naming the host secrets are sent to;
+    ``operator_fields`` are credential fields only the CLI and
+    ``connectors.yaml`` may set, such as a worker file path; ``build_check``
     is False when building the config reads the worker's file system, so
     the API cannot check it; ``setups`` are the setups a connection
     template is offered for.
@@ -124,6 +127,7 @@ class SourceTypeSpec:
     capabilities: Capabilities
     credential_renames: Mapping[str, str] = field(default_factory=dict)
     endpoints: frozenset[str] = frozenset()
+    operator_fields: frozenset[str] = frozenset()
     build_check: bool = True
     query_fields: frozenset[str] = frozenset()
     aliases: tuple[str, ...] = ()
@@ -225,6 +229,33 @@ class SourceTypeSpec:
         if self.has_method_choice:
             checked_credentials = {METHOD_KEY: method.id, **checked_credentials}
         return ValidatedConnection(checked_credentials, checked_config, checked_tuning)
+
+    def operator_field_issues(
+        self,
+        incoming: Mapping[str, Any],
+        stored: Mapping[str, Any] | None,
+        *,
+        part: str = "credentials",
+        merge: bool = False,
+    ) -> list[FieldIssue]:
+        """List the operator-only fields an API write would change.
+
+        Args:
+            incoming: The fields the caller sent.
+            stored: The connection's stored fields, or ``None`` for a new connection.
+            part: Prefix of the reported field path.
+            merge: True when a field left out keeps its stored value; otherwise
+                leaving it out clears it, which is a change too.
+
+        Returns:
+            One issue per operator-only field whose value would change.
+        """
+        before = stored or {}
+        return [
+            FieldIssue(f"{part}.{name}", OPERATOR_FIELD_HELP)
+            for name in sorted(self.operator_fields)
+            if not (merge and name not in incoming) and incoming.get(name) != before.get(name)
+        ]
 
     def policy_issues(self, config: Mapping[str, Any]) -> list[FieldIssue]:
         """Install-level rules a schema cannot express, such as allowed local roots."""

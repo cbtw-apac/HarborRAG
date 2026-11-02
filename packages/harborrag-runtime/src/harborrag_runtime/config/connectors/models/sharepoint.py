@@ -43,7 +43,10 @@ class SharePointDelegatedCredentials(StrictModel):
     client_id: str = Field(min_length=1, description=_CLIENT_HELP, examples=[_CLIENT_EXAMPLE])
     token_cache_path: str | None = Field(
         default=None,
-        description="Where the worker keeps the refresh token; defaults under ~/.harborrag",
+        description=(
+            "Where the worker keeps the refresh token; defaults under ~/.harborrag. "
+            "Set only in connectors.yaml or with the harborrag CLI"
+        ),
         json_schema_extra=widget("path"),
     )
     graph_api_url: HttpsUrl | None = Field(default=None, description=_GRAPH_HELP)
@@ -147,6 +150,7 @@ SHAREPOINT = SourceTypeSpec(
     tuning_model=PagedHttpTuning,
     capabilities=Capabilities(incremental=True, attachments=False),
     endpoints=frozenset({"graph_api_url"}),
+    operator_fields=frozenset({"token_cache_path"}),
     aliases=("microsoft_sharepoint", "sharepoint_online"),
     setups=(
         Setup(
