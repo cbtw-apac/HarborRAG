@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -383,3 +384,35 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
 
     assert result.returncode == 0, result.stderr
     assert "HARBORRAG_ENV=prod" in docker_log.read_text(encoding="utf-8")
+
+
+def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> None:
+    script = tmp_path / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    for template in (ROOT / "env-example").glob(".env.*.example"):
+        target = tmp_path / "env-example" / template.name
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    environ = {k: v for k, v in os.environ.items() if k != "HARBORRAG_SECRETS_ENCRYPTION_KEY"}
+
+    def bootstrap() -> str:
+        result = subprocess.run(
+            ["bash", str(script), "bootstrap"],
+            cwd=tmp_path,
+            env=environ,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+        assert result.returncode == 0, result.stderr
+        database = (tmp_path / "env/.env.database").read_text(encoding="utf-8")
+        keys = re.findall(r"^HARBORRAG_SECRETS_ENCRYPTION_KEY=(.*)$", database, re.MULTILINE)
+        assert len(keys) == 1 and re.fullmatch(r"[0-9a-f]{64}", keys[0])
+        return keys[0]
+
+    first = bootstrap()
+
+    assert bootstrap() == first
+    assert (tmp_path / "env/.env.database").stat().st_mode & 0o777 == 0o600
+

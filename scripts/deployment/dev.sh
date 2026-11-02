@@ -73,8 +73,27 @@ require_control_plane_encryption_key() {
     configured="${configured#"${configured%%[![:space:]]*}"}"
     configured="${configured%"${configured##*[![:space:]]}"}"
     if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
-        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker; set it in ${DATABASE_ENV_FILE}."
+        [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]] &&
+            fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is set but blank in this shell; unset it or give it a value."
+        generate_encryption_key
     fi
+}
+
+# A blank key means nothing was ever stored with one, so generating it loses nothing.
+generate_encryption_key() {
+    local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
+    local key
+
+    command -v openssl >/dev/null ||
+        fail "OpenSSL is required to generate HARBORRAG_SECRETS_ENCRYPTION_KEY."
+    key="$(openssl rand -hex 32)"
+    if grep -Eq '^HARBORRAG_SECRETS_ENCRYPTION_KEY=' "${target_path}"; then
+        sed -i "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
+    else
+        printf '\nHARBORRAG_SECRETS_ENCRYPTION_KEY=%s\n' "${key}" >>"${target_path}"
+    fi
+    chmod 600 "${target_path}"
+    echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
 }
 
 ensure_environment_file() {
@@ -114,6 +133,7 @@ ensure_mcp_environment_file() {
 bootstrap_environment() {
     created_environment=0
     ensure_environment_file "${DATABASE_ENV_FILE}" "env-example/.env.database.example"
+    require_control_plane_encryption_key
     ensure_environment_file "${TEMPORAL_ENV_FILE}" "env-example/.env.temporal.example"
     ensure_environment_file "${CONNECTOR_ENV_FILE}" "env-example/.env.connector.example"
     ensure_environment_file "${PARSER_ENV_FILE}" "env-example/.env.parser.example"
