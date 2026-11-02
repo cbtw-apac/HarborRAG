@@ -51,8 +51,10 @@ DEFAULT_PAGE_COUNTERS: tuple[PageCounter, ...] = (
 class PdfPageLimit:
     """Reject a PDF whose page count is above ``max_pages``; ``None`` turns the check off.
 
-    The first installed counter decides. A PDF none of them can read, such as
-    an encrypted or damaged one, is left to the engines, which report why.
+    The first installed counter that can read the PDF decides; one that fails
+    on it passes to the next, so a PDF that one library rejects but an engine
+    accepts is still counted. A PDF none of them can read, such as an
+    encrypted or damaged one, is left to the engines, which report why.
     """
 
     max_pages: int | None = PDF_MAX_PAGES
@@ -77,12 +79,10 @@ class PdfPageLimit:
             )
 
     def count(self, data: bytes) -> int | None:
-        """Return the page count from the first installed counter, or None when none can read it."""
+        """Return the page count from the first counter that reads ``data``, else None."""
         for counter in self.counters:
             try:
                 return counter(data)
-            except ImportError:
+            except Exception:  # noqa: BLE001 - try the next library; the engines report errors
                 continue
-            except Exception:  # noqa: BLE001 - an unreadable PDF is the engines' to report
-                return None
         return None

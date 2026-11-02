@@ -59,6 +59,17 @@ def test_the_first_installed_counter_decides() -> None:
         limit.check(ParseInput(content=b"%PDF", filename="x.pdf"))
 
 
+def test_a_counter_that_cannot_read_the_pdf_passes_to_the_next() -> None:
+    def rejects(data: bytes) -> int:
+        raise ValueError("this library cannot open the file")
+
+    limit = PdfPageLimit(5, counters=(rejects, lambda data: 9))
+
+    assert limit.count(b"%PDF") == 9
+    with pytest.raises(MaxPagesExceededError):
+        limit.check(ParseInput(content=b"%PDF", filename="x.pdf"))
+
+
 def test_the_parser_refuses_a_long_pdf_before_any_engine_runs() -> None:
     _RecordingBackend.calls = 0
     parser = PdfParser(backends=[_RecordingBackend()], min_content_chars=10)
