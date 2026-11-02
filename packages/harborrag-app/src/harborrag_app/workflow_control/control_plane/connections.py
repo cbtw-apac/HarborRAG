@@ -23,6 +23,7 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborCapabilityError,
+    HarborConflictError,
     HarborError,
     HarborImmutableFieldError,
     HarborNotFoundError,
@@ -280,7 +281,45 @@ class ConnectionService:
                 write sets a new ``env:`` reference or changes an operator-only field.
             HarborImmutableFieldError: The connection exists with another source type.
             HarborPreconditionFailedError: ``If-Match`` or ``If-None-Match`` does not hold.
+            HarborConflictError: Without either, another write landed twice in a row
+                between reading the connection and saving it.
             ConnectionUnavailableError: The connection is being deleted.
+        """
+        guarded = expected_version is None and not create_only
+        for attempt in range(2 if guarded else 1):
+            try:
+                return await self._put_once(
+                    key,
+                    write,
+                    actor=actor,
+                    expected_version=expected_version,
+                    create_only=create_only,
+                    sync_now=sync_now,
+                    origin=origin,
+                    guarded=guarded,
+                )
+            except _ConcurrentWriteError:
+                logger.info("connection %s changed while saving; attempt %d", key, attempt + 1)
+        raise HarborConflictError(
+            "the connection changed while it was being saved; read it and send it again"
+        )
+
+    async def _put_once(  # noqa: PLR0913 - one body plus its preconditions
+        self,
+        key: ConnectionKey,
+        write: ConnectionWrite,
+        *,
+        actor: str,
+        expected_version: int | None,
+        create_only: bool,
+        sync_now: bool,
+        origin: WriteOrigin,
+        guarded: bool,
+    ) -> ConnectionPutResult:
+        """Run one save; ``guarded`` writes only over the version read here.
+
+        Raises:
+            _ConcurrentWriteError: ``guarded`` and another write landed first.
         """
         control_plane = self._control_plane()
         await self._require_project(key)
@@ -312,8 +351,15 @@ class ConnectionService:
         connection = _build(key, existing, spec, write, credentials, validated, actor)
         try:
             stored, outcome = await control_plane.connections.put(
-                connection, expected_version=expected_version, create_only=create_only
+                connection,
+                expected_version=existing.version if guarded and existing else expected_version,
+                create_only=create_only or (guarded and existing is None),
             )
+        except HarborPreconditionFailedError as error:
+            await retire_refs(control_plane, written.created, tenant_id=key.tenant_id)
+            if guarded:
+                raise _ConcurrentWriteError from error
+            raise
         except Exception:
             await retire_refs(control_plane, written.created, tenant_id=key.tenant_id)
             raise
@@ -774,6 +820,10 @@ def _plan_credentials(
             ]
         )
     return sent, keep
+
+
+class _ConcurrentWriteError(Exception):
+    """A save without a precondition lost a race with another write."""
 
 
 def _refuse_operator_fields(

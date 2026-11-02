@@ -596,3 +596,65 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
             await builder(settings, submission)  # type: ignore[arg-type]
 
     assert imports == ["connectors.yaml"]
+
+
+def _racing(world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch, times: int) -> list[int]:
+    """Let another write land just before each of the next ``times`` saves."""
+    store = world.control_plane.connections
+    original = type(store).put
+    raced: list[int] = []
+
+    async def put(self: Any, connection: Any, **kwargs: Any) -> Any:
+        if len(raced) < times:
+            raced.append(1)
+            current = await self.get(
+                tenant_id=connection.tenant_id,
+                project_id=connection.project_id,
+                connection_id=connection.connection_id,
+            )
+            if current is not None:
+                await original(self, current)
+        return await original(self, connection, **kwargs)
+
+    monkeypatch.setattr(type(store), "put", put)
+    return raced
+
+
+@pytest.mark.asyncio
+async def test_a_save_without_if_match_retries_once_after_a_concurrent_write(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    raced = _racing(world, monkeypatch, times=1)
+    renamed = ConnectionWrite(
+        "jira",
+        {k: v for k, v in JIRA_WRITE.credentials.items() if k != "api_token"},
+        JIRA_WRITE.config,
+        name="Renamed",
+    )
+
+    result = await world.service.put(CONNECTION_KEY, renamed, actor="u")
+
+    assert len(raced) == 1
+    assert result.connection["name"] == "Renamed"
+    assert result.connection["credentials"]["api_token"]["last4"] == "9f2c"
+
+
+@pytest.mark.asyncio
+async def test_a_save_that_keeps_losing_the_race_answers_conflict_and_leaks_no_secret(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from harborrag_core.contracts.errors import HarborConflictError, HarborPreconditionFailedError
+
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    stored_before = dict(world.secrets.values)
+    _racing(world, monkeypatch, times=2)
+    rotated = ConnectionWrite(
+        "jira", {**JIRA_WRITE.credentials, "api_token": "ATATT3xFfGF0-rotated-1a2b"}, {}
+    )
+
+    with pytest.raises(HarborConflictError) as caught:
+        await world.service.put(CONNECTION_KEY, rotated, actor="u")
+
+    assert not isinstance(caught.value, HarborPreconditionFailedError)
+    assert world.secrets.values == stored_before
