@@ -377,7 +377,7 @@ class ConnectionService:
             IngestionCreateCommand(
                 tenant_id=key.tenant_id,
                 connection_id=connection.source_key,
-                force_reprocess=mode == "full",
+                force_reprocess=mode == "force",
                 public_request={
                     "connection": connection.ref,
                     "mode": mode,

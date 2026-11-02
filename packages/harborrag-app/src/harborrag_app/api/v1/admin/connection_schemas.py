@@ -108,11 +108,11 @@ class ConnectionTestRequest(ApiModel):
 class SyncRequest(ApiModel):
     """``sync`` body."""
 
-    mode: Literal["incremental", "full"] = Field(
+    mode: Literal["incremental", "force"] = Field(
         default="incremental",
         description=(
             "incremental reads items changed since the last successful sync; "
-            "full re-reads everything"
+            "force re-reads and re-processes every item"
         ),
     )
     item_refs: list[str] = Field(
@@ -195,7 +195,7 @@ class IngestionOut(BaseModel):
 
     id: str
     connection: str = Field(description="Connection ref")
-    mode: Literal["incremental", "full"]
+    mode: Literal["incremental", "force"]
     status: Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
     counters: CountersOut
     stages: list[dict[str, Any]]

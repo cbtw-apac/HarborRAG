@@ -295,7 +295,7 @@ async def sync_connection(  # noqa: PLR0913 - path, body and caller
     response: Response,
     body: Annotated[SyncRequest | None, Body()] = None,
 ) -> dict[str, Any]:
-    """Start an incremental or full sync; 409 while one is running."""
+    """Start an incremental or forced sync; 409 while one is running."""
     request = body or SyncRequest()
     ingestion = await service.connection_service.sync(
         ConnectionKey(tenant, project_id, connection_id),

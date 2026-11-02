@@ -191,8 +191,8 @@ def sync(
     context: typer.Context,
     ref: Ref,
     mode: Annotated[
-        Literal["incremental", "full"],
-        typer.Option("--mode", help="incremental reads changes; full re-reads everything."),
+        Literal["incremental", "force"],
+        typer.Option("--mode", help="incremental reads changes; force re-reads and re-processes everything."),
     ] = "incremental",
     tenant: Tenant = "DEFAULT",
     as_json: JsonOption = False,

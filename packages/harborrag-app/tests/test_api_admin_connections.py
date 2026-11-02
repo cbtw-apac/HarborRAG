@@ -159,7 +159,7 @@ def test_list_test_sync_and_delete(client: TestClient, app_service: _ConnectionA
     tested = client.post(
         f"{_PATH}/test", json={"source_type": "local_file", "config": {"source_path": "/nope"}}
     )
-    synced = client.post(f"{_PATH}/sync", json={"mode": "full"})
+    synced = client.post(f"{_PATH}/sync", json={"mode": "force"})
     app_service.world.runs.active = app_service.world.runs.tasks["ing_1"]
     again = client.post(f"{_PATH}/sync", json={})
     busy_delete = client.delete(_PATH)
@@ -172,7 +172,7 @@ def test_list_test_sync_and_delete(client: TestClient, app_service: _ConnectionA
     assert tested.json()["error_category"] == "unreachable"
     assert synced.status_code == 202
     assert synced.headers["Location"] == "/v1/admin/ingestions/ing_1"
-    assert synced.json()["mode"] == "full"
+    assert synced.json()["mode"] == "force"
     assert (again.status_code, again.json()["error"]["code"]) == (409, "already_running")
     assert again.json()["error"]["details"] == {"ingestion_id": "ing_1"}
     assert (busy_delete.status_code, busy_delete.json()["error"]["code"]) == (

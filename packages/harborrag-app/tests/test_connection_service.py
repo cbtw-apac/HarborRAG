@@ -158,7 +158,7 @@ async def test_a_rotated_secret_waits_for_the_running_ingestion(world: Connectio
 async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
 
-    ingestion = await world.service.sync(CONNECTION_KEY, actor="u_huy", mode="full")
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u_huy", mode="force")
 
     assert ingestion["id"] == "ing_1" and ingestion["connection"] == "cpm/cpm-tickets"
     assert ingestion["status"] == "queued"

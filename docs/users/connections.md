@@ -135,7 +135,7 @@ leave it out, or paste the status back, to keep the stored value.
 | `GET /v1/admin/connections` | Every connection in the tenant, needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
 | `GET …/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
 | `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`). |
-| `POST …/connections/{connection_id}/sync` | Starts an `incremental` or `full` sync and answers `202` with the ingestion. A second start while one runs answers `409 already_running` with the running ingestion's id. |
+| `POST …/connections/{connection_id}/sync` | Starts an `incremental` or `force` sync and answers `202` with the ingestion. A second start while one runs answers `409 already_running` with the running ingestion's id. |
 | `DELETE …/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Readers: the project's connections for filter chips. |
 

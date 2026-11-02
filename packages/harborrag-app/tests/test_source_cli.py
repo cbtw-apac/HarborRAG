@@ -146,14 +146,14 @@ def test_sync_starts_an_ingestion_and_remove_needs_yes_without_a_terminal(
 ) -> None:
     _run(capsys, "add", "default/jira-cpm", "--file", str(body))
 
-    synced, ingestion = _run(capsys, "sync", "default/jira-cpm", "--mode", "full")
+    synced, ingestion = _run(capsys, "sync", "default/jira-cpm", "--mode", "force")
     capsys.readouterr()
     unconfirmed = cli.main(["source", "remove", "default/jira-cpm"])
     message = capsys.readouterr().err
     world.runs.active = None
     removed, job = _run(capsys, "remove", "default/jira-cpm", "--yes")
 
-    assert (synced, ingestion["data"]["mode"]) == (0, "full")
+    assert (synced, ingestion["data"]["mode"]) == (0, "force")
     assert unconfirmed == 2 and "--yes" in message
     assert removed == 0 and job["data"]["job_id"]
 

@@ -111,7 +111,7 @@ harborrag source show PROJECT/CONNECTION [--json]
 harborrag source add PROJECT/CONNECTION --file BODY [--sync-now] [--json]
 harborrag source update PROJECT/CONNECTION --file BODY [--if-version N] [--json]
 harborrag source test PROJECT/CONNECTION [--file BODY] [--json]
-harborrag source sync PROJECT/CONNECTION [--mode incremental|full] [--json]
+harborrag source sync PROJECT/CONNECTION [--mode incremental|force] [--json]
 harborrag source remove PROJECT/CONNECTION [--purge] [--yes] [--json]
 ```
 

@@ -100,7 +100,7 @@ def ingestion_view(
     return {
         "id": task.task_id,
         "connection": connection_ref,
-        "mode": mode or ("full" if request.get("force_reprocess") else "incremental"),
+        "mode": mode or ("force" if request.get("force_reprocess") else "incremental"),
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "counters": {
             "discovered": _count(summary, "discovered"),
