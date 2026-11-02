@@ -235,3 +235,25 @@ def test_add_sync_now_exits_1_and_keeps_the_details_when_the_sync_cannot_start(
         "message": "an ingestion is already running",
         "details": {"ingestion_id": "ing_busy"},
     }
+
+
+def test_remove_asks_on_stderr_so_json_output_stays_clean(
+    world: ConnectionWorld,
+    body: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import io
+    import sys
+
+    _run(capsys, "add", "default/jira-cpm", "--file", str(body))
+    answers = io.StringIO("n\n")
+    monkeypatch.setattr(answers, "isatty", lambda: True, raising=False)
+    monkeypatch.setattr(sys, "stdin", answers)
+
+    code = cli.main(["source", "remove", "default/jira-cpm", "--json"])
+    captured = capsys.readouterr()
+
+    assert code == 1
+    assert "Delete default/jira-cpm" not in captured.out
+    assert "Delete default/jira-cpm" in captured.err

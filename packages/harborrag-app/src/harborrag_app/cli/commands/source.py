@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 
 import typer
+from rich.console import Console
 from rich.prompt import Confirm
 
 from harborrag_app.cli.commands.auth_keys import operator_identity
@@ -297,13 +298,14 @@ def _write(path: Path, *, partial: bool = False) -> ConnectionWrite:
 
 
 def _confirm_removal(ref: str, *, yes: bool) -> None:
-    """Ask on a terminal; without one, require ``--yes``."""
+    """Ask on a terminal, on stderr so ``--json`` output stays clean; without one, need ``--yes``."""
     if yes:
         return
     if not sys.stdin.isatty():
         typer.echo("harborrag source remove: pass --yes to delete without a terminal", err=True)
         raise typer.Exit(2)
-    if not Confirm.ask(f"Delete {ref}, its documents and its stored secrets?", default=False):
+    question = f"Delete {ref}, its documents and its stored secrets?"
+    if not Confirm.ask(question, default=False, console=Console(stderr=True)):
         typer.echo("Left the connection in place.", err=True)
         raise typer.Exit(1)
 
