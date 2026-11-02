@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
+from ipaddress import ip_address
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
@@ -16,6 +17,9 @@ type Rule = Callable[[str], str | None]
 _CONTROL_CHARACTERS = re.compile(r"[\x00-\x1f\x7f]")
 _YAML_TOKEN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/@+-]*$")
 _PROJECT_KEY = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
+_HOST_NAME = re.compile(
+    r"^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$"
+)
 
 
 def plain_text(value: str) -> str | None:
@@ -33,13 +37,32 @@ def yaml_token(value: str) -> str | None:
 
 
 def http_url(value: str) -> str | None:
-    """Accept an absolute http or https URL with a host; empty means fill in later."""
+    """Accept an absolute http or https URL whose host is one name or address.
+
+    The host becomes the model allowlist entry, so a comma or bracket that YAML
+    would read as more entries is refused. Empty means fill in later.
+    """
     if not value:
         return None
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+    try:
+        parsed = urlparse(value)
+        host = parsed.hostname
+    except ValueError:
         return "must be an http:// or https:// URL"
+    if parsed.scheme not in {"http", "https"} or not host:
+        return "must be an http:// or https:// URL"
+    if not (_HOST_NAME.match(host) or _is_ip_address(host)):
+        return "must name one host, such as https://gateway.example.com"
     return None
+
+
+def _is_ip_address(value: str) -> bool:
+    """True for a literal IPv4 or IPv6 address."""
+    try:
+        ip_address(value)
+    except ValueError:
+        return False
+    return True
 
 
 def project_keys(value: str) -> str | None:

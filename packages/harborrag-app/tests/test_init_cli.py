@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 
 import pytest
+import yaml
 
 from harborrag_app.cli import main as cli
 
@@ -262,6 +263,8 @@ def test_init_never_creates_a_source_folder_outside_the_project_root(
         ("--chat-model", "m1\nprovider: evil", "--chat-model must not contain"),
         ("--chat-model", "m1 #comment", "--chat-model may only contain"),
         ("--api-base", "ftp://llm.example.com", "--api-base must be an http:// or https:// URL"),
+        ("--api-base", "https://a.example,169.254.169.254/", "--api-base must name one host"),
+        ("--api-base", "https://a]b/", "--api-base must be an http:// or https:// URL"),
     ],
 )
 def test_init_refuses_answers_that_would_rewrite_the_generated_files(
@@ -297,3 +300,36 @@ def test_init_writes_env_private_and_never_through_a_symbolic_link(
     assert mode == 0o600
     assert "is a symbolic link" in capsys.readouterr().err
     assert outside.read_text(encoding="utf-8") == "keep: me\n"
+
+
+def test_init_allowlists_exactly_the_api_base_host(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("OPENAI_COMPATIBLE_API_KEY", raising=False)
+    root = tmp_path / "project"
+    arguments = ["init", str(root), "--yes", "--provider", "openai-compatible"]
+
+    assert (
+        cli.main(
+            [*arguments, "--embed-dimensions", "8", "--api-base", "https://llm.example.com/v1"]
+        )
+        == 0
+    )
+
+    models = yaml.safe_load((root / "config" / "models.yaml").read_text(encoding="utf-8"))
+    assert _find_key(models, "allowed_base_url_hosts") == ["llm.example.com"]
+
+
+def _find_key(value: object, key: str) -> object:
+    """Return the first value stored under ``key`` anywhere in a parsed YAML document."""
+    if isinstance(value, dict):
+        if key in value:
+            return value[key]
+        children = list(value.values())
+    elif isinstance(value, list):
+        children = value
+    else:
+        return None
+    for child in children:
+        found = _find_key(child, key)
+        if found is not None:
+            return found
+    return None

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import secrets
 import tempfile
@@ -232,7 +233,7 @@ def _values(options: InitOptions, *, created_at: str) -> dict[str, str]:
         credential_lines.append(f"{preset.api_base_variable}={options.api_base}")
         deployment_extra.append(f"api_base: ${{{preset.api_base_variable}}}")
         host = urlparse(options.api_base).hostname or ""
-        security_extra = f"    allowed_base_url_hosts: [{host}]\n"
+        security_extra = f"    allowed_base_url_hosts: [{json.dumps(host)}]\n"
     if preset.api_version:
         deployment_extra.append(f'api_version: "{preset.api_version}"')
     chat_extra = list(deployment_extra)
