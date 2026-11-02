@@ -223,6 +223,13 @@ def test_each_auth_method_publishes_its_own_hints_and_its_method() -> None:
         (
             "github",
             {"method": "none"},
+            {"repository_url": "https://x:ghp_sentinel@github.com/o/r"},
+            "config.repository_url",
+            "must not carry a user or password",
+        ),
+        (
+            "github",
+            {"method": "none"},
             {"owner": "o", "repo": "r", "ref": "a", "branch": "b"},
             "config",
             "set ref or branch, not both",

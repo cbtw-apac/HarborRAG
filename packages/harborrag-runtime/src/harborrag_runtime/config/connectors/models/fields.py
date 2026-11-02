@@ -48,9 +48,16 @@ def _require_email(value: str) -> str:
 
 
 def _require_http_url(value: str) -> str:
-    """Reject anything that is not an absolute http(s) URL."""
+    """Accept only an absolute http(s) URL with no embedded user or password.
+
+    A user or password in the URL would be stored as plain config and read back
+    on every GET, outside the secret store.
+    """
     if not _HTTP_URL.match(value):
         raise ValueError("must be an absolute http(s) URL")
+    parsed = urlparse(value)
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("must not carry a user or password; send the token as a credential")
     return value.rstrip("/")
 
 
