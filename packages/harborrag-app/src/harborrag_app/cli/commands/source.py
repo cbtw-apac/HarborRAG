@@ -117,7 +117,11 @@ def add(  # noqa: PLR0913 - one parameter per documented option
     tenant: Tenant = "DEFAULT",
     as_json: JsonOption = False,
 ) -> None:
-    """Create a connection from a body file; refuses an id that already exists."""
+    """Create a connection from a body file; refuses an id that already exists.
+
+    With ``--sync-now``, exits 1 when the connection was saved but its first
+    ingestion could not start; ``sync_error`` says why.
+    """
 
     refuse_checkout_write()
     key, write = _key(ref, tenant), _write(body)
@@ -131,7 +135,16 @@ def add(  # noqa: PLR0913 - one parameter per documented option
             sync_now=sync_now,
             origin="operator",
         )
-        sync_error = str(result.sync_error) if result.sync_error is not None else None
+        error = result.sync_error
+        sync_error = (
+            None
+            if error is None
+            else {
+                "error_type": type(error).__name__,
+                "message": str(error),
+                "details": dict(getattr(error, "details", None) or {}),
+            }
+        )
         return {
             **result.connection,
             "version": result.version,
@@ -139,7 +152,7 @@ def add(  # noqa: PLR0913 - one parameter per documented option
             "sync_error": sync_error,
         }
 
-    _invoke(context, "add", operation, as_json=as_json)
+    _invoke(context, "add", operation, as_json=as_json, succeeded=_synced_if_asked)
 
 
 @app.command("update")
@@ -293,6 +306,11 @@ def _confirm_removal(ref: str, *, yes: bool) -> None:
     if not Confirm.ask(f"Delete {ref}, its documents and its stored secrets?", default=False):
         typer.echo("Left the connection in place.", err=True)
         raise typer.Exit(1)
+
+
+def _synced_if_asked(response: AppResponse) -> bool:
+    """True when the connection was saved and any requested first sync started."""
+    return response.ok and response.data.get("sync_error") is None
 
 
 def _passed(response: AppResponse) -> bool:

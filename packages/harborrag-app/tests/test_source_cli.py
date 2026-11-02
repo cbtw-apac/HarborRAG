@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
+from app_test_connections import ConnectionWorld, connection_world, running_task
 from app_test_fixtures import MockAppService
 from project_test_support import scaffold
 
@@ -219,3 +219,19 @@ def test_update_without_config_is_refused_and_keeps_the_stored_scope(
     assert code == 2
     assert "needs config" in error
     assert shown["data"]["config"] == {"jql": "project = CPM"}
+
+
+def test_add_sync_now_exits_1_and_keeps_the_details_when_the_sync_cannot_start(
+    world: ConnectionWorld, body: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.runs.active = world.runs.tasks.setdefault("ing_busy", running_task("ing_busy"))
+
+    code, response = _run(capsys, "add", "default/jira-cpm", "--file", str(body), "--sync-now")
+
+    assert code == 1
+    assert response["data"]["version"] == 1
+    assert response["data"]["sync_error"] == {
+        "error_type": "HarborAlreadyRunningError",
+        "message": "an ingestion is already running",
+        "details": {"ingestion_id": "ing_busy"},
+    }
