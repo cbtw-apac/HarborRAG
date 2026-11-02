@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=common/dev-checks.sh
+source "${ROOT_DIR}/scripts/deployment/common/dev-checks.sh"
+
 DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
 TEMPORAL_ENV_FILE="${TEMPORAL_ENV_FILE:-env/.env.temporal}"
 CONNECTOR_ENV_FILE="${CONNECTOR_ENV_FILE:-env/.env.connector}"
@@ -46,17 +49,6 @@ NVIDIA Container Toolkit on the host). Each device builds its own image tag,
 so switching devices rebuilds automatically the first time:
   scripts/deployment/dev.sh worker --device gpu --build
 EOF
-}
-
-fail() {
-    echo "$1" >&2
-    exit 2
-}
-
-require_file() {
-    local path="$1"
-    local label="$2"
-    [[ -f "${ROOT_DIR}/${path}" ]] || fail "Missing ${label}: ${path}. Run '$0 bootstrap'."
 }
 
 require_control_plane_encryption_key() {
@@ -142,11 +134,6 @@ bootstrap_environment() {
     ensure_mcp_environment_file "${MCP_ENV_FILE}" "env-example/.env.mcp.example"
 }
 
-require_data_network() {
-    docker network inspect harborrag-data-network >/dev/null 2>&1 ||
-        fail "harborrag-data-network is not running. Start it with '$0 data'."
-}
-
 require_temporal_server() {
     if ! temporal_compose run --rm --no-deps temporal-namespace >/dev/null; then
         fail "Temporal is not healthy or its namespace is unavailable. Start it with '$0 temporal'."
@@ -175,10 +162,6 @@ temporal_compose() {
         --env-file "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" \
         "${compose_files[@]}" \
         "$@"
-}
-
-validate_device() {
-    [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
 }
 
 api_compose() {
@@ -236,8 +219,7 @@ worker_replicas() {
         )"
     fi
     replicas="${replicas:-2}"
-    [[ "${replicas}" =~ ^[1-9][0-9]*$ ]] ||
-        fail "HARBORRAG_TEMPORAL_WORKER_REPLICAS must be a positive integer."
+    require_positive_integer HARBORRAG_TEMPORAL_WORKER_REPLICAS "${replicas}"
     echo "${replicas}"
 }
 
@@ -291,8 +273,7 @@ start_api() {
     require_control_plane_encryption_key
     require_data_network
     require_temporal_server
-    [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
-        fail "HARBORRAG_API_STARTUP_TIMEOUT must be a positive integer."
+    require_positive_integer HARBORRAG_API_STARTUP_TIMEOUT "${API_STARTUP_TIMEOUT}"
 
     api_compose config --quiet
     mapfile -t compose_services < <(api_compose config --services)
@@ -335,7 +316,7 @@ stop_stack() {
     [[ "$#" -eq 0 ]] || fail "Unknown down option: $1"
 
     echo "Stopping HarborRAG API..."
-    if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" && -f "${ROOT_DIR}/${CONNECTOR_ENV_FILE}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then
+    if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" && -f "${ROOT_DIR}/${CONNECTOR_ENV_FILE}" && -f "${ROOT_DIR}/${MODEL_ENV_FILE}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then
         api_compose "${down_args[@]}"
     else
         echo "Skipping API teardown because environment files are missing." >&2
@@ -421,7 +402,6 @@ case "${command}" in
         if ((created_environment)); then
             fail "Review the new environment files, then run '$0 up' again."
         fi
-        require_control_plane_encryption_key
         start_data
         start_temporal
         if ((start_worker_flag)); then

@@ -15,6 +15,7 @@ API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
 MCP_LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
+DEV_CHECKS = ROOT / "scripts/deployment/common/dev-checks.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -75,6 +76,7 @@ def test_development_entrypoint_supports_documented_argument_forms(
     script = project / "scripts/deployment/dev.sh"
     script.parent.mkdir(parents=True)
     script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
 
     environment = project / "env"
     environment.mkdir()
@@ -390,6 +392,7 @@ def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> No
     script = tmp_path / "scripts/deployment/dev.sh"
     script.parent.mkdir(parents=True)
     script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
     for template in (ROOT / "env-example").glob(".env.*.example"):
         target = tmp_path / "env-example" / template.name
         target.parent.mkdir(exist_ok=True)
@@ -416,3 +419,9 @@ def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> No
     assert bootstrap() == first
     assert (tmp_path / "env/.env.database").stat().st_mode & 0o777 == 0o600
 
+
+def _copy_dev_checks(script: Path) -> None:
+    """Place dev.sh's sourced checks next to a copied dev.sh."""
+    checks = script.parent / "common/dev-checks.sh"
+    checks.parent.mkdir(exist_ok=True)
+    checks.write_text(DEV_CHECKS.read_text(encoding="utf-8"), encoding="utf-8")
