@@ -10,8 +10,10 @@ each connection at the start of every run.
 
 - Workers now read connections, revisions and stored secrets from the control
   database. Give every worker the same `HARBORRAG_CONTROL_DB_URL` and
-  `HARBORRAG_SECRETS_ENCRYPTION_KEY` as the API. A worker refuses to start
-  with a blank key against a non-SQLite database.
+  `HARBORRAG_SECRETS_ENCRYPTION_KEY` as the API, or point both at the same
+  file with `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`. A worker refuses to start
+  without a key against a non-SQLite database. `scripts/deployment/dev.sh`
+  generates the key when `env/.env.database` leaves it blank; keep a backup.
 - The API applies migrations `0041`–`0043` at start-up. Start the API before
   the workers.
 - Give the API the environment variables `config/connectors.yaml` names, for
@@ -37,6 +39,8 @@ Each entry becomes a connection:
   Environment values are read at import time.
 - `secrets: <field>_env: NAME` becomes the reference
   `{"secret_ref": "env:NAME"}`. The value stays in the worker's environment.
+  Such a reference keeps working; through the API, an editor can keep it or
+  replace it with a value, but cannot point a field at another variable.
 - Tuning such as `requests_per_minute` and `page_size` is kept on the
   connection and shown as its `advanced` settings.
 - An entry with `project_id` goes to that project; others go to `default`,
@@ -87,6 +91,13 @@ a row whose type is unknown becomes `error`.
 - **Parsers refuse oversized documents**: PDFs above 200 pages, images above
   25 megapixels, and spreadsheets above 50,000 rows or 200,000 cells. See
   [Document limits](connections.md#document-limits).
+- **Connectors reach public addresses only.** A Jira or Confluence Data
+  Center, GitHub Enterprise or other host on a private, loopback or link-local
+  address is refused until its host name or network is listed in
+  `HARBORRAG_CONNECTOR_ALLOWED_HOSTS`, in both `env/.env.connector` and
+  `env/.env.api`. See [Network access](connections.md#network-access).
+- **`env:` references come only from `connectors.yaml` and the CLI.** The
+  HTTP API takes secret values and refuses a new `env:NAME`.
 - **Local paths can be restricted.** With `HARBORRAG_LOCAL_SOURCE_ROOT` or
   `LOCAL_SOURCE_PATH` set, a `local_file` connection must stay inside it.
 - **Deprecated:** `GET /v1/connections`, `/api/v1/sources*` and

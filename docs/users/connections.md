@@ -27,9 +27,21 @@ does the same through the same service; see the
 curl -H "Authorization: Bearer $TOKEN" https://harborrag.example.com/v1/admin/source-types
 ```
 
-Each type returns its `auth_methods` (one JSON Schema each), a `config_schema`,
-an `advanced_schema`, `ui` hints for the form and its `capabilities`. A field
-with `writeOnly: true` and `ui.widget: secret` is a secret.
+Each type returns its `auth_methods` (one JSON Schema and one set of `ui` form
+hints each), a `config_schema`, an `advanced_schema`, `ui` hints for the config
+and advanced fields, and its `capabilities`. A field with `writeOnly: true` and
+`ui.widget: secret` is a secret. When a type has several auth methods, each
+method's schema has a `method` property whose `const` is the value to send.
+The config and advanced schemas publish each field's `default`: the value the
+connector uses when the field is left out. `ui.widget` is `text`, `secret`,
+`select`, `textarea`, `path`, `list`, `toggle` or `number`.
+
+URL fields that carry credentials (`base_url`, `api_url`, `web_url`,
+`graph_api_url`, `site_url`) must be `https://`. GitHub needs
+`repository_url`, or `owner` and `repo`; SharePoint needs `site_url`,
+`site_id`, or `hostname` and `site_path`. The schemas state these rules with
+`pattern`, `anyOf` and `allOf`, and a `PUT` or `test` that breaks them, or any
+other rule the connector checks, answers `422` naming the field.
 
 | `source_type` | Category | Setup | `credentials.method` |
 | --- | --- | --- | --- |
@@ -44,7 +56,8 @@ with `writeOnly: true` and `ui.widget: secret` is a secret.
 | | | Private repository: access token | `pat` |
 
 Pick the method with `credentials.method`, for example `"method": "pat"`.
-Without it, the first method listed for the type applies. SharePoint also
+Without it, the first method listed for the type applies, so send it for any
+other method. SharePoint also
 accepts `pat`, a Microsoft Graph access token, but it expires within about an
 hour, so it suits a one-off test rather than syncs.
 
@@ -134,7 +147,7 @@ leave it out, or paste the status back, to keep the stored value.
 | --- | --- |
 | `GET /v1/admin/connections` | Every connection in the tenant, needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
 | `GET …/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
-| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`). |
+| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`). With `sync_now`, a sync that cannot start, for example because one is running, leaves `ingestion` null and explains why in `sync_error`; the connection is saved either way. |
 | `POST …/connections/{connection_id}/sync` | Starts an `incremental` or `force` sync and answers `202` with the ingestion. A second start while one runs answers `409 already_running` with the running ingestion's id. |
 | `DELETE …/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Readers: the project's connections for filter chips. |
@@ -149,9 +162,16 @@ A secret field accepts a value or a reference:
 | You send | What is stored |
 | --- | --- |
 | `"api_token": "ATATT3x..."` | The value, encrypted in the control database. |
-| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference. The worker reads `JIRA_TOKEN` from its own environment when the run starts. |
-| The field left out | The stored value is kept. Re-saving a form without the key keeps it. |
+| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/connectors.yaml` and the `harborrag source` CLI can set one; the API answers `422` and asks for the value. |
+| The field left out, or its status sent back | The stored value or reference is kept. Re-saving a form without the key keeps it. |
 | `"api_token": null` | The stored value is cleared. |
+
+A stored secret is kept only for the same auth method and the same endpoint.
+Switching `method` drops the old method's secrets, and they are deleted like a
+replaced secret. Changing `base_url`, `api_url`, `web_url` or `graph_api_url`
+without sending the secret again answers `422` with
+`send it again: base_url changed`, so a stored secret is never sent to a new
+host.
 
 Reads return a status instead of the value:
 
@@ -164,7 +184,32 @@ A replaced stored secret is deleted once no running ingestion still uses it.
 Secrets never appear in responses, logs, error details, exports or workflow
 history: workflows carry references, and the worker resolves them.
 
-The API and every worker must share the same `HARBORRAG_SECRETS_ENCRYPTION_KEY`.
+Stored values are encrypted with `HARBORRAG_SECRETS_ENCRYPTION_KEY`, which the
+API and every worker must share. `scripts/deployment/dev.sh` generates it in
+`env/.env.database` when it is blank. In production, mount it as a file, such
+as a Docker or Kubernetes secret, and set `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`
+to its path. Back the key up: without it, stored secrets cannot be read and
+must be entered again.
+
+## Network access
+
+Connectors, and connection tests run by the API, reach public addresses only.
+A connection whose host resolves to a private, loopback, link-local or
+reserved address, such as `10.0.0.5`, `172.18.0.1`, `127.0.0.1` or the cloud
+metadata address `169.254.169.254`, fails its `reachable` check with a
+message naming the address. The check runs on the address each connection
+actually reaches, so a DNS answer that changes later is caught too.
+
+To reach a host inside your network, such as Jira Data Center, list its host
+name or network in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS`, in both
+`env/.env.connector` (workers) and `env/.env.api` (tests):
+
+```bash
+HARBORRAG_CONNECTOR_ALLOWED_HOSTS=jira.acme.internal,10.20.0.0/16
+```
+
+Traffic sent through an HTTP proxy is not checked; the proxy decides where it
+goes.
 
 ## Advanced settings
 

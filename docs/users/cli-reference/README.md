@@ -123,7 +123,9 @@ to `DEFAULT`.
 
 `BODY` is a YAML or JSON file in the shape of the `PUT` body: `source_type`, `name`,
 `credentials`, `config` and `advanced`. A Swagger UI template saved to a file works as is.
-A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret.
+A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret. The
+CLI and `config/connectors.yaml` are the only places an `env:` reference can be set; the
+HTTP API takes values. The worker reads `NAME` from its own environment.
 
 ```yaml
 source_type: jira

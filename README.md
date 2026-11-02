@@ -520,10 +520,14 @@ types, test the form values, then save with `sync_now`. For example, a GitHub re
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   http://localhost:8000/v1/admin/projects/default/connections/docs-repo \
   -d '{"source_type": "github", "name": "Docs repository",
-       "credentials": {"token": {"secret_ref": "env:GITHUB_TOKEN"}},
+       "credentials": {"token": "github_pat_11A..."},
        "config": {"owner": "acme", "repo": "docs"},
        "sync_now": true}'
 ```
+
+The token is stored encrypted in the control database and never read back. References
+such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/connectors.yaml`
+and the `harborrag source` CLI, never through the API.
 
 To fill the body in a browser, open <http://localhost:8000/api/v1/docs>, go to
 **Create or replace a connection**, and pick a template such as "Jira Cloud" or
