@@ -4,6 +4,27 @@ This page lists the steps each release needs when you upgrade an existing deploy
 newest release first. The [changelog](../../CHANGELOG.md) lists everything that changed;
 entries marked **Breaking** there are the ones these steps deal with.
 
+## 2.0.0a2 to the next release
+
+Oversized units are now split by structure (code, Markdown, prose) instead of by
+characters, which changes the processing identity. Every document is re-chunked and
+re-embedded the next time it is ingested; no data migration is needed.
+
+1. **Chunking configuration (optional).** Copy
+   [`config/chunking.yaml`](../../config/chunking.yaml) into your project to tune chunk
+   sizes or source profiles. Without it the built-in defaults apply. In containers, mount
+   it at `/app/config/chunking.yaml`. The images set `HARBORRAG_CHUNKING_CONFIG_PATH`
+   there, and the API and workers must read the same file. See
+   [Chunking Configuration](configuration/chunking-config.md).
+2. **Syntax-aware code splitting (optional).** Install
+   `harborrag-adapters[chunking-code]` on every ingestion worker. Without the grammars,
+   code splits at definitions and blank lines and the worker logs a warning. Code languages
+   (Markdown fences, source files) are recorded when a file is parsed, so run a normal
+   ingestion rather than a reindex: a reindex reuses the stored parse.
+3. **Keep the previous splitter (optional).** Set `refiner.strategy: recursive` in
+   `config/chunking.yaml` and install `harborrag-adapters[chunking]`. This also changes the
+   processing identity, so documents are still re-chunked once.
+
 ## 2.0.0a1 to 2.0.0a2
 
 Alpha2 keeps each tenant's data under one storage namespace across Qdrant, FalkorDB and the

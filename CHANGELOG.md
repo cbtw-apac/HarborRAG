@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Documents are re-chunked and re-embedded on their next ingestion; see the
+[upgrade guide](docs/users/upgrading.md).
+
+### Added
+
+#### harborrag-adapters
+
+- Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
+- Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
+
+#### harborrag-runtime
+
+- Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/chunking.yaml`
+
+#### harborrag-app
+
+- `harborrag init` scaffolds `config/chunking.yaml` and `harborrag doctor` validates it
+
+### Changed
+
+#### harborrag-engine
+
+- Long code chunks keep the names of the class and function they belong to, and are searchable by them
+
 ## [2.0.0a2] - 2026-10-26
 
 Stored data is not migrated from 2.0.0a1: back up the control database and re-ingest every
