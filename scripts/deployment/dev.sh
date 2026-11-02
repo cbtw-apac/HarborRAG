@@ -16,6 +16,7 @@ API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
 WORKER_DEVICE="cpu"
+DATABASE_VOLUME="${HARBORRAG_DATABASE_VOLUME:-compose_pg_data}"
 
 usage() {
     cat <<'EOF'
@@ -71,10 +72,14 @@ require_control_plane_encryption_key() {
     fi
 }
 
-# A blank key means nothing was ever stored with one, so generating it loses nothing.
+# A blank key with no database volume means nothing was stored with one, so generating loses nothing.
 generate_encryption_key() {
     local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
     local key
+
+    if docker volume inspect "${DATABASE_VOLUME}" >/dev/null 2>&1; then
+        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is blank in ${DATABASE_ENV_FILE}, but ${DATABASE_VOLUME} already holds a database; restore the key it was written with."
+    fi
 
     command -v openssl >/dev/null ||
         fail "OpenSSL is required to generate HARBORRAG_SECRETS_ENCRYPTION_KEY."

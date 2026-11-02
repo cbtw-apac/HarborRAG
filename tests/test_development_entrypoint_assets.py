@@ -6,6 +6,7 @@ import os
 import re
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -389,25 +390,10 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
 
 
 def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> None:
-    script = tmp_path / "scripts/deployment/dev.sh"
-    script.parent.mkdir(parents=True)
-    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
-    _copy_dev_checks(script)
-    for template in (ROOT / "env-example").glob(".env.*.example"):
-        target = tmp_path / "env-example" / template.name
-        target.parent.mkdir(exist_ok=True)
-        target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
-    environ = {k: v for k, v in os.environ.items() if k != "HARBORRAG_SECRETS_ENCRYPTION_KEY"}
+    run = _bootstrap_project(tmp_path, database_volume=False)
 
     def bootstrap() -> str:
-        result = subprocess.run(
-            ["bash", str(script), "bootstrap"],
-            cwd=tmp_path,
-            env=environ,
-            capture_output=True,
-            check=False,
-            text=True,
-        )
+        result = run()
         assert result.returncode == 0, result.stderr
         database = (tmp_path / "env/.env.database").read_text(encoding="utf-8")
         keys = re.findall(r"^HARBORRAG_SECRETS_ENCRYPTION_KEY=(.*)$", database, re.MULTILINE)
@@ -418,6 +404,51 @@ def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> No
 
     assert bootstrap() == first
     assert (tmp_path / "env/.env.database").stat().st_mode & 0o777 == 0o600
+
+
+def test_bootstrap_never_generates_a_key_for_an_existing_database(tmp_path: Path) -> None:
+    result = _bootstrap_project(tmp_path, database_volume=True)()
+
+    database = (tmp_path / "env/.env.database").read_text(encoding="utf-8")
+    assert result.returncode == 2
+    assert "compose_pg_data already holds a database" in result.stderr
+    assert re.search(r"^HARBORRAG_SECRETS_ENCRYPTION_KEY=$", database, re.MULTILINE)
+
+
+def _bootstrap_project(
+    tmp_path: Path, *, database_volume: bool
+) -> Callable[[], subprocess.CompletedProcess[str]]:
+    """Copy dev.sh and the env templates; return a runner of ``bootstrap`` with a fake docker.
+
+    The fake docker answers ``volume inspect`` as if the database volume exists or not.
+    """
+    script = tmp_path / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
+    for template in (ROOT / "env-example").glob(".env.*.example"):
+        target = tmp_path / "env-example" / template.name
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(f"#!/usr/bin/env sh\nexit {0 if database_volume else 1}\n", encoding="utf-8")
+    docker.chmod(0o755)
+    environ = {k: v for k, v in os.environ.items() if k != "HARBORRAG_SECRETS_ENCRYPTION_KEY"}
+    environ["PATH"] = f"{fake_bin}:{environ['PATH']}"
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(script), "bootstrap"],
+            cwd=tmp_path,
+            env=environ,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+
+    return run
 
 
 def _copy_dev_checks(script: Path) -> None:
