@@ -318,6 +318,10 @@ A `local_file` connection reads a path on the worker. When
 `HARBORRAG_LOCAL_SOURCE_ROOT` is set, or otherwise `LOCAL_SOURCE_PATH`,
 `source_path` must be an absolute path inside that directory; a symbolic link
 out of it is refused too. Set the same value on the API and the workers.
+Without either, the API refuses `local_file` connections with `422` on
+`config.source_path`, since any file the workers can read would otherwise be
+accepted; `config/connectors.yaml` and the `harborrag source` CLI can still add
+them.
 
 ## Connection status
 

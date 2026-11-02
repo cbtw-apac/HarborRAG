@@ -155,12 +155,16 @@ def test_put_errors_follow_the_spec(client: TestClient) -> None:
     assert stale.json()["error"]["trace_id"]
 
 
-def test_list_test_sync_and_delete(client: TestClient, app_service: _ConnectionApp) -> None:
+def test_list_test_sync_and_delete(
+    client: TestClient, app_service: _ConnectionApp, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     client.put(_PATH, json=_BODY)
 
     listed = client.get("/v1/admin/connections", params={"project_id": "cpm", "limit": 1})
     tested = client.post(
-        f"{_PATH}/test", json={"source_type": "local_file", "config": {"source_path": "/nope"}}
+        f"{_PATH}/test",
+        json={"source_type": "local_file", "config": {"source_path": str(tmp_path / "nope")}},
     )
     synced = client.post(f"{_PATH}/sync", json={"mode": "force"})
     app_service.world.runs.active = app_service.world.runs.tasks["ing_1"]
@@ -314,7 +318,7 @@ def test_templates_are_offered_per_setup(client: TestClient) -> None:
 def test_every_template_creates_a_connection_that_builds_its_connector(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
 ) -> None:
-    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", "/data/sources")
     monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
     templates = _templates(client, _ROUTE, "put")
 
@@ -325,6 +329,7 @@ def test_every_template_creates_a_connection_that_builds_its_connector(
         )
         for name, template in templates.items()
     }
+    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT")
     built = {}
     for name, template in templates.items():
         body = template["value"]
@@ -483,3 +488,25 @@ def _sample(schema: dict[str, Any]) -> dict[str, Any]:
         else:
             values[name] = "sample-value-1234"
     return values
+
+
+def test_local_connections_need_a_source_root_through_the_api(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Any
+) -> None:
+    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
+    monkeypatch.delenv("LOCAL_SOURCE_PATH", raising=False)
+    body = {"source_type": "local_file", "credentials": {}, "config": {"source_path": "/proc/self"}}
+
+    put = client.put("/v1/admin/projects/cpm/connections/secrets", json=body)
+    tested = client.post("/v1/admin/projects/cpm/connections/secrets/test", json=body)
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
+    inside = client.put(
+        "/v1/admin/projects/cpm/connections/docs",
+        json={**body, "config": {"source_path": str(tmp_path)}},
+    )
+
+    for response in (put, tested):
+        assert response.status_code == 422
+        assert response.json()["error"]["details"][0]["field"] == "config.source_path"
+        assert "HARBORRAG_LOCAL_SOURCE_ROOT" in response.json()["error"]["details"][0]["issue"]
+    assert inside.status_code == 201

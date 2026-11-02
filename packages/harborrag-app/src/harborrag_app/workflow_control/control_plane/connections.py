@@ -754,16 +754,18 @@ def _plan_credentials(
 def _refuse_operator_fields(
     spec: SourceTypeSpec, write: ConnectionWrite, existing: Connection | None, origin: WriteOrigin
 ) -> None:
-    """Refuse an API write that changes a field only operators may set, such as a worker path.
+    """Refuse an API write that only operators may make, such as setting a worker path.
 
     Raises:
-        ConnectionValidationError: ``origin`` is ``api`` and an operator-only field changes.
+        ConnectionValidationError: ``origin`` is ``api`` and an operator-only field
+            changes or an API-only install rule refuses the config.
     """
     if origin != "api":
         return
-    issues = spec.operator_field_issues(
-        write.credentials, existing.credentials if existing else None
-    )
+    issues = [
+        *spec.operator_field_issues(write.credentials, existing.credentials if existing else None),
+        *spec.api_policy_issues(write.config),
+    ]
     if issues:
         raise ConnectionValidationError(issues)
 

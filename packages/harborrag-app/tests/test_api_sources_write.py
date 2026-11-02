@@ -28,6 +28,16 @@ def _client(**service_kwargs: object) -> TestClient:
     return TestClient(app)
 
 
+_LOCAL_ROOT = "/srv/harborrag"
+_LOCAL_DOCS = f"{_LOCAL_ROOT}/docs"
+
+
+@pytest.fixture(autouse=True)
+def local_source_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API writes of local sources need a configured source root."""
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", _LOCAL_ROOT)
+
+
 @pytest.fixture
 def project() -> Project:
     return Project(id="proj-a", name="A", collection="a", tenant_id="DEFAULT")
@@ -70,7 +80,7 @@ def test_create_source_rejects_unknown_project(project: Project) -> None:
                 "project_id": "does-not-exist",
                 "source_type": "local",
                 "name": "Docs",
-                "config": {"source_path": "./docs"},
+                "config": {"source_path": _LOCAL_DOCS},
             },
         )
         assert response.status_code == 404
@@ -87,7 +97,7 @@ def test_update_source_rejects_explicit_null_config(project: Project) -> None:
                 "project_id": "proj-a",
                 "source_type": "local",
                 "name": "Docs",
-                "config": {"source_path": "./docs"},
+                "config": {"source_path": _LOCAL_DOCS},
             },
         ).json()
 
@@ -160,7 +170,7 @@ def test_source_outside_the_callers_tenants_404s_not_403s(project: Project) -> N
                 "project_id": "proj-a",
                 "source_type": "local",
                 "name": "Docs",
-                "config": {"source_path": "./docs"},
+                "config": {"source_path": _LOCAL_DOCS},
             },
         )
         assert create_response.status_code == 201
@@ -196,7 +206,7 @@ def test_update_and_delete_of_a_source_outside_the_callers_tenants_404s(project:
                 "project_id": "proj-a",
                 "source_type": "local",
                 "name": "Docs",
-                "config": {"source_path": "./docs"},
+                "config": {"source_path": _LOCAL_DOCS},
             },
         ).json()
 

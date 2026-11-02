@@ -41,6 +41,23 @@ def local_source_issues(config: Mapping[str, Any]) -> list[FieldIssue]:
     return []
 
 
+def local_source_api_issues(config: Mapping[str, Any]) -> list[FieldIssue]:
+    """Refuse an API write of a local connection while the install sets no root.
+
+    Without a root, any path the workers can read would be accepted, such as
+    their own secrets; the CLI and ``connectors.yaml`` stay open to operators.
+    """
+    if local_source_root() is not None:
+        return []
+    return [
+        FieldIssue(
+            "config.source_path",
+            f"set {LOCAL_SOURCE_ROOT_VARIABLE} on the API and workers to add local "
+            "connections through the API",
+        )
+    ]
+
+
 class LocalFileSyncConfig(StrictModel):
     """What to sync from the file system."""
 
@@ -91,6 +108,7 @@ LOCAL_FILE = SourceTypeSpec(
     aliases=("local", "local_files", "filesystem", "files"),
     build_check=False,
     policy=local_source_issues,
+    api_policy=local_source_api_issues,
     setups=(
         Setup(
             "folder",

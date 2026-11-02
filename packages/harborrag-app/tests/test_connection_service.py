@@ -226,7 +226,10 @@ async def test_a_failed_removal_keeps_the_row_deleting_and_resumes(world: Connec
 
 
 @pytest.mark.asyncio
-async def test_testing_form_values_saves_nothing(world: ConnectionWorld, tmp_path: Path) -> None:
+async def test_testing_form_values_saves_nothing(
+    world: ConnectionWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", str(tmp_path))
     missing = await world.service.test(
         CONNECTION_KEY,
         ConnectionWrite("local_file", {}, {"source_path": str(tmp_path / "missing")}),

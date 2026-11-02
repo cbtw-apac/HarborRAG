@@ -115,8 +115,9 @@ class SourceTypeSpec:
     ``tenant_keyword`` is the dataclass keyword that receives the connection's
     tenant, which no caller can set; ``build_check``
     is False when building the config reads the worker's file system, so
-    the API cannot check it; ``setups`` are the setups a connection
-    template is offered for.
+    the API cannot check it; ``policy`` holds install rules every write
+    obeys and ``api_policy`` rules only API writes obey; ``setups`` are the
+    setups a connection template is offered for.
     """
 
     source_type: str
@@ -136,6 +137,7 @@ class SourceTypeSpec:
     aliases: tuple[str, ...] = ()
     version: str = "2.0.0"
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
+    api_policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
     setups: tuple[Setup, ...] = ()
 
     @property
@@ -232,6 +234,10 @@ class SourceTypeSpec:
         if self.has_method_choice:
             checked_credentials = {METHOD_KEY: method.id, **checked_credentials}
         return ValidatedConnection(checked_credentials, checked_config, checked_tuning)
+
+    def api_policy_issues(self, config: Mapping[str, Any]) -> list[FieldIssue]:
+        """Install rules only API writes obey, such as requiring a local source root."""
+        return self.api_policy(config) if self.api_policy is not None else []
 
     def operator_field_issues(
         self,

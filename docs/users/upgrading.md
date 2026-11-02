@@ -111,6 +111,8 @@ a row whose type is unknown becomes `error`.
   HTTP API takes secret values and refuses a new `env:NAME`.
 - **Local paths can be restricted.** With `HARBORRAG_LOCAL_SOURCE_ROOT` or
   `LOCAL_SOURCE_PATH` set, a `local_file` connection must stay inside it.
+  Without either on the API, the API refuses new `local_file` connections;
+  the CLI and `connectors.yaml` still accept them.
 - **Deprecated:** `GET /v1/connections`, `/api/v1/sources*` and
   `POST /v1/ingestions` keep working through 2.0.x and announce their
   successors. They sunset on 7 February 2027.

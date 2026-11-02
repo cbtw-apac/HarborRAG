@@ -67,7 +67,12 @@ class ControlPlaneWritesMixin:
         if await control_plane.projects.get(project_id, tenant_ids=tenant_ids) is None:
             raise HarborNotFoundError(f"project {project_id!r} not found")
         spec = _require_spec(source_type)
-        _refuse_issues(spec.operator_field_issues(config, None, part="config"))
+        _refuse_issues(
+            [
+                *spec.operator_field_issues(config, None, part="config"),
+                *spec.api_policy_issues(config),
+            ]
+        )
         connection_id = await _free_connection_id(control_plane, tenant_id, project_id, name)
         resolved_config, secret_refs, newly_put_refs, _stale = await _extract_secrets(
             control_plane, spec, config, tenant_id=tenant_id
@@ -135,7 +140,12 @@ class ControlPlaneWritesMixin:
             spec = _require_spec(source.source_type)
             stored = spec.flatten(source.credentials, source.config, source.tuning)
             _refuse_issues(
-                spec.operator_field_issues(updates["config"], stored, part="config", merge=True)
+                [
+                    *spec.operator_field_issues(
+                        updates["config"], stored, part="config", merge=True
+                    ),
+                    *spec.api_policy_issues(updates["config"]),
+                ]
             )
             resolved_config, secret_refs, newly_put_refs, stale_refs = await _extract_secrets(
                 control_plane,
