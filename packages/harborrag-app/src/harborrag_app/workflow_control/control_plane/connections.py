@@ -16,7 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from typing import Any, Literal, Protocol
+from typing import Any, Final, Literal, Protocol
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
@@ -75,6 +75,7 @@ from .effect_recovery import defer_retirement, log_activity, retire_refs
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
 
 TEST_TIMEOUT_SECONDS = 15.0
+_DELETE_CONNECTION_JOB: Final = "delete_connection"
 TEST_REQUEST_TIMEOUT_SECONDS = 10.0
 TEST_WORKERS = 4
 _TEST_EXECUTOR = ThreadPoolExecutor(max_workers=TEST_WORKERS, thread_name_prefix="connection-test")
@@ -496,7 +497,11 @@ class ConnectionService:
             self._removing.discard(marker)
 
     async def _finish_deletion(self, connection: Connection, *, job_id: str, purge: bool) -> None:
-        """Run one removal pass and record its outcome on the job."""
+        """Run one removal pass and record its outcome on the job.
+
+        A connection removed as part of a project cascade leaves the project's
+        job running; only the project removal finishes it.
+        """
         control_plane = self._control_plane()
         job = await control_plane.jobs.get(job_id, tenant_ids=frozenset({connection.tenant_id}))
         try:
@@ -521,10 +526,14 @@ class ConnectionService:
                 job_id,
                 type(error).__name__,
             )
-            if job is not None:
+            if job is None:
+                return
+            if job.job_type == _DELETE_CONNECTION_JOB:
                 await control_plane.jobs.save(_finished(job, "failed", type(error).__name__))
+            else:
+                await control_plane.jobs.save(replace(job, last_error=type(error).__name__))
             return
-        if job is not None:
+        if job is not None and job.job_type == _DELETE_CONNECTION_JOB:
             await control_plane.jobs.save(_finished(job, "succeeded"))
 
     async def resume_deletions(self) -> int:
@@ -690,7 +699,7 @@ class ConnectionService:
             id=f"job_{uuid4().hex[:16]}",
             source_id=connection.id,
             project_id=connection.project_id,
-            job_type="delete_connection",
+            job_type=_DELETE_CONNECTION_JOB,
             tenant_id=connection.tenant_id,
             status="running",
             payload={"connection": connection.ref, "purge": purge, "actor": actor},

@@ -202,7 +202,12 @@ class ProjectService:
         return job.id
 
     async def finish_deletion(self, project: Project, *, job_id: str) -> None:
-        """Remove every connection of the project, then the project itself."""
+        """Remove every connection of the project, then the project itself.
+
+        While a connection remains, the job stays running with its last error, so
+        the next start's ``resume_deletions`` tries again; it succeeds only once
+        the project row is gone.
+        """
         control_plane = self._control_plane()
         for connection in await self._project_connections(project):
             await self._connections.finish_deletion(connection, job_id=job_id, purge=True)
@@ -211,7 +216,7 @@ class ProjectService:
         if remaining:
             if job is not None:
                 await control_plane.jobs.save(
-                    replace(job, status="failed", last_error="connections remain")
+                    replace(job, status="running", last_error="connections remain")
                 )
             return
         await control_plane.projects.delete(project.id, tenant_ids=frozenset({project.tenant_id}))
@@ -232,6 +237,10 @@ class ProjectService:
             )
             if project is not None:
                 await self.finish_deletion(project, job_id=job.id)
+            else:
+                await control_plane.jobs.save(
+                    replace(job, status="succeeded", finished_at=utc_now(), last_error=None)
+                )
         return len(jobs)
 
     async def _require(self, tenant_id: str, project_id: str) -> Project:

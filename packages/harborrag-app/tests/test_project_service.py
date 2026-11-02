@@ -144,3 +144,30 @@ async def test_delete_needs_cascade_once_connections_exist(services: Any) -> Non
         await projects.get(tenant_id="acme", project_id="cpm")
     job = await control_plane.jobs.get(job_id, tenant_ids=None)
     assert job is not None and job.status == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_a_cascade_that_hits_a_failure_finishes_on_resume(services: Any) -> None:
+    projects, connections, control_plane, removal = services
+    await projects.put(tenant_id="acme", project_id="cpm", name="CPM", description=None, actor="u")
+    for connection_id in ("cpm-tickets", "cpm-wiki"):
+        await connections.put(ConnectionKey("acme", "cpm", connection_id), JIRA_WRITE, actor="u")
+    removal.fail = True
+
+    job_id = await projects.delete(tenant_id="acme", project_id="cpm", actor="u", cascade=True)
+    await connections.aclose()
+    assert job_id is not None
+    interrupted = await control_plane.jobs.get(job_id, tenant_ids=None)
+
+    await connections.resume_deletions()
+    after_connections = await control_plane.jobs.get(job_id, tenant_ids=None)
+    still_there = await control_plane.projects.get("cpm", tenant_ids=None)
+    await projects.resume_deletions()
+    finished = await control_plane.jobs.get(job_id, tenant_ids=None)
+
+    assert interrupted is not None and interrupted.status == "running"
+    assert interrupted.last_error is not None
+    assert after_connections is not None and after_connections.status == "running"
+    assert still_there is not None
+    assert finished is not None and finished.status == "succeeded"
+    assert await control_plane.projects.get("cpm", tenant_ids=None) is None
