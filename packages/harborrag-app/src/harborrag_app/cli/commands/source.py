@@ -207,7 +207,9 @@ def sync(
     ref: Ref,
     mode: Annotated[
         Literal["incremental", "force"],
-        typer.Option("--mode", help="incremental reads changes; force re-reads and re-processes everything."),
+        typer.Option(
+            "--mode", help="incremental reads changes; force re-reads and re-processes everything."
+        ),
     ] = "incremental",
     tenant: Tenant = "DEFAULT",
     as_json: JsonOption = False,
