@@ -295,6 +295,44 @@ async def test_a_changed_endpoint_never_reuses_a_stored_secret(world: Connection
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("held", ["stored", "env"])
+async def test_a_reference_sent_back_does_not_carry_a_secret_to_a_new_host(
+    world: ConnectionWorld, held: str
+) -> None:
+    if held == "env":
+        operator_write = ConnectionWrite(
+            "jira", {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:JIRA_TOKEN"}}, {}
+        )
+        await world.service.put(CONNECTION_KEY, operator_write, actor="ops", origin="operator")
+    else:
+        await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    stored = await world.control_plane.connections.get(
+        tenant_id="acme", project_id="cpm", connection_id="cpm-tickets"
+    )
+    assert stored is not None
+    echoed = {"secret_ref": stored.credentials["api_token"]["secret_ref"]}
+    moved = ConnectionWrite(
+        "jira", {"base_url": "https://attacker.example", "email": "x@y.z", "api_token": echoed}, {}
+    )
+
+    with pytest.raises(ConnectionValidationError) as on_put:
+        await world.service.put(CONNECTION_KEY, moved, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_test:
+        await world.service.test(CONNECTION_KEY, moved)
+
+    for caught in (on_put, on_test):
+        assert [issue.as_dict() for issue in caught.value.issues] == [
+            {"field": "credentials.api_token", "issue": "send it again: base_url changed"}
+        ]
+    same_host = await world.service.put(
+        CONNECTION_KEY,
+        ConnectionWrite("jira", {**JIRA_WRITE.credentials, "api_token": echoed}, {}),
+        actor="u",
+    )
+    assert same_host.connection["credentials"]["api_token"]["from"] == held
+
+
+@pytest.mark.asyncio
 async def test_switching_auth_method_drops_and_retires_the_old_secret(
     world: ConnectionWorld,
 ) -> None:

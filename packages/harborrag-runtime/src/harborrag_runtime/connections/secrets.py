@@ -156,6 +156,19 @@ def default_secret_resolver(
     )
 
 
+def reuses_stored_reference(value: Any, stored: Any) -> bool:
+    """True when ``value`` is a ``{"secret_ref"}`` naming the reference ``stored`` holds.
+
+    Such a value keeps the stored secret, exactly like leaving the field out.
+    """
+    previous = StoredSecret.from_json(stored)
+    return (
+        previous is not None
+        and isinstance(value, Mapping)
+        and value.get(REFERENCE_KEY) == previous.ref.value
+    )
+
+
 def new_env_references(
     incoming: Mapping[str, Any], existing: Mapping[str, Any] | None
 ) -> list[FieldIssue]:
@@ -242,8 +255,7 @@ class CredentialSecretWriter:
             return before
         if not isinstance(value, Mapping) or not isinstance(value.get(REFERENCE_KEY), str):
             return self._issue(issues, name, "must be a string or a secret reference")
-        previous = StoredSecret.from_json(before)
-        if previous is not None and value[REFERENCE_KEY] == previous.ref.value:
+        if reuses_stored_reference(value, before):
             return before
         try:
             ref = SecretRef.parse(value[REFERENCE_KEY])

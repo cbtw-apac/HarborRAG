@@ -55,6 +55,7 @@ from harborrag_runtime.connections import (
     SecretUnavailableError,
     default_secret_resolver,
     new_env_references,
+    reuses_stored_reference,
 )
 from harborrag_runtime.ingestion.connection_checks import (
     ConnectionTestReport,
@@ -708,8 +709,9 @@ def _plan_credentials(
 ) -> tuple[dict[str, Any], frozenset[str]]:
     """Return the sent credentials without ``SecretStatus`` echoes, and the stored secrets kept.
 
-    An omitted or echoed secret keeps its stored value only when it belongs to the
-    auth method being written and no endpoint field changed.
+    A secret left out, echoed as its status, or sent back as the reference it
+    already holds keeps its stored value only when it belongs to the auth method
+    being written and no endpoint field changed.
 
     Raises:
         ConnectionValidationError: An endpoint changed while a stored secret would be kept.
@@ -722,16 +724,21 @@ def _plan_credentials(
     except KeyError:
         return sent, frozenset()
     keep = frozenset(name for name in secrets if name not in sent and name in existing.credentials)
+    reused = frozenset(
+        name
+        for name in secrets
+        if name in sent and reuses_stored_reference(sent[name], existing.credentials.get(name))
+    )
     moved = sorted(
         name
         for name in spec.endpoints
         if _endpoint(sent.get(name)) != _endpoint(existing.credentials.get(name))
     )
-    if keep and moved:
+    if (keep or reused) and moved:
         raise ConnectionValidationError(
             [
                 FieldIssue(f"credentials.{name}", f"send it again: {', '.join(moved)} changed")
-                for name in sorted(keep)
+                for name in sorted(keep | reused)
             ]
         )
     return sent, keep
