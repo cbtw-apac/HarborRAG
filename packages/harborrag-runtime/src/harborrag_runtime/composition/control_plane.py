@@ -6,6 +6,7 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from harborrag_core.ports.agent_runs import AgentRunRepository
@@ -242,11 +243,15 @@ def secrets_encryption_key(settings: RuntimeSettings) -> str:
     Args:
         settings: Runtime settings of this process.
 
+    ``HARBORRAG_SECRETS_ENCRYPTION_KEY`` wins; otherwise the first line of the file
+    ``HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`` names, such as a Docker or Kubernetes secret.
+
     Returns:
         The configured key, or the dev-only default for a SQLite control database.
 
     Raises:
-        HarborConfigurationError: The key is blank and the control database is not SQLite.
+        HarborConfigurationError: The key file is unreadable or empty, or no key is set
+            and the control database is not SQLite.
     """
     from harborrag_core.contracts.errors import HarborConfigurationError
     from harborrag_runtime.config.settings import is_blank_secret
@@ -255,10 +260,13 @@ def secrets_encryption_key(settings: RuntimeSettings) -> str:
     encryption_key = settings.secrets_encryption_key
     if encryption_key is not None and not is_blank_secret(encryption_key):
         return encryption_key.get_secret_value()
+    if settings.secrets_encryption_key_file is not None:
+        return _read_key_file(settings.secrets_encryption_key_file)
     if not scheme.startswith("sqlite"):
         raise HarborConfigurationError(
-            "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
-            "is not SQLite; the dev-only default key is not safe for stored secrets"
+            "HARBORRAG_SECRETS_ENCRYPTION_KEY or HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE must be "
+            "set when HARBORRAG_CONTROL_DB_URL is not SQLite; the dev-only default key is not "
+            "safe for stored secrets"
         )
     logger.warning(
         "Using the dev-only default secrets encryption key against a SQLite "
@@ -266,6 +274,26 @@ def secrets_encryption_key(settings: RuntimeSettings) -> str:
         "this process at any persistent or shared database"
     )
     return _DEV_DEFAULT_SECRETS_KEY
+
+
+def _read_key_file(path: Path) -> str:
+    """Return the first line of the key file.
+
+    Raises:
+        HarborConfigurationError: The file cannot be read or its first line is blank.
+    """
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise HarborConfigurationError(
+            f"HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE cannot be read: {path}"
+        ) from error
+    key = lines[0].strip() if lines else ""
+    if not key:
+        raise HarborConfigurationError(f"HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE is empty: {path}")
+    return key
 
 
 def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:

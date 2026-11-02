@@ -12,6 +12,7 @@ from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.project import Project
 from harborrag_core.ports.usage import ModelUsageRecord
 from harborrag_runtime.composition import CompositionRoot
+from harborrag_runtime.composition.control_plane import secrets_encryption_key
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
 
@@ -215,6 +216,29 @@ def test_non_sqlite_control_db_refuses_a_blank_encryption_key_before_connecting(
     )
 
     with pytest.raises(
-        HarborConfigurationError, match="HARBORRAG_SECRETS_ENCRYPTION_KEY must be set"
+        HarborConfigurationError,
+        match="HARBORRAG_SECRETS_ENCRYPTION_KEY or HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE must be set",
     ):
         CompositionRoot.production(settings)
+
+
+@pytest.mark.whitebox
+def test_the_key_file_supplies_the_encryption_key(tmp_path: Path) -> None:
+    key_file = tmp_path / "encryption.key"
+    key_file.write_text("from-a-mounted-secret\n", encoding="utf-8")
+    dsn = "postgresql+asyncpg://user:pass@database.invalid/control"
+
+    from_file = RuntimeSettings(control_db_url=dsn, secrets_encryption_key_file=key_file)
+    both = RuntimeSettings(
+        control_db_url=dsn, secrets_encryption_key="from-env", secrets_encryption_key_file=key_file
+    )
+
+    assert secrets_encryption_key(from_file) == "from-a-mounted-secret"
+    assert secrets_encryption_key(both) == "from-env"
+    key_file.write_text("\n", encoding="utf-8")
+    with pytest.raises(HarborConfigurationError, match="is empty"):
+        secrets_encryption_key(from_file)
+    with pytest.raises(HarborConfigurationError, match="cannot be read"):
+        secrets_encryption_key(
+            RuntimeSettings(control_db_url=dsn, secrets_encryption_key_file=tmp_path / "missing")
+        )
