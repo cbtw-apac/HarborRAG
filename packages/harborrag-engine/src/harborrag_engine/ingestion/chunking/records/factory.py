@@ -227,7 +227,15 @@ class CanonicalChunkFactory:
         local_context = candidate.structural_path[-1:] or ()
         symbol = candidate.metadata.get("symbol")
         symbols = (symbol,) if isinstance(symbol, str) and symbol.strip() else ()
-        return "\n".join((*local_context, *symbols, candidate.content))
+        # A part of a long definition names what encloses it (``class Foo:`` /
+        # ``def run(self):``), so it is found by that name, not only its body.
+        scope = candidate.metadata.get("enclosing_scope")
+        scopes = (
+            tuple(line.strip() for line in scope.splitlines() if line.strip())
+            if isinstance(scope, str)
+            else ()
+        )
+        return "\n".join((*local_context, *symbols, *scopes, candidate.content))
 
     @staticmethod
     def _relations(request: ChunkingRequest) -> tuple[ChunkRelation, ...]:

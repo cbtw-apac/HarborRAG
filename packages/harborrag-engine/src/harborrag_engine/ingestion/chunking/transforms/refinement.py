@@ -269,6 +269,7 @@ class OversizedUnitRefiner:
                 structural_path=unit.structural_path,
                 preserve_whitespace=line_preserving,
                 separators=("\n", "") if line_preserving else None,
+                language=self._code_language(unit),
             )
         )
         retained = tuple(split for split in text_splits if split.content.strip())
@@ -282,13 +283,33 @@ class OversizedUnitRefiner:
                 boundary_kind=split.boundary_kind,
                 hard_boundary_before=True,
                 hard_boundary_after=True,
-                forced_split=True,
-                metadata={**unit.metadata, "local_part_index": index},
+                # Only a token-window cut is forced; a cut at a syntax, heading
+                # or sentence boundary is structural.
+                forced_split=split.forced_split,
+                metadata={
+                    **unit.metadata,
+                    "local_part_index": index,
+                    # Signatures of the definitions enclosing a code part
+                    # (``class Foo:`` / ``def a(self):``), kept out of the content
+                    # so the content still equals its source span.
+                    **({"enclosing_scope": split.prefix} if split.prefix else {}),
+                },
             )
             for index, split in enumerate(retained)
         )
         self._validate(refined, profile)
         return refined
+
+    @staticmethod
+    def _code_language(unit: ChunkUnit) -> str | None:
+        """Return the code unit's programming language, when its parser recorded one."""
+
+        if unit.role != "code":
+            return None
+        value = unit.metadata.get("code_language")
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        return None
 
     @staticmethod
     def _validate(

@@ -3,7 +3,12 @@ from dataclasses import replace
 import pytest
 
 from harborrag_core.chunking import ChunkKind
-from harborrag_core.contracts.chunking import TextRefinementRequest, TextSplit, TokenCounter
+from harborrag_core.contracts.chunking import (
+    SplitBoundaryKind,
+    TextRefinementRequest,
+    TextSplit,
+    TokenCounter,
+)
 from harborrag_core.domain.document import DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_engine.ingestion.chunking import ChunkingError, ChunkingPlan
@@ -445,3 +450,47 @@ def test_route_chunk_keeps_labels_and_headings_within_its_token_cap() -> None:
     assert "label-399" not in document_route.content
     assert CharacterCounter().count(document_route.content) <= 512
     assert result.manifest.validation.valid
+
+
+def test_oversized_code_passes_its_language_and_keeps_split_scope_and_kind() -> None:
+    requests: list[TextRefinementRequest] = []
+
+    class ScopeRefiner:
+        def split(self, request: TextRefinementRequest) -> tuple[TextSplit, ...]:
+            requests.append(request)
+            middle = len(request.content) // 2
+            return (
+                TextSplit(
+                    content=request.content[:middle],
+                    token_count=middle,
+                    boundary_kind=SplitBoundaryKind.CODE_SYMBOL,
+                ),
+                TextSplit(
+                    content=request.content[middle:],
+                    token_count=len(request.content) - middle,
+                    boundary_kind=SplitBoundaryKind.FORCED,
+                    prefix="class Foo:",
+                    forced_split=True,
+                ),
+            )
+
+    profile = make_profile(target=6, maximum=6)
+    code = DocumentElement("c1", "code", "abcdefghij", metadata={"code_language": " Python "})
+    prose = DocumentElement("p1", "paragraph", "klmnopqrst")
+
+    result = make_service(profile, refiner=ScopeRefiner()).chunk(
+        make_request(make_document([code, prose]))
+    )
+
+    assert [request.language for request in requests] == ["python", None]
+    code_chunks = [chunk for chunk in result.chunks if chunk.content in {"abcde", "fghij"}]
+    assert [chunk.metadata.get("enclosing_scope") for chunk in code_chunks] == [
+        None,
+        "class Foo:",
+    ]
+    assert [chunk.metadata["forced_split"] for chunk in code_chunks] == [False, True]
+    # The enclosing scope is embedded and searchable, but never part of the content.
+    assert code_chunks[1].embedding_text.endswith("class Foo:\nfghij")
+    assert code_chunks[1].search_text.endswith("class Foo:\nfghij")
+    assert code_chunks[1].content == "fghij"
+    assert "class Foo:" not in code_chunks[0].embedding_text
