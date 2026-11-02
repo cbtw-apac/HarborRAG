@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -23,6 +24,8 @@ from harborrag_core.contracts.errors import (
     HarborError,
     HarborValidationError,
 )
+
+logger = logging.getLogger("harborrag.app.cli.source")
 
 BODY_FIELDS = frozenset({"source_type", "name", "credentials", "config", "advanced"})
 WHOLE_BODY_FIELDS = ("credentials", "config")
@@ -151,9 +154,14 @@ def source_failure(error: Exception) -> AppResponse:
 
     A validation error lists each failing field. Configuration errors and anything
     outside ``HarborError`` keep the CLI's generic handling, which never prints
-    infrastructure detail.
+    infrastructure detail; an unexpected error is logged with its traceback, so
+    the logs show what the printed message leaves out.
     """
-    if isinstance(error, HarborConfigurationError) or not isinstance(error, HarborError):
+    if isinstance(error, HarborConfigurationError):
+        logger.debug("harborrag source call failed", exc_info=error)
+        return failure(error)
+    if not isinstance(error, HarborError):
+        logger.error("harborrag source call failed", exc_info=error)
         return failure(error)
     data: dict[str, Any] = {"error_type": type(error).__name__}
     message = str(error) or type(error).__name__

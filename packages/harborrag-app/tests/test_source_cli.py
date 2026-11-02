@@ -257,3 +257,22 @@ def test_remove_asks_on_stderr_so_json_output_stays_clean(
     assert code == 1
     assert "Delete default/jira-cpm" not in captured.out
     assert "Delete default/jira-cpm" in captured.err
+
+
+def test_an_unexpected_failure_is_logged_but_never_printed(
+    world: ConnectionWorld,
+    capsys: pytest.CaptureFixture[str],
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def broken(*args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError("could not reach postgresql://harbor:hunter2@db/control")
+
+    monkeypatch.setattr(type(world.service), "list_page", broken)
+
+    with caplog.at_level("ERROR", logger="harborrag.app.cli.source"):
+        code, response = _run(capsys, "list")
+
+    assert code == 1
+    assert "hunter2" not in json.dumps(response)
+    assert any(record.exc_info for record in caplog.records)
