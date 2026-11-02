@@ -14,10 +14,12 @@ from harborrag_runtime.config.connectors.models import (
     to_connector_config,
 )
 from harborrag_runtime.connections import (
+    OPERATOR_ONLY_HELP,
     CredentialSecretWriter,
     SecretResolver,
     SecretUnavailableError,
     default_secret_resolver,
+    new_env_references,
 )
 
 _NOW = datetime(2026, 10, 29, tzinfo=UTC)
@@ -144,6 +146,52 @@ async def test_resolver_reads_stored_and_env_references() -> None:
     assert values == {"api_token": _SENTINEL, "client_secret": "from-env"}
     with pytest.raises(SecretUnavailableError):
         await resolver.resolve_credentials(stored.credentials, tenant_id="other-tenant")
+
+
+@pytest.mark.asyncio
+async def test_a_writer_without_env_refuses_a_new_env_reference_but_keeps_a_stored_one() -> None:
+    secrets = FakeSecrets()
+    stored = await _writer(secrets).apply(
+        {"api_token": {"secret_ref": "env:JIRA_TOKEN"}}, secret_fields=_FIELDS
+    )
+    api = _writer(secrets, sources=frozenset({"stored"}))
+
+    with pytest.raises(ConnectionValidationError) as caught:
+        await api.apply(
+            {"api_token": {"secret_ref": "env:HARBOR_EMBED_API_KEY"}}, secret_fields=_FIELDS
+        )
+    kept = await api.apply(
+        {"api_token": {"secret_ref": "env:JIRA_TOKEN"}},
+        secret_fields=_FIELDS,
+        existing=stored.credentials,
+    )
+
+    assert caught.value.issues[0].issue == OPERATOR_ONLY_HELP
+    assert kept.credentials == stored.credentials
+
+
+def test_new_env_references_names_only_references_the_connection_lacks() -> None:
+    stored = {"api_token": {"secret_ref": "env:JIRA_TOKEN", "last4": None}}
+
+    assert new_env_references({"api_token": {"secret_ref": "env:JIRA_TOKEN"}}, stored) == []
+    assert new_env_references({"api_token": "a-value"}, None) == []
+    assert [
+        issue.field
+        for issue in new_env_references({"api_token": {"secret_ref": "env:OTHER"}}, stored)
+    ] == ["credentials.api_token"]
+
+
+@pytest.mark.asyncio
+async def test_an_omitted_secret_outside_keep_is_retired() -> None:
+    secrets = FakeSecrets()
+    stored = await _writer(secrets).apply({"api_token": _SENTINEL}, secret_fields=_FIELDS)
+
+    result = await _writer(secrets).apply(
+        {}, secret_fields=_FIELDS, existing=stored.credentials, keep=frozenset()
+    )
+
+    assert "api_token" not in result.credentials
+    assert result.retired == stored.created
 
 
 @pytest.mark.asyncio

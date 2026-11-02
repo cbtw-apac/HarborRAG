@@ -1,6 +1,7 @@
 """Connection services shared by the API and the ingestion workers."""
 
 from .secrets import (
+    OPERATOR_ONLY_HELP,
     CredentialSecretWriter,
     EnvironmentSecretResolver,
     SecretResolver,
@@ -8,9 +9,11 @@ from .secrets import (
     SecretWriteResult,
     StoredSecretResolver,
     default_secret_resolver,
+    new_env_references,
 )
 
 __all__ = [
+    "OPERATOR_ONLY_HELP",
     "CredentialSecretWriter",
     "EnvironmentSecretResolver",
     "SecretResolver",
@@ -18,4 +21,5 @@ __all__ = [
     "SecretWriteResult",
     "StoredSecretResolver",
     "default_secret_resolver",
+    "new_env_references",
 ]

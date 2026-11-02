@@ -124,9 +124,20 @@ def add(  # noqa: PLR0913 - one parameter per documented option
 
     async def operation(connections: ConnectionService) -> dict[str, Any]:
         result = await connections.put(
-            key, write, actor=operator_identity(), create_only=True, sync_now=sync_now
+            key,
+            write,
+            actor=operator_identity(),
+            create_only=True,
+            sync_now=sync_now,
+            origin="operator",
         )
-        return {**result.connection, "version": result.version, "ingestion": result.ingestion}
+        sync_error = str(result.sync_error) if result.sync_error is not None else None
+        return {
+            **result.connection,
+            "version": result.version,
+            "ingestion": result.ingestion,
+            "sync_error": sync_error,
+        }
 
     _invoke(context, "add", operation, as_json=as_json)
 
@@ -155,7 +166,11 @@ def update(  # noqa: PLR0913 - one parameter per documented option
     async def operation(connections: ConnectionService) -> dict[str, Any]:
         _view, version = await connections.get(key)
         result = await connections.put(
-            key, write, actor=operator_identity(), expected_version=if_version or version
+            key,
+            write,
+            actor=operator_identity(),
+            expected_version=if_version or version,
+            origin="operator",
         )
         return {**result.connection, "version": result.version}
 
@@ -181,7 +196,7 @@ def test(
     write = _write(body) if body is not None else None
 
     async def operation(connections: ConnectionService) -> dict[str, Any]:
-        return await connections.test(key, write)
+        return await connections.test(key, write, origin="operator")
 
     _invoke(context, "test", operation, as_json=as_json, succeeded=_passed)
 

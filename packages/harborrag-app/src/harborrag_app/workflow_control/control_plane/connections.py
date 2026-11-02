@@ -15,13 +15,14 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, replace
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborCapabilityError,
+    HarborError,
     HarborImmutableFieldError,
     HarborNotFoundError,
     HarborPreconditionFailedError,
@@ -40,15 +41,20 @@ from harborrag_core.security.secret_refs import all_refs, stored_refs
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 from harborrag_runtime.config.connectors.models import (
+    ConnectionValidationError,
+    FieldIssue,
     SourceTypeSpec,
     ValidatedConnection,
     source_types,
 )
+from harborrag_runtime.config.connectors.models.builder import connector_config_issues
+from harborrag_runtime.config.connectors.models.spec import METHOD_KEY
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.connections import (
     CredentialSecretWriter,
     SecretUnavailableError,
     default_secret_resolver,
+    new_env_references,
 )
 from harborrag_runtime.ingestion.connection_checks import (
     ConnectionTestReport,
@@ -61,13 +67,16 @@ from harborrag_runtime.ingestion.connections import (
 )
 
 from ..ingestion.models import IngestionCreateCommand
-from .connection_views import connection_view, ingestion_view
+from .connection_views import connection_view, ingestion_view, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
 
 TEST_TIMEOUT_SECONDS = 15.0
 SYNC_LEASE_TTL_SECONDS = 5.0
+
+WriteOrigin = Literal["api", "operator"]
+"""Who writes: ``api`` callers may not set new ``env:`` references; the CLI (``operator``) may."""
 
 
 class ConnectionRuns(Protocol):
@@ -115,12 +124,13 @@ class ConnectionWrite:
 
 @dataclass(frozen=True, slots=True)
 class ConnectionPutResult:
-    """A stored connection, whether it was new, and the ingestion ``sync_now`` started."""
+    """A stored connection, whether it was new, and what ``sync_now`` started or why it did not."""
 
     connection: dict[str, Any]
     created: bool
     version: int
     ingestion: dict[str, Any] | None = None
+    sync_error: HarborError | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -232,14 +242,16 @@ class ConnectionService:
         expected_version: int | None = None,
         create_only: bool = False,
         sync_now: bool = False,
+        origin: WriteOrigin = "api",
     ) -> ConnectionPutResult:
         """Create or overwrite a connection.
 
         ``config`` is replaced whole, and so is ``tuning`` unless it is left out,
         which keeps the stored tuning. In ``credentials`` an omitted secret keeps
-        its value, a value rotates it, a ``{"secret_ref"}`` points it elsewhere
-        and ``null`` clears it; replaced stored secrets are deleted once no
-        running ingestion still uses them.
+        its value while the auth method and endpoints stay the same, a value
+        rotates it, a ``{"secret_ref"}`` points it elsewhere and ``null`` clears
+        it; replaced stored secrets are deleted once no running ingestion still
+        uses them. A failed ``sync_now`` keeps the saved connection.
 
         Args:
             key: The connection's tenant, project and ``connection_id``.
@@ -248,13 +260,17 @@ class ConnectionService:
             expected_version: ``If-Match`` version, when sent.
             create_only: ``If-None-Match: *`` was sent.
             sync_now: Start an incremental sync after saving.
+            origin: ``operator`` lets the write set new ``env:`` references.
 
         Returns:
-            The stored connection, whether it was created, and the started ingestion.
+            The stored connection, whether it was created, and the started
+            ingestion or the error that kept ``sync_now`` from starting one.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
-            ConnectionValidationError: The type is unknown or a field fails its schema.
+            ConnectionValidationError: The type is unknown, a field fails its schema,
+                an endpoint changed while a stored secret would be kept, or an ``api``
+                write sets a new ``env:`` reference.
             HarborImmutableFieldError: The connection exists with another source type.
             HarborPreconditionFailedError: ``If-Match`` or ``If-None-Match`` does not hold.
             ConnectionUnavailableError: The connection is being deleted.
@@ -266,15 +282,21 @@ class ConnectionService:
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
         )
+        expected_version = resolve_any_version(
+            expected_version, existing.version if existing else None
+        )
         _check_preconditions(existing, spec, expected_version, create_only)
-        effective = _effective_credentials(write.credentials, existing, spec.secret_fields)
-        validated = spec.validate(effective, write.config, write.effective_tuning(existing))
+        sent, keep = _plan_credentials(write.credentials, existing, spec)
+        validated = _validate(spec, _effective_credentials(sent, existing, keep), write, existing)
         written = await CredentialSecretWriter(
-            control_plane.secrets, tenant_id=key.tenant_id
+            control_plane.secrets,
+            tenant_id=key.tenant_id,
+            sources=frozenset({"stored", "env"} if origin == "operator" else {"stored"}),
         ).apply(
-            write.credentials,
+            sent,
             secret_fields=spec.secret_fields,
             existing=existing.credentials if existing else None,
+            keep=keep,
         )
         credentials = _merge_secrets(validated.credentials, written.credentials, spec.secret_fields)
         connection = _build(key, existing, spec, write, credentials, validated, actor)
@@ -289,15 +311,24 @@ class ConnectionService:
         await self._record(
             stored, "created" if outcome == "created" else "updated", actor, existing
         )
-        ingestion = await self.sync(key, actor=actor) if sync_now else None
+        ingestion: dict[str, Any] | None = None
+        sync_error: HarborError | None = None
+        if sync_now:
+            try:
+                ingestion = await self.sync(key, actor=actor)
+            except HarborError as error:
+                sync_error = error
         return ConnectionPutResult(
             connection=await self._view(stored),
             created=outcome == "created",
             version=stored.version,
             ingestion=ingestion,
+            sync_error=sync_error,
         )
 
-    async def test(self, key: ConnectionKey, write: ConnectionWrite | None) -> dict[str, Any]:
+    async def test(
+        self, key: ConnectionKey, write: ConnectionWrite | None, *, origin: WriteOrigin = "api"
+    ) -> dict[str, Any]:
         """Check form values, or the saved connection when ``write`` is None; saves nothing.
 
         Returns:
@@ -305,7 +336,9 @@ class ConnectionService:
 
         Raises:
             HarborNotFoundError: No body and no saved connection, or the project is missing.
-            ConnectionValidationError: The values fail the source type's schema.
+            ConnectionValidationError: The values fail the source type's schema, change an
+                endpoint while a stored secret would be kept, or, from ``api``, set a new
+                ``env:`` reference.
         """
         control_plane = self._control_plane()
         existing = await control_plane.connections.get(
@@ -320,8 +353,16 @@ class ConnectionService:
         else:
             await self._require_project(key)
         spec = source_types.get(write.source_type)
-        effective = _effective_credentials(write.credentials, existing, spec.secret_fields)
-        validated = spec.validate(effective, write.config, write.effective_tuning(existing))
+        sent, keep = _plan_credentials(write.credentials, existing, spec)
+        effective = _effective_credentials(sent, existing, keep)
+        issues = (
+            new_env_references(sent, existing.credentials if existing else None)
+            if origin == "api"
+            else []
+        )
+        if issues:
+            raise ConnectionValidationError(issues)
+        validated = _validate(spec, effective, write, existing)
         try:
             secret_values = await default_secret_resolver(
                 control_plane.secrets
@@ -526,10 +567,10 @@ class ConnectionService:
                     tuning=validated.tuning,
                     secret_values=secret_values,
                 )
-            except ConnectorConfigurationError:
+            except ConnectorConfigurationError as error:
                 report = ConnectionTestReport()
                 report.passed("schema")
-                report.failed("reachable", "unreachable", "the source rejected these settings")
+                report.failed("reachable", "unreachable", str(error))
                 return report
             return run_connection_checks(connector)
 
@@ -662,28 +703,75 @@ def _check_preconditions(
         raise HarborPreconditionFailedError("connection version does not match")
 
 
+def _plan_credentials(
+    incoming: Mapping[str, Any], existing: Connection | None, spec: SourceTypeSpec
+) -> tuple[dict[str, Any], frozenset[str]]:
+    """Return the sent credentials without ``SecretStatus`` echoes, and the stored secrets kept.
+
+    An omitted or echoed secret keeps its stored value only when it belongs to the
+    auth method being written and no endpoint field changed.
+
+    Raises:
+        ConnectionValidationError: An endpoint changed while a stored secret would be kept.
+    """
+    sent = {name: value for name, value in incoming.items() if not _is_status_echo(value)}
+    if existing is None:
+        return sent, frozenset()
+    try:
+        secrets = spec.method_secret_fields(sent.get(METHOD_KEY))
+    except KeyError:
+        return sent, frozenset()
+    keep = frozenset(name for name in secrets if name not in sent and name in existing.credentials)
+    moved = sorted(
+        name
+        for name in spec.endpoints
+        if _endpoint(sent.get(name)) != _endpoint(existing.credentials.get(name))
+    )
+    if keep and moved:
+        raise ConnectionValidationError(
+            [
+                FieldIssue(f"credentials.{name}", f"send it again: {', '.join(moved)} changed")
+                for name in sorted(keep)
+            ]
+        )
+    return sent, keep
+
+
+def _is_status_echo(value: Any) -> bool:
+    """True for a ``SecretStatus`` sent back as read."""
+    return isinstance(value, Mapping) and "set" in value and "secret_ref" not in value
+
+
+def _endpoint(value: Any) -> str | None:
+    """Normalize an endpoint URL for comparison; blank counts as unset."""
+    text = str(value).strip().rstrip("/").casefold() if value is not None else ""
+    return text or None
+
+
 def _effective_credentials(
-    incoming: Mapping[str, Any], existing: Connection | None, secret_fields: frozenset[str]
+    sent: Mapping[str, Any], existing: Connection | None, keep: frozenset[str]
 ) -> dict[str, Any]:
     """Credentials as they will be once the write applies, for validation only."""
-    kept = {
-        name: value
-        for name, value in (existing.credentials if existing else {}).items()
-        if name in secret_fields and name not in incoming
-    }
-    sent = {
-        name: _secret_echo(value, existing, name) if name in secret_fields else value
-        for name, value in incoming.items()
-        if value is not None
-    }
-    return {**kept, **sent}
+    kept = {name: existing.credentials[name] for name in keep} if existing else {}
+    return {**kept, **{name: value for name, value in sent.items() if value is not None}}
 
 
-def _secret_echo(value: Any, existing: Connection | None, name: str) -> Any:
-    """Treat an echoed ``SecretStatus`` as the stored value it describes."""
-    if isinstance(value, Mapping) and "set" in value and "secret_ref" not in value:
-        return (existing.credentials if existing else {}).get(name, value)
-    return value
+def _validate(
+    spec: SourceTypeSpec,
+    credentials: Mapping[str, Any],
+    write: ConnectionWrite,
+    existing: Connection | None,
+) -> ValidatedConnection:
+    """Check the write against the source type's schemas, then against its connector.
+
+    Raises:
+        ConnectionValidationError: A schema or the connector rejects the values.
+    """
+    validated = spec.validate(credentials, write.config, write.effective_tuning(existing))
+    issues = connector_config_issues(spec, validated)
+    if issues:
+        raise ConnectionValidationError(issues)
+    return validated
 
 
 def _build(  # noqa: PLR0913 - the parts of one stored connection

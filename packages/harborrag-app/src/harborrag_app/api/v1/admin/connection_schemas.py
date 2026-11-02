@@ -7,9 +7,10 @@ The shapes follow the HTTP API spec's ``Connection``, ``SourceType``,
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic.json_schema import JsonDict
 
 from harborrag_app.api.schemas import ApiModel
 
@@ -35,12 +36,6 @@ class SpecErrorResponse(BaseModel):
     error: SpecApiError
 
 
-class SecretReferenceIn(ApiModel):
-    """Points a secret field at a value kept outside HarborRAG."""
-
-    secret_ref: str = Field(min_length=1, description="env:NAME, or a path in the vault")
-
-
 class SecretStatusOut(BaseModel):
     """What clients learn about a stored secret: never its value."""
 
@@ -54,8 +49,59 @@ class SecretStatusOut(BaseModel):
     )
 
 
-CredentialValueIn = str | SecretReferenceIn | None
+CredentialValueIn = Annotated[
+    Any,
+    WithJsonSchema(
+        {
+            "anyOf": [
+                {"type": "string"},
+                {
+                    "type": "object",
+                    "title": "SecretRef",
+                    "properties": {
+                        "secret_ref": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": (
+                                "The reference the field already holds, as read; a new env:NAME "
+                                "can be set only in connectors.yaml or with the harborrag CLI"
+                            ),
+                        }
+                    },
+                    "required": ["secret_ref"],
+                },
+                {
+                    "type": "object",
+                    "title": "SecretStatus",
+                    "description": "A SecretStatus sent back as read; keeps the stored value",
+                    "properties": {"set": {"type": "boolean"}},
+                    "required": ["set"],
+                },
+                {"type": "null"},
+            ]
+        }
+    ),
+]
 CredentialValueOut = str | SecretStatusOut | None
+
+_CREDENTIALS_HELP = (
+    "Fields from the source type's auth schema. When the type has several auth methods, "
+    "method names the one these fields belong to; left out, the first method. A secret "
+    "field takes the secret as a string; leave it out, or send back its SecretStatus or "
+    "SecretRef, to keep the stored value, and send null to clear it. A stored secret is "
+    "kept only while the method and its endpoint fields (base_url, api_url, web_url, "
+    "graph_api_url) stay the same."
+)
+_CREDENTIALS_SCHEMA: JsonDict = {
+    "properties": {
+        "method": {
+            "type": "string",
+            "enum": ["api_token", "oauth", "pat", "app", "none"],
+            "description": "Auth method, when the type has several",
+            "examples": ["api_token"],
+        }
+    }
+}
 
 
 class ConnectionWriteRequest(ApiModel):
@@ -69,10 +115,7 @@ class ConnectionWriteRequest(ApiModel):
         description="Display name; default: connection_id",
     )
     credentials: dict[str, CredentialValueIn] = Field(
-        description=(
-            "Fields from the source type's auth schema. A secret field takes a string or a "
-            "SecretRef; leave it out to keep the stored value, send null to clear it."
-        )
+        description=_CREDENTIALS_HELP, json_schema_extra=_CREDENTIALS_SCHEMA
     )
     config: dict[str, Any] = Field(
         description="What to sync, per the source type's config_schema; replaced as a whole"
@@ -93,8 +136,12 @@ class ConnectionTestRequest(ApiModel):
 
     source_type: SourceTypeName
     name: str | None = Field(default=None, min_length=1, max_length=255)
-    credentials: dict[str, CredentialValueIn] = Field(default_factory=dict)
-    config: dict[str, Any] = Field(default_factory=dict)
+    credentials: dict[str, CredentialValueIn] = Field(
+        default_factory=dict, description=_CREDENTIALS_HELP, json_schema_extra=_CREDENTIALS_SCHEMA
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict, description="What to sync, per the source type's config_schema"
+    )
     advanced: dict[str, Any] | None = Field(
         default=None,
         description=(
@@ -201,7 +248,9 @@ class IngestionOut(BaseModel):
     stages: list[dict[str, Any]]
     error_category: str | None
     triggered_by: TriggeredByOut
-    settings_revision: str
+    settings_revision: str = Field(
+        description="Fingerprint of the connection snapshot the run reads; empty before it starts"
+    )
     workflow_id: str
     run_id: str
     trace_id: str
@@ -214,6 +263,13 @@ class ConnectionPutOut(ConnectionOut):
     """A stored connection and, with ``sync_now``, the ingestion it started."""
 
     ingestion: IngestionOut | None = None
+    sync_error: SpecApiError | None = Field(
+        default=None,
+        description=(
+            "Why sync_now started no ingestion, e.g. already_running; the connection was "
+            "saved all the same"
+        ),
+    )
 
 
 class ConnectionPage(BaseModel):

@@ -8,7 +8,7 @@ from typing import Any
 
 import jwt
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
+from app_test_connections import ConnectionWorld, connection_world, running_task
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
@@ -390,3 +390,91 @@ def test_source_types_publish_their_advanced_schema(client: TestClient) -> None:
 
     assert "page_size" in items["jira"]["advanced_schema"]["properties"]
     assert items["jira"]["ui"]["page_size"]["group"] == "Advanced"
+
+
+def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
+    client: TestClient, app_service: _ConnectionApp
+) -> None:
+    created = client.put(_PATH, json=_BODY)
+    read = client.get(_PATH).json()
+    app_service.world.runs.active = running_task("ing_0")
+
+    echoed = client.put(
+        _PATH,
+        json={
+            "source_type": "jira",
+            "name": "Renamed",
+            "credentials": read["credentials"],
+            "config": read["config"],
+            "sync_now": True,
+        },
+        headers={"If-Match": "*"},
+    )
+
+    assert created.status_code == 201
+    assert echoed.status_code == 200 and echoed.headers["ETag"] == 'W/"rev-2"'
+    body = echoed.json()
+    assert body["name"] == "Renamed" and body["ingestion"] is None
+    assert body["credentials"]["api_token"]["last4"] == read["credentials"]["api_token"]["last4"]
+    assert body["sync_error"]["code"] == "already_running"
+    assert body["sync_error"]["details"] == {"ingestion_id": "ing_0"}
+
+
+def test_put_body_schema_documents_method_and_secret_shapes(client: TestClient) -> None:
+    schemas = client.app.openapi()["components"]["schemas"]  # type: ignore[attr-defined]
+    credentials = schemas["ConnectionWriteRequest"]["properties"]["credentials"]
+
+    assert credentials["properties"]["method"]["enum"] == [
+        "api_token",
+        "oauth",
+        "pat",
+        "app",
+        "none",
+    ]
+    titles = [option.get("title") for option in credentials["additionalProperties"]["anyOf"]]
+    assert titles == [None, "SecretRef", "SecretStatus", None]
+
+
+@pytest.mark.parametrize(
+    "source_type", ["jira", "confluence", "github", "sharepoint"], ids=lambda name: name
+)
+def test_a_body_built_only_from_the_published_schema_is_accepted(
+    client: TestClient, source_type: str
+) -> None:
+    described = next(
+        item
+        for item in client.get("/v1/admin/source-types").json()["items"]
+        if item["source_type"] == source_type
+    )
+    config = _sample(described["config_schema"])
+
+    for method in described["auth_methods"]:
+        body = {
+            "source_type": source_type,
+            "credentials": _sample(method["schema"]),
+            "config": config,
+        }
+        response = client.put(
+            f"/v1/admin/projects/cpm/connections/{source_type}-{method['id']}", json=body
+        )
+
+        assert response.status_code == 201, (method["id"], response.json())
+
+
+def _sample(schema: dict[str, Any]) -> dict[str, Any]:
+    """Fill the required fields of ``schema``, plus the first ``anyOf`` branch, from the schema alone."""
+    required = list(schema.get("required", []))
+    for option in schema.get("anyOf", [])[:1]:
+        required.extend(option.get("required", []))
+    values: dict[str, Any] = {}
+    for name in required:
+        prop = schema["properties"][name]
+        if "const" in prop:
+            values[name] = prop["const"]
+        elif prop.get("format") == "email":
+            values[name] = "bot@acme.com"
+        elif prop.get("format") == "uri":
+            values[name] = "https://acme.example.com/sites/knowledge"
+        else:
+            values[name] = "sample-value-1234"
+    return values

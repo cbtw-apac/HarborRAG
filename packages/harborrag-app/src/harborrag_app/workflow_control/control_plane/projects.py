@@ -34,7 +34,7 @@ from harborrag_core.domain.project import Project
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import ConnectionValidationError, FieldIssue
 
-from .connection_views import project_view
+from .connection_views import project_view, resolve_any_version
 from .connections import ConnectionRuns, ConnectionService
 from .effect_recovery import log_activity
 
@@ -143,7 +143,7 @@ class ProjectService:
             raise HarborPreconditionFailedError("project already exists")
         updated = await projects.update(
             replace(existing, name=name, description=description or ""),
-            expected_version=expected_version,
+            expected_version=resolve_any_version(expected_version, existing.version),
         )
         await self._record(updated, "updated", actor)
         return await self._view(updated), False, updated.version

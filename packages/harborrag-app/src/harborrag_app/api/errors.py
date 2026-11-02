@@ -196,6 +196,20 @@ def error_envelope(
     }
 
 
+def spec_error_body(request: Request, exc: HarborError) -> dict[str, object]:
+    """Return the spec's error object for ``exc`` without raising it, e.g. inside a 2xx body."""
+    status = _status_for(exc)
+    internal = isinstance(exc, _OPAQUE_ERRORS)
+    details = {} if internal else getattr(exc, "details", {})
+    message = "the server could not complete the request" if internal else str(exc)
+    return {
+        "code": _spec_error(exc, status),
+        "message": message,
+        "details": _spec_details(exc, details),
+        "trace_id": getattr(request.state, "trace_id", None),
+    }
+
+
 def register_error_handlers(app: FastAPI) -> None:
     """Attach the three exception handlers to a FastAPI app.
 

@@ -14,6 +14,7 @@ from app_test_connections import (
     running_task,
 )
 
+from harborrag_app.workflow_control.control_plane.connection_views import ANY_VERSION
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionWrite,
@@ -267,3 +268,148 @@ async def test_list_and_searchable_hide_nothing_but_secrets(world: ConnectionWor
     ]
     assert (await world.service.list_page(tenant_id="other"))[0] == []
     await asyncio.sleep(0)
+
+
+@pytest.mark.asyncio
+async def test_a_changed_endpoint_never_reuses_a_stored_secret(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    moved = ConnectionWrite("jira", {"base_url": "https://attacker.example", "email": "x@y.z"}, {})
+
+    with pytest.raises(ConnectionValidationError) as on_put:
+        await world.service.put(CONNECTION_KEY, moved, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_test:
+        await world.service.test(CONNECTION_KEY, moved)
+
+    for caught in (on_put, on_test):
+        assert [issue.as_dict() for issue in caught.value.issues] == [
+            {"field": "credentials.api_token", "issue": "send it again: base_url changed"}
+        ]
+    same_host = await world.service.put(
+        CONNECTION_KEY,
+        ConnectionWrite(
+            "jira", {"base_url": "https://acme.atlassian.net/", "email": "bot@acme.com"}, {}
+        ),
+        actor="u",
+    )
+    assert same_host.connection["credentials"]["api_token"]["last4"] == "9f2c"
+
+
+@pytest.mark.asyncio
+async def test_switching_auth_method_drops_and_retires_the_old_secret(
+    world: ConnectionWorld,
+) -> None:
+    key = ConnectionKey("acme", "cpm", "handbook")
+    first = await world.service.put(
+        key,
+        ConnectionWrite("github", {"method": "pat", "token": "ghp_secret_1234"}, _REPO),
+        actor="u",
+    )
+    stored_ref = first.connection["credentials"]["token"]
+
+    public = await world.service.put(
+        key, ConnectionWrite("github", {"method": "none"}, _REPO), actor="u"
+    )
+
+    assert stored_ref["set"] is True
+    assert public.connection["credentials"] == {"method": "none"}
+    assert world.secrets.values == {}
+
+
+@pytest.mark.asyncio
+async def test_a_secret_status_sent_back_keeps_the_stored_value(world: ConnectionWorld) -> None:
+    first = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    echoed = {**JIRA_WRITE.credentials, "api_token": first.connection["credentials"]["api_token"]}
+
+    again = await world.service.put(CONNECTION_KEY, ConnectionWrite("jira", echoed, {}), actor="u")
+
+    assert again.connection["credentials"]["api_token"]["last4"] == "9f2c"
+    assert len(world.secrets.values) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_failed_sync_now_still_saves_and_reports_why(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.runs.active = running_task("ing_0")
+
+    result = await world.service.put(
+        CONNECTION_KEY,
+        ConnectionWrite("jira", JIRA_WRITE.credentials, {}, name="Renamed"),
+        actor="u",
+        sync_now=True,
+    )
+
+    assert result.ingestion is None and result.version == 2
+    assert isinstance(result.sync_error, HarborAlreadyRunningError)
+    assert result.connection["name"] == "Renamed"
+
+
+@pytest.mark.asyncio
+async def test_if_match_star_matches_any_existing_version(world: ConnectionWorld) -> None:
+    with pytest.raises(HarborPreconditionFailedError):
+        await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", expected_version=ANY_VERSION)
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+
+    updated = await world.service.put(
+        CONNECTION_KEY, JIRA_WRITE, actor="u", expected_version=ANY_VERSION
+    )
+
+    assert updated.version == 2
+
+
+@pytest.mark.asyncio
+async def test_settings_the_connector_refuses_are_field_errors(world: ConnectionWorld) -> None:
+    with pytest.raises(ConnectionValidationError) as caught:
+        await world.service.put(
+            ConnectionKey("acme", "cpm", "site"),
+            ConnectionWrite(
+                "sharepoint",
+                {"method": "pat", "access_token": "eyJ0eXAi-token"},
+                {"site_id": "s1", "item_ids": ["a"], "root_path": "Docs"},
+            ),
+            actor="u",
+        )
+
+    assert caught.value.issues[0].field == "config.item_ids"
+    assert "item_ids and root_path" in caught.value.issues[0].issue
+    assert world.secrets.values == {}
+
+
+_REPO = {"owner": "acme", "repo": "handbook"}
+
+
+@pytest.mark.asyncio
+async def test_only_operator_writes_may_set_an_env_reference(world: ConnectionWorld) -> None:
+    by_reference = ConnectionWrite(
+        "jira",
+        {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:HARBOR_EMBED_API_KEY"}},
+        {},
+    )
+
+    with pytest.raises(ConnectionValidationError) as on_put:
+        await world.service.put(CONNECTION_KEY, by_reference, actor="u")
+    with pytest.raises(ConnectionValidationError) as on_test:
+        await world.service.test(CONNECTION_KEY, by_reference)
+    operator = await world.service.put(
+        CONNECTION_KEY,
+        ConnectionWrite(
+            "jira", {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:JIRA_TOKEN"}}, {}
+        ),
+        actor="ops",
+        origin="operator",
+    )
+    renamed = await world.service.put(
+        CONNECTION_KEY,
+        ConnectionWrite(
+            "jira",
+            {k: v for k, v in JIRA_WRITE.credentials.items() if k != "api_token"},
+            {},
+            name="Renamed",
+        ),
+        actor="u",
+    )
+
+    for caught in (on_put, on_test):
+        assert caught.value.issues[0].field == "credentials.api_token"
+        assert "connectors.yaml or with the harborrag CLI" in caught.value.issues[0].issue
+    assert operator.connection["credentials"]["api_token"]["from"] == "env"
+    assert renamed.connection["credentials"]["api_token"]["from"] == "env"

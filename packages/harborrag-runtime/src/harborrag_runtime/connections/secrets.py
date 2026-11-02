@@ -32,6 +32,11 @@ from harborrag_runtime.config.connectors.models import ConnectionValidationError
 
 logger = logging.getLogger("harborrag.runtime.connections.secrets")
 
+OPERATOR_ONLY_HELP = (
+    "env: references can be set only in connectors.yaml or with the harborrag CLI; "
+    "send the value instead"
+)
+
 
 class SecretUnavailableError(HarborConfigurationError):
     """A referenced secret cannot be read where the connector runs."""
@@ -80,7 +85,10 @@ class StoredSecretResolver:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentSecretResolver:
-    """Resolve ``env:NAME`` references from the process that runs the connector."""
+    """Resolve ``env:NAME`` references from the process that runs the connector.
+
+    Only operator paths, ``connectors.yaml`` and the CLI, can store such a reference.
+    """
 
     environ: Mapping[str, str] = field(default_factory=lambda: os.environ)
     source: SecretSource = "env"
@@ -148,6 +156,23 @@ def default_secret_resolver(
     )
 
 
+def new_env_references(
+    incoming: Mapping[str, Any], existing: Mapping[str, Any] | None
+) -> list[FieldIssue]:
+    """List credential fields that set an ``env:`` reference the connection does not hold yet."""
+    stored = existing or {}
+    issues: list[FieldIssue] = []
+    for name, value in incoming.items():
+        if not isinstance(value, Mapping) or not isinstance(value.get(REFERENCE_KEY), str):
+            continue
+        if not value[REFERENCE_KEY].startswith("env:"):
+            continue
+        previous = StoredSecret.from_json(stored.get(name))
+        if previous is None or previous.ref.value != value[REFERENCE_KEY]:
+            issues.append(FieldIssue(f"credentials.{name}", OPERATOR_ONLY_HELP))
+    return issues
+
+
 class CredentialSecretWriter:
     """Apply a credentials write: secrets kept, rotated, referenced or cleared.
 
@@ -175,6 +200,7 @@ class CredentialSecretWriter:
         *,
         secret_fields: frozenset[str],
         existing: Mapping[str, Any] | None = None,
+        keep: frozenset[str] | None = None,
     ) -> SecretWriteResult:
         """Merge ``incoming`` onto ``existing`` and store new secret values.
 
@@ -182,6 +208,7 @@ class CredentialSecretWriter:
             incoming: Credentials as the client sent them.
             secret_fields: Fields the source type marks as secrets.
             existing: Stored credentials, or ``None`` for a new connection.
+            keep: Omitted secret fields that keep their stored value; ``None`` keeps every one.
 
         Returns:
             Stored-form credentials, refs created by this write (retire them if
@@ -199,7 +226,7 @@ class CredentialSecretWriter:
             elif value is not None:
                 plan[name] = self._classify(name, value, stored_before.get(name), issues)
         for name in secret_fields - set(incoming):
-            if name in stored_before:
+            if name in stored_before and (keep is None or name in keep):
                 plan[name] = stored_before[name]
         if issues:
             raise ConnectionValidationError(issues)
@@ -222,6 +249,8 @@ class CredentialSecretWriter:
             ref = SecretRef.parse(value[REFERENCE_KEY])
         except ValueError as error:
             return self._issue(issues, name, str(error))
+        if ref.source == "env" and "env" not in self._sources:
+            return self._issue(issues, name, OPERATOR_ONLY_HELP)
         if ref.is_stored or ref.source not in self._sources:
             return self._issue(issues, name, f"{ref.source} references are not supported here")
         return StoredSecret.for_reference(ref, self._now).to_json()

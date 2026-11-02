@@ -19,6 +19,8 @@ from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.security.secret_refs import credentials_view
 
 _ETAG = re.compile(r'^(?:W/)?"rev-(\d+)"$')
+ANY_VERSION = -2
+
 _INGESTION_STATUS = {
     IngestionTaskState.PENDING: "queued",
     IngestionTaskState.RUNNING: "running",
@@ -36,11 +38,20 @@ def etag(version: int) -> str:
 
 
 def version_from_etag(value: str | None) -> int | None:
-    """Parse ``If-Match``; ``None`` when absent, ``-1`` when it names no version of ours."""
+    """Parse ``If-Match``: ``None`` absent, ``ANY_VERSION`` for ``*``, ``-1`` for a foreign tag."""
     if value is None:
         return None
+    if value.strip() == "*":
+        return ANY_VERSION
     match = _ETAG.match(value.strip())
     return int(match.group(1)) if match else -1
+
+
+def resolve_any_version(expected: int | None, current: int | None) -> int | None:
+    """Turn ``If-Match: *`` into the current version, so it matches any version that exists."""
+    if expected == ANY_VERSION and current is not None:
+        return current
+    return expected
 
 
 def connection_view(
@@ -111,7 +122,7 @@ def ingestion_view(
         "stages": [],
         "error_category": summary.get("error_code") if isinstance(summary, Mapping) else None,
         "triggered_by": {"type": "user", "id": triggered_by or str(summary.get("actor", ""))},
-        "settings_revision": "",
+        "settings_revision": str(request.get("configuration_fingerprint") or ""),
         "workflow_id": f"harborrag-source:{task.task_id}",
         "run_id": task.task_id,
         "trace_id": "",

@@ -21,6 +21,7 @@ from harborrag_app.api.auth.dependencies import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.api.errors import spec_error_body
 from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
@@ -205,6 +206,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
     project_id: ProjectId,
     connection_id: ConnectionId,
     body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_WRITE_TEMPLATES)],
+    request: Request,
     response: Response,
     if_match: IfMatch = None,
     if_none_match: IfNoneMatch = None,
@@ -226,7 +228,10 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
     )
     response.status_code = 201 if result.created else 200
     response.headers["ETag"] = etag(result.version)
-    return {**result.connection, "ingestion": result.ingestion}
+    sync_error = (
+        spec_error_body(request, result.sync_error) if result.sync_error is not None else None
+    )
+    return {**result.connection, "ingestion": result.ingestion, "sync_error": sync_error}
 
 
 @connections_router.delete(

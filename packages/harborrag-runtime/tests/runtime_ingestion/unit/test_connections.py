@@ -64,7 +64,10 @@ async def _github(
 def _pool(revisions: FakeConnectionRevisionRepository, **kwargs: Any) -> ConnectorPool:
     return ConnectorPool(
         revisions=revisions,
-        secrets=default_secret_resolver(FakeSecrets(), environ={"TEST_GITHUB_TOKEN": "ghp_x"}),
+        secrets=default_secret_resolver(
+            FakeSecrets(),
+            environ={"TEST_GITHUB_TOKEN": "ghp_x"},
+        ),
         **kwargs,
     )
 
