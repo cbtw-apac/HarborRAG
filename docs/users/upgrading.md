@@ -17,8 +17,9 @@ re-embedded the next time it is ingested; no data migration is needed.
    there, and the API and workers must read the same file. See
    [Chunking Configuration](configuration/chunking-config.md).
 2. **Code grammars.** Ingestion now needs the tree-sitter grammars and stops at startup
-   without them. The worker images, `harborrag[local]` and `harborrag-runtime[production]`
-   include them; on any other install that ingests, add `harborrag-adapters[chunking-code]`.
+   without them. The worker and CLI images, `harborrag[local]`, `harborrag-app[production]`
+   and `harborrag-runtime[production]` include them; on any other install that ingests, add
+   `harborrag-adapters[chunking-code]`.
    `harborrag doctor` reports a missing grammar. Code languages
    (Markdown fences, source files) are recorded when a file is parsed, so run a normal
    ingestion rather than a reindex: a reindex reuses the stored parse.

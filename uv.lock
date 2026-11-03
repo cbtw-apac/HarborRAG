@@ -2303,14 +2303,14 @@ durable = [
     { name = "harborrag-runtime", extra = ["temporal"] },
 ]
 production = [
-    { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
+    { name = "harborrag-adapters", extra = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
     { name = "harborrag-runtime", extra = ["temporal"] },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
-    { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
     { name = "harborrag-memory", editable = "packages/harborrag-memory" },

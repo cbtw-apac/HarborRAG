@@ -81,7 +81,8 @@ again: every ingestion run after an upgrade that changes the processing identity
 does so, but a connector-free reindex reuses the stored parse.
 
 Syntax-aware splitting needs the tree-sitter grammars. The worker images,
-`harborrag[local]` and `harborrag-runtime[production]` install them; elsewhere:
+the CLI image, `harborrag[local]`, `harborrag-app[production]` and
+`harborrag-runtime[production]` install them; elsewhere:
 
 ```bash
 pip install "harborrag-adapters[chunking-code]"
