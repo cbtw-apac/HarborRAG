@@ -22,6 +22,7 @@ _DEPENDENCY_BY_MODULE: tuple[tuple[str, str], ...] = (
     ("qdrant_client", "qdrant"),
     ("falkordb", "graph"),
 )
+_LOCAL_DATABASE_MODULES = frozenset({"aiosqlite", "sqlite3"})
 _CONNECTION_FAILURE_NAMES = frozenset(
     {
         "ConnectionError",
@@ -61,11 +62,15 @@ def _modules(traceback: TracebackType | None) -> Iterator[str]:
         traceback = traceback.tb_next
 
 
+def _roots(exc: BaseException) -> list[str]:
+    """Top-level packages of the exception class and of each frame it passed through."""
+    modules = (type(exc).__module__, *_modules(exc.__traceback__))
+    return [module.split(".", 1)[0] for module in modules]
+
+
 def _dependency_of(exc: BaseException) -> str | None:
-    """Return the dependency a raising frame or the exception class belongs to."""
-    modules = [type(exc).__module__, *_modules(exc.__traceback__)]
-    for module in reversed(modules):
-        root = module.split(".", 1)[0]
+    """Return the dependency of the innermost frame, or of the exception class, that names one."""
+    for root in reversed(_roots(exc)):
         for prefix, dependency in _DEPENDENCY_BY_MODULE:
             if root == prefix:
                 return dependency
@@ -75,6 +80,9 @@ def _dependency_of(exc: BaseException) -> str | None:
 def failed_dependency(exc: BaseException) -> str | None:
     """Name the dependency whose lost connection raised ``exc``.
 
+    A failure that passed through a SQLite driver names none: SQLite is a local file,
+    not a dependency that can be down.
+
     Args:
         exc: An exception no service layer translated.
 
@@ -82,7 +90,10 @@ def failed_dependency(exc: BaseException) -> str | None:
         ``postgres``, ``redis``, ``temporal``, ``qdrant`` or ``graph``; ``None`` when the
         exception is not a connection failure of one of them.
     """
-    for link in _chain(exc):
+    links = list(_chain(exc))
+    if any(_LOCAL_DATABASE_MODULES.intersection(_roots(link)) for link in links):
+        return None
+    for link in links:
         if _is_connection_failure(link) and (dependency := _dependency_of(link)) is not None:
             return dependency
     return None

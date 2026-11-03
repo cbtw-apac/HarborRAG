@@ -141,6 +141,7 @@ def _routes(client: TestClient) -> list[tuple[str, str, str]]:
             assert role is not None, f"{route.path} has no role check"
             path = re.sub(r"\{(\w+)\}", lambda match: _PATH_VALUES[match.group(1)], route.path)
             routes.extend((method, path, role) for method in sorted(route.methods))
+    assert len(routes) >= 20, "the route walk found too few routes to mean anything"
     return routes
 
 
@@ -178,8 +179,6 @@ def test_a_role_below_the_routes_minimum_is_forbidden(
 
 def test_every_v1_route_declares_its_minimum_role(client: TestClient) -> None:
     roles = {(method, path): role for method, path, role in _routes(client)}
-
-    assert len(roles) >= 20
 
     assert roles[("GET", "/v1/me")] == "reader"
     assert roles[("GET", "/v1/admin/source-types")] == "editor"

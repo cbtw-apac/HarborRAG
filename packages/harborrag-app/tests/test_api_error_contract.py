@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterator
+from collections.abc import Awaitable, Callable, Iterator
 
 import asyncpg
 import pytest
@@ -11,6 +11,8 @@ from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
@@ -137,11 +139,37 @@ def test_a_body_over_one_mebibyte_is_refused_before_any_write(
     assert client.get("/v1/admin/projects/p2").status_code == 404
 
 
+async def _asyncpg_refused() -> None:
+    await asyncpg.connect("postgresql://u:p@127.0.0.1:1/harborrag", timeout=2)
+
+
+async def _engine_refused() -> None:
+    engine = create_async_engine("postgresql+asyncpg://u:p@127.0.0.1:1/harborrag")
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    finally:
+        await engine.dispose()
+
+
+async def _sqlite_locked() -> None:
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+    try:
+        async with engine.connect() as connection:
+            await connection.execute(text("SELECT * FROM missing_table"))
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("failure", [_asyncpg_refused, _engine_refused], ids=["driver", "pool"])
 def test_a_stopped_postgres_is_a_named_unavailable_dependency(
-    client: TestClient, service: _ProjectApp, monkeypatch: pytest.MonkeyPatch
+    client: TestClient,
+    service: _ProjectApp,
+    monkeypatch: pytest.MonkeyPatch,
+    failure: Callable[[], Awaitable[None]],
 ) -> None:
     async def refused(_self: object, **_: object) -> list[Project]:
-        await asyncpg.connect("postgresql://u:p@127.0.0.1:1/harborrag", timeout=2)
+        await failure()
         return []
 
     monkeypatch.setattr(type(service.world.control_plane.projects), "list", refused)
@@ -152,6 +180,21 @@ def test_a_stopped_postgres_is_a_named_unavailable_dependency(
     error = _error(response)
     assert error["code"] == "dependency_unavailable"
     assert error["details"] == {"dependency": "postgres"}
+
+
+def test_a_sqlite_failure_is_not_reported_as_postgres(
+    client: TestClient, service: _ProjectApp, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def broken(_self: object, **_: object) -> list[Project]:
+        await _sqlite_locked()
+        return []
+
+    monkeypatch.setattr(type(service.world.control_plane.projects), "list", broken)
+
+    response = client.get("/v1/admin/projects")
+
+    assert response.status_code == 500
+    assert _error(response)["code"] == "internal_error"
 
 
 def test_an_unhandled_error_is_internal_and_leaks_nothing(client: TestClient) -> None:
