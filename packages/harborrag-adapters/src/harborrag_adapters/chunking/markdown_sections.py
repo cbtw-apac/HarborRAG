@@ -15,7 +15,9 @@ in front of them for a complete Markdown file:
    sibling, and short siblings share a chunk only up to half the maximum, so
    unrelated sections never mix and related ones stay focused;
 4. refine each group with the routing refiner under the budget left after its
-   context header (document title and heading path);
+   context header (document title and heading path). A header longer than
+   half the maximum is shortened -- title first, then outer headings -- and
+   each chunk's own header is shortened the same way until it fits;
 5. fold a split still below ``minimum_tokens`` (a figure caption, a section
    tail) into a neighbour, or, when the two do not fit together, re-cut the
    pair at the paragraph or sentence end that evens them out.
@@ -43,6 +45,7 @@ from harborrag_core.contracts.chunking import (
     TextRefiner,
     TokenCounter,
 )
+from harborrag_core.ingestion import ChunkValidationError
 
 from .document_structure import fenced_ranges, is_bare_heading
 from .factory import build_text_refiner
@@ -73,6 +76,7 @@ class MarkdownChunk:
     forced_split: bool
 
 
+_CONTEXT_SEPARATOR = " › "
 _ATX = re.compile(r"^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*\r?$", re.MULTILINE)
 _NUMBERED = re.compile(r"^(\d+(?:\.\d+)*)\.?(?:\s|$)")
 _BLANK_LINES = re.compile(r"\n[ \t\r]*\n[ \t\r\n]*")
@@ -224,9 +228,12 @@ class MarkdownChunker:
         # A chunk's header names titles from its group's paths, so a header
         # naming every distinct title in the group bounds it.
         titles = tuple(dict.fromkeys(title for path in group.paths for title in path))
-        context = document.context(titles)
-        header = self._count(context + "\n\n") if context else 0
-        limit = max(self._maximum - header, self._maximum // 2, self._overlap + 1)
+        # The header may take only what leaves the content a workable budget
+        # (half the maximum, and room for the overlap); a longer one is shortened.
+        content_floor = max(self._overlap + 1, self._maximum // 2)
+        bound = self._fit_context(document.context_parts(titles), self._maximum - content_floor)
+        header = self._count(bound + "\n\n") if bound else 0
+        limit = self._maximum - header
         request = TextRefinementRequest(
             content=text[group.start : group.end],
             maximum_tokens=limit,
@@ -254,8 +261,7 @@ class MarkdownChunker:
                 continue
             sections, labelled = document.sections_between(start, end)
             path, branches = _descend(labelled)
-            context = document.context(path, branches)
-            embed_text = f"{context}\n\n{content.strip()}" if context else content.strip()
+            context, embed_text = self._embed(document.context_parts(path, branches), content)
             chunks.append(
                 MarkdownChunk(
                     content=content,
@@ -272,6 +278,33 @@ class MarkdownChunker:
                 )
             )
         return chunks
+
+    def _fit_context(self, parts: Sequence[str], budget: int) -> str:
+        """Longest suffix of ``parts`` whose header (context plus blank line) fits ``budget``.
+
+        Outer parts go first -- the document title, then outer headings -- so
+        the most specific heading is the last to be dropped.
+        """
+
+        for start in range(len(parts)):
+            context = _CONTEXT_SEPARATOR.join(parts[start:])
+            if self._count(context + "\n\n") <= budget:
+                return context
+        return ""
+
+    def _embed(self, parts: Sequence[str], content: str) -> tuple[str, str]:
+        """Return the context and embed text, shortening the context until both fit."""
+
+        body = content.strip()
+        for start in range(len(parts) + 1):
+            context = _CONTEXT_SEPARATOR.join(parts[start:])
+            embed_text = f"{context}\n\n{body}" if context else body
+            if self._count(embed_text) <= self._maximum:
+                return context, embed_text
+        raise ChunkValidationError(
+            f"{self.name} produced content above maximum_tokens={self._maximum} "
+            "even without a context header"
+        )
 
     def _settle_small(
         self, text: str, ranges: list[tuple[int, int]], limit: int
@@ -413,13 +446,13 @@ class _Document:
                     with_text.append(section.path)
         return touched or [()], with_text or touched or [()]
 
-    def context(self, path: tuple[str, ...], branches: Sequence[str] = ()) -> str:
-        """``title › path``, then ``› a | b`` for sibling sections sharing the chunk."""
+    def context_parts(self, path: tuple[str, ...], branches: Sequence[str] = ()) -> list[str]:
+        """``[title, *path]``, then ``a | b`` for sibling sections sharing the chunk."""
 
-        context = " › ".join(part for part in (self.title, *path) if part)
+        parts = [part for part in (self.title, *path) if part]
         if branches:
-            context = " › ".join(part for part in (context, " | ".join(branches)) if part)
-        return context
+            parts.append(" | ".join(branches))
+        return parts
 
 
 def _sections(text: str) -> tuple[list[_Section], str | None]:

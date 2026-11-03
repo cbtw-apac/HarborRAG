@@ -117,3 +117,34 @@ def test_tiktoken_counter_counts_special_token_text_as_content() -> None:
     assert count > 3
     assert counter.count("") == 0
     assert counter.version == "cl100k_base"
+
+
+def test_a_long_context_is_shortened_so_embed_text_never_exceeds_the_maximum(words) -> None:
+    title = "A very long document title that goes on and on for many words"
+    text = (
+        f"# {title}\n\n"
+        "## Part one about deployment with a long heading\n\n"
+        "### Nested section on rollback procedures in depth\n\n"
+        + " ".join(f"Sentence {k} covers a rollback step." for k in range(12))
+        + "\n"
+    )
+    chunker = MarkdownChunker(
+        words,
+        maximum_tokens=20,
+        minimum_tokens=2,
+        refiner=build_text_refiner(words, parser_loader=lambda language: None),
+    )
+
+    chunks = chunker.chunk(text)
+
+    assert chunks
+    for chunk in chunks:
+        assert chunk.embed_token_count <= 20
+        assert chunk.token_count <= 20
+        assert text[chunk.source_span.start_offset : chunk.source_span.end_offset] == chunk.content
+    body = [chunk for chunk in chunks if "Sentence" in chunk.content]
+    # The most specific heading survives; the title and outer headings go first.
+    assert all(
+        chunk.context.endswith("Nested section on rollback procedures in depth") for chunk in body
+    )
+    assert all(title not in chunk.context for chunk in body)
