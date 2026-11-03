@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import subprocess
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
@@ -14,6 +16,7 @@ API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
 MCP_SCRIPT = ROOT / "scripts/deployment/mcp.sh"
 MCP_LAUNCHER = ROOT / "scripts/deployment/common/mcp-launcher.sh"
+DEV_CHECKS = ROOT / "scripts/deployment/common/dev-checks.sh"
 
 
 def test_development_entrypoint_orchestrates_explicit_components() -> None:
@@ -74,6 +77,7 @@ def test_development_entrypoint_supports_documented_argument_forms(
     script = project / "scripts/deployment/dev.sh"
     script.parent.mkdir(parents=True)
     script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
 
     environment = project / "env"
     environment.mkdir()
@@ -383,3 +387,128 @@ def test_mcp_entrypoint_gives_the_server_the_apis_environment(tmp_path: Path) ->
 
     assert result.returncode == 0, result.stderr
     assert "HARBORRAG_ENV=prod" in docker_log.read_text(encoding="utf-8")
+
+
+def test_bootstrap_generates_a_missing_encryption_key_once(tmp_path: Path) -> None:
+    run = _bootstrap_project(tmp_path, database_volume=False)
+
+    def bootstrap() -> str:
+        result = run()
+        assert result.returncode == 0, result.stderr
+        database = (tmp_path / "env/.env.database").read_text(encoding="utf-8")
+        keys = re.findall(r"^HARBORRAG_SECRETS_ENCRYPTION_KEY=(.*)$", database, re.MULTILINE)
+        assert len(keys) == 1 and re.fullmatch(r"[0-9a-f]{64}", keys[0])
+        return keys[0]
+
+    first = bootstrap()
+
+    assert bootstrap() == first
+    assert (tmp_path / "env/.env.database").stat().st_mode & 0o777 == 0o600
+
+
+def test_bootstrap_never_generates_a_key_for_an_existing_database(tmp_path: Path) -> None:
+    result = _bootstrap_project(tmp_path, database_volume=True)()
+
+    database = (tmp_path / "env/.env.database").read_text(encoding="utf-8")
+    assert result.returncode == 2
+    assert "compose_pg_data already holds a database" in result.stderr
+    assert re.search(r"^HARBORRAG_SECRETS_ENCRYPTION_KEY=$", database, re.MULTILINE)
+
+
+def _bootstrap_project(
+    tmp_path: Path, *, database_volume: bool
+) -> Callable[[], subprocess.CompletedProcess[str]]:
+    """Copy dev.sh and the env templates; return a runner of ``bootstrap`` with a fake docker.
+
+    The fake docker answers ``volume inspect`` as if the database volume exists or not.
+    """
+    script = tmp_path / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
+    for template in (ROOT / "env-example").glob(".env.*.example"):
+        target = tmp_path / "env-example" / template.name
+        target.parent.mkdir(exist_ok=True)
+        target.write_text(template.read_text(encoding="utf-8"), encoding="utf-8")
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(f"#!/usr/bin/env sh\nexit {0 if database_volume else 1}\n", encoding="utf-8")
+    docker.chmod(0o755)
+    environ = {k: v for k, v in os.environ.items() if k != "HARBORRAG_SECRETS_ENCRYPTION_KEY"}
+    environ["PATH"] = f"{fake_bin}:{environ['PATH']}"
+
+    def run() -> subprocess.CompletedProcess[str]:
+        return subprocess.run(
+            ["bash", str(script), "bootstrap"],
+            cwd=tmp_path,
+            env=environ,
+            capture_output=True,
+            check=False,
+            text=True,
+        )
+
+    return run
+
+
+def _copy_dev_checks(script: Path) -> None:
+    """Place dev.sh's sourced checks next to a copied dev.sh."""
+    checks = script.parent / "common/dev-checks.sh"
+    checks.parent.mkdir(exist_ok=True)
+    checks.write_text(DEV_CHECKS.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+@pytest.mark.parametrize("folder_exists", [True, False])
+def test_dev_api_mounts_the_folder_the_workers_read(tmp_path: Path, folder_exists: bool) -> None:
+    project = tmp_path / "project"
+    script = project / "scripts/deployment/dev.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text(DEV_SCRIPT.read_text(encoding="utf-8"), encoding="utf-8")
+    _copy_dev_checks(script)
+    environment = project / "env"
+    environment.mkdir()
+    for filename in (".env.temporal", ".env.parser", ".env.models", ".env.api"):
+        (environment / filename).write_text("", encoding="utf-8")
+    (environment / ".env.database").write_text(
+        "HARBORRAG_SECRETS_ENCRYPTION_KEY=test-encryption-key\n", encoding="utf-8"
+    )
+    (environment / ".env.connector").write_text("LOCAL_SOURCE_PATH=./notes\n", encoding="utf-8")
+    if folder_exists:
+        (project / "notes").mkdir()
+    fake_bin = project / "fake-bin"
+    fake_bin.mkdir()
+    docker_log = project / "docker.log"
+    fake_docker = fake_bin / "docker"
+    fake_docker.write_text(
+        """#!/usr/bin/env sh
+printf '%s source_dir=%s\\n' "$*" "${HARBORRAG_LOCAL_SOURCE_DIR:-}" >> "$DEV_DOCKER_LOG"
+case " $* " in
+  *" config --services "*) printf 'api\\n' ;;
+esac
+""",
+        encoding="utf-8",
+    )
+    fake_docker.chmod(0o755)
+
+    result = subprocess.run(
+        ["bash", str(script), "api"],
+        cwd=project,
+        env={
+            **{k: v for k, v in os.environ.items() if k != "HARBORRAG_LOCAL_SOURCE_DIR"},
+            "DEV_DOCKER_LOG": str(docker_log),
+            "PATH": f"{fake_bin}:{os.environ['PATH']}",
+        },
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+
+    calls = docker_log.read_text(encoding="utf-8") if docker_log.exists() else ""
+    api_up = [line for line in calls.splitlines() if "docker-compose.yml up" in line]
+    if folder_exists:
+        assert result.returncode == 0, result.stderr
+        assert api_up and api_up[0].endswith(f"source_dir={project / 'notes'}")
+    else:
+        assert result.returncode == 2
+        assert "Local connector source directory does not exist" in result.stderr
+        assert api_up == []

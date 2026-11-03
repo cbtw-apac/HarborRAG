@@ -23,7 +23,9 @@ from harborrag_runtime.ingestion_contracts import (
 
 type ClientProvider = Callable[[], Awaitable[IngestionGateway]]
 type TaskStoreProvider = Callable[[], Awaitable["PublicTaskStore"]]
-type SourceInputBuilder = Callable[[RuntimeSettings, SourceSubmission], PreparedSourceSubmission]
+type SourceInputBuilder = Callable[
+    [RuntimeSettings, SourceSubmission], Awaitable[PreparedSourceSubmission]
+]
 type TaskIdFactory = Callable[[], str]
 
 

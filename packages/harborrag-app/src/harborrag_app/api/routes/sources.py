@@ -12,7 +12,7 @@ some other caller (CLI, MCP) skips a route-level check entirely.
 
 from __future__ import annotations
 
-from typing import Annotated, Any, get_args
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field, JsonValue, field_validator, model_validator
@@ -22,8 +22,11 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.workflow_control import BaseAppService
-from harborrag_core.domain.source_config import SourceConfig, SourceStatus
+from harborrag_core.domain.connection import Connection, ConnectionStatus
 from harborrag_core.security.redaction import redact_mapping
+from harborrag_runtime.config.connectors.models import source_types
+
+_SETTABLE_STATUSES: tuple[ConnectionStatus, ...] = ("active", "needs_reauth", "error")
 
 router = APIRouter(tags=["sources"], dependencies=[Depends(require_role("reader"))])
 
@@ -52,8 +55,8 @@ class SourceUpdateInput(ApiModel):
     @field_validator("status")
     @classmethod
     def validate_status(cls, value: str | None) -> str | None:
-        if value is not None and value not in get_args(SourceStatus):
-            raise ValueError("status must be active, paused, or error")
+        if value is not None and value not in _SETTABLE_STATUSES:
+            raise ValueError(f"status must be one of {', '.join(_SETTABLE_STATUSES)}")
         return value
 
     @model_validator(mode="after")
@@ -76,21 +79,30 @@ class SourceOut(BaseModel):
     status: str
 
     @classmethod
-    def from_domain(cls, source: SourceConfig) -> SourceOut:
+    def from_domain(cls, source: Connection) -> SourceOut:
+        """Return the legacy view of ``source``, with its config redacted."""
         return cls(
             id=source.id,
             tenant_id=source.tenant_id,
             project_id=source.project_id,
             source_type=source.source_type,
             name=source.name,
-            config=redact_mapping(source.config),
+            config=redact_mapping(_legacy_config(source)),
             secret_refs=source.secret_refs,
             schedule=source.schedule,
             status=source.status,
         )
 
 
-@router.get("/sources", response_model=list[SourceOut])
+def _legacy_config(source: Connection) -> dict[str, Any]:
+    """Present a connection's stored parts under the dataclass names the legacy API used."""
+    if source_types.canonical(source.source_type) is None:
+        return {**source.credentials, **source.config, **source.tuning}
+    spec = source_types.get(source.source_type)
+    return spec.flatten(source.credentials, source.config, source.tuning)
+
+
+@router.get("/sources", response_model=list[SourceOut], deprecated=True)
 async def list_sources(
     service: Annotated[BaseAppService, Depends(get_app_service)],
     principal: Annotated[Principal, Depends(require_role("reader"))],
@@ -101,7 +113,7 @@ async def list_sources(
     return [SourceOut.from_domain(source) for source in response.data["sources"]]
 
 
-@router.get("/sources/{source_id}", response_model=SourceOut)
+@router.get("/sources/{source_id}", response_model=SourceOut, deprecated=True)
 async def get_source(
     source_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],
@@ -112,7 +124,7 @@ async def get_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.post("/sources", status_code=201, response_model=SourceOut)
+@router.post("/sources", status_code=201, response_model=SourceOut, deprecated=True)
 async def create_source(
     payload: SourceCreateInput,
     service: Annotated[BaseAppService, Depends(get_app_service)],
@@ -132,7 +144,7 @@ async def create_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.patch("/sources/{source_id}", response_model=SourceOut)
+@router.patch("/sources/{source_id}", response_model=SourceOut, deprecated=True)
 async def update_source(
     source_id: str,
     payload: SourceUpdateInput,
@@ -149,7 +161,7 @@ async def update_source(
     return SourceOut.from_domain(response.data["source"])
 
 
-@router.delete("/sources/{source_id}", status_code=204)
+@router.delete("/sources/{source_id}", status_code=204, deprecated=True)
 async def delete_source(
     source_id: str,
     service: Annotated[BaseAppService, Depends(get_app_service)],

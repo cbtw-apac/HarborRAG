@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_adapters.parsers.common.limits import IMAGE_MAX_PIXELS
+
 
 @dataclass(frozen=True, slots=True)
 class ImageParserConfig:
@@ -11,4 +13,4 @@ class ImageParserConfig:
 
     engine: str = "liteparse"
     language: str | None = None
-    max_pixels: int | None = 100_000_000
+    max_pixels: int | None = IMAGE_MAX_PIXELS

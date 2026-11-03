@@ -35,6 +35,7 @@ logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
 _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
+_CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
 
 
@@ -93,6 +94,36 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _import_connectors_once(service: object) -> None:
+    """Carry an existing ``config/connectors.yaml`` into the database on the first start."""
+
+    importer = getattr(service, "import_connectors_once", None)
+    if importer is None:
+        return
+    try:
+        imported = await importer()
+    except Exception:
+        logger.exception("Importing config/connectors.yaml failed; add connections through the API")
+        return
+    if imported:
+        logger.info("Imported %d connections from config/connectors.yaml", imported)
+
+
+async def _resume_connection_removals(app: FastAPI) -> None:
+    """Finish connection and project removals a crash or failure left unfinished."""
+
+    while True:
+        try:
+            resumed = await app.state.app_service.resume_connection_removals()
+            if resumed:
+                logger.info("Resumed %d connection removals", resumed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Connection removal recovery pass failed")
+        await asyncio.sleep(_CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS)
+
+
 async def _sync_declared_schedules(app: FastAPI) -> None:
     """Reconcile declared schedules once, retrying while the engine is unreachable.
 
@@ -135,6 +166,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
     if owns_memory_extraction:
         await service.start_memory_extraction()
+    await _import_connectors_once(service)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
@@ -143,6 +175,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     background_tasks = [recovery_task, progress_task, control_plane_effect_recovery_task]
     if hasattr(service, "sync_declared_schedules"):
         background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
+    if hasattr(service, "resume_connection_removals"):
+        background_tasks.append(asyncio.create_task(_resume_connection_removals(app)))
     try:
         yield
     finally:
@@ -218,6 +252,8 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
                 "Deprecation",
                 "Sunset",
                 "Link",
+                "ETag",
+                "Location",
             ],
         )
     register_error_handlers(app)

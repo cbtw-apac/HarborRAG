@@ -5,7 +5,9 @@ from __future__ import annotations
 import pytest
 from jira_test_helpers import CLOUD_BASE, DC_BASE, cloud_config, dc_config
 
-from harborrag_adapters.connectors.jira import JiraDeploymentType, JiraProjectConfig
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
+from harborrag_adapters.connectors.jira import JiraConnector, JiraDeploymentType, JiraProjectConfig
+from harborrag_adapters.connectors.jira.config import DEFAULT_ISSUE_FIELDS
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -61,3 +63,17 @@ def test_config_normalizes_comma_separated_environment_lists():
 
     assert config.project_keys == ["ENG", "OPS"]
     assert config.issue_types == ["Bug", "Story"]
+
+
+def test_attachment_extensions_reach_both_attachment_paths():
+    connector = JiraConnector(
+        cloud_config(allowed_extensions=["PDF", ".docx"], excluded_extensions=["exe"])
+    )
+    expected = ExtensionFilter(frozenset({".pdf", ".docx"}), frozenset({".exe"}))
+
+    assert connector._attachments.extension_filter == expected
+    assert connector._descriptors._attachments._policy.extensions == expected
+
+
+def test_unset_issue_fields_fall_back_to_the_default_selection():
+    assert cloud_config(fields=None).fields == DEFAULT_ISSUE_FIELDS

@@ -22,7 +22,10 @@ class IngestionCreateRequest(ApiModel):
     connection_id: str = Field(
         min_length=1,
         max_length=255,
-        description="Enabled connector name from config/connectors.yaml.",
+        description=(
+            "The connection's source_key: project_id/connection_id, or the key a "
+            "connection imported from connectors.yaml keeps."
+        ),
     )
     tenant: str = Field(
         default="DEFAULT",

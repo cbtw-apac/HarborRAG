@@ -2,22 +2,25 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
+from harborrag_adapters.connectors.limits import (
+    DEFAULT_ALLOWED_EXTENSIONS,
+    DEFAULT_MAX_DOCUMENT_BYTES,
+)
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_https_url,
     validate_non_negative_limit,
 )
 
+from ..environment import environment_default
 from .repository_paths import (
     DEFAULT_GITHUB_API_URL,
     DEFAULT_GITHUB_API_VERSION,
     DEFAULT_GITHUB_WEB_URL,
-    GITHUB_BLOB_LIMIT_BYTES,
     parse_github_repository_url,
 )
 
@@ -42,13 +45,13 @@ class GitHubRepositoryConfig:
     api_url: str = DEFAULT_GITHUB_API_URL
     web_url: str = DEFAULT_GITHUB_WEB_URL
     api_version: str = DEFAULT_GITHUB_API_VERSION
-    allowed_extensions: set[str] = field(default_factory=set)
+    allowed_extensions: set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     excluded_extensions: set[str] = field(default_factory=set)
     include_paths: list[str] = field(default_factory=list)
     exclude_paths: list[str] = field(default_factory=list)
     include_globs: list[str] = field(default_factory=list)
     exclude_globs: list[str] = field(default_factory=list)
-    max_file_size_bytes: int | None = GITHUB_BLOB_LIMIT_BYTES
+    max_file_size_bytes: int | None = DEFAULT_MAX_DOCUMENT_BYTES
     process_file_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     fail_on_error: bool = False
     requests_per_minute: int = 120
@@ -58,7 +61,7 @@ class GitHubRepositoryConfig:
 
     def __post_init__(self) -> None:
         """Resolve repository URL shortcuts and validate mutually exclusive refs."""
-        self.token = self.token or os.getenv("GITHUB_TOKEN")
+        self.token = self.token or environment_default("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")
         validate_https_url("api_url", self.api_url)

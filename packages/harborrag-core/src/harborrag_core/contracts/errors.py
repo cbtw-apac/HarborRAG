@@ -84,6 +84,42 @@ class HarborConflictError(HarborError):
     """Operation conflicts with current resource state."""
 
 
+class HarborPreconditionFailedError(HarborConflictError):
+    """A conditional write found a different resource version than the caller expected."""
+
+    error_code = "precondition_failed"
+
+
+class HarborImmutableFieldError(HarborConflictError):
+    """A write tried to change a field that is fixed once the resource exists."""
+
+    error_code = "immutable_field"
+
+    def __init__(self, message: str, *, field: str | None = None) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = {"field": field} if field else {}
+
+
+class HarborAlreadyRunningError(HarborConflictError):
+    """A run, sync or job is already active for the resource; ``details`` points to it."""
+
+    error_code = "already_running"
+
+    def __init__(self, message: str, *, details: dict[str, object] | None = None) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = details or {}
+
+
+class HarborInUseError(HarborConflictError):
+    """Other resources still depend on this one; ``details`` lists them."""
+
+    error_code = "in_use"
+
+    def __init__(self, message: str, *, details: dict[str, object] | None = None) -> None:
+        super().__init__(message)
+        self.details: dict[str, object] = details or {}
+
+
 class HarborAuthError(HarborError):
     """Authentication failed, or the principal lacks the required role.
 

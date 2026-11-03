@@ -3,6 +3,7 @@ from __future__ import annotations
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.storage import HealthStatus, RepositoryHealth, StorageFamily
 
+from .connection_records import ConnectionRecordRepository
 from .document_versions import DocumentVersionRepository
 from .publication import DocumentVersionPublisher
 from .reindex import ReindexJobRepository
@@ -38,6 +39,7 @@ class IngestionControlPlaneDatabase:
         self.retention = RetiredVersionRetentionRepository(client)
         self.reindex = ReindexJobRepository(client)
         self.tasks = IngestionTaskRepository(client)
+        self.connection_records = ConnectionRecordRepository(client)
         self.task_events = TaskEventRepository(client)
         self.topology = TopologyRepository(client, summaries_enabled=summaries_enabled)
         self.summaries = SummaryRepository(client)

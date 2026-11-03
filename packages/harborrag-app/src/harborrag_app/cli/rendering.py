@@ -25,6 +25,7 @@ from harborrag_app.cli.rendering_values import (
     status_text,
     text,
 )
+from harborrag_app.cli.source_views import SourceViews
 from harborrag_app.cli.stages import build_stage_table, headline_status
 from harborrag_app.workflow_control import AppResponse
 
@@ -106,6 +107,8 @@ class CliRenderer:
     ) -> Callable[[Mapping[str, Any]], None] | None:
         """Select the view for a command/action pair, or None for the generic tree."""
 
+        if command == "source":
+            return SourceViews(self.console).for_action(action)
         by_command = {"doctor": self._doctor, "chat": self._chat, "status": self._status}
         by_action = {
             "status": self._status,

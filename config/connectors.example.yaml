@@ -10,7 +10,7 @@ connectors:
     environment:
       source_path: LOCAL_SOURCE_PATH
     settings:
-      allowed_extensions: [md, markdown, txt, pdf, docx, pptx, csv, xlsx]
+      allowed_extensions: [md, markdown, txt, pdf, docx, doc, epub, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []
       include_paths: []
       exclude_paths: []
@@ -19,7 +19,7 @@ connectors:
       include_hidden: false
       follow_symlinks: false
       max_depth: null
-      max_file_size_bytes: 104857600
+      max_file_size_bytes: 20971520
       checksum_mode: stat
       fail_on_error: false
 
@@ -42,7 +42,7 @@ connectors:
   #     exclude_paths: []
   #     include_globs: []
   #     exclude_globs: []
-  #     max_file_size_bytes: 104857600
+  #     max_file_size_bytes: 20971520
   #     fail_on_error: false
   #     requests_per_minute: 120
   #     request_timeout_seconds: 30
@@ -65,7 +65,7 @@ connectors:
   #     exclude_labels: []
   #     include_comments: false
   #     include_attachments: false
-  #     max_attachment_size_bytes: 26214400
+  #     max_attachment_size_bytes: 20971520
   #     max_comments: 1000
   #     max_attachments: 1000
   #     fail_on_error: false
@@ -94,7 +94,7 @@ connectors:
   #     include_attachments: false
   #     include_changelog: false
   #     include_attachment_text_in_content: true
-  #     max_attachment_size_bytes: 26214400
+  #     max_attachment_size_bytes: 20971520
   #     max_comments: 1000
   #     max_attachments: 1000
   #     max_changelog_items: 1000
@@ -127,7 +127,7 @@ connectors:
   #     excluded_extensions: []
   #     include_hidden: false
   #     include_pages: false  # true also ingests modern site pages as HTML
-  #     max_file_size_bytes: 104857600
+  #     max_file_size_bytes: 20971520
   #     fail_on_error: false
   #     requests_per_minute: 120
   #     page_size: 200

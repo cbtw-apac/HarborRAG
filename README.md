@@ -508,10 +508,35 @@ uv run harborrag ingest start \
   --wait
 ```
 
-`--connector-id` names a connector defined in
-[`config/connectors.yaml`](config/connectors.yaml) - the checked-in catalog defines
-`harborrag-workspace`, `confluence-main`, and `jira-main`. It is not a source *type*, so
-`--connector-id local` fails with the list of valid IDs.
+`--connector-id` names a stored connection by its `source_key`. At the first start, the
+service imports [`config/connectors.yaml`](config/connectors.yaml) once, so the
+checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` become
+connections under those keys. It is not a source *type*, so `--connector-id local` fails.
+
+After that first start, add and change connections through the API: list the source
+types, test the form values, then save with `sync_now`. For example, a GitHub repository:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/v1/admin/projects/default/connections/docs-repo \
+  -d '{"source_type": "github", "name": "Docs repository",
+       "credentials": {"token": "github_pat_11A..."},
+       "config": {"owner": "acme", "repo": "docs"},
+       "sync_now": true}'
+```
+
+The token is stored encrypted in the control database and never read back. References
+such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/connectors.yaml`
+and the `harborrag source` CLI, never through the API.
+
+To fill the body in a browser, open <http://localhost:8000/api/v1/docs>, go to
+**Create or replace a connection**, and pick a template such as "Jira Cloud" or
+"GitHub private repository". Each template lists every setting with its default.
+From a terminal, save the same body to a file and run
+`uv run harborrag source add default/docs-repo --file docs-repo.yaml`.
+
+See [Connections](docs/users/connections.md) for the full flow and
+[Upgrading](docs/users/upgrading.md) for what changes from 2.0.0a2.
 
 Save the returned run ID - add `--json` for machine-readable output - and drive it with the
 operator commands:

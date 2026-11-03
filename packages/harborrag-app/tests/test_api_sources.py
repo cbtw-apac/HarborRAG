@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.dependencies import get_app_service
 from harborrag_app.api.settings import ApiSettings
-from harborrag_core.domain.source_config import SourceConfig
+from harborrag_core.domain.connection import Connection
 
 
 @pytest.mark.blackbox
@@ -26,14 +26,16 @@ def test_list_sources_filters_by_project_and_hides_secrets() -> None:
     """Seeded sources scope by project_id; only secret_refs ever appear.
 
     proj-b's config carries a stray "token" value (a bug/migration edge, per
-    the SourceConfig docstring config should only ever hold secret_ref
+    the Connection docstring config should only ever hold secret_ref
     placeholders) to prove the DTO boundary masks it rather than merely
     happening not to contain one.
     """
-    legacy_source = SourceConfig(
+    legacy_source = Connection(
         id="src-2",
         tenant_id="DEFAULT",
         project_id="proj-b",
+        connection_id="src-2",
+        source_key="proj-b/src-2",
         source_type="jira",
         name="AuTa board",
         config={"base_url": "https://example.atlassian.net"},
@@ -45,10 +47,12 @@ def test_list_sources_filters_by_project_and_hides_secrets() -> None:
     app = create_fastapi_app(ApiSettings())
     app.dependency_overrides[get_app_service] = lambda: control_plane_app_service(
         sources=[
-            SourceConfig(
+            Connection(
                 id="src-1",
                 tenant_id="DEFAULT",
                 project_id="proj-a",
+                connection_id="src-1",
+                source_key="proj-a/src-1",
                 source_type="local_file",
                 name="Docs folder",
                 config={"path": "./docs"},

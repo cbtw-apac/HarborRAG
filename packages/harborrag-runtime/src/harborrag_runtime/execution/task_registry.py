@@ -92,6 +92,28 @@ class IngestionTaskRegistry:
             )
         )
 
+    async def latest_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None:
+        """The connection's most recently submitted run, or None."""
+        return await self._control.connection_records.latest_task(
+            tenant_id=tenant_id, connection_id=connection_id
+        )
+
+    async def active_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None:
+        """The connection's pending, running or paused run, or None."""
+        return await self._control.connection_records.active_task(
+            tenant_id=tenant_id, connection_id=connection_id
+        )
+
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
+        """How many of the connection's documents are published."""
+        return await self._control.connection_records.document_count(
+            tenant_id=tenant_id, connection_id=connection_id
+        )
+
     async def get(self, task_id: str) -> IngestionTask | None:
         return await self._control.tasks.get(task_id)
 

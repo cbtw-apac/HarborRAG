@@ -4,10 +4,11 @@ import hashlib
 import json
 import logging
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 from harborrag_adapters.connectors.exceptions import FetchError
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
 from harborrag_adapters.connectors.policies.http import (
     require_same_origin_url,
 )
@@ -15,6 +16,7 @@ from harborrag_core.security.redaction import redact_secrets
 
 from .processing import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
+    attachment_extension,
     classify_attachment,
 )
 
@@ -52,6 +54,7 @@ class AttachmentSourcePolicy:
     process_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     fail_on_error: bool = False
+    extensions: ExtensionFilter = field(default_factory=ExtensionFilter)
 
 
 class AttachmentSourceGateway:
@@ -138,6 +141,10 @@ class AttachmentSourceGateway:
             )
             if not accepted:
                 status = "skipped"
+        if status == "admitted":
+            filtered = self._policy.extensions.rejection(attachment_extension(media_type, title))
+            if filtered is not None:
+                status, reason = "skipped", filtered
         if (
             status == "admitted"
             and self._policy.max_size_bytes is not None

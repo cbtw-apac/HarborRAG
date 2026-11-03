@@ -8,6 +8,7 @@ import pytest
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
@@ -16,16 +17,15 @@ from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.domain.source import SourceRecord
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeConnectionRepository,
     FakeJobRepository,
     FakeMemberRepository,
     FakePendingEffectRepository,
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
-    FakeSourceRepository,
 )
 from harborrag_core.testing.fakes import FakeConnector, FakeParser
 
@@ -41,11 +41,15 @@ def _project(project_id: str = "p1") -> Project:
     )
 
 
-def _source(source_id: str = "s1", project_id: str = "p1") -> SourceConfig:
-    return SourceConfig(
+def _source(
+    source_id: str = "s1", project_id: str = "p1", tenant_id: str = "DEFAULT"
+) -> Connection:
+    return Connection(
         id=source_id,
-        tenant_id="DEFAULT",
+        tenant_id=tenant_id,
         project_id=project_id,
+        connection_id=source_id,
+        source_key=f"{project_id}/{source_id}",
         source_type="local_file",
         name=f"Source {source_id}",
     )
@@ -116,18 +120,20 @@ async def test_fake_project_and_source_repositories_cover_crud_and_filters() -> 
     await projects.delete(first.id, tenant_ids=None)
     assert await projects.list(tenant_ids=None) == []
 
-    sources = FakeSourceRepository()
+    sources = FakeConnectionRepository()
     first_source = _source()
     second_source = _source("s2", "p2")
-    assert await sources.get("missing", tenant_ids=None) is None
-    assert await sources.create(first_source) is first_source
-    assert await sources.create(second_source) is second_source
-    assert await sources.list(tenant_ids=None) == [first_source, second_source]
-    assert await sources.list("p1", tenant_ids=None) == [first_source]
+    assert await sources.get_by_id("missing", tenant_ids=None) is None
+    assert (await sources.put(first_source))[1] == "created"
+    assert (await sources.put(second_source))[1] == "created"
+    listed, cursor = await sources.list(tenant_ids=None)
+    assert [c.id for c in listed] == ["s1", "s2"] and cursor is None
+    assert [c.id for c in (await sources.list(tenant_ids=None, project_id="p1"))[0]] == ["s1"]
     first_source.name = "Updated"
-    assert await sources.update(first_source) is first_source
-    await sources.delete(first_source.id, tenant_ids=None)
-    assert await sources.get(first_source.id, tenant_ids=None) is None
+    stored, outcome = await sources.put(first_source)
+    assert (outcome, stored.name, stored.version) == ("overwritten", "Updated", 2)
+    await sources.delete(tenant_id="DEFAULT", project_id="p1", connection_id="s1")
+    assert await sources.get_by_id(first_source.id, tenant_ids=None) is None
 
 
 @pytest.mark.asyncio
@@ -150,22 +156,13 @@ async def test_fake_project_and_source_repositories_enforce_tenant_scope() -> No
     await projects.delete("mine", tenant_ids=scope)
     assert await projects.get("mine", tenant_ids=None) is None  # in-scope delete works
 
-    sources = FakeSourceRepository()
-    mine_source = _source("s-mine")
-    their_source = SourceConfig(
-        id="s-theirs",
-        tenant_id="tenant-b",
-        project_id="p1",
-        source_type="local_file",
-        name="Theirs",
-    )
-    await sources.create(mine_source)
-    await sources.create(their_source)
+    sources = FakeConnectionRepository()
+    await sources.put(_source("s-mine"))
+    await sources.put(_source("s-theirs", tenant_id="tenant-b"))
 
-    assert [s.id for s in await sources.list(tenant_ids=scope)] == ["s-mine"]
-    assert await sources.get("s-theirs", tenant_ids=scope) is None
-    await sources.delete("s-theirs", tenant_ids=scope)
-    assert await sources.get("s-theirs", tenant_ids=None) is their_source  # untouched
+    assert [s.id for s in (await sources.list(tenant_ids=scope))[0]] == ["s-mine"]
+    assert await sources.get_by_id("s-theirs", tenant_ids=scope) is None
+    assert await sources.get_by_id("s-theirs", tenant_ids=None) is not None
 
 
 @pytest.mark.asyncio

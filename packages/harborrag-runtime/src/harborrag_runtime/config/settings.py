@@ -86,6 +86,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     control_db_pool_size: int = Field(default=40, ge=1, le=100)
     control_db_max_overflow: int = Field(default=32, ge=0, le=200)
     secrets_encryption_key: SecretStr | None = None
+    secrets_encryption_key_file: Path | None = None
     temporal_target: str = "localhost:7233"
     temporal_namespace: str = "harborrag"
     temporal_identity: str = "harborrag-runtime"

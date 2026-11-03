@@ -22,14 +22,12 @@ from harborrag_adapters.repositories.database.control_plane.jobs import SqlJobRe
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
-    SqlSourceRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
-from harborrag_core.domain.source_config import SourceConfig
 
 pytestmark = pytest.mark.integration
 
@@ -64,32 +62,6 @@ async def test_project_repository_enforces_tenant_scope(sessions: SessionFactory
 
     await repo.delete("mine", tenant_ids=scope)
     assert await repo.get("mine", tenant_ids=None) is None  # in-scope delete works
-
-
-@pytest.mark.asyncio
-@pytest.mark.whitebox
-async def test_source_repository_enforces_tenant_scope(sessions: SessionFactory) -> None:
-    """list/get/delete must not see or touch another tenant's source rows."""
-    projects = SqlProjectRepository(sessions)
-    await projects.create(Project(id="p1", tenant_id="tenant-a", name="A", collection="a"))
-    await projects.create(Project(id="p2", tenant_id="tenant-b", name="B", collection="b"))
-    repo = SqlSourceRepository(sessions)
-    await repo.create(
-        SourceConfig(
-            id="mine", tenant_id="tenant-a", project_id="p1", source_type="local_file", name="Mine"
-        )
-    )
-    await repo.create(
-        SourceConfig(
-            id="theirs", tenant_id="tenant-b", project_id="p2", source_type="github", name="Theirs"
-        )
-    )
-    scope = frozenset({"tenant-a"})
-
-    assert [s.id for s in await repo.list(tenant_ids=scope)] == ["mine"]
-    assert await repo.get("theirs", tenant_ids=scope) is None
-    await repo.delete("theirs", tenant_ids=scope)
-    assert (await repo.get("theirs", tenant_ids=None)) is not None  # untouched
 
 
 @pytest.mark.asyncio

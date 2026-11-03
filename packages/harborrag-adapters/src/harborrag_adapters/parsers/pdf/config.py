@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import StrEnum
 
+from harborrag_adapters.parsers.common.limits import PDF_MAX_PAGES
+
 
 class PDFParserProfile(StrEnum):
     """Named PDF engine orderings for cost and quality tradeoffs."""
@@ -97,14 +99,17 @@ class PDFRouterConfig:
 
 @dataclass(frozen=True, slots=True)
 class PDFParserConfig:
-    """PDF parser quality threshold and routing profiles."""
+    """PDF parser quality threshold, page limit and routing profiles."""
 
     min_content_chars: int = 20
+    max_pages: int | None = PDF_MAX_PAGES
     router: PDFRouterConfig = field(default_factory=PDFRouterConfig)
 
     def __post_init__(self) -> None:
         if self.min_content_chars < 0:
             raise ValueError("PDF min_content_chars cannot be negative")
+        if self.max_pages is not None and self.max_pages < 1:
+            raise ValueError("PDF max_pages must be at least 1 or null")
 
 
 PdfParserProfile = PDFParserProfile

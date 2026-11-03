@@ -14,6 +14,7 @@ from harborrag_adapters.parsers.pdf.config import (
     PDFRouterConfig,
 )
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
+from harborrag_adapters.parsers.pdf.page_limit import PdfPageLimit
 from harborrag_core.domain.parser import ParseInput
 
 _EMPTY_INPUT_ENGINE = "empty-input"
@@ -23,6 +24,7 @@ class PDFParserSupportMixin:
     """Provide small reusable guard and profile operations for the PDF parser."""
 
     profile: PDFParserProfile | str
+    page_limit: PdfPageLimit
 
     @staticmethod
     def _is_empty_request(request: ParseRequest) -> bool:
@@ -59,6 +61,14 @@ class PDFParserSupportMixin:
         except (TypeError, ValueError):
             return
         cls._guard_size(parse_input)
+
+    def _guard_page_count(self, request: ParseRequest) -> None:
+        """Reject a PDF above the page limit before any engine reads it."""
+        try:
+            parse_input = request_to_parse_input(request)
+        except (TypeError, ValueError):
+            return
+        self.page_limit.check(parse_input)
 
     @staticmethod
     def _empty_result() -> PDFParseResult:

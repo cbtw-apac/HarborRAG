@@ -77,6 +77,16 @@ class _AlwaysFailsPendingEffects:
         self.effects.pop(effect_id, None)
 
 
+_LOCAL_ROOT = "/srv/harborrag"
+_LOCAL_DOCS = f"{_LOCAL_ROOT}/docs"
+
+
+@pytest.fixture(autouse=True)
+def local_source_root(monkeypatch: pytest.MonkeyPatch) -> None:
+    """API writes of local sources need a configured source root."""
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", _LOCAL_ROOT)
+
+
 @pytest.fixture
 def project() -> Project:
     return Project(id="proj-a", name="A", collection="a", tenant_id="DEFAULT")
@@ -97,7 +107,7 @@ async def test_create_source_survives_a_failed_activity_log_and_queues_it_for_re
         project_id="proj-a",
         source_type="local",
         name="Docs",
-        config={"source_path": "./docs"},
+        config={"source_path": _LOCAL_DOCS},
         schedule=None,
         actor="tester",
     )
@@ -329,7 +339,7 @@ async def test_a_failed_enqueue_is_logged_and_swallowed_not_raised(project: Proj
         project_id="proj-a",
         source_type="local",
         name="Docs",
-        config={"source_path": "./docs"},
+        config={"source_path": _LOCAL_DOCS},
         schedule=None,
         actor="tester",
     )

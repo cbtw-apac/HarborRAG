@@ -6,7 +6,7 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import Protocol
 
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.events import InProcessEventBus
@@ -26,13 +26,12 @@ from harborrag_runtime.ingestion.maintenance.projection_admin import (
 )
 from harborrag_runtime.ingestion_contracts import (
     IngestionGateway,
-    PreparedSourceSubmission,
-    SourceSubmission,
 )
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 
-from ..ingestion.ports import PublicTaskStore
+from ..ingestion.connection_sources import SourcePreparation
+from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 
 type ClientFactory = Callable[
     [RuntimeSettings],
@@ -41,10 +40,6 @@ type ClientFactory = Callable[
 type ScheduleBackendFactory = Callable[[RuntimeSettings], Awaitable[ScheduleBackend]]
 type GatewayDescriptionFactory = Callable[[RuntimeSettings], IngestionGatewayDescription]
 type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
-type SourceInputBuilder = Callable[
-    [RuntimeSettings, SourceSubmission],
-    PreparedSourceSubmission,
-]
 type ProjectionAdminFactory = Callable[
     [RuntimeSettings],
     ProjectionAdministrationService,
@@ -53,6 +48,16 @@ type EventBusFactory = Callable[[], EventBusPort]
 
 
 class TaskRegistry(PublicTaskStore, Protocol):
+    async def latest_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None: ...
+
+    async def active_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None: ...
+
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int: ...
+
     async def fail_if_unsubmitted(
         self,
         task_id: str,
@@ -78,7 +83,8 @@ class AppServiceFactories:
     schedule_backend: ScheduleBackendFactory = connect_schedule_backend
     ingestion_description: GatewayDescriptionFactory = describe_ingestion_gateway
     retrieval_runtime: RetrievalRuntimeFactory = _retrieval_runtime
-    source_input_builder: SourceInputBuilder = prepare_configured_source_submission
+    source_input_builder: SourceInputBuilder | None = None
+    source_preparation: SourcePreparation = prepare_configured_source_submission
     task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
     projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
     event_bus: EventBusFactory = InProcessEventBus

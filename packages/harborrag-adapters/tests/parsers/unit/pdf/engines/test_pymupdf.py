@@ -134,7 +134,7 @@ def test_pymupdf_backend_allows_pdf_within_max_pages() -> None:
 def test_pymupdf_backend_default_max_pages_is_bounded() -> None:
     from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
 
-    assert PyMuPdfBackend().options.max_pages == 1000
+    assert PyMuPdfBackend().options.max_pages == 200
 
 
 def test_pdf_parser_end_to_end_and_materialized_path_from_disk(tmp_path: Path) -> None:

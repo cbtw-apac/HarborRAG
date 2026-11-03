@@ -2,6 +2,9 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=common/dev-checks.sh
+source "${ROOT_DIR}/scripts/deployment/common/dev-checks.sh"
+
 DATABASE_ENV_FILE="${DATABASE_ENV_FILE:-env/.env.database}"
 TEMPORAL_ENV_FILE="${TEMPORAL_ENV_FILE:-env/.env.temporal}"
 CONNECTOR_ENV_FILE="${CONNECTOR_ENV_FILE:-env/.env.connector}"
@@ -13,6 +16,7 @@ API_STARTUP_TIMEOUT="${HARBORRAG_API_STARTUP_TIMEOUT:-120}"
 API_IMAGE="${HARBORRAG_API_IMAGE:-harborrag-api-api}"
 TEMPORAL_WORKER_IMAGE="${HARBORRAG_TEMPORAL_WORKER_IMAGE:-harborrag-temporal-temporal-worker}"
 WORKER_DEVICE="cpu"
+DATABASE_VOLUME="${HARBORRAG_DATABASE_VOLUME:-compose_pg_data}"
 
 usage() {
     cat <<'EOF'
@@ -48,17 +52,6 @@ so switching devices rebuilds automatically the first time:
 EOF
 }
 
-fail() {
-    echo "$1" >&2
-    exit 2
-}
-
-require_file() {
-    local path="$1"
-    local label="$2"
-    [[ -f "${ROOT_DIR}/${path}" ]] || fail "Missing ${label}: ${path}. Run '$0 bootstrap'."
-}
-
 require_control_plane_encryption_key() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     local configured
@@ -73,8 +66,31 @@ require_control_plane_encryption_key() {
     configured="${configured#"${configured%%[![:space:]]*}"}"
     configured="${configured%"${configured##*[![:space:]]}"}"
     if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
-        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker; set it in ${DATABASE_ENV_FILE}."
+        [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]] &&
+            fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is set but blank in this shell; unset it or give it a value."
+        generate_encryption_key
     fi
+}
+
+# A blank key with no database volume means nothing was stored with one, so generating loses nothing.
+generate_encryption_key() {
+    local target_path="${ROOT_DIR}/${DATABASE_ENV_FILE}"
+    local key
+
+    if docker volume inspect "${DATABASE_VOLUME}" >/dev/null 2>&1; then
+        fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is blank in ${DATABASE_ENV_FILE}, but ${DATABASE_VOLUME} already holds a database; restore the key it was written with."
+    fi
+
+    command -v openssl >/dev/null ||
+        fail "OpenSSL is required to generate HARBORRAG_SECRETS_ENCRYPTION_KEY."
+    key="$(openssl rand -hex 32)"
+    if grep -Eq '^HARBORRAG_SECRETS_ENCRYPTION_KEY=' "${target_path}"; then
+        sed -i "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
+    else
+        printf '\nHARBORRAG_SECRETS_ENCRYPTION_KEY=%s\n' "${key}" >>"${target_path}"
+    fi
+    chmod 600 "${target_path}"
+    echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
 }
 
 ensure_environment_file() {
@@ -114,17 +130,13 @@ ensure_mcp_environment_file() {
 bootstrap_environment() {
     created_environment=0
     ensure_environment_file "${DATABASE_ENV_FILE}" "env-example/.env.database.example"
+    require_control_plane_encryption_key
     ensure_environment_file "${TEMPORAL_ENV_FILE}" "env-example/.env.temporal.example"
     ensure_environment_file "${CONNECTOR_ENV_FILE}" "env-example/.env.connector.example"
     ensure_environment_file "${PARSER_ENV_FILE}" "env-example/.env.parser.example"
     ensure_environment_file "${MODEL_ENV_FILE}" "env-example/.env.models.example"
     ensure_environment_file "${API_ENV_FILE}" "env-example/.env.api.example"
     ensure_mcp_environment_file "${MCP_ENV_FILE}" "env-example/.env.mcp.example"
-}
-
-require_data_network() {
-    docker network inspect harborrag-data-network >/dev/null 2>&1 ||
-        fail "harborrag-data-network is not running. Start it with '$0 data'."
 }
 
 require_temporal_server() {
@@ -157,10 +169,6 @@ temporal_compose() {
         "$@"
 }
 
-validate_device() {
-    [[ "$1" == "cpu" || "$1" == "gpu" ]] || fail "--device must be cpu or gpu, got: $1"
-}
-
 api_compose() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     require_file "${TEMPORAL_ENV_FILE}" "Temporal environment"
@@ -180,11 +188,9 @@ api_compose() {
         "$@"
 }
 
-prepare_worker_mount() {
+# The API and the workers mount the same folder, so connection tests see what runs read.
+resolve_local_source_dir() {
     require_file "${CONNECTOR_ENV_FILE}" "connector environment"
-    require_file "${PARSER_ENV_FILE}" "parser environment"
-    require_file "${MODEL_ENV_FILE}" "model environment"
-
     local local_source_path
     local_source_path="$(
         sed -n 's/^LOCAL_SOURCE_PATH=//p' \
@@ -199,6 +205,12 @@ prepare_worker_mount() {
     [[ -d "${HARBORRAG_LOCAL_SOURCE_DIR}" ]] ||
         fail "Local connector source directory does not exist: ${HARBORRAG_LOCAL_SOURCE_DIR}"
     export HARBORRAG_LOCAL_SOURCE_DIR
+}
+
+prepare_worker_mount() {
+    require_file "${PARSER_ENV_FILE}" "parser environment"
+    require_file "${MODEL_ENV_FILE}" "model environment"
+    resolve_local_source_dir
 
     if ! docker volume inspect harborrag-model-cache >/dev/null 2>&1; then
         docker volume create harborrag-model-cache >/dev/null
@@ -216,8 +228,7 @@ worker_replicas() {
         )"
     fi
     replicas="${replicas:-2}"
-    [[ "${replicas}" =~ ^[1-9][0-9]*$ ]] ||
-        fail "HARBORRAG_TEMPORAL_WORKER_REPLICAS must be a positive integer."
+    require_positive_integer HARBORRAG_TEMPORAL_WORKER_REPLICAS "${replicas}"
     echo "${replicas}"
 }
 
@@ -271,8 +282,8 @@ start_api() {
     require_control_plane_encryption_key
     require_data_network
     require_temporal_server
-    [[ "${API_STARTUP_TIMEOUT}" =~ ^[1-9][0-9]*$ ]] ||
-        fail "HARBORRAG_API_STARTUP_TIMEOUT must be a positive integer."
+    require_positive_integer HARBORRAG_API_STARTUP_TIMEOUT "${API_STARTUP_TIMEOUT}"
+    resolve_local_source_dir
 
     api_compose config --quiet
     mapfile -t compose_services < <(api_compose config --services)
@@ -315,7 +326,7 @@ stop_stack() {
     [[ "$#" -eq 0 ]] || fail "Unknown down option: $1"
 
     echo "Stopping HarborRAG API..."
-    if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" && -f "${ROOT_DIR}/${CONNECTOR_ENV_FILE}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then
+    if [[ -f "${ROOT_DIR}/${DATABASE_ENV_FILE}" && -f "${ROOT_DIR}/${TEMPORAL_ENV_FILE}" && -f "${ROOT_DIR}/${CONNECTOR_ENV_FILE}" && -f "${ROOT_DIR}/${MODEL_ENV_FILE}" && -f "${ROOT_DIR}/${API_ENV_FILE}" ]]; then
         api_compose "${down_args[@]}"
     else
         echo "Skipping API teardown because environment files are missing." >&2
@@ -401,7 +412,6 @@ case "${command}" in
         if ((created_environment)); then
             fail "Review the new environment files, then run '$0 up' again."
         fi
-        require_control_plane_encryption_key
         start_data
         start_temporal
         if ((start_worker_flag)); then
