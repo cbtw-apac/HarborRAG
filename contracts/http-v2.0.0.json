@@ -1,0 +1,909 @@
+{
+  "operations": {
+    "DELETE /v1/admin/projects/{project_id}": {
+      "legacy": false,
+      "min_role": "admin",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:project_id",
+        "query:cascade?"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "job_id"
+        ],
+        "204": null,
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "DELETE /v1/admin/projects/{project_id}/connections/{connection_id}": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:connection_id",
+        "path:project_id",
+        "query:purge?"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "job_id"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /healthz": {
+      "legacy": false,
+      "min_role": null,
+      "parameters": [],
+      "request": null,
+      "responses": {
+        "200": [
+          "status"
+        ]
+      }
+    },
+    "GET /readyz": {
+      "legacy": false,
+      "min_role": null,
+      "parameters": [],
+      "request": null,
+      "responses": {
+        "200": [
+          "checks",
+          "status"
+        ],
+        "503": [
+          "checks",
+          "status"
+        ]
+      }
+    },
+    "GET /v1/admin/connections": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:cursor?",
+        "query:limit?",
+        "query:project_id?",
+        "query:source_type?",
+        "query:status?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].advanced",
+          "items[].config",
+          "items[].connection_id",
+          "items[].created_at",
+          "items[].created_by",
+          "items[].credentials",
+          "items[].last_ingestion",
+          "items[].last_ingestion.finished_at",
+          "items[].last_ingestion.id",
+          "items[].last_ingestion.status",
+          "items[].name",
+          "items[].project_id",
+          "items[].ref",
+          "items[].source_type",
+          "items[].stats",
+          "items[].stats.chunks",
+          "items[].stats.documents",
+          "items[].stats.entities",
+          "items[].stats.errors",
+          "items[].status",
+          "items[].tenant_id",
+          "items[].updated_at",
+          "items[].updated_by",
+          "next_cursor"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/projects": {
+      "legacy": false,
+      "min_role": "admin",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:cursor?",
+        "query:limit?",
+        "query:q?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].connection_count",
+          "items[].created_at",
+          "items[].description",
+          "items[].document_count",
+          "items[].id",
+          "items[].name",
+          "items[].tenant_id",
+          "items[].updated_at",
+          "next_cursor"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/projects/{project_id}": {
+      "legacy": false,
+      "min_role": "admin",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:project_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "connection_count",
+          "created_at",
+          "description",
+          "document_count",
+          "id",
+          "name",
+          "tenant_id",
+          "updated_at"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/projects/{project_id}/connections/{connection_id}": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:connection_id",
+        "path:project_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "advanced",
+          "config",
+          "connection_id",
+          "created_at",
+          "created_by",
+          "credentials",
+          "last_ingestion",
+          "last_ingestion.finished_at",
+          "last_ingestion.id",
+          "last_ingestion.status",
+          "name",
+          "project_id",
+          "ref",
+          "source_type",
+          "stats",
+          "stats.chunks",
+          "stats.documents",
+          "stats.entities",
+          "stats.errors",
+          "status",
+          "tenant_id",
+          "updated_at",
+          "updated_by"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/source-types": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:category?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].advanced_schema",
+          "items[].auth_methods",
+          "items[].auth_methods[].id",
+          "items[].auth_methods[].schema",
+          "items[].auth_methods[].title",
+          "items[].auth_methods[].ui",
+          "items[].capabilities",
+          "items[].capabilities.acl_sync",
+          "items[].capabilities.attachments",
+          "items[].capabilities.incremental",
+          "items[].category",
+          "items[].config_schema",
+          "items[].docs_url",
+          "items[].icon",
+          "items[].name",
+          "items[].source_type",
+          "items[].ui",
+          "items[].version"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/chat/sessions": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:cursor?",
+        "query:limit?",
+        "query:tenant?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/chat/sessions/{session_id}/messages": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:session_id",
+        "query:after?",
+        "query:limit?",
+        "query:tenant?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/ingestions": {
+      "legacy": true,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:cursor?",
+        "query:limit?",
+        "query:status?",
+        "query:tenant?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].progress",
+          "items[].source",
+          "items[].source.connection_id",
+          "items[].source.type",
+          "items[].stage",
+          "items[].status",
+          "items[].submitted_at",
+          "items[].task_id",
+          "items[].tenant"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/ingestions/{task_id}": {
+      "legacy": true,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "progress",
+          "source",
+          "source.connection_id",
+          "source.type",
+          "stage",
+          "status",
+          "submitted_at",
+          "task_id",
+          "tenant"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/ingestions/{task_id}/documents": {
+      "legacy": true,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id",
+        "query:cursor?",
+        "query:limit?",
+        "query:status?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].document_id",
+          "items[].document_kind",
+          "items[].source_item_id",
+          "items[].status",
+          "items[].updated_at"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/ingestions/{task_id}/stream": {
+      "legacy": true,
+      "min_role": "reader",
+      "parameters": [
+        "header:Last-Event-ID?",
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/me": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "principal",
+          "principal.id",
+          "principal.name",
+          "principal.type",
+          "role",
+          "tenant_id",
+          "tenants"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/projects/{project_id}/connections": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:project_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].connection_id",
+          "items[].documents",
+          "items[].name",
+          "items[].ref",
+          "items[].source_type"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/admin/projects/{project_id}/connections/{connection_id}/sync": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:connection_id",
+        "path:project_id"
+      ],
+      "request": [],
+      "responses": {
+        "202": [
+          "connection",
+          "counters",
+          "counters.discovered",
+          "counters.failed",
+          "counters.processed",
+          "counters.skipped",
+          "created_at",
+          "error_category",
+          "finished_at",
+          "id",
+          "links",
+          "links.grafana",
+          "links.langfuse",
+          "links.temporal",
+          "mode",
+          "run_id",
+          "settings_revision",
+          "stages",
+          "status",
+          "trace_id",
+          "triggered_by",
+          "triggered_by.id",
+          "triggered_by.type",
+          "workflow_id"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "501": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/admin/projects/{project_id}/connections/{connection_id}/test": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:connection_id",
+        "path:project_id"
+      ],
+      "request": [
+        "source_type"
+      ],
+      "responses": {
+        "200": [
+          "checks",
+          "checks[].message",
+          "checks[].name",
+          "checks[].ok",
+          "error_category",
+          "latency_ms",
+          "ok",
+          "preview",
+          "preview.estimated_items",
+          "preview.sample",
+          "preview.sample[].ref",
+          "preview.sample[].title"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/chat/completions": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:Idempotency-Key?",
+        "header:X-Tenant-Id?"
+      ],
+      "request": [
+        "prompt"
+      ],
+      "responses": {
+        "200": [
+          "fallback_count",
+          "finish_reason",
+          "id",
+          "message",
+          "message.content",
+          "message.role",
+          "model",
+          "provider",
+          "provider_model",
+          "retry_count",
+          "session_id",
+          "usage",
+          "usage.completion_tokens",
+          "usage.prompt_tokens",
+          "usage.total_tokens"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/chat/sessions": {
+      "legacy": false,
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?"
+      ],
+      "request": [],
+      "responses": {
+        "201": [
+          "greeting",
+          "session_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/ingestions": {
+      "legacy": true,
+      "min_role": "editor",
+      "parameters": [
+        "header:Idempotency-Key?",
+        "header:X-Tenant-Id?"
+      ],
+      "request": [
+        "connection_id"
+      ],
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "submitted_at",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/ingestions/{task_id}/cancel": {
+      "legacy": true,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/ingestions/{task_id}/pause": {
+      "legacy": true,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/ingestions/{task_id}/resume": {
+      "legacy": true,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/ingestions/{task_id}/retry-failures": {
+      "legacy": true,
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:task_id"
+      ],
+      "request": [],
+      "responses": {
+        "202": [
+          "accepted_document_count",
+          "message",
+          "retry_task_id",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "PUT /v1/admin/projects/{project_id}": {
+      "legacy": false,
+      "min_role": "admin",
+      "parameters": [
+        "header:If-Match?",
+        "header:If-None-Match?",
+        "header:X-Tenant-Id?",
+        "path:project_id"
+      ],
+      "request": [
+        "name"
+      ],
+      "responses": {
+        "200": [
+          "connection_count",
+          "created_at",
+          "description",
+          "document_count",
+          "id",
+          "name",
+          "tenant_id",
+          "updated_at"
+        ],
+        "201": [
+          "connection_count",
+          "created_at",
+          "description",
+          "document_count",
+          "id",
+          "name",
+          "tenant_id",
+          "updated_at"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "409": "Error",
+        "412": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "PUT /v1/admin/projects/{project_id}/connections/{connection_id}": {
+      "legacy": false,
+      "min_role": "editor",
+      "parameters": [
+        "header:If-Match?",
+        "header:If-None-Match?",
+        "header:X-Tenant-Id?",
+        "path:connection_id",
+        "path:project_id"
+      ],
+      "request": [
+        "config",
+        "credentials",
+        "source_type"
+      ],
+      "responses": {
+        "200": [
+          "advanced",
+          "config",
+          "connection_id",
+          "created_at",
+          "created_by",
+          "credentials",
+          "last_ingestion",
+          "last_ingestion.finished_at",
+          "last_ingestion.id",
+          "last_ingestion.status",
+          "name",
+          "project_id",
+          "ref",
+          "source_type",
+          "stats",
+          "stats.chunks",
+          "stats.documents",
+          "stats.entities",
+          "stats.errors",
+          "status",
+          "tenant_id",
+          "updated_at",
+          "updated_by"
+        ],
+        "201": [
+          "advanced",
+          "config",
+          "connection_id",
+          "created_at",
+          "created_by",
+          "credentials",
+          "last_ingestion",
+          "last_ingestion.finished_at",
+          "last_ingestion.id",
+          "last_ingestion.status",
+          "name",
+          "project_id",
+          "ref",
+          "source_type",
+          "stats",
+          "stats.chunks",
+          "stats.documents",
+          "stats.entities",
+          "stats.errors",
+          "status",
+          "tenant_id",
+          "updated_at",
+          "updated_by"
+        ],
+        "400": "Error",
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "412": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    }
+  },
+  "title": "HarborRAG HTTP API",
+  "version": "2.0.0"
+}

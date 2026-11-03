@@ -25,6 +25,7 @@ from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
+from harborrag_app.api.openapi import install_openapi
 from harborrag_app.api.ops import OpsPortMiddleware
 from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
@@ -255,6 +256,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)
     register_routes(app)
+    install_openapi(app)
     app.state.api_metric_routes = tuple(
         (path, compile_path(path)[0]) for path in app.openapi()["paths"]
     )

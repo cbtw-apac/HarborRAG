@@ -25,6 +25,7 @@ from .principal import ROLE_ORDER, Principal
 from .tenancy import resolve_tenant, tenant_header
 
 _MINIMUM_ROLE = "minimum_role"
+_SCOPES_TENANT = "scopes_tenant"
 
 
 @cache
@@ -60,17 +61,15 @@ def require_role(
         return principal
 
     setattr(guard, _MINIMUM_ROLE, minimum)
+    setattr(guard, _SCOPES_TENANT, tenant)
     return guard
 
 
-def _roles(dependant: Dependant) -> list[Role]:
-    """Collect every guard's role in a dependency tree."""
-    found: list[Role] = []
-    role = getattr(dependant.call, _MINIMUM_ROLE, None)
-    if role is not None:
-        found.append(role)
+def _guards(dependant: Dependant) -> list[Any]:
+    """Collect every guard in a dependency tree."""
+    found = [dependant.call] if hasattr(dependant.call, _MINIMUM_ROLE) else []
     for child in dependant.dependencies:
-        found.extend(_roles(child))
+        found.extend(_guards(child))
     return found
 
 
@@ -94,8 +93,13 @@ def api_routes(routes: Sequence[BaseRoute]) -> Iterator[Any]:
 
 def minimum_role(route: Any) -> Role | None:
     """Return the lowest role that may call ``route``, or ``None`` when it has no guard."""
-    roles = _roles(route.dependant)
+    roles: list[Role] = [getattr(guard, _MINIMUM_ROLE) for guard in _guards(route.dependant)]
     return sorted(roles, key=ROLE_ORDER.__getitem__)[-1] if roles else None
 
 
-__all__ = ["api_routes", "minimum_role", "require_role"]
+def scopes_tenant(route: Any) -> bool:
+    """Whether ``route`` acts in one tenant picked from the credential."""
+    return any(getattr(guard, _SCOPES_TENANT) for guard in _guards(route.dependant))
+
+
+__all__ = ["api_routes", "minimum_role", "require_role", "scopes_tenant"]
