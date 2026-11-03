@@ -106,6 +106,28 @@ def test_markdown_parser_records_the_fence_language_on_code_elements():
     assert languages == ["python", "typescript", "unterminated-go"]
 
 
+def test_markdown_code_block_closes_only_on_a_matching_fence():
+    # CommonMark: a closing fence uses the opener's character, is at least as
+    # long, and carries nothing but whitespace after it.
+    markdown = (
+        "````markdown\n"
+        "```python\n"  # inner opener: trailing text, shorter run
+        "x = 1\n"
+        "```\n"  # shorter than the opener
+        "~~~~\n"  # other fence character
+        "```` not a close\n"  # trailing text
+        "````  \n"
+        "after\n"
+    )
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [e for e in document.elements if e.type == "code"]
+    assert len(code) == 1
+    assert code[0].metadata == {"code_language": "markdown"}
+    assert code[0].content == "```python\nx = 1\n```\n~~~~\n```` not a close"
+    assert [e.content for e in document.elements if e.type == "paragraph"] == ["after"]
+
+
 def test_markdown_strips_links_and_emphasis_in_content():
     document = MarkdownParser().parse(
         ParseInput(content="See [Harbor](https://x) and *bold*", filename="d.md")

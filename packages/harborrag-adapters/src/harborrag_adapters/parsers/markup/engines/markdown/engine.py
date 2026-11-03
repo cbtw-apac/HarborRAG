@@ -20,6 +20,21 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("markdown")
 
+# A fence run of 3+ backticks or tildes; a backtick fence's info string may not
+# contain a backtick (CommonMark), so such a line is text, not an opener.
+_FENCE_OPENER = re.compile(r"^(`{3,}(?=[^`]*$)|~{3,})")
+
+
+def _closes_fence(stripped: str, opener: str) -> bool:
+    """Report whether ``stripped`` closes the block ``opener`` started (CommonMark).
+
+    The closing run uses the opener's character, is at least as long, and is
+    followed only by whitespace; anything else stays inside the code block.
+    """
+
+    run = len(stripped) - len(stripped.lstrip(opener[0]))
+    return run >= len(opener) and not stripped[run:].strip()
+
 
 class MarkdownMarkupEngine(HarborMarkupEngine):
     """Parse Markdown sources into normalized text and lightweight block elements."""
@@ -85,25 +100,23 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         while index < len(lines):
             line = lines[index]
             stripped = line.strip()
-            if stripped.startswith(("```", "~~~")):
-                fence = stripped[:3]
-                if in_code and fence == code_fence:
+            if in_code:
+                if _closes_fence(stripped, code_fence):
                     cls._flush(elements, block, source_id, "code", language=code_language)
                     in_code = False
                     code_fence = ""
                     code_language = None
-                elif not in_code:
-                    cls._flush(elements, block, source_id)
-                    in_code = True
-                    code_fence = fence
-                    code_language = guess_language(fence_info=stripped.lstrip("`~"))
                 else:
                     block.append(line)
                 index += 1
                 continue
 
-            if in_code:
-                block.append(line)
+            opener = _FENCE_OPENER.match(stripped)
+            if opener is not None:
+                cls._flush(elements, block, source_id)
+                in_code = True
+                code_fence = opener.group(1)
+                code_language = guess_language(fence_info=stripped[len(code_fence) :])
                 index += 1
                 continue
 
