@@ -95,8 +95,16 @@ class TextRefinementRequest:
     structural_path: tuple[str, ...] = ()
     preserve_whitespace: bool = True
     separators: tuple[str, ...] | None = None
+    # Programming language of a code unit (``python``, ``ts``, ...), so a
+    # refiner can split at syntax boundaries. Stored stripped and lowercased.
+    language: str | None = None
 
     def __post_init__(self) -> None:
+        if self.language is not None:
+            language = self.language.strip().lower()
+            if not language:
+                raise ValueError("language must be non-empty when provided")
+            object.__setattr__(self, "language", language)
         if self.maximum_tokens < 1:
             raise ValueError("maximum_tokens must be positive")
         if not 0 <= self.overlap_tokens < self.maximum_tokens:

@@ -21,6 +21,14 @@ CI (`.github/workflows/contract.yml`) does this on every PR and gates merges
 on `oasdiff breaking` against the target branch (`contract-break-approved`
 label overrides, requires lead review).
 
+`package.json` overrides `minimatch` to a release without GHSA-g3hv-75wg-m249:
+`openapi-typescript` 7 still depends on `@redocly/openapi-core` 1.x, which
+pins a vulnerable `minimatch`. Generation from the local `openapi.json` is
+unaffected (the generated types are identical). The one redocly path that
+calls `minimatch`, header matching for remote `$ref` URLs, does not work
+under the override, so keep the generator on local files. Drop the override
+once `openapi-typescript` moves to `@redocly/openapi-core` 2.
+
 ## Usage (WebUI)
 
 ```ts

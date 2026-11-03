@@ -47,6 +47,7 @@ settings through `HARBORRAG_*` variables.
 | --- | --- |
 | `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/connectors.yaml` |
 | `HARBORRAG_PARSER_CONFIG_PATH` | `config/parsers.yaml` |
+| `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/chunking.yaml`; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
 | `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` |
 | `HARBORRAG_CONTROL_DB_URL` | Local SQLite development database |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` |

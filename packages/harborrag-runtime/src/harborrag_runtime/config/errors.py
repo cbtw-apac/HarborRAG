@@ -20,3 +20,7 @@ class ScheduleConfigurationError(ConfigurationError):
 
 class GraphBuildConfigurationError(ConfigurationError):
     """Raised when graph-build policy is invalid or unreadable."""
+
+
+class ChunkingConfigurationError(ConfigurationError):
+    """Raised when chunking policy is invalid or unreadable."""

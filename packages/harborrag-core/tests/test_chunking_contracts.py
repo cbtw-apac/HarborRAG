@@ -45,3 +45,10 @@ def test_text_split_preserves_framework_neutral_context() -> None:
     assert split.source_span is not None
     assert split.source_span.element_ids == ("e1",)
     assert split.boundary_kind == SplitBoundaryKind.SECTION
+
+
+def test_text_refinement_request_normalizes_the_code_language() -> None:
+    assert TextRefinementRequest("x", 1, language=" Python ").language == "python"
+    assert TextRefinementRequest("x", 1).language is None
+    with pytest.raises(ValueError, match="language"):
+        TextRefinementRequest("x", 1, language="  ")

@@ -93,7 +93,7 @@ def test_base_install_declares_only_first_party_runtime_packages() -> None:
     ]
     assert project["optional-dependencies"]["chat"] == [f"harborrag-adapters[llm]=={version}"]
     assert project["optional-dependencies"]["local"] == [
-        "harborrag-adapters[chunking,control-plane,falkordb,llm,parsers,"
+        "harborrag-adapters[chunking,chunking-code,control-plane,falkordb,llm,parsers,"
         f"pdf-liteparse,qdrant,s3,tables]=={version}"
     ]
     assert f"harborrag-adapters[parsers-all]=={version}" in project["optional-dependencies"]["all"]

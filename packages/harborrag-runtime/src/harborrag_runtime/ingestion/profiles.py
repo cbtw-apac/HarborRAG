@@ -5,9 +5,10 @@ from pathlib import Path
 
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy
+from harborrag_runtime.config.chunking import chunking_settings_from
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from .chunking_profile import chunk_strategy_fingerprint, default_chunking_config
+from .chunking_profile import chunk_strategy_fingerprint
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
 # Source assertions and metadata observations have independent document supports.
@@ -22,8 +23,13 @@ def build_processing_profile(
     chunking_config: ChunkingConfig | None = None,
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> ProcessingProfile:
-    """Build the deterministic processing identity shared by clients and workers."""
+    """Build the deterministic processing identity shared by clients and workers.
 
+    ``chunking_config`` overrides the profiles of ``chunking.yaml``; the refiner
+    choice always comes from the file (or its defaults).
+    """
+
+    chunking = chunking_settings_from(settings)
     return ProcessingProfile(
         parser_profile=configuration_file_digest(
             "parser",
@@ -31,7 +37,9 @@ def build_processing_profile(
         ),
         normalizer_version=CANONICAL_NORMALIZER_VERSION,
         chunk_strategy=chunk_strategy_fingerprint(
-            chunking_config or default_chunking_config(), chunking_strategies
+            chunking_config or chunking.config,
+            chunking_strategies,
+            refiner=chunking.refiner,
         ),
         dense_encoder_profile=settings.dense_encoder_profile,
         sparse_encoder_profile=settings.sparse_encoder_profile,

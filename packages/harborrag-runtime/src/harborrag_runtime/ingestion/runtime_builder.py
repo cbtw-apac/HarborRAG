@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 
-from harborrag_adapters.chunking import RecursiveTextRefiner
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.file_filters import normalize_extension
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
@@ -56,12 +55,13 @@ from harborrag_runtime.config import (
     load_connector_catalog,
     load_parser_catalog,
 )
+from harborrag_runtime.config.chunking import RefinerConfig, chunking_settings_from
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
-from .chunking_profile import default_chunking_config
+from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime
 from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import (
@@ -133,6 +133,7 @@ class IngestionRuntimeBuilder:
             metrics_bind_address=settings.metrics_bind_address,
         )
         parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+        chunking = chunking_settings_from(settings)
         rate_limiter = self._rate_limiter(telemetry)
         connectors, connector_fingerprints, connector_errors = self._connectors(
             attachment_parser=parser,
@@ -161,8 +162,9 @@ class IngestionRuntimeBuilder:
             parser=parser,
             normalizer=self.build_document_normalizer(),
             chunker=build_default_chunker(
-                config=self._chunking_config,
+                config=self._chunking_config or chunking.config,
                 additional_strategies=self._chunking_strategies,
+                refiner=chunking.refiner,
             ),
             representations=RepresentationReuseService(
                 ChunkRepresentationEncoder(
@@ -352,6 +354,7 @@ def build_default_chunker(
     *,
     config: ChunkingConfig | None = None,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    refiner: RefinerConfig | None = None,
 ) -> BaseChunker:
     """Build canonical chunking with optional source-owned extensions."""
 
@@ -359,7 +362,7 @@ def build_default_chunker(
     return build_chunking_service(
         config=config or default_chunking_config(),
         token_counter=token_counter,
-        refiner=RecursiveTextRefiner(token_counter),
+        refiner=build_refiner(token_counter, refiner),
         additional_strategies=additional_strategies,
     )
 

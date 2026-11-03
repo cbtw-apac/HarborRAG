@@ -8,6 +8,7 @@ import pytest
 
 from harborrag_adapters.chunking.recursive import RecursiveTextRefiner
 from harborrag_core.contracts.chunking import SourceSpan, TextRefinementRequest
+from harborrag_core.ingestion import ChunkValidationError
 
 
 class CharacterCounter:
@@ -116,7 +117,7 @@ def test_recursive_refiner_rejects_provider_content_loss() -> None:
         splitter_factory=LossySplitter,
     )
 
-    with pytest.raises(ValueError, match="trailing source content"):
+    with pytest.raises(ChunkValidationError, match="trailing source content"):
         refiner.split(TextRefinementRequest(content="abcdef", maximum_tokens=3))
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from typing import ClassVar, Literal
 
+from harborrag_adapters.chunking.languages import guess_language
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,
@@ -19,12 +20,42 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("markdown")
 
+# A fence run of 3+ backticks or tildes; a backtick fence's info string may not
+# contain a backtick (CommonMark), so such a line is text, not an opener.
+_FENCE_OPENER = re.compile(r"^(`{3,}(?=[^`]*$)|~{3,})")
+
+
+def _indent(line: str) -> int:
+    """Leading indentation in columns, tabs counting as four (CommonMark)."""
+
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip(" "))
+
+
+def _closes_fence(line: str, opener: str, opener_indent: int) -> bool:
+    """Report whether ``line`` closes the block ``opener`` started (CommonMark).
+
+    The closing run uses the opener's character, is at least as long, and is
+    followed only by whitespace. It may be indented at most three columns more
+    than the opener: CommonMark measures both from the enclosing container, and
+    measuring from the opener keeps a fence inside a list item closable without
+    tracking list structure. Anything else stays inside the code block.
+    """
+
+    if _indent(line) > opener_indent + 3:
+        return False
+    stripped = line.strip()
+    run = len(stripped) - len(stripped.lstrip(opener[0]))
+    return run >= len(opener) and not stripped[run:].strip()
+
 
 class MarkdownMarkupEngine(HarborMarkupEngine):
     """Parse Markdown sources into normalized text and lightweight block elements."""
 
     parser_name: ClassVar[str] = "markdown"
     parser_engine: ClassVar[str] = "python/regex"
+    # 1.1.0: code elements carry the fence's language as ``code_language``.
+    parser_version: ClassVar[str | None] = "1.1.0"
     suffixes: ClassVar[frozenset[str]] = frozenset({"md", "markdown", "mdx"})
     content_types: ClassVar[frozenset[str]] = frozenset({"text/markdown", "text/x-markdown"})
 
@@ -75,29 +106,32 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         block: list[str] = []
         in_code = False
         code_fence = ""
+        code_indent = 0
+        code_language: str | None = None
         lines = markdown.splitlines()
 
         index = 0
         while index < len(lines):
             line = lines[index]
             stripped = line.strip()
-            if stripped.startswith(("```", "~~~")):
-                fence = stripped[:3]
-                if in_code and fence == code_fence:
-                    cls._flush(elements, block, source_id, "code")
+            if in_code:
+                if _closes_fence(line, code_fence, code_indent):
+                    cls._flush(elements, block, source_id, "code", language=code_language)
                     in_code = False
                     code_fence = ""
-                elif not in_code:
-                    cls._flush(elements, block, source_id)
-                    in_code = True
-                    code_fence = fence
+                    code_language = None
                 else:
                     block.append(line)
                 index += 1
                 continue
 
-            if in_code:
-                block.append(line)
+            opener = _FENCE_OPENER.match(stripped)
+            if opener is not None:
+                cls._flush(elements, block, source_id)
+                in_code = True
+                code_fence = opener.group(1)
+                code_indent = _indent(line)
+                code_language = guess_language(fence_info=stripped[len(code_fence) :])
                 index += 1
                 continue
 
@@ -136,6 +170,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
             block,
             source_id,
             "code" if in_code else "paragraph",
+            language=code_language if in_code else None,
         )
         return elements
 
@@ -172,6 +207,8 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         block: list[str],
         source_id: str,
         kind: Literal["paragraph", "code"] = "paragraph",
+        *,
+        language: str | None = None,
     ) -> None:
         content = "\n".join(block).strip()
         if content:
@@ -180,6 +217,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
                     id=f"{source_id}:{len(elements)}",
                     type=kind,
                     content=(cls._to_text(content) if kind == "paragraph" else content),
+                    metadata={"code_language": language} if language else {},
                 )
             )
         block.clear()
