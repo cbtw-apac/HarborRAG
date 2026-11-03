@@ -13,6 +13,7 @@ from harborrag_adapters.chunking import (
     SeparatorRefiner,
     TextStructureRefiner,
     build_text_refiner,
+    code_structure,
     factory,
     guess_language,
     normalize_language,
@@ -80,11 +81,33 @@ def test_missing_grammars_are_fatal_by_default(words, monkeypatch) -> None:
 
 def test_the_separator_fallback_must_be_requested_and_is_logged(words, monkeypatch, caplog) -> None:
     monkeypatch.setattr(factory, "grammar_set_problems", lambda: ["tree-sitter-go missing"])
+    # No grammar loads, as on a worker without them installed.
+    monkeypatch.setattr(code_structure, "default_parser_loader", _no_parser)
 
     with caplog.at_level(logging.WARNING):
-        build_text_refiner(words, require_grammars=False)
+        refiner = build_text_refiner(words, require_grammars=False)
 
     assert "tree-sitter-go missing" in caplog.text
+    code = (
+        "class Job:\n"
+        "    def run(self):\n        a = 1\n        b = 2\n        return a + b\n\n"
+        "    def stop(self):\n        c = 3\n        d = 4\n        return c + d\n"
+    )
+    splits = refiner.split(
+        TextRefinementRequest(
+            content=code,
+            maximum_tokens=12,
+            boundary_kind=SplitBoundaryKind.CODE_BLOCK,
+            language="python",
+        )
+    )
+    # Separator tier: cut at the method definitions, with no syntax-tier scope.
+    assert "".join(split.content for split in splits) == code
+    assert [split.content.lstrip().split("\n", 1)[0] for split in splits[1:]] == [
+        "def run(self):",
+        "def stop(self):",
+    ]
+    assert all(split.prefix is None for split in splits)
 
 
 def test_an_injected_parser_loader_skips_the_grammar_check(words, monkeypatch) -> None:

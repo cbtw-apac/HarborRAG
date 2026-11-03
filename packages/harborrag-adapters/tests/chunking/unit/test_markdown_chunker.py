@@ -143,6 +143,7 @@ def test_a_long_context_is_shortened_so_embed_text_never_exceeds_the_maximum(wor
         assert chunk.token_count <= 20
         assert text[chunk.source_span.start_offset : chunk.source_span.end_offset] == chunk.content
     body = [chunk for chunk in chunks if "Sentence" in chunk.content]
+    assert body
     # The most specific heading survives; the title and outer headings go first.
     assert all(
         chunk.context.endswith("Nested section on rollback procedures in depth") for chunk in body
