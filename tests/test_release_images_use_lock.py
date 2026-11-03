@@ -83,8 +83,7 @@ def test_api_image_bundles_configuration_and_runs_unprivileged() -> None:
     assert "/healthz" in dockerfile
     assert "/readyz" not in dockerfile
     assert "build-essential" not in dockerfile
-    assert "exec uvicorn harborrag_app.api.app:create_fastapi_app --factory" in dockerfile
-    assert '--host \\"$HARBORRAG_HOST\\" --port \\"$HARBORRAG_PORT\\"' in dockerfile
+    assert 'CMD ["python", "-m", "harborrag_app.api.serve"]' in dockerfile
 
 
 @pytest.mark.parametrize("image", DOCKERFILES)

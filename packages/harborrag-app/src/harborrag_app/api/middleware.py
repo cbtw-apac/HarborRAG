@@ -40,6 +40,16 @@ def _trace_id(headers: Headers) -> str:
     return (_valid(parent.group(1)) if parent else None) or uuid4().hex
 
 
+def trace_id_of(scope: Scope) -> str:
+    """Return the trace id stored in ``scope``, minting one when none is set yet."""
+    state = scope.setdefault("state", {})
+    trace_id = state.get("trace_id")
+    if not isinstance(trace_id, str):
+        trace_id = _trace_id(Headers(scope=scope))
+        state["trace_id"] = trace_id
+    return trace_id
+
+
 def current_trace_id(request: Request) -> str:
     """Return the request's trace id, minting one when no middleware set it."""
     trace_id = getattr(request.state, "trace_id", None)
@@ -129,8 +139,7 @@ async def _bounded_request_messages(
 
 
 async def _request_too_large(scope: Scope, send: Send) -> None:
-    state = scope.get("state") or {}
-    trace_id = state.get("trace_id") or _trace_id(Headers(scope=scope))
+    trace_id = trace_id_of(scope)
     response = JSONResponse(
         status_code=413,
         content={

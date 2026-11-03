@@ -25,6 +25,7 @@ from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
+from harborrag_app.api.ops import OpsPortMiddleware
 from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
@@ -225,6 +226,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     )
     app.state.rate_limiter = build_rate_limiter(redis_url)
     app.state.api_metrics = ApiMetrics(version=app.version)
+    app.add_middleware(OpsPortMiddleware, settings=settings, metrics=app.state.api_metrics)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_body_bytes=settings.max_request_body_bytes,

@@ -50,6 +50,9 @@ class ApiSettings(BaseSettings):
     # 0.0.0.0 and must acknowledge disabled authentication in development.
     host: str = "127.0.0.1"
     port: int = 8000
+    # Prometheus /metrics answers only on this second socket, only to the scrape token.
+    ops_port: int | None = Field(default=9465, ge=1, le=65_535)
+    metrics_scrape_token: SecretStr | None = None
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
     cors_origins: list[str] = []
@@ -114,6 +117,12 @@ class ApiSettings(BaseSettings):
         ):
             data = {**data, "docs_enabled": False}
         return data
+
+    @model_validator(mode="after")
+    def _validate_ops_port(self) -> ApiSettings:
+        if self.ops_port is not None and self.ops_port == self.port:
+            raise ValueError("HARBORRAG_OPS_PORT must differ from HARBORRAG_PORT")
+        return self
 
     @model_validator(mode="after")
     def _validate_capacity_backend(self) -> ApiSettings:

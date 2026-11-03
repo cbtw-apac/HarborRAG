@@ -93,6 +93,31 @@ generate_encryption_key() {
     echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
 }
 
+# Prometheus reads the copy in env/api-scrape-token; the API reads the variable.
+ensure_metrics_scrape_token() {
+    local target_path="${ROOT_DIR}/${API_ENV_FILE}"
+    local token_path="${ROOT_DIR}/env/api-scrape-token"
+    local token
+
+    require_file "${API_ENV_FILE}" "API environment"
+    token="$(sed -n 's/^HARBORRAG_METRICS_SCRAPE_TOKEN=//p' "${target_path}" | tail -n 1)"
+    token="${token%$'\r'}"
+    if [[ -z "${token}" ]]; then
+        command -v openssl >/dev/null ||
+            fail "OpenSSL is required to generate HARBORRAG_METRICS_SCRAPE_TOKEN."
+        token="$(openssl rand -hex 32)"
+        if grep -Eq '^HARBORRAG_METRICS_SCRAPE_TOKEN=' "${target_path}"; then
+            sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/HARBORRAG_METRICS_SCRAPE_TOKEN=${token}/" "${target_path}"
+        else
+            printf '\nHARBORRAG_METRICS_SCRAPE_TOKEN=%s\n' "${token}" >>"${target_path}"
+        fi
+        chmod 600 "${target_path}"
+        echo "Generated HARBORRAG_METRICS_SCRAPE_TOKEN in ${API_ENV_FILE}."
+    fi
+    printf '%s' "${token}" >"${token_path}"
+    chmod 644 "${token_path}"
+}
+
 ensure_environment_file() {
     local target="$1"
     local template="$2"
@@ -280,6 +305,7 @@ start_worker() {
 start_api() {
     local rebuild="${1:-0}"
     require_control_plane_encryption_key
+    ensure_metrics_scrape_token
     require_data_network
     require_temporal_server
     require_positive_integer HARBORRAG_API_STARTUP_TIMEOUT "${API_STARTUP_TIMEOUT}"
@@ -314,6 +340,7 @@ start_api() {
     api_port="${api_port:-8000}"
     echo "HarborRAG API is healthy at http://127.0.0.1:${api_port}/healthz"
     echo "Swagger UI: http://127.0.0.1:${api_port}/docs (when HARBORRAG_DOCS_ENABLED)"
+    echo "Prometheus metrics: http://127.0.0.1:9465/metrics with the bearer token in env/api-scrape-token"
 }
 
 stop_stack() {

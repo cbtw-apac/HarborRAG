@@ -60,7 +60,7 @@ COPY packages/harborrag-runtime ./packages/harborrag-runtime
 COPY packages/harborrag-app ./packages/harborrag-app
 COPY config ./config
 
-EXPOSE 8000
+EXPOSE 8000 9465
 
 WORKDIR /var/lib/harborrag
 USER harborrag
@@ -69,4 +69,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
     CMD python -c "import os, urllib.request; urllib.request.urlopen(f'http://127.0.0.1:{os.environ[\"HARBORRAG_PORT\"]}/healthz', timeout=3).close()"
 
 STOPSIGNAL SIGTERM
-CMD ["sh", "-c", "exec uvicorn harborrag_app.api.app:create_fastapi_app --factory --host \"$HARBORRAG_HOST\" --port \"$HARBORRAG_PORT\""]
+CMD ["python", "-m", "harborrag_app.api.serve"]
