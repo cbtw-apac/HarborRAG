@@ -21,30 +21,30 @@ logger = logging.getLogger("harborrag.app.api.chat")
 
 _ERRORS = {
     "ConversationTurnBusyError": (
-        "conversation_turn_busy",
+        "session_busy",
         "This conversation already has an active completion",
     ),
     "ConversationTurnLeaseLostError": (
-        "conversation_turn_lease_lost",
+        "session_busy",
         "The completion lost its conversation lease",
     ),
     "HarborNotFoundError": (
-        "harbor_not_found_error",
+        "not_found",
         "Conversation session or project was not found",
     ),
-    "HarborValidationError": ("harbor_validation_error", "The chat request was rejected"),
+    "HarborValidationError": ("validation_error", "The chat request was rejected"),
     "HarborNoIndexedContentError": (
         "no_indexed_content",
         "No content has been ingested yet, so there is nothing to search",
     ),
-    "ChatStreamError": ("chat_stream_error", "The chat provider stream failed"),
+    "ChatStreamError": ("llm_unavailable", "The chat provider stream failed"),
 }
 
 
 def error_payload(event: dict[str, object]) -> dict[str, str]:
     code, message = _ERRORS.get(
         str(event.get("error_type", "")),
-        ("harbor_connection_error", "Chat service is unavailable"),
+        ("dependency_unavailable", "Chat service is unavailable"),
     )
     return {"code": code, "message": message}
 

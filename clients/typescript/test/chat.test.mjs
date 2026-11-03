@@ -62,7 +62,7 @@ test("streamChat posts auth and custom headers and exposes the durable completio
       assert.equal(init.signal, controller.signal);
       assert.equal(init.headers.get("Authorization"), "Bearer test-token");
       assert.equal(init.headers.get("Accept"), "text/event-stream");
-      assert.equal(init.headers.get("X-Request-Id"), "trace-1");
+      assert.equal(init.headers.get("X-Trace-Id"), "trace-1");
       assert.deepEqual(JSON.parse(init.body), { prompt: "hello", tenant: "ACME", stream: true });
       return sseResponse(byteStream(
         frame("response.started", { session_id: "session-1", mode: "rag", replayed: false }) +
@@ -72,7 +72,7 @@ test("streamChat posts auth and custom headers and exposes the durable completio
     },
   });
   const events = await collect(api.streamChat({ prompt: "hello", tenant: "ACME" }, {
-    signal: controller.signal, headers: { "X-Request-Id": "trace-1" },
+    signal: controller.signal, headers: { "X-Trace-Id": "trace-1" },
   }));
   assert.equal(events[1].data.content, "Hello 🌊");
   assert.deepEqual(events.at(-1), { event: "response.completed", data: completion });
@@ -143,9 +143,9 @@ test("streamChat preserves HTTP error envelopes and supports non-JSON proxy erro
 
 test("terminal response.error throws and a truncated stream never reports success", async () => {
   const failed = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async () =>
-    sseResponse(byteStream(frame("response.error", { code: "chat_stream_error", message: "Failed" }))) });
+    sseResponse(byteStream(frame("response.error", { code: "llm_unavailable", message: "Failed" }))) });
   await assert.rejects(collect(failed.streamChat({ prompt: "hello" })), (error) =>
-    error instanceof HarborChatStreamError && error.code === "chat_stream_error");
+    error instanceof HarborChatStreamError && error.code === "llm_unavailable");
   const truncated = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async () =>
     sseResponse(byteStream(frame("response.output_text.delta", { content: "partial" }))) });
   await assert.rejects(collect(truncated.streamChat({ prompt: "hello" })), (error) =>

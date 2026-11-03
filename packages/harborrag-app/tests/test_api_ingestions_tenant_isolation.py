@@ -69,4 +69,4 @@ def test_cross_tenant_task_ids_are_hidden_as_not_found(
         response = tenant_client.request(method, path, headers=headers)
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
+    assert response.json()["error"]["code"] == "not_found"

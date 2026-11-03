@@ -147,7 +147,7 @@ def test_stream_of_an_unknown_task_is_a_plain_enveloped_404(
 
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
+    assert response.json()["error"]["code"] == "not_found"
 
 
 @pytest.mark.asyncio

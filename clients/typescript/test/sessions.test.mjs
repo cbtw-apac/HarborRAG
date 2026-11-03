@@ -35,7 +35,7 @@ test("session helpers reject HTTP errors and avoid fetching aborted or blank-ID 
     baseUrl: "https://example.test",
     fetchImpl: async () => {
       fetches++;
-      return Response.json({ error: { code: "harbor_not_found_error", message: "Not found" } }, { status: 404 });
+      return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     },
   });
   await assert.rejects(api.getSessionHistory("chat", "missing"), HarborApiRequestError);

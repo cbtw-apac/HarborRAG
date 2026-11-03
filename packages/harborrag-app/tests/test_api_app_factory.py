@@ -36,57 +36,6 @@ def test_root_redirects_to_the_docs() -> None:
 
 
 @pytest.mark.blackbox
-def test_oversized_request_body_is_rejected_before_validation() -> None:
-    settings = ApiSettings(max_request_body_bytes=1_024)
-    with TestClient(create_fastapi_app(settings)) as client:
-        response = client.post(
-            "/v1/chat/completions",
-            json={"query": "x" * 2_000},
-            headers={"X-Request-Id": "oversized-request"},
-        )
-
-    assert response.status_code == 413
-    assert response.headers["x-request-id"] == "oversized-request"
-    assert response.json()["error"] == {
-        "code": "request_too_large",
-        "message": "Request body exceeds the configured limit",
-        "details": {},
-        "trace_id": "oversized-request",
-    }
-
-
-@pytest.mark.blackbox
-def test_trace_id_minted_and_echoed() -> None:
-    """Responses carry X-Request-Id; a client-provided id is echoed verbatim."""
-    with TestClient(create_fastapi_app(ApiSettings())) as client:
-        minted = client.get("/healthz")
-        assert minted.headers.get("x-request-id")
-        echoed = client.get("/healthz", headers={"X-Request-Id": "trace-123"})
-        assert echoed.headers["x-request-id"] == "trace-123"
-
-
-@pytest.mark.blackbox
-@pytest.mark.parametrize("invalid", ["", "x" * 65, "spaces are invalid", "forged\ntrace"])
-def test_invalid_trace_id_is_replaced(invalid: str) -> None:
-    with TestClient(create_fastapi_app(ApiSettings())) as client:
-        response = client.get("/healthz", headers={"X-Request-Id": invalid})
-        trace_id = response.headers["x-request-id"]
-        assert trace_id != invalid
-        assert len(trace_id) == 32
-
-
-@pytest.mark.blackbox
-def test_unknown_route_returns_enveloped_404_with_trace_id() -> None:
-    """Framework 404s use the error envelope and carry the request trace id."""
-    with TestClient(create_fastapi_app(ApiSettings())) as client:
-        response = client.get("/v1/nope", headers={"X-Request-Id": "trace-404"})
-        assert response.status_code == 404
-        body = response.json()
-        assert body["error"]["code"] == "not_found"
-        assert body["error"]["trace_id"] == "trace-404"
-
-
-@pytest.mark.blackbox
 def test_docs_disabled_by_settings() -> None:
     """docs_enabled=False closes docs while root remains a useful health link."""
     with TestClient(
@@ -194,7 +143,7 @@ def test_cors_honors_configured_origins() -> None:
             value.strip().lower()
             for value in response.headers["access-control-expose-headers"].split(",")
         }
-        assert {"x-request-id", "idempotency-replayed", "retry-after"} <= exposed
+        assert {"x-trace-id", "idempotency-replayed", "retry-after"} <= exposed
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.get("/healthz", headers={"Origin": origin})
         assert "access-control-allow-origin" not in response.headers

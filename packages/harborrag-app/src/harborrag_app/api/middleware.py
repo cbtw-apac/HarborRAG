@@ -1,8 +1,9 @@
-"""Request-scoped trace-id middleware (ST2).
+"""Trace ids and the request body limit.
 
-Reads X-Request-Id (or mints a UUID), stores it on request.state.trace_id for
-the error envelope and HarborEvent.trace_id, and echoes it back as a response
-header so clients and logs can correlate.
+Handles:
+- One 32-hex trace id per request, from a valid ``X-Trace-Id`` or ``traceparent`` or newly
+  minted, stored on ``request.state.trace_id`` and echoed as ``X-Trace-Id``
+- Refusing a body over the limit with ``413 payload_too_large`` before it is parsed
 """
 
 from __future__ import annotations
@@ -17,15 +18,35 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-TRACE_HEADER = "X-Request-Id"
-_VALID_TRACE_ID = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
+TRACE_HEADER = "X-Trace-Id"
+_VALID_TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
+_TRACEPARENT = re.compile(r"^[0-9a-f]{2}-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$")
+_ZERO_TRACE_ID = "0" * 32
 
 
-def _trace_id(request: Request) -> str:
-    supplied = request.headers.get(TRACE_HEADER)
-    if supplied is not None and _VALID_TRACE_ID.fullmatch(supplied):
+def _valid(trace_id: str | None) -> str | None:
+    """Return ``trace_id`` when it is 32 lowercase hex characters and not all zeros."""
+    if trace_id is not None and _VALID_TRACE_ID.fullmatch(trace_id) and trace_id != _ZERO_TRACE_ID:
+        return trace_id
+    return None
+
+
+def _trace_id(headers: Headers) -> str:
+    """Pick the caller's trace id, else the W3C ``traceparent``'s, else a new one."""
+    supplied = _valid(headers.get(TRACE_HEADER))
+    if supplied is not None:
         return supplied
-    return uuid4().hex
+    parent = _TRACEPARENT.fullmatch(headers.get("traceparent", "").strip())
+    return (_valid(parent.group(1)) if parent else None) or uuid4().hex
+
+
+def current_trace_id(request: Request) -> str:
+    """Return the request's trace id, minting one when no middleware set it."""
+    trace_id = getattr(request.state, "trace_id", None)
+    if not isinstance(trace_id, str):
+        trace_id = _trace_id(request.headers)
+        request.state.trace_id = trace_id
+    return trace_id
 
 
 class TraceIdMiddleware(BaseHTTPMiddleware):
@@ -33,7 +54,7 @@ class TraceIdMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Populate request.state.trace_id and mirror it into the response."""
-        trace_id = _trace_id(request)
+        trace_id = _trace_id(request.headers)
         request.state.trace_id = trace_id
         response = await call_next(request)
         response.headers[TRACE_HEADER] = trace_id
@@ -109,16 +130,18 @@ async def _bounded_request_messages(
 
 async def _request_too_large(scope: Scope, send: Send) -> None:
     state = scope.get("state") or {}
+    trace_id = state.get("trace_id") or _trace_id(Headers(scope=scope))
     response = JSONResponse(
         status_code=413,
         content={
             "error": {
-                "code": "request_too_large",
+                "code": "payload_too_large",
                 "message": "Request body exceeds the configured limit",
-                "details": {},
-                "trace_id": state.get("trace_id"),
+                "details": None,
+                "trace_id": trace_id,
             }
         },
+        headers={TRACE_HEADER: trace_id},
     )
     await response(scope, _empty_receive, send)
 

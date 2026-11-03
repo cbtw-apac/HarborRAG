@@ -59,7 +59,7 @@ def test_connection_id_is_required(client: TestClient) -> None:
     response = client.post("/v1/ingestions", json={})
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "harbor_validation_error"
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_unknown_request_fields_and_credentials_are_rejected(client: TestClient) -> None:
@@ -163,7 +163,7 @@ def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestCl
     assert accepted.status_code == 202
     assert accepted.json()["message"] == "Cancellation requested"
     assert conflict.status_code == 409
-    assert conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
+    assert conflict.json()["error"]["code"] == "invalid_state"
 
 
 def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
@@ -175,7 +175,7 @@ def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
     assert pause_accepted.status_code == 202
     assert pause_accepted.json()["message"] == "Pause requested"
     assert pause_conflict.status_code == 409
-    assert pause_conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
+    assert pause_conflict.json()["error"]["code"] == "invalid_state"
 
     resume_accepted = client.post("/v1/ingestions/ing_1/resume")
     resume_conflict = client.post("/v1/ingestions/complete/resume")
@@ -183,7 +183,7 @@ def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
     assert resume_accepted.status_code == 202
     assert resume_accepted.json()["message"] == "Resume requested"
     assert resume_conflict.status_code == 409
-    assert resume_conflict.json()["error"]["code"] == "INGESTION_ALREADY_COMPLETED"
+    assert resume_conflict.json()["error"]["code"] == "invalid_state"
 
 
 def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) -> None:

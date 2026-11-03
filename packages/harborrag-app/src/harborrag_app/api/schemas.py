@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, JsonValue
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApiModel(BaseModel):
@@ -11,16 +13,20 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class ApiError(ApiModel):
-    """Stable error payload returned inside an :class:`ErrorResponse`."""
+class ApiError(BaseModel):
+    """The body of every 4xx and 5xx response."""
 
-    code: str
-    message: str
-    details: dict[str, JsonValue] | None = None
-    trace_id: str | None = None
+    code: str = Field(description="Stable code; clients branch on this, never on message")
+    message: str = Field(description="Human-readable; wording may change")
+    details: dict[str, Any] | list[dict[str, Any]] | None = Field(
+        description="Extra context, e.g. the failing fields for 422"
+    )
+    trace_id: str = Field(
+        pattern=r"^[0-9a-f]{32}$", description="Find this request in the logs and traces"
+    )
 
 
-class ErrorResponse(ApiModel):
-    """Envelope used by every non-success API response."""
+class Error(BaseModel):
+    """Envelope of every 4xx and 5xx response, and of the SSE ``error`` event."""
 
     error: ApiError

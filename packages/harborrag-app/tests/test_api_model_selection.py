@@ -68,8 +68,8 @@ def test_a_model_the_tenant_catalog_does_not_configure_is_a_422(
 
     assert response.status_code == 422  # type: ignore[attr-defined]
     error = response.json()["error"]  # type: ignore[attr-defined]
-    assert error["code"] == "harbor_validation_error"
-    assert error["details"] == {"field": "model"}
+    assert error["code"] == "validation_error"
+    assert [item["field"] for item in error["details"]] == ["model"]
     # The turn never started, so nothing was spent and nothing remembered.
     assert service.chat_calls == []
 

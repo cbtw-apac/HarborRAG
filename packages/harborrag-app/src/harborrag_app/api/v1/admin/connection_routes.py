@@ -22,6 +22,7 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import spec_error_body
+from harborrag_app.api.schemas import Error
 from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
@@ -51,7 +52,6 @@ from .connection_schemas import (
     ProjectWriteRequest,
     SourceTypeName,
     SourceTypePage,
-    SpecErrorResponse,
     SyncRequest,
 )
 from .connection_templates import ConnectionTemplateBuilder
@@ -99,7 +99,7 @@ def _documented(code: int, model: type[Any], description: str) -> dict[int | str
 
 def _errors(*codes: int) -> dict[int | str, dict[str, Any]]:
     """OpenAPI entries for the spec's error envelope."""
-    return {code: {"model": SpecErrorResponse} for code in codes}
+    return {code: {"model": Error} for code in codes}
 
 
 _WRITE_TEMPLATES = ConnectionTemplateBuilder(source_types).with_sync_now(False).build()

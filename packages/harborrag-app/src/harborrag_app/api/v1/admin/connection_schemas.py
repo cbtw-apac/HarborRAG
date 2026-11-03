@@ -12,28 +12,11 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.json_schema import JsonDict
 
-from harborrag_app.api.schemas import ApiModel
+from harborrag_app.api.schemas import ApiError, ApiModel
 
 SourceTypeName = Literal["jira", "confluence", "sharepoint", "local_file", "github"]
 ConnectionStatusName = Literal["active", "needs_reauth", "error"]
 ID_PATTERN = r"^[a-z0-9][a-z0-9_-]{0,62}$"
-
-
-class SpecApiError(BaseModel):
-    """The spec's error body."""
-
-    code: str = Field(description="Stable code; clients branch on this, never on message")
-    message: str = Field(description="Human-readable; wording may change")
-    details: dict[str, Any] | list[dict[str, Any]] | None = Field(
-        description="Extra context, e.g. the failing fields for 422"
-    )
-    trace_id: str | None = Field(description="Find this request in the logs and traces")
-
-
-class SpecErrorResponse(BaseModel):
-    """Every 4xx and 5xx response of these routes."""
-
-    error: SpecApiError
 
 
 class SecretStatusOut(BaseModel):
@@ -269,7 +252,7 @@ class ConnectionPutOut(ConnectionOut):
     """A stored connection and, with ``sync_now``, the ingestion it started."""
 
     ingestion: IngestionOut | None = None
-    sync_error: SpecApiError | None = Field(
+    sync_error: ApiError | None = Field(
         default=None,
         description=(
             "Why sync_now started no ingestion, e.g. already_running; the connection was "

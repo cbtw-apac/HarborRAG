@@ -115,7 +115,7 @@ def test_malformed_cursor_is_rejected_at_the_route(
     response = client.get("/v1/ingestions", params={"cursor": "not-base64"})
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "INGESTION_CURSOR_INVALID"
+    assert response.json()["error"]["code"] == "validation_error"
     assert service.task_list_calls == []
 
 
@@ -137,7 +137,7 @@ def test_invalid_query_parameters_are_rejected(
     response = client.get("/v1/ingestions", params=params)
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "harbor_validation_error"
+    assert response.json()["error"]["code"] == "validation_error"
     assert service.task_list_calls == []
 
 
@@ -154,7 +154,7 @@ def test_scoped_principal_cannot_list_another_tenant(
         response = tenant_client.get("/v1/ingestions", params={"tenant": "OTHER"}, headers=headers)
 
     assert response.status_code == 403
-    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert response.json()["error"]["code"] == "forbidden"
     assert service.task_list_calls == []
 
 
@@ -185,4 +185,4 @@ def test_listing_requires_a_token_under_hmac(
         response = tenant_client.get("/v1/ingestions")
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert response.json()["error"]["code"] == "unauthenticated"

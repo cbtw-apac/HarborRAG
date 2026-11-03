@@ -114,7 +114,7 @@ def test_chat_stream_ends_with_error_event_on_failure(
     assert frames[1:] == [
         (
             "response.error",
-            {"code": "harbor_connection_error", "message": "Chat service is unavailable"},
+            {"code": "dependency_unavailable", "message": "Chat service is unavailable"},
         )
     ]
     assert "private endpoint" not in response.text
@@ -188,7 +188,7 @@ def test_chat_stream_past_its_deadline_ends_with_a_terminal_error_frame(
         "response.error",
     ]
     assert frames[-1][1] == {
-        "code": "harbor_deadline_exceeded",
+        "code": "deadline_exceeded",
         "message": "Chat stream exceeded its server deadline",
     }
     assert response.text.endswith("\n\n")

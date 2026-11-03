@@ -119,7 +119,7 @@ async def test_a_malformed_cursor_is_a_client_error_not_a_server_error(
     response = client.get(CONVERSATIONS, params={"cursor": "!!!!"}, headers=auth())
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "harbor_validation_error"
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 @pytest.mark.asyncio
@@ -179,7 +179,7 @@ def test_listing_requires_a_bearer_token(client: TestClient) -> None:
     response = client.get(CONVERSATIONS)
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert response.json()["error"]["code"] == "unauthenticated"
 
 
 def test_a_foreign_tenant_is_refused(client: TestClient) -> None:

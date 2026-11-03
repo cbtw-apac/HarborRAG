@@ -52,7 +52,7 @@ let sessionId: string | undefined;
 try {
   for await (const event of api.streamChat(
     { tenant: "ACME", prompt: "Explain our release policy", idempotency_key: crypto.randomUUID() },
-    { signal: controller.signal, headers: { "X-Request-Id": crypto.randomUUID() } },
+    { signal: controller.signal, headers: { "X-Trace-Id": crypto.randomUUID().replaceAll("-", "") } },
   )) {
     if (event.event === "response.started") {
       sessionId = event.data.session_id;
