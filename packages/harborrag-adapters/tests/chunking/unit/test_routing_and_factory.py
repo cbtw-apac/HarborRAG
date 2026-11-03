@@ -18,6 +18,7 @@ from harborrag_adapters.chunking import (
     normalize_language,
     text_refiner_fingerprint,
 )
+from harborrag_adapters.chunking.languages import GRAMMAR_SET
 from harborrag_core.contracts.chunking import SplitBoundaryKind, TextRefinementRequest
 
 
@@ -52,25 +53,38 @@ def test_router_picks_the_refiner_for_the_unit(
     assert isinstance(refiner.select(request), expected)
 
 
-def test_fingerprint_names_every_strategy_and_ignores_installed_extras() -> None:
+def test_fingerprint_names_every_strategy_and_declares_the_grammar_set() -> None:
     fingerprint = text_refiner_fingerprint()
 
     assert fingerprint.startswith("routing:1(")
     for part in ("text-structure", "document-structure", "code-structure", "separators"):
         assert part in fingerprint
-    assert fingerprint == text_refiner_fingerprint()
+    assert GRAMMAR_SET in fingerprint
 
 
-def test_missing_grammars_fail_unless_the_fallback_is_accepted(words, monkeypatch, caplog) -> None:
+def test_fingerprint_does_not_depend_on_installed_grammars(monkeypatch) -> None:
+    # The API computes the processing identity without the grammars installed,
+    # so the fingerprint must come from the declared set, never the environment.
+    installed = text_refiner_fingerprint()
+    monkeypatch.setattr(factory, "grammar_set_problems", lambda: ["tree-sitter-go missing"])
+
+    assert text_refiner_fingerprint() == installed
+
+
+def test_missing_grammars_are_fatal_by_default(words, monkeypatch) -> None:
     monkeypatch.setattr(factory, "grammar_set_problems", lambda: ["tree-sitter-go missing"])
 
     with pytest.raises(GrammarSetMismatch, match="tree-sitter-go missing"):
         build_text_refiner(words)
 
+
+def test_the_separator_fallback_must_be_requested_and_is_logged(words, monkeypatch, caplog) -> None:
+    monkeypatch.setattr(factory, "grammar_set_problems", lambda: ["tree-sitter-go missing"])
+
     with caplog.at_level(logging.WARNING):
-        refiner = build_text_refiner(words, require_grammars=False)
+        build_text_refiner(words, require_grammars=False)
+
     assert "tree-sitter-go missing" in caplog.text
-    assert refiner.fingerprint() == text_refiner_fingerprint()
 
 
 def test_an_injected_parser_loader_skips_the_grammar_check(words, monkeypatch) -> None:

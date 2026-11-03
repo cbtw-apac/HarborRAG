@@ -1904,7 +1904,7 @@ falkordb = [
     { name = "harborrag-adapters", extra = ["falkordb"] },
 ]
 local = [
-    { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "llm", "parsers", "pdf-liteparse", "qdrant", "s3", "tables"] },
+    { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "llm", "parsers", "pdf-liteparse", "qdrant", "s3", "tables"] },
 ]
 mcp = [
     { name = "harborrag-mcp-server", extra = ["reader"] },
@@ -1934,7 +1934,7 @@ temporal = [
 
 [package.metadata]
 requires-dist = [
-    { name = "harborrag-adapters", extras = ["chunking", "control-plane", "falkordb", "llm", "parsers", "pdf-liteparse", "qdrant", "s3", "tables"], marker = "extra == 'local'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["chunking", "chunking-code", "control-plane", "falkordb", "llm", "parsers", "pdf-liteparse", "qdrant", "s3", "tables"], marker = "extra == 'local'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["control-plane", "postgres"], marker = "extra == 'postgres'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["falkordb"], marker = "extra == 'falkordb'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
@@ -2440,7 +2440,7 @@ memory = [
     { name = "harborrag-memory" },
 ]
 production = [
-    { name = "harborrag-adapters", extra = ["chunking", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
+    { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
 ]
 reader = [
     { name = "harborrag-adapters", extra = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"] },
@@ -2454,7 +2454,7 @@ temporal = [
 requires-dist = [
     { name = "cloudpickle", marker = "extra == 'temporal'", specifier = ">=3.1,<4" },
     { name = "harborrag-adapters", editable = "packages/harborrag-adapters" },
-    { name = "harborrag-adapters", extras = ["chunking", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
+    { name = "harborrag-adapters", extras = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'reader'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },

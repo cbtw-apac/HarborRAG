@@ -7,6 +7,7 @@ from dataclasses import asdict
 from hashlib import sha256
 
 from harborrag_adapters.chunking import (
+    GrammarSetMismatch,
     RecursiveTextRefiner,
     build_text_refiner,
     text_refiner_fingerprint,
@@ -17,6 +18,7 @@ from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy, C
 from harborrag_engine.ingestion.chunking.pipeline.composition import builtin_chunking_strategies
 from harborrag_engine.ingestion.chunking.table.rendering import TableRenderer
 from harborrag_runtime.config.chunking import RefinerConfig, default_chunking_settings
+from harborrag_runtime.config.errors import ChunkingConfigurationError
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 
@@ -30,7 +32,17 @@ def build_refiner(token_counter: TokenCounter, refiner: RefinerConfig | None = N
     refiner = refiner or RefinerConfig()
     if refiner.strategy == "recursive":
         return RecursiveTextRefiner(token_counter)
-    return build_text_refiner(token_counter, require_grammars=refiner.require_code_grammars)
+    try:
+        return build_text_refiner(token_counter, require_grammars=refiner.require_code_grammars)
+    except GrammarSetMismatch as error:
+        raise ChunkingConfigurationError(
+            "Code chunking needs the tree-sitter grammars of the declared grammar set "
+            f"({'; '.join(grammar_set_problems())}). Install "
+            "harborrag-adapters[chunking-code] on every process that ingests, or set "
+            "refiner.require_code_grammars: false in chunking.yaml to split code at "
+            "separators (the same processing identity then no longer guarantees the "
+            "same code splits on every worker)."
+        ) from error
 
 
 def code_grammar_problems(refiner: RefinerConfig | None = None) -> list[str]:

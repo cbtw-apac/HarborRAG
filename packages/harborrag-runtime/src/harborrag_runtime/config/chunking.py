@@ -54,13 +54,16 @@ class RefinerConfig(StrictModel):
     ``structure`` routes code, Markdown, prose and line-oriented units to the
     matching structure-aware refiner. ``recursive`` is the LangChain recursive
     character splitter (needs ``harborrag-adapters[chunking]``).
-    ``require_code_grammars`` fails startup when the tree-sitter grammars of
-    ``harborrag-adapters[chunking-code]`` are missing instead of splitting code
-    at separators.
+    ``require_code_grammars`` (default) fails startup when the tree-sitter
+    grammars of ``harborrag-adapters[chunking-code]`` are missing or at another
+    version. The processing identity declares the grammar set without looking
+    at what is installed, so only then does the same identity mean the same
+    code splits on every worker. ``false`` splits code at separators where
+    grammars are missing and gives that guarantee up.
     """
 
     strategy: Literal["structure", "recursive"] = "structure"
-    require_code_grammars: bool = False
+    require_code_grammars: bool = True
 
 
 class ChunkingFileConfig(StrictModel):

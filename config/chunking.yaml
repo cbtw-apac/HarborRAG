@@ -18,9 +18,12 @@ refiner:
   #            (needs harborrag-adapters[chunking]).
   strategy: structure
   # true: fail startup when the tree-sitter grammars of
-  # harborrag-adapters[chunking-code] are missing or at another version.
-  # false: log a warning and split code at definition keywords and blank lines.
-  require_code_grammars: false
+  # harborrag-adapters[chunking-code] are missing or at another version, so the
+  # same processing identity always means the same code splits.
+  # false: log a warning and split code at definition keywords and blank lines;
+  # workers with and without grammars then chunk code differently under the
+  # same identity.
+  require_code_grammars: true
 
 # Profile used by every source not listed under source_profiles.
 default_profile: canonical

@@ -56,7 +56,7 @@ RUN uv export --quiet --frozen --package harborrag-runtime \
         'torch==2.13.0' 'torchvision==0.28.0' \
     && uv pip install --system --constraint /tmp/harborrag-lock.txt \
         -e packages/harborrag-core \
-        -e 'packages/harborrag-adapters[chunking,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]' \
+        -e 'packages/harborrag-adapters[chunking,chunking-code,control-plane,falkordb,langfuse,llm,opentelemetry,parsers,pdf-liteparse,postgres,qdrant,redis,s3,tables]' \
         -e packages/harborrag-memory \
         -e packages/harborrag-engine \
         -e 'packages/harborrag-runtime[temporal]' \

@@ -22,7 +22,7 @@ create_route_chunks: true                           # document/section route chu
 
 refiner:
   strategy: structure            # structure | recursive
-  require_code_grammars: false
+  require_code_grammars: true
 
 default_profile: canonical
 profiles:
@@ -80,16 +80,21 @@ as code that keeps its indentation. A document picks this up when it is parsed
 again: every ingestion run after an upgrade that changes the processing identity
 does so, but a connector-free reindex reuses the stored parse.
 
-Syntax-aware splitting needs the tree-sitter grammars:
+Syntax-aware splitting needs the tree-sitter grammars. The worker images,
+`harborrag[local]` and `harborrag-runtime[production]` install them; elsewhere:
 
 ```bash
 pip install "harborrag-adapters[chunking-code]"
 ```
 
-When the grammars are missing, code is split at definition keywords, blank lines
-and line breaks, and a warning is logged. Set `require_code_grammars: true` to
-fail startup instead. Doing so keeps code splits identical across every
-process that shares the processing identity.
+By default (`require_code_grammars: true`) ingestion stops at startup when a
+grammar is missing or at another version. The processing identity names the
+grammar set without looking at what is installed, so this is what keeps code
+splits identical on every process that shares the identity. With `false`,
+missing grammars are logged and code splits at definition keywords, blank lines
+and line breaks; workers with and without grammars then chunk code differently
+under the same identity, and installing the grammars later does not re-chunk
+what is already stored.
 
 `recursive` uses the LangChain recursive character splitter
 (`pip install "harborrag-adapters[chunking]"`). It splits at blank lines, line

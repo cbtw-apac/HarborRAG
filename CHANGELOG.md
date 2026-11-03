@@ -20,6 +20,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### harborrag-runtime
 
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/chunking.yaml`
+- **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 
 #### harborrag-app
 

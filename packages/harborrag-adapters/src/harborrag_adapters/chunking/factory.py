@@ -35,8 +35,10 @@ def build_text_refiner(
     this raises :class:`GrammarSetMismatch` when tree-sitter or a grammar is
     missing or installed at another minor version, instead of quietly
     splitting code at separators under the same identity. Pass
-    ``require_grammars=False`` to accept that fallback (it is logged), or a
-    ``parser_loader`` to take control of parsing.
+    ``require_grammars=False`` to accept that fallback (it is logged); the
+    fingerprint then no longer guarantees the same code splits across
+    environments, so deployments that ingest should install the grammars and
+    keep the default. Pass a ``parser_loader`` to take control of parsing.
     """
 
     if parser_loader is None:

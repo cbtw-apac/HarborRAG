@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.chunking import RecursiveTextRefiner, RoutingTextRefiner
+from harborrag_adapters.chunking import RecursiveTextRefiner, RoutingTextRefiner, factory
 from harborrag_runtime.config.chunking import (
     RefinerConfig,
     chunking_settings_from,
@@ -15,6 +15,7 @@ from harborrag_runtime.config.chunking import (
 )
 from harborrag_runtime.config.errors import ChunkingConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.ingestion import chunking_profile
 from harborrag_runtime.ingestion.chunking_profile import (
     build_refiner,
     chunk_strategy_fingerprint,
@@ -122,7 +123,9 @@ def test_absent_default_path_uses_defaults_but_an_explicit_missing_path_fails(
         chunking_settings_from(RuntimeSettings(chunking_config_path=tmp_path / "missing.yaml"))
 
 
-def test_refiner_choice_builds_the_matching_refiner() -> None:
+def test_refiner_choice_builds_the_matching_refiner(monkeypatch) -> None:
+    monkeypatch.setattr(chunking_profile, "grammar_set_problems", lambda: [])
+    monkeypatch.setattr(factory, "grammar_set_problems", lambda: [])
     counter = ApproximateTokenCounter()
 
     assert isinstance(
@@ -133,6 +136,23 @@ def test_refiner_choice_builds_the_matching_refiner() -> None:
     assert refiner_fingerprint().startswith("routing:1(")
 
 
+def test_missing_code_grammars_stop_ingestion_unless_the_fallback_is_chosen(
+    monkeypatch,
+) -> None:
+    missing = ["tree-sitter-go missing"]
+    monkeypatch.setattr(chunking_profile, "grammar_set_problems", lambda: missing)
+    monkeypatch.setattr(factory, "grammar_set_problems", lambda: missing)
+    counter = ApproximateTokenCounter()
+
+    assert RefinerConfig().require_code_grammars is True
+    with pytest.raises(ChunkingConfigurationError, match="tree-sitter-go missing") as error:
+        build_refiner(counter, RefinerConfig())
+    assert "require_code_grammars: false" in str(error.value)
+    assert isinstance(
+        build_refiner(counter, RefinerConfig(require_code_grammars=False)), RoutingTextRefiner
+    )
+
+
 def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
     parser = tmp_path / "parsers.yaml"
     parser.write_text("version: 1\n", encoding="utf-8")
@@ -140,7 +160,7 @@ def test_refiner_choice_is_part_of_processing_identity(tmp_path: Path) -> None:
     recursive = tmp_path / "recursive.yaml"
     recursive.write_text("version: 1\nrefiner: {strategy: recursive}\n", encoding="utf-8")
     grammars = tmp_path / "grammars.yaml"
-    grammars.write_text("version: 1\nrefiner: {require_code_grammars: true}\n", encoding="utf-8")
+    grammars.write_text("version: 1\nrefiner: {require_code_grammars: false}\n", encoding="utf-8")
 
     def identity(path: Path) -> str:
         settings = RuntimeSettings(parser_config_path=parser, chunking_config_path=path)

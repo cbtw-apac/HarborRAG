@@ -20,8 +20,8 @@ def _settings(tmp_path: Path, text: str) -> RuntimeSettings:
     ("text", "problems", "status"),
     [
         ("version: 1\n", [], "ok"),
-        ("version: 1\n", ["tree-sitter-go missing"], "warn"),
-        ("version: 1\nrefiner: {require_code_grammars: true}\n", ["tree-sitter missing"], "fail"),
+        ("version: 1\n", ["tree-sitter-go missing"], "fail"),
+        ("version: 1\nrefiner: {require_code_grammars: false}\n", ["tree-sitter missing"], "warn"),
         ("version: 1\nrefiner: {strategy: recursive}\n", ["tree-sitter missing"], "ok"),
         ("version: 1\nprofiles: nope\n", [], "fail"),
     ],
