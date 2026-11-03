@@ -5,6 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from harborrag_app.api.deprecation import DeprecatedEndpointsMiddleware
+from harborrag_app.api.probes import router as probes_router
 from harborrag_app.api.routes import all_routers
 from harborrag_app.api.v1.admin import router as admin_router
 from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
@@ -25,6 +26,7 @@ def register_routes(app: FastAPI) -> None:
     """Mount process routes and stable public resource routes."""
 
     app.add_middleware(DeprecatedEndpointsMiddleware)
+    app.include_router(probes_router)
     for router in all_routers():
         app.include_router(router, prefix=OPERATIONAL_PREFIX)
     for router in (
