@@ -7,7 +7,11 @@ import logging
 from dataclasses import dataclass
 
 from harborrag_app.api.auth.principal import Principal
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborAlreadyRunningError,
+    HarborConflictError,
+    HarborValidationError,
+)
 
 from .completion_dependency import CompletionService
 from .schemas import ChatCompletionResponse, CompletionRequest
@@ -55,12 +59,17 @@ class CompletionAttempt:
         )
         if claim.status == "completed" and claim.result_json is not None:
             return ChatCompletionResponse.model_validate_json(claim.result_json)
+        if claim.status == "conflict":
+            raise HarborValidationError(
+                "Idempotency key was already used with a different request",
+                {"field": "Idempotency-Key"},
+            )
+        if claim.status == "in_progress":
+            raise HarborAlreadyRunningError(
+                "This completion is already running or its outcome is uncertain"
+            )
         if claim.status != "claimed":
-            messages = {
-                "conflict": "Idempotency key was already used with a different request",
-                "in_progress": "This completion is already running or its outcome is uncertain",
-                "failed": "This completion failed; use a new idempotency key to retry",
-            }
+            messages = {"failed": "This completion failed; use a new idempotency key to retry"}
             raise HarborConflictError(messages.get(claim.status, "Completion cannot be replayed"))
         self.claimed = True
         return None

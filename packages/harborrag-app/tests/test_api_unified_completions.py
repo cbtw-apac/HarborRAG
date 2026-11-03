@@ -97,14 +97,15 @@ def test_stream_result_can_be_retried_as_json(client, service):
     assert len(service.chat_calls) == 1
 
 
-def test_reusing_a_key_for_a_different_prompt_is_conflict(client, service):
+def test_reusing_a_key_for_a_different_prompt_is_a_validation_error(client, service):
     headers = {"Idempotency-Key": "same-key"}
     assert (
         client.post("/v1/chat/completions", json={"prompt": "one"}, headers=headers).status_code
         == 200
     )
-    conflict = client.post("/v1/chat/completions", json={"prompt": "two"}, headers=headers)
-    assert conflict.status_code == 409
+    reused = client.post("/v1/chat/completions", json={"prompt": "two"}, headers=headers)
+    assert reused.status_code == 422
+    assert reused.json()["error"]["code"] == "validation_error"
     assert len(service.chat_calls) == 1
 
 

@@ -302,4 +302,4 @@ def _decode_cursor(value: str) -> str:
         payload = json.loads(base64.urlsafe_b64decode(value + "=" * (-len(value) % 4)))
         return str(payload["after"])
     except (KeyError, TypeError, ValueError) as error:
-        raise HarborValidationError("project cursor is invalid") from error
+        raise HarborValidationError("project cursor is invalid", {"field": "cursor"}) from error

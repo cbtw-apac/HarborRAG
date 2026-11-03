@@ -21,6 +21,7 @@ from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.errors import spec_error_body
+from harborrag_app.api.pagination import DEFAULT_LIMIT, Page, PageDependency
 from harborrag_app.api.schemas import Error
 from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.connection_views import (
@@ -154,8 +155,7 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
     project_id: str | None = None,
     source_type: SourceTypeName | None = None,
     status: ConnectionStatusName | None = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: str | None = None,
+    page: PageDependency = Page(DEFAULT_LIMIT, None),
 ) -> dict[str, Any]:
     """Every connection in the tenant; ones that need attention first."""
     items, next_cursor = await service.connection_service.list_page(
@@ -163,8 +163,8 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
         project_id=project_id,
         source_type=source_type,
         status=status,
-        limit=limit,
-        cursor=cursor,
+        limit=page.limit,
+        cursor=page.cursor,
     )
     return {"items": items, "next_cursor": next_cursor}
 
@@ -321,12 +321,11 @@ async def list_projects(
     service: Administration,
     tenant: TenantDependency,
     q: Annotated[str | None, Query(max_length=255, description="Name search")] = None,
-    limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    cursor: str | None = None,
+    page: PageDependency = Page(DEFAULT_LIMIT, None),
 ) -> dict[str, Any]:
     """Projects in the current tenant."""
     items, next_cursor = await service.project_service.list_page(
-        tenant_id=tenant, query=q, limit=limit, cursor=cursor
+        tenant_id=tenant, query=q, limit=page.limit, cursor=page.cursor
     )
     return {"items": items, "next_cursor": next_cursor}
 

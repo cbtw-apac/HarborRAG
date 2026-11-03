@@ -67,7 +67,7 @@ class ConversationDirectoryService:
                 limit=limit,
             )
         except ValueError as exc:
-            raise HarborValidationError(str(exc)) from exc
+            raise HarborValidationError(str(exc), {"field": "cursor"}) from exc
         return {
             "conversations": [conversation_summary_data(row) for row in page.conversations],
             "next_cursor": page.next_cursor,
@@ -96,7 +96,7 @@ class ConversationDirectoryService:
                 limit=limit + 1,
             )
         except ValueError as exc:
-            raise HarborValidationError(str(exc)) from exc
+            raise HarborValidationError(str(exc), {"field": "after"}) from exc
         page = found[:limit]
         return {
             "messages": [conversation_message_data(message) for message in page],

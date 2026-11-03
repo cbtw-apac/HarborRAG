@@ -55,5 +55,5 @@ def decode_connection_cursor(value: str) -> ConnectionSortKey:
         if rank not in (0, 1) or not isinstance(project_id, str) or not connection_id:
             raise ValueError
     except (TypeError, ValueError, json.JSONDecodeError) as error:
-        raise HarborValidationError("connection cursor is invalid") from error
+        raise HarborValidationError("connection cursor is invalid", {"field": "cursor"}) from error
     return int(rank), project_id, str(connection_id)
