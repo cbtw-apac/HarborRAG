@@ -25,13 +25,26 @@ parser_logger = get_parser_logger("markdown")
 _FENCE_OPENER = re.compile(r"^(`{3,}(?=[^`]*$)|~{3,})")
 
 
-def _closes_fence(stripped: str, opener: str) -> bool:
-    """Report whether ``stripped`` closes the block ``opener`` started (CommonMark).
+def _indent(line: str) -> int:
+    """Leading indentation in columns, tabs counting as four (CommonMark)."""
+
+    expanded = line.expandtabs(4)
+    return len(expanded) - len(expanded.lstrip(" "))
+
+
+def _closes_fence(line: str, opener: str, opener_indent: int) -> bool:
+    """Report whether ``line`` closes the block ``opener`` started (CommonMark).
 
     The closing run uses the opener's character, is at least as long, and is
-    followed only by whitespace; anything else stays inside the code block.
+    followed only by whitespace. It may be indented at most three columns more
+    than the opener: CommonMark measures both from the enclosing container, and
+    measuring from the opener keeps a fence inside a list item closable without
+    tracking list structure. Anything else stays inside the code block.
     """
 
+    if _indent(line) > opener_indent + 3:
+        return False
+    stripped = line.strip()
     run = len(stripped) - len(stripped.lstrip(opener[0]))
     return run >= len(opener) and not stripped[run:].strip()
 
@@ -93,6 +106,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
         block: list[str] = []
         in_code = False
         code_fence = ""
+        code_indent = 0
         code_language: str | None = None
         lines = markdown.splitlines()
 
@@ -101,7 +115,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
             line = lines[index]
             stripped = line.strip()
             if in_code:
-                if _closes_fence(stripped, code_fence):
+                if _closes_fence(line, code_fence, code_indent):
                     cls._flush(elements, block, source_id, "code", language=code_language)
                     in_code = False
                     code_fence = ""
@@ -116,6 +130,7 @@ class MarkdownMarkupEngine(HarborMarkupEngine):
                 cls._flush(elements, block, source_id)
                 in_code = True
                 code_fence = opener.group(1)
+                code_indent = _indent(line)
                 code_language = guess_language(fence_info=stripped[len(code_fence) :])
                 index += 1
                 continue
