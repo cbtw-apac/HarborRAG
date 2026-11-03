@@ -9,7 +9,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, Header, Response
 from fastapi.responses import StreamingResponse
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
 from harborrag_app.api.dependencies import ResponseContextDependency
@@ -73,7 +74,7 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
 async def create_chat_session(
     request: ChatSessionCreateRequest,
     service: ChatServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
 ) -> ChatSessionResponse:
     authorize_tenant(principal, request.tenant)
     result = await service.create_chat_session(
@@ -121,7 +122,7 @@ async def create_chat_completion(
         ),
     ],
     service: CompletionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
     header_key: Annotated[

@@ -9,11 +9,11 @@ from typing import Annotated
 from fastapi import APIRouter, Body, Depends, Header, Query, status
 from fastapi.responses import StreamingResponse
 
+from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.dependencies import (
     authorize_role,
     authorize_task_tenant,
     authorize_tenant,
-    require_role,
 )
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import require_api_capacity
@@ -77,7 +77,7 @@ LIST_ERROR_RESPONSES = documented_error_responses(
 async def create_ingestion(
     request: IngestionCreateRequest,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor"))],
+    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
     idempotency_key: Annotated[
         str | None,
         Header(alias="Idempotency-Key", min_length=1, max_length=255),
@@ -101,7 +101,7 @@ async def create_ingestion(
 )
 async def list_ingestions(
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     query: Annotated[IngestionTaskQuery, Query()],
 ) -> IngestionTaskPage:
     """Newest-first page of the caller's ingestion tasks.
@@ -143,7 +143,7 @@ def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[s
 async def get_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
 ) -> IngestionTaskResponse:
     result = await service.get_task(task_id)
     authorize_task_tenant(principal, result)
@@ -158,7 +158,7 @@ async def get_ingestion(
 async def list_ingestion_documents(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     query: Annotated[IngestionDocumentQuery, Query()],
 ) -> IngestionDocumentPage:
     task = await service.get_task(task_id)
@@ -179,7 +179,7 @@ async def list_ingestion_documents(
 async def stream_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     """Backlog replay then a live tail of a task's progress events (SSE).
@@ -243,7 +243,7 @@ def _sse_frame(event: HarborEvent) -> bytes:
 async def pause_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor"))],
+    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
@@ -261,7 +261,7 @@ async def pause_ingestion(
 async def resume_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor"))],
+    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
@@ -279,7 +279,7 @@ async def resume_ingestion(
 async def cancel_ingestion(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor"))],
+    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
     task = await service.get_task(task_id)
     authorize_task_tenant(principal, task)
@@ -297,7 +297,7 @@ async def cancel_ingestion(
 async def retry_ingestion_failures(
     task_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor"))],
+    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
     request: Annotated[RetryFailuresRequest | None, Body()] = None,
 ) -> RetryAcceptedResponse:
     task = await service.get_task(task_id)

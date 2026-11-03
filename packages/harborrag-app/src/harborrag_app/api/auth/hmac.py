@@ -70,10 +70,12 @@ class HmacTokenVerifier(BaseTokenVerifier):
         user_id = claims.get(self.user_id_claim)
         if not isinstance(user_id, str) or not user_id.strip() or len(user_id) > 512:
             raise HarborAuthError("token has invalid user identity claim")
+        name = claims.get("name")
         return Principal(
             subject=subject,
             role=role,
             tenant_ids=frozenset(raw_tenants),
             token_kind="jwt",
             user_id=user_id,
+            name=name if isinstance(name, str) and name.strip() else subject,
         )

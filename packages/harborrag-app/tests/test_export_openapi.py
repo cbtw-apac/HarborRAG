@@ -40,6 +40,7 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/v1/ingestions/{task_id}/resume",
         "/v1/ingestions/{task_id}/retry-failures",
         "/v1/ingestions/{task_id}/stream",
+        "/v1/me",
         "/v1/projects/{project_id}/connections",
     }
     assert set(paths["/v1/chat/completions"]) == {"post"}

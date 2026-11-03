@@ -154,7 +154,7 @@ def test_scoped_principal_cannot_list_another_tenant(
         response = tenant_client.get("/v1/ingestions", params={"tenant": "OTHER"}, headers=headers)
 
     assert response.status_code == 403
-    assert response.json()["error"]["code"] == "forbidden"
+    assert response.json()["error"]["code"] == "tenant_forbidden"
     assert service.task_list_calls == []
 
 

@@ -11,7 +11,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path, Query, Response
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.memory import MemoryAccess
@@ -93,7 +94,7 @@ def session_router(kind: ConversationKind) -> APIRouter:
     )
     async def list_sessions(
         service: ConversationServiceDependency,
-        principal: Annotated[Principal, Depends(require_role("reader"))],
+        principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
         tenant: TenantQuery = "DEFAULT",
         cursor: CursorQuery = None,
         limit: Annotated[int, Query(ge=1, le=100)] = 20,
@@ -124,7 +125,7 @@ def session_router(kind: ConversationKind) -> APIRouter:
 async def list_conversation_messages(  # noqa: PLR0913 - one parameter per documented query filter
     session_id: SessionPath,
     service: ConversationServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     tenant: TenantQuery = "DEFAULT",
     after: AfterQuery = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,

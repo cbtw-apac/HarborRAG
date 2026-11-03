@@ -247,8 +247,9 @@ def test_tenant_authorization_is_independent_of_global_role() -> None:
     )
 
     authorize_tenant(principal, "tenant-a")
-    with pytest.raises(HarborAuthError, match="tenant access"):
+    with pytest.raises(HarborAuthError, match="does not hold this tenant") as raised:
         authorize_tenant(principal, "tenant-b")
+    assert raised.value.error_code == "tenant_forbidden"
 
 
 @pytest.mark.whitebox
