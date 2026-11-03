@@ -35,12 +35,6 @@ def _chat_session(client: TestClient, tenant: str = "DEFAULT") -> str:
     return str(response.json()["session_id"])
 
 
-def _agent_session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/agent/sessions", json={"tenant": tenant})
-    assert response.status_code == 201
-    return str(response.json()["session_id"])
-
-
 def _completion(client: TestClient, session_id: str, **extra: object) -> object:
     return client.post(
         "/v1/chat/completions",

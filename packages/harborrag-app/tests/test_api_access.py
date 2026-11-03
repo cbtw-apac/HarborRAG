@@ -282,3 +282,13 @@ def test_an_unreachable_key_store_is_unavailable_not_unauthenticated(
 
     assert response.status_code == 503
     assert response.json()["error"]["code"] == "dependency_unavailable"
+
+
+def test_an_unknown_key_is_checked_against_the_control_database() -> None:
+    app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
+
+    with TestClient(app) as test_client:
+        response = test_client.get("/v1/me", headers=_bearer(_KEY))
+
+    assert response.status_code == 401
+    assert app.state.api_key_verifier is not None

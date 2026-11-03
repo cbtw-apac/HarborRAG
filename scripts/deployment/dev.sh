@@ -114,6 +114,8 @@ ensure_metrics_scrape_token() {
         chmod 600 "${target_path}"
         echo "Generated HARBORRAG_METRICS_SCRAPE_TOKEN in ${API_ENV_FILE}."
     fi
+    [[ -d "${token_path}" ]] &&
+        fail "env/api-scrape-token is a directory; remove it and run this command again."
     printf '%s' "${token}" >"${token_path}"
     chmod 644 "${token_path}"
 }

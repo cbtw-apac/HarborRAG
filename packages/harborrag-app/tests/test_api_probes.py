@@ -209,3 +209,15 @@ def test_checks_leave_out_postgres_and_redis_when_not_configured() -> None:
 
 async def _true() -> bool:
     return True
+
+
+def test_checks_leave_out_stores_served_by_other_providers() -> None:
+    runtime = RuntimeSettings(
+        control_db_url=SecretStr("sqlite+aiosqlite:///./control.db"),
+        vector_provider="memory",
+        graph_provider="memory",
+    )
+
+    checks = build_readiness_checks(runtime, ApiSettings(), temporal=lambda: _true())
+
+    assert set(checks) == {"temporal"}

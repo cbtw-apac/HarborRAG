@@ -1,9 +1,7 @@
 """Cross-tenant isolation for the ingestion task routes.
 
 Split out of test_api_ingestions.py to keep that file under the repo's
-file-length gate. Covers both /v1/ingestions (the current contract) and the
-deprecated /api/v1/ingestions Temporal-run adapters, which used to skip
-tenant authorization entirely (``del principal``) -- see legacy_ingestions.py.
+file-length gate.
 """
 
 from __future__ import annotations

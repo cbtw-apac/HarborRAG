@@ -6,12 +6,13 @@ transport-neutral application service, and maps results onto stable HTTP
 responses. Connector execution, parsing, chunking, indexing, and Temporal
 workflow rules remain outside this package.
 
-Operational health and documentation routes remain under `/api/v1`. Stable
-public ingestion, retrieval, chat, and agent resources are mounted under `/v1`.
+The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at
+the root, and Prometheus `/metrics` answers only on the separate ops port. The
+v2.0.0 surface is recorded in [`contracts/http-v2.0.0.json`](../../../../../contracts/http-v2.0.0.json),
+and a CI test fails when the API drifts from it.
 
-For browser convenience, `/` and `/docs` redirect to `/api/v1/docs` while
-documentation is enabled. When documentation is disabled, `/docs` remains
-closed and `/` redirects to `/api/v1/health`.
+`/` redirects to `/docs` while documentation is enabled, and to `/healthz`
+when it is disabled.
 
 ## Install and run
 
@@ -21,38 +22,40 @@ Install the API dependencies from a source checkout:
 uv sync --package harborrag-app --extra api
 ```
 
-Start the application factory directly:
+Start the API on its public port and its ops port:
 
 ```bash
-uv run uvicorn harborrag_app.api.app:create_fastapi_app \
-  --factory \
-  --host 127.0.0.1 \
-  --port 8000
+HARBORRAG_PORT=8000 HARBORRAG_OPS_PORT=9465 \
+  uv run python -m harborrag_app.api.serve
 ```
+
+`python -m harborrag_app.api.serve` runs one application on two sockets.
+Plain `uvicorn harborrag_app.api.app:create_fastapi_app --factory` still works,
+but then no socket serves `/metrics`.
 
 For the supported local Docker topology, use:
 
 ```bash
 scripts/deployment/dev.sh up
-curl --fail http://127.0.0.1:8000/api/v1/health
-curl --fail -H "Authorization: Bearer $ADMIN_TOKEN" \
-  http://127.0.0.1:8000/api/v1/metrics
+curl --fail http://127.0.0.1:8000/healthz
+curl --fail -H "Authorization: Bearer $(cat env/api-scrape-token)" \
+  http://127.0.0.1:9465/metrics
 ```
 
 The development helper starts the data services, Temporal, an ingestion
-worker, and the API, then waits for its process health check. If those dependencies are
+worker, and the API, then waits for its health check. If those dependencies are
 already running, `scripts/deployment/dev.sh api` starts only the API. API process
 and authentication values belong in the ignored `env/.env.api`; embedding
-credentials come from `env/.env.models` for synchronous vector retrieval.
-Connector credentials remain isolated in the worker. See the repository
+credentials come from `env/.env.models`. Connector credentials remain isolated
+in the worker. See the repository
 [deployment guide](../../../../../docs/developers/deployment/README.md) for
 environment preparation and shutdown.
 
-The local API container listens on `0.0.0.0` inside Docker but Compose publishes
-port 8000 only on host loopback. Accordingly, the development environment file
-sets `HARBORRAG_ALLOW_INSECURE_DEV=true` alongside `HARBORRAG_AUTH_MODE=none`.
-Do not publish that configuration on a non-loopback host address; use HMAC auth
-before exposing the API outside the trusted local development network.
+The local API container listens on `0.0.0.0` inside Docker, but Compose
+publishes port 8000 and the ops port 9465 only on host loopback. The
+development environment file therefore sets `HARBORRAG_ALLOW_INSECURE_DEV=true`
+alongside `HARBORRAG_AUTH_MODE=none`. Use HMAC auth before exposing the API
+outside the trusted local development network.
 
 ## Composition modes
 
@@ -65,248 +68,66 @@ shutdown.
 | A control-database URL is set | Migrated runtime control-plane repositories plus the real Temporal client |
 | `HARBORRAG_ENV=prod` | Requires an explicit control-database URL and authenticated API mode |
 
-Development mode changes only control-plane repository composition. Ingestion
-requests still go to the configured Temporal service.
-
 ## HTTP routes
 
-| Method | Path | Minimum role | Behavior |
+The live schema at `/openapi.json` is authoritative; `x-min-role` on each
+operation gives its lowest role.
+
+| Method | Path | Lowest role | Behavior |
 | --- | --- | --- | --- |
-The API serves two prefixes, and the distinction matters:
-
-- **`/v1/...` is the public contract** - ingestion, retrieval, chat, agent, admin. This is
-  what applications integrate against.
-- **`/api/v1/...` is the operational surface** - health, readiness, metrics, and the
-  console-facing project/source/activity/settings routes. Treat it as deployment
-  plumbing, not an application API.
-
-`/api/v1/docs` and `/api/v1/openapi.json` are served when `HARBORRAG_DOCS_ENABLED` is set;
-`GET /` and `GET /docs` redirect there (or to `/api/v1/health` when docs are disabled).
-The live schema is always authoritative - prefer it to this table.
-
-### Public contract (`/v1`)
-
-| Method | Path | Minimum role | Behavior |
-| --- | --- | --- | --- |
-| `POST` | `/v1/ingestions` | `editor` | Submit a durable ingestion task |
-| `GET` | `/v1/ingestions` | `reader` | List tasks newest first, cursor-paginated |
-| `GET` | `/v1/ingestions/{task_id}` | `reader` | Read Postgres-authoritative task progress |
-| `GET` | `/v1/ingestions/{task_id}/documents` | `reader` | Read cursor-paginated document outcomes |
-| `GET` | `/v1/ingestions/{task_id}/stream` | `reader` | Stream task progress as Server-Sent Events |
-| `POST` | `/v1/ingestions/{task_id}/pause` | `editor` | Accept an asynchronous durable pause request; the task settles at `PAUSED` at a safe boundary |
-| `POST` | `/v1/ingestions/{task_id}/resume` | `editor` | Resume a paused ingestion workflow and permit new batch dispatch |
-| `POST` | `/v1/ingestions/{task_id}/cancel` | `editor` | Request graceful cancellation |
-| `POST` | `/v1/ingestions/{task_id}/retry-failures` | `editor` | Retry selected or all retryable failures |
-| `GET` | `/v1/connections` | `reader` | List enabled connections submittable by `connection_id` |
-| `POST` | `/v1/chat/sessions` | `reader` | Create a persisted chat session and greeting (`201`) |
+| `GET` | `/healthz` | none | Liveness; calls no dependency |
+| `GET` | `/readyz` | none | `200` when Postgres, Redis, Temporal, Qdrant and the graph store answer, else `503`; same body both ways |
+| `GET` | `/v1/me` | `reader` | The credential's principal, tenants and role |
+| `GET` | `/v1/admin/source-types` | `editor` | Source types with their credential and config schemas |
+| `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
+| `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
+| `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
+| `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/sync` | `editor` | Start a sync |
+| `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
+| `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
+| `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
+| `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a chat session, list the caller's sessions |
+| `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
-| `POST` | `/v1/agent/sessions` | `reader` | Create a persisted agent session and greeting (`201`) |
-| `POST` | `/v1/agent/completions` | `reader` | Bounded multi-turn model/tool completion |
-| `POST` | `/v1/agent/runs/{run_id}/resume` | `reader` | Continue a run that stopped before finishing |
-| `POST` | `/v1/retrieval/vector` | `reader` | Dense, sparse, or hybrid vector search |
-| `POST` | `/v1/retrieval/graph/triplets` | `reader` | Match subject-predicate-object records |
-| `POST` | `/v1/retrieval/graph/paths` | `reader` | Find bounded paths between graph nodes |
-| `POST` | `/v1/retrieval/graph/subgraphs` | `reader` | Expand a bounded graph neighborhood |
-| `GET` | `/v1/admin/projections/{tenant}` | `admin` | Inspect projection state for a tenant |
-| `DELETE` | `/v1/admin/projections/{tenant}` | `admin` | Drop a tenant's rebuildable projections |
+| `POST` `GET` | `/v1/ingestions` | `editor`, `reader` | Legacy: submit and list ingestion tasks |
+| `GET` `POST` | `/v1/ingestions/{task_id}[/documents\|/stream\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Legacy: read and control one task |
 
-### Operational surface (`/api/v1`)
+The `/v1/ingestions*` routes are legacy: `/v1/admin/ingestions*` replaces them
+and they are removed in the same change. Every other route that predates v2.0.0,
+including `/api/v1/*`, `/v1/connections`, `/v1/agent/*`, `/v1/retrieval/*`,
+`/v1/graph/*`, `/v1/memory/*` and `/v1/schedules/*`, answers `404 not_found`
+with no deprecated alias.
 
-| Method | Path | Minimum role | Behavior |
-| --- | --- | --- | --- |
-| `GET` | `/api/v1/health` | Public | Process liveness; does not probe dependencies |
-| `GET` | `/api/v1/readyz` | Public | Dependency-aware readiness; `503` when runtime composition is unavailable |
-| `GET` | `/api/v1/metrics` | `admin` | Prometheus API, Python runtime, and process metrics |
-| `GET` | `/api/v1/metrics/ingestion` | `reader` | Ingestion-specific metrics |
-| `GET` | `/api/v1/projects` | `reader` | List projects |
-| `GET` | `/api/v1/projects/{project_id}` | `reader` | Read one project |
-| `GET` | `/api/v1/sources` | `reader` | List configured sources |
-| `POST` | `/api/v1/sources` | `editor` | Create a source |
-| `GET` | `/api/v1/sources/{source_id}` | `reader` | Read one source |
-| `PATCH` | `/api/v1/sources/{source_id}` | `editor` | Update a source |
-| `DELETE` | `/api/v1/sources/{source_id}` | `editor` | Delete a source |
-| `GET` | `/api/v1/activity` | `reader` | Recent activity feed |
-| `GET` | `/api/v1/settings` | `reader` | Effective non-secret settings |
+## Errors and request tracing
 
-### Deprecated
+Every 4xx and 5xx response, except `/readyz`, has `Content-Type:
+application/json` and one envelope:
 
-These predate the `/v1` contract, still appear in the generated schema, and will be
-removed. Use the `/v1/ingestions*` routes instead.
-
-| Method | Path | Minimum role |
-| --- | --- | --- |
-| `GET` | `/api/v1/diagnostics` | `admin` |
-| `POST` | `/api/v1/ingestions` | `editor` |
-| `GET` | `/api/v1/ingestions/{run_id}` | `reader` |
-| `GET` | `/api/v1/ingestions/{run_id}/result` | `reader` |
-| `POST` | `/api/v1/ingestions/{run_id}/actions` | `editor` |
-
-The API authenticates the principal and accepts tenant as one explicit,
-top-level request field. It defaults to `DEFAULT`; callers cannot bypass tenant
-isolation through retrieval filters.
-
-### Chat and agent completions
-
-Use `POST /v1/chat/completions` for retrieval chat and `/v1/agent/completions`
-for the bounded retrieval tool loop. Only `prompt` is required; `session_id`
-may be omitted to create a session. The endpoint determines execution mode.
-
-```bash
-curl --fail-with-body --request POST \\
-  --header 'Content-Type: application/json' \\
-  --header 'Idempotency-Key: request-1' \\
-  --data '{"prompt":"What is HarborRAG?","stream":false}' \\
-  http://127.0.0.1:8000/v1/chat/completions
+```json
+{
+  "error": {
+    "code": "validation_error",
+    "message": "Request validation failed",
+    "details": [{"field": "name", "issue": "Input should be a valid string"}],
+    "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736"
+  }
+}
 ```
 
-Set `stream: true` for SSE. Use browser `fetch` to send the POST body and
-consume `response.output_text.delta` frames; `response.completed` contains
-the same final contract as JSON, including session, title, citations, usage,
-and LiteLLM generation cost. Agent mode also emits `response.agent.progress`.
-Unknown prices remain `null`. Retrieval embedding costs are not included in
-the generation subtotal. See [the full contract](../../../../../docs/users/chat/README.md).
+- `code` comes from the catalog in `errors.CATALOG`; clients branch on `code`,
+  never on `message`.
+- `details` is `null`, an object, or for `validation_error` a list of
+  `{field, issue}`. A body that is not valid JSON fails on field `body`.
+- A connection failure no service translated is `503 dependency_unavailable`
+  with `details.dependency` naming `postgres`, `redis`, `temporal`, `qdrant`
+  or `graph`.
+- A `405` keeps its `Allow` header and uses code `not_found`.
 
-Authenticated HTTP requests use the configured, signed user claim (`sub` by
-default) within their tenant. Set `HARBORRAG_AUTH_USER_ID_CLAIM` when a shared
-service credential represents several people; each token must carry a stable
-user value. Local no-auth development uses `DEFAULT_USER`. The latest
-three completed user/assistant pairs form prompt memory; older and partial
-turns stay in history but are excluded from context. A deterministic title is
-created after the first successful persisted exchange. Neither an initial
-title nor a client-supplied user ID is accepted.
+Every response carries `X-Trace-Id`, 32 lowercase hex characters that also
+appear in the logs. The API keeps a valid `X-Trace-Id` or W3C `traceparent`
+the caller sends, and mints one otherwise.
 
-Different sessions may execute concurrently. Shared database leases serialize
-one session across workers. An idempotency key replays a completed result;
-conflicting, active, failed, or uncertain duplicates return `409`. Capacity
-limits and streaming deadlines remain server-owned.
-
-Manage sessions through `/v1/chat/sessions` or `/v1/agent/sessions`: POST creates,
-GET lists, GET `/{session_id}/messages` reads history, PATCH `/{session_id}` renames,
-and DELETE `/{session_id}` erases. Lists return `sessions` filtered by creating surface.
-Resume agent runs through `POST /v1/agent/runs/{run_id}/resume`. Conversation routes
-and the generic `/v1/runs/*` family are removed; stored history is unchanged.
-Prompts remain in POST bodies and sensitive model-response caching is disabled.
-
-### Retrieve evidence
-
-Vector search has one contract for both simple and advanced callers. Omitting
-controls uses hybrid retrieval; advanced callers may select `dense`, `sparse`,
-or `hybrid`, apply metadata filters, observe graph context, set a score
-threshold, and control content or metadata projection.
-
-`filters` is optional. Omit it for an unfiltered search; when supplied, use
-real indexed metadata keys such as `{"category": "architecture"}`. The
-`additionalProp1` names shown by generic JSON-object schema renderers are
-placeholders, not fields recognized by HarborRAG.
-
-This is a synchronous `POST`: a successful response contains at most `top_k`
-ranked results immediately. It never returns an ingestion-style `task_id` and
-does not require a follow-up GET. The optional `request_id` in the response is
-only a trace/correlation identifier. A retrieval GET should be added only if
-search results become persisted resources.
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --data '{
-    "query": "publication policy",
-    "tenant": "DEFAULT",
-    "top_k": 10,
-    "lane": "hybrid",
-    "filters": {"category": "architecture"},
-    "observe_graph": true,
-    "score_threshold": 0.2,
-    "include_content": true,
-    "include_metadata": true
-  }' \
-  http://127.0.0.1:8000/v1/retrieval/vector
-```
-
-Graph operations use portable graph records rather than FalkorDB query syntax.
-Triplets accept any combination containing at least one of `subject`,
-`predicate`, or `object`; paths require distinct start and end nodes; subgraph
-expansion requires one start node. Path depth is capped at 8 and all graph
-result counts are capped at 100.
-
-### Submit ingestion
-
-```bash
-curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
-  --header 'Idempotency-Key: local-release-notes-2026-08' \
-  --data '{
-    "connection_id": "harborrag-workspace",
-    "tenant": "DEFAULT",
-    "mode": "incremental"
-  }' \
-  http://127.0.0.1:8000/v1/ingestions
-```
-
-The application generates a public UUIDv4 task ID. Before Temporal is
-called, it persists the source scope and a `PENDING` task in Postgres. Reusing
-an idempotency key with the same public request returns the existing task;
-reusing it for a different request returns a conflict.
-
-Task paths intentionally continue to accept opaque strings, so tasks created
-by older versions with `ing_...` or `retry_...` identifiers remain queryable.
-
-The connection must be enabled in the same connector configuration used by the
-worker. Provider, scope, paths, attachment/comment policy, limits, and
-credentials come from `config/connectors.yaml`; the API does not duplicate or
-override them. The API resolves only connector identity and processing
-fingerprints; connector calls and model execution remain worker activities.
-
-`mode` defaults to `incremental`. It discovers the configured scope and skips
-unchanged documents. `force` fetches and evaluates unchanged documents again,
-but it does not delete data, force a new deterministic document version, or
-rebuild an already-active projection merely because its storage collection was
-renamed. See [Ingestion modes](../../../../../docs/users/ingestion-modes.md) for
-the complete behavior and reindex guidance.
-
-### List connections and tasks
-
-```bash
-curl --fail-with-body http://127.0.0.1:8000/v1/connections
-
-curl --fail-with-body   'http://127.0.0.1:8000/v1/ingestions?status=RUNNING&limit=25'
-```
-
-`/v1/connections` returns the `connection_id` and `source_type` of every
-connection enabled in `config/connectors.yaml`, which is the only place those
-names are defined. Nothing else about a connector is exposed: settings,
-environment references, and credential references stay server-side. A
-definition the catalog could not parse is omitted rather than failing the
-listing; submitting it still reports its own configuration error.
-
-`/v1/ingestions` lists tasks newest submission first and pages with an opaque
-`cursor`, exactly like `/v1/ingestions/{task_id}/documents`. Each item carries
-the same fields as the single-task response. `tenant` narrows the listing to
-one tenant the caller may read; omitting it reads every tenant in the caller's
-own scope, so a tenant-scoped token never sees another tenant's tasks and an
-out-of-scope `tenant` is rejected rather than answered with an empty page.
-
-### Inspect and control a task
-
-```bash
-curl --fail-with-body \
-  http://127.0.0.1:8000/v1/ingestions/2f47e0c9-398b-4b87-ae72-c6778f08a18a
-
-curl --fail-with-body \
-  'http://127.0.0.1:8000/v1/ingestions/2f47e0c9-398b-4b87-ae72-c6778f08a18a/documents?limit=50'
-
-curl --fail-with-body \
-  --request POST \
-  http://127.0.0.1:8000/v1/ingestions/2f47e0c9-398b-4b87-ae72-c6778f08a18a/cancel
-```
-
-Cancellation is asynchronous and takes effect at safe workflow boundaries.
-Published document versions remain active. The retry endpoint creates a new
-UUIDv4 task and starts at the earliest reusable durable artifact; it does
-not refetch a source when a raw or later artifact exists.
-
-## Authentication and roles
+## Authentication, roles and tenants
 
 `HARBORRAG_AUTH_MODE` supports:
 
@@ -315,29 +136,59 @@ not refetch a source when a raw or later artifact exists.
 - `oidc`: reserved but not implemented; application creation fails fast.
 
 Production refuses `auth_mode=none`. HMAC secrets must contain at least 32
-UTF-8 bytes. Tokens must contain `sub`, `role`, `tenants`, `iat`, `exp`, `iss`,
-and `aud` claims. `tenants` is a non-empty list of tenant identifiers the
-principal may access; a global role does not grant access to other tenants.
-`HARBORRAG_AUTH_USER_ID_CLAIM` selects the required signed end-user claim
-(`sub` by default). A shared service credential needs a different claim value
-for each person; a missing or invalid value returns `401`.
-The default issuer is `harborrag`, the default audience is `harborrag-api`, and
-the role order is:
+UTF-8 bytes. Tokens must contain `sub`, `role`, `tenants`, `iat`, `exp`, `iss`
+and `aud` claims, and may carry `name`. `HARBORRAG_AUTH_USER_ID_CLAIM` selects
+the signed end-user claim (`sub` by default).
 
-```text
-reader < editor < admin < owner
-```
+An MCP reader key (`hrk_<env>_v1_...`) is accepted as the same bearer
+credential. It authenticates as role `reader` in its one tenant, and
+`GET /v1/me` reports it as `principal.type = "api_key"`.
 
-Send authenticated requests with:
+Each route checks, in order, the credential, the tenant and the role; a failed
+check never reaches the handler:
 
-```http
-Authorization: Bearer JWT
-```
+- A missing, invalid or expired credential is `401 unauthenticated` with
+  `WWW-Authenticate: Bearer`, and one message whatever check failed.
+- `X-Tenant-Id` naming a tenant the credential does not hold is
+  `403 tenant_forbidden`. A credential with several tenants must send it on
+  admin routes, else `400 tenant_required`.
+- A role below the route's lowest role is `403 forbidden`. Roles stack:
+  `reader < editor < admin < owner`.
+- Another tenant's resource reads as `404 not_found`, never `403`.
 
-The liveness endpoint intentionally remains unauthenticated. Prometheus metrics
-require an admin bearer token at `/api/v1/metrics`; configure a protected scrape
-credential or a separate operational listener when the API is
-not running on a trusted service network.
+## Rate limits and deadlines
+
+Each `/v1` call is charged, after the checks above pass, to a sliding
+one-second window per principal: `HARBORRAG_HTTP_RATE_DEFAULT` (10) calls per
+second, or `HARBORRAG_HTTP_RATE_CHAT` (2) for `POST /v1/chat/completions`.
+A full window is `429 rate_limited` with an integer `Retry-After`. The windows
+live in the capacity Redis when it is configured; when Redis is unreachable,
+calls go through. The probes and `/metrics` are never limited.
+
+A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
+`504 deadline_exceeded`. A streamed chat body has its own
+`HARBORRAG_API_STREAM_TIMEOUT_SECONDS` (600) and ends with an error frame.
+
+## Writes and paging
+
+| Mechanism | Rule |
+| --- | --- |
+| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects and connections |
+| `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
+| `If-Match: *` | Connection `PUT` updates only |
+| `If-None-Match: *` | Project and connection `PUT` create only |
+| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body replays the stored result; the same key with another body is `422 validation_error`, and one still running is `409 already_running` |
+| Paging | `?limit=` 1–100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
+
+## Metrics
+
+`GET /metrics` answers only on `HARBORRAG_OPS_PORT` (9465), and only to
+`Authorization: Bearer <HARBORRAG_METRICS_SCRAPE_TOKEN>`. Any other credential,
+a user token included, is `401`; any other path on the ops port is `404`, and
+the public port has no `/metrics`. The body is the API registry in the
+Prometheus `text/plain; version=0.0.4` format: HTTP request counters and
+durations by route template, build information and process metrics. Ingestion
+counters come from the worker's own metrics port.
 
 ## Configuration
 
@@ -345,116 +196,82 @@ API process settings use the `HARBORRAG_` prefix.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_HOST` | `127.0.0.1` | Uvicorn bind host; containers override this to `0.0.0.0`, where disabled auth requires an explicit insecure-development opt-in |
-| `HARBORRAG_PORT` | `8000` | Uvicorn bind port used by the container command |
-| `HARBORRAG_ENV` | `dev` | `dev` or `prod` process policy |
+| `HARBORRAG_HOST` | `127.0.0.1` | Bind host for both sockets; containers override this to `0.0.0.0` |
+| `HARBORRAG_PORT` | `8000` | Public port |
+| `HARBORRAG_OPS_PORT` | `9465` | Ops port serving `/metrics`; must differ from the public port |
+| `HARBORRAG_METRICS_SCRAPE_TOKEN` | unset | Bearer token Prometheus sends to `/metrics`; unset refuses every scrape |
+| `HARBORRAG_ENV` | `dev` | `dev`, `staging` or `prod` process policy |
 | `HARBORRAG_AUTH_MODE` | `none` | `none`, `hmac`, or `oidc` |
-| `HARBORRAG_ALLOW_INSECURE_DEV` | `false` | Explicitly acknowledge disabled auth on a non-loopback development listener |
+| `HARBORRAG_ALLOW_INSECURE_DEV` | `false` | Acknowledge disabled auth on a non-loopback development listener |
 | `HARBORRAG_AUTH_SECRET` | unset | Shared HS256 secret |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required JWT issuer |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required JWT audience |
-| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Required signed end-user claim used for session and memory ownership |
+| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed end-user claim used for session and memory ownership |
 | `HARBORRAG_CORS_ORIGINS` | `[]` | JSON list of allowed browser origins |
-| `HARBORRAG_DOCS_ENABLED` | `true` in dev | Enables Swagger and the live OpenAPI route |
-| `HARBORRAG_MAX_REQUEST_BODY_BYTES` | `1048576` | Maximum request body accepted before JSON parsing |
-| `HARBORRAG_API_CAPACITY_REDIS_URL` | unset in dev; required in prod | Redis backend for cross-replica principal limits |
+| `HARBORRAG_DOCS_ENABLED` | `true` in dev | Enables Swagger at `/docs` and `/openapi.json` |
+| `HARBORRAG_MAX_REQUEST_BODY_BYTES` | `1048576` | Largest body accepted before parsing |
+| `HARBORRAG_HTTP_RATE_DEFAULT` | `10` | Calls per second per principal on every `/v1` route |
+| `HARBORRAG_HTTP_RATE_CHAT` | `2` | Chat completions per second per principal |
+| `HARBORRAG_API_CAPACITY_REDIS_URL` | unset in dev; required in prod | Redis for the rate windows and the chat capacity leases |
 | `HARBORRAG_API_CAPACITY_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for remote plaintext Redis |
-| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Maximum expensive requests per principal per minute |
-| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent expensive request limit per principal |
-| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Server-owned wall-clock deadline for expensive requests |
+| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and legacy ingestion calls per principal per minute |
+| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and legacy ingestion calls per principal |
+| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
+| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed chat body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
-| `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Fallback tenant for non-HTTP runtime operations |
-| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker, ingestion, health, and workflow configuration |
+| `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
-| `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional Temporal namespace override |
-| `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
-| `HARBORRAG_TEMPORAL_ALLOW_INSECURE_REMOTE` | `false` | Explicit opt-in for trusted plaintext remote targets |
-| `HARBORRAG_TEMPORAL_INGESTION_BATCH_SIZE` | `200` | Default documents per `SourceBatchWorkflow` child; a CLI/API caller may override it per submission |
-| `HARBORRAG_TEMPORAL_INGESTION_DOCUMENT_CONCURRENCY` | `8` | Default concurrent `DocumentIngestionWorkflow` children per wave; a CLI/API caller may override it per submission |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 
-Credentialed CORS rejects wildcard origins. Swagger and the live OpenAPI route
-default to disabled in production unless an operator explicitly enables them.
+Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json`
+default to disabled in production unless an operator enables them.
 
-INFO logs report ingestion submission, discovery, document outcomes, failures,
-and finalization. DEBUG additionally reports every Temporal activity boundary
-and duration. Records include logger namespace, Python module, function, and
-source line while omitting credentials and document/model content. See the
-[troubleshooting guide](../../../../../docs/users/troubleshooting/README.md#an-accepted-ingestion-appears-to-do-nothing)
-when an accepted task appears idle.
-
-## Errors and request tracing
-
-Every non-success response uses one error envelope:
-
-```json
-{
-  "error": {
-    "code": "harbor_validation_error",
-    "message": "Request validation failed",
-    "details": {},
-    "trace_id": "request-123"
-  }
-}
-```
-
-Send `X-Request-Id` to correlate a request with logs. The API echoes that value
-on the response; when it is absent, middleware generates one. Unexpected
-exceptions return a generic error while the complete traceback remains in
-process logs.
-
-## OpenAPI contract
+## OpenAPI and the contract
 
 In development:
 
 ```text
-http://127.0.0.1:8000/api/v1/docs
-http://127.0.0.1:8000/api/v1/openapi.json
+http://127.0.0.1:8000/docs
+http://127.0.0.1:8000/openapi.json
 ```
 
-Export the deterministic contract without starting a server:
+Export the deterministic schema, check the API against the contract, or
+rewrite the contract after a reviewed change:
 
 ```bash
 uv run python -m harborrag_app.api.export_openapi > openapi.json
+make contract
+make contract-write
 ```
 
 ## Package boundary
 
-The package is organized by responsibility:
-
 ```text
 api/
-├── app.py, router.py, settings.py, middleware.py, metrics.py
-├── auth/                 # authentication and role dependencies
-├── routes/               # operational surface: health, metrics, projects,
-│                         #   sources, activity, settings, deprecated routes
-├── schemas.py            # contracts shared by API features
-└── v1/                   # the public /v1 contract
-    ├── admin/            # projection inspection and teardown
-    ├── agent/            # agent sessions, completions, run resume
+├── app.py, router.py, settings.py, serve.py
+├── errors.py, dependency_failures.py, middleware.py, schemas.py
+├── auth/                 # credentials, tenants, the ordered role guard
+├── probes.py, readiness.py
+├── ops.py, metrics.py    # the ops port and its Prometheus registry
+├── rate_limit.py, deadline.py, capacity*.py
+├── pagination.py, openapi.py, contract.py
+└── v1/                   # the public /v1 routes
+    ├── admin/            # source types, connections and projects
     ├── chat/             # chat sessions and completions
-    ├── connections/      # submittable connection listing
-    ├── ingestion/        # ingestion routes, schemas, and command mapping
-    └── retrieval/        # retrieval routes, schemas, and service dependency
+    ├── ingestion/        # legacy ingestion routes
+    └── me.py
 ```
 
-This package may:
-
-- validate and serialize HTTP messages;
-- authenticate principals and enforce route roles;
-- manage API process lifecycle and middleware;
-- delegate operations through `BaseAppService`.
-
-It must not:
-
-- instantiate connectors, parsers, model clients, or repositories;
-- implement ingestion state transitions;
-- expose Temporal SDK handles on the wire;
-- return provider exception details or secrets.
+This package may validate and serialize HTTP messages, authenticate principals
+and enforce route roles, manage the API process and its middleware, and delegate
+operations through `BaseAppService`. It must not instantiate connectors,
+parsers, model clients, or repositories, implement ingestion state transitions,
+expose Temporal SDK handles on the wire, or return provider exception details
+or secrets.
 
 Run its tests from the repository root:
 
 ```bash
-pytest packages/harborrag-app/tests/test_api_*.py
+pytest packages/harborrag-app/tests/test_api_*.py packages/harborrag-app/tests/test_http_contract.py
 ```

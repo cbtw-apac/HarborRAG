@@ -20,7 +20,10 @@ from collections.abc import Iterator, Mapping
 from pathlib import Path
 from typing import Any
 
-CONTRACT_PATH = Path(__file__).resolve().parents[5] / "contracts" / "http-v2.0.0.json"
+_SOURCE = Path(__file__).resolve()
+# The file lives in a checkout: packages/harborrag-app/src/harborrag_app/api/contract.py.
+_REPOSITORY = _SOURCE.parents[5] if len(_SOURCE.parents) > 5 else Path.cwd()
+CONTRACT_PATH = _REPOSITORY / "contracts" / "http-v2.0.0.json"
 _PROBES = frozenset({"/healthz", "/readyz"})
 _LEGACY_PREFIXES = ("/v1/ingestions",)
 _METHODS = ("get", "put", "post", "patch", "delete")

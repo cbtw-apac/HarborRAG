@@ -155,6 +155,22 @@ def _redis_check(urls: list[str]) -> Check | None:
     return check
 
 
+def _qdrant_check(runtime: RuntimeSettings) -> Check | None:
+    """Probe Qdrant when it serves the vector store."""
+    if runtime.vector_provider != "qdrant":
+        return None
+    url = runtime.qdrant_url.rstrip("/") + "/readyz"
+    return lambda: http_ready(url)
+
+
+def _graph_check(runtime: RuntimeSettings) -> Check | None:
+    """Probe FalkorDB when it serves the graph store."""
+    if runtime.graph_provider != "falkordb":
+        return None
+    url = f"redis://{runtime.falkordb_host}:{runtime.falkordb_port}"
+    return lambda: redis_answers(url)
+
+
 def build_readiness_checks(
     runtime: RuntimeSettings,
     api: ApiSettings,
@@ -163,8 +179,9 @@ def build_readiness_checks(
 ) -> dict[str, Check]:
     """Build one check per dependency this API process uses.
 
-    Postgres is checked only for a Postgres control database, and Redis only when the
-    runtime or the API capacity limiter names one.
+    Postgres is checked only for a Postgres control database, Redis only when the runtime
+    or the API capacity limiter names one, and Qdrant and the graph store only when they
+    are the configured providers.
 
     Args:
         runtime: Runtime settings naming the stores.
@@ -183,8 +200,8 @@ def build_readiness_checks(
         "postgres": _postgres_check(runtime.control_db_url.get_secret_value()),
         "redis": _redis_check(redis_urls),
         "temporal": temporal,
-        "qdrant": lambda: http_ready(runtime.qdrant_url.rstrip("/") + "/readyz"),
-        "graph": lambda: redis_answers(f"redis://{runtime.falkordb_host}:{runtime.falkordb_port}"),
+        "qdrant": _qdrant_check(runtime),
+        "graph": _graph_check(runtime),
     }
     return {name: check for name, check in checks.items() if check is not None}
 
