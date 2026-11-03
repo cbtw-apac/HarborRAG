@@ -122,7 +122,7 @@ async def create_chat_completion(
         ),
     ],
     service: CompletionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False, bucket="chat"))],
     context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
     header_key: Annotated[

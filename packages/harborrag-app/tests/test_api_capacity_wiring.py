@@ -1,4 +1,4 @@
-"""Every expensive route holds a capacity lease with a function-scoped deadline."""
+"""Expensive routes hold a capacity lease with a function-scoped deadline."""
 
 from __future__ import annotations
 
@@ -6,12 +6,11 @@ import pytest
 from fastapi.routing import APIRoute
 
 from harborrag_app.api.capacity_dependency import hold_api_capacity, require_api_capacity
-from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
 from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
 
 
-@pytest.mark.parametrize("router", [ingestion_router, *connection_admin_routers])
+@pytest.mark.parametrize("router", [ingestion_router])
 def test_all_expensive_api_routers_require_capacity(router: object) -> None:
     protected_routes = [route for route in router.routes if isinstance(route, APIRoute)]
 

@@ -12,13 +12,14 @@ from collections.abc import Callable, Iterator, Sequence
 from functools import cache
 from typing import Annotated, Any
 
-from fastapi import Depends, routing
+from fastapi import Depends, Request, routing
 from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute
 
 from harborrag_core.domain.member import Role
 
+from ..rate_limit import RateBucket, charge
 from .dependencies import authorize_role, get_principal
 from .principal import ROLE_ORDER, Principal
 from .tenancy import resolve_tenant, tenant_header
@@ -27,17 +28,21 @@ _MINIMUM_ROLE = "minimum_role"
 
 
 @cache
-def require_role(minimum: Role, *, tenant: bool = True) -> Callable[..., Any]:
+def require_role(
+    minimum: Role, *, tenant: bool = True, bucket: RateBucket = "default"
+) -> Callable[..., Any]:
     """Build the guard for a route whose lowest role is ``minimum``.
 
-    The guard verifies the credential, then the tenant, then the role. With
-    ``tenant=False`` an ``X-Tenant-Id`` the credential does not hold is still refused, but a
-    credential with several tenants may omit it, for routes that take their tenant from the
-    request or need none.
+    The guard verifies the credential, then the tenant, then the role, and only then
+    charges the call to the principal's rate bucket. With ``tenant=False`` an
+    ``X-Tenant-Id`` the credential does not hold is still refused, but a credential with
+    several tenants may omit it, for routes that take their tenant from the request or
+    need none.
 
     Args:
         minimum: The lowest role that may call the route.
         tenant: Whether the route acts in one tenant picked from the credential.
+        bucket: The rate bucket the call is charged to.
 
     Returns:
         A dependency that returns the caller's ``Principal``.
@@ -45,11 +50,13 @@ def require_role(minimum: Role, *, tenant: bool = True) -> Callable[..., Any]:
     tenant_check = resolve_tenant if tenant else tenant_header
 
     async def guard(
+        request: Request,
         principal: Annotated[Principal, Depends(get_principal)],
         _tenant: Annotated[str | None, Depends(tenant_check)],
     ) -> Principal:
-        """Pass the principal through when its role clears the minimum."""
+        """Pass the principal through when its role clears the minimum and its bucket has room."""
         authorize_role(principal, minimum)
+        await charge(request, principal, bucket)
         return principal
 
     setattr(guard, _MINIMUM_ROLE, minimum)

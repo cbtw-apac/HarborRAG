@@ -25,6 +25,7 @@ from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
+from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
@@ -188,6 +189,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                     await result
         finally:
             await app.state.api_capacity_limiter.aclose()
+            await app.state.rate_limiter.aclose()
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -221,6 +223,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
             max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
         ),
     )
+    app.state.rate_limiter = build_rate_limiter(redis_url)
     app.state.api_metrics = ApiMetrics(version=app.version)
     app.add_middleware(
         RequestBodyLimitMiddleware,

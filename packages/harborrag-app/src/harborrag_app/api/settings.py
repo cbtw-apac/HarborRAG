@@ -82,6 +82,9 @@ class ApiSettings(BaseSettings):
     # JSON object mapping tenant id -> per-tenant limit overrides, e.g.
     # HARBORRAG_API_TENANT_CAPACITY_OVERRIDES='{"acme":{"tenant_requests_per_minute":6000}}'
     api_tenant_capacity_overrides: dict[str, TenantCapacityOverride] = {}
+    # Requests per second per principal: every /v1 route, and chat completions on their own.
+    http_rate_default: int = Field(default=10, ge=1, le=100_000)
+    http_rate_chat: int = Field(default=2, ge=1, le=100_000)
     api_request_timeout_seconds: float = Field(default=120.0, ge=1.0, le=900.0)
     # Wall-clock budget for one SSE body (``stream: true`` completions). The
     # request timeout above covers only the handler, so a stream that outlives

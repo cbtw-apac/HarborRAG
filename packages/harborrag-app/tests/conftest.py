@@ -29,6 +29,9 @@ def _isolated_application_environment(
 
     monkeypatch.setenv("HARBORRAG_HOST", "127.0.0.1")
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
+    # Every no-auth test client calls as one principal; tests that need limits set them.
+    monkeypatch.setenv("HARBORRAG_HTTP_RATE_DEFAULT", "100000")
+    monkeypatch.setenv("HARBORRAG_HTTP_RATE_CHAT", "100000")
     monkeypatch.setenv(
         "HARBORRAG_CONTROL_DB_URL",
         f"sqlite+aiosqlite:///{tmp_path}/control.db",

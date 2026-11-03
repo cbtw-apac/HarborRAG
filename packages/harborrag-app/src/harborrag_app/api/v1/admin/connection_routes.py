@@ -20,7 +20,6 @@ from fastapi.responses import JSONResponse
 from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
-from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import spec_error_body
 from harborrag_app.api.schemas import Error
 from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
@@ -108,22 +107,22 @@ _TEST_TEMPLATES = ConnectionTemplateBuilder(source_types).build()
 source_types_router = APIRouter(
     prefix="/admin/source-types",
     tags=["Connections"],
-    dependencies=[Depends(require_role("editor")), Depends(require_api_capacity)],
+    dependencies=[Depends(require_role("editor"))],
 )
 connections_router = APIRouter(
     prefix="/admin",
     tags=["Connections"],
-    dependencies=[Depends(require_role("editor")), Depends(require_api_capacity)],
+    dependencies=[Depends(require_role("editor"))],
 )
 projects_router = APIRouter(
     prefix="/admin/projects",
     tags=["Projects"],
-    dependencies=[Depends(require_role("admin")), Depends(require_api_capacity)],
+    dependencies=[Depends(require_role("admin"))],
 )
 reader_router = APIRouter(
     prefix="/projects",
     tags=["Connections"],
-    dependencies=[Depends(require_role("reader")), Depends(require_api_capacity)],
+    dependencies=[Depends(require_role("reader"))],
 )
 
 
