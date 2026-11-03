@@ -83,21 +83,6 @@ def test_creating_a_session_without_a_title_is_unchanged(client: TestClient) -> 
 
 
 @pytest.mark.asyncio
-async def test_the_kind_filter_separates_chat_from_agent_conversations(
-    client: TestClient,
-    service: MockAppService,
-) -> None:
-    await seed(service, "session-chat")
-    await seed(service, "session-agent", kind="agent")
-
-    chats = client.get(CONVERSATIONS, headers=auth())
-    agents = client.get("/v1/agent/sessions", headers=auth())
-
-    assert _sessions(chats.json()) == ["session-chat"]
-    assert _sessions(agents.json()) == ["session-agent"]
-
-
-@pytest.mark.asyncio
 async def test_paging_walks_every_conversation_exactly_once(
     client: TestClient,
     service: MockAppService,

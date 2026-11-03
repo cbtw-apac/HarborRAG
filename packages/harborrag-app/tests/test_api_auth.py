@@ -66,25 +66,6 @@ def test_none_mode_grants_implicit_owner() -> None:
 
 
 @pytest.mark.blackbox
-def test_metrics_requires_admin_in_hmac_mode() -> None:
-    """Operational metrics do not expose process data without admin auth."""
-    with _hmac_client() as client:
-        assert client.get("/metrics").status_code == 404
-        assert client.get("/api/v1/metrics").status_code == 401
-        reader = client.get(
-            "/api/v1/metrics",
-            headers={"Authorization": f"Bearer {_token('reader')}"},
-        )
-        assert reader.status_code == 403
-        admin = client.get(
-            "/api/v1/metrics",
-            headers={"Authorization": f"Bearer {_token('admin')}"},
-        )
-        assert admin.status_code == 200
-        assert "harborrag_api_info" in admin.text
-
-
-@pytest.mark.blackbox
 @pytest.mark.parametrize(
     ("role", "expired", "secret", "literal_token", "expected_status"),
     [

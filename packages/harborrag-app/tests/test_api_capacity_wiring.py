@@ -6,18 +6,12 @@ import pytest
 from fastapi.routing import APIRoute
 
 from harborrag_app.api.capacity_dependency import hold_api_capacity, require_api_capacity
-from harborrag_app.api.routes.legacy_ingestions import router as legacy_ingestions_router
-from harborrag_app.api.v1.admin import router as admin_router
-from harborrag_app.api.v1.agent import router as agent_router
+from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
 from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
-from harborrag_app.api.v1.retrieval import router as retrieval_router
 
 
-@pytest.mark.parametrize(
-    "router",
-    [retrieval_router, ingestion_router, admin_router, legacy_ingestions_router],
-)
+@pytest.mark.parametrize("router", [ingestion_router, *connection_admin_routers])
 def test_all_expensive_api_routers_require_capacity(router: object) -> None:
     protected_routes = [route for route in router.routes if isinstance(route, APIRoute)]
 
@@ -27,7 +21,7 @@ def test_all_expensive_api_routers_require_capacity(router: object) -> None:
         assert require_api_capacity in dependency_calls, route.path
 
 
-@pytest.mark.parametrize("router", [chat_router, agent_router])
+@pytest.mark.parametrize("router", [chat_router])
 def test_completion_routes_hold_capacity_across_the_response_but_bound_only_the_handler(
     router: object,
 ) -> None:

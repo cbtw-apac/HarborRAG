@@ -312,9 +312,8 @@ start_api() {
             "${ROOT_DIR}/${API_ENV_FILE}" | tail -n 1
     )"
     api_port="${api_port:-8000}"
-    echo "HarborRAG API is healthy at http://127.0.0.1:${api_port}/api/v1/health"
-    echo "Prometheus metrics: http://127.0.0.1:${api_port}/api/v1/metrics (admin token required)"
-    echo "Swagger UI: http://127.0.0.1:${api_port}/api/v1/docs (when HARBORRAG_DOCS_ENABLED)"
+    echo "HarborRAG API is healthy at http://127.0.0.1:${api_port}/healthz"
+    echo "Swagger UI: http://127.0.0.1:${api_port}/docs (when HARBORRAG_DOCS_ENABLED)"
 }
 
 stop_stack() {

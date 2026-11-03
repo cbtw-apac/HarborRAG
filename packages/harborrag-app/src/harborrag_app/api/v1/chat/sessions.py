@@ -1,13 +1,8 @@
-"""Shared chat/agent session history: list, read, rename, delete.
+"""Chat session history: list sessions and read a session's messages.
 
 The owner of a session is assembled from verified tenant and user claims,
 never from request fields. A caller cannot widen a listing or read another
 user's history by guessing a session ID.
-
-Deleting a conversation goes through the same erasure the memory surface
-exposes (``DELETE /v1/memory/sessions/{session_id}``), so the memories and
-vector points the conversation produced go with it instead of outliving the
-messages they were extracted from.
 """
 
 from __future__ import annotations
@@ -19,15 +14,12 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import documented_error_responses
-from harborrag_app.api.v1.memory.schemas import SessionErasureResponse
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.ports.conversation import ConversationKind
 
 from .dependencies import ConversationServiceDependency
 from .schemas import (
     ConversationMessageListResponse,
-    ConversationRenameRequest,
-    ConversationRenameResponse,
     SessionListResponse,
 )
 
@@ -146,43 +138,3 @@ async def list_conversation_messages(  # noqa: PLR0913 - one parameter per docum
         limit=limit,
     )
     return ConversationMessageListResponse.model_validate(result.data)
-
-
-@router.patch(
-    "/{session_id}",
-    response_model=ConversationRenameResponse,
-    responses=ERROR_RESPONSES,
-)
-async def rename_conversation(
-    session_id: SessionPath,
-    request: ConversationRenameRequest,
-    service: ConversationServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
-    tenant: TenantQuery = "DEFAULT",
-) -> ConversationRenameResponse:
-    """Retitle the caller's conversation; an empty title clears it."""
-
-    authorize_tenant(principal, tenant)
-    result = await service.rename_conversation(
-        _access(principal, tenant, session_id),
-        title=request.title,
-    )
-    return ConversationRenameResponse.model_validate(result.data)
-
-
-@router.delete(
-    "/{session_id}",
-    response_model=SessionErasureResponse,
-    responses=ERROR_RESPONSES,
-)
-async def delete_conversation(
-    session_id: SessionPath,
-    service: ConversationServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
-    tenant: TenantQuery = "DEFAULT",
-) -> SessionErasureResponse:
-    """Erase the conversation's messages, memories, and vector points."""
-
-    authorize_tenant(principal, tenant)
-    result = await service.delete_conversation(_access(principal, tenant, session_id))
-    return SessionErasureResponse.model_validate(result.data)

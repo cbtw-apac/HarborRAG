@@ -25,7 +25,7 @@ from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
-from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
+from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
@@ -40,15 +40,9 @@ _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
-    """Send humans to docs when enabled, otherwise to the health endpoint."""
+    """Send humans to docs when enabled, otherwise to the liveness probe."""
     settings: ApiSettings = request.app.state.settings
-    destination = "docs" if settings.docs_enabled else "health"
-    return RedirectResponse(url=f"{OPERATIONAL_PREFIX}/{destination}")
-
-
-def _redirect_docs() -> RedirectResponse:
-    """Preserve the familiar Swagger path without duplicating the API route."""
-    return RedirectResponse(url=f"{OPERATIONAL_PREFIX}/docs")
+    return RedirectResponse(url="/docs" if settings.docs_enabled else "/healthz")
 
 
 async def _recover_pending_submissions(app: FastAPI) -> None:
@@ -205,8 +199,8 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     app = FastAPI(
         title="HarborRAG Control Plane API",
         version=__version__,
-        openapi_url=(f"{OPERATIONAL_PREFIX}/openapi.json" if settings.docs_enabled else None),
-        docs_url=f"{OPERATIONAL_PREFIX}/docs" if settings.docs_enabled else None,
+        openapi_url="/openapi.json" if settings.docs_enabled else None,
+        docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
         lifespan=_lifespan,
     )
@@ -249,22 +243,12 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
                 TRACE_HEADER,
                 "Idempotency-Replayed",
                 "Retry-After",
-                "Deprecation",
-                "Sunset",
-                "Link",
                 "ETag",
                 "Location",
             ],
         )
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)
-    if settings.docs_enabled:
-        app.add_api_route(
-            "/docs",
-            _redirect_docs,
-            methods=["GET"],
-            include_in_schema=False,
-        )
     register_routes(app)
     app.state.api_metric_routes = tuple(
         (path, compile_path(path)[0]) for path in app.openapi()["paths"]

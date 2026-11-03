@@ -40,6 +40,7 @@ class HarborApi:
     def get(self, path: str) -> dict[str, Any]:
         return self._request(path, method="GET")
 
+    # TODO: replace the removed /v1/retrieval/vector preflight once Story 5 settles /v1/chat.
     def retrieval_preflight(self, query: str) -> dict[str, Any]:
         """Check authorized evidence without returning document content."""
 
@@ -56,6 +57,7 @@ class HarborApi:
             },
         )
 
+    # TODO: drop the removed /v1/agent surface once Story 5 settles /v1/chat.
     def open_session(self, *, mode: str = "rag") -> str:
         """Track a temporary session before any model request can fail."""
 
@@ -399,7 +401,7 @@ def _probe(  # noqa: C901 - one ordered release-gate report
     checks: list[Check] = []
 
     def readiness() -> tuple[bool, str]:
-        response = api.get("/api/v1/readyz")
+        response = api.get("/readyz")
         return response.get("status") == "ready", f"status={response.get('status')!r}"
 
     readiness_check = _run_check("readiness", readiness)

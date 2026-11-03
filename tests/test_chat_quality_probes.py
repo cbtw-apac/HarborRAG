@@ -136,7 +136,7 @@ def test_negative_probe_tracks_refusal_session_for_cleanup(monkeypatch) -> None:
 def test_live_probe_stops_before_chat_when_authorized_retrieval_is_empty() -> None:
     class EmptyCorpusApi:
         def get(self, path: str) -> dict[str, object]:
-            assert path == "/api/v1/readyz"
+            assert path == "/readyz"
             return {"status": "ready"}
 
         def retrieval_preflight(self, query: str) -> dict[str, object]:

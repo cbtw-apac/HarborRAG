@@ -238,16 +238,3 @@ class ConversationMessageListResponse(ApiModel):
 
     messages: list[ConversationMessageRecord] = Field(default_factory=list)
     next_cursor: str | None = None
-
-
-class ConversationRenameRequest(ApiModel):
-    """Retitle one conversation; an empty or whitespace title clears it."""
-
-    model_config = ConfigDict(json_schema_extra={"examples": [{"title": "Release policy"}]})
-
-    title: str = Field(default="", max_length=MAX_TITLE_INPUT)
-
-
-class ConversationRenameResponse(ApiModel):
-    session_id: str
-    title: str | None = None

@@ -114,20 +114,6 @@ def test_chat_completion_rejects_provider_specific_query_parameters(client: Test
     assert response.status_code == 422
 
 
-def test_chat_completion_accepts_an_agent_session(client: TestClient) -> None:
-    """Execution modes share the same conversation identity."""
-
-    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
-    assert created.status_code == 201
-
-    response = client.post(
-        "/v1/chat/completions",
-        json={"session_id": created.json()["session_id"], "prompt": "Hello"},
-    )
-
-    assert response.status_code == 200
-
-
 def test_chat_completion_exposes_memory_persisted_flag(
     client: TestClient,
     service: MockAppService,

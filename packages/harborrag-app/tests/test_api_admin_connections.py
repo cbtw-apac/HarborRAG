@@ -251,29 +251,6 @@ def test_the_tenant_comes_from_the_credential_or_x_tenant_id(
     assert (foreign.status_code, foreign.json()["error"]["code"]) == (403, "tenant_forbidden")
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "successor"),
-    [
-        ("get", "/v1/connections", "/v1/admin/connections"),
-        ("get", "/api/v1/sources", "/v1/admin/connections"),
-        (
-            "post",
-            "/v1/ingestions",
-            "/v1/admin/projects/{project_id}/connections/{connection_id}/sync",
-        ),
-    ],
-)
-def test_old_routes_announce_their_successor(
-    client: TestClient, method: str, path: str, successor: str
-) -> None:
-    kwargs: dict[str, Any] = {"json": {"connection_id": "jira-main"}} if method == "post" else {}
-    response = getattr(client, method)(path, **kwargs)
-
-    assert response.headers["Deprecation"] == "true"
-    assert response.headers["Sunset"] == "Sun, 07 Feb 2027 00:00:00 GMT"
-    assert response.headers["Link"] == f'<{successor}>; rel="successor-version"'
-
-
 def test_listing_ingestions_is_not_deprecated(client: TestClient) -> None:
     assert "Deprecation" not in client.get("/v1/ingestions").headers
 
@@ -291,9 +268,8 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
     }
     assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/test"]
     assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/sync"]
-    assert paths["/v1/connections"]["get"]["deprecated"] is True
-    assert paths["/v1/ingestions"]["post"]["deprecated"] is True
-    assert paths["/api/v1/sources"]["post"]["deprecated"] is True
+    assert "/v1/connections" not in paths
+    assert "/api/v1/sources" not in paths
 
 
 def test_local_connections_stay_inside_the_source_root(

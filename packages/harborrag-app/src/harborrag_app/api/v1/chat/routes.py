@@ -91,8 +91,7 @@ async def create_chat_session(
     response_model=ChatCompletionResponse,
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
     summary="Create a retrieval chat completion",
-    description="For bounded tool runs use POST /v1/agent/completions. "
-    "Omit session_id to create a session. Set stream=true for SSE with the same final "
+    description="Omit session_id to create a session. Set stream=true for SSE with the same final "
     "completion payload. Use Idempotency-Key to safely replay a completed request.",
 )
 async def create_chat_completion(

@@ -223,13 +223,3 @@ def test_chat_stream_projects_memory_warning_as_non_terminal_frame(
     ]
     assert frames[1][1]["code"] == "conversation_memory_unavailable"
     assert frames[-1][1]["memory_persisted"] is False
-
-
-def test_chat_stream_accepts_an_agent_session(client: TestClient) -> None:
-    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
-    response = client.post(
-        "/v1/chat/completions",
-        json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
-    )
-
-    assert response.status_code == 200

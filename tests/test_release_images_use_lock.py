@@ -80,8 +80,8 @@ def test_api_image_bundles_configuration_and_runs_unprivileged() -> None:
     assert "COPY config ./config" in dockerfile
     assert "USER harborrag" in dockerfile
     assert "HEALTHCHECK " in dockerfile
-    assert "/api/v1/health" in dockerfile
-    assert "/api/v1/readyz" not in dockerfile
+    assert "/healthz" in dockerfile
+    assert "/readyz" not in dockerfile
     assert "build-essential" not in dockerfile
     assert "exec uvicorn harborrag_app.api.app:create_fastapi_app --factory" in dockerfile
     assert '--host \\"$HARBORRAG_HOST\\" --port \\"$HARBORRAG_PORT\\"' in dockerfile
