@@ -1,9 +1,9 @@
 # Chat
 
-Use `POST /v1/chat/completions` for retrieval chat and
-`POST /v1/agent/completions` for bounded agent runs. Set `stream` to choose JSON
+Use `POST /v1/chat/completions` for retrieval chat. Set `stream` to choose JSON
 or Server-Sent Events (SSE). Omit `session_id` to create a session; include the
-returned ID on later requests. Both endpoints can use the same session.
+returned ID on later requests. The `/v1/agent/*` routes are removed in 2.0.0;
+agents query HarborRAG through the MCP server tools.
 
 Both HTTP modes run a request-scope check before generation or SSE headers. Requests
 about indexed knowledge, relevant source code, and the conversation are allowed.
@@ -189,13 +189,11 @@ configured signed user claim. Existing authenticated sessions stored under
 must map them using trusted ownership records or start fresh sessions. Do not
 make the old shared namespace visible to every authenticated user.
 
-- Move agent requests from `/v1/chat/completions` to `/v1/agent/completions`.
-  The request no longer needs a `mode` field.
-- Replace `/v1/conversations` and `/v1/chat/conversations` with the appropriate
-  `/v1/chat/sessions` or `/v1/agent/sessions` family. The old routes return `404`.
+- `/v1/agent/*` is removed in 2.0.0 and returns `404`; use the MCP server tools.
+- Replace `/v1/conversations` and `/v1/chat/conversations` with
+  `/v1/chat/sessions`. The old routes return `404`.
 - List responses now use `sessions`, not `conversations`; choose the endpoint
   family instead of a `kind` query parameter.
-- Resume through `POST /v1/agent/runs/{run_id}/resume`; `/v1/runs/*` is removed.
 - Old agent SSE consumers must switch from `run.*` / `result` / `error` to the
   shared event names above. Use `response.completed` as the final authority.
 

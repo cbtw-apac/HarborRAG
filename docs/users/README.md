@@ -29,7 +29,7 @@ New here? Start with the [Quick Start](../getting-started/quick-start.md) -
 | Surface | What it does |
 | --- | --- |
 | CLI | `init`, `doctor`, `chat`, `retrieve`, and the `ingest` subgroup: `ingest run` executes in-process, the other `ingest` commands drive Temporal |
-| HTTP API | `/v1/...` public contract - ingestion, retrieval, chat, agent, admin; `/api/v1/...` operational routes |
+| HTTP API | `/v1/...` public contract - projects, connections, chat and ingestion; `/healthz` and `/readyz` probes; `/metrics` on the ops port |
 | MCP | nine read-only evidence, source, and graph tools over stdio or bearer-authenticated loopback HTTP, plus a browser playground |
 
 The MCP server implements stdio plus bearer-authenticated, loopback-only Streamable HTTP.

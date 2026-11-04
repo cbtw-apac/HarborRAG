@@ -177,7 +177,7 @@ A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
 | `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
 | `If-Match: *` | Connection `PUT` updates only |
 | `If-None-Match: *` | Project and connection `PUT` create only |
-| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body replays the stored result; the same key with another body is `422 validation_error`, and one still running is `409 already_running` |
+| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body within 24 h replays the stored result; the same key with another body is `422 validation_error`, and one still running is `409 already_running` |
 | Paging | `?limit=` 1–100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
 
 ## Metrics

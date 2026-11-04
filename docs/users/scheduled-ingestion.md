@@ -83,69 +83,8 @@ because of an incomplete deployment file.
 
 ## Manage API-Owned Schedules
 
-API-owned schedules can be created and updated without editing YAML. Requests
-require the `editor` role for writes and tenant access; reads require the
-`reader` role. Creating or updating a schedule that names a `source_scope_id`
-(or updating one that already has one) requires the `admin` role, as it does for
-`POST /v1/ingestions`. Schedules in tenants outside the caller's access return
-`404`.
-
-```http
-POST /v1/schedules
-```
-
-```json
-{
-  "schedule_id": "workspace-daily-ingest",
-  "workflow": "source_ingestion",
-  "cron": "0 1 * * *",
-  "timezone": "Asia/Ho_Chi_Minh",
-  "overlap": "skip",
-  "catchup_window_seconds": 3600,
-  "jitter_seconds": 30,
-  "pause_on_failure": false,
-  "source": {
-    "tenant": "DEFAULT",
-    "connection_id": "harborrag-workspace",
-    "source_scope_id": null,
-    "mode": "incremental"
-  },
-  "paused": false,
-  "note": "Daily workspace ingestion"
-}
-```
-
-Use `PATCH /v1/schedules/{schedule_id}` to update an API-owned schedule. PATCH
-is a partial update: send only the fields to change (for example
-`{"cron": "0 2 * * *"}`, or `{"source": {"mode": "force"}}`); omitted fields keep
-their current value and an explicit `null` clears an optional field. The ID,
-workflow and tenant cannot change. Omit `paused` to keep the schedule's current
-pause state; send `true` or `false` (with an optional `note`) to pause or
-unpause it as part of the update. Schedule IDs are global across tenants, and
-IDs declared in `config/schedules.yaml` are reserved. Creating a schedule with
-an ID that is already taken, in any tenant, returns `409
-SCHEDULE_ALREADY_EXISTS` saying the ID is unavailable; choose another ID.
-Config-owned schedules are read-only through create/update API calls; edit their
-YAML instead.
-
-Available operations:
-
-- `GET /v1/schedules?tenant=DEFAULT` lists schedules visible to the caller.
-- `GET /v1/schedules/{schedule_id}` describes next run times, recent actions,
-  total runs, and overlap skips.
-- `POST /v1/schedules/{schedule_id}/pause` pauses the schedule. Send a note to
-  record the reason, for example `{"note":"investigating connector outage"}`.
-- `POST /v1/schedules/{schedule_id}/unpause` unpauses it; an optional note records
-  why it was unpaused.
-- `POST /v1/schedules/{schedule_id}/trigger` requests an immediate run. The
-  schedule's overlap policy still applies, so with `skip` the request is dropped
-  while a run is active.
-- `POST /v1/schedules/{schedule_id}/backfill` runs the actions that would have
-  fired in an explicit timezone-aware `start_at`–`end_at` range of at most 31
-  days. Each run ingests the source as it is now, not as it was at that time,
-  and the schedule's overlap policy applies, so with `skip` a backfill usually
-  results in one run.
-- `DELETE /v1/schedules/{schedule_id}` deletes an API-owned schedule.
+The `/v1/schedules` routes are removed in 2.0.0 and return `404`. Declare
+schedules in `config/schedules.yaml`; the API reconciles them at start-up.
 
 ## Monitor and Troubleshoot
 

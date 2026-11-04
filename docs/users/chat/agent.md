@@ -1,5 +1,9 @@
 # Agent
 
+> The `/v1/agent/*` HTTP routes are removed in 2.0.0 and return `404`. Agents
+> query HarborRAG through the [MCP server](../detailed-guides/mcp-server/README.md)
+> tools. The requests below describe 1.x.
+
 Agent runs a bounded model/tool loop through `POST /v1/agent/completions`.
 It uses the same user-owned sessions, three-exchange history window, and
 cost contract as RAG chat.

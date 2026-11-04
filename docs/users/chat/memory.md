@@ -66,7 +66,7 @@ Configure durable storage with `HARBORRAG_CONTROL_DB_URL`; deployed instances
 should share a PostgreSQL control database. The development in-memory
 fallback is bounded and does not survive restart or coordinate replicas.
 
-## Browse, rename, and erase
+## Browse sessions
 
 All endpoints below require tenant access and the `reader` role when
 authentication is enabled.
@@ -77,29 +77,17 @@ curl "http://localhost:8000/v1/chat/sessions?tenant=DEFAULT&limit=20" \
 
 curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant=DEFAULT&limit=50" \
   -H "Authorization: Bearer $TOKEN"
-
-curl -X PATCH "http://localhost:8000/v1/chat/sessions/session-...?tenant=DEFAULT" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  --data '{"title":"Release policy"}'
 ```
 
 Session lists return a `sessions` array, newest-activity first, default to 20 rows,
-and accept `limit=1..100` and opaque `cursor`. Use `/v1/agent/sessions` for
-sessions created by the agent surface; its history, rename, and delete paths
-have the same shape. The path determines the listing kind, not a query parameter.
+and accept `limit=1..100` and opaque `cursor`.
 Message lists are oldest first, default to 50 rows, and accept
 `limit=1..200`; pass the returned `next_cursor` as `after`.
 Messages include citations, timestamps, run IDs, and partial status.
 
-Delete with `DELETE /v1/chat/sessions/{session_id}?tenant=DEFAULT`.
-The operation removes the session and its history, associated stored
-checkpoints through the repository, and session-scoped memory/index entries.
-The response reports deletion counts; it is not a claim that unrelated
-user/project memories were removed.
-
-Existing long-term memory can still be inspected or erased through
-`/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance
-operations are separate from completion context.
+Renaming and deleting a session over HTTP, and the `/v1/memory/*` routes, are
+removed in 2.0.0 and return `404`; they come back with the v2.1 session and
+memory endpoints.
 
 ## SDK memory settings
 

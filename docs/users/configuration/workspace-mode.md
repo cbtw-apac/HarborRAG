@@ -240,25 +240,22 @@ replaces the authenticated principal.
 
 ### HTTP API
 
-Public API request bodies use the top-level field name `tenant`:
+The API takes the tenant from the credential. A token that holds several
+tenants names one with `X-Tenant-Id`:
 
 ```bash
 curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
   --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
-  --data '{
-    "query": "deployment requirements",
-    "tenant": "tenant-1",
-    "top_k": 5,
-    "lane": "hybrid"
-  }' \
-  http://127.0.0.1:8000/v1/retrieval/vector
+  --header 'X-Tenant-Id: tenant-1' \
+  http://127.0.0.1:8000/v1/admin/connections
 ```
 
+Chat requests also carry `tenant` in the body, which must be one the token
+holds.
+
 With HMAC authentication enabled, the bearer token contains the principal's
-role and a `tenants` claim. The API rejects a request whose `tenant` is not in
-that grant, even if the principal has a high role. A `*` grant is unrestricted
+role and a `tenants` claim. The API rejects a tenant that is not in that grant
+with `403 tenant_forbidden`, even if the principal has a high role. A `*` grant is unrestricted
 and should be reserved for trusted administrative callers.
 
 `HARBORRAG_AUTH_MODE=none` is a development-only mode that treats every request

@@ -114,7 +114,7 @@ names a project by its display name answers
 
 ## Swagger UI templates
 
-The API's interactive documentation, at `/api/v1/docs`, offers a complete
+The API's interactive documentation, at `/docs`, offers a complete
 request body for each setup in the table above. Open **Create or replace a
 connection** (or **Test a connection**), select **Try it out**, and pick a
 template from the list Swagger UI labels **Examples**:
@@ -339,16 +339,17 @@ Errors use `{"error": {"code", "message", "details", "trace_id"}}`. A
 `[{"field": "credentials.base_url", "issue": "..."}]`; fields are named
 `credentials.<name>`, `config.<name>` or `advanced.<name>`.
 
-## Deprecated routes
+## Removed routes
 
-These keep working in 2.0.x and send `Deprecation`, `Sunset` and
-`Link: rel="successor-version"` headers:
+These are gone in 2.0.0 and answer `404`, with no deprecated alias:
 
-| Route | Successor |
+| Route | Replacement |
 | --- | --- |
 | `GET /v1/connections` | `GET /v1/admin/connections` |
 | `/api/v1/sources*` | `/v1/admin/projects/{project_id}/connections/{connection_id}` |
-| `POST /v1/ingestions` | `POST …/connections/{connection_id}/sync` |
+
+`POST /v1/ingestions` still works until `/v1/admin/ingestions` replaces it;
+prefer `POST …/connections/{connection_id}/sync`.
 
 `POST /v1/ingestions` takes the connection's `source_key` as `connection_id`.
 For a connection imported from `connectors.yaml`, that is the YAML key.

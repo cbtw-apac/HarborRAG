@@ -371,7 +371,7 @@ openssl rand -hex 32
 three connections: `harborrag-workspace` (local files, no credentials), `confluence-main`,
 and `jira-main`. The two remote ones need credentials in `env/.env.connector` before they
 will build - until then the worker logs a warning at startup, they still appear in
-`GET /v1/connections`, and submitting against them fails:
+`GET /v1/admin/connections`, and submitting against them fails:
 
 ```dotenv
 JIRA_BASE_URL=https://your-domain.atlassian.net
@@ -529,7 +529,7 @@ The token is stored encrypted in the control database and never read back. Refer
 such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/connectors.yaml`
 and the `harborrag source` CLI, never through the API.
 
-To fill the body in a browser, open <http://localhost:8000/api/v1/docs>, go to
+To fill the body in a browser, open <http://localhost:8000/docs>, go to
 **Create or replace a connection**, and pick a template such as "Jira Cloud" or
 "GitHub private repository". Each template lists every setting with its default.
 From a terminal, save the same body to a file and run

@@ -17,8 +17,8 @@ All transports expose the same eleven read-only tools listed in [MCP Tools](READ
 and pass through the same policy and audit boundary. HTTP tool calls accept `reader`
 or `owner` tokens with tenant grants; the local administration API requires `owner`.
 
-Chat and agent are **not** in the MCP catalog. They are served only through the
-HarborRAG REST API at `/v1/chat/completions` and `/v1/agent/completions`.
+Chat is **not** in the MCP catalog. It is served only through the HarborRAG REST
+API at `/v1/chat/completions`.
 
 ## Before you start
 
@@ -619,9 +619,9 @@ the server for its tools.
 
 The normal catalog contains eleven reader tools. The interactive Explorer
 runs as a separate server; see [Explorer MCP UI server](#explorer-mcp-ui-server).
-Chat and agent are not part
-of the MCP catalog; they are served only through the HarborRAG REST API's
-`/v1/chat` and `/v1/agent` endpoints.
+Chat is not part
+of the MCP catalog; it is served only through the HarborRAG REST API's
+`/v1/chat` endpoints.
 
 Do not run the stdio command as an interactive service. An MCP client must
 launch it with stdin and stdout connected to pipes. A direct terminal launch

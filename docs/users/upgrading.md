@@ -30,8 +30,8 @@ The API imports `config/connectors.yaml` once, when all of these hold:
 
 - the file exists;
 - the install has at most one tenant;
-- no connection was created by a person (rows carried over from
-  `/api/v1/sources` do not count);
+- no connection was created by a person (rows carried over from the old
+  `/api/v1/sources` routes do not count);
 - no earlier import was recorded.
 
 Each entry becomes a connection:
@@ -82,9 +82,10 @@ a row whose type is unknown becomes `error`.
   A run that is already going keeps the values it started with.
 - **Editing a Jira connection's `jql` keeps its source scope**, so items the
   new query no longer matches are removed by the next full scan.
-- **`GET /v1/connections` lists stored connections** in the caller's tenants.
-  Its `source_type` for local files is now `local_file`, and `connection_id`
-  is the `source_key` that `POST /v1/ingestions` accepts.
+- **`GET /v1/admin/connections` lists stored connections** in the caller's
+  tenant. The `source_type` for local files is `local_file`, and a
+  connection's `source_key` is the `connection_id` that `POST /v1/ingestions`
+  accepts.
 - **Request settings can be edited.** A connection's `advanced` object holds
   `requests_per_minute`, `page_size`, `request_timeout_seconds`,
   `max_retries` and `backoff_factor`; see
@@ -113,9 +114,35 @@ a row whose type is unknown becomes `error`.
   `LOCAL_SOURCE_PATH` set, a `local_file` connection must stay inside it.
   Without either on the API, the API refuses new `local_file` connections;
   the CLI and `connectors.yaml` still accept them.
-- **Deprecated:** `GET /v1/connections`, `/api/v1/sources*` and
-  `POST /v1/ingestions` keep working through 2.0.x and announce their
-  successors. They sunset on 7 February 2027.
+- **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
+  `/v1/ingestions*` keeps working until `/v1/admin/ingestions*` replaces it.
+
+### HTTP API changes
+
+- **Removed routes answer `404`, with no deprecated alias:** every `/api/v1/*`
+  route, including `/api/v1/health`, `/api/v1/readyz` and `/api/v1/metrics`,
+  and `/v1/connections`, `/v1/agent/*`, `/v1/retrieval/*`, `/v1/graph/*`,
+  `/v1/memory/*`, `/v1/schedules/*`, `/v1/admin/projections/*` and
+  `PATCH`/`DELETE /v1/chat/sessions/{session_id}`. MCP server tools replace
+  agent and retrieval access.
+- **Probes and docs moved to the root:** `/healthz`, `/readyz`, `/docs` and
+  `/openapi.json`.
+- **`/metrics` answers on the ops port** (`HARBORRAG_OPS_PORT`, 9465), only to
+  `HARBORRAG_METRICS_SCRAPE_TOKEN`; the API image starts with
+  `python -m harborrag_app.api.serve`.
+- **Every error uses one catalog of codes**, such as `not_found`,
+  `validation_error`, `unauthenticated` and `rate_limited`, in place of codes
+  like `harbor_not_found_error`. `details` is `null`, an object, or for
+  `validation_error` a list of `{field, issue}`.
+- **The trace header is `X-Trace-Id`**, 32 lowercase hex characters, in place
+  of `X-Request-Id`.
+- **Each principal is rate-limited**: `HARBORRAG_HTTP_RATE_DEFAULT` (10) calls
+  per second on `/v1`, and `HARBORRAG_HTTP_RATE_CHAT` (2) chat completions per
+  second, answering `429` with `Retry-After`.
+- **A credential with several tenants sends `X-Tenant-Id`** on admin routes,
+  else `400 tenant_required`; a tenant it does not hold is
+  `403 tenant_forbidden`.
+- **An `Idempotency-Key` reused with another body is `422`**, not `409`.
 
 ### Not yet supported
 
