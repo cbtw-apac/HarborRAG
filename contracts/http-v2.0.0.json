@@ -494,15 +494,16 @@
         "504": "Error"
       }
     },
-    "POST /v1/admin/projects/{project_id}/connections/{connection_id}/sync": {
+    "POST /v1/admin/ingestions": {
       "legacy": false,
       "min_role": "editor",
       "parameters": [
-        "header:X-Tenant-Id?",
-        "path:connection_id",
-        "path:project_id"
+        "header:X-Tenant-Id?"
       ],
-      "request": [],
+      "request": [
+        "connection_id",
+        "project_id"
+      ],
       "responses": {
         "202": [
           "connection",
@@ -533,7 +534,6 @@
         "400": "Error",
         "401": "Error",
         "403": "Error",
-        "404": "Error",
         "409": "Error",
         "413": "Error",
         "422": "Error",

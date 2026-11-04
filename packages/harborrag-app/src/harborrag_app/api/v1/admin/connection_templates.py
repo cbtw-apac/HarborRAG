@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any
 
 from fastapi.openapi.models import Example
 from pydantic import BaseModel
@@ -30,12 +30,6 @@ class ConnectionTemplateBuilder:
 
     def __init__(self, registry: SourceTypeRegistry) -> None:
         self._registry = registry
-        self._sync_now: bool | None = None
-
-    def with_sync_now(self, value: bool = False) -> Self:
-        """Add ``sync_now`` to every template, as the ``PUT`` route takes it."""
-        self._sync_now = value
-        return self
 
     def build(self) -> dict[str, Example]:
         """Return the templates keyed ``<source_type>-<setup>``, in registration order."""
@@ -67,8 +61,6 @@ class ConnectionTemplateBuilder:
             "config": FieldValueFactory(setup.config, defaults).values(spec.config_model),
             "advanced": FieldValueFactory(connector_defaults=defaults).values(spec.tuning_model),
         }
-        if self._sync_now is not None:
-            body["sync_now"] = self._sync_now
         return body
 
 

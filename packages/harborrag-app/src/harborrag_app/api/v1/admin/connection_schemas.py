@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.json_schema import JsonDict
 
-from harborrag_app.api.schemas import ApiError, ApiModel
+from harborrag_app.api.schemas import ApiModel
 
 SourceTypeName = Literal["jira", "confluence", "sharepoint", "local_file", "github"]
 ConnectionStatusName = Literal["active", "needs_reauth", "error"]
@@ -111,7 +111,6 @@ class ConnectionWriteRequest(ApiModel):
             "the connector default"
         ),
     )
-    sync_now: bool = Field(default=False, description="Start the first ingestion right away")
 
 
 class ConnectionTestRequest(ApiModel):
@@ -135,9 +134,11 @@ class ConnectionTestRequest(ApiModel):
     )
 
 
-class SyncRequest(ApiModel):
-    """``sync`` body."""
+class IngestionStartRequest(ApiModel):
+    """``POST /v1/admin/ingestions`` body: the connection to ingest and how."""
 
+    project_id: str = Field(min_length=1, max_length=128, description="The connection's project")
+    connection_id: str = Field(pattern=ID_PATTERN, description="The connection to ingest")
     mode: Literal["incremental", "force"] = Field(
         default="incremental",
         description=(
@@ -246,19 +247,6 @@ class IngestionOut(BaseModel):
     links: LinksOut
     created_at: datetime | None
     finished_at: datetime | None
-
-
-class ConnectionPutOut(ConnectionOut):
-    """A stored connection and, with ``sync_now``, the ingestion it started."""
-
-    ingestion: IngestionOut | None = None
-    sync_error: ApiError | None = Field(
-        default=None,
-        description=(
-            "Why sync_now started no ingestion, e.g. already_running; the connection was "
-            "saved all the same"
-        ),
-    )
 
 
 class ConnectionPage(BaseModel):

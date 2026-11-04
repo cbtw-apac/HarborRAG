@@ -82,7 +82,7 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/sync` | `editor` | Start a sync |
+| `POST` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |

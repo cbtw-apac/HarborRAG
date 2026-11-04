@@ -1,29 +1,27 @@
-"""Source types, connections, connection tests and syncs, and projects.
+"""Source types, connections, connection tests, and projects.
 
 Handles:
 - ``/v1/admin/source-types``, ``/v1/admin/connections`` and
-  ``/v1/admin/projects/{project_id}/connections/{connection_id}[/test|/sync]`` (editor)
+  ``/v1/admin/projects/{project_id}/connections/{connection_id}[/test]`` (editor)
 - ``/v1/admin/projects[/{project_id}]`` (admin)
 - ``/v1/projects/{project_id}/connections`` (reader)
 
 Routes translate HTTP to the connection and project services: the tenant from
 the credential or ``X-Tenant-Id``, ``ETag`` and ``If-Match``, and status codes.
+
+Does NOT start ingestions; ``POST /v1/admin/ingestions`` does.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any, cast
 
-from fastapi import APIRouter, Body, Depends, Header, Path, Query, Request, Response
+from fastapi import APIRouter, Body, Depends, Header, Path, Query, Response
 from fastapi.responses import JSONResponse
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
-from harborrag_app.api.errors import spec_error_body
 from harborrag_app.api.pagination import DEFAULT_LIMIT, Page, PageDependency
-from harborrag_app.api.schemas import Error
-from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
     version_from_etag,
@@ -40,31 +38,20 @@ from .connection_schemas import (
     ConnectionChipPage,
     ConnectionOut,
     ConnectionPage,
-    ConnectionPutOut,
     ConnectionStatusName,
     ConnectionTestOut,
     ConnectionTestRequest,
     ConnectionWriteRequest,
-    IngestionOut,
     JobAcceptedOut,
     ProjectOut,
     ProjectPage,
     ProjectWriteRequest,
     SourceTypeName,
     SourceTypePage,
-    SyncRequest,
 )
 from .connection_templates import ConnectionTemplateBuilder
+from .dependencies import Admin, Administration, Editor, error_responses
 
-
-def _administration(request: Request) -> ConnectionAdministration:
-    """The app service the lifespan composed."""
-    return cast(ConnectionAdministration, request.app.state.app_service)
-
-
-Administration = Annotated[ConnectionAdministration, Depends(_administration)]
-Editor = Annotated[Principal, Depends(require_role("editor"))]
-Admin = Annotated[Principal, Depends(require_role("admin"))]
 ProjectId = Annotated[
     str,
     Path(
@@ -97,13 +84,8 @@ def _documented(code: int, model: type[Any], description: str) -> dict[int | str
     return {code: {"model": model, "description": description}}
 
 
-def _errors(*codes: int) -> dict[int | str, dict[str, Any]]:
-    """OpenAPI entries for the spec's error envelope."""
-    return {code: {"model": Error} for code in codes}
-
-
-_WRITE_TEMPLATES = ConnectionTemplateBuilder(source_types).with_sync_now(False).build()
-_TEST_TEMPLATES = ConnectionTemplateBuilder(source_types).build()
+_errors = error_responses
+_TEMPLATES = ConnectionTemplateBuilder(source_types).build()
 
 source_types_router = APIRouter(
     prefix="/admin/source-types",
@@ -193,10 +175,9 @@ async def get_connection(
 @connections_router.put(
     "/projects/{project_id}/connections/{connection_id}",
     summary="Create or replace a connection",
-    response_model=ConnectionPutOut,
-    response_model_exclude_none=False,
+    response_model=ConnectionOut,
     status_code=200,
-    responses={**_documented(201, ConnectionPutOut, "Created"), **_errors(404, 409, 412, 422)},
+    responses={**_documented(201, ConnectionOut, "Created"), **_errors(404, 409, 412, 422)},
 )
 async def put_connection(  # noqa: PLR0913 - path, body, preconditions and caller
     service: Administration,
@@ -204,8 +185,7 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
     principal: Editor,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_WRITE_TEMPLATES)],
-    request: Request,
+    body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_TEMPLATES)],
     response: Response,
     if_match: IfMatch = None,
     if_none_match: IfNoneMatch = None,
@@ -223,14 +203,10 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
         actor=principal.subject,
         expected_version=version_from_etag(if_match),
         create_only=if_none_match == "*",
-        sync_now=body.sync_now,
     )
     response.status_code = 201 if result.created else 200
     response.headers["ETag"] = etag(result.version)
-    sync_error = (
-        spec_error_body(request, result.sync_error) if result.sync_error is not None else None
-    )
-    return {**result.connection, "ingestion": result.ingestion, "sync_error": sync_error}
+    return result.connection
 
 
 @connections_router.delete(
@@ -266,7 +242,7 @@ async def test_connection(
     tenant: TenantDependency,
     project_id: ProjectId,
     connection_id: ConnectionId,
-    body: Annotated[ConnectionTestRequest | None, Body(openapi_examples=_TEST_TEMPLATES)] = None,
+    body: Annotated[ConnectionTestRequest | None, Body(openapi_examples=_TEMPLATES)] = None,
 ) -> dict[str, Any]:
     """Check form values, or the saved connection without a body; saves nothing."""
     write = (
@@ -283,35 +259,6 @@ async def test_connection(
     return await service.connection_service.test(
         ConnectionKey(tenant, project_id, connection_id), write
     )
-
-
-@connections_router.post(
-    "/projects/{project_id}/connections/{connection_id}/sync",
-    summary="Start a sync",
-    response_model=IngestionOut,
-    status_code=202,
-    responses=_errors(404, 409, 422, 501),
-)
-async def sync_connection(  # noqa: PLR0913 - path, body and caller
-    service: Administration,
-    tenant: TenantDependency,
-    principal: Editor,
-    project_id: ProjectId,
-    connection_id: ConnectionId,
-    response: Response,
-    body: Annotated[SyncRequest | None, Body()] = None,
-) -> dict[str, Any]:
-    """Start an incremental or forced sync; 409 while one is running."""
-    request = body or SyncRequest()
-    ingestion = await service.connection_service.sync(
-        ConnectionKey(tenant, project_id, connection_id),
-        actor=principal.subject,
-        mode=request.mode,
-        item_refs=tuple(request.item_refs),
-        updated_after=request.updated_after.isoformat() if request.updated_after else None,
-    )
-    response.headers["Location"] = f"/v1/admin/ingestions/{ingestion['id']}"
-    return ingestion
 
 
 @projects_router.get(

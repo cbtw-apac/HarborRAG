@@ -103,6 +103,12 @@ class TenantRequiredError(HarborError):
     error_code = "tenant_required"
 
 
+class ReferenceNotFoundError(HarborValidationError):
+    """An ID in the body or query does not exist or is not visible to the caller."""
+
+    error_code = "reference_not_found"
+
+
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     TenantRequiredError: 400,
     HarborPreconditionFailedError: 412,
@@ -294,6 +300,7 @@ def register_error_handlers(app: FastAPI) -> None:
 
 __all__ = [
     "CATALOG",
+    "ReferenceNotFoundError",
     "TenantRequiredError",
     "catalog_code",
     "documented_error_responses",

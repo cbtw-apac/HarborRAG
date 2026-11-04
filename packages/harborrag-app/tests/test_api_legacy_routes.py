@@ -38,6 +38,7 @@ REMOVED = [
     ("GET", "/v1/admin/projections/DEFAULT"),
     ("PATCH", "/v1/chat/sessions/session-1"),
     ("DELETE", "/v1/chat/sessions/session-1"),
+    ("POST", "/v1/admin/projects/cpm/connections/cpm-tickets/sync"),
 ]
 
 

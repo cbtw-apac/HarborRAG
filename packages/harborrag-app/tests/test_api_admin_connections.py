@@ -9,7 +9,7 @@ from typing import Any
 
 import jwt
 import pytest
-from app_test_connections import ConnectionWorld, connection_world, running_task
+from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
@@ -101,7 +101,10 @@ def test_source_types_publish_every_v2_type(client: TestClient) -> None:
 
 
 def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _ConnectionApp) -> None:
-    created = client.put(_PATH, json={**_BODY, "sync_now": True})
+    created = client.put(_PATH, json=_BODY)
+    started = client.post(
+        "/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"}
+    )
 
     body = created.json()
     assert created.status_code == 201
@@ -110,7 +113,8 @@ def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _Con
     assert body["credentials"]["api_token"]["from"] == "stored"
     assert body["credentials"]["api_token"]["last4"] == "9f2c"
     assert body["created_by"] == body["updated_by"] == "u_huy"
-    assert body["ingestion"]["id"] == "ing_1"
+    assert "ingestion" not in body
+    assert started.status_code == 202 and started.json()["id"] == "ing_1"
     assert "sentinel" not in created.text
 
     read = client.get(_PATH)
@@ -132,7 +136,8 @@ def test_the_raw_token_reaches_no_log_line(
 ) -> None:
     caplog.set_level(logging.DEBUG)
 
-    client.put(_PATH, json={**_BODY, "sync_now": True})
+    client.put(_PATH, json=_BODY)
+    client.post("/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"})
     client.put(_PATH, json={**_BODY, "name": "Renamed"})
     client.get(_PATH)
     client.get("/v1/admin/connections")
@@ -189,9 +194,10 @@ def test_list_test_sync_and_delete(
         f"{_PATH}/test",
         json={"source_type": "local_file", "config": {"source_path": str(tmp_path / "nope")}},
     )
-    synced = client.post(f"{_PATH}/sync", json={"mode": "force"})
+    target = {"project_id": "cpm", "connection_id": "cpm-tickets"}
+    synced = client.post("/v1/admin/ingestions", json={**target, "mode": "force"})
     app_service.world.runs.active = app_service.world.runs.tasks["ing_1"]
-    again = client.post(f"{_PATH}/sync", json={})
+    again = client.post("/v1/admin/ingestions", json=target)
     busy_delete = client.delete(_PATH)
     app_service.world.runs.active = None
     deleted = client.delete(_PATH, params={"purge": "true"})
@@ -267,7 +273,8 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
         "delete",
     }
     assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/test"]
-    assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/sync"]
+    assert "/v1/admin/projects/{project_id}/connections/{connection_id}/sync" not in paths
+    assert set(paths["/v1/admin/ingestions"]) == {"post"}
     assert "/v1/connections" not in paths
     assert "/api/v1/sources" not in paths
 
@@ -309,7 +316,7 @@ def test_templates_are_offered_per_setup(client: TestClient) -> None:
         "github-token": "GitHub private repository",
     }
     assert all(template["description"].startswith("Template: ") for template in templates.values())
-    assert not any(template["value"]["sync_now"] for template in templates.values())
+    assert not any("sync_now" in template["value"] for template in templates.values())
     for template in templates.values():
         assert {"allowed_extensions", "excluded_extensions"} <= set(template["value"]["config"])
 
@@ -354,14 +361,13 @@ def test_every_template_creates_a_connection_that_builds_its_connector(
     assert set(built) == set(templates)
 
 
-def test_test_route_templates_are_the_put_bodies_without_sync_now(client: TestClient) -> None:
+def test_test_route_templates_are_the_put_bodies(client: TestClient) -> None:
     paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
     put = paths[_ROUTE]["put"]["requestBody"]["content"]["application/json"]["examples"]
     test = paths[f"{_ROUTE}/test"]["post"]["requestBody"]["content"]["application/json"]
 
     assert {name: example["value"] for name, example in test["examples"].items()} == {
-        name: {key: value for key, value in example["value"].items() if key != "sync_now"}
-        for name, example in put.items()
+        name: example["value"] for name, example in put.items()
     }
     assert paths[_ROUTE]["put"]["summary"] == "Create or replace a connection"
 
@@ -402,12 +408,9 @@ def test_source_types_publish_their_advanced_schema(client: TestClient) -> None:
     assert items["jira"]["ui"]["page_size"]["group"] == "Advanced"
 
 
-def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
-    client: TestClient, app_service: _ConnectionApp
-) -> None:
+def test_a_read_body_sent_back_keeps_its_secrets(client: TestClient) -> None:
     created = client.put(_PATH, json=_BODY)
     read = client.get(_PATH).json()
-    app_service.world.runs.active = running_task("ing_0")
 
     echoed = client.put(
         _PATH,
@@ -416,7 +419,6 @@ def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
             "name": "Renamed",
             "credentials": read["credentials"],
             "config": read["config"],
-            "sync_now": True,
         },
         headers={"If-Match": "*"},
     )
@@ -424,10 +426,8 @@ def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
     assert created.status_code == 201
     assert echoed.status_code == 200 and echoed.headers["ETag"] == 'W/"rev-2"'
     body = echoed.json()
-    assert body["name"] == "Renamed" and body["ingestion"] is None
+    assert body["name"] == "Renamed"
     assert body["credentials"]["api_token"]["last4"] == read["credentials"]["api_token"]["last4"]
-    assert body["sync_error"]["code"] == "already_running"
-    assert body["sync_error"]["details"] == {"ingestion_id": "ing_0"}
 
 
 def test_put_body_schema_documents_method_and_secret_shapes(client: TestClient) -> None:
