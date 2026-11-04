@@ -1,9 +1,8 @@
 # Scheduled Ingestion
 
 HarborRAG manages recurring source ingestion with Temporal Schedules. Define
-long-lived schedules in version-controlled YAML or manage API-owned schedules
-through the authenticated API. Use the Temporal UI to inspect executions and for
-emergency administration; avoid editing config-owned schedules there because
+long-lived schedules in version-controlled YAML. Use the Temporal UI to inspect
+executions and for emergency administration; avoid editing config-owned schedules there because
 the next config sync will overwrite those changes. Pause state is the exception:
 a sync only pauses or unpauses an existing schedule when its `paused` value in
 the YAML file changes, so a pause applied during an incident survives restarts
@@ -81,10 +80,12 @@ Set `prune: true` only when removing a config-owned schedule from the YAML file
 should delete it from Temporal. The default `false` avoids deleting schedules
 because of an incomplete deployment file.
 
-## Manage API-Owned Schedules
+## API-Owned Schedules
 
 The `/v1/schedules` routes are removed in 2.0.0 and return `404`. Declare
 schedules in `config/schedules.yaml`; the API reconciles them at start-up.
+Schedules created through those routes in 1.x keep running, because a sync
+only deletes config-owned schedules; pause or delete them in the Temporal UI.
 
 ## Monitor and Troubleshoot
 
@@ -117,9 +118,9 @@ email or chat messages.
 
 Run outcomes are `started`, `completed`, `partial`, `skipped`, `cancelled` and
 `failed`. A run that is terminated or hits its execution timeout stops without
-recording an outcome; find those in the Temporal UI. Pausing through the API
-(`POST .../pause` or `PATCH` with `paused`) records the pause as intended, so
-only pauses made elsewhere — `pause_on_failure`, or the Temporal UI — raise the
+recording an outcome; find those in the Temporal UI. A `paused` change in
+`config/schedules.yaml` records the pause as intended, so only pauses made
+elsewhere — `pause_on_failure`, or the Temporal UI — raise the
 unexpected-pause alert.
 
 Relevant focused tests:
