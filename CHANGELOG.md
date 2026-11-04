@@ -32,6 +32,12 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 
+### Fixed
+
+#### harborrag-runtime
+
+- Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
+
 ## [2.0.0a2] - 2026-10-26
 
 Stored data is not migrated from 2.0.0a1: back up the control database and re-ingest every

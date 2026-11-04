@@ -145,3 +145,10 @@ development. The Temporal stack is not a production topology; use Temporal
 Cloud or the official Helm chart with managed persistence. See
 [Deployment](../../developers/deployment/README.md) before building an
 application image.
+
+The API stops at startup with `control-plane database is at schema revision X,
+newer than this build's head Y` when a newer build (another branch or image)
+already migrated the same control database. Run that newer build, or back up the
+database and downgrade it to `Y` with the newer build's migrations; this build
+cannot do it, because it does not ship the newer revisions. To keep builds from
+migrating each other's schema, give each one its own `POSTGRES_DB`.
