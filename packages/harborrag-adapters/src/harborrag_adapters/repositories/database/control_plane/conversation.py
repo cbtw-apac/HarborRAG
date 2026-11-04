@@ -33,7 +33,6 @@ from harborrag_adapters.repositories.database.control_plane.conversation_directo
 )
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
 from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
-    AgentRunRow,
     ConversationMemoryLegacyRow,
     ConversationMessageRow,
     ConversationSessionRow,
@@ -222,11 +221,6 @@ class SqlConversationMemoryRepository:
             await session.execute(
                 sa.delete(ConversationMemoryLegacyRow).where(
                     ConversationMemoryLegacyRow.session_id == identity.session_id,
-                )
-            )
-            await session.execute(
-                sa.delete(AgentRunRow).where(
-                    AgentRunRow.session_id == identity.session_id,
                 )
             )
             result = cast(

@@ -1,9 +1,9 @@
-"""Conversation/agent-run/long-term-memory ORM rows.
+"""Conversation and long-term-memory ORM rows.
 
 Split out of schemas.py to keep that file under the repo's file-length gate;
 these tables (conversation sessions + messages, the read-only legacy turn
-table, agent-run checkpoints, long-term memory) form one cohesive cluster
-consumed by conversation.py, agent_runs.py, and memory.py respectively. schemas.py imports this module
+table, long-term memory) form one cohesive cluster consumed by
+conversation.py and memory.py respectively. schemas.py imports this module
 at the bottom so every class here still registers on the shared ``Base``
 metadata whenever schemas.py is imported -- required for Alembic
 autogenerate and the metadata-drift test to see these tables.
@@ -141,57 +141,6 @@ class ConversationMemoryLegacyRow(Base):
     user_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
     assistant_content: Mapped[str] = mapped_column(sa.Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-
-
-class AgentRunRow(Base):
-    """Checkpointed agent-run state: resumable, optimistic-concurrency versioned.
-
-    ``state_json`` holds the parts of the run that only ever get replaced as a
-    whole (messages, executions, usage, response) -- splitting those into
-    columns would not make any query cheaper, since a checkpoint write always
-    replaces the entire run state at once.
-
-    ``user_id`` (migration 0031) is the human who owns the run, matching the
-    ``conversation_sessions`` parent: every predicate is scoped by
-    ``(tenant_id, user_id, session_id)`` and ``principal_id`` is retained
-    only as the credential that acted. ``run_id`` stays the primary key, so
-    the run-id lookup path is unchanged.
-    """
-
-    __tablename__ = "agent_runs"
-    __table_args__ = (
-        # Migration 0031 replaced the redundant tenant-only index with this
-        # one: every read is scoped by (tenant, user, session), and that is
-        # a covering prefix for a tenant-led scan.
-        sa.Index(
-            "ix_agent_runs_user_session",
-            "tenant_id",
-            "user_id",
-            "session_id",
-        ),
-    )
-
-    run_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
-    tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
-    principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
-    user_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
-    session_id: Mapped[str] = mapped_column(
-        sa.ForeignKey("conversation_sessions.session_id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
-    )
-    status: Mapped[str] = mapped_column(sa.String(32), nullable=False, index=True)
-    step: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    stop_reason: Mapped[str | None] = mapped_column(sa.String(32), nullable=True)
-    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
-    state_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
-    # Executor lease (migration 0024): set while RUNNING, refreshed on every
-    # save_step, cleared by terminal statuses. A RUNNING row whose lease has
-    # lapsed is a crashed worker and may be claimed by ``resume``.
-    lease_owner: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
 class MemoryRow(Base):
