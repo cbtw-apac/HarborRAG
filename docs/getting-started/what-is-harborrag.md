@@ -20,7 +20,7 @@ HarborRAG is under active alpha development. The distinction between implemented
 | Repository adapters | Implemented backends for Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and memory |
 | Engine and runtime | Postgres-authoritative ingestion, durable Temporal workflows, immutable artifacts, hybrid vector projection, graph projection, retrieval, chat orchestration, stored prompts, and production dependency composition are implemented |
 | CLI | `doctor`, one-shot chat, Temporal-backed ingestion control, and authoritative retrieval commands |
-| HTTP API | FastAPI factory serving a public `/v1` contract (ingestion, retrieval, chat, agent, admin) plus an operational `/api/v1` surface (liveness, readiness, Prometheus metrics, console routes) |
+| HTTP API | FastAPI factory serving a public `/v1` contract (chat, admin, ingestion), root `/healthz` and `/readyz` probes, and Prometheus metrics on a separate ops port |
 | MCP | Audited, policy-bounded FastMCP transport exposing nine read-only evidence, source, and graph tools over stdio or bearer-authenticated loopback HTTP with a local status/configuration UI |
 | Temporal deployment | PostgreSQL-backed local development stack; production deployment remains application/operator work |
 

@@ -273,7 +273,7 @@ settings are:
 | `HARBORRAG_ENV` | `dev`; set `prod` for production | Enables production fail-closed checks. |
 | `HARBORRAG_AUTH_MODE` | `none`; use `hmac` for an exposed service | Selects the token verifier. `oidc` is reserved but not implemented. |
 | `HARBORRAG_AUTH_SECRET` | Required for HMAC; at least 32 UTF-8 bytes | Verifies HS256 signatures. Load it from protected deployment configuration. |
-| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat, agent, and user-scoped memory. Required in every token. |
+| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat and user-scoped memory. Required in every token. |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required `iss` claim. |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required `aud` claim. |
 | `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | `3600` | Maximum accepted difference between `iat` and `exp`. |
@@ -316,7 +316,7 @@ The API role ladder is `reader < editor < admin < owner`:
 
 | Role | Tenant-relevant access |
 | --- | --- |
-| `reader` | Retrieval, chat, agent, and read-only task/control-plane routes within granted tenants. |
+| `reader` | Chat and read-only task/control-plane routes within granted tenants. |
 | `editor` | Reader access plus ingestion submission and other editor mutations. |
 | `admin` | Editor access plus administrative routes that require the admin level. |
 | `owner` | Highest API role. MCP transports currently require this role independently. |
@@ -633,7 +633,7 @@ There is no one-call cascade across all persistence families. A retirement plan
 must account for:
 
 - control-plane projects, sources, providers, members, activity, jobs, settings,
-  ingestion tasks, and conversation/agent memory;
+  ingestion tasks, and conversation memory;
 - canonical SQL documents, versions, chunks, events, and outbox data;
 - each tenant-specific Qdrant collection;
 - the tenant's nodes and relationships in the shared FalkorDB graph;

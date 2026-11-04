@@ -234,7 +234,7 @@ preparation defaults without importing Temporal internals. An import-linter rule
 protects this boundary. The deployed worker registers only the canonical
 source, batch, document, failed-document retry, and reindex workflows.
 
-Chat and agent are app-only surfaces; MCP does not expose them. Both follow
+Chat is an app-only surface; MCP does not expose it. HTTP and CLI follow
 one shared runtime path:
 
 ```text

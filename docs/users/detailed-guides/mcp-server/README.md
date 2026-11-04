@@ -56,7 +56,6 @@ Ingestion is controlled through the CLI or the authenticated API, never through 
 > `top_k`; graph observation remains off. Confirm effective values with
 > `GET /api/tools?tenant_id=<tenant>`.
 
-The REST agent and MCP use the same runtime catalog, input schemas, and tool execution.
 For compact discovery, set `include_content: false` and fetch selected evidence separately.
 Vector and composed search report `cost.status: unavailable` until actual LiteLLM
 embedding/reranking invocation cost telemetry is available; an unknown charge is never zero.

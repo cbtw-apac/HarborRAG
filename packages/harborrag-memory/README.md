@@ -1,6 +1,6 @@
 # harborrag-memory
 
-Scope-aware memory shared by chat and agent orchestration in
+Scope-aware memory for chat orchestration in
 [HarborRAG](https://github.com/cbtw-apac/HarborRAG). This package owns the memory facade;
 storage lives in `harborrag-adapters` and the contracts live in `harborrag-core`.
 
@@ -24,7 +24,7 @@ pip install harborrag-memory
 | Working | per-run scratch state | the run, bounded by a TTL |
 | Long-term | durable memories in a repository | until deleted |
 
-`MemoryManager` is the single facade chat and agent code imports. Each tier is optional -
+`MemoryManager` is the single facade chat code imports. Each tier is optional -
 pass only the ones you configured, and calling into an unconfigured tier raises
 `MemoryConfigurationError`.
 
@@ -104,7 +104,7 @@ asyncio.run(main())
 
 ## Per-turn context
 
-`MemoryContextBuilder` assembles everything one chat or agent turn needs from memory into
+`MemoryContextBuilder` assembles everything one chat turn needs from memory into
 one immutable `MemoryContext`: the verbatim window to replay, the rolling session summary
 covering the turns the window dropped, and the standalone query to send to retrieval.
 
@@ -191,7 +191,7 @@ raises `MemoryConfigurationError` at wiring time.
    separated from the assistant tool call that produced it. The post-summary boundary is
    walked back to the nearest user turn for the same reason, so a refresh may keep more
    than `summary_keep_messages` -- and when the whole window belongs to one user turn
-   (an agent turn that is one question followed by a long tool chain) nothing is older
+   (one question followed by a long tool chain) nothing is older
    than the boundary, so no summary is written and the turn rides on token-trimming
    alone. A budget too small for one message still keeps the newest message.
 7. Condense the summary, the window, and the question into one self-contained retrieval
@@ -394,7 +394,7 @@ is `()` when the failure lands before the first save. Neither ever raises into t
 - `tiers/short_term.py` - conversation history facade.
 - `tiers/working.py` - per-run scratch state facade and local store.
 - `tiers/long_term.py` - canonical repository facade for durable memory.
-- `manager.py` - `MemoryManager`, the single facade chat and agent import.
+- `manager.py` - `MemoryManager`, the single facade chat imports.
 - `schemas.py` - stable re-exports of the core-owned memory contracts.
 - `config.py` - `MemoryManagerConfig`, including the default recent-turn limit.
 - `errors.py` - `MemoryError`, `MemoryConfigurationError`, `MemoryScopeError`.

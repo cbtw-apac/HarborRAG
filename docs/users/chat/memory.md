@@ -46,9 +46,7 @@ and its actual citations. Interrupted output is marked `partial: true`.
 It remains visible in message history but is excluded from subsequent
 completion context.
 
-Agent runs store their question and final answer with a `run_id`.
-Intermediate tool activity belongs to the run checkpoint. A failed or
-cancelled run can remain resumable independently of conversation history.
+Messages from 1.x agent runs keep their `run_id`.
 
 `memory_persisted` reports whether the exchange was saved. A persistence
 failure leaves a successful answer available and sets this field to
@@ -88,15 +86,15 @@ memory endpoints.
 
 ## SDK memory settings
 
-These variables configure the SDK memory facade (`HarborRAG.memory.*`) and
-the opt-in agent memory tools. They do not change the public
+These variables configure the SDK memory facade (`HarborRAG.memory.*`). They
+do not change the public
 three-exchange policy above.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `HARBORRAG_MEMORY_ENABLED` | `true` | Off restores a short verbatim window with no summary, recall, rewriting, or extraction. |
 | `HARBORRAG_MEMORY_EXTRACTION_ENABLED` | `true` | Distils durable facts from an exchange passed to the SDK `extract` call. |
-| `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | `false` | Allows extraction and the agent memory tools to store facts at project scope, where every user of the project recalls them. Off, a project write is kept to its session. One user's extraction never supersedes a project memory another user wrote. |
+| `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | `false` | Allows extraction to store facts at project scope, where every user of the project recalls them. Off, a project write is kept to its session. One user's extraction never supersedes a project memory another user wrote. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION` | `90` | Expiry for session memories and rolling summaries. A summary's expiry restarts at each refresh. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_USER` | `365` | Expiry for user memories. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` | `0` | Expiry for project memories. |
