@@ -12,10 +12,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import socket
 import ssl
 import struct
 import time
 from collections.abc import Awaitable, Callable, Mapping
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -30,6 +32,7 @@ _SSL_REQUEST = struct.pack("!ii", 8, 80877103)
 _POSTGRES_PORT = 5432
 _REDIS_PORT = 6379
 _HTTP_OK_UPPER_BOUND = 400
+_RESOLVER = ThreadPoolExecutor(max_workers=16, thread_name_prefix="readiness-dns")
 
 
 class ReadinessChecks:
@@ -76,10 +79,26 @@ class ReadinessChecks:
         return "ok" if ready else "fail"
 
 
+async def _address(host: str, port: int) -> str:
+    """Resolve ``host`` on the probes' own threads.
+
+    The event loop's resolver threads are shared with the whole API, and a lookup of a
+    stopped service can hold one for seconds; a probe must neither starve the API's
+    lookups nor fail a healthy dependency queued behind a slow one.
+    """
+    loop = asyncio.get_running_loop()
+    infos = await loop.run_in_executor(
+        _RESOLVER, socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM
+    )
+    return str(infos[0][4][0])
+
+
 async def _exchange(host: str, port: int, payload: bytes, *, tls: bool = False) -> bytes:
     """Send ``payload`` and return the first bytes of the reply."""
     context = ssl.create_default_context() if tls else None
-    reader, writer = await asyncio.open_connection(host, port, ssl=context)
+    reader, writer = await asyncio.open_connection(
+        await _address(host, port), port, ssl=context, server_hostname=host if tls else None
+    )
     try:
         writer.write(payload)
         await writer.drain()

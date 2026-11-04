@@ -221,3 +221,42 @@ def test_checks_leave_out_stores_served_by_other_providers() -> None:
     checks = build_readiness_checks(runtime, ApiSettings(), temporal=lambda: _true())
 
     assert set(checks) == {"temporal"}
+
+
+def test_a_slow_lookup_cannot_fail_a_healthy_dependency(monkeypatch: pytest.MonkeyPatch) -> None:
+    import socket
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    resolve = socket.getaddrinfo
+
+    def lookup(host: str, *args: object, **kwargs: object) -> object:
+        if host.startswith("missing-"):
+            time.sleep(1.0)
+            raise socket.gaierror("no such host")
+        return resolve(host, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+
+    async def scenario() -> dict[str, str]:
+        asyncio.get_running_loop().set_default_executor(ThreadPoolExecutor(max_workers=1))
+        server, port, _ = await _serve(b"+PONG\r\n")
+        async with server:
+            checks = ReadinessChecks(
+                {
+                    **{
+                        f"missing{index}": (
+                            lambda index=index: redis_answers(f"redis://missing-{index}:6379")
+                        )
+                        for index in range(3)
+                    },
+                    "redis": lambda: redis_answers(f"redis://localhost:{port}"),
+                },
+                timeout_seconds=0.5,
+            )
+            return await checks.report()
+
+    report = asyncio.run(scenario())
+
+    assert report["redis"] == "ok"
+    assert {report[f"missing{index}"] for index in range(3)} == {"fail"}
