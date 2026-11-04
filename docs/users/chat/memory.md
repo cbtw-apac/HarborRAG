@@ -1,6 +1,6 @@
 # Conversation memory
 
-Public chat and agent requests use the latest **three completed
+Public chat requests use the latest **three completed
 user/assistant exchanges** from their conversation. Older messages remain
 stored for browsing; dropping them from a prompt does not erase history.
 
@@ -18,9 +18,6 @@ Direct SDK callers can supply explicit user identities. CLI and
 application-service calls that omit one use `DEFAULT_USER`. Tenant authorization
 continues to apply. Existing sessions under the old shared identity require a
 trusted owner mapping before migration; the API does not expose them to all users.
-
-A session can alternate between the chat and agent completion endpoints.
-Its stored `kind` describes how it was created, not an execution restriction.
 
 ## Which history is used
 

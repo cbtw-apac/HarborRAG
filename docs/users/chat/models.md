@@ -137,5 +137,4 @@ field.
 - [Chat](README.md) - the HTTP and CLI surfaces
 - [Chat models](models.md) - the model catalog and per-tenant overrides
 - [Conversation memory](memory.md) - what a turn remembers and for how long
-- [Agent](agent.md) - the bounded multi-turn surface
 - [Limits and accounting](limits.md) - deadlines, admission control, usage
