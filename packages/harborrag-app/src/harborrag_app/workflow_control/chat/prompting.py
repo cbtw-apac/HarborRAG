@@ -175,8 +175,7 @@ def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborCha
     """Replay stored per-message history as chat messages, oldest-first.
 
     Tool traffic is dropped: the chat surface exposes no tools, so a tool
-    result would reach the model as an unexplained extra turn. The agent's
-    tool history lives in its run checkpoint instead.
+    result would reach the model as an unexplained extra turn.
     """
 
     replayed: list[HarborChatMessage] = []

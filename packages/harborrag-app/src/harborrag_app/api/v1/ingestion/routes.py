@@ -40,7 +40,7 @@ _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 router = APIRouter(
     prefix="/ingestions",
     tags=["Ingestion"],
-    # Function scope, like the chat and agent routers: with the default request
+    # Function scope, like the chat router: with the default request
     # scope the server deadline stays armed across a StreamingResponse body and
     # hard-cancels the SSE stream mid-flight with no terminal error frame. This
     # router has such an endpoint. The capacity lease is unaffected and is

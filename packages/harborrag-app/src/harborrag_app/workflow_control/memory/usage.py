@@ -1,4 +1,4 @@
-"""Durable per-request model-usage accounting for the chat and agent surfaces.
+"""Durable per-request model-usage accounting for the chat surface.
 
 Chat was the one model family whose spend nobody could attribute: the tokens
 were reported to the caller and then thrown away. One ``ModelUsageRecord`` per

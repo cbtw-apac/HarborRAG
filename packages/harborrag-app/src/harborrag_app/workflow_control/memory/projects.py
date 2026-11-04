@@ -1,4 +1,4 @@
-"""Validate the optional project a chat or agent turn is scoped to."""
+"""Validate the optional project a chat turn is scoped to."""
 
 from __future__ import annotations
 
