@@ -80,10 +80,6 @@ class ConversationService(Protocol):
         limit: int = 50,
     ) -> AppResponse: ...
 
-    async def rename_conversation(self, access: MemoryAccess, *, title: str) -> AppResponse: ...
-
-    async def delete_conversation(self, access: MemoryAccess) -> AppResponse: ...
-
 
 def chat_service(request: Request) -> ChatService:
     return cast(ChatService, request.app.state.app_service)
