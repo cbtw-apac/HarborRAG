@@ -36,8 +36,6 @@ def test_defaults_match_the_approved_policy() -> None:
     assert settings.memory_query_rewrite is True
     # Entity linking is on: memory is joined to the graph by id, never written into it.
     assert settings.memory_entity_linking is True
-    # The agent memory tools are opt-in.
-    assert settings.memory_agent_tools is False
     assert settings.memory_extraction_enabled is True
     assert settings.memory_extraction_min_importance == pytest.approx(0.3)
     assert settings.memory_dedup_threshold == pytest.approx(0.92)
@@ -50,7 +48,6 @@ def test_environment_overrides_use_the_harborrag_prefix(monkeypatch: pytest.Monk
     monkeypatch.setenv("HARBORRAG_MEMORY_RECALL_TOP_K", "12")
     monkeypatch.setenv("HARBORRAG_MEMORY_MODEL_PROFILE", "cheap")
     monkeypatch.setenv("HARBORRAG_MEMORY_ENTITY_LINKING", "false")
-    monkeypatch.setenv("HARBORRAG_MEMORY_AGENT_TOOLS", "true")
     monkeypatch.setenv("HARBORRAG_MEMORY_TYPE_AFFINITY_WEIGHT", "1.5")
 
     settings = RuntimeSettings()
@@ -59,7 +56,6 @@ def test_environment_overrides_use_the_harborrag_prefix(monkeypatch: pytest.Monk
     assert settings.memory_recall_top_k == 12
     assert settings.memory_model_profile == "cheap"
     assert settings.memory_entity_linking is False
-    assert settings.memory_agent_tools is True
     assert settings.memory_type_affinity_weight == pytest.approx(1.5)
 
 
@@ -155,12 +151,11 @@ def test_retention_days_resolve_per_scope() -> None:
     assert settings.memory_retention_days(MemoryScope.GLOBAL) == 0
 
 
-@pytest.mark.parametrize("field", ["memory_entity_linking", "memory_agent_tools"])
-def test_the_new_memory_flags_are_booleans(field: str) -> None:
-    assert RuntimeSettings(**{field: True}).__getattribute__(field) is True
-    assert RuntimeSettings(**{field: False}).__getattribute__(field) is False
+def test_entity_linking_is_a_boolean() -> None:
+    assert RuntimeSettings(memory_entity_linking=True).memory_entity_linking is True
+    assert RuntimeSettings(memory_entity_linking=False).memory_entity_linking is False
     with pytest.raises(ValidationError):
-        RuntimeSettings(**{field: "sometimes"})
+        RuntimeSettings(memory_entity_linking="sometimes")
 
 
 @pytest.mark.parametrize("value", [0.0, 2.0])

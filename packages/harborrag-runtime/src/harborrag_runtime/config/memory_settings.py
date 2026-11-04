@@ -66,11 +66,6 @@ class MemorySettingsMixin(BaseSettings):
     # and recall ranks on relevance, recency, and importance alone.
     memory_entity_linking: bool = True
 
-    # Agent memory tools. Off by default because they let an agent run read and
-    # record long-term memory for the caller it is acting as; the owner fields
-    # are always bound server-side, never supplied by the model.
-    memory_agent_tools: bool = False
-
     # Background extraction.
     memory_extraction_enabled: bool = True
     # PROJECT-scope writes by extraction and the agent memory tools. A project
