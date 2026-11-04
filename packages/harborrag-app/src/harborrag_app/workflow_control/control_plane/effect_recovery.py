@@ -1,14 +1,12 @@
 """Durable retry queue for control-plane secret retirement and audit logging.
 
-Split out of writes.py (file-length gate) as a sibling module. writes.py's
-create_source/update_source/delete_source call ``retire_refs``/``log_activity``
-here instead of touching ``control_plane.secrets``/``activity`` directly, so a
-failure after their write already committed is queued for retry rather than
-raised -- never turning a successful write into an API error.
-``recover_pending_control_plane_effects`` (delegated to from
-``ControlPlaneWritesMixin``) drains that queue later. Both replayed actions
-are safe to retry blindly: secret deletion is a no-op on an already-gone ref,
-and a requeued activity entry keeps its original id, so it can't double-write.
+Connection and project writes call ``retire_refs``/``log_activity`` here instead
+of touching ``control_plane.secrets``/``activity`` directly, so a failure after
+their write already committed is queued for retry rather than raised -- never
+turning a successful write into an API error. ``recover_pending_control_plane_effects``
+drains that queue later. Both replayed actions are safe to retry blindly: secret
+deletion is a no-op on an already-gone ref, and a requeued activity entry keeps
+its original id, so it can't double-write.
 """
 
 from __future__ import annotations

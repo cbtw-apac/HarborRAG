@@ -21,8 +21,6 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
-from ..control_plane.reads import ControlPlaneReadsMixin
-from ..control_plane.writes import ControlPlaneWritesMixin
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
@@ -59,8 +57,6 @@ logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
 class AppService(
-    ControlPlaneReadsMixin,
-    ControlPlaneWritesMixin,
     ChatClientMixin,
     MemoryAdminClientMixin,
     PublicIngestionClientMixin,
@@ -212,12 +208,6 @@ class AppService(
             ok=ready,
             data={"diagnostics": diagnostics},
             error=None if ready else "runtime not ready",
-        )
-
-    def ingest_once(self) -> AppResponse:
-        return AppResponse(
-            False,
-            error="use 'harborrag ingest start' to submit an ingestion workflow",
         )
 
     async def runtime_health(self) -> AppResponse:

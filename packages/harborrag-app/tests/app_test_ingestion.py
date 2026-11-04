@@ -72,20 +72,6 @@ class IngestionServiceFixture:
             },
         )
 
-    def ingest_once(self) -> AppResponse:
-        return AppResponse(
-            True,
-            {
-                "documents": ["mock://app/1"],
-                "summary": {
-                    "discovered": 1,
-                    "loaded": 1,
-                    "parsed": 1,
-                    "indexed": 0,
-                },
-            },
-        )
-
     async def submit(
         self,
         command: IngestionCreateCommand,

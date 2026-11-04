@@ -17,7 +17,6 @@ from harborrag_app.workflow_control.memory import (
     MemoryAdministrationService,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
-from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_runtime.memory import (
@@ -204,85 +203,4 @@ class MockAppService(
                 include_metadata=include_metadata,
                 score_threshold=score_threshold,
             ),
-        )
-
-    async def list_projects(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
-        del tenant_ids
-        return AppResponse(True, {"projects": []})
-
-    async def get_project(
-        self, project_id: str, *, tenant_ids: frozenset[str] | None = None
-    ) -> AppResponse:
-        del project_id, tenant_ids
-        return AppResponse(True, {"project": None})
-
-    async def list_sources(
-        self, project_id: str | None = None, *, tenant_ids: frozenset[str] | None = None
-    ) -> AppResponse:
-        del project_id, tenant_ids
-        return AppResponse(True, {"sources": []})
-
-    async def get_source(
-        self, source_id: str, *, tenant_ids: frozenset[str] | None = None
-    ) -> AppResponse:
-        del source_id, tenant_ids
-        return AppResponse(True, {"source": None})
-
-    async def create_source(  # noqa: PLR0913 - mirrors the ports.py protocol signature
-        self,
-        *,
-        tenant_id: str,
-        project_id: str,
-        source_type: str,
-        name: str,
-        config: Mapping[str, object],
-        schedule: str | None,
-        actor: str,
-    ) -> AppResponse:
-        del tenant_id, project_id, source_type, name, config, schedule, actor
-        return AppResponse(True, {"source": None})
-
-    async def update_source(
-        self,
-        source_id: str,
-        *,
-        updates: dict[str, object],
-        actor: str,
-        tenant_ids: frozenset[str] | None = None,
-    ) -> AppResponse:
-        del source_id, updates, actor, tenant_ids
-        return AppResponse(True, {"source": None})
-
-    async def delete_source(
-        self, source_id: str, *, actor: str, tenant_ids: frozenset[str] | None = None
-    ) -> AppResponse:
-        del actor, tenant_ids
-        return AppResponse(True, {"source_id": source_id})
-
-    async def list_activity(
-        self, limit: int = 50, *, tenant_ids: frozenset[str] | None = None
-    ) -> AppResponse:
-        del limit, tenant_ids
-        return AppResponse(True, {"activity": []})
-
-    async def get_settings(self) -> AppResponse:
-        return AppResponse(True, {"settings": WorkspaceSettings(tenant_id="DEFAULT")})
-
-    async def get_metrics(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
-        del tenant_ids
-        return AppResponse(
-            True,
-            {
-                "projects_total": 0,
-                "sources_total": 0,
-                "documents_total": 0,
-                "chunks_total": 0,
-                "jobs_by_status": {
-                    "queued": 0,
-                    "running": 0,
-                    "succeeded": 0,
-                    "failed": 0,
-                    "cancelled": 0,
-                },
-            },
         )

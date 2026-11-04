@@ -10,7 +10,6 @@ tasks instead of jobs.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 
@@ -126,26 +125,3 @@ async def sync_ingestion_progress(
         after_submitted_at = page[-1].submitted_at
         after_task_id = page[-1].task_id
     return examined
-
-
-async def run_ingestion_progress_bridge(
-    store: PublicTaskStore,
-    event_bus: EventBusPort,
-    *,
-    interval_seconds: float = _DEFAULT_TICK_INTERVAL_SECONDS,
-) -> None:
-    """Run sync_ingestion_progress on a fixed interval until cancelled.
-
-    Each tick is independently supervised: one bad tick (a transient DB
-    error, a task that vanished mid-poll) is logged and skipped rather than
-    killing the whole background task, so a single failure can't silently
-    stop all future progress delivery for the process's lifetime.
-    """
-    while True:
-        try:
-            await sync_ingestion_progress(store, event_bus)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception("Ingestion progress sync tick failed")
-        await asyncio.sleep(interval_seconds)
