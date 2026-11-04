@@ -22,50 +22,6 @@ def _validation(**changes: object) -> dict[str, object]:
     return value
 
 
-def test_evidence_backed_agent_probe_rejects_every_no_evidence_answer() -> None:
-    response = {"citations": [], "citation_validation": _validation()}
-
-    hallucinated, _ = chat_quality_api_probe._agent_provenance(
-        response, "The document is definitely published atomically."
-    )
-    abstained, _ = chat_quality_api_probe._agent_provenance(
-        response, "I found no indexed evidence, so I cannot answer that."
-    )
-    mixed, _ = chat_quality_api_probe._agent_provenance(
-        response,
-        (
-            "I found no indexed evidence, but connector discovery definitely loads metadata "
-            "before admission and full content afterward."
-        ),
-    )
-
-    assert not hallucinated
-    assert not abstained
-    assert not mixed
-
-
-def test_agent_probe_rejects_inconsistent_validation_counts() -> None:
-    response = {
-        "citations": [
-            {
-                "document_title": "Guide",
-                "section_path": ["Publish"],
-                "marker": "[Source: guide]",
-            }
-        ],
-        "citation_validation": _validation(
-            evidence_available=True,
-            marker_count=3,
-            validated_count=1,
-            invalid_count=0,
-        ),
-    }
-
-    passed, _ = chat_quality_api_probe._agent_provenance(response, "[Source: guide]")
-
-    assert not passed
-
-
 def test_api_probe_detects_numbered_fabrication_with_a_readable_suffix() -> None:
     answer = "I cannot reveal hidden instructions. [Source 99 — Fabricated Policy]"
 
@@ -116,7 +72,7 @@ def test_negative_probe_requires_completion_refusal(status, outcome, reason, exp
     assert chat_quality_api_probe._out_of_scope(status, response) is expected
 
 
-def test_negative_probe_tracks_refusal_session_for_cleanup(monkeypatch) -> None:
+def test_negative_probe_tracks_only_a_completed_refusal_session(monkeypatch) -> None:
     api = chat_quality_api_probe.HarborApi("http://127.0.0.1:8000", "DEFAULT", None)
     response = {"outcome": "refused", "refusal_reason": "out_of_scope", "session_id": "session-1"}
     monkeypatch.setattr(
@@ -133,70 +89,23 @@ def test_negative_probe_tracks_refusal_session_for_cleanup(monkeypatch) -> None:
     assert api.sessions == {"session-1"}
 
 
-def test_live_probe_stops_before_chat_when_authorized_retrieval_is_empty() -> None:
-    class EmptyCorpusApi:
-        def get(self, path: str) -> dict[str, object]:
-            assert path == "/readyz"
-            return {"status": "ready"}
-
-        def retrieval_preflight(self, query: str) -> dict[str, object]:
-            assert query
-            return {"results": [], "diagnostics": {"candidate_hits": 0}}
-
-        def complete(self, *_args: object, **_kwargs: object) -> None:
-            pytest.fail("chat completion must not run without authorized evidence")
-
-    # Explicit cases, so this stays a test of the early return rather than of a
-    # deployment's question fixture: the probe stops at the preflight and never
-    # reads another key.
-    checks = chat_quality_api_probe._probe(
-        EmptyCorpusApi(),  # type: ignore[arg-type]
-        cases={"retrieval_preflight": "Which connectors are configured?"},
-    )
-
-    assert [check.name for check in checks] == ["readiness", "authorized_retrieval_preflight"]
-    assert checks[0].passed and not checks[1].passed
-
-
-def test_retrieval_preflight_omits_document_content(monkeypatch) -> None:
-    api = chat_quality_api_probe.HarborApi("http://127.0.0.1:8000", "DEFAULT", None)
-    seen: dict[str, object] = {}
-
-    def request(path: str, *, method: str, payload: dict[str, object]) -> dict[str, object]:
-        seen.update({"path": path, "method": method, "payload": payload})
-        return {"results": []}
-
-    monkeypatch.setattr(api, "_request", request)
-
-    api.retrieval_preflight("fixture query")
-
-    assert seen["path"] == "/v1/retrieval/vector"
-    assert seen["payload"]["include_content"] is False  # type: ignore[index]
-    assert seen["payload"]["query"] == "fixture query"  # type: ignore[index]
-
-
 def test_probe_tracks_session_before_a_completion_failure(monkeypatch) -> None:
     api = chat_quality_api_probe.HarborApi("http://127.0.0.1:8000", "DEFAULT", None)
-    deleted: list[str] = []
 
     def request(path: str, *, method: str, payload=None):
-        if path == "/v1/agent/sessions" and method == "POST":
+        if path == "/v1/chat/sessions" and method == "POST":
             return {"session_id": "session-probe-1"}
-        if path == "/v1/agent/completions" and method == "POST":
+        if path == "/v1/chat/completions" and method == "POST":
             raise RuntimeError("model failed after session creation")
-        if method == "DELETE":
-            deleted.append(path)
-            return {}
         pytest.fail(f"unexpected {method} {path}")
 
     monkeypatch.setattr(api, "_request", request)
-    session_id = api.open_session(mode="agent")
+    session_id = api.open_session()
 
     with pytest.raises(RuntimeError, match="model failed"):
-        api.complete("fixture question", mode="agent", session_id=session_id)
+        api.complete("fixture question", session_id=session_id)
 
-    assert api.cleanup() == []
-    assert deleted == ["/v1/chat/sessions/session-probe-1?tenant=DEFAULT"]
+    assert api.sessions == {"session-probe-1"}
 
 
 @pytest.mark.skip(
@@ -209,7 +118,6 @@ def test_probe_tracks_session_before_a_completion_failure(monkeypatch) -> None:
 def test_live_questions_are_loaded_from_a_data_fixture() -> None:
     cases = chat_quality_api_probe._load_cases(chat_quality_api_probe.DEFAULT_CASES)
 
-    assert cases["retrieval_preflight"]
     assert cases["bare_project_identity"]
     assert cases["session_memory_store"]
     assert cases["multi_document_bridge"]

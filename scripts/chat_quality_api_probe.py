@@ -1,8 +1,9 @@
 """Black-box quality probe for a deployed HarborRAG chat endpoint.
 
-The probe exercises ordinary RAG chat, session memory, and both agent tool
-modes. It creates temporary conversations and removes them unless
-``--keep-sessions`` is passed. Model-provider usage is still incurred.
+The probe exercises RAG chat, request scope, session memory, streaming and
+grounded answers through ``/v1/chat``. The HTTP API has no session delete in
+2.0.0, so the conversations it creates stay; the report lists their IDs.
+Model-provider usage is still incurred.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 from uuid import uuid4
 
@@ -40,30 +40,11 @@ class HarborApi:
     def get(self, path: str) -> dict[str, Any]:
         return self._request(path, method="GET")
 
-    # TODO: replace the removed /v1/retrieval/vector preflight once Story 5 settles /v1/chat.
-    def retrieval_preflight(self, query: str) -> dict[str, Any]:
-        """Check authorized evidence without returning document content."""
-
-        return self._request(
-            "/v1/retrieval/vector",
-            method="POST",
-            payload={
-                "tenant": self.tenant,
-                "query": query,
-                "top_k": 5,
-                "lane": "hybrid",
-                "include_content": False,
-                "include_metadata": False,
-            },
-        )
-
-    # TODO: drop the removed /v1/agent surface once Story 5 settles /v1/chat.
-    def open_session(self, *, mode: str = "rag") -> str:
+    def open_session(self) -> str:
         """Track a temporary session before any model request can fail."""
 
-        surface = "agent" if mode == "agent" else "chat"
         result = self._request(
-            f"/v1/{surface}/sessions",
+            "/v1/chat/sessions",
             method="POST",
             payload={"tenant": self.tenant},
         )
@@ -75,8 +56,7 @@ class HarborApi:
 
     def complete(self, prompt: str, **options: object) -> dict[str, Any]:
         payload = {"tenant": self.tenant, "prompt": prompt, **options}
-        surface = "agent" if options.get("mode") == "agent" else "chat"
-        result = self._request(f"/v1/{surface}/completions", method="POST", payload=payload)
+        result = self._request("/v1/chat/completions", method="POST", payload=payload)
         session_id = result.get("session_id")
         if isinstance(session_id, str):
             self.sessions.add(session_id)
@@ -86,10 +66,7 @@ class HarborApi:
         """Keep structured 4xx responses for negative quality checks."""
 
         payload = {"tenant": self.tenant, "prompt": prompt, **options}
-        surface = "agent" if options.get("mode") == "agent" else "chat"
-        status, raw = self._send_with_status(
-            f"/v1/{surface}/completions", method="POST", payload=payload
-        )
+        status, raw = self._send_with_status("/v1/chat/completions", method="POST", payload=payload)
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -103,8 +80,7 @@ class HarborApi:
 
     def stream(self, prompt: str, **options: object) -> list[tuple[str, dict[str, Any]]]:
         payload = {"tenant": self.tenant, "prompt": prompt, "stream": True, **options}
-        surface = "agent" if options.get("mode") == "agent" else "chat"
-        raw = self._send(f"/v1/{surface}/completions", method="POST", payload=payload)
+        raw = self._send("/v1/chat/completions", method="POST", payload=payload)
         frames: list[tuple[str, dict[str, Any]]] = []
         for block in raw.strip().split("\n\n"):
             event = next(
@@ -132,19 +108,6 @@ class HarborApi:
         if not frames:
             raise RuntimeError("stream returned no SSE frames")
         return frames
-
-    def cleanup(self) -> list[str]:
-        failures: list[str] = []
-        tenant = urlencode({"tenant": self.tenant})
-        for session_id in sorted(self.sessions):
-            try:
-                self._request(
-                    f"/v1/chat/sessions/{quote(session_id, safe='')}?{tenant}",
-                    method="DELETE",
-                )
-            except RuntimeError as exc:
-                failures.append(f"{session_id}: {exc}")
-        return failures
 
     def _request(
         self,
@@ -268,48 +231,6 @@ def _chat_provenance(response: dict[str, Any], answer: str) -> tuple[bool, str]:
     )
 
 
-def _agent_provenance(response: dict[str, Any], answer: str) -> tuple[bool, str]:
-    validation = response.get("citation_validation")
-    if not isinstance(validation, dict):
-        return False, "citation validation is missing"
-    raw_citations = _citations(response)
-    if not all(isinstance(item, dict) for item in raw_citations):
-        return False, "citation records contain a non-object value"
-    citations = [item for item in raw_citations if isinstance(item, dict)]
-    evidence_available = validation.get("evidence_available")
-    marker_count = validation.get("marker_count")
-    validated_count = validation.get("validated_count")
-    invalid_count = validation.get("invalid_count")
-    counts_valid = all(
-        type(value) is int and value >= 0  # noqa: E721 - bool must not pass as an integer
-        for value in (marker_count, validated_count, invalid_count)
-    )
-    if not counts_valid:
-        return False, "citation validation counts are malformed"
-    assert isinstance(marker_count, int)
-    assert isinstance(validated_count, int)
-    assert isinstance(invalid_count, int)
-    counts_reconcile = marker_count == validated_count + invalid_count
-    complete_reconciles = validation.get("complete") is (invalid_count == 0)
-    if not counts_reconcile or not complete_reconciles or len(citations) > validated_count:
-        return False, "citation validation counts are inconsistent"
-    if evidence_available is False:
-        return False, (
-            f"evidence_available=false; citations={len(citations)}; "
-            "evidence-backed workflow cannot pass"
-        )
-    if evidence_available is not True:
-        return False, "evidence availability is missing"
-    readable = all(
-        _readable_citation(item)
-        and isinstance(item.get("marker"), str)
-        and item["marker"] in answer
-        for item in citations
-    )
-    passed = bool(citations) and validated_count > 0 and invalid_count == 0 and readable
-    return passed, f"evidence_available=true; citations={len(citations)}; readable={readable}"
-
-
 def _numbered_source_markers(answer: str) -> tuple[str, ...]:
     return tuple(
         match.group(1)
@@ -319,17 +240,6 @@ def _numbered_source_markers(answer: str) -> tuple[str, ...]:
             flags=re.IGNORECASE,
         )
     )
-
-
-def _successful_tools(response: dict[str, Any]) -> set[str]:
-    calls = response.get("tool_calls")
-    if not isinstance(calls, list):
-        return set()
-    return {
-        str(call["tool"])
-        for call in calls
-        if isinstance(call, dict) and call.get("ok") is True and "tool" in call
-    }
 
 
 def _contains_any(text: str, terms: tuple[str, ...]) -> bool:
@@ -411,19 +321,6 @@ def _probe(  # noqa: C901 - one ordered release-gate report
 
     if not conversation_only:
 
-        def authorized_retrieval() -> tuple[bool, str]:
-            response = api.retrieval_preflight(questions["retrieval_preflight"])
-            results = response.get("results")
-            count = len(results) if isinstance(results, list) else 0
-            return count > 0, (
-                f"authorized_results={count}; diagnostics={response.get('diagnostics')!r}"
-            )
-
-        preflight_check = _run_check("authorized_retrieval_preflight", authorized_retrieval)
-        checks.append(preflight_check)
-        if not preflight_check.passed:
-            return checks
-
         def project_identity(case: str) -> tuple[bool, str]:
             response = api.complete(questions[case], session_id=api.open_session())
             answer = _answer(response)
@@ -467,17 +364,6 @@ def _probe(  # noqa: C901 - one ordered release-gate report
         return _out_of_scope(status, response), f"status={status}; response={response!r}"
 
     checks.append(_run_check("unrelated_creation", unrelated_creation))
-
-    def agent_jailbreak() -> tuple[bool, str]:
-        status, response = api.complete_with_status(
-            questions["agent_jailbreak_resistance"],
-            mode="agent",
-            graph_search=True,
-            max_steps=4,
-        )
-        return _out_of_scope(status, response), f"status={status}; response={response!r}"
-
-    checks.append(_run_check("agent_jailbreak_resistance", agent_jailbreak))
 
     def session_memory() -> tuple[bool, str]:
         session_id = api.open_session()
@@ -615,60 +501,6 @@ def _probe(  # noqa: C901 - one ordered release-gate report
 
     checks.append(_run_check("multi_hop_graph_rag", graph_rag))
 
-    def vector_agent() -> tuple[bool, str]:
-        response = api.complete(
-            questions["vector_agent"],
-            session_id=api.open_session(mode="agent"),
-            mode="agent",
-            graph_search=False,
-            max_steps=4,
-        )
-        tools = _successful_tools(response)
-        answer = _answer(response)
-        provenance, provenance_detail = _agent_provenance(response, answer)
-        passed = (
-            response.get("stop_reason") == "final_answer"
-            and "vector_search" in tools
-            and bool(answer.strip())
-            and provenance
-        )
-        return passed, (
-            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; "
-            f"{provenance_detail}; answer={answer!r}"
-        )
-
-    checks.append(_run_check("vector_agent_workflow", vector_agent))
-
-    def graph_agent() -> tuple[bool, str]:
-        response = api.complete(
-            questions["graph_agent"],
-            session_id=api.open_session(mode="agent"),
-            mode="agent",
-            graph_search=True,
-            max_steps=6,
-        )
-        tools = _successful_tools(response)
-        answer = _answer(response)
-        provenance, provenance_detail = _agent_provenance(response, answer)
-        graph_tools = {
-            "resolve_graph_nodes",
-            "composed_evidence_search",
-            "graph_subgraph_search",
-        }
-        passed = (
-            response.get("stop_reason") == "final_answer"
-            and "vector_search" in tools
-            and bool(tools & graph_tools)
-            and bool(answer.strip())
-            and provenance
-        )
-        return passed, (
-            f"stop={response.get('stop_reason')!r}; tools={sorted(tools)}; "
-            f"{provenance_detail}; answer={answer!r}"
-        )
-
-    checks.append(_run_check("vector_graph_agent_workflow", graph_agent))
-
     return checks
 
 
@@ -717,35 +549,25 @@ def _arguments() -> argparse.Namespace:
         action="store_true",
         help="Run scope and session-memory checks without requiring indexed evidence",
     )
-    parser.add_argument(
-        "--keep-sessions",
-        action="store_true",
-        help="Keep temporary probe conversations instead of deleting them",
-    )
     return parser.parse_args()
 
 
 def main() -> int:
     args = _arguments()
     api = HarborApi(args.endpoint, args.tenant, args.token)
-    cleanup_failures: list[str] = []
-    try:
-        checks = _probe(
-            api,
-            conversation_only=args.conversation_only,
-            cases=_load_cases(args.cases),
-        )
-    finally:
-        if not args.keep_sessions:
-            cleanup_failures = api.cleanup()
-    passed = all(check.passed for check in checks) and not cleanup_failures
+    checks = _probe(
+        api,
+        conversation_only=args.conversation_only,
+        cases=_load_cases(args.cases),
+    )
+    passed = all(check.passed for check in checks)
     report = {
         "passed": passed,
         "endpoint": args.endpoint,
         "tenant": args.tenant,
         "conversation_only": args.conversation_only,
         "checks": [asdict(check) for check in checks],
-        "cleanup_failures": cleanup_failures,
+        "sessions": sorted(api.sessions),
     }
     print(json.dumps(report, indent=2, ensure_ascii=False))
     return 0 if passed else 1
