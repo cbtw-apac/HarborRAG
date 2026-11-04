@@ -28,7 +28,6 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.memory import InMemoryConversationMemory
 
@@ -62,7 +61,6 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
-        agent_runs=InMemoryAgentRunRepository(),
         secrets=secrets or FakeSecrets(),
         pending_effects=pending_effects or FakePendingEffectRepository(),
         leases=leases or FakeLeaseRepository(),

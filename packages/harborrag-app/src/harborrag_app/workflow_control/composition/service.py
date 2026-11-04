@@ -36,7 +36,6 @@ from ..memory import (
     MemoryAdminClientMixin,
     MemoryAdministrationService,
     MemoryExtractionQueue,
-    agent_run_checkpoints,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
@@ -103,7 +102,6 @@ class AppService(
         memory = conversation_memory(self._composition)
         memories = long_term_memories(self._composition)
         index = long_term_memory_index(self._composition)
-        runs = agent_run_checkpoints(self._composition)
         projects = project_lookup(self._composition)
         usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
@@ -123,7 +121,6 @@ class AppService(
             conversations=memory,
             memories=memories,
             index=index,
-            runs=runs,
             pending_effects=getattr(
                 getattr(composition, "control_plane", None), "pending_effects", None
             ),

@@ -25,7 +25,7 @@ application = open_reader_application(RuntimeSettings())
 assert len(McpServer(tools=application.tools).list_tools()) == 11
 assert all(getattr(tool, 'runtime', None) is None for tool in application.tools)
 for prefix in ('harborrag_memory', 'harborrag_runtime.chat',
-               'harborrag_runtime.agent', 'harborrag_runtime.sdk',
+               'harborrag_runtime.sdk',
                'harborrag_runtime.ingestion'):
     assert not any(name == prefix or name.startswith(prefix + '.') for name in sys.modules), prefix
 """

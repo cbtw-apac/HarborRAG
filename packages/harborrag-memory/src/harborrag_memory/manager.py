@@ -1,6 +1,6 @@
 """Top-level memory orchestration facade.
 
-Chat and agent code can use this as a single entry point while the actual
+Chat code can use this as a single entry point while the actual
 storage and retrieval responsibilities remain split between the tier-specific
 facades and their adapter-backed repositories.
 """

@@ -98,14 +98,14 @@ class MemoryPolicy:
     type hint. It only ever re-ranks: recall still searches every recallable
     type, and retention stays keyed on scope.
 
-    ``extraction_project_scope`` lets extraction and the agent memory tools
-    store a fact at PROJECT scope, where every user of the project recalls it.
-    It is off by default because both write from model output that restates
-    retrieved, untrusted content; a project write is then stored for the
-    session instead (see ``write_scope``).
+    ``extraction_project_scope`` lets extraction store a fact at PROJECT scope,
+    where every user of the project recalls it. It is off by default because
+    extraction writes from model output that restates retrieved, untrusted
+    content; a project write is then stored for the session instead (see
+    ``write_scope``).
 
-    ``retention`` sets ``expires_at`` on every memory that extraction, the
-    rolling summary, and the agent memory tools write.
+    ``retention`` sets ``expires_at`` on every memory that extraction and the
+    rolling summary write.
     """
 
     enabled: bool = True

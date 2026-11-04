@@ -1,4 +1,4 @@
-"""Resolve the configured conversation-memory and agent-run-checkpoint plugins."""
+"""Resolve the configured conversation-memory plugins."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Any
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
-from harborrag_runtime.agent import AgentRunRepository, InMemoryAgentRunRepository
 from harborrag_runtime.memory import ConversationHistoryRepository, InMemoryConversationMemory
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
@@ -35,7 +34,7 @@ def conversation_memory(composition: Any) -> ConversationHistoryRepository:
     _require_in_memory_mode(composition, "conversation_memory")
     logger.warning(
         "No persistent conversation_memory wired on the control plane; falling back to "
-        "InMemoryConversationMemory. Chat and agent sessions will not survive a restart "
+        "InMemoryConversationMemory. Chat sessions will not survive a restart "
         "and will not be shared across replicas."
     )
     return InMemoryConversationMemory()
@@ -88,30 +87,13 @@ def model_usage_records(composition: Any) -> ModelUsageRepository | None:
     repository: ModelUsageRepository | None = getattr(control_plane, "model_usage", None)
     if repository is None and getattr(composition, "mode", None) not in _IN_MEMORY_MODES:
         logger.warning(
-            "No model_usage repository wired on the control plane; chat and agent token "
+            "No model_usage repository wired on the control plane; chat token "
             "spend will not be recorded per tenant and user for this process."
         )
     return repository
 
 
-def agent_run_checkpoints(composition: Any) -> AgentRunRepository:
-    """Use persistent composition agent-run checkpoints, with a test-double fallback."""
-
-    control_plane = getattr(composition, "control_plane", None)
-    persistent: AgentRunRepository | None = getattr(control_plane, "agent_runs", None)
-    if persistent is not None:
-        return persistent
-    _require_in_memory_mode(composition, "agent_runs")
-    logger.warning(
-        "No persistent agent_runs repository wired on the control plane; falling back to "
-        "InMemoryAgentRunRepository. Agent runs will not survive a restart and will not be "
-        "shared across replicas."
-    )
-    return InMemoryAgentRunRepository()
-
-
 __all__ = [
-    "agent_run_checkpoints",
     "conversation_memory",
     "long_term_memories",
     "long_term_memory_index",

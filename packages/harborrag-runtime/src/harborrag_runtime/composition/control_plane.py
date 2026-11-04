@@ -9,7 +9,6 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     ConnectionRepositoryPort,
@@ -56,7 +55,6 @@ class ControlPlaneRepositories:
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
     conversation_memory: ConversationHistoryRepository
-    agent_runs: AgentRunRepository
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
@@ -95,9 +93,6 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
-        from harborrag_adapters.repositories.database.control_plane.agent_runs import (
-            SqlAgentRunRepository,
-        )
         from harborrag_adapters.repositories.database.control_plane.connections import (
             SqlConnectionRepository,
             SqlConnectionRevisionRepository,
@@ -197,7 +192,6 @@ class CompositionRoot:
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
-            agent_runs=SqlAgentRunRepository(sessions),
             secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),

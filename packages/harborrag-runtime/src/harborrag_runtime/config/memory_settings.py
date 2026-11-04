@@ -68,11 +68,10 @@ class MemorySettingsMixin(BaseSettings):
 
     # Background extraction.
     memory_extraction_enabled: bool = True
-    # PROJECT-scope writes by extraction and the agent memory tools. A project
-    # fact is recalled into every project member's turns, and both writers act
-    # on model output that can restate retrieved, untrusted content (Jira,
-    # Confluence, SharePoint), so it is opt-in. Off, a project write is kept to
-    # the session it was stated in.
+    # PROJECT-scope writes by extraction. A project fact is recalled into every
+    # project member's turns, and extraction acts on model output that can
+    # restate retrieved, untrusted content (Jira, Confluence, SharePoint), so it
+    # is opt-in. Off, a project write is kept to the session it was stated in.
     memory_extraction_project_scope: bool = False
     memory_extraction_min_importance: float = Field(default=0.3, ge=0.0, le=1.0)
     memory_dedup_threshold: float = Field(default=0.92, ge=0.5, le=1.0)
@@ -82,8 +81,8 @@ class MemorySettingsMixin(BaseSettings):
     memory_embed_profile: str | None = None
 
     # Retention per scope; 0 means no automatic expiry. Applied as
-    # ``expires_at`` when extraction, the rolling summary, or an agent memory
-    # tool writes a memory; repositories stop returning a row once it passes.
+    # ``expires_at`` when extraction or the rolling summary writes a memory;
+    # repositories stop returning a row once it passes.
     # There is no sweeper, so expired rows stay stored until erased.
     memory_retention_days_session: int = Field(default=90, ge=0)
     memory_retention_days_user: int = Field(default=365, ge=0)

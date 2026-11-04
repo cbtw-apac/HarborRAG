@@ -7,7 +7,6 @@ import pytest
 from harborrag_core.contracts.reader import RetrievalLane, RetrievalResponse
 from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
 from harborrag_core.security import AccessContext
-from harborrag_engine.agent.tools import ReaderAgentToolProvider
 from harborrag_engine.tools.budgets import ToolBudget
 from harborrag_engine.tools.dispatcher import ToolInvoker
 from harborrag_engine.tools.vector_search import VectorSearchTool
@@ -79,20 +78,8 @@ async def test_caller_budget_cannot_widen_shared_limits() -> None:
             "echo_reader",
             {"tenant_id": "acme"},
             context=context,
-            budget=ToolBudget(label="Agent", max_argument_bytes=1000),
+            budget=ToolBudget(label="Reader", max_argument_bytes=1000),
         )
-
-
-@pytest.mark.asyncio
-async def test_agent_provider_binds_reader_calls_to_its_tenant() -> None:
-    provider = ReaderAgentToolProvider(ToolInvoker([EchoTool()]), tenant_id="acme")
-
-    assert await provider.call_tool(
-        "echo_reader", {"tenant_id": "acme"}, principal_id="reader"
-    ) == {"ok": True}
-    assert await provider.call_tool(
-        "echo_reader", {"tenant_id": "other"}, principal_id="reader"
-    ) == {"ok": False, "error": "reader tool tenant does not match authenticated context"}
 
 
 @pytest.mark.asyncio

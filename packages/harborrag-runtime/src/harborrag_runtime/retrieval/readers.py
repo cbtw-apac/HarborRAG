@@ -1,4 +1,4 @@
-"""Bounded, publication-safe reader workflows for MCP and agent clients."""
+"""Bounded, publication-safe reader workflows for MCP clients."""
 
 from __future__ import annotations
 
