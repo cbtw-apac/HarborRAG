@@ -1,63 +1,18 @@
-"""The shared chat and agent application facade used by the completion endpoint."""
+"""The chat application facade used by the completion endpoint."""
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
-from harborrag_app.workflow_control.agent import AgentExecutionOptions
-from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
-from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.ports.completion_requests import CompletionRequestStore
 
 from .dependencies import ChatService
 
 
-class AgentCompletionService(QueryScopeValidator, Protocol):
-    """Agent-mode completions behind ``POST /v1/chat/completions``."""
-
-    async def create_agent_session(
-        self,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> AppResponse: ...
-
-    async def agent_session_exists(
-        self,
-        session_id: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> bool: ...
-
-    async def validate_agent_model(self, model: str | None, *, tenant_id: str) -> None: ...
-
-    async def agent_completion(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: AgentExecutionOptions,
-    ) -> AppResponse: ...
-
-    def agent_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: AgentExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]: ...
-
-
-class CompletionService(ChatService, AgentCompletionService, CompletionRequestStore, Protocol):
-    """Compose mode execution and durable replay without duplicating their contracts."""
+class CompletionService(ChatService, CompletionRequestStore, Protocol):
+    """Compose chat execution and durable replay without duplicating their contracts."""
 
 
 def completion_service(request: Request) -> CompletionService:

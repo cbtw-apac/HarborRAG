@@ -96,10 +96,8 @@ def test_direct_principals_keep_explicit_user_identity() -> None:
 
 
 @pytest.mark.blackbox
-@pytest.mark.parametrize("surface", ["chat"])
 def test_missing_signed_user_claim_returns_401_before_session_creation(
     monkeypatch: pytest.MonkeyPatch,
-    surface: str,
 ) -> None:
     service = MockAppService()
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
@@ -107,26 +105,24 @@ def test_missing_signed_user_claim_returns_401_before_session_creation(
 
     with TestClient(create_fastapi_app(settings)) as client:
         response = client.post(
-            f"/v1/{surface}/completions",
+            "/v1/chat/completions",
             json={"prompt": "Explain the release"},
             headers={"Authorization": f"Bearer {_token()}"},
         )
         assert response.status_code == 401
-        assert client.get(f"/v1/{surface}/sessions").status_code == 401
+        assert client.get("/v1/chat/sessions").status_code == 401
 
     assert not service.conversation_sessions
 
 
 @pytest.mark.blackbox
-@pytest.mark.parametrize("surface", ["chat"])
 def test_completion_session_history_and_replay_are_isolated_by_user(
     monkeypatch: pytest.MonkeyPatch,
-    surface: str,
 ) -> None:
     service = MockAppService()
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")
-    path = f"/v1/{surface}"
+    path = "/v1/chat"
 
     with TestClient(create_fastapi_app(settings)) as client:
         first = client.post(
@@ -143,7 +139,6 @@ def test_completion_session_history_and_replay_are_isolated_by_user(
             "shared-service",
             "alice",
             session_id,
-            surface,
         ) in service.conversation_sessions
         assert (
             client.get(f"{path}/sessions", headers=_headers("alice")).json()["sessions"][0][
@@ -202,10 +197,8 @@ def test_completion_session_history_and_replay_are_isolated_by_user(
 
 
 @pytest.mark.blackbox
-@pytest.mark.parametrize("surface", ["chat"])
 def test_stream_announces_session_id_before_completion(
     monkeypatch: pytest.MonkeyPatch,
-    surface: str,
 ) -> None:
     service = MockAppService()
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
@@ -213,7 +206,7 @@ def test_stream_announces_session_id_before_completion(
 
     with TestClient(create_fastapi_app(settings)) as client:
         response = client.post(
-            f"/v1/{surface}/completions",
+            "/v1/chat/completions",
             json={"prompt": "Explain the release", "stream": True},
             headers=_headers("alice"),
         )
@@ -230,5 +223,4 @@ def test_stream_announces_session_id_before_completion(
         "shared-service",
         "alice",
         session_id,
-        surface,
     ) in service.conversation_sessions

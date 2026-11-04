@@ -1,4 +1,4 @@
-"""One SSE contract for retrieval chat, agent runs, and completed replays."""
+"""One SSE contract for retrieval chat and completed replays."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from harborrag_app.api.sse import bounded_sse_frames, sse_frame
 
 from . import dispatch
 from .replay import CompletionAttempt
-from .schemas import ChatCompletionResponse, CompletionRequest
+from .schemas import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -65,15 +65,13 @@ def progress_frame(event: dict[str, object]) -> bytes | None:
             # that may share an adapter chunk with the visible delta.
             return sse_frame("response.output_text.delta", {"content": chunk["content"]})
         return None
-    if kind == "event":
-        return sse_frame("response.agent.progress", event["event"])
     if kind == "warning":
         return sse_frame("response.warning", {"code": event["warning"]})
     return None
 
 
 def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     principal: Principal,
     *,
     settings: ApiSettings,
@@ -98,7 +96,7 @@ def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
                 terminal = sse_frame("response.completed", replay.model_dump(mode="json"))
             else:
                 result = None
-                stream = dispatch.stream(attempt.service, request, principal, settings)
+                stream = dispatch.stream(attempt.service, request, principal)
                 async with contextlib.aclosing(stream):
                     async for event in stream:
                         if event["kind"] == "result":

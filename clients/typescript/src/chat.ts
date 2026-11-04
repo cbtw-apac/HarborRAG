@@ -10,7 +10,6 @@ export interface ChatCompletionRequest {
   model?: string;
   project_id?: string;
   graph_search?: boolean;
-  max_steps?: number;
   idempotency_key?: string;
 }
 
@@ -82,24 +81,20 @@ export interface ChatCompletionResponse {
 }
 
 export type ChatStreamEvent =
-  | { event: "response.started"; data: { session_id: string; mode: "rag" | "agent"; replayed: boolean } }
+  | { event: "response.started"; data: { session_id: string; mode: "rag"; replayed: boolean } }
   | { event: "response.output_text.delta"; data: { content: string; [key: string]: unknown } }
   | { event: "response.completed"; data: ChatCompletionResponse }
   | {
       event: "retrieval.completed" | "response.citations";
       data: { citations: ChatCitation[]; session_id: string; project_id: string | null };
     }
-  | {
-      event: "response.agent.progress" | "response.warning";
-      data: Record<string, unknown>;
-    };
+  | { event: "response.warning"; data: Record<string, unknown> };
 
 const PROGRESS_EVENTS = new Set([
   "response.started",
   "response.output_text.delta",
   "retrieval.completed",
   "response.citations",
-  "response.agent.progress",
   "response.warning",
 ]);
 

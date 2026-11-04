@@ -12,7 +12,6 @@ from harborrag_core.retrieval import (
 )
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
-from .agent import AgentExecutionOptions
 from .chat.options import ChatExecutionOptions
 from .memory import MemoryAccess
 from .schemas import AppResponse
@@ -68,7 +67,6 @@ class BaseAppService(ABC):
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
-        kind: ConversationKind = "chat",
     ) -> AppResponse:
         raise NotImplementedError
 
@@ -115,15 +113,6 @@ class BaseAppService(ABC):
     ) -> bool:
         raise NotImplementedError
 
-    async def create_agent_session(
-        self,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> AppResponse:
-        raise NotImplementedError
-
     async def chat_completion(
         self,
         query: str,
@@ -150,18 +139,6 @@ class BaseAppService(ABC):
         the stream when its client goes away, and the implementation persists
         the text it already delivered while handling that close.
         """
-
-        raise NotImplementedError
-
-    async def agent_completion(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: AgentExecutionOptions,
-    ) -> AppResponse:
-        """Run one bounded multi-turn agent completion."""
 
         raise NotImplementedError
 

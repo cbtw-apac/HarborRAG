@@ -14,7 +14,7 @@ from harborrag_core.contracts.errors import (
 )
 
 from .completion_dependency import CompletionService
-from .schemas import ChatCompletionResponse, CompletionRequest
+from .schemas import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -30,7 +30,7 @@ class CompletionAttempt:
 
     @classmethod
     def for_request(
-        cls, service: CompletionService, request: CompletionRequest, principal: Principal
+        cls, service: CompletionService, request: ChatCompletionRequest, principal: Principal
     ) -> CompletionAttempt:
         # Delivery format does not alter the paid operation. A retry may ask
         # for JSON after its stream disconnected and receive the saved result.

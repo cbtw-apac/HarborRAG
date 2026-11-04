@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from app_test_agent import AgentServiceFixture
 from app_test_chat import ChatServiceFixture
 from app_test_graph_records import (
     graph_conflict,
@@ -27,7 +26,6 @@ from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus,
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.completion_requests import CompletionClaim
-from harborrag_core.ports.conversation import ConversationKind
 from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_runtime.memory import (
@@ -39,7 +37,6 @@ from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 
 class MockAppService(
-    AgentServiceFixture,
     ChatServiceFixture,
     IngestionServiceFixture,
     MemoryAdminClientMixin,
@@ -59,11 +56,8 @@ class MockAppService(
         self.allowed_models: set[str] = {"primary"}
         self.tenant_models: dict[str, set[str]] = {}
         self.known_projects: set[str] = {"proj-1"}
-        self.agent_calls: list[dict[str, object]] = []
-        self.agent_resume_calls: list[dict[str, object]] = []
-        # (tenant, principal, user, session_id, kind): a conversation belongs
-        # to the end user, and is bound to the surface that created it.
-        self.conversation_sessions: set[tuple[str, str, str, str, str]] = set()
+        # (tenant, principal, user, session_id): a conversation belongs to the end user.
+        self.conversation_sessions: set[tuple[str, str, str, str]] = set()
         # Long-term memory administration runs against the real service over
         # in-memory doubles, so route tests exercise production visibility.
         self.memory_store = FakeMemoryStore()
@@ -91,18 +85,8 @@ class MockAppService(
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
-        kind: ConversationKind = "chat",
     ) -> AppResponse:
-        return await self._create_session(tenant_id, principal_id, user_id, kind, title)
-
-    async def create_agent_session(
-        self,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> AppResponse:
-        return await self._create_session(tenant_id, principal_id, user_id, "agent")
+        return await self._create_session(tenant_id, principal_id, user_id, title)
 
     async def chat_session_exists(
         self,
@@ -116,34 +100,11 @@ class MockAppService(
             ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
         )
 
-    async def agent_session_exists(
-        self,
-        session_id: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> bool:
-        return await self.conversations.exists(
-            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
-        )
-
-    @staticmethod
-    def _key(  # noqa: PLR0913 - one component of the isolation key per argument
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None,
-        session_id: str,
-        kind: str,
-    ) -> tuple[str, str, str, str, str]:
-        return (tenant_id, principal_id, user_id or DEFAULT_USER, session_id, kind)
-
-    async def _create_session(  # noqa: PLR0913 - one component of the new session per argument
+    async def _create_session(
         self,
         tenant_id: str,
         principal_id: str,
         user_id: str | None,
-        kind: str,
         title: str | None = None,
     ) -> AppResponse:
         """Write through to the conversation store the directory routes read.
@@ -155,11 +116,10 @@ class MockAppService(
 
         session_id = new_session_id()
         self.conversation_sessions.add(
-            self._key(tenant_id, principal_id, user_id, session_id, kind)
+            (tenant_id, principal_id, user_id or DEFAULT_USER, session_id)
         )
         await self.conversations.create(
             ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER),
-            kind="agent" if kind == "agent" else "chat",
             title=title,
         )
         return AppResponse(

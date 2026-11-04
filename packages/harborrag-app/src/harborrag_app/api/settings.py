@@ -94,8 +94,6 @@ class ApiSettings(BaseSettings):
     # this budget ends with one in-band ``event: error`` frame instead of a
     # truncated body.
     api_stream_timeout_seconds: float = Field(default=600.0, ge=1.0, le=3600.0)
-    # Total prompt+completion token budget for one agent run (all steps).
-    api_agent_token_budget: int = Field(default=120_000, ge=4_096, le=2_000_000)
     docs_enabled: bool = True
 
     @model_validator(mode="before")

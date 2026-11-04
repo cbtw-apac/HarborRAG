@@ -1,7 +1,7 @@
 """Public ingestion portion of the application-service facade.
 
 Split out of composition/service.py (file-length gate); mixed into AppService
-alongside AgentClientMixin/ChatClientMixin/RetrievalClientMixin, following the
+alongside ChatClientMixin/RetrievalClientMixin, following the
 same thin-delegate pattern. Every method here forwards to the durable
 ingestion application service without adding transport or policy of its own.
 """

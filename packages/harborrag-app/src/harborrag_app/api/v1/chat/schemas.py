@@ -38,7 +38,7 @@ class ChatSessionResponse(ApiModel):
     title: str | None = None
 
 
-class CompletionRequest(ChatTenantRequest):
+class ChatCompletionRequest(ChatTenantRequest):
     # Only the prompt is required. Keep examples free of placeholder model
     # and project names, which would be rejected when copied into a request.
     model_config = ConfigDict(
@@ -62,8 +62,7 @@ class CompletionRequest(ChatTenantRequest):
     )
     prompt: str = Field(min_length=1, max_length=65_536)
     stream: bool = False
-    mode: Literal["rag", "agent"] = "rag"
-    max_steps: int = Field(default=4, ge=1, le=8)
+    mode: Literal["rag"] = "rag"
     idempotency_key: str | None = Field(
         default=None,
         min_length=1,
@@ -89,12 +88,6 @@ class CompletionRequest(ChatTenantRequest):
         max_length=128,
         pattern=r"^[A-Za-z0-9][A-Za-z0-9._:-]*$",
     )
-
-
-class ChatCompletionRequest(CompletionRequest):
-    """Retrieval chat only; bounded tool runs use the agent endpoint."""
-
-    mode: Literal["rag"] = "rag"
 
 
 class ChatMessageResponse(ApiModel):

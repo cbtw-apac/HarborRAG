@@ -1,4 +1,4 @@
-"""Chat completion mode validation, scope refusals and replay."""
+"""Chat completion model validation, scope refusals and replay."""
 
 import json
 
@@ -30,27 +30,20 @@ def client(monkeypatch, service):
         yield client
 
 
-@pytest.mark.parametrize("mode", ["rag"])
 @pytest.mark.parametrize("stream", [False, True])
-def test_mode_uses_its_own_model_validator_before_creating_or_streaming(
-    client, service, monkeypatch, mode, stream
-):
+def test_the_model_is_validated_before_creating_or_streaming(client, service, monkeypatch, stream):
     calls = []
 
     async def reject(model, *, tenant_id):
         calls.append((model, tenant_id))
-        raise HarborValidationError("Model unavailable for this mode")
+        raise HarborValidationError("Model unavailable")
 
-    method = "validate_agent_model" if mode == "agent" else "validate_chat_model"
-    monkeypatch.setattr(service, method, reject)
-    response = client.post(
-        "/v1/chat/completions",
-        json={"prompt": "Hello", "mode": mode, "stream": stream},
-    )
+    monkeypatch.setattr(service, "validate_chat_model", reject)
+    response = client.post("/v1/chat/completions", json={"prompt": "Hello", "stream": stream})
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/json")
     assert calls == [(None, "DEFAULT")]
-    assert not service.agent_calls and not service.chat_calls
+    assert not service.chat_calls
     assert client.get("/v1/chat/sessions").json()["sessions"] == []
 
 
@@ -60,16 +53,10 @@ def test_openapi_documents_the_idempotency_header(client):
     assert key["in"] == "header" and not key["required"]
 
 
-@pytest.mark.parametrize(
-    "path,mode",
-    [
-        ("/v1/chat/completions", "rag"),
-        ("/v1/chat/completions", None),
-    ],
-)
+@pytest.mark.parametrize("mode", ["rag", None])
 @pytest.mark.parametrize("stream", [False, True])
 def test_scope_refusal_uses_completion_schema_without_answer_generation(
-    client, monkeypatch, path, mode, stream
+    client, monkeypatch, mode, stream
 ):
     service = client.app.state.app_service
 
@@ -85,7 +72,7 @@ def test_scope_refusal_uses_completion_schema_without_answer_generation(
     }
     if mode is not None:
         body["mode"] = mode
-    response = client.post(path, json=body)
+    response = client.post("/v1/chat/completions", json=body)
     assert response.status_code == 200
     if stream:
         frames = [
@@ -107,7 +94,7 @@ def test_scope_refusal_uses_completion_schema_without_answer_generation(
     assert public.session_id == session
     assert public.citations == ()
     assert public.memory_persisted is False
-    assert not service.chat_calls and not service.agent_calls
+    assert not service.chat_calls
 
 
 def test_scope_refusal_creates_session_and_replays_without_reclassifying(

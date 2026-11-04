@@ -14,7 +14,6 @@ from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositor
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
@@ -65,7 +64,6 @@ logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 class AppService(
     ControlPlaneReadsMixin,
     ControlPlaneWritesMixin,
-    AgentClientMixin,
     ChatClientMixin,
     MemoryAdminClientMixin,
     PublicIngestionClientMixin,
@@ -147,18 +145,6 @@ class AppService(
             memories=memories,
             index=index,
             extraction=self._extraction,
-            usage=usage,
-        )
-        self._agent = AgentApplicationService(
-            self._resources.runtime_sdk,
-            memory=memory,
-            locks=locks,
-            runs=runs,
-            projects=projects,
-            memories=memories,
-            index=index,
-            extraction=self._extraction,
-            memory_tools=self._settings.memory_agent_tools,
             usage=usage,
         )
         self._graph = GraphRetrievalService(self._resources.runtime_sdk)

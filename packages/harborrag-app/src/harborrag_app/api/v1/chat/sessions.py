@@ -16,7 +16,6 @@ from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.workflow_control.memory import MemoryAccess
-from harborrag_core.ports.conversation import ConversationKind
 
 from .dependencies import ConversationServiceDependency
 from .schemas import (
@@ -24,7 +23,13 @@ from .schemas import (
     SessionListResponse,
 )
 
-router = APIRouter(prefix="/sessions")
+
+def _no_store(response: Response) -> None:
+    """Keep conversation content out of shared caches."""
+    response.headers["Cache-Control"] = "no-store"
+
+
+router = APIRouter(prefix="/sessions", dependencies=[Depends(_no_store)])
 
 ERROR_RESPONSES = documented_error_responses(
     {
@@ -77,43 +82,32 @@ def _access(principal: Principal, tenant: str, session_id: str | None = None) ->
     )
 
 
-def session_router(kind: ConversationKind) -> APIRouter:
-    """Mount shared history operations with a surface-specific session directory."""
+@router.get(
+    "",
+    response_model=SessionListResponse,
+    response_model_exclude_none=True,
+    responses=ERROR_RESPONSES,
+    name="list_chat_sessions",
+)
+async def list_sessions(
+    service: ConversationServiceDependency,
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
+    tenant: TenantQuery = "DEFAULT",
+    cursor: CursorQuery = None,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+) -> SessionListResponse:
+    """The caller's chat sessions, newest activity first."""
 
-    def no_store(response: Response) -> None:
-        response.headers["Cache-Control"] = "no-store"
-
-    result_router = APIRouter(dependencies=[Depends(no_store)])
-
-    @result_router.get(
-        "/sessions",
-        response_model=SessionListResponse,
-        response_model_exclude_none=True,
-        responses=ERROR_RESPONSES,
-        name=f"list_{kind}_sessions",
+    authorize_tenant(principal, tenant)
+    result = await service.list_conversations(
+        _access(principal, tenant), kind="chat", cursor=cursor, limit=limit
     )
-    async def list_sessions(
-        service: ConversationServiceDependency,
-        principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-        tenant: TenantQuery = "DEFAULT",
-        cursor: CursorQuery = None,
-        limit: Annotated[int, Query(ge=1, le=100)] = 20,
-    ) -> SessionListResponse:
-        """Sessions created on this surface, newest activity first."""
-
-        authorize_tenant(principal, tenant)
-        result = await service.list_conversations(
-            _access(principal, tenant), kind=kind, cursor=cursor, limit=limit
-        )
-        return SessionListResponse.model_validate(
-            {
-                "sessions": result.data["conversations"],
-                "next_cursor": result.data.get("next_cursor"),
-            }
-        )
-
-    result_router.include_router(router)
-    return result_router
+    return SessionListResponse.model_validate(
+        {
+            "sessions": result.data["conversations"],
+            "next_cursor": result.data.get("next_cursor"),
+        }
+    )
 
 
 @router.get(

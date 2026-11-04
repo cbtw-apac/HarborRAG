@@ -27,7 +27,7 @@ class ScopeDecision(BaseModel):
 
 class QueryScopeValidator(Protocol):
     async def validate_completion_scope(
-        self, query: str, access: MemoryAccess, *, model: str | None, mode: Literal["rag", "agent"]
+        self, query: str, access: MemoryAccess, *, model: str | None
     ) -> None: ...
 
 
@@ -37,7 +37,6 @@ async def require_query_scope(
     access: MemoryAccess,
     *,
     model: str | None,
-    mode: Literal["rag", "agent"],
 ) -> None:
     history: list[dict[str, str]] = []
     if access.session_id is not None:
@@ -82,7 +81,7 @@ async def require_query_scope(
                     user_id=access.user_id,
                     principal_id=access.principal_id,
                     session_id=access.session_id,
-                    surface="agent" if mode == "agent" else "chat",
+                    surface="chat",
                     logical_model=response.logical_model,
                     provider=response.provider,
                     provider_model=response.provider_model,

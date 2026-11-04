@@ -22,7 +22,6 @@ class ChatService(QueryScopeValidator, Protocol):
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
-        kind: ConversationKind = "chat",
     ) -> AppResponse: ...
 
     async def chat_session_exists(

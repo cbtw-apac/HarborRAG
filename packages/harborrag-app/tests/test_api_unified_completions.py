@@ -32,31 +32,28 @@ def client(monkeypatch, service: MockAppService):
         yield client
 
 
-@pytest.mark.parametrize("mode", ["rag"])
-def test_modes_share_session_and_final_json_sse_contract(client, service, mode):
+def test_json_and_sse_share_the_session_and_final_payload(client, service):
     session = client.post("/v1/chat/sessions", json={}).json()["session_id"]
     path = "/v1/chat/completions"
-    body = {"session_id": session, "prompt": "Explain the release", "mode": mode}
+    body = {"session_id": session, "prompt": "Explain the release", "mode": "rag"}
     ordinary = client.post(path, json=body)
     streamed = client.post(path, json={**body, "stream": True})
     assert ordinary.status_code == streamed.status_code == 200
     frames = _sse_frames(streamed.text)
     assert frames[0] == (
         "response.started",
-        {"session_id": session, "mode": mode, "replayed": False},
+        {"session_id": session, "mode": "rag", "replayed": False},
     )
     assert frames[-1] == ("response.completed", ordinary.json())
     assert ordinary.json()["cost"]["amount_usd"] is None
     assert ordinary.json()["cost"]["status"] == "unavailable"
-    assert ordinary.json()["mode"] == mode
-    calls = service.chat_calls if mode == "rag" else service.agent_calls
-    assert calls[0]["user_id"] == "DEFAULT_USER"
+    assert ordinary.json()["mode"] == "rag"
+    assert service.chat_calls[0]["user_id"] == "DEFAULT_USER"
 
 
-@pytest.mark.parametrize("mode", ["rag"])
-def test_retry_without_session_replays_without_new_session_or_model_call(client, service, mode):
+def test_retry_without_session_replays_without_new_session_or_model_call(client, service):
     path = "/v1/chat/completions"
-    body = {"prompt": "Explain the release", "mode": mode, "idempotency_key": "request-1"}
+    body = {"prompt": "Explain the release", "idempotency_key": "request-1"}
     first = client.post(path, json=body)
     again = client.post(path, json=body)
     stream = client.post(path, json={**body, "stream": True})
@@ -66,8 +63,7 @@ def test_retry_without_session_replays_without_new_session_or_model_call(client,
     frames = _sse_frames(stream.text)
     assert frames[0][1]["replayed"] is True
     assert frames[-1] == ("response.completed", first.json())
-    calls = service.chat_calls if mode == "rag" else service.agent_calls
-    assert len(calls) == 1
+    assert len(service.chat_calls) == 1
     assert len(client.get(path.replace("/completions", "/sessions")).json()["sessions"]) == 1
 
 

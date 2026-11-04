@@ -1,7 +1,7 @@
 """Retrieval portion of the application-service public facade.
 
 Split out of composition/service.py (file-length gate); mixed into AppService
-alongside AgentClientMixin/ChatClientMixin/ControlPlane*Mixin, following the
+alongside ChatClientMixin/ControlPlane*Mixin, following the
 same thin-delegate pattern.
 """
 
