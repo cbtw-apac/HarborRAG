@@ -5,14 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 from app_test_chat import ChatServiceFixture
-from app_test_graph_records import (
-    graph_conflict,
-    graph_payload,
-    projection_inventory_payload,
-    retrieval_payload,
-)
 from app_test_ingestion import IngestionServiceFixture
 from app_test_memory import FakeMemoryIndex, FakeMemoryStore
+from app_test_retrieval_records import retrieval_payload
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
@@ -21,12 +16,9 @@ from harborrag_app.workflow_control.memory import (
     MemoryAdminClientMixin,
     MemoryAdministrationService,
 )
-from harborrag_core.contracts.errors import HarborConflictError, HarborNotFoundError
-from harborrag_core.domain.graph_conflict import ConflictAction, ConflictStatus, GraphConflict
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.completion_requests import CompletionClaim
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
 from harborrag_runtime.memory import (
     ConversationIdentity,
@@ -48,7 +40,6 @@ class MockAppService(
         self.task_list_calls: list[dict[str, object]] = []
         self.direct_runs: list[dict[str, object]] = []
         self.retrieval_calls: list[dict[str, object]] = []
-        self.graph_retrieval_calls: list[dict[str, object]] = []
         self.chat_calls: list[dict[str, object]] = []
         # Model policy the double enforces, mirroring the runtime's rule: a
         # tenant listed in ``tenant_models`` is bounded by its own names, every
@@ -74,9 +65,6 @@ class MockAppService(
         self._conversation_directory = ConversationDirectoryService(
             self.conversations, self._memory_admin
         )
-        default_conflict = graph_conflict()
-        self.graph_conflicts: dict[str, GraphConflict] = {default_conflict.id: default_conflict}
-        self.graph_conflict_resolve_calls: list[dict[str, object]] = []
 
     async def create_chat_session(
         self,
@@ -217,106 +205,6 @@ class MockAppService(
                 score_threshold=score_threshold,
             ),
         )
-
-    async def retrieve_graph_triplets(
-        self,
-        query: GraphTripletQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return self._graph_response("triplets", query, tenant_id, principal_id)
-
-    async def retrieve_graph_paths(
-        self,
-        query: GraphPathQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return self._graph_response("paths", query, tenant_id, principal_id)
-
-    async def retrieve_graph_subgraph(
-        self,
-        query: GraphSubgraphQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return self._graph_response("subgraph", query, tenant_id, principal_id)
-
-    def _graph_response(
-        self,
-        operation: str,
-        query: object,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        self.graph_retrieval_calls.append(
-            {
-                "operation": operation,
-                "query": query,
-                "tenant_id": tenant_id,
-                "principal_id": principal_id,
-            }
-        )
-        return AppResponse(True, graph_payload(operation))
-
-    async def projection_inventory(self, tenant: str) -> dict[str, object]:
-        return projection_inventory_payload(tenant)
-
-    async def delete_projections(
-        self,
-        tenant: str,
-        *,
-        confirmation: str,
-        stores: frozenset[str],
-    ) -> dict[str, object]:
-        del confirmation
-        return {
-            "tenant": tenant,
-            "deleted_stores": sorted(stores),
-            "before": await self.projection_inventory(tenant),
-            "reindex_required": True,
-        }
-
-    async def list_graph_conflicts(
-        self,
-        *,
-        cursor: str | None,
-        limit: int,
-        tenant_ids: frozenset[str] | None,
-        status: ConflictStatus | None = None,
-    ) -> AppResponse:
-        del cursor
-        conflicts = [
-            c
-            for c in self.graph_conflicts.values()
-            if (tenant_ids is None or c.tenant_id in tenant_ids)
-            and (status is None or c.status == status)
-        ][:limit]
-        return AppResponse(True, {"conflicts": conflicts, "next_cursor": None})
-
-    async def resolve_graph_conflict(
-        self,
-        conflict_id: str,
-        *,
-        action: ConflictAction,
-        actor: str,
-        tenant_ids: frozenset[str] | None,
-    ) -> AppResponse:
-        conflict = self.graph_conflicts.get(conflict_id)
-        if conflict is None or (tenant_ids is not None and conflict.tenant_id not in tenant_ids):
-            raise HarborNotFoundError(f"graph conflict {conflict_id!r} not found")
-        if conflict.status == "resolved":
-            raise HarborConflictError(f"graph conflict {conflict_id!r} is already resolved")
-        self.graph_conflict_resolve_calls.append(
-            {"conflict_id": conflict_id, "action": action, "actor": actor}
-        )
-        conflict.status = "resolved"
-        conflict.action = action
-        conflict.resolved_by = actor
-        return AppResponse(True, {"conflict": conflict})
 
     async def list_projects(self, *, tenant_ids: frozenset[str] | None = None) -> AppResponse:
         del tenant_ids

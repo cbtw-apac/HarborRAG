@@ -49,7 +49,6 @@ from ..memory import (
 from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
-from ..retrieval.graph import GraphRetrievalService
 from ..scheduling.models import ScheduleCommand
 from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse
@@ -147,7 +146,6 @@ class AppService(
             extraction=self._extraction,
             usage=usage,
         )
-        self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._durable = DurableIngestionOperations(
             self._settings,
             runtime_client=self._resources.runtime_client,
@@ -419,23 +417,6 @@ class AppService(
 
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
         return await self._durable.control_ingestion(run_id, action)
-
-    async def projection_inventory(self, tenant: str) -> dict[str, object]:
-        return (await self._resources.projection_administration().inspect(tenant)).as_dict()
-
-    async def delete_projections(
-        self,
-        tenant: str,
-        *,
-        confirmation: str,
-        stores: frozenset[str],
-    ) -> dict[str, object]:
-        result = await self._resources.projection_administration().delete(
-            tenant,
-            confirmation=confirmation,
-            stores=stores,
-        )
-        return result.as_dict()
 
     async def aclose(self) -> None:
         try:

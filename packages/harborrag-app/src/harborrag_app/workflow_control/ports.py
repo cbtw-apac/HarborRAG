@@ -3,13 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Mapping
 
-from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_core.ports.conversation import ConversationKind
-from harborrag_core.retrieval import (
-    GraphPathQuery,
-    GraphSubgraphQuery,
-    GraphTripletQuery,
-)
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .chat.options import ChatExecutionOptions
@@ -213,68 +207,10 @@ class BaseAppService(ABC):
     ) -> AppResponse:
         raise NotImplementedError
 
-    async def retrieve_graph_triplets(
-        self,
-        query: GraphTripletQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        raise NotImplementedError
-
-    async def retrieve_graph_paths(
-        self,
-        query: GraphPathQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        raise NotImplementedError
-
-    async def retrieve_graph_subgraph(
-        self,
-        query: GraphSubgraphQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        raise NotImplementedError
-
     async def control_ingestion(
         self,
         run_id: str,
         action: str,
-    ) -> AppResponse:
-        raise NotImplementedError
-
-    async def projection_inventory(self, tenant: str) -> dict[str, object]:
-        raise NotImplementedError
-
-    async def delete_projections(
-        self,
-        tenant: str,
-        *,
-        confirmation: str,
-        stores: frozenset[str],
-    ) -> dict[str, object]:
-        raise NotImplementedError
-
-    async def list_graph_conflicts(
-        self,
-        *,
-        cursor: str | None,
-        limit: int,
-        tenant_ids: frozenset[str] | None,
-    ) -> AppResponse:
-        raise NotImplementedError
-
-    async def resolve_graph_conflict(
-        self,
-        conflict_id: str,
-        *,
-        action: ConflictAction,
-        actor: str,
-        tenant_ids: frozenset[str] | None,
     ) -> AppResponse:
         raise NotImplementedError
 

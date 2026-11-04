@@ -27,7 +27,6 @@ from harborrag_core.domain.connection import (
     slugify_connection_id,
     unique_connection_id,
 )
-from harborrag_core.domain.graph_conflict import ConflictAction
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
@@ -215,33 +214,6 @@ class ControlPlaneWritesMixin:
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
         """Retry durably-queued secret retirements and audit-log writes."""
         return await _recover_pending_effects(self._control_plane(), limit=limit)
-
-    async def resolve_graph_conflict(
-        self,
-        conflict_id: str,
-        *,
-        action: ConflictAction,
-        actor: str,
-        tenant_ids: frozenset[str] | None,
-    ) -> AppResponse:
-        """Close a graph conflict with ``action``; record-only, no graph mutation (M4 v1)."""
-        control_plane = self._control_plane()
-        resolved = await control_plane.graph_conflicts.resolve(
-            conflict_id, action=action, resolved_by=actor, tenant_ids=tenant_ids
-        )
-        await _log_activity(
-            control_plane,
-            ActivityEntry(
-                id=f"act_{uuid4().hex}",
-                tenant_id=resolved.tenant_id,
-                actor=actor,
-                verb="resolved",
-                entity_type="graph_conflict",
-                entity_id=resolved.id,
-                summary=f"Resolved graph conflict {resolved.id!r} with action {action!r}",
-            ),
-        )
-        return AppResponse(True, {"conflict": resolved})
 
 
 async def _free_connection_id(
