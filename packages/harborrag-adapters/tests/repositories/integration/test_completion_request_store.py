@@ -128,3 +128,43 @@ async def test_abandoned_claim_is_taken_over_instead_of_wedging_the_key(
 
     monkeypatch.setattr(module, "STALE_CLAIM_SECONDS", -1)
     assert (await store.claim_completion(**request)).status == "claimed"
+
+
+async def _age(sessions: SessionFactory, *, seconds: int) -> None:
+    """Move every stored claim ``seconds`` into the past."""
+    from datetime import timedelta
+
+    import sqlalchemy as sa
+
+    from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
+    from harborrag_adapters.repositories.database.control_plane.schemas_completion_requests import (
+        CompletionRequestRow,
+    )
+
+    past = utc_now() - timedelta(seconds=seconds)
+    async with sessions.begin() as session:
+        await session.execute(
+            sa.update(CompletionRequestRow).values(created_at=past, updated_at=past)
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_key_is_kept_for_a_day_then_free_for_any_request(
+    sessions: SessionFactory,
+) -> None:
+    store = SqlCompletionRequestStore(sessions)
+    request = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    assert (await store.claim_completion(**request)).status == "claimed"
+    await store.finish_completion(**request, response_json='{"text":"ok"}')
+
+    await _age(sessions, seconds=86_400 - 60)
+    assert (await store.claim_completion(**request)).status == "completed"
+    assert (await store.claim_completion(**{**request, "request_hash": "other"})).status == (
+        "conflict"
+    )
+
+    await _age(sessions, seconds=86_400 + 60)
+    other = {**request, "request_hash": "other"}
+    assert (await store.claim_completion(**other)).status == "claimed"
+    assert (await store.claim_completion(**other)).status == "in_progress"
+    assert (await store.claim_completion(**request)).status == "conflict"

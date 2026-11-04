@@ -18,6 +18,7 @@ from harborrag_adapters.repositories.database.control_plane.schemas_completion_r
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.ports.completion_requests import (
+    KEY_RETENTION_SECONDS,
     STALE_CLAIM_SECONDS,
     CompletionClaim,
     CompletionClaimStatus,
@@ -56,6 +57,11 @@ class SqlCompletionRequestStore:
                 row = await session.get(CompletionRequestRow, (tenant_id, user_id, key))
                 if row is None:
                     raise
+                if await self._reclaim_expired(
+                    tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
+                ):
+                    return CompletionClaim("claimed")
+                await session.refresh(row)
                 if row.request_hash != request_hash:
                     return CompletionClaim("conflict")
                 if row.status == "in_progress":
@@ -63,6 +69,43 @@ class SqlCompletionRequestStore:
                         tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
                     )
                 return CompletionClaim(cast("CompletionClaimStatus", row.status), row.response_json)
+
+    async def _reclaim_expired(
+        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
+    ) -> bool:
+        """Start the key over for this request once its claim is past retention.
+
+        A live ``in_progress`` claim is never expired, however old: only one its
+        worker abandoned is. The conditional update arbitrates concurrent retries.
+        """
+
+        now = utc_now()
+        retained = now - timedelta(seconds=KEY_RETENTION_SECONDS)
+        stale = now - timedelta(seconds=STALE_CLAIM_SECONDS)
+        async with self.sessions.begin() as session:
+            taken = await session.scalar(
+                sa.update(CompletionRequestRow)
+                .where(
+                    CompletionRequestRow.tenant_id == tenant_id,
+                    CompletionRequestRow.user_id == user_id,
+                    CompletionRequestRow.key == key,
+                    CompletionRequestRow.created_at < retained,
+                    sa.or_(
+                        CompletionRequestRow.status != "in_progress",
+                        CompletionRequestRow.updated_at < stale,
+                    ),
+                )
+                .values(
+                    request_hash=request_hash,
+                    status="in_progress",
+                    response_json=None,
+                    session_id=None,
+                    created_at=now,
+                    updated_at=now,
+                )
+                .returning(CompletionRequestRow.key)
+            )
+        return taken is not None
 
     async def _claim_if_abandoned(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str

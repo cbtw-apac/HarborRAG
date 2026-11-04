@@ -10,7 +10,11 @@ from datetime import datetime, timedelta
 
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError
-from harborrag_core.ports.completion_requests import STALE_CLAIM_SECONDS, CompletionClaim
+from harborrag_core.ports.completion_requests import (
+    KEY_RETENTION_SECONDS,
+    STALE_CLAIM_SECONDS,
+    CompletionClaim,
+)
 from harborrag_core.ports.conversation import (
     CONVERSATION_CURSOR_ERROR,
     MAX_CONVERSATION_PAGE_LIMIT,
@@ -86,17 +90,18 @@ class InMemoryConversationMemory:
             existing = self._completion_claims.get(identity)
             if existing is not None:
                 stored_hash, claim = existing
-                if stored_hash != request_hash:
-                    return CompletionClaim("conflict")
                 # Mirrors SqlCompletionRequestStore: a claim whose holder never
                 # came back must not wedge its key, and nothing else ends
-                # ``in_progress``.
+                # ``in_progress``; past retention the key starts over.
                 claimed_at = self._completion_claimed_at.get(identity)
-                abandoned = claimed_at is None or utc_now() - claimed_at >= timedelta(
-                    seconds=STALE_CLAIM_SECONDS
-                )
-                if claim.status != "in_progress" or not abandoned:
-                    return claim
+                age = utc_now() - claimed_at if claimed_at is not None else None
+                abandoned = age is None or age >= timedelta(seconds=STALE_CLAIM_SECONDS)
+                expired = age is None or age >= timedelta(seconds=KEY_RETENTION_SECONDS)
+                if not (expired and (claim.status != "in_progress" or abandoned)):
+                    if stored_hash != request_hash:
+                        return CompletionClaim("conflict")
+                    if claim.status != "in_progress" or not abandoned:
+                        return claim
             self._completion_claims[identity] = (request_hash, CompletionClaim("in_progress"))
             self._completion_claimed_at[identity] = utc_now()
             return CompletionClaim("claimed")

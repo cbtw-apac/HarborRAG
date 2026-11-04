@@ -83,3 +83,30 @@ async def test_recent_complete_messages_excludes_tool_calls_and_unfinished_turns
         "u1",
         "a1",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_request_key_is_kept_for_a_day_then_free_for_any_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from harborrag_runtime.memory import in_memory
+
+    now = [datetime(2026, 11, 4, tzinfo=UTC)]
+    monkeypatch.setattr(in_memory, "utc_now", lambda: now[0])
+    memory = InMemoryConversationMemory()
+    request = {"tenant_id": "tenant", "user_id": "user", "key": "key", "request_hash": "hash"}
+    assert (await memory.claim_completion(**request)).status == "claimed"
+    await memory.finish_completion(**request, response_json='{"text":"ok"}')
+
+    now[0] += timedelta(seconds=86_400 - 60)
+    assert (await memory.claim_completion(**request)).status == "completed"
+    assert (await memory.claim_completion(**{**request, "request_hash": "other"})).status == (
+        "conflict"
+    )
+
+    now[0] += timedelta(seconds=120)
+    other = {**request, "request_hash": "other"}
+    assert (await memory.claim_completion(**other)).status == "claimed"
+    assert (await memory.claim_completion(**request)).status == "conflict"
