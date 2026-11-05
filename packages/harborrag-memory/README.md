@@ -182,13 +182,10 @@ raises `MemoryConfigurationError` at wiring time.
    summary retains its original ownership/provenance fields across credential or
    project-context changes within the same user-owned session.
 6. Token-trim the window to `recent_max_tokens` with LangChain's `trim_messages`
-   (`strategy="last"`, `start_on="human"`), so the window never opens on a tool result
-   separated from the assistant tool call that produced it. The post-summary boundary is
-   walked back to the nearest user turn for the same reason, so a refresh may keep more
-   than `summary_keep_messages` -- and when the whole window belongs to one user turn
-   (one question followed by a long tool chain) nothing is older
-   than the boundary, so no summary is written and the turn rides on token-trimming
-   alone. A budget too small for one message still keeps the newest message.
+   (`strategy="last"`, `start_on="human"`), so the window never opens on an answer
+   whose question was cut. The post-summary boundary is walked back to the nearest user
+   turn for the same reason, so a refresh may keep more than `summary_keep_messages`. A
+   budget too small for one message still keeps the newest message.
 7. Condense the summary, the window, and the question into one self-contained retrieval
    query, and ask the same call which memory types the question wants. An empty or
    implausibly long rewrite is rejected, and `rewritten` is true only when the model

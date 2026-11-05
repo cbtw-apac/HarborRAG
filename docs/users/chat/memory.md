@@ -26,14 +26,12 @@ oldest first, then appends the current question once. It excludes:
 
 - Unanswered user messages and orphan assistant messages.
 - Partial or empty answers.
-- Assistant tool-call stubs and tool results.
 
 Only prior complete exchanges enter this window. In RAG mode, retrieval
 searches the raw question. Public completion requests do not run rolling
-summaries, query rewriting, long-term recall, automatic extraction, or memory
-tools. The configurable lower-level SDK memory facilities remain available
-for explicit use; their settings do not change this public three-exchange
-policy.
+summaries, query rewriting, long-term recall, or automatic extraction. The
+configurable lower-level SDK memory facilities remain available for explicit
+use; their settings do not change this public three-exchange policy.
 
 The model's context budget may retain fewer complete pairs. A history read
 failure falls back to an empty window and logs identifiers without message
