@@ -200,6 +200,43 @@ def test_migration_failure_logs_safe_actionable_diagnostics(
 
 
 @pytest.mark.whitebox
+def test_database_ahead_of_this_build_names_both_revisions_and_the_remedy(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """Startup against a control DB migrated by a newer build says so and how to recover.
+
+    Starting an older API image against a database a newer branch had migrated reported
+    only "migrations failed; inspect the startup logs"; the unknown revision was buried in
+    an Alembic traceback and the API crash-looped without naming the cause.
+    """
+
+    import sqlite3
+
+    from harborrag_adapters.repositories.database.control_plane.migrations import (
+        head_revision,
+        run_migrations,
+    )
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    connection = sqlite3.connect(f"{tmp_path}/control.db")
+    connection.execute("UPDATE alembic_version SET version_num = '9999'")
+    connection.commit()
+    connection.close()
+    head = head_revision(dsn)
+
+    with caplog.at_level(logging.ERROR, logger="harborrag.runtime.composition"):
+        with pytest.raises(HarborConfigurationError) as caught:
+            CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
+
+    message = str(caught.value)
+    assert f"schema revision 9999, newer than this build's head {head}" in message
+    assert f"downgrade the database to {head}" in message
+    assert f"database_revision=9999 build_head={head}" in caplog.text
+
+
+@pytest.mark.whitebox
 @pytest.mark.parametrize("env", ["dev", "prod"])
 @pytest.mark.parametrize("key", [None, "   "])
 def test_non_sqlite_control_db_refuses_a_blank_encryption_key_before_connecting(

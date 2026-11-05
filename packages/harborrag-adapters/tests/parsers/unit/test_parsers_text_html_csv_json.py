@@ -52,6 +52,21 @@ def test_text_parser_compacts_and_emits_paragraph(caplog):
     assert "Parsed text a.txt content_chars=12 elements=1" in caplog.text
 
 
+@pytest.mark.parametrize(
+    ("filename", "language"),
+    [("job.py", "python"), ("app.ts", "typescript"), ("deploy.yaml", "yaml"), ("run.sh", "bash")],
+)
+def test_text_parser_keeps_source_files_indented_as_code(filename, language):
+    source = "\n\nclass A:\n    def f(self):   \n\n\n        return 1\n\n"
+    document = TextParser().parse(ParseInput(content=source, filename=filename))
+
+    (element,) = document.elements
+    assert element.type == "code"
+    assert element.metadata == {"filename": filename, "code_language": language}
+    assert element.content == "class A:\n    def f(self):\n\n\n        return 1"
+    assert document.content == element.content
+
+
 def test_text_parser_empty_input_has_no_elements():
     document = TextParser().parse(ParseInput(content="   \n\n", filename="a.txt"))
     assert document.content == ""
@@ -76,6 +91,74 @@ def test_markdown_parser_element_types_and_levels():
     assert "Title" in document.content
     assert "Body paragraph" in document.content
     assert document.raw == {"markdown": markdown}
+    assert code.metadata == {}
+
+
+def test_markdown_parser_records_the_fence_language_on_code_elements():
+    markdown = (
+        "````py title=x.py\nx = 1\n````\n\n"
+        "~~~ts\nlet y = 2\n~~~\n\n"
+        "```unterminated-go\npackage main\n"
+    )
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    languages = [e.metadata.get("code_language") for e in document.elements if e.type == "code"]
+    assert languages == ["python", "typescript", "unterminated-go"]
+
+
+def test_markdown_code_block_closes_only_on_a_matching_fence():
+    # CommonMark: a closing fence uses the opener's character, is at least as
+    # long, and carries nothing but whitespace after it.
+    markdown = (
+        "````markdown\n"
+        "```python\n"  # inner opener: trailing text, shorter run
+        "x = 1\n"
+        "```\n"  # shorter than the opener
+        "~~~~\n"  # other fence character
+        "```` not a close\n"  # trailing text
+        "````  \n"
+        "after\n"
+    )
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [e for e in document.elements if e.type == "code"]
+    assert len(code) == 1
+    assert code[0].metadata == {"code_language": "markdown"}
+    assert code[0].content == "```python\nx = 1\n```\n~~~~\n```` not a close"
+    assert [e.content for e in document.elements if e.type == "paragraph"] == ["after"]
+
+
+def test_markdown_code_block_closes_on_a_longer_fence():
+    # CommonMark: a closing run may be longer than the opener.
+    markdown = "````py\nx = 1\n`````\nafter\n"
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [e for e in document.elements if e.type == "code"]
+    assert [e.content for e in code] == ["x = 1"]
+    assert [e.content for e in document.elements if e.type == "paragraph"] == ["after"]
+
+
+def test_markdown_fence_indented_four_spaces_past_its_opener_does_not_close_it():
+    # CommonMark: a closing fence may be indented at most three spaces.
+    markdown = "```python\nx = 1\n    ```\ny = 2\n```\nafter\n"
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [e for e in document.elements if e.type == "code"]
+    assert [e.content for e in code] == ["x = 1\n    ```\ny = 2"]
+    assert code[0].metadata == {"code_language": "python"}
+    assert [e.content for e in document.elements if e.type == "paragraph"] == ["after"]
+
+
+def test_markdown_fence_nested_in_a_list_item_closes_at_its_own_indentation():
+    # A fence inside a list item is indented with the item's content, so its
+    # closer is measured from the opener, not from the start of the line.
+    markdown = "- step\n\n    ```bash\n    make test\n    ```\n\nafter\n"
+    document = MarkdownParser().parse(ParseInput(content=markdown, filename="d.md"))
+
+    code = [e for e in document.elements if e.type == "code"]
+    assert [e.content for e in code] == ["make test"]
+    assert code[0].metadata == {"code_language": "bash"}
+    assert [e.content for e in document.elements if e.type == "paragraph"][-1] == "after"
 
 
 def test_markdown_strips_links_and_emphasis_in_content():

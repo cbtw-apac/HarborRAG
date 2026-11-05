@@ -38,6 +38,24 @@ class MissingOptionalDependencyError(ImportError):
         self.distribution = distribution
 
 
+class SchemaAheadOfBuildError(RuntimeError):
+    """The control database is stamped at a revision this build does not ship.
+
+    A newer build migrated it, so there is no path to this build's head, and running this
+    build's code against the newer schema is unsafe. The message names both revisions
+    and the two ways out, instead of leaving them in an Alembic traceback.
+    """
+
+    def __init__(self, *, database_revision: str, build_head: str) -> None:
+        super().__init__(
+            f"control-plane database is at schema revision {database_revision}, newer than "
+            f"this build's head {build_head}; it was migrated by a newer HarborRAG build. "
+            f"Run that build, or downgrade the database to {build_head} with its migrations"
+        )
+        self.database_revision = database_revision
+        self.build_head = build_head
+
+
 class HarborStorageError(RuntimeError):
     """Stable base exception. Provider details remain available through chaining."""
 

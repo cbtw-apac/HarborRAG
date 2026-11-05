@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from harborrag_adapters.chunking.languages import guess_language
 from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
@@ -25,6 +26,9 @@ class PlainTextEngine(HarborTextEngine):
 
     parser_name: ClassVar[str] = "text"
     parser_engine: ClassVar[str] = "python/text"
+    # 1.1.0: source files keep their indentation and become one ``code`` element
+    # carrying ``code_language``, so chunking splits them at syntax boundaries.
+    parser_version: ClassVar[str | None] = "1.1.0"
     suffixes: ClassVar[frozenset[str]] = frozenset(
         {
             "bat",
@@ -84,7 +88,13 @@ class PlainTextEngine(HarborTextEngine):
     )
 
     def parse(self, input: ParseInput) -> ParsedDocument:
-        """Decode text content, compact whitespace, and emit one paragraph element."""
+        """Decode text and emit one element: ``code`` for source files, else ``paragraph``.
+
+        Prose is compacted (lines trimmed, blank runs collapsed). Source code
+        keeps its indentation, which is syntax in Python and YAML and is what
+        code-aware chunking splits on; only trailing spaces and the blank lines
+        around the file are dropped.
+        """
 
         parse_input = self.coerce_input(input)
         parser_logger.debug(
@@ -98,14 +108,18 @@ class PlainTextEngine(HarborTextEngine):
         )
         guard_input_size(read_parse_input_bytes(parse_input))
         text = read_parse_input_text(parse_input)
-        content = compact_text(text)
+        language = guess_language(filename=parse_input.filename)
+        content = _source_text(text) if language else compact_text(text)
+        metadata: dict[str, object] = {"filename": parse_input.filename}
+        if language:
+            metadata["code_language"] = language
         elements = (
             [
                 DocumentElement(
                     id="text:0",
-                    type="paragraph",
+                    type="code" if language else "paragraph",
                     content=content,
-                    metadata={"filename": parse_input.filename},
+                    metadata=metadata,
                 )
             ]
             if content
@@ -131,6 +145,12 @@ class PlainTextEngine(HarborTextEngine):
             parser_version=self.parser_version,
             metadata=self.metadata_for(parse_input),
         )
+
+
+def _source_text(text: str) -> str:
+    """Keep source code as written, minus trailing spaces and surrounding blank lines."""
+
+    return "\n".join(line.rstrip() for line in text.splitlines()).strip("\n")
 
 
 TextParser = PlainTextEngine

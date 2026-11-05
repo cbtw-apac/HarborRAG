@@ -140,6 +140,7 @@ class CompositionRoot:
             SqlProviderRepository,
             SqlSettingsRepository,
         )
+        from harborrag_adapters.repositories.errors import SchemaAheadOfBuildError
         from harborrag_core.contracts.errors import HarborConfigurationError
         from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -160,6 +161,15 @@ class CompositionRoot:
 
         try:
             run_migrations(dsn)
+        except SchemaAheadOfBuildError as exc:
+            logger.error(
+                "Control-plane database is ahead of this build "
+                "database_scheme=%s database_revision=%s build_head=%s",
+                scheme,
+                exc.database_revision,
+                exc.build_head,
+            )
+            raise HarborConfigurationError(str(exc)) from exc
         except Exception as exc:  # noqa: BLE001 - wrap adapter failures at the boundary
             logger.error(
                 "Control-plane migrations failed database_scheme=%s error_type=%s%s",

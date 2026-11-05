@@ -15,6 +15,7 @@ from harborrag_app.scaffold import (
     write_scaffold,
 )
 from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
+from harborrag_runtime.config.chunking import load_chunking_settings
 from harborrag_runtime.config.temporal_loading import load_temporal_config
 
 EXPECTED_FILES = {
@@ -25,6 +26,7 @@ EXPECTED_FILES = {
     "config/connectors.yaml",
     "config/models.yaml",
     "config/parsers.yaml",
+    "config/chunking.yaml",
     "config/temporal.yaml",
 }
 
@@ -64,6 +66,7 @@ def test_rendered_catalogs_load_through_the_runtime(
     catalog = load_connector_catalog(tmp_path / "config/connectors.yaml")
     assert tuple(catalog.names(enabled_only=True)) == ("workspace",)
     load_parser_catalog(tmp_path / "config/parsers.yaml")
+    load_chunking_settings(tmp_path / "config/chunking.yaml")
     load_temporal_config(tmp_path / "config/temporal.yaml")
     chat = HarborChatClientConfig.from_file(tmp_path / "config/models.yaml")
     embed = HarborEmbedClientConfig.from_file(tmp_path / "config/models.yaml")
