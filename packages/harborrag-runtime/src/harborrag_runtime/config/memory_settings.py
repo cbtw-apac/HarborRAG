@@ -131,7 +131,7 @@ class MemorySettingsMixin(BaseSettings):
     def memory_retention_days(self, scope: MemoryScope) -> int:
         """Retention for one scope in days; 0 means the scope never auto-expires."""
 
-        if scope is MemoryScope.SESSION or scope is MemoryScope.RUN:
+        if scope is MemoryScope.SESSION:
             return self.memory_retention_days_session
         if scope is MemoryScope.USER:
             return self.memory_retention_days_user

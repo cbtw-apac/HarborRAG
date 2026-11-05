@@ -50,12 +50,11 @@ async def test_listing_returns_the_callers_own_conversations(
     rows = response.json()["sessions"]
     assert len(rows) == 1
     assert rows[0]["session_id"] == "session-1"
-    assert rows[0]["kind"] == "chat"
     assert rows[0]["title"] == "Runbooks"
     assert rows[0]["message_count"] == 1
     assert rows[0]["created_at"] and rows[0]["updated_at"]
     # No owner field is echoed back: the caller already is the owner.
-    assert "user_id" not in rows[0]
+    assert set(rows[0]) == {"session_id", "title", "created_at", "updated_at", "message_count"}
     assert "next_cursor" not in response.json()
 
 

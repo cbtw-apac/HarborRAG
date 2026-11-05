@@ -20,7 +20,7 @@ from harborrag_core.models.chat import (
     HarborChatStreamChunk,
     HarborChatUsage,
 )
-from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageRepository, UsageSurface
+from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageRepository
 
 from .identity import MemoryIdentity
 
@@ -91,9 +91,6 @@ async def record_model_usage(
     repository: ModelUsageRepository | None,
     identity: MemoryIdentity,
     call: ModelCall | None,
-    *,
-    surface: UsageSurface,
-    run_id: str | None = None,
 ) -> bool:
     """Write one usage record; report whether it landed, and never raise.
 
@@ -106,34 +103,26 @@ async def record_model_usage(
     if repository is None or call is None:
         return False
     try:
-        await repository.record(_record(identity, call, surface=surface, run_id=run_id))
+        await repository.record(_record(identity, call))
     except Exception:  # noqa: BLE001 - accounting must not fail a paid-for turn
         logger.warning(
-            "Recording model usage failed for tenant=%s user=%s session=%s surface=%s; "
+            "Recording model usage failed for tenant=%s user=%s session=%s; "
             "the turn stands and the spend is unaccounted",
             identity.tenant_id,
             identity.user_id,
             identity.session_id,
-            surface,
             exc_info=True,
         )
         return False
     return True
 
 
-def _record(
-    identity: MemoryIdentity,
-    call: ModelCall,
-    *,
-    surface: UsageSurface,
-    run_id: str | None,
-) -> ModelUsageRecord:
+def _record(identity: MemoryIdentity, call: ModelCall) -> ModelUsageRecord:
     usage = call.usage
     return ModelUsageRecord(
         tenant_id=identity.tenant_id,
         user_id=identity.user_id,
         principal_id=identity.principal_id,
-        surface=surface,
         logical_model=call.logical_model,
         provider=call.provider,
         provider_model=call.provider_model,
@@ -141,7 +130,6 @@ def _record(
         completion_tokens=usage.completion_tokens,
         total_tokens=usage.total_tokens or usage.prompt_tokens + usage.completion_tokens,
         session_id=identity.session_id,
-        run_id=run_id,
         estimated_cost_usd=call.estimated_cost_usd,
         finish_reason=call.finish_reason,
     )

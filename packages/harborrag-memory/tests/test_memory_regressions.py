@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -12,41 +11,10 @@ from harborrag_memory import MemoryManager, MemoryOwner
 from harborrag_memory.errors import MemoryConfigurationError, MemoryScopeError
 from harborrag_memory.identity import conversation_identity
 from harborrag_memory.langchain.converters import to_langchain_message
-from harborrag_memory.tiers.working import InMemoryWorkingMemoryStore
 
 pytestmark = [pytest.mark.unit]
 
 NOW = datetime(2026, 1, 1, tzinfo=UTC)
-
-
-def _run_owner(run: str) -> MemoryOwner:
-    return MemoryOwner(
-        tenant_id="T",
-        principal_id="P",
-        user_id="U",
-        session_id="S",
-        run_id=run,
-    )
-
-
-@pytest.mark.asyncio
-async def test_expired_scratch_state_does_not_outlive_the_process() -> None:
-    """Eviction happened in ``get``, and only for the owner being read.
-
-    A run that ended without one more read kept its scratch state forever, so a
-    long-lived worker accumulated one dead entry per run.
-    """
-
-    store = InMemoryWorkingMemoryStore()
-    for index in range(5):
-        await store.put(_run_owner(f"run-{index}"), {"n": index}, ttl_seconds=1)
-    await asyncio.sleep(1.05)
-
-    await store.put(_run_owner("run-live"), {"n": "live"}, ttl_seconds=60)
-
-    assert len(store._values) == 1
-    assert await store.get(_run_owner("run-0")) is None
-    assert await store.get(_run_owner("run-live")) == {"n": "live"}
 
 
 @pytest.mark.asyncio
@@ -74,7 +42,6 @@ def test_a_corrupt_stored_column_costs_one_message_not_the_conversation() -> Non
         content="the answer",
         created_at=NOW,
         citations_json="{not json",
-        tool_calls_json="{also not json",
     )
 
     converted = to_langchain_message(message)

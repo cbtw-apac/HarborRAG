@@ -26,7 +26,7 @@ EXTRACTION_TYPES: dict[str, MemoryType] = {
     MemoryType.DECISION.value: MemoryType.DECISION,
     MemoryType.EPISODE.value: MemoryType.EPISODE,
 }
-"""Types a conversation may produce. Summaries and working state are not extracted."""
+"""Types a conversation may produce. Summaries are not extracted."""
 
 EXTRACTION_SCOPES: dict[str, MemoryScope] = {
     MemoryScope.SESSION.value: MemoryScope.SESSION,

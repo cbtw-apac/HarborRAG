@@ -152,7 +152,6 @@ async def test_recall_visits_scopes_in_policy_order_without_widening_the_owner(
         MemoryOwner(tenant_id="tenant-1", user_id="user-1", session_id="s-1"),
         MemoryOwner(tenant_id="tenant-1"),
     ]
-    assert all(query.owner.run_id is None for query in memories.queries)
 
 
 @pytest.mark.asyncio

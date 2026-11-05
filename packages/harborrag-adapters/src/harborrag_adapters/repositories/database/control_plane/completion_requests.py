@@ -10,11 +10,11 @@ import sqlalchemy as sa
 from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
-    ConversationSessionRow,
-)
 from harborrag_adapters.repositories.database.control_plane.schemas_completion_requests import (
     CompletionRequestRow,
+)
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
+    ConversationSessionRow,
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.ports.completion_requests import (

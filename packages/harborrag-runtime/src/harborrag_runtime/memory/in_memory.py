@@ -19,7 +19,6 @@ from harborrag_core.ports.conversation import (
     CONVERSATION_CURSOR_ERROR,
     MAX_CONVERSATION_PAGE_LIMIT,
     ConversationIdentity,
-    ConversationKind,
     ConversationMessage,
     ConversationPage,
     ConversationSummaryRow,
@@ -43,7 +42,6 @@ def _require_positive(limit: int) -> None:
 class _SessionState:
     """Session metadata the message list itself cannot carry."""
 
-    kind: ConversationKind
     created_at: datetime
     updated_at: datetime
     title: str | None = None
@@ -154,20 +152,13 @@ class InMemoryConversationMemory:
 
     # -- sessions ------------------------------------------------------------
 
-    async def create(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind = "chat",
-        title: str | None = None,
-    ) -> None:
+    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
         now = utc_now()
         async with self._lock:
             self._sessions.setdefault(identity, ())
             self._state.setdefault(
                 identity,
                 _SessionState(
-                    kind=kind,
                     created_at=now,
                     updated_at=now,
                     title=normalize_conversation_title(title),
@@ -177,17 +168,9 @@ class InMemoryConversationMemory:
             self._sessions.move_to_end(identity)
             self._evict()
 
-    async def exists(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind | None = None,
-    ) -> bool:
+    async def exists(self, identity: ConversationIdentity) -> bool:
         async with self._lock:
-            if identity not in self._sessions:
-                return False
-            state = self._state.get(identity)
-            return kind is None or (state is not None and state.kind == kind)
+            return identity in self._sessions
 
     async def delete(self, identity: ConversationIdentity) -> bool:
         """Drop the caller's own session and its messages together."""
@@ -212,25 +195,17 @@ class InMemoryConversationMemory:
 
     # -- conversation directory ----------------------------------------------
 
-    def _summaries(
-        self,
-        tenant_id: str,
-        user_id: str,
-        kind: ConversationKind | None,
-    ) -> list[ConversationSummaryRow]:
+    def _summaries(self, tenant_id: str, user_id: str) -> list[ConversationSummaryRow]:
         rows = [
             ConversationSummaryRow(
                 session_id=identity.session_id,
-                kind=state.kind,
                 title=state.title,
                 created_at=state.created_at,
                 updated_at=state.updated_at,
                 message_count=len(self._sessions.get(identity, ())),
             )
             for identity, state in self._state.items()
-            if identity.tenant_id == tenant_id
-            and identity.user_id == user_id
-            and (kind is None or state.kind == kind)
+            if identity.tenant_id == tenant_id and identity.user_id == user_id
         ]
         rows.sort(key=lambda row: (row.updated_at, row.session_id), reverse=True)
         return rows
@@ -240,13 +215,12 @@ class InMemoryConversationMemory:
         *,
         tenant_id: str,
         user_id: str,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> ConversationPage:
         size = max(1, min(limit, MAX_CONVERSATION_PAGE_LIMIT))
         async with self._lock:
-            rows = self._summaries(tenant_id, user_id, kind)
+            rows = self._summaries(tenant_id, user_id)
         if cursor is not None:
             anchor = decode_conversation_cursor(cursor)
             positions = [i for i, row in enumerate(rows) if row.session_id == anchor]

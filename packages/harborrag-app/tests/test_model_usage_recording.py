@@ -43,7 +43,7 @@ def _service(
 
 async def _session() -> InMemoryConversationMemory:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     return memory
 
 
@@ -70,7 +70,7 @@ async def test_a_completed_chat_turn_records_exactly_one_attributed_usage_row() 
         "alice@example.com",
         "svc-1",
     )
-    assert (record.surface, record.session_id, record.run_id) == ("chat", "session-1", None)
+    assert record.session_id == "session-1"
     assert (record.logical_model, record.provider, record.provider_model) == (
         "primary",
         "mock",

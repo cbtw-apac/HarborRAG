@@ -36,10 +36,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0044"
+    assert control_db["migrations"] == "0045"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0044" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0045" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -65,7 +65,6 @@ async def test_production_repositories_hit_the_real_database(
                 tenant_id="DEFAULT",
                 user_id="user-1",
                 principal_id="principal-1",
-                surface="chat",
                 logical_model="chat-default",
                 provider="openai",
                 provider_model="gpt-4.1-mini",

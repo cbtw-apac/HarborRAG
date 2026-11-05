@@ -73,7 +73,7 @@ async def _service(
     memory: InMemoryConversationMemory | None = None,
 ) -> ChatApplicationService:
     store = memory or InMemoryConversationMemory()
-    await store.create(IDENTITY, kind="chat")
+    await store.create(IDENTITY)
     return ChatApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         RuntimeSettings(),

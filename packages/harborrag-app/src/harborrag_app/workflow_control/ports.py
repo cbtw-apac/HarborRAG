@@ -3,7 +3,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Mapping
 
-from harborrag_core.ports.conversation import ConversationKind
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .chat.options import ChatExecutionOptions
@@ -64,7 +63,6 @@ class BaseAppService(ABC):
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> AppResponse:

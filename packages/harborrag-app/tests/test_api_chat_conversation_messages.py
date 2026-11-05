@@ -49,7 +49,7 @@ async def test_messages_come_back_oldest_first(
         "session-1",
         messages=(
             message("msg-1", "user", "where is the runbook?"),
-            message("msg-2", "assistant", "in the wiki", token_count=3, run_id="run-1"),
+            message("msg-2", "assistant", "in the wiki", token_count=3),
         ),
     )
 
@@ -65,7 +65,6 @@ async def test_messages_come_back_oldest_first(
         "created_at": payload["messages"][1]["created_at"],
         "token_count": 3,
         "citations": [],
-        "run_id": "run-1",
         "partial": False,
     }
     assert "next_cursor" not in payload

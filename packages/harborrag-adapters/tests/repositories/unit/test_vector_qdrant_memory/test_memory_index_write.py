@@ -69,7 +69,6 @@ async def test_collection_is_dense_only_with_keyword_payload_indexes(
         "user_id",
         "project_id",
         "session_id",
-        "run_id",
     }
 
 
@@ -92,7 +91,6 @@ async def test_payload_carries_scope_keys_and_never_the_content(
         "user_id": "user-1",
         "project_id": "proj-1",
         "session_id": "session-1",
-        "run_id": "run-1",
         "importance": 0.75,
         "valid_from": None,
         "invalid_at": None,

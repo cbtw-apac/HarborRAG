@@ -64,15 +64,14 @@ async def test_deleting_a_session_clears_replay_content_and_retains_the_claim() 
 
 
 @pytest.mark.asyncio
-async def test_recent_complete_messages_excludes_tool_calls_and_unfinished_turns() -> None:
+async def test_recent_complete_messages_excludes_unfinished_turns() -> None:
     memory = InMemoryConversationMemory()
     identity = ConversationIdentity("tenant", "principal", "session", "user")
     await memory.create(identity)
     now = datetime.now(UTC)
     messages = (
         ConversationMessage("u1", "user", "first question", now),
-        ConversationMessage("call", "assistant", "Searching", now, tool_calls_json="[{}]"),
-        ConversationMessage("tool", "tool", "evidence", now),
+        ConversationMessage("empty", "assistant", "", now),
         ConversationMessage("a1", "assistant", "complete answer", now),
         ConversationMessage("u2", "user", "second question", now),
         ConversationMessage("a2", "assistant", "partial answer", now, partial=True),

@@ -32,19 +32,18 @@ from harborrag_adapters.repositories.database.control_plane.conversation_directo
     ConversationListRequest,
 )
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_completion_requests import (
+    CompletionRequestRow,
+)
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationMemoryLegacyRow,
     ConversationMessageRow,
     ConversationSessionRow,
-)
-from harborrag_adapters.repositories.database.control_plane.schemas_completion_requests import (
-    CompletionRequestRow,
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
-    ConversationKind,
     ConversationMessage,
     ConversationPage,
     ConversationTurn,
@@ -90,10 +89,7 @@ def _row_to_message(row: ConversationMessageRow) -> ConversationMessage:
         content=row.content,
         created_at=row.created_at,
         token_count=row.token_count,
-        tool_calls_json=row.tool_calls_json,
-        tool_call_id=row.tool_call_id,
         citations_json=row.citations_json,
-        run_id=row.run_id,
         partial=row.partial,
     )
 
@@ -110,10 +106,7 @@ def _message_row(
         role=message.role,
         content=message.content,
         token_count=message.token_count,
-        tool_calls_json=message.tool_calls_json,
-        tool_call_id=message.tool_call_id,
         citations_json=message.citations_json,
-        run_id=message.run_id,
         partial=message.partial,
         created_at=message.created_at,
         seq=seq,
@@ -167,13 +160,7 @@ class SqlConversationMemoryRepository:
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
 
-    async def create(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind = "chat",
-        title: str | None = None,
-    ) -> None:
+    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
         now = utc_now()
         async with self.sessions.begin() as session:
             session.add(
@@ -182,7 +169,6 @@ class SqlConversationMemoryRepository:
                     principal_id=identity.principal_id,
                     user_id=identity.user_id,
                     session_id=identity.session_id,
-                    kind=kind,
                     title=normalize_conversation_title(title),
                     title_source="manual" if normalize_conversation_title(title) else None,
                     created_at=now,
@@ -190,16 +176,8 @@ class SqlConversationMemoryRepository:
                 )
             )
 
-    async def exists(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind | None = None,
-    ) -> bool:
-        conditions: list[ColumnElement[bool]] = list(_session_filter(identity))
-        if kind is not None:
-            conditions.append(ConversationSessionRow.kind == kind)
-        statement = sa.select(sa.exists().where(*conditions))
+    async def exists(self, identity: ConversationIdentity) -> bool:
+        statement = sa.select(sa.exists().where(*_session_filter(identity)))
         async with self.sessions() as session:
             return bool(await session.scalar(statement))
 
@@ -247,14 +225,12 @@ class SqlConversationMemoryRepository:
         *,
         tenant_id: str,
         user_id: str,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> ConversationPage:
         request = ConversationListRequest(
             tenant_id=tenant_id,
             user_id=user_id,
-            kind=kind,
             cursor=cursor,
             limit=limit,
         )

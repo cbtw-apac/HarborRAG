@@ -83,7 +83,7 @@ def test_recall_scopes_reject_an_empty_list(value: str) -> None:
 
 @pytest.mark.parametrize("value", ["run", "global", "user,nonsense"])
 def test_recall_scopes_reject_unrecallable_scopes(value: str) -> None:
-    """RUN is per-run scratch and GLOBAL is not owned by any tenant."""
+    """GLOBAL is not owned by any tenant; ``run`` is a 1.x scope that no longer exists."""
 
     with pytest.raises(ValidationError, match="unrecallable scopes"):
         RuntimeSettings(memory_recall_scopes=value)
@@ -144,7 +144,6 @@ def test_retention_days_resolve_per_scope() -> None:
     )
 
     assert settings.memory_retention_days(MemoryScope.SESSION) == 30
-    assert settings.memory_retention_days(MemoryScope.RUN) == 30
     assert settings.memory_retention_days(MemoryScope.USER) == 180
     assert settings.memory_retention_days(MemoryScope.PROJECT) == 0
     assert settings.memory_retention_days(MemoryScope.TENANT) == 0

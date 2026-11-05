@@ -113,6 +113,5 @@ def test_retention_rejects_negative_days() -> None:
         MemoryRetention(user_days=-1)
 
 
-def test_run_memories_follow_the_session_and_tenant_memories_never_expire() -> None:
-    assert RETENTION.days(MemoryScope.RUN) == 90
+def test_tenant_memories_never_expire() -> None:
     assert RETENTION.expires_at(MemoryScope.TENANT, NOW) is None

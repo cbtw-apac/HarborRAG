@@ -225,9 +225,8 @@ def test_history_replays_user_and_assistant_messages_in_order() -> None:
     assert [message.content for message in replayed] == ["First", "Answer", "Second"]
 
 
-@pytest.mark.parametrize("role", ["tool", "system"])
-def test_history_drops_roles_the_chat_surface_does_not_expose(role: str) -> None:
-    assert history_messages([_message(role, "tool output")]) == ()
+def test_history_drops_system_rows() -> None:
+    assert history_messages([_message("system", "stored instructions")]) == ()
 
 
 def test_history_drops_blank_content() -> None:

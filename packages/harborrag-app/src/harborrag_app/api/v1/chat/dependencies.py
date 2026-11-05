@@ -11,7 +11,6 @@ from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_app.workflow_control.schemas import AppResponse
-from harborrag_core.ports.conversation import ConversationKind
 
 
 class ChatService(QueryScopeValidator, Protocol):
@@ -67,7 +66,6 @@ class ConversationService(Protocol):
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> AppResponse: ...

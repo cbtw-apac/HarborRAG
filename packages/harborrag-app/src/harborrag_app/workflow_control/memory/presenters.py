@@ -48,7 +48,6 @@ def conversation_summary_data(row: ConversationSummaryRow) -> dict[str, object]:
 
     return {
         "session_id": row.session_id,
-        "kind": row.kind,
         "title": row.title,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
@@ -87,7 +86,6 @@ def conversation_message_data(message: ConversationMessage) -> dict[str, object]
         "created_at": message.created_at.isoformat(),
         "token_count": message.token_count,
         "citations": _citations(message.citations_json),
-        "run_id": message.run_id,
         "partial": message.partial,
     }
 

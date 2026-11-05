@@ -91,7 +91,7 @@ def _service(
 
 async def _session() -> InMemoryConversationMemory:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     return memory
 
 

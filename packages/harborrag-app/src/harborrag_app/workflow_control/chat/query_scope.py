@@ -81,7 +81,6 @@ async def require_query_scope(
                     user_id=access.user_id,
                     principal_id=access.principal_id,
                     session_id=access.session_id,
-                    surface="chat",
                     logical_model=response.logical_model,
                     provider=response.provider,
                     provider_model=response.provider_model,

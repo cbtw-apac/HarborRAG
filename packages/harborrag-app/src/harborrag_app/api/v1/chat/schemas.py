@@ -172,7 +172,6 @@ class ConversationSummary(ApiModel):
     """One conversation of the caller's own, without any message content."""
 
     session_id: str
-    kind: Literal["chat", "agent"]
     title: str | None = None
     created_at: str
     updated_at: str
@@ -190,14 +189,13 @@ class ConversationMessageRecord(ApiModel):
     """One stored message of a conversation, as it was persisted."""
 
     message_id: str
-    role: Literal["user", "assistant", "tool", "system"]
+    role: Literal["user", "assistant", "system"]
     content: VerbatimText
     created_at: str
     token_count: int | None = Field(default=None, ge=0)
     # Whatever the turn returned to the caller; shape follows the turn that
     # wrote it, so this is deliberately not narrowed to one citation model.
     citations: list[JsonValue] = Field(default_factory=list)
-    run_id: str | None = None
     # True when a stream ended before the answer was complete: the text that
     # reached the user is kept, and marked so a reader can tell.
     partial: bool = False

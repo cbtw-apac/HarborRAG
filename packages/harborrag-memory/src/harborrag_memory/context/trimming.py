@@ -33,12 +33,10 @@ def total_tokens(messages: Sequence[ConversationMessage], counter: TokenCounter)
 def keep_boundary(messages: Sequence[ConversationMessage], keep: int) -> int:
     """Index where a ``keep``-message verbatim tail should start.
 
-    A raw ``messages[-keep:]`` slice can begin on a tool result or on the tail
-    of an assistant tool call, which the token trim then has to drop -- often
-    collapsing the window to a single message. Walking the boundary back to the
-    nearest user turn keeps the tool call and its results together. When no
-    user turn precedes the tail, the plain slice stands so summarization still
-    makes progress.
+    A raw ``messages[-keep:]`` slice can begin on an assistant answer, which
+    the token trim then has to drop. Walking the boundary back to the nearest
+    user turn keeps each question with its answer. When no user turn precedes
+    the tail, the plain slice stands so summarization still makes progress.
     """
 
     start = max(0, len(messages) - keep)
@@ -58,9 +56,9 @@ def trim_window(
 ) -> tuple[ConversationMessage, ...]:
     """Trim ``messages`` to ``max_tokens``, keeping the newest, oldest-first.
 
-    LangChain's ``trim_messages`` does the work so the window can never begin
-    on a dangling tool result or on the tail of an assistant tool call: with
-    ``start_on="human"`` the survivors always start at a user message. The
+    LangChain's ``trim_messages`` does the work so the window never begins on
+    an answer whose question was cut: with ``start_on="human"`` the survivors
+    always start at a user message. The
     survivors are mapped back to the persisted rows by message id, and a
     budget too small for even one message still keeps the newest message.
     """

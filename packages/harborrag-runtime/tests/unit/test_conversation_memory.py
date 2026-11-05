@@ -106,46 +106,26 @@ async def test_database_memory_delegates_and_closes_its_engine() -> None:
     await memory.aclose()
 
     repository.recent.assert_awaited_once_with(identity, limit=5)
-    repository.create.assert_awaited_once_with(identity, kind="chat", title=None)
-    repository.exists.assert_awaited_once_with(identity, kind=None)
+    repository.create.assert_awaited_once_with(identity, title=None)
+    repository.exists.assert_awaited_once_with(identity)
     repository.append.assert_awaited_once_with(identity, turn)
     repository.clear.assert_awaited_once_with(identity)
     engine.dispose.assert_awaited_once_with()
 
 
 @pytest.mark.asyncio
-async def test_memory_binds_sessions_to_their_kind() -> None:
+async def test_eviction_drops_the_session_state_with_the_session() -> None:
     memory = InMemoryConversationMemory(max_sessions=1)
-    chat = ConversationIdentity("tenant", "principal", "chat-session", "user")
-    agent = ConversationIdentity("tenant", "principal", "agent-session", "user")
+    first = ConversationIdentity("tenant", "principal", "first-session", "user")
+    second = ConversationIdentity("tenant", "principal", "second-session", "user")
 
-    await memory.create(chat)
-    assert await memory.exists(chat, kind="chat") is True
-    assert await memory.exists(chat, kind="agent") is False
-    assert await memory.exists(chat) is True
+    await memory.create(first)
+    assert await memory.exists(first) is True
 
-    await memory.create(agent, kind="agent")
-    assert await memory.exists(agent, kind="agent") is True
-    assert await memory.exists(agent, kind="chat") is False
-    # Eviction drops the kind record together with the session.
-    assert await memory.exists(chat) is False
-    assert memory._state.keys() == {agent}
-
-
-@pytest.mark.asyncio
-async def test_database_memory_forwards_session_kind() -> None:
-    repository = SimpleNamespace(create=AsyncMock(), exists=AsyncMock(return_value=False))
-    memory = DatabaseConversationMemory(
-        repository=cast(Any, repository),
-        engine=cast(Any, SimpleNamespace(dispose=AsyncMock())),
-    )
-    identity = ConversationIdentity("tenant", "principal", "session", "user")
-
-    await memory.create(identity, kind="agent")
-    assert await memory.exists(identity, kind="agent") is False
-
-    repository.create.assert_awaited_once_with(identity, kind="agent", title=None)
-    repository.exists.assert_awaited_once_with(identity, kind="agent")
+    await memory.create(second)
+    assert await memory.exists(second) is True
+    assert await memory.exists(first) is False
+    assert memory._state.keys() == {second}
 
 
 def _message(message_id: str, role: ConversationRole, content: str) -> ConversationMessage:

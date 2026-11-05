@@ -23,7 +23,7 @@ from .schemas import Base, JSONVariant
 
 
 class ConversationSessionRow(Base):
-    """Persisted authenticated chat/agent session resource.
+    """Persisted authenticated chat session resource.
 
     ``user_id`` (migration 0028) is the human who owns the conversation and
     is load-bearing in every predicate; ``principal_id`` is retained purely
@@ -45,8 +45,6 @@ class ConversationSessionRow(Base):
     tenant_id: Mapped[str] = mapped_column(sa.String(128), nullable=False)
     principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     user_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
-    # Original creation mode, retained as listing metadata across mode changes.
-    kind: Mapped[str] = mapped_column(sa.String(16), nullable=False, server_default="chat")
     title: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
     title_source: Mapped[str | None] = mapped_column(sa.String(16), nullable=True)
     next_message_seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False, server_default="1")
@@ -57,7 +55,7 @@ class ConversationSessionRow(Base):
 
 
 class ConversationMessageRow(Base):
-    """One persisted conversation message (user/assistant/tool/system).
+    """One persisted conversation message (user/assistant/system).
 
     ``seq`` is a per-session sequence assigned by the repository at append
     time; it is the ordering key, with ``created_at``/``message_id`` only as
@@ -98,10 +96,7 @@ class ConversationMessageRow(Base):
     role: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     content: Mapped[str] = mapped_column(sa.Text, nullable=False)
     token_count: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
-    tool_calls_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    tool_call_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     citations_json: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
-    run_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     partial: Mapped[bool] = mapped_column(sa.Boolean, server_default=sa.false(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
     seq: Mapped[int] = mapped_column(sa.BigInteger, nullable=False)
@@ -146,8 +141,8 @@ class ConversationMemoryLegacyRow(Base):
 class MemoryRow(Base):
     """Canonical long-term memory record, scoped by owner and ``scope``.
 
-    ``tenant_id``/``project_id``/``user_id``/``principal_id``/``session_id``/
-    ``run_id`` mirror ``MemoryOwner`` field-for-field so a query's scope
+    ``tenant_id``/``project_id``/``user_id``/``principal_id``/``session_id``
+    mirror ``MemoryOwner`` field-for-field so a query's scope
     filter can reference these columns by the same names ``visible_to``
     checks in ``harborrag_core.ports.memory`` -- the two are kept in
     agreement by construction, not by convention.
@@ -161,7 +156,6 @@ class MemoryRow(Base):
             "project_id",
             "principal_id",
             "session_id",
-            "run_id",
         ),
         sa.Index("ix_memories_tenant_user", "tenant_id", "user_id"),
         sa.Index("ix_memories_content_hash", "content_hash"),
@@ -175,7 +169,6 @@ class MemoryRow(Base):
     user_id: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
     principal_id: Mapped[str | None] = mapped_column(sa.String(512), nullable=True)
     session_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
-    run_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
     content: Mapped[str] = mapped_column(sa.Text, nullable=False)
     metadata_json: Mapped[dict[str, Any]] = mapped_column(JSONVariant, default=dict, nullable=False)
     importance: Mapped[float] = mapped_column(sa.Float, nullable=False)

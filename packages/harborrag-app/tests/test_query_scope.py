@@ -74,7 +74,7 @@ async def test_unsupported_snake_game_decision_blocks_and_accounts_without_histo
         )
     memory.recent.assert_not_awaited()
     assert chat.complete.await_count == 1
-    assert usage.record.call_args.args[0].surface == "chat"
+    assert usage.record.await_count == 1
 
 
 @pytest.mark.asyncio

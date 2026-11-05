@@ -45,10 +45,10 @@ class MemoryRetention:
     """Days a newly written memory is kept, per scope; 0 means no automatic expiry.
 
     Retention becomes ``Memory.expires_at`` at write time, and repositories
-    stop returning a row once it has passed. RUN memories follow the session.
-    TENANT and GLOBAL memories are never written with an expiry. The default
-    expires nothing, so a library caller opts in. The runtime wires the
-    ``HARBORRAG_MEMORY_RETENTION_DAYS_*`` settings here.
+    stop returning a row once it has passed. TENANT and GLOBAL memories are
+    never written with an expiry. The default expires nothing, so a library
+    caller opts in. The runtime wires the ``HARBORRAG_MEMORY_RETENTION_DAYS_*``
+    settings here.
     """
 
     session_days: int = 0
@@ -63,7 +63,7 @@ class MemoryRetention:
     def days(self, scope: MemoryScope) -> int:
         """Retention for ``scope`` in days; 0 means the scope never auto-expires."""
 
-        if scope is MemoryScope.SESSION or scope is MemoryScope.RUN:
+        if scope is MemoryScope.SESSION:
             return self.session_days
         if scope is MemoryScope.USER:
             return self.user_days

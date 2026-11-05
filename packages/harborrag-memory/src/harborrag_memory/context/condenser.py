@@ -146,8 +146,8 @@ def recallable_types(names: Sequence[str]) -> tuple[MemoryType, ...]:
     """Return the recallable types among ``names``, deduplicated and capped.
 
     Order is the model's own, so the cap keeps the types it thought most
-    useful. A name recall cannot surface -- a summary, working state, or
-    anything unknown -- is dropped rather than raising.
+    useful. A name recall cannot surface -- a summary or anything
+    unknown -- is dropped rather than raising.
     """
 
     wanted = dict.fromkeys(

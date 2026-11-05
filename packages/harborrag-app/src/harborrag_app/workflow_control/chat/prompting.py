@@ -174,8 +174,7 @@ def _source_label(index: int, result: RetrievalResult) -> str:
 def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborChatMessage, ...]:
     """Replay stored per-message history as chat messages, oldest-first.
 
-    Tool traffic is dropped: the chat surface exposes no tools, so a tool
-    result would reach the model as an unexplained extra turn.
+    Only user and assistant turns are replayed; stored system rows are not.
     """
 
     replayed: list[HarborChatMessage] = []

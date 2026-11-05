@@ -100,7 +100,7 @@ async def list_sessions(
 
     authorize_tenant(principal, tenant)
     result = await service.list_conversations(
-        _access(principal, tenant), kind="chat", cursor=cursor, limit=limit
+        _access(principal, tenant), cursor=cursor, limit=limit
     )
     return SessionListResponse.model_validate(
         {

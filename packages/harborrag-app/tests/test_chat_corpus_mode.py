@@ -24,9 +24,7 @@ async def test_only_the_shared_tenant_searches_on_the_shared_basis(
     tenant_id: str, expected: str
 ) -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(
-        ConversationIdentity(tenant_id, "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await memory.create(ConversationIdentity(tenant_id, "reader-1", "session-1", "reader-1"))
     retrieval = FakeRetrievalFacade()
     service = ChatApplicationService(
         lambda: FakeRuntime(FakeChatFacade(answer="ok"), retrieval),  # type: ignore[arg-type]

@@ -343,12 +343,12 @@ class GraphConflictRow(Base):
     resolved_at: Mapped[datetime | None] = mapped_column(UTCDateTime(), nullable=True)
 
 
-# Conversation/agent-run/memory rows live in schemas_agent_memory.py (file-length
+# Conversation/memory rows live in schemas_conversation_memory.py (file-length
 # gate); imported here, after Base/JSONVariant exist, so every class in that
 # module still registers on Base.metadata whenever schemas.py is imported --
 # required for Alembic autogenerate and the metadata-drift test to see them.
-from . import schemas_agent_memory as _schemas_agent_memory  # noqa: E402, F401
 from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
+from . import schemas_conversation_memory as _schemas_conversation_memory  # noqa: E402, F401
 from . import schemas_usage as _schemas_usage  # noqa: E402, F401
 
 

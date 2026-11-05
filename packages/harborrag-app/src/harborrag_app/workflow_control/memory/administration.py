@@ -36,7 +36,7 @@ from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope
 
-from .erasure import SESSION_ERASURE, MemoryErasureJournal
+from .erasure import SESSION_ERASURE, MemoryErasureJournal, stored_owner
 
 if TYPE_CHECKING:
     from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -51,9 +51,9 @@ _MAX_PASSES = 50
 _USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
 # Scopes a user's own rows can carry that no caller-visibility query can reach
-# for them: PROJECT keys on (tenant_id, project_id) and RUN needs a run_id the
-# eraser does not have. Matched on the row's stored user instead.
-_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.RUN, MemoryScope.TENANT)
+# for them: PROJECT and TENANT key on fields other than the user. Matched on the
+# row's stored user instead.
+_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.TENANT)
 # Scopes whose rows are shared beyond their author: visible to anyone in the tenant (and
 # project) by design, but only the author -- or a caller granted the scope through
 # ``shared_scopes`` -- may delete one, and only the author sees its provenance.
@@ -212,7 +212,7 @@ class MemoryAdministrationService:
             return True
         if effect.kind != SESSION_ERASURE:
             return False
-        owner = MemoryOwner(**effect.payload["owner"])
+        owner = stored_owner(effect.payload["owner"])
         if effect.payload.get("memories_required") and self._memories is None:
             raise HarborUnavailableError("session erasure memory store is not configured")
         if effect.payload.get("index_required") and self._index is None:

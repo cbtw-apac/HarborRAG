@@ -26,10 +26,7 @@ from harborrag_core.ports.conversation import (
 from .presenters import conversation_message_data, conversation_summary_data
 
 if TYPE_CHECKING:
-    from harborrag_core.ports.conversation import (
-        ConversationHistoryRepository,
-        ConversationKind,
-    )
+    from harborrag_core.ports.conversation import ConversationHistoryRepository
 
     from .access import MemoryAccess
     from .administration import MemoryAdministrationService
@@ -52,7 +49,6 @@ class ConversationDirectoryService:
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> dict[str, object]:
@@ -62,7 +58,6 @@ class ConversationDirectoryService:
             page = await self._repository.list_conversations(
                 tenant_id=access.tenant_id,
                 user_id=access.user_id,
-                kind=kind,
                 cursor=cursor,
                 limit=limit,
             )

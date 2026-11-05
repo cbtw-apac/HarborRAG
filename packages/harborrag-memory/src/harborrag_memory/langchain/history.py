@@ -31,7 +31,6 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         identity: ConversationIdentity,
         *,
         recent_limit: int = 50,
-        run_id: str | None = None,
         clock: Clock = utc_now,
     ) -> None:
         if recent_limit < 1:
@@ -39,7 +38,6 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         self._store = store
         self._identity = identity
         self._recent_limit = recent_limit
-        self._run_id = run_id
         self._clock = clock
 
     @property
@@ -66,7 +64,7 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
 
         if not messages:
             return
-        rows = from_langchain_messages(messages, run_id=self._run_id, clock=self._clock)
+        rows = from_langchain_messages(messages, clock=self._clock)
         await self._store.append_messages(self._identity, rows)
 
     def clear(self) -> None:
