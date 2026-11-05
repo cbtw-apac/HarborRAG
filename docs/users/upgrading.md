@@ -18,8 +18,13 @@ each connection at the start of every run.
   file with `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`. A worker refuses to start
   without a key against a non-SQLite database. `scripts/deployment/dev.sh`
   generates the key when `env/.env.database` leaves it blank; keep a backup.
-- The API applies migrations `0041`–`0043` at start-up. Start the API before
-  the workers.
+- The API applies migrations `0041`–`0045` at start-up. Start the API before
+  the workers. `0044` drops the `agent_runs` table and `0045` the rest of the
+  1.x agent traces: tool-call messages, replay records of agent sessions,
+  run-scoped and working memories, and the session `kind`, message `run_id`
+  and usage `surface` columns. A downgrade brings the columns back, with
+  `kind` and `surface` set to `chat` and the rest empty; the deleted rows do
+  not come back.
 - Give the API the environment variables `config/connectors.yaml` names, for
   example `JIRA_BASE_URL` or `LOCAL_SOURCE_PATH`. The one-time import reads
   non-secret values from the API's environment.
@@ -29,10 +34,18 @@ each connection at the start of every run.
 The API imports `config/connectors.yaml` once, when all of these hold:
 
 - the file exists;
-- the install has at most one tenant;
-- no connection was created by a person (rows carried over from the old
-  `/api/v1/sources` routes do not count);
+- the install has no projects and no connections, in any tenant;
 - no earlier import was recorded.
+
+It imports into the tenant `HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT`
+unless set). An install upgraded with projects or connections already stored,
+including rows carried over from the old `/api/v1/sources` routes, is not
+imported: add its connections through the API or `harborrag source add`.
+
+The import runs once. A failed import is recorded and not tried again; a project
+it created that holds no connection is removed, and what it missed is added
+through the API. An import stopped part way, for example by a restart, resumes
+at the next start.
 
 Each entry becomes a connection:
 
@@ -83,9 +96,9 @@ a row whose type is unknown becomes `error`.
 - **Editing a Jira connection's `jql` keeps its source scope**, so items the
   new query no longer matches are removed by the next full scan.
 - **`GET /v1/admin/connections` lists stored connections** in the caller's
-  tenant. The `source_type` for local files is `local_file`, and a
-  connection's `source_key` is the `connection_id` that `POST /v1/ingestions`
-  accepts.
+  tenant. The `source_type` for local files is `local_file`, and
+  `POST /v1/admin/ingestions` starts one by its `project_id` and
+  `connection_id`.
 - **Request settings can be edited.** A connection's `advanced` object holds
   `requests_per_minute`, `page_size`, `request_timeout_seconds`,
   `max_retries` and `backoff_factor`; see
@@ -115,7 +128,6 @@ a row whose type is unknown becomes `error`.
   Without either on the API, the API refuses new `local_file` connections;
   the CLI and `connectors.yaml` still accept them.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
-  `/v1/ingestions*` keeps working until `/v1/admin/ingestions*` replaces it.
 
 ### HTTP API changes
 
@@ -142,14 +154,29 @@ a row whose type is unknown becomes `error`.
 - **A credential with several tenants sends `X-Tenant-Id`** on admin routes,
   else `400 tenant_required`; a tenant it does not hold is
   `403 tenant_forbidden`.
-- **An `Idempotency-Key` reused with another body is `422`**, not `409`.
+- **An `Idempotency-Key` reused with another body is `422`**, not `409`; a key
+  is kept for 24 hours.
+- **Ingestions start at `POST /v1/admin/ingestions`** with `project_id` and
+  `connection_id` in the body. `POST …/connections/{connection_id}/sync`,
+  `POST /v1/ingestions` and the `sync_now` field of connection `PUT` are
+  removed.
+- **Ingestion runs moved to `/v1/admin/ingestions`:** `/v1/ingestions*` answers
+  `404`; `{task_id}` is now `{ingestion_id}` and `/stream` is `/events`. The
+  responses keep the task shape they had.
+- **Chat completions are retrieval chat only:** `max_steps` is removed and
+  answers `422`, the `response.agent.progress` stream event is gone, and
+  `HARBORRAG_API_AGENT_TOKEN_BUDGET` and `HARBORRAG_MEMORY_AGENT_TOOLS` are
+  ignored. Sessions created by the 1.x agent surface stay stored and are now
+  listed by `GET /v1/chat/sessions` like any chat session. Session listings
+  no longer carry `kind`, stored messages no longer carry `run_id`, and the
+  `tool` message role is gone.
 
 ### Not yet supported
 
-- `item_refs` on `POST …/sync` answers `501 not_supported`.
-- `GET /v1/admin/ingestions/{ingestion_id}`, which the sync response's
-  `Location` header names, arrives with the ingestion routes; until then use
-  `GET /v1/ingestions/{task_id}`.
+- `item_refs` on `POST /v1/admin/ingestions` answers `501 not_supported`.
+- The ingestion read and control routes still return the task shape
+  (`task_id`, a `tenant` query filter), not the `Ingestion` shape the start
+  route returns.
 - Project ids are unique across tenants.
 
 ## 2.0.0a1 to 2.0.0a2

@@ -514,15 +514,19 @@ checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` b
 connections under those keys. It is not a source *type*, so `--connector-id local` fails.
 
 After that first start, add and change connections through the API: list the source
-types, test the form values, then save with `sync_now`. For example, a GitHub repository:
+types, test the form values, save the connection, then start an ingestion. For example,
+a GitHub repository:
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   http://localhost:8000/v1/admin/projects/default/connections/docs-repo \
   -d '{"source_type": "github", "name": "Docs repository",
        "credentials": {"token": "github_pat_11A..."},
-       "config": {"owner": "acme", "repo": "docs"},
-       "sync_now": true}'
+       "config": {"owner": "acme", "repo": "docs"}}'
+
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/v1/admin/ingestions \
+  -d '{"project_id": "default", "connection_id": "docs-repo"}'
 ```
 
 The token is stored encrypted in the control database and never read back. References
@@ -584,7 +588,7 @@ Tenant-scoped calls require an explicit tenant, pass JSON-schema and
 budget validation, and is recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 
-Chat and agent operations are **not** MCP tools - they are served through the REST API.
+Chat is **not** an MCP tool - it is served through the REST API.
 Ingestion is controlled through the CLI or the authenticated API.
 
 Check the installation and list the advertised tools:
