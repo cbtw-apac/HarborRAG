@@ -2433,7 +2433,7 @@ requires-dist = [
     { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["reader", "chat", "agent", "memory", "temporal", "production", "dev"]
+provides-extras = ["reader", "chat", "memory", "temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"
