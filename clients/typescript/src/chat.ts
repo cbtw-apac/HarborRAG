@@ -36,7 +36,6 @@ export interface ChatCitation {
   document_id: string;
   chunk_id: string;
   score: number | null;
-  tool?: string | null;
   document_title?: string | null;
   section_path?: string[];
   location?: string | null;
@@ -61,21 +60,9 @@ export interface ChatCompletionResponse {
   retry_count: number;
   fallback_count: number;
   citations: ChatCitation[];
-  citation_validation?: {
-    complete: boolean;
-    evidence_available: boolean;
-    marker_count: number;
-    validated_count: number;
-    invalid_count: number;
-  } | null;
   session_id: string;
   title: string | null;
-  mode: "rag" | "agent";
-  run_id: string | null;
-  stop_reason: string | null;
-  turns: number | null;
-  tool_call_count: number | null;
-  tool_calls: { step: number; tool: string; ok: boolean }[] | null;
+  mode: "rag";
   project_id: string | null;
   memory_persisted: boolean;
 }

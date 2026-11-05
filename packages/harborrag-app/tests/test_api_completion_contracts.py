@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.api.v1.chat.replay import _stored_response
 from harborrag_app.api.v1.chat.schemas import (
     ChatCitation,
     ChatCompletionResponse,
@@ -154,3 +155,33 @@ def test_response_text_preserves_source_indentation_and_streamed_whitespace():
     citation = ChatCitation(document_id="doc", chunk_id="chunk", score=0.0, content=content)
     message = ChatMessageResponse(role="assistant", content=content)
     assert citation.content == message.content == content
+
+
+def test_a_result_stored_before_the_upgrade_still_replays():
+    stored = {
+        "id": "answer-1",
+        "model": "primary",
+        "provider": "mock",
+        "provider_model": "mock-chat",
+        "message": {"role": "assistant", "content": "Answer"},
+        "finish_reason": "stop",
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "retry_count": 0,
+        "fallback_count": 0,
+        "citations": [
+            {"document_id": "doc", "chunk_id": "chunk", "score": 0.5, "tool": "vector_search"}
+        ],
+        "citation_validation": {"complete": True},
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "stop_reason": "final_answer",
+        "turns": 2,
+        "tool_call_count": 1,
+        "tool_calls": [{"step": 1, "tool": "vector_search", "ok": True}],
+    }
+
+    replayed = _stored_response(json.dumps(stored))
+
+    assert replayed.session_id == "session-1"
+    assert replayed.citations[0].chunk_id == "chunk"
+    assert "run_id" not in replayed.model_dump()

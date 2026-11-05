@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 
@@ -14,7 +15,7 @@ from harborrag_core.contracts.errors import (
 )
 
 from .completion_dependency import CompletionService
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .schemas import ChatCitation, ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -58,7 +59,7 @@ class CompletionAttempt:
             request_hash=self.request_hash,
         )
         if claim.status == "completed" and claim.result_json is not None:
-            return ChatCompletionResponse.model_validate_json(claim.result_json)
+            return _stored_response(claim.result_json)
         if claim.status == "conflict":
             raise HarborValidationError(
                 "Idempotency key was already used with a different request",
@@ -115,3 +116,20 @@ class CompletionAttempt:
             logger.exception("Completion replay state could not be saved")
         finally:
             self.claimed = False
+
+
+def _stored_response(text: str) -> ChatCompletionResponse:
+    """Load a stored completion, ignoring fields this release no longer returns.
+
+    A replay saved before an upgrade can carry fields removed since, which the
+    response model would otherwise refuse.
+    """
+    stored = json.loads(text)
+    data = {
+        key: value for key, value in stored.items() if key in ChatCompletionResponse.model_fields
+    }
+    data["citations"] = [
+        {key: value for key, value in citation.items() if key in ChatCitation.model_fields}
+        for citation in data.get("citations", [])
+    ]
+    return ChatCompletionResponse.model_validate(data)

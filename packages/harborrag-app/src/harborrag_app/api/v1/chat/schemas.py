@@ -99,7 +99,6 @@ class ChatCitation(ApiModel):
     document_id: str
     chunk_id: str
     score: float
-    tool: str | None = Field(default=None, exclude_if=lambda value: value is None)
     document_title: str | None = Field(default=None, exclude_if=lambda value: value is None)
     section_path: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
     location: str | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -117,14 +116,6 @@ class ChatCitation(ApiModel):
     )
 
 
-class AgentCitationValidation(ApiModel):
-    complete: bool
-    evidence_available: bool
-    marker_count: int = Field(ge=0)
-    validated_count: int = Field(ge=0)
-    invalid_count: int = Field(ge=0)
-
-
 class ChatUsageResponse(ApiModel):
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
@@ -132,12 +123,6 @@ class ChatUsageResponse(ApiModel):
     cache_read_input_tokens: int | None = Field(default=None, ge=0)
     cache_creation_input_tokens: int | None = Field(default=None, ge=0)
     reasoning_tokens: int | None = Field(default=None, ge=0)
-
-
-class ChatToolCallResponse(ApiModel):
-    step: int = Field(ge=1)
-    tool: str
-    ok: bool
 
 
 class ChatCompletionResponse(ApiModel):
@@ -156,17 +141,9 @@ class ChatCompletionResponse(ApiModel):
     retry_count: int = Field(..., ge=0)
     fallback_count: int = Field(..., ge=0)
     citations: tuple[ChatCitation, ...] = ()
-    citation_validation: AgentCitationValidation | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
     session_id: str
     title: str | None = None
-    mode: Literal["rag", "agent"] = "rag"
-    run_id: str | None = None
-    stop_reason: str | None = None
-    turns: int | None = Field(default=None, ge=0)
-    tool_call_count: int | None = Field(default=None, ge=0)
-    tool_calls: list[ChatToolCallResponse] | None = None
+    mode: Literal["rag"] = "rag"
     # The validated project the turn was scoped to; null when none was given.
     project_id: str | None = None
     # False when the answer was produced but could not be saved to conversation

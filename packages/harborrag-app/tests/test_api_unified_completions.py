@@ -153,11 +153,10 @@ def test_chat_session_routes_are_the_only_conversation_routes(client):
     assert set(paths["/v1/chat/sessions"]) == {"get", "post"}
     assert "/v1/chat/sessions/{session_id}" not in paths
     assert set(paths["/v1/chat/sessions/{session_id}/messages"]) == {"get"}
-    for removed in ("/v1/conversations", "/v1/chat/conversations", "/v1/agent/sessions"):
+    for removed in ("/v1/conversations", "/v1/chat/conversations"):
         assert client.get(removed).status_code == 404
         assert client.post(removed, json={}).status_code == 404
         assert removed not in paths
-    assert "/v1/runs/{run_id}/resume" not in paths
 
 
 @pytest.mark.asyncio
