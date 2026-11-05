@@ -18,8 +18,8 @@ creates missing schedules and updates existing config-owned schedules. Each
 the working directory); the API image and Compose stack set it to
 `/app/config/schedules.yaml`.
 
-Leave `source_scope_id: null` so scheduled runs use the same source scope that
-`POST /v1/ingestions` derives for the connector; a different scope is ingested
+Leave `source_scope_id: null` so scheduled runs use the same source scope as a
+run started with `POST /v1/admin/ingestions`; a different scope is ingested
 and tracked separately.
 
 This example starts an incremental workspace ingestion every day at 1:00 AM in

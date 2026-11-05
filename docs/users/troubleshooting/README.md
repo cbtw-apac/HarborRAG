@@ -50,7 +50,7 @@ submitted; processing continues asynchronously:
 
 ```bash
 curl --fail-with-body \
-  http://127.0.0.1:8000/v1/ingestions/INGESTION_TASK_ID
+  http://127.0.0.1:8000/v1/admin/ingestions/INGESTION_ID
 ```
 
 `discovered > 0` with `processed = 0` can mean the first bounded document
@@ -72,7 +72,7 @@ If the worker reports that previous chunk or representation artifacts are
 missing during a metadata-only update, current releases fall back to fresh
 encoding. This reuse path is an optimization and must not fail the ingestion.
 For a task created by an older worker, allow it to finish, deploy the corrected
-worker, and use `POST /v1/ingestions/{task_id}/retry-failures` for its retryable
+worker, and use `POST /v1/admin/ingestions/{ingestion_id}/retry-failures` for its retryable
 document failures.
 
 ## Chat and MCP

@@ -82,19 +82,18 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body |
+| `POST` `GET` | `/v1/admin/ingestions` | `editor`, `reader` | Start an ingestion of the connection named in the body; list runs |
+| `GET` `POST` | `/v1/admin/ingestions/{ingestion_id}[/documents\|/events\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Read and control one run |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
 | `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a chat session, list the caller's sessions |
 | `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
-| `POST` `GET` | `/v1/ingestions` | `editor`, `reader` | Legacy: submit and list ingestion tasks |
-| `GET` `POST` | `/v1/ingestions/{task_id}[/documents\|/stream\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Legacy: read and control one task |
 
-The `/v1/ingestions*` routes are legacy: `/v1/admin/ingestions*` replaces them
-and they are removed in the same change. Every other route that predates v2.0.0,
-including `/api/v1/*`, `/v1/connections`, `/v1/agent/*`, `/v1/retrieval/*`,
+The ingestion read and control routes keep the task shape they had under
+`/v1/ingestions`. Every other route that predates v2.0.0, including `/api/v1/*`,
+`/v1/connections`, `/v1/ingestions*`, `/v1/agent/*`, `/v1/retrieval/*`,
 `/v1/graph/*`, `/v1/memory/*` and `/v1/schedules/*`, answers `404 not_found`
 with no deprecated alias.
 

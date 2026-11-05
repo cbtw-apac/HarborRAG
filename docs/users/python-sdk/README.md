@@ -84,7 +84,7 @@ on cancellation at the same safe boundary.
 `discovery_concurrency`, and `document_concurrency`.
 
 `force_reprocess=True` is the same admission control as `mode: force` on
-`POST /v1/ingestions` and `--force-reprocess` on the CLI - see
+`POST /v1/admin/ingestions` and `--force-reprocess` on the CLI - see
 [Ingestion modes](../ingestion-modes.md).
 
 To follow progress, poll `status(task_id)`. It returns a small `IngestionStatus` value
