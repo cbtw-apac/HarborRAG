@@ -1,4 +1,4 @@
-"""RAG chat reads the shared corpus on the same basis as the agent path.
+"""RAG chat reads the shared corpus on the same basis as MCP retrieval.
 
 Ingestion writes no ACL snapshot rows, so a tenant ingested under
 ``tenant_shared`` that chat searched as ``source_acl`` came back empty: every

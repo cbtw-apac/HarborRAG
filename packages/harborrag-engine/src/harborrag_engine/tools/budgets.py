@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
-from jsonschema.exceptions import SchemaError, ValidationError, best_match
+from jsonschema.exceptions import SchemaError, ValidationError
 from jsonschema.protocols import Validator
 from jsonschema.validators import validator_for
 
@@ -35,18 +35,11 @@ _COUNTED_LIST_FIELDS = (
     "memories",
 )
 
-# jsonschema renders a combinator failure as ``repr(instance)``, so quoting
-# ``exc.message`` for one would hand a model back its own arguments -- up to the
-# whole argument budget. The constraint that failed is in the *schema*, which is
-# bounded by us, so report that instead of the value.
 MAX_ARGUMENT_BYTES = 64 * 1024
 """Largest serialized argument payload any transport accepts for one call."""
 
 MAX_OUTPUT_BYTES = 1024 * 1024
 """Largest serialized result any transport accepts from one call."""
-
-_COMBINATOR_VALIDATORS = frozenset({"not", "anyOf", "oneOf", "allOf"})
-_MAX_DETAIL_CHARS = 200
 
 
 @lru_cache(maxsize=512)
@@ -68,20 +61,6 @@ def _compiled(schema_key: str) -> Validator:
 
 def _validator(schema: dict[str, object]) -> Validator:
     return _compiled(json.dumps(schema, sort_keys=True, separators=(",", ":")))
-
-
-def _validation_detail(error: ValidationError) -> str:
-    """One short, argument-free sentence a model can self-correct from."""
-
-    best = best_match([error]) or error
-    if best.validator in _COMBINATOR_VALIDATORS:
-        constraint = json.dumps(best.validator_value, separators=(",", ":"))
-        detail = f"does not satisfy {best.validator}: {constraint}"
-    else:
-        detail = best.message
-    if len(detail) > _MAX_DETAIL_CHARS:
-        detail = f"{detail[:_MAX_DETAIL_CHARS]}..."
-    return f"{best.json_path}: {detail}"
 
 
 def result_count(result: dict[str, object]) -> int:
@@ -116,10 +95,6 @@ class ToolBudget:
     """Ceilings enforced around one tool call, independent of transport."""
 
     label: str = "Tool"
-    # Name the offending field and bound in the rejection. A model has to
-    # self-correct from the error text alone, so "$.top_k: 0 is less than the
-    # minimum of 1" is worth far more to it than "arguments do not match".
-    detail_in_errors: bool = False
     max_results: int = MAX_TOOL_RESULTS
     max_argument_bytes: int = MAX_ARGUMENT_BYTES
     max_output_bytes: int = MAX_OUTPUT_BYTES
@@ -130,7 +105,6 @@ class ToolBudget:
 
         return ToolBudget(
             label=requested.label,
-            detail_in_errors=requested.detail_in_errors,
             max_results=min(self.max_results, requested.max_results),
             max_argument_bytes=min(self.max_argument_bytes, requested.max_argument_bytes),
             max_output_bytes=min(self.max_output_bytes, requested.max_output_bytes),
@@ -152,10 +126,7 @@ class ToolBudget:
         try:
             validator.validate(json.loads(serialized))
         except ValidationError as exc:
-            message = f"{self.label} arguments do not match the tool schema."
-            if self.detail_in_errors:
-                message = f"{message} {_validation_detail(exc)}"
-            raise ValueError(message) from exc
+            raise ValueError(f"{self.label} arguments do not match the tool schema.") from exc
 
     def check_results(self, count: int) -> None:
         if count > self.max_results:

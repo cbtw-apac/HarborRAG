@@ -1,4 +1,4 @@
-"""Chat and agent turns are attributable to a human and to a bill.
+"""Chat turns are attributable to a human and to a bill.
 
 Chat used to be the one model family with no telemetry and no accounting: the
 token counts went out to the caller and were then dropped, and no request
