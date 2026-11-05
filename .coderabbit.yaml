@@ -195,18 +195,10 @@ reviews:
 
     - path: "packages/harborrag-engine/src/harborrag_engine/tools/**"
       instructions: >
-        Reader tools bind only to core reader ports. MCP and the optional agent
-        invoke them through the same policy, validation, and output-budget
-        boundary. A new or changed tool must declare its input/output schema, run
+        Reader tools bind only to core reader ports. MCP invokes them through
+        the policy, validation, and output-budget boundary. A new or changed tool must declare its input/output schema, run
         through the checked invoker, and have no path that skips policy checks or
         the output budget.
-
-    - path: "packages/harborrag-engine/src/harborrag_engine/agent/**"
-      instructions: >
-        The agent is bounded multi-hop model/tool orchestration. Check explicit hop
-        and token budgets, termination on every path including tool errors, tool
-        calls only through the checked tool invoker, and no provider SDK or
-        transport imports; runtime binds the model clients and optional memory.
 
     - path: "packages/harborrag-engine/src/harborrag_engine/chat/**"
       instructions: >
@@ -216,11 +208,11 @@ reviews:
 
     - path: "packages/harborrag-memory/src/harborrag_memory/**"
       instructions: >
-        Memory is the scope-aware MemoryManager facade over optional short-term,
-        working, and long-term tiers. It may import only harborrag_core: storage
-        lives in harborrag-adapters and contracts in harborrag-core. Check that an
-        unconfigured tier raises MemoryConfigurationError, working-memory TTLs are
-        bounded, reads and writes never cross scopes, and model calls go through
+        Memory is the scope-aware MemoryManager facade over optional short-term
+        and long-term tiers. It may import only harborrag_core: storage lives in
+        harborrag-adapters and contracts in harborrag-core. Check that an
+        unconfigured tier raises MemoryConfigurationError, reads and writes never
+        cross scopes, and model calls go through
         the MemoryModel protocol rather than a provider SDK. LangChain stays an
         implementation detail of message conversion and trimming.
 

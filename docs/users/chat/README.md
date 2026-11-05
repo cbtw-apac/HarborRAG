@@ -143,8 +143,8 @@ See [Chat models](models.md) for catalogs and tenant model selection.
 | GET | `/v1/chat/sessions/{session_id}/messages` | Read paginated session history |
 
 Lists return `{"sessions": [...], "next_cursor": "..."}`; `next_cursor` is
-omitted on the last page. Sessions created by the 1.x agent surface are not
-listed. History responses use `Cache-Control: no-store`. Renaming and deleting
+omitted on the last page. Sessions created by the 1.x agent surface are
+listed with the rest. History responses use `Cache-Control: no-store`. Renaming and deleting
 a session come back in v2.1.
 
 See [Conversation memory](memory.md) for paging.

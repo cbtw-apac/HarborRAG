@@ -46,7 +46,8 @@ and its actual citations. Interrupted output is marked `partial: true`.
 It remains visible in message history but is excluded from subsequent
 completion context.
 
-Messages from 1.x agent runs keep their `run_id`.
+Messages from 1.x agent runs read back as plain user and assistant
+messages; their tool-call steps were removed on upgrade.
 
 `memory_persisted` reports whether the exchange was saved. A persistence
 failure leaves a successful answer available and sets this field to
