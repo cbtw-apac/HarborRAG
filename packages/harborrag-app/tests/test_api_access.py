@@ -28,7 +28,7 @@ _PATH_VALUES = {
     "project_id": "cpm",
     "connection_id": "cpm-tickets",
     "session_id": "session-1",
-    "task_id": "ing_1",
+    "ingestion_id": "ing_1",
 }
 
 
@@ -201,7 +201,7 @@ def test_another_tenants_project_is_not_found(client: TestClient) -> None:
         ("GET", "/v1/admin/projects"),
         ("GET", "/v1/admin/source-types"),
         ("GET", "/v1/chat/sessions"),
-        ("GET", "/v1/ingestions"),
+        ("GET", "/v1/admin/ingestions"),
         ("GET", "/v1/me"),
     ],
 )

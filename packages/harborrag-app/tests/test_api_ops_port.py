@@ -73,14 +73,14 @@ def test_the_ops_port_wants_the_scrape_token(client: TestClient, authorization: 
 
 
 def test_the_scrape_token_reads_the_metrics(client: TestClient) -> None:
-    client.get("/v1/ingestions/ing_1")
+    client.get("/v1/admin/ingestions/ing_1")
 
     response = client.get(f"{_OPS}/metrics", headers={"Authorization": f"Bearer {_SCRAPE}"})
 
     assert response.status_code == 200
     assert response.headers["content-type"] == "text/plain; version=0.0.4; charset=utf-8"
     assert "# TYPE harborrag_api_http_requests_total counter" in response.text
-    assert 'route="/v1/ingestions/{task_id}"' in response.text
+    assert 'route="/v1/admin/ingestions/{ingestion_id}"' in response.text
     assert "harborrag_api_info" in response.text
     assert "process_resident_memory_bytes" in response.text
 

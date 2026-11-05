@@ -73,7 +73,7 @@ def test_stream_replays_backlog_and_closes_for_an_already_terminal_task(
     ]
     service = _StreamingAppService(status="SUCCESS", events=events)
     with _client(service, monkeypatch) as client:
-        response = client.get("/v1/ingestions/t1/stream")
+        response = client.get("/v1/admin/ingestions/t1/events")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -92,7 +92,7 @@ def test_stream_frames_carry_the_event_sequence_as_the_sse_id(
     ]
     service = _StreamingAppService(status="SUCCESS", events=events)
     with _client(service, monkeypatch) as client:
-        response = client.get("/v1/ingestions/t1/stream")
+        response = client.get("/v1/admin/ingestions/t1/events")
 
     frames = _sse_frames_with_id(response.text)
     assert [event_id for _, _, event_id in frames] == ["5", "6"]
@@ -104,7 +104,7 @@ def test_stream_forwards_last_event_id_header_as_the_backlog_cursor(
     """A reconnecting EventSource's Last-Event-ID resumes the backlog past it."""
     service = _StreamingAppService(status="SUCCESS", events=[])
     with _client(service, monkeypatch) as client:
-        response = client.get("/v1/ingestions/t1/stream", headers={"Last-Event-ID": "5"})
+        response = client.get("/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "5"})
 
     assert response.status_code == 200
     assert service.last_after_seq == 5
@@ -115,7 +115,9 @@ def test_stream_ignores_a_malformed_last_event_id_header(
 ) -> None:
     service = _StreamingAppService(status="SUCCESS", events=[])
     with _client(service, monkeypatch) as client:
-        response = client.get("/v1/ingestions/t1/stream", headers={"Last-Event-ID": "not-a-number"})
+        response = client.get(
+            "/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "not-a-number"}
+        )
 
     assert response.status_code == 200
     assert service.last_after_seq is None
@@ -126,7 +128,7 @@ def test_stream_of_a_task_with_no_backlog_returns_an_empty_stream(
 ) -> None:
     service = _StreamingAppService(status="FAILED", events=[])
     with _client(service, monkeypatch) as client:
-        response = client.get("/v1/ingestions/t1/stream")
+        response = client.get("/v1/admin/ingestions/t1/events")
 
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("text/event-stream")
@@ -143,7 +145,7 @@ def test_stream_of_an_unknown_task_is_a_plain_enveloped_404(
             raise HarborNotFoundError("Ingestion task was not found")
 
     with _client(_NotFoundService(), monkeypatch) as client:
-        response = client.get("/v1/ingestions/missing/stream")
+        response = client.get("/v1/admin/ingestions/missing/events")
 
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")

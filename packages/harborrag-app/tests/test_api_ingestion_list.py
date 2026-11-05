@@ -1,4 +1,4 @@
-"""Contract tests for GET /v1/ingestions, the public task list.
+"""Contract tests for GET /v1/admin/ingestions, the ingestion run list.
 
 Kept out of test_api_ingestions.py to stay under the repo's file-length gate.
 """
@@ -53,8 +53,8 @@ def test_listing_returns_the_get_by_id_task_shape(
     service: MockAppService,
 ) -> None:
     """The table and the detail view render from the same task fields."""
-    listed = client.get("/v1/ingestions")
-    detail = client.get("/v1/ingestions/00000000-0000-4000-8000-000000000001")
+    listed = client.get("/v1/admin/ingestions")
+    detail = client.get("/v1/admin/ingestions/00000000-0000-4000-8000-000000000001")
 
     assert listed.status_code == 200
     assert set(listed.json()) == {"items", "next_cursor"}
@@ -67,7 +67,7 @@ def test_default_query_reads_the_callers_full_scope(
     service: MockAppService,
 ) -> None:
     """auth_mode=none is a wildcard principal, so no tenant filter is applied."""
-    assert client.get("/v1/ingestions").status_code == 200
+    assert client.get("/v1/admin/ingestions").status_code == 200
     assert service.task_list_calls[-1] == {
         "tenants": None,
         "statuses": None,
@@ -81,7 +81,7 @@ def test_filters_and_cursor_reach_the_application_service(
     service: MockAppService,
 ) -> None:
     response = client.get(
-        "/v1/ingestions",
+        "/v1/admin/ingestions",
         params={"tenant": "ACME", "status": "SUCCESS", "cursor": "abc", "limit": 5},
     )
 
@@ -100,7 +100,7 @@ def test_repeated_status_reaches_the_application_service_as_one_filter(
 ) -> None:
     """?status=PENDING&status=RUNNING ORs both, instead of costing two calls."""
     response = client.get(
-        "/v1/ingestions",
+        "/v1/admin/ingestions",
         params=[("status", "PENDING"), ("status", "RUNNING")],
     )
 
@@ -112,7 +112,7 @@ def test_malformed_cursor_is_rejected_at_the_route(
     client: TestClient,
     service: MockAppService,
 ) -> None:
-    response = client.get("/v1/ingestions", params={"cursor": "not-base64"})
+    response = client.get("/v1/admin/ingestions", params={"cursor": "not-base64"})
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
@@ -134,7 +134,7 @@ def test_invalid_query_parameters_are_rejected(
     service: MockAppService,
     params: dict[str, object],
 ) -> None:
-    response = client.get("/v1/ingestions", params=params)
+    response = client.get("/v1/admin/ingestions", params=params)
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
@@ -151,7 +151,9 @@ def test_scoped_principal_cannot_list_another_tenant(
     headers = {"Authorization": f"Bearer {_tenant_token(tenants=['ACME'])}"}
 
     with TestClient(app) as tenant_client:
-        response = tenant_client.get("/v1/ingestions", params={"tenant": "OTHER"}, headers=headers)
+        response = tenant_client.get(
+            "/v1/admin/ingestions", params={"tenant": "OTHER"}, headers=headers
+        )
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "tenant_forbidden"
@@ -168,7 +170,7 @@ def test_scoped_principal_without_a_tenant_filter_reads_only_its_own(
     headers = {"Authorization": f"Bearer {_tenant_token(tenants=['ACME', 'BETA'])}"}
 
     with TestClient(app) as tenant_client:
-        response = tenant_client.get("/v1/ingestions", headers=headers)
+        response = tenant_client.get("/v1/admin/ingestions", headers=headers)
 
     assert response.status_code == 200
     assert service.task_list_calls[-1]["tenants"] == frozenset({"ACME", "BETA"})
@@ -182,7 +184,7 @@ def test_listing_requires_a_token_under_hmac(
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_AUTH_SECRET))
 
     with TestClient(app) as tenant_client:
-        response = tenant_client.get("/v1/ingestions")
+        response = tenant_client.get("/v1/admin/ingestions")
 
     assert response.status_code == 401
     assert response.json()["error"]["code"] == "unauthenticated"

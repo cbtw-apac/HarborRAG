@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, FastAPI
 from harborrag_app.api.deadline import enforce_deadline
 from harborrag_app.api.probes import router as probes_router
 from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
-from harborrag_app.api.v1.admin.ingestion_routes import router as admin_ingestions_router
 from harborrag_app.api.v1.chat import router as chat_router
 from harborrag_app.api.v1.ingestion import router as ingestion_router
 from harborrag_app.api.v1.me import router as me_router
@@ -23,13 +22,6 @@ def register_routes(app: FastAPI) -> None:
         prefix=PUBLIC_PREFIX,
         dependencies=[Depends(enforce_deadline, scope="function")],
     )
-    # TODO: remove the legacy /v1/ingestions routes when /v1/admin/ingestions lands.
-    for router in (
-        me_router,
-        ingestion_router,
-        chat_router,
-        *connection_admin_routers,
-        admin_ingestions_router,
-    ):
+    for router in (me_router, chat_router, *connection_admin_routers, ingestion_router):
         public.include_router(router)
     app.include_router(public)

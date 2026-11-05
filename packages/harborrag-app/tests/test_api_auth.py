@@ -19,7 +19,7 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-PROTECTED = "/v1/ingestions/missing/cancel"
+PROTECTED = "/v1/admin/ingestions/missing/cancel"
 
 
 @pytest.fixture(autouse=True)

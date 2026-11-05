@@ -45,12 +45,12 @@ def service() -> MockAppService:
 @pytest.mark.parametrize(
     ("method", "path"),
     [
-        ("GET", "/v1/ingestions/ing_1"),
-        ("GET", "/v1/ingestions/ing_1/documents"),
-        ("POST", "/v1/ingestions/ing_1/pause"),
-        ("POST", "/v1/ingestions/ing_1/resume"),
-        ("POST", "/v1/ingestions/ing_1/cancel"),
-        ("POST", "/v1/ingestions/ing_1/retry-failures"),
+        ("GET", "/v1/admin/ingestions/ing_1"),
+        ("GET", "/v1/admin/ingestions/ing_1/documents"),
+        ("POST", "/v1/admin/ingestions/ing_1/pause"),
+        ("POST", "/v1/admin/ingestions/ing_1/resume"),
+        ("POST", "/v1/admin/ingestions/ing_1/cancel"),
+        ("POST", "/v1/admin/ingestions/ing_1/retry-failures"),
     ],
 )
 def test_cross_tenant_task_ids_are_hidden_as_not_found(

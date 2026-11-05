@@ -1,4 +1,4 @@
-"""Contract tests for the connector-independent public ingestion API."""
+"""Contract tests for reading and controlling ingestion runs."""
 
 from __future__ import annotations
 
@@ -29,103 +29,8 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
         yield test_client
 
 
-@pytest.mark.parametrize(
-    "connection_id",
-    [
-        "confluence-main",
-        "jira-main",
-        "harborrag-workspace",
-    ],
-)
-def test_valid_connector_requests_return_accepted(
-    client: TestClient,
-    service: MockAppService,
-    connection_id: str,
-) -> None:
-    response = client.post(
-        "/v1/ingestions",
-        json={"connection_id": connection_id},
-    )
-
-    assert response.status_code == 202
-    assert response.json()["status"] == "PENDING"
-    assert UUID(response.json()["task_id"])
-    assert "workflow" not in response.json()
-    assert service.submissions[-1].connection_id == connection_id
-    assert service.submissions[-1].tenant_id == "DEFAULT"
-
-
-def test_connection_id_is_required(client: TestClient) -> None:
-    response = client.post("/v1/ingestions", json={})
-
-    assert response.status_code == 422
-    assert response.json()["error"]["code"] == "validation_error"
-
-
-def test_unknown_request_fields_and_credentials_are_rejected(client: TestClient) -> None:
-    response = client.post(
-        "/v1/ingestions",
-        json={
-            "connection_id": "jira-main",
-            "api_token": "must-not-enter-the-control-plane",
-        },
-    )
-
-    assert response.status_code == 422
-    assert "must-not-enter-the-control-plane" not in response.text
-
-
-def test_connector_configuration_cannot_be_overridden_in_the_api(client: TestClient) -> None:
-    response = client.post(
-        "/v1/ingestions",
-        json={
-            "connection_id": "harborrag-workspace",
-            "paths": ["another-root"],
-            "include_attachments": False,
-        },
-    )
-
-    assert response.status_code == 422
-
-
-def test_repeated_idempotency_key_returns_the_same_task(client: TestClient) -> None:
-    payload = {"connection_id": "harborrag-workspace"}
-    first = client.post(
-        "/v1/ingestions",
-        json=payload,
-        headers={"Idempotency-Key": "local-smoke-001"},
-    )
-    second = client.post(
-        "/v1/ingestions",
-        json=payload,
-        headers={"Idempotency-Key": "local-smoke-001"},
-    )
-
-    assert first.status_code == second.status_code == 202
-    assert first.json()["task_id"] == second.json()["task_id"]
-
-
-def test_tenant_and_force_mode_are_preserved_in_the_application_command(
-    client: TestClient,
-    service: MockAppService,
-) -> None:
-    response = client.post(
-        "/v1/ingestions",
-        json={
-            "connection_id": "harborrag-workspace",
-            "tenant": "ACME",
-            "mode": "force",
-        },
-    )
-
-    assert response.status_code == 202
-    command = service.submissions[-1]
-    assert command.tenant_id == "ACME"
-    assert command.force_reprocess is True
-
-
 def test_task_status_is_connector_independent_and_temporal_free(client: TestClient) -> None:
-    response = client.get("/v1/ingestions/ing_1")
+    response = client.get("/v1/admin/ingestions/ing_1")
 
     assert response.status_code == 200
     body = response.json()
@@ -137,16 +42,16 @@ def test_task_status_is_connector_independent_and_temporal_free(client: TestClie
 
 
 def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> None:
-    client.get("/v1/ingestions/ing_1")
+    client.get("/v1/admin/ingestions/ing_1")
 
     metrics = client.app.state.api_metrics.render().decode()
-    assert 'route="/v1/ingestions/{task_id}"' in metrics
-    assert 'route="/v1/ingestions/ing_1"' not in metrics
+    assert 'route="/v1/admin/ingestions/{ingestion_id}"' in metrics
+    assert 'route="/v1/admin/ingestions/ing_1"' not in metrics
 
 
 def test_document_results_support_status_and_cursor_parameters(client: TestClient) -> None:
     response = client.get(
-        "/v1/ingestions/ing_1/documents",
+        "/v1/admin/ingestions/ing_1/documents",
         params={"status": "SUCCESS", "cursor": "opaque", "limit": 25},
     )
 
@@ -157,8 +62,8 @@ def test_document_results_support_status_and_cursor_parameters(client: TestClien
 
 
 def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestClient) -> None:
-    accepted = client.post("/v1/ingestions/ing_1/cancel")
-    conflict = client.post("/v1/ingestions/complete/cancel")
+    accepted = client.post("/v1/admin/ingestions/ing_1/cancel")
+    conflict = client.post("/v1/admin/ingestions/complete/cancel")
 
     assert accepted.status_code == 202
     assert accepted.json()["message"] == "Cancellation requested"
@@ -169,16 +74,16 @@ def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestCl
 def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
     client: TestClient,
 ) -> None:
-    pause_accepted = client.post("/v1/ingestions/ing_1/pause")
-    pause_conflict = client.post("/v1/ingestions/complete/pause")
+    pause_accepted = client.post("/v1/admin/ingestions/ing_1/pause")
+    pause_conflict = client.post("/v1/admin/ingestions/complete/pause")
 
     assert pause_accepted.status_code == 202
     assert pause_accepted.json()["message"] == "Pause requested"
     assert pause_conflict.status_code == 409
     assert pause_conflict.json()["error"]["code"] == "invalid_state"
 
-    resume_accepted = client.post("/v1/ingestions/ing_1/resume")
-    resume_conflict = client.post("/v1/ingestions/complete/resume")
+    resume_accepted = client.post("/v1/admin/ingestions/ing_1/resume")
+    resume_conflict = client.post("/v1/admin/ingestions/complete/resume")
 
     assert resume_accepted.status_code == 202
     assert resume_accepted.json()["message"] == "Resume requested"
@@ -188,10 +93,10 @@ def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
 
 def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) -> None:
     selected = client.post(
-        "/v1/ingestions/ing_1/retry-failures",
+        "/v1/admin/ingestions/ing_1/retry-failures",
         json={"document_ids": ["document:1"]},
     )
-    all_failures = client.post("/v1/ingestions/ing_1/retry-failures")
+    all_failures = client.post("/v1/admin/ingestions/ing_1/retry-failures")
 
     assert selected.status_code == all_failures.status_code == 202
     assert selected.json()["accepted_document_count"] == 1
@@ -200,7 +105,7 @@ def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) ->
 
 def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient) -> None:
     response = client.post(
-        "/v1/ingestions/ing_1/retry-failures",
+        "/v1/admin/ingestions/ing_1/retry-failures",
         json={"document_ids": [f"document:{i}" for i in range(1001)]},
     )
 
@@ -209,7 +114,7 @@ def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient
 
 def test_retry_failures_rejects_an_oversized_document_id(client: TestClient) -> None:
     response = client.post(
-        "/v1/ingestions/ing_1/retry-failures",
+        "/v1/admin/ingestions/ing_1/retry-failures",
         json={"document_ids": ["x" * 256]},
     )
 

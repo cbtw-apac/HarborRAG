@@ -25,7 +25,6 @@ _SOURCE = Path(__file__).resolve()
 _REPOSITORY = _SOURCE.parents[5] if len(_SOURCE.parents) > 5 else Path.cwd()
 CONTRACT_PATH = _REPOSITORY / "contracts" / "http-v2.0.0.json"
 _PROBES = frozenset({"/healthz", "/readyz"})
-_LEGACY_PREFIXES = ("/v1/ingestions",)
 _METHODS = ("get", "put", "post", "patch", "delete")
 _ERROR_REF = "#/components/schemas/Error"
 _REF_PREFIX = "#/components/schemas/"
@@ -113,7 +112,6 @@ def operations(openapi: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
             body = operation.get("requestBody", {}).get("content")
             reduced[f"{method.upper()} {path}"] = {
                 "min_role": operation.get("x-min-role"),
-                "legacy": path.startswith(_LEGACY_PREFIXES),
                 "parameters": _parameters(operation),
                 "request": _shape(body, components),
                 "responses": {

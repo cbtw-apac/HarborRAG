@@ -1,7 +1,6 @@
 {
   "operations": {
     "DELETE /v1/admin/projects/{project_id}": {
-      "legacy": false,
       "min_role": "admin",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -27,7 +26,6 @@
       }
     },
     "DELETE /v1/admin/projects/{project_id}/connections/{connection_id}": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -53,7 +51,6 @@
       }
     },
     "GET /healthz": {
-      "legacy": false,
       "min_role": null,
       "parameters": [],
       "request": null,
@@ -64,7 +61,6 @@
       }
     },
     "GET /readyz": {
-      "legacy": false,
       "min_role": null,
       "parameters": [],
       "request": null,
@@ -80,7 +76,6 @@
       }
     },
     "GET /v1/admin/connections": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -129,8 +124,120 @@
         "504": "Error"
       }
     },
+    "GET /v1/admin/ingestions": {
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "query:cursor?",
+        "query:limit?",
+        "query:status?",
+        "query:tenant?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].progress",
+          "items[].source",
+          "items[].source.connection_id",
+          "items[].source.type",
+          "items[].stage",
+          "items[].status",
+          "items[].submitted_at",
+          "items[].task_id",
+          "items[].tenant"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/ingestions/{ingestion_id}": {
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "progress",
+          "source",
+          "source.connection_id",
+          "source.type",
+          "stage",
+          "status",
+          "submitted_at",
+          "task_id",
+          "tenant"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/ingestions/{ingestion_id}/documents": {
+      "min_role": "reader",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id",
+        "query:cursor?",
+        "query:limit?",
+        "query:status?"
+      ],
+      "request": null,
+      "responses": {
+        "200": [
+          "items",
+          "items[].document_id",
+          "items[].document_kind",
+          "items[].source_item_id",
+          "items[].status",
+          "items[].updated_at"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "GET /v1/admin/ingestions/{ingestion_id}/events": {
+      "min_role": "reader",
+      "parameters": [
+        "header:Last-Event-ID?",
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": null,
+      "responses": {
+        "200": [],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
     "GET /v1/admin/projects": {
-      "legacy": false,
       "min_role": "admin",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -163,7 +270,6 @@
       }
     },
     "GET /v1/admin/projects/{project_id}": {
-      "legacy": false,
       "min_role": "admin",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -193,7 +299,6 @@
       }
     },
     "GET /v1/admin/projects/{project_id}/connections/{connection_id}": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -239,7 +344,6 @@
       }
     },
     "GET /v1/admin/source-types": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -279,7 +383,6 @@
       }
     },
     "GET /v1/chat/sessions": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -301,7 +404,6 @@
       }
     },
     "GET /v1/chat/sessions/{session_id}/messages": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -323,125 +425,7 @@
         "504": "Error"
       }
     },
-    "GET /v1/ingestions": {
-      "legacy": true,
-      "min_role": "reader",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "query:cursor?",
-        "query:limit?",
-        "query:status?",
-        "query:tenant?"
-      ],
-      "request": null,
-      "responses": {
-        "200": [
-          "items",
-          "items[].progress",
-          "items[].source",
-          "items[].source.connection_id",
-          "items[].source.type",
-          "items[].stage",
-          "items[].status",
-          "items[].submitted_at",
-          "items[].task_id",
-          "items[].tenant"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "GET /v1/ingestions/{task_id}": {
-      "legacy": true,
-      "min_role": "reader",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": null,
-      "responses": {
-        "200": [
-          "progress",
-          "source",
-          "source.connection_id",
-          "source.type",
-          "stage",
-          "status",
-          "submitted_at",
-          "task_id",
-          "tenant"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "GET /v1/ingestions/{task_id}/documents": {
-      "legacy": true,
-      "min_role": "reader",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id",
-        "query:cursor?",
-        "query:limit?",
-        "query:status?"
-      ],
-      "request": null,
-      "responses": {
-        "200": [
-          "items",
-          "items[].document_id",
-          "items[].document_kind",
-          "items[].source_item_id",
-          "items[].status",
-          "items[].updated_at"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "GET /v1/ingestions/{task_id}/stream": {
-      "legacy": true,
-      "min_role": "reader",
-      "parameters": [
-        "header:Last-Event-ID?",
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": null,
-      "responses": {
-        "200": [],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
     "GET /v1/me": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:X-Tenant-Id?"
@@ -467,7 +451,6 @@
       }
     },
     "GET /v1/projects/{project_id}/connections": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -495,7 +478,6 @@
       }
     },
     "POST /v1/admin/ingestions": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?"
@@ -544,8 +526,105 @@
         "504": "Error"
       }
     },
+    "POST /v1/admin/ingestions/{ingestion_id}/cancel": {
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/admin/ingestions/{ingestion_id}/pause": {
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/admin/ingestions/{ingestion_id}/resume": {
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": null,
+      "responses": {
+        "202": [
+          "message",
+          "status",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
+    "POST /v1/admin/ingestions/{ingestion_id}/retry-failures": {
+      "min_role": "editor",
+      "parameters": [
+        "header:X-Tenant-Id?",
+        "path:ingestion_id"
+      ],
+      "request": [],
+      "responses": {
+        "202": [
+          "accepted_document_count",
+          "message",
+          "retry_task_id",
+          "task_id"
+        ],
+        "401": "Error",
+        "403": "Error",
+        "404": "Error",
+        "409": "Error",
+        "413": "Error",
+        "422": "Error",
+        "429": "Error",
+        "500": "Error",
+        "503": "Error",
+        "504": "Error"
+      }
+    },
     "POST /v1/admin/projects/{project_id}/connections/{connection_id}/test": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:X-Tenant-Id?",
@@ -583,7 +662,6 @@
       }
     },
     "POST /v1/chat/completions": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:Idempotency-Key?",
@@ -623,7 +701,6 @@
       }
     },
     "POST /v1/chat/sessions": {
-      "legacy": false,
       "min_role": "reader",
       "parameters": [
         "header:X-Tenant-Id?"
@@ -646,139 +723,7 @@
         "504": "Error"
       }
     },
-    "POST /v1/ingestions": {
-      "legacy": true,
-      "min_role": "editor",
-      "parameters": [
-        "header:Idempotency-Key?",
-        "header:X-Tenant-Id?"
-      ],
-      "request": [
-        "connection_id"
-      ],
-      "responses": {
-        "202": [
-          "message",
-          "status",
-          "submitted_at",
-          "task_id"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "413": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "POST /v1/ingestions/{task_id}/cancel": {
-      "legacy": true,
-      "min_role": "editor",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": null,
-      "responses": {
-        "202": [
-          "message",
-          "status",
-          "task_id"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "POST /v1/ingestions/{task_id}/pause": {
-      "legacy": true,
-      "min_role": "editor",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": null,
-      "responses": {
-        "202": [
-          "message",
-          "status",
-          "task_id"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "POST /v1/ingestions/{task_id}/resume": {
-      "legacy": true,
-      "min_role": "editor",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": null,
-      "responses": {
-        "202": [
-          "message",
-          "status",
-          "task_id"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
-    "POST /v1/ingestions/{task_id}/retry-failures": {
-      "legacy": true,
-      "min_role": "editor",
-      "parameters": [
-        "header:X-Tenant-Id?",
-        "path:task_id"
-      ],
-      "request": [],
-      "responses": {
-        "202": [
-          "accepted_document_count",
-          "message",
-          "retry_task_id",
-          "task_id"
-        ],
-        "401": "Error",
-        "403": "Error",
-        "404": "Error",
-        "409": "Error",
-        "413": "Error",
-        "422": "Error",
-        "429": "Error",
-        "500": "Error",
-        "503": "Error",
-        "504": "Error"
-      }
-    },
     "PUT /v1/admin/projects/{project_id}": {
-      "legacy": false,
       "min_role": "admin",
       "parameters": [
         "header:If-Match?",
@@ -824,7 +769,6 @@
       }
     },
     "PUT /v1/admin/projects/{project_id}/connections/{connection_id}": {
-      "legacy": false,
       "min_role": "editor",
       "parameters": [
         "header:If-Match?",

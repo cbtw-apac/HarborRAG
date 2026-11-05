@@ -1,31 +1,36 @@
-"""Thin authenticated routes for the public ingestion task API."""
+"""Ingestion runs under ``/v1/admin/ingestions``.
+
+Handles:
+- ``POST`` (editor): start an ingestion of one connection
+- ``GET`` and ``GET /{ingestion_id}`` (reader): list runs and read one, with its documents and
+  its event stream
+- ``POST /{ingestion_id}/pause|resume|cancel|retry-failures`` (editor): control a run
+"""
 
 from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator
-from typing import Annotated
+from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, Header, Query, status
+from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.dependencies import (
-    authorize_role,
-    authorize_task_tenant,
-    authorize_tenant,
-)
+from harborrag_app.api.auth.dependencies import authorize_task_tenant, authorize_tenant
 from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
-from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
+from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
+from harborrag_app.api.v1.admin.dependencies import Administration, Editor, error_responses
+from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
 
-from .commands import build_ingestion_command
 from .dependencies import IngestionServiceDependency
 from .schemas import (
-    IngestionAcceptedResponse,
     IngestionActionResponse,
-    IngestionCreateRequest,
     IngestionDocumentPage,
     IngestionDocumentQuery,
     IngestionTaskPage,
@@ -38,15 +43,15 @@ from .schemas import (
 _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 router = APIRouter(
-    prefix="/ingestions",
+    prefix="/admin/ingestions",
     tags=["Ingestion"],
-    # Function scope, like the chat router: with the default request
-    # scope the server deadline stays armed across a StreamingResponse body and
-    # hard-cancels the SSE stream mid-flight with no terminal error frame. This
-    # router has such an endpoint. The capacity lease is unaffected and is
-    # still held until the last frame; streams carry their own deadline.
+    # Function scope, like the chat router: with the default request scope the server
+    # deadline stays armed across a StreamingResponse body and hard-cancels the SSE
+    # stream mid-flight with no terminal error frame. The capacity lease is still held
+    # until the last frame; streams carry their own deadline.
     dependencies=[Depends(require_api_capacity, scope="function")],
 )
+# TODO: Story 4 moves the reads to editor and X-Tenant-Id and returns the Ingestion shape.
 
 
 ERROR_RESPONSES = documented_error_responses(
@@ -69,29 +74,35 @@ LIST_ERROR_RESPONSES = documented_error_responses(
 
 @router.post(
     "",
-    response_model=IngestionAcceptedResponse,
-    status_code=status.HTTP_202_ACCEPTED,
-    responses=ERROR_RESPONSES,
-    deprecated=True,
+    summary="Start an ingestion",
+    response_model=IngestionOut,
+    status_code=202,
+    responses=error_responses(409, 422, 501),
 )
-async def create_ingestion(
-    request: IngestionCreateRequest,
-    service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
-    idempotency_key: Annotated[
-        str | None,
-        Header(alias="Idempotency-Key", min_length=1, max_length=255),
-    ] = None,
-) -> IngestionAcceptedResponse:
-    authorize_tenant(principal, request.tenant)
-    if request.source_scope_id is not None:
-        # Choosing a scope chooses which permission pile the documents join.
-        authorize_role(principal, "admin")
-    result = await service.submit(
-        build_ingestion_command(request),
-        idempotency_key=idempotency_key,
-    )
-    return IngestionAcceptedResponse.model_validate(result)
+async def start_ingestion(
+    service: Administration,
+    tenant: TenantDependency,
+    principal: Editor,
+    body: IngestionStartRequest,
+    response: Response,
+) -> dict[str, Any]:
+    """Start an incremental or forced ingestion of a connection; 409 while one is running."""
+    try:
+        await service.project_service.get(tenant_id=tenant, project_id=body.project_id)
+    except HarborNotFoundError as exc:
+        raise ReferenceNotFoundError(str(exc), {"field": "project_id"}) from exc
+    try:
+        ingestion = await service.connection_service.sync(
+            ConnectionKey(tenant, body.project_id, body.connection_id),
+            actor=principal.subject,
+            mode=body.mode,
+            item_refs=tuple(body.item_refs),
+            updated_after=body.updated_after.isoformat() if body.updated_after else None,
+        )
+    except HarborNotFoundError as exc:
+        raise ReferenceNotFoundError(str(exc), {"field": "connection_id"}) from exc
+    response.headers["Location"] = f"/v1/admin/ingestions/{ingestion['id']}"
+    return ingestion
 
 
 @router.get(
@@ -124,7 +135,7 @@ def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[s
     """Resolve the requested tenant filter into the scope this caller may read.
 
     An explicit tenant outside the caller's scope is a rejected filter rather
-    than a hidden resource, so it is a 403 like ``POST /v1/ingestions`` -- it
+    than a hidden resource, so it is a 403 like a start in a tenant not held -- it
     reveals nothing about whether that tenant has any tasks. Omitting it falls
     back to the caller's own scope, where None means an unrestricted principal.
     """
@@ -136,35 +147,35 @@ def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[s
 
 
 @router.get(
-    "/{task_id}",
+    "/{ingestion_id}",
     response_model=IngestionTaskResponse,
     responses=ERROR_RESPONSES,
 )
 async def get_ingestion(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
 ) -> IngestionTaskResponse:
-    result = await service.get_task(task_id)
+    result = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, result)
     return IngestionTaskResponse.model_validate(result)
 
 
 @router.get(
-    "/{task_id}/documents",
+    "/{ingestion_id}/documents",
     response_model=IngestionDocumentPage,
     responses=ERROR_RESPONSES,
 )
 async def list_ingestion_documents(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     query: Annotated[IngestionDocumentQuery, Query()],
 ) -> IngestionDocumentPage:
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     result = await service.list_documents(
-        task_id=task_id,
+        task_id=ingestion_id,
         status=query.status.value if query.status is not None else None,
         cursor=query.cursor,
         limit=query.limit,
@@ -173,11 +184,11 @@ async def list_ingestion_documents(
 
 
 @router.get(
-    "/{task_id}/stream",
+    "/{ingestion_id}/events",
     responses=ERROR_RESPONSES,
 )
 async def stream_ingestion(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
@@ -194,9 +205,11 @@ async def stream_ingestion(
     the ``Last-Event-ID`` header; that becomes ``after_seq`` so the backlog
     replay resumes past what the client already has instead of repeating it.
     """
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
-    events = service.stream_ingestion_events(task_id, after_seq=_parse_after_seq(last_event_id))
+    events = service.stream_ingestion_events(
+        ingestion_id, after_seq=_parse_after_seq(last_event_id)
+    )
     try:
         first_event = await events.__anext__()
     except StopAsyncIteration:
@@ -235,76 +248,76 @@ def _sse_frame(event: HarborEvent) -> bytes:
 
 
 @router.post(
-    "/{task_id}/pause",
+    "/{ingestion_id}/pause",
     response_model=IngestionActionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
 )
 async def pause_ingestion(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.pause(task_id, actor=principal.subject)
+        await service.pause(ingestion_id, actor=principal.subject)
     )
 
 
 @router.post(
-    "/{task_id}/resume",
+    "/{ingestion_id}/resume",
     response_model=IngestionActionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
 )
 async def resume_ingestion(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.resume(task_id, actor=principal.subject)
+        await service.resume(ingestion_id, actor=principal.subject)
     )
 
 
 @router.post(
-    "/{task_id}/cancel",
+    "/{ingestion_id}/cancel",
     response_model=IngestionActionResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
 )
 async def cancel_ingestion(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
 ) -> IngestionActionResponse:
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.cancel(task_id, actor=principal.subject)
+        await service.cancel(ingestion_id, actor=principal.subject)
     )
 
 
 @router.post(
-    "/{task_id}/retry-failures",
+    "/{ingestion_id}/retry-failures",
     response_model=RetryAcceptedResponse,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
 )
 async def retry_ingestion_failures(
-    task_id: str,
+    ingestion_id: str,
     service: IngestionServiceDependency,
     principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
     request: Annotated[RetryFailuresRequest | None, Body()] = None,
 ) -> RetryAcceptedResponse:
-    task = await service.get_task(task_id)
+    task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     document_ids = request.document_ids if request is not None else []
     result = await service.retry_failures(
-        task_id=task_id,
+        task_id=ingestion_id,
         document_ids=document_ids,
     )
     return RetryAcceptedResponse.model_validate(result)

@@ -258,7 +258,7 @@ def test_the_tenant_comes_from_the_credential_or_x_tenant_id(
 
 
 def test_listing_ingestions_is_not_deprecated(client: TestClient) -> None:
-    assert "Deprecation" not in client.get("/v1/ingestions").headers
+    assert "Deprecation" not in client.get("/v1/admin/ingestions").headers
 
 
 def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
@@ -274,7 +274,7 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
     }
     assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/test"]
     assert "/v1/admin/projects/{project_id}/connections/{connection_id}/sync" not in paths
-    assert set(paths["/v1/admin/ingestions"]) == {"post"}
+    assert set(paths["/v1/admin/ingestions"]) == {"get", "post"}
     assert "/v1/connections" not in paths
     assert "/api/v1/sources" not in paths
 

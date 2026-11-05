@@ -1,4 +1,4 @@
-"""``POST /v1/admin/ingestions`` starts a run; connection routes only store connections."""
+"""``POST /v1/admin/ingestions`` starts a run that ``Location`` reads; connections only store."""
 
 from __future__ import annotations
 
@@ -56,6 +56,23 @@ def test_starting_an_ingestion_answers_202_with_its_location(client: TestClient)
     body = response.json()
     assert body["id"] == "ing_1"
     assert response.headers["location"] == f"/v1/admin/ingestions/{body['id']}"
+
+
+def test_the_location_header_reads_the_started_run(
+    client: TestClient, app_service: _App, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    started = client.post(_START, json=_TARGET)
+    read = app_service.get_task
+
+    async def in_acme(task_id: str) -> dict[str, object]:
+        return {**await read(task_id), "tenant": "acme"}
+
+    monkeypatch.setattr(app_service, "get_task", in_acme)
+
+    followed = client.get(started.headers["location"])
+
+    assert followed.status_code == 200
+    assert followed.json()["task_id"] == started.json()["id"]
 
 
 def test_an_empty_mode_means_incremental(client: TestClient, app_service: _App) -> None:

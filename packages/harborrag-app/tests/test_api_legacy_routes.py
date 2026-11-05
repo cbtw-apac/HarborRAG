@@ -39,6 +39,11 @@ REMOVED = [
     ("PATCH", "/v1/chat/sessions/session-1"),
     ("DELETE", "/v1/chat/sessions/session-1"),
     ("POST", "/v1/admin/projects/cpm/connections/cpm-tickets/sync"),
+    ("POST", "/v1/ingestions"),
+    ("GET", "/v1/ingestions"),
+    ("GET", "/v1/ingestions/ing_1"),
+    ("GET", "/v1/ingestions/ing_1/stream"),
+    ("POST", "/v1/ingestions/ing_1/cancel"),
 ]
 
 
@@ -62,7 +67,7 @@ def test_a_removed_route_is_a_plain_not_found(client: TestClient, method: str, p
 
 @pytest.mark.parametrize(
     "path",
-    ["/healthz", "/v1/ingestions", "/v1/chat/sessions"],
+    ["/healthz", "/v1/admin/ingestions", "/v1/chat/sessions"],
 )
 def test_a_live_route_announces_no_deprecation(client: TestClient, path: str) -> None:
     response = client.get(path)
@@ -76,4 +81,23 @@ def test_openapi_lists_no_removed_path(client: TestClient) -> None:
     paths = set(client.app.openapi()["paths"])  # type: ignore[attr-defined]
 
     assert not {path for _, path in REMOVED} & paths
-    assert not [path for path in paths if path.startswith("/api/")]
+    assert not [path for path in paths if path.startswith(("/api/", "/v1/ingestions"))]
+
+
+def test_ingestion_routes_share_one_prefix_and_one_tag(client: TestClient) -> None:
+    openapi = client.app.openapi()  # type: ignore[attr-defined]
+    ingestion = {
+        path
+        for path, item in openapi["paths"].items()
+        for operation in item.values()
+        if "Ingestion" in operation.get("tags", [])
+    }
+
+    assert ingestion and all(path.startswith("/v1/admin/ingestions") for path in ingestion)
+    assert not [tag for tag in openapi.get("tags", []) if tag.get("name") == "Ingestions"]
+    assert not [
+        path
+        for path, item in openapi["paths"].items()
+        for operation in item.values()
+        if "Ingestions" in operation.get("tags", [])
+    ]
