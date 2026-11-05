@@ -73,7 +73,7 @@ def test_detail_is_offered_only_where_a_model_has_to_self_correct() -> None:
         loud.check_call(_spec(), {"query": "far too long"})
 
     assert str(silent.value) == "MCP arguments do not match the tool schema."
-    assert "$.query" in str(spoken.value)
+    assert "query: " in str(spoken.value)
 
 
 def test_a_long_detail_is_truncated_rather_than_forwarded_whole() -> None:

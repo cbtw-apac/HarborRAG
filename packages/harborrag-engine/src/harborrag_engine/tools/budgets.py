@@ -83,7 +83,9 @@ def _validation_detail(error: ValidationError) -> str:
         detail = best.message
     if len(detail) > _MAX_DETAIL_CHARS:
         detail = f"{detail[:_MAX_DETAIL_CHARS]}..."
-    return f"{best.json_path}: {detail}"
+    # jsonschema roots every path at "$"; the field name alone reads better.
+    path = best.json_path.removeprefix("$.")
+    return f"{path}: {detail}"
 
 
 def result_count(result: dict[str, object]) -> int:
