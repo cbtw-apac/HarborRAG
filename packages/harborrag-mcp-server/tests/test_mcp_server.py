@@ -642,7 +642,7 @@ async def test_caller_correctable_errors_survive_the_masked_transport(tmp_path) 
     transport = create_mcp_server(registry=registry, allow_unauthenticated_local=True)
 
     async with fastmcp.Client(transport) as client:
-        with pytest.raises(ToolError, match="do not match the tool schema"):
+        with pytest.raises(ToolError, match=r"do not match the tool schema\. top_k: "):
             await client.call_tool("failing_probe", {"tenant_id": "demo", "top_k": 50})
         with pytest.raises(ToolError, match="failing_probe is disabled"):
             await client.call_tool("failing_probe", {"tenant_id": "blocked"})

@@ -125,7 +125,7 @@ async def test_agent_tools_reject_invalid_or_unknown_calls() -> None:
     assert invalid == {
         "ok": False,
         "error": (
-            "Agent arguments do not match the tool schema. $.top_k: 0 is less than the minimum of 1"
+            "Agent arguments do not match the tool schema. top_k: 0 is less than the minimum of 1"
         ),
     }
     assert unknown == {"ok": False, "error": "agent tool is not available"}

@@ -21,3 +21,6 @@ class McpToolPolicy(ToolBudget):
     """
 
     label: str = "MCP"
+    # A caller that sent an out-of-range argument has to see which field and
+    # which bound failed; the bare "do not match the tool schema" hides both.
+    detail_in_errors: bool = True
