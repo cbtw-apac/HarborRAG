@@ -168,10 +168,11 @@ class AppService(
         return self._project_service
 
     async def import_connectors_once(self) -> int:
-        """Import ``connectors.yaml`` on the first start of an install with no connections."""
+        """Import ``connectors.yaml`` on the first start of a fresh install."""
         control_plane = self._control_plane()
         plan = await import_connectors_once(
             self._settings.connector_config_path,
+            tenant_id=self._settings.ingestion_tenant_id,
             projects=control_plane.projects,
             connections=control_plane.connections,
             settings=control_plane.settings,

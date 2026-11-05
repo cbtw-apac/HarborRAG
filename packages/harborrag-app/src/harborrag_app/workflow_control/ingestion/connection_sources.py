@@ -48,8 +48,8 @@ class ConnectionSourceInputBuilder:
     async def _import_once(self, settings: RuntimeSettings) -> None:
         """Run the one-time ``connectors.yaml`` import before this process's first submit.
 
-        One attempt per process: a file that fails to import is logged and left
-        for the operator, so submits of stored connections keep working.
+        A failed import is recorded and logged, never retried, so submits of
+        stored connections keep working.
         """
         async with self._import_lock:
             if self._import_checked:
@@ -58,6 +58,7 @@ class ConnectionSourceInputBuilder:
             try:
                 await import_connectors_once(
                     settings.connector_config_path,
+                    tenant_id=settings.ingestion_tenant_id,
                     projects=control_plane.projects,
                     connections=control_plane.connections,
                     settings=control_plane.settings,

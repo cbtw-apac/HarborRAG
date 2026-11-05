@@ -30,12 +30,12 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError, HarborPreconditionFailedError
 from harborrag_core.domain.connection import (
     CONNECTION_ID_PATTERN,
-    SYSTEM_ACTOR,
     Connection,
     ConnectionBuilder,
     slugify_connection_id,
 )
 from harborrag_core.domain.project import Project
+from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ProjectRepositoryPort,
@@ -59,6 +59,7 @@ DEFAULT_PROJECT_ID = "default"
 EXPORT_VERSION = 2
 IMPORT_MARKER_KEY = "connections_import"
 IMPORT_ACTOR = "import"
+_RUNNING, _DONE, _FAILED = "running", "done", "failed"
 
 ChangeAction = Literal["create", "update", "unchanged", "skip", "invalid"]
 
@@ -176,8 +177,27 @@ class ConnectionImportService:
         """Create missing projects, then write every create and update of ``plan``.
 
         A row another process wrote first, such as a second worker running the
-        same first-start import, counts as already done.
+        same first-start import, counts as already done. When a write fails, the
+        projects this call created that still hold no connection are removed
+        before the error propagates.
         """
+        created_projects = await self._create_projects(plan)
+        try:
+            created, updated = await self._write_connections(plan)
+        except Exception:
+            await self._remove_empty_projects(plan.tenant_id, created_projects)
+            raise
+        logger.info(
+            "Connection import applied created=%d updated=%d projects=%d",
+            created,
+            updated,
+            len(plan.projects_to_create),
+        )
+        return ImportResult(created, updated, plan.projects_to_create)
+
+    async def _create_projects(self, plan: ImportPlan) -> list[str]:
+        """Create the plan's missing projects; return the ones this call created."""
+        created: list[str] = []
         for project_id in plan.projects_to_create:
             try:
                 await self._projects.create(
@@ -190,6 +210,12 @@ class ConnectionImportService:
                 )
             except (HarborConflictError, HarborPreconditionFailedError):
                 logger.info("Connection import found project %s already created", project_id)
+            else:
+                created.append(project_id)
+        return created
+
+    async def _write_connections(self, plan: ImportPlan) -> tuple[int, int]:
+        """Write every create and update of ``plan``; return how many of each."""
         created = updated = 0
         for change in plan.writes:
             if change.connection is None:
@@ -205,13 +231,24 @@ class ConnectionImportService:
                 created += 1
             else:
                 updated += 1
-        logger.info(
-            "Connection import applied created=%d updated=%d projects=%d",
-            created,
-            updated,
-            len(plan.projects_to_create),
-        )
-        return ImportResult(created, updated, plan.projects_to_create)
+        return created, updated
+
+    async def _remove_empty_projects(self, tenant_id: str, project_ids: list[str]) -> None:
+        """Delete each of ``project_ids`` that holds no connection; never raises."""
+        scope = frozenset({tenant_id})
+        for project_id in project_ids:
+            try:
+                held, _ = await self._connections.list(
+                    tenant_ids=scope, project_id=project_id, limit=1
+                )
+                if not held:
+                    await self._projects.delete(project_id, tenant_ids=scope)
+            except Exception:  # noqa: BLE001 - the write failure is the error to report
+                logger.warning(
+                    "Connection import could not remove empty project %s",
+                    project_id,
+                    exc_info=True,
+                )
 
     # TODO: expose as `harborrag source export`; only tests call it today.
     async def export(self, *, tenant_id: str, project_id: str) -> str:
@@ -336,7 +373,7 @@ class ConnectionImportService:
                 values["source_path"] = str((base / path).resolve())
         factory = source_types.provider_factory(spec.source_type)
         plain = {key: value for key, value in values.items() if not isinstance(value, Mapping)}
-        return {**values, **coerce_config_values(factory, plain)}, missing
+        return {**values, **_json_ready(coerce_config_values(factory, plain))}, missing
 
     def _from_export(self, entry: Mapping[str, Any], tenant_id: str) -> ImportChange:
         """Turn one export entry into a desired connection."""
@@ -459,56 +496,99 @@ class ConnectionImportService:
 async def import_connectors_once(  # noqa: PLR0913 - the stores and the file it reads once
     path: Path,
     *,
+    tenant_id: str,
     projects: ProjectRepositoryPort,
     connections: ConnectionRepositoryPort,
     settings: SettingsRepositoryPort,
     environ: Mapping[str, str] | None = None,
 ) -> ImportPlan | None:
-    """Import ``path`` the first time an install starts with no connections.
+    """Import ``path`` into ``tenant_id`` once, at the first start of a fresh install.
 
-    It runs only when the file exists, the install has at most one tenant, no
-    connection a person created (rows migration 0041 carried over from
-    ``/api/v1/sources``, and rows an interrupted import wrote, do not count), and
-    no earlier import was recorded. An interrupted import therefore resumes:
-    rows it wrote compare unchanged and the rest are written. The outcome is
-    recorded in the workspace settings so the file is never read again.
+    It runs only when the file exists and the install holds no project and no
+    connection, or when an earlier start stopped part way through the import:
+    that one resumes, rows it wrote compare unchanged and the rest are written.
+    Every attempt is recorded in the workspace settings, a failed one too, so
+    the file is never read again.
+
+    Args:
+        path: The ``connectors.yaml`` to import.
+        tenant_id: The tenant every connection and project is created in.
+        projects: Project store.
+        connections: Connection store.
+        settings: Workspace settings, where the attempt is recorded.
+        environ: Environment the file's ``environment`` entries read.
 
     Returns:
         The applied plan, or None when the import did not run.
+
+    Raises:
+        Exception: The import failed; the failure is recorded first.
     """
     workspace = await settings.get()
-    if IMPORT_MARKER_KEY in workspace.data or not path.is_file():
+    marker = workspace.data.get(IMPORT_MARKER_KEY)
+    resuming = isinstance(marker, Mapping) and marker.get("status") == _RUNNING
+    if (marker is not None and not resuming) or not path.is_file():
         return None
-    existing, _ = await connections.list(tenant_ids=None)
-    tenants = {project.tenant_id for project in await projects.list(tenant_ids=None)}
-    automatic = {SYSTEM_ACTOR, IMPORT_ACTOR}
-    if any(connection.created_by not in automatic for connection in existing) or len(tenants) > 1:
+    if not resuming and not await _is_fresh(projects, connections):
         return None
-    tenant_id = next(iter(tenants), "DEFAULT")
+    source = {"source": str(path)}
+    workspace = await _record(settings, workspace, {"status": _RUNNING, **source})
     service = ConnectionImportService(projects=projects, connections=connections, environ=environ)
-    plan = await service.plan(
-        path.read_text(encoding="utf-8"), tenant_id=tenant_id, base_directory=path.parent
-    )
-    for change in plan.changes:
-        logger.info("Connection import plan %s", change.as_dict())
-    result = await service.apply(plan)
-    await settings.put(
-        replace(
-            workspace,
-            data={
-                **workspace.data,
-                IMPORT_MARKER_KEY: {
-                    "at": utc_now().isoformat(),
-                    "source": str(path),
-                    "created": result.created,
-                    "skipped": plan.summary().get("skip", 0),
-                    "invalid": plan.summary().get("invalid", 0),
-                    "errors": sum(1 for change in plan.writes if change.reason),
-                },
-            },
+    try:
+        plan = await service.plan(
+            path.read_text(encoding="utf-8"), tenant_id=tenant_id, base_directory=path.parent
         )
+        for change in plan.changes:
+            logger.info("Connection import plan %s", change.as_dict())
+        result = await service.apply(plan)
+    except Exception as error:
+        await _record(
+            settings, workspace, {"status": _FAILED, **source, "error": type(error).__name__}
+        )
+        raise
+    summary = plan.summary()
+    await _record(
+        settings,
+        workspace,
+        {
+            "status": _DONE,
+            **source,
+            "created": result.created,
+            "skipped": summary.get("skip", 0),
+            "invalid": summary.get("invalid", 0),
+            "errors": sum(1 for change in plan.writes if change.reason),
+        },
     )
     return plan
+
+
+async def _is_fresh(projects: ProjectRepositoryPort, connections: ConnectionRepositoryPort) -> bool:
+    """True when the install holds no project and no connection in any tenant."""
+    existing, _ = await connections.list(tenant_ids=None, limit=1)
+    return not existing and not await projects.list(tenant_ids=None)
+
+
+async def _record(
+    settings: SettingsRepositoryPort, workspace: WorkspaceSettings, marker: dict[str, Any]
+) -> WorkspaceSettings:
+    """Store ``marker`` as the import's record and return the settings written."""
+    updated = replace(
+        workspace,
+        data={**workspace.data, IMPORT_MARKER_KEY: {"at": utc_now().isoformat(), **marker}},
+    )
+    await settings.put(updated)
+    return updated
+
+
+def _json_ready(value: Any) -> Any:
+    """``value`` with sets and tuples as lists, the shape a stored connection holds."""
+    if isinstance(value, set | frozenset):
+        return sorted((_json_ready(item) for item in value), key=str)
+    if isinstance(value, list | tuple):
+        return [_json_ready(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _json_ready(item) for key, item in value.items()}
+    return value
 
 
 def _field_path(spec: SourceTypeSpec, dataclass_field: str) -> str:
