@@ -66,10 +66,10 @@ All endpoints below require tenant access and the `reader` role when
 authentication is enabled.
 
 ```bash
-curl "http://localhost:8000/v1/chat/sessions?tenant=DEFAULT&limit=20" \
+curl "http://localhost:8000/v1/chat/sessions?tenant_id=DEFAULT&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant=DEFAULT&limit=50" \
+curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant_id=DEFAULT&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 ```
 

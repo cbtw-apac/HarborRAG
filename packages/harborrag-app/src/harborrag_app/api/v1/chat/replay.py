@@ -43,7 +43,7 @@ class CompletionAttempt:
         serialized = request.model_dump_json(exclude={"stream", "idempotency_key", "session_id"})
         return cls(
             service,
-            request.tenant,
+            request.tenant_id,
             principal.user_id or principal.subject,
             request.idempotency_key,
             hashlib.sha256(serialized.encode()).hexdigest(),
@@ -122,9 +122,11 @@ def _stored_response(text: str) -> ChatCompletionResponse:
     """Load a stored completion, ignoring fields this release no longer returns.
 
     A replay saved before an upgrade can carry fields removed since, which the
-    response model would otherwise refuse.
+    response model would otherwise refuse, and its ``id`` under the old name.
     """
     stored = json.loads(text)
+    if "id" in stored:
+        stored.setdefault("completion_id", stored.pop("id"))
     data = {
         key: value for key, value in stored.items() if key in ChatCompletionResponse.model_fields
     }

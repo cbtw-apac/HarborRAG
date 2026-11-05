@@ -66,7 +66,7 @@ def test_a_healthy_source_passes_every_check_and_previews_five_items() -> None:
         "preview",
     ]
     assert report["error_category"] is None
-    assert report["preview"]["sample"][0] == {"ref": "ENG-0", "title": "Issue 0"}
+    assert report["preview"]["sample"][0] == {"item_ref": "ENG-0", "title": "Issue 0"}
     assert len(report["preview"]["sample"]) == 5
     assert report["preview"]["estimated_items"] is None
     assert connector.closed is True

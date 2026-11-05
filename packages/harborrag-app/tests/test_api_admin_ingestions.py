@@ -54,8 +54,8 @@ def test_starting_an_ingestion_answers_202_with_its_location(client: TestClient)
 
     assert response.status_code == 202
     body = response.json()
-    assert body["id"] == "ing_1"
-    assert response.headers["location"] == f"/v1/admin/ingestions/{body['id']}"
+    assert body["ingestion_id"] == "ing_1"
+    assert response.headers["location"] == f"/v1/admin/ingestions/{body['ingestion_id']}"
 
 
 def test_the_location_header_reads_the_started_run(
@@ -72,7 +72,9 @@ def test_the_location_header_reads_the_started_run(
     followed = client.get(started.headers["location"])
 
     assert followed.status_code == 200
-    assert followed.json()["task_id"] == started.json()["id"]
+    assert followed.json()["ingestion_id"] == started.json()["ingestion_id"]
+    assert followed.json()["tenant_id"] == "acme"
+    assert followed.json()["source"] == {"type": "local", "source_key": "smoke-local"}
 
 
 def test_an_empty_mode_means_incremental(client: TestClient, app_service: _App) -> None:

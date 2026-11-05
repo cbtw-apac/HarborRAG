@@ -206,7 +206,7 @@ async def test_a_foreign_tenant_is_refused(
 ) -> None:
     await seed(service, "session-1", messages=(message("msg-1"),))
 
-    response = client.get(_path(), params={"tenant": "OTHER"}, headers=auth())
+    response = client.get(_path(), params={"tenant_id": "OTHER"}, headers=auth())
 
     assert response.status_code == 403
 

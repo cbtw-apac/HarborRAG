@@ -31,7 +31,7 @@ async def complete(
 ) -> AppResponse:
     return await service.chat_completion(
         request.prompt,
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         options=chat_options(request, principal),
     )
@@ -42,7 +42,7 @@ def stream(
 ) -> AsyncGenerator[dict[str, object], None]:
     return service.chat_stream(
         request.prompt,
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         options=chat_options(request, principal),
     )

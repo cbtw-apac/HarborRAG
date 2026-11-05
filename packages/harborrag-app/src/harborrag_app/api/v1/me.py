@@ -18,8 +18,8 @@ router = APIRouter(tags=["Identity"])
 class MePrincipal(BaseModel):
     """The person or API key behind the credential."""
 
-    type: Literal["user", "api_key"]
-    id: str = Field(description="The token's sub claim, or the key ID")
+    principal_type: Literal["user", "api_key"]
+    principal_id: str = Field(description="The token's sub claim, or the key ID")
     name: str
 
 
@@ -44,8 +44,8 @@ async def me(
     """Describe the credential, so a client can pick its screens and its ``X-Tenant-Id``."""
     return MeOut(
         principal=MePrincipal(
-            type=principal.kind,  # type: ignore[arg-type]
-            id=principal.subject,
+            principal_type=principal.kind,  # type: ignore[arg-type]
+            principal_id=principal.subject,
             name=principal.name or principal.subject,
         ),
         tenant_id=tenant,

@@ -141,7 +141,7 @@ the signed end-user claim (`sub` by default).
 
 An MCP reader key (`hrk_<env>_v1_...`) is accepted as the same bearer
 credential. It authenticates as role `reader` in its one tenant, and
-`GET /v1/me` reports it as `principal.type = "api_key"`.
+`GET /v1/me` reports it as `principal.principal_type = "api_key"`.
 
 Each route checks, in order, the credential, the tenant and the role; a failed
 check never reaches the handler:

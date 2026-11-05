@@ -66,7 +66,7 @@ def connection_view(
         "project_id": connection.project_id,
         "connection_id": connection.connection_id,
         "source_type": connection.source_type,
-        "ref": connection.ref,
+        "connection_ref": connection.ref,
         "name": connection.name,
         "credentials": credentials_view(connection.credentials),
         "config": dict(connection.config),
@@ -85,10 +85,10 @@ def connection_view(
 def project_view(project: Project, *, connections: int, documents: int) -> dict[str, Any]:
     """Return the spec's ``Project`` object."""
     return {
-        "id": project.id,
+        "project_id": project.id,
         "tenant_id": project.tenant_id,
-        "name": project.name,
-        "description": project.description or None,
+        "project_name": project.name,
+        "project_description": project.description or None,
         "connection_count": connections,
         "document_count": documents,
         "created_at": project.created_at,
@@ -99,7 +99,7 @@ def project_view(project: Project, *, connections: int, documents: int) -> dict[
 def ingestion_view(
     task: IngestionTask,
     *,
-    connection_ref: str,
+    connection: Connection,
     progress: Mapping[str, int] | None = None,
     triggered_by: str | None = None,
     mode: str | None = None,
@@ -109,8 +109,10 @@ def ingestion_view(
     summary = task.summary
     request = task.request
     return {
-        "id": task.task_id,
-        "connection": connection_ref,
+        "ingestion_id": task.task_id,
+        "tenant_id": connection.tenant_id,
+        "project_id": connection.project_id,
+        "connection_id": connection.connection_id,
         "mode": mode or ("force" if request.get("force_reprocess") else "incremental"),
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "counters": {
@@ -121,7 +123,10 @@ def ingestion_view(
         },
         "stages": [],
         "error_category": summary.get("error_code") if isinstance(summary, Mapping) else None,
-        "triggered_by": {"type": "user", "id": triggered_by or str(summary.get("actor", ""))},
+        "triggered_by": {
+            "principal_type": "user",
+            "principal_id": triggered_by or str(summary.get("actor", "")),
+        },
         "settings_revision": str(request.get("configuration_fingerprint") or ""),
         "workflow_id": f"harborrag-source:{task.task_id}",
         "run_id": task.task_id,
@@ -133,12 +138,12 @@ def ingestion_view(
 
 
 def _last_ingestion(task: IngestionTask | None) -> dict[str, Any] | None:
-    """Reduce the latest run to ``{id, status, finished_at}``."""
+    """Reduce the latest run to ``{ingestion_id, status, finished_at}``."""
     if task is None:
         return None
     finished: datetime | None = task.completed_at
     return {
-        "id": task.task_id,
+        "ingestion_id": task.task_id,
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "finished_at": finished,
     }

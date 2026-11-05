@@ -165,8 +165,8 @@ def test_a_role_below_the_routes_minimum_is_forbidden(
             method,
             path,
             headers=headers,
-            params={"tenant": "acme"},
-            json={"tenant": "acme", "prompt": "hello", "connection_id": "cpm-tickets"},
+            params={"tenant_id": "acme"},
+            json={"tenant_id": "acme", "prompt": "hello", "connection_id": "cpm-tickets"},
         )
         if ROLE_ORDER[role] < ROLE_ORDER[minimum]:  # type: ignore[index]
             assert response.status_code == 403, (method, path)
@@ -240,7 +240,7 @@ def test_me_describes_a_user_token(client: TestClient) -> None:
 
     assert response.status_code == 200
     assert response.json() == {
-        "principal": {"type": "user", "id": "u_huy", "name": "Huy Nguyen"},
+        "principal": {"principal_type": "user", "principal_id": "u_huy", "name": "Huy Nguyen"},
         "tenant_id": "acme",
         "tenants": ["acme"],
         "role": "admin",
@@ -264,7 +264,11 @@ def test_an_api_key_is_a_reader_in_its_tenant(
 
     assert me.status_code == 200
     assert me.json() == {
-        "principal": {"type": "api_key", "id": "0123456789abcdef01234567", "name": "svc-auta"},
+        "principal": {
+            "principal_type": "api_key",
+            "principal_id": "0123456789abcdef01234567",
+            "name": "svc-auta",
+        },
         "tenant_id": "acme",
         "tenants": ["acme"],
         "role": "reader",

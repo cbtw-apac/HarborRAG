@@ -39,7 +39,7 @@ class SourceViews:
             status = str(item.get("status", ""))
             last = mapping(item.get("last_ingestion"))
             table.add_row(
-                text(item.get("ref"), style="bold"),
+                text(item.get("connection_ref"), style="bold"),
                 text(item.get("source_type")),
                 Text(status, style=_STATUS_STYLES.get(status, "")),
                 text(last.get("status") or "never"),
@@ -52,13 +52,14 @@ class SourceViews:
 
     def ingestion(self, data: Mapping[str, Any]) -> None:
         """Print the started ingestion and the command that follows it."""
-        run_id = text(data.get("id"))
+        run_id = text(data.get("ingestion_id"))
+        connection = f"{data.get('project_id', '')}/{data.get('connection_id', '')}"
         self.console.print(
             Text.assemble(
                 ("✓ Sync started ", "bold green"),
                 (str(data.get("mode", "")), "bold"),
                 " for ",
-                (str(data.get("connection", "")), "cyan"),
+                (connection, "cyan"),
             )
         )
         self.console.print(Text(f"Ingestion {run_id}"))

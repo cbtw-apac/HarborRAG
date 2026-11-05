@@ -64,7 +64,7 @@ async def test_initial_session_creation_rejects_a_caller_supplied_title(
 ) -> None:
     created = client.post(
         "/v1/chat/sessions",
-        json={"tenant": "DEFAULT", "title": "  Quarterly report  "},
+        json={"tenant_id": "DEFAULT", "title": "  Quarterly report  "},
         headers=auth(),
     )
     assert created.status_code == 422
@@ -184,7 +184,7 @@ def test_listing_requires_a_bearer_token(client: TestClient) -> None:
 def test_a_foreign_tenant_is_refused(client: TestClient) -> None:
     response = client.get(
         CONVERSATIONS,
-        params={"tenant": "OTHER"},
+        params={"tenant_id": "OTHER"},
         headers=auth(tenants=("DEFAULT",)),
     )
 

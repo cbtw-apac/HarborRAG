@@ -18,7 +18,7 @@ VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class ChatTenantRequest(ApiModel):
-    tenant: str = Field(
+    tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
         max_length=128,
@@ -29,7 +29,7 @@ class ChatTenantRequest(ApiModel):
 class ChatSessionCreateRequest(ChatTenantRequest):
     """Create an unnamed conversation; its first successful turn supplies a title."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant": "DEFAULT"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant_id": "DEFAULT"}]})
 
 
 class ChatSessionResponse(ApiModel):
@@ -45,7 +45,7 @@ class ChatCompletionRequest(ChatTenantRequest):
         json_schema_extra={
             "examples": [
                 {
-                    "tenant": "DEFAULT",
+                    "tenant_id": "DEFAULT",
                     "prompt": "What changed in the release policy?",
                     "stream": False,
                 }
@@ -71,7 +71,7 @@ class ChatCompletionRequest(ChatTenantRequest):
         description="Stable client request key; a completed duplicate replays without a model call.",
     )
     graph_search: bool | None = None
-    # Optional project scope; must exist within ``tenant`` (otherwise ``404``).
+    # Optional project scope; must exist within ``tenant_id`` (otherwise ``404``).
     project_id: str | None = Field(
         default=None,
         min_length=1,
@@ -126,7 +126,7 @@ class ChatUsageResponse(ApiModel):
 
 
 class ChatCompletionResponse(ApiModel):
-    id: str
+    completion_id: str
     created: int | None = None
     model: str
     provider: str

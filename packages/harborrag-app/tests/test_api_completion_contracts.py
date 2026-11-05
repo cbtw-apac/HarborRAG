@@ -182,6 +182,7 @@ def test_a_result_stored_before_the_upgrade_still_replays():
 
     replayed = _stored_response(json.dumps(stored))
 
+    assert replayed.completion_id == "answer-1"
     assert replayed.session_id == "session-1"
     assert replayed.citations[0].chunk_id == "chunk"
     assert "run_id" not in replayed.model_dump()

@@ -10,8 +10,8 @@ Handles:
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator
-from typing import Annotated, Any
+from collections.abc import AsyncIterator, Mapping
+from typing import Annotated, Any, cast
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
 from fastapi.responses import StreamingResponse
@@ -52,6 +52,13 @@ router = APIRouter(
     dependencies=[Depends(require_api_capacity, scope="function")],
 )
 # TODO: Story 4 moves the reads to editor and X-Tenant-Id and returns the Ingestion shape.
+
+_PUBLIC_NAMES = {
+    "task_id": "ingestion_id",
+    "retry_task_id": "retry_ingestion_id",
+    "tenant": "tenant_id",
+}
+_PUBLIC_SOURCE_NAMES = {"connection_id": "source_key"}
 
 
 ERROR_RESPONSES = documented_error_responses(
@@ -101,7 +108,7 @@ async def start_ingestion(
         )
     except HarborNotFoundError as exc:
         raise ReferenceNotFoundError(str(exc), {"field": "connection_id"}) from exc
-    response.headers["Location"] = f"/v1/admin/ingestions/{ingestion['id']}"
+    response.headers["Location"] = f"/v1/admin/ingestions/{ingestion['ingestion_id']}"
     return ingestion
 
 
@@ -123,12 +130,13 @@ async def list_ingestions(
     the fact.
     """
     result = await service.list_tasks(
-        tenants=_authorized_tenants(principal, query.tenant),
+        tenants=_authorized_tenants(principal, query.tenant_id),
         statuses=[value.value for value in query.status] if query.status else None,
         cursor=query.cursor,
         limit=query.limit,
     )
-    return IngestionTaskPage.model_validate(result)
+    items = cast("list[Mapping[str, Any]]", result["items"])
+    return IngestionTaskPage.model_validate({**result, "items": [_public(item) for item in items]})
 
 
 def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[str] | None:
@@ -158,7 +166,7 @@ async def get_ingestion(
 ) -> IngestionTaskResponse:
     result = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, result)
-    return IngestionTaskResponse.model_validate(result)
+    return IngestionTaskResponse.model_validate(_public(result))
 
 
 @router.get(
@@ -231,6 +239,17 @@ async def stream_ingestion(
     return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
+def _public(result: Mapping[str, Any]) -> dict[str, Any]:
+    """Rename the service's ``task_id``/``tenant``/``source.connection_id`` keys to the API's names."""
+    public = {_PUBLIC_NAMES.get(key, key): value for key, value in result.items()}
+    source = public.get("source")
+    if isinstance(source, Mapping):
+        public["source"] = {
+            _PUBLIC_SOURCE_NAMES.get(key, key): value for key, value in source.items()
+        }
+    return public
+
+
 def _parse_after_seq(last_event_id: str | None) -> int | None:
     if last_event_id is None:
         return None
@@ -261,7 +280,7 @@ async def pause_ingestion(
     task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.pause(ingestion_id, actor=principal.subject)
+        _public(await service.pause(ingestion_id, actor=principal.subject))
     )
 
 
@@ -279,7 +298,7 @@ async def resume_ingestion(
     task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.resume(ingestion_id, actor=principal.subject)
+        _public(await service.resume(ingestion_id, actor=principal.subject))
     )
 
 
@@ -297,7 +316,7 @@ async def cancel_ingestion(
     task = await service.get_task(ingestion_id)
     authorize_task_tenant(principal, task)
     return IngestionActionResponse.model_validate(
-        await service.cancel(ingestion_id, actor=principal.subject)
+        _public(await service.cancel(ingestion_id, actor=principal.subject))
     )
 
 
@@ -320,4 +339,4 @@ async def retry_ingestion_failures(
         task_id=ingestion_id,
         document_ids=document_ids,
     )
-    return RetryAcceptedResponse.model_validate(result)
+    return RetryAcceptedResponse.model_validate(_public(result))

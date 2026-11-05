@@ -207,4 +207,4 @@ def timed_out_report() -> ConnectionTestReport:
 def _sample(record: SourceRecord) -> dict[str, str]:
     """Reduce a discovered record to the preview's ``{ref, title}``."""
     title = record.metadata.get("title") or record.metadata.get("name") or record.locator
-    return {"ref": record.id, "title": str(title)}
+    return {"item_ref": record.id, "title": str(title)}

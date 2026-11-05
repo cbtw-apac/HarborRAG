@@ -310,8 +310,8 @@ async def put_project(  # noqa: PLR0913 - path, body, preconditions and caller
     view, created, version = await service.project_service.put(
         tenant_id=tenant,
         project_id=project_id,
-        name=body.name,
-        description=body.description,
+        name=body.project_name,
+        description=body.project_description,
         actor=principal.subject,
         expected_version=version_from_etag(if_match),
         create_only=if_none_match == "*",

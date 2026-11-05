@@ -75,9 +75,9 @@ async def create_chat_session(
     service: ChatServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
 ) -> ChatSessionResponse:
-    authorize_tenant(principal, request.tenant)
+    authorize_tenant(principal, request.tenant_id)
     result = await service.create_chat_session(
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         user_id=principal.user_id,
     )
@@ -103,7 +103,7 @@ async def create_chat_completion(
                     "summary": "Continue a session",
                     "description": "Use the session_id returned by an earlier completion.",
                     "value": {
-                        "tenant": "DEFAULT",
+                        "tenant_id": "DEFAULT",
                         "session_id": "session-0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
                         "prompt": "What changed next?",
                         "stream": False,
@@ -112,7 +112,7 @@ async def create_chat_completion(
                 "new_session": {
                     "summary": "Create a session",
                     "value": {
-                        "tenant": "DEFAULT",
+                        "tenant_id": "DEFAULT",
                         "prompt": "What changed in the release policy?",
                         "stream": False,
                     },
@@ -152,7 +152,7 @@ async def _require_session(
 ) -> None:
     if not await service.chat_session_exists(
         session_id,
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         user_id=principal.user_id,
     ):
@@ -164,9 +164,9 @@ async def _validate_request(
     service: CompletionService,
     principal: Principal,
 ) -> None:
-    authorize_tenant(principal, request.tenant)
-    await service.validate_chat_model(request.model, tenant_id=request.tenant)
-    await service.validate_chat_project(request.project_id, tenant_id=request.tenant)
+    authorize_tenant(principal, request.tenant_id)
+    await service.validate_chat_model(request.model, tenant_id=request.tenant_id)
+    await service.validate_chat_project(request.project_id, tenant_id=request.tenant_id)
     if request.session_id is not None:
         await _require_session(service, request, principal, request.session_id)
 
@@ -195,7 +195,7 @@ async def _complete_chat(
             await _require_session(service, request, principal, replay.session_id)
         elif request.session_id is None:
             created = await service.create_chat_session(
-                tenant_id=request.tenant,
+                tenant_id=request.tenant_id,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
             )
@@ -237,7 +237,7 @@ async def _classify_refusal(
         await service.validate_completion_scope(
             request.prompt,
             MemoryAccess(
-                tenant_id=request.tenant,
+                tenant_id=request.tenant_id,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
                 project_id=request.project_id,
@@ -279,7 +279,7 @@ def _scope_refusal(request: ChatCompletionRequest, message: str) -> ChatCompleti
     if request.session_id is None:
         raise ValueError("completion session must be resolved before a refusal")
     return ChatCompletionResponse(
-        id=f"policy-{uuid4().hex}",
+        completion_id=f"policy-{uuid4().hex}",
         created=int(time()),
         model="scope_gate",
         provider="policy",

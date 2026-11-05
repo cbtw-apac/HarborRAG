@@ -109,12 +109,12 @@ def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _Con
     body = created.json()
     assert created.status_code == 201
     assert created.headers["ETag"] == 'W/"rev-1"'
-    assert body["ref"] == "cpm/cpm-tickets"
+    assert body["connection_ref"] == "cpm/cpm-tickets"
     assert body["credentials"]["api_token"]["from"] == "stored"
     assert body["credentials"]["api_token"]["last4"] == "9f2c"
     assert body["created_by"] == body["updated_by"] == "u_huy"
     assert "ingestion" not in body
-    assert started.status_code == 202 and started.json()["id"] == "ing_1"
+    assert started.status_code == 202 and started.json()["ingestion_id"] == "ing_1"
     assert "sentinel" not in created.text
 
     read = client.get(_PATH)
@@ -203,7 +203,7 @@ def test_list_test_sync_and_delete(
     deleted = client.delete(_PATH, params={"purge": "true"})
 
     assert listed.status_code == 200 and listed.json()["next_cursor"] is None
-    assert [item["ref"] for item in listed.json()["items"]] == ["cpm/cpm-tickets"]
+    assert [item["connection_ref"] for item in listed.json()["items"]] == ["cpm/cpm-tickets"]
     assert tested.status_code == 200 and tested.json()["ok"] is False
     assert tested.json()["error_category"] == "unreachable"
     assert synced.status_code == 202
@@ -221,9 +221,9 @@ def test_list_test_sync_and_delete(
 def test_projects_and_reader_chips(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, app_service: _ConnectionApp
 ) -> None:
-    created = client.put("/v1/admin/projects/hr", json={"name": "HR"})
+    created = client.put("/v1/admin/projects/hr", json={"project_name": "HR"})
     updated = client.put(
-        "/v1/admin/projects/hr", json={"name": "HR team"}, headers={"If-Match": 'W/"rev-1"'}
+        "/v1/admin/projects/hr", json={"project_name": "HR team"}, headers={"If-Match": 'W/"rev-1"'}
     )
     listed = client.get("/v1/admin/projects")
     client.put(_PATH, json=_BODY)
@@ -234,10 +234,10 @@ def test_projects_and_reader_chips(
     forbidden = client.get("/v1/admin/projects", headers=reader)
 
     assert created.status_code == 201 and created.headers["ETag"] == 'W/"rev-1"'
-    assert updated.status_code == 200 and updated.json()["name"] == "HR team"
-    assert [item["id"] for item in listed.json()["items"]] == ["cpm", "hr"]
+    assert updated.status_code == 200 and updated.json()["project_name"] == "HR team"
+    assert [item["project_id"] for item in listed.json()["items"]] == ["cpm", "hr"]
     assert (in_use.status_code, in_use.json()["error"]["code"]) == (409, "in_use")
-    assert in_use.json()["error"]["details"] == {"connections": ["cpm/cpm-tickets"]}
+    assert in_use.json()["error"]["details"] == {"connection_refs": ["cpm/cpm-tickets"]}
     assert empty.status_code == 204
     assert chips.status_code == 200 and chips.json()["items"][0]["documents"] == 7
     assert (forbidden.status_code, forbidden.json()["error"]["code"]) == (403, "forbidden")
@@ -465,10 +465,11 @@ def test_a_body_built_only_from_the_published_schema_is_accepted(
             "config": config,
         }
         response = client.put(
-            f"/v1/admin/projects/cpm/connections/{source_type}-{method['id']}", json=body
+            f"/v1/admin/projects/cpm/connections/{source_type}-{method['auth_method_id']}",
+            json=body,
         )
 
-        assert response.status_code == 201, (method["id"], response.json())
+        assert response.status_code == 201, (method["auth_method_id"], response.json())
 
 
 def _sample(schema: dict[str, Any]) -> dict[str, Any]:

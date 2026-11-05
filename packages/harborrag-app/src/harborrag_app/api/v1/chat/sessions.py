@@ -92,15 +92,15 @@ def _access(principal: Principal, tenant: str, session_id: str | None = None) ->
 async def list_sessions(
     service: ConversationServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-    tenant: TenantQuery = "DEFAULT",
+    tenant_id: TenantQuery = "DEFAULT",
     cursor: CursorQuery = None,
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> SessionListResponse:
     """The caller's chat sessions, newest activity first."""
 
-    authorize_tenant(principal, tenant)
+    authorize_tenant(principal, tenant_id)
     result = await service.list_conversations(
-        _access(principal, tenant), cursor=cursor, limit=limit
+        _access(principal, tenant_id), cursor=cursor, limit=limit
     )
     return SessionListResponse.model_validate(
         {
@@ -120,15 +120,15 @@ async def list_conversation_messages(  # noqa: PLR0913 - one parameter per docum
     session_id: SessionPath,
     service: ConversationServiceDependency,
     principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-    tenant: TenantQuery = "DEFAULT",
+    tenant_id: TenantQuery = "DEFAULT",
     after: AfterQuery = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> ConversationMessageListResponse:
     """One conversation's messages, oldest first; ``404`` when it is not the caller's."""
 
-    authorize_tenant(principal, tenant)
+    authorize_tenant(principal, tenant_id)
     result = await service.conversation_messages(
-        _access(principal, tenant, session_id),
+        _access(principal, tenant_id, session_id),
         after=after,
         limit=limit,
     )

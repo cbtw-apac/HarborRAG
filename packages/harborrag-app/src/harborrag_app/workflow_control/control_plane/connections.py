@@ -219,7 +219,7 @@ class ConnectionService:
         runs = await self._runs()
         return [
             {
-                "ref": connection.ref,
+                "connection_ref": connection.ref,
                 "connection_id": connection.connection_id,
                 "source_type": connection.source_type,
                 "name": connection.name,
@@ -504,7 +504,7 @@ class ConnectionService:
         await self._record(connection, "synced", actor, None, summary=f"Started a {mode} sync")
         return ingestion_view(
             task,
-            connection_ref=connection.ref,
+            connection=connection,
             progress=await runs.progress(task.task_id),
             triggered_by=actor,
             mode=mode,

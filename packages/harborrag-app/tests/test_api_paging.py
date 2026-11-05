@@ -47,7 +47,7 @@ def test_a_cursor_walk_has_no_repeats_or_gaps(client: TestClient) -> None:
     while True:
         params: dict[str, object] = {"limit": 20, **({"cursor": cursor} if cursor else {})}
         body = client.get("/v1/admin/projects", params=params).json()
-        pages.append([item["id"] for item in body["items"]])
+        pages.append([item["project_id"] for item in body["items"]])
         cursor = body["next_cursor"]
         if cursor is None:
             break
@@ -84,20 +84,24 @@ def test_a_garbage_chat_session_cursor_names_its_field(client: TestClient) -> No
 
 def test_an_etag_cycle_refuses_a_stale_write(client: TestClient) -> None:
     etag = client.get("/v1/admin/projects/p01").headers["etag"]
-    body = {"name": "CPM candidates"}
+    body = {"project_name": "CPM candidates"}
 
     first = client.put(
-        "/v1/admin/projects/p01", json={**body, "description": "v2"}, headers={"If-Match": etag}
+        "/v1/admin/projects/p01",
+        json={**body, "project_description": "v2"},
+        headers={"If-Match": etag},
     )
     stale = client.put(
-        "/v1/admin/projects/p01", json={**body, "description": "v3"}, headers={"If-Match": etag}
+        "/v1/admin/projects/p01",
+        json={**body, "project_description": "v3"},
+        headers={"If-Match": etag},
     )
 
     assert first.status_code == 200
     assert first.headers["etag"] != etag
     assert stale.status_code == 412
     assert stale.json()["error"]["code"] == "precondition_failed"
-    assert client.get("/v1/admin/projects/p01").json()["description"] == "v2"
+    assert client.get("/v1/admin/projects/p01").json()["project_description"] == "v2"
 
 
 def test_an_idempotency_key_reused_with_another_body_is_a_validation_error(

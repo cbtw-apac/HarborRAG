@@ -143,7 +143,7 @@ class ChatServiceFixture:
     @staticmethod
     def _chat_payload(session_id: str, project_id: str | None = None) -> dict[str, object]:
         return {
-            "id": "chat-1",
+            "completion_id": "chat-1",
             "created": 1_785_600_000,
             "model": "primary",
             "provider": "mock",

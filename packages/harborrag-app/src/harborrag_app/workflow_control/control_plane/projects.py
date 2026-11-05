@@ -171,13 +171,13 @@ class ProjectService:
         if not cascade:
             raise HarborInUseError(
                 "the project still has connections; use cascade=true",
-                details={"connections": [connection.ref for connection in connections]},
+                details={"connection_refs": [connection.ref for connection in connections]},
             )
         for connection in connections:
             if await self._connections.connection_busy(tenant_id, connection.source_key):
                 raise HarborAlreadyRunningError(
                     f"connection {connection.ref!r} is ingesting",
-                    details={"connection": connection.ref},
+                    details={"connection_ref": connection.ref},
                 )
         job = await control_plane.jobs.save(
             Job(

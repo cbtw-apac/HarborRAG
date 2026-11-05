@@ -35,7 +35,7 @@ class SourceSummary(ApiModel):
         max_length=64,
         pattern=r"^[a-z][a-z0-9_-]*$",
     )
-    connection_id: str
+    source_key: str
 
 
 class IngestionProgress(ApiModel):
@@ -49,8 +49,8 @@ class IngestionProgress(ApiModel):
 
 
 class IngestionTaskResponse(ApiModel):
-    task_id: str
-    tenant: str
+    ingestion_id: str
+    tenant_id: str
     status: IngestionStatus
     stage: IngestionStage
     source: SourceSummary
@@ -67,7 +67,7 @@ class IngestionTaskPage(ApiModel):
 
 
 class IngestionTaskQuery(ApiModel):
-    tenant: str | None = Field(
+    tenant_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=128,
@@ -149,13 +149,13 @@ class RetryFailuresRequest(ApiModel):
 
 
 class IngestionActionResponse(ApiModel):
-    task_id: str
+    ingestion_id: str
     status: IngestionStatus
     message: str
 
 
 class RetryAcceptedResponse(ApiModel):
-    task_id: str
-    retry_task_id: str
+    ingestion_id: str
+    retry_ingestion_id: str
     accepted_document_count: int = Field(ge=1)
     message: str

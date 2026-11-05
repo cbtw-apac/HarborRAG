@@ -94,12 +94,12 @@ def test_an_unknown_route_is_not_found_with_a_trace_id(client: TestClient) -> No
 
 
 def test_every_failing_field_is_listed(client: TestClient) -> None:
-    response = client.put("/v1/admin/projects/p2", json={"name": 123, "extra": True})
+    response = client.put("/v1/admin/projects/p2", json={"project_name": 123, "extra": True})
 
     assert response.status_code == 422
     error = _error(response)
     assert error["code"] == "validation_error"
-    assert {item["field"] for item in error["details"]} >= {"name", "extra"}
+    assert {item["field"] for item in error["details"]} >= {"project_name", "extra"}
     assert all(set(item) == {"field", "issue"} for item in error["details"])
     assert "detail" not in response.json()
 

@@ -117,7 +117,7 @@ built normally and the skipped row is logged with its id.
 `POST /v1/chat/completions` accepts an optional `model`:
 
 ```json
-{"tenant": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
+{"tenant_id": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
 ```
 
 Omitting it resolves the catalog's default, exactly as before. When the tenant

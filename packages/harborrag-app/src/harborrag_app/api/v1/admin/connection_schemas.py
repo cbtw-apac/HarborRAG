@@ -157,14 +157,14 @@ class IngestionStartRequest(ApiModel):
 class ProjectWriteRequest(ApiModel):
     """``PUT`` body of a project."""
 
-    name: str = Field(min_length=1, max_length=255)
-    description: str | None = Field(default=None, max_length=2000)
+    project_name: str = Field(min_length=1, max_length=255)
+    project_description: str | None = Field(default=None, max_length=2000)
 
 
 class LastIngestionOut(BaseModel):
     """The connection's most recent run."""
 
-    id: str
+    ingestion_id: str
     status: str
     finished_at: datetime | None
 
@@ -185,7 +185,9 @@ class ConnectionOut(BaseModel):
     project_id: str
     connection_id: str = Field(pattern=ID_PATTERN)
     source_type: str
-    ref: str = Field(description="project_id/connection_id; used in filters, documents and keys")
+    connection_ref: str = Field(
+        description="project_id/connection_id; used in filters, documents and keys"
+    )
     name: str
     credentials: dict[str, CredentialValueOut] = Field(
         description="Fields from the source type's auth schema. Secret fields read back as SecretStatus."
@@ -215,8 +217,8 @@ class CountersOut(BaseModel):
 class TriggeredByOut(BaseModel):
     """Who started an ingestion, read from the credential."""
 
-    type: Literal["user", "api_key"]
-    id: str
+    principal_type: Literal["user", "api_key"]
+    principal_id: str
 
 
 class LinksOut(BaseModel):
@@ -230,8 +232,10 @@ class LinksOut(BaseModel):
 class IngestionOut(BaseModel):
     """One ingestion run."""
 
-    id: str
-    connection: str = Field(description="Connection ref")
+    ingestion_id: str
+    tenant_id: str
+    project_id: str
+    connection_id: str
     mode: Literal["incremental", "force"]
     status: Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"]
     counters: CountersOut
@@ -273,7 +277,7 @@ class AuthMethodOut(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
-    id: Literal["api_token", "oauth", "pat", "app", "none"]
+    auth_method_id: Literal["api_token", "oauth", "pat", "app", "none"]
     title: str
     schema_: dict[str, Any] = Field(
         alias="schema",
@@ -334,7 +338,7 @@ class CheckOut(BaseModel):
 class SampleItemOut(BaseModel):
     """An item the source would ingest."""
 
-    ref: str
+    item_ref: str
     title: str
 
 
@@ -366,10 +370,10 @@ class JobAcceptedOut(BaseModel):
 class ProjectOut(BaseModel):
     """A project inside the tenant."""
 
-    id: str = Field(pattern=ID_PATTERN, description="Chosen by you; unique in the tenant")
+    project_id: str = Field(pattern=ID_PATTERN, description="Chosen by you; unique in the tenant")
     tenant_id: str
-    name: str
-    description: str | None
+    project_name: str
+    project_description: str | None
     connection_count: int
     document_count: int
     created_at: datetime
@@ -386,7 +390,7 @@ class ProjectPage(BaseModel):
 class ConnectionChipOut(BaseModel):
     """A connection a reader can search, for filter chips."""
 
-    ref: str
+    connection_ref: str
     connection_id: str
     source_type: str
     name: str

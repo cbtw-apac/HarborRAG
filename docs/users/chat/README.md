@@ -23,7 +23,7 @@ Start the development API with `scripts/deployment/dev.sh api`, then:
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
   --header 'Content-Type: application/json' \
-  --data '{"tenant":"DEFAULT","prompt":"Explain HarborRAG in one paragraph."}'
+  --data '{"tenant_id":"DEFAULT","prompt":"Explain HarborRAG in one paragraph."}'
 ```
 
 With authentication enabled, add `Authorization: Bearer <token>`; the route
@@ -41,7 +41,7 @@ cannot set `user_id` in a request. Local `auth_mode=none` keeps one shared
 | Request field | Default | Meaning |
 | --- | --- | --- |
 | `prompt` | Required | Nonempty question, up to 65,536 characters |
-| `tenant` | `DEFAULT` | An authorized tenant |
+| `tenant_id` | `DEFAULT` | An authorized tenant |
 | `session_id` | Omitted | Create a conversation, or continue an existing one |
 | `mode` | `rag` | Optional; `rag` is the only value in 2.0.0 |
 | `stream` | `false` | JSON response or SSE |

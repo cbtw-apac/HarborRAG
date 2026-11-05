@@ -292,7 +292,7 @@ class SourceTypeSpec:
             "docs_url": f"{_DOCS_BASE}/{self.source_type}",
             "auth_methods": [
                 {
-                    "id": method.id,
+                    "auth_method_id": method.id,
                     "title": method.title,
                     "schema": self._method_schema(method),
                     "ui": _hints(_model_hints(method.model, "Connection")),

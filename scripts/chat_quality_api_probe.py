@@ -46,7 +46,7 @@ class HarborApi:
         result = self._request(
             "/v1/chat/sessions",
             method="POST",
-            payload={"tenant": self.tenant},
+            payload={"tenant_id": self.tenant},
         )
         session_id = result.get("session_id")
         if not isinstance(session_id, str) or not session_id:
@@ -55,7 +55,7 @@ class HarborApi:
         return session_id
 
     def complete(self, prompt: str, **options: object) -> dict[str, Any]:
-        payload = {"tenant": self.tenant, "prompt": prompt, **options}
+        payload = {"tenant_id": self.tenant, "prompt": prompt, **options}
         result = self._request("/v1/chat/completions", method="POST", payload=payload)
         session_id = result.get("session_id")
         if isinstance(session_id, str):
@@ -65,7 +65,7 @@ class HarborApi:
     def complete_with_status(self, prompt: str, **options: object) -> tuple[int, dict[str, Any]]:
         """Keep structured 4xx responses for negative quality checks."""
 
-        payload = {"tenant": self.tenant, "prompt": prompt, **options}
+        payload = {"tenant_id": self.tenant, "prompt": prompt, **options}
         status, raw = self._send_with_status("/v1/chat/completions", method="POST", payload=payload)
         try:
             parsed = json.loads(raw)
@@ -79,7 +79,7 @@ class HarborApi:
         return status, parsed
 
     def stream(self, prompt: str, **options: object) -> list[tuple[str, dict[str, Any]]]:
-        payload = {"tenant": self.tenant, "prompt": prompt, "stream": True, **options}
+        payload = {"tenant_id": self.tenant, "prompt": prompt, "stream": True, **options}
         raw = self._send("/v1/chat/completions", method="POST", payload=payload)
         frames: list[tuple[str, dict[str, Any]]] = []
         for block in raw.strip().split("\n\n"):

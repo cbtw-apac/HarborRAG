@@ -76,11 +76,11 @@ def test_add_show_and_list_a_connection_without_printing_its_secret(
     listed, page = _run(capsys, "list", "--project-id", "default")
 
     assert (added, shown, listed) == (0, 0, 0)
-    assert created["data"]["ref"] == "default/jira-cpm"
+    assert created["data"]["connection_ref"] == "default/jira-cpm"
     assert created["data"]["advanced"] == {"page_size": 20}
     assert connection["data"]["credentials"]["api_token"]["last4"] == "9f2c"
     assert connection["data"]["version"] == 1
-    assert [item["ref"] for item in page["data"]["items"]] == ["default/jira-cpm"]
+    assert [item["connection_ref"] for item in page["data"]["items"]] == ["default/jira-cpm"]
     assert "sentinel" not in json.dumps([created, connection, page])
 
 
@@ -295,6 +295,6 @@ def test_the_next_page_command_keeps_the_filters(
     assert shlex.split(command)[:3] == ["harborrag", "source", "list"]
     assert "--project-id default" in command and "--type jira" in command
     assert "--limit 1" in command and "--cursor" in command
-    refs = [item["ref"] for item in first["data"]["items"] + second["data"]["items"]]
+    refs = [item["connection_ref"] for item in first["data"]["items"] + second["data"]["items"]]
     assert sorted(refs) == ["default/jira-cpm", "default/jira-ops"]
     assert "More: harborrag source list --project-id default --limit 1 --cursor" in table

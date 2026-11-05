@@ -82,7 +82,7 @@ def test_filters_and_cursor_reach_the_application_service(
 ) -> None:
     response = client.get(
         "/v1/admin/ingestions",
-        params={"tenant": "ACME", "status": "SUCCESS", "cursor": "abc", "limit": 5},
+        params={"tenant_id": "ACME", "status": "SUCCESS", "cursor": "abc", "limit": 5},
     )
 
     assert response.status_code == 200
@@ -125,7 +125,7 @@ def test_malformed_cursor_is_rejected_at_the_route(
         {"limit": 0},
         {"limit": 201},
         {"status": "NOT_A_STATUS"},
-        {"tenant": ""},
+        {"tenant_id": ""},
         {"unknown": "1"},
     ],
 )
@@ -152,7 +152,7 @@ def test_scoped_principal_cannot_list_another_tenant(
 
     with TestClient(app) as tenant_client:
         response = tenant_client.get(
-            "/v1/admin/ingestions", params={"tenant": "OTHER"}, headers=headers
+            "/v1/admin/ingestions", params={"tenant_id": "OTHER"}, headers=headers
         )
 
     assert response.status_code == 403

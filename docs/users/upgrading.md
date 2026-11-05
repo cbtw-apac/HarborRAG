@@ -162,7 +162,31 @@ a row whose type is unknown becomes `error`.
   removed.
 - **Ingestion runs moved to `/v1/admin/ingestions`:** `/v1/ingestions*` answers
   `404`; `{task_id}` is now `{ingestion_id}` and `/stream` is `/events`. The
-  responses keep the task shape they had.
+  responses keep the task shape they had, with the identifier names below.
+- **Identifiers are named after what they identify**, never a bare `id`, and
+  the old names are not accepted:
+  - a project's `id` is `project_id`, and its `name` and `description` are
+    `project_name` and `project_description` in the responses and the `PUT`
+    body.
+  - a connection's `ref` is `connection_ref` and its `last_ingestion.id` is
+    `last_ingestion.ingestion_id`; the reader filter chips return
+    `connection_ref`.
+  - the started ingestion returns `ingestion_id`, its `connection` ref is
+    split into `tenant_id`, `project_id` and `connection_id`, and
+    `triggered_by` is `{principal_type, principal_id}`. `workflow_id` and
+    `run_id` keep their names.
+  - ingestion reads and controls return `ingestion_id` and `tenant_id` in
+    place of `task_id` and `tenant`, the reads return the connection's
+    `source.source_key` in place of `source.connection_id`, retry-failures
+    returns `retry_ingestion_id`, and the listing filter is `?tenant_id`.
+  - a source type's `auth_methods[].id` is `auth_method_id`, and a connection
+    test's `preview.sample[].ref` is `item_ref`.
+  - `GET /v1/me` returns `principal.principal_type` and
+    `principal.principal_id`.
+  - a chat completion returns `completion_id`; chat bodies send `tenant_id`
+    and the session listings take `?tenant_id`.
+  - a project delete refused with `409` names `details.connection_refs`, or
+    `details.connection_ref` for a connection that is ingesting.
 - **Chat completions are retrieval chat only:** `max_steps` is removed and
   answers `422`, the `response.agent.progress` stream event is gone, and
   `HARBORRAG_API_AGENT_TOKEN_BUDGET` and `HARBORRAG_MEMORY_AGENT_TOOLS` are
@@ -175,8 +199,8 @@ a row whose type is unknown becomes `error`.
 
 - `item_refs` on `POST /v1/admin/ingestions` answers `501 not_supported`.
 - The ingestion read and control routes still return the task shape
-  (`task_id`, a `tenant` query filter), not the `Ingestion` shape the start
-  route returns.
+  (`ingestion_id`, `tenant_id`, a `tenant_id` query filter), not the
+  `Ingestion` shape the start route returns.
 - Project ids are unique across tenants.
 
 ## 2.0.0a1 to 2.0.0a2

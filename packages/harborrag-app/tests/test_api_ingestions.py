@@ -100,7 +100,7 @@ def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) ->
 
     assert selected.status_code == all_failures.status_code == 202
     assert selected.json()["accepted_document_count"] == 1
-    assert UUID(selected.json()["retry_task_id"])
+    assert UUID(selected.json()["retry_ingestion_id"])
 
 
 def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient) -> None:

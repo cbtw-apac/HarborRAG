@@ -92,16 +92,16 @@
           "items[].advanced",
           "items[].config",
           "items[].connection_id",
+          "items[].connection_ref",
           "items[].created_at",
           "items[].created_by",
           "items[].credentials",
           "items[].last_ingestion",
           "items[].last_ingestion.finished_at",
-          "items[].last_ingestion.id",
+          "items[].last_ingestion.ingestion_id",
           "items[].last_ingestion.status",
           "items[].name",
           "items[].project_id",
-          "items[].ref",
           "items[].source_type",
           "items[].stats",
           "items[].stats.chunks",
@@ -131,21 +131,21 @@
         "query:cursor?",
         "query:limit?",
         "query:status?",
-        "query:tenant?"
+        "query:tenant_id?"
       ],
       "request": null,
       "responses": {
         "200": [
           "items",
+          "items[].ingestion_id",
           "items[].progress",
           "items[].source",
-          "items[].source.connection_id",
+          "items[].source.source_key",
           "items[].source.type",
           "items[].stage",
           "items[].status",
           "items[].submitted_at",
-          "items[].task_id",
-          "items[].tenant"
+          "items[].tenant_id"
         ],
         "401": "Error",
         "403": "Error",
@@ -165,15 +165,15 @@
       "request": null,
       "responses": {
         "200": [
+          "ingestion_id",
           "progress",
           "source",
-          "source.connection_id",
+          "source.source_key",
           "source.type",
           "stage",
           "status",
           "submitted_at",
-          "task_id",
-          "tenant"
+          "tenant_id"
         ],
         "401": "Error",
         "403": "Error",
@@ -251,10 +251,10 @@
           "items",
           "items[].connection_count",
           "items[].created_at",
-          "items[].description",
           "items[].document_count",
-          "items[].id",
-          "items[].name",
+          "items[].project_description",
+          "items[].project_id",
+          "items[].project_name",
           "items[].tenant_id",
           "items[].updated_at",
           "next_cursor"
@@ -280,10 +280,10 @@
         "200": [
           "connection_count",
           "created_at",
-          "description",
           "document_count",
-          "id",
-          "name",
+          "project_description",
+          "project_id",
+          "project_name",
           "tenant_id",
           "updated_at"
         ],
@@ -311,16 +311,16 @@
           "advanced",
           "config",
           "connection_id",
+          "connection_ref",
           "created_at",
           "created_by",
           "credentials",
           "last_ingestion",
           "last_ingestion.finished_at",
-          "last_ingestion.id",
+          "last_ingestion.ingestion_id",
           "last_ingestion.status",
           "name",
           "project_id",
-          "ref",
           "source_type",
           "stats",
           "stats.chunks",
@@ -355,7 +355,7 @@
           "items",
           "items[].advanced_schema",
           "items[].auth_methods",
-          "items[].auth_methods[].id",
+          "items[].auth_methods[].auth_method_id",
           "items[].auth_methods[].schema",
           "items[].auth_methods[].title",
           "items[].auth_methods[].ui",
@@ -388,7 +388,7 @@
         "header:X-Tenant-Id?",
         "query:cursor?",
         "query:limit?",
-        "query:tenant?"
+        "query:tenant_id?"
       ],
       "request": null,
       "responses": {
@@ -410,7 +410,7 @@
         "path:session_id",
         "query:after?",
         "query:limit?",
-        "query:tenant?"
+        "query:tenant_id?"
       ],
       "request": null,
       "responses": {
@@ -434,9 +434,9 @@
       "responses": {
         "200": [
           "principal",
-          "principal.id",
           "principal.name",
-          "principal.type",
+          "principal.principal_id",
+          "principal.principal_type",
           "role",
           "tenant_id",
           "tenants"
@@ -461,9 +461,9 @@
         "200": [
           "items",
           "items[].connection_id",
+          "items[].connection_ref",
           "items[].documents",
           "items[].name",
-          "items[].ref",
           "items[].source_type"
         ],
         "400": "Error",
@@ -488,7 +488,7 @@
       ],
       "responses": {
         "202": [
-          "connection",
+          "connection_id",
           "counters",
           "counters.discovered",
           "counters.failed",
@@ -497,20 +497,22 @@
           "created_at",
           "error_category",
           "finished_at",
-          "id",
+          "ingestion_id",
           "links",
           "links.grafana",
           "links.langfuse",
           "links.temporal",
           "mode",
+          "project_id",
           "run_id",
           "settings_revision",
           "stages",
           "status",
+          "tenant_id",
           "trace_id",
           "triggered_by",
-          "triggered_by.id",
-          "triggered_by.type",
+          "triggered_by.principal_id",
+          "triggered_by.principal_type",
           "workflow_id"
         ],
         "400": "Error",
@@ -535,9 +537,9 @@
       "request": null,
       "responses": {
         "202": [
+          "ingestion_id",
           "message",
-          "status",
-          "task_id"
+          "status"
         ],
         "401": "Error",
         "403": "Error",
@@ -559,9 +561,9 @@
       "request": null,
       "responses": {
         "202": [
+          "ingestion_id",
           "message",
-          "status",
-          "task_id"
+          "status"
         ],
         "401": "Error",
         "403": "Error",
@@ -583,9 +585,9 @@
       "request": null,
       "responses": {
         "202": [
+          "ingestion_id",
           "message",
-          "status",
-          "task_id"
+          "status"
         ],
         "401": "Error",
         "403": "Error",
@@ -608,9 +610,9 @@
       "responses": {
         "202": [
           "accepted_document_count",
+          "ingestion_id",
           "message",
-          "retry_task_id",
-          "task_id"
+          "retry_ingestion_id"
         ],
         "401": "Error",
         "403": "Error",
@@ -646,7 +648,7 @@
           "preview",
           "preview.estimated_items",
           "preview.sample",
-          "preview.sample[].ref",
+          "preview.sample[].item_ref",
           "preview.sample[].title"
         ],
         "400": "Error",
@@ -672,9 +674,9 @@
       ],
       "responses": {
         "200": [
+          "completion_id",
           "fallback_count",
           "finish_reason",
-          "id",
           "message",
           "message.content",
           "message.role",
@@ -732,26 +734,26 @@
         "path:project_id"
       ],
       "request": [
-        "name"
+        "project_name"
       ],
       "responses": {
         "200": [
           "connection_count",
           "created_at",
-          "description",
           "document_count",
-          "id",
-          "name",
+          "project_description",
+          "project_id",
+          "project_name",
           "tenant_id",
           "updated_at"
         ],
         "201": [
           "connection_count",
           "created_at",
-          "description",
           "document_count",
-          "id",
-          "name",
+          "project_description",
+          "project_id",
+          "project_name",
           "tenant_id",
           "updated_at"
         ],
@@ -787,16 +789,16 @@
           "advanced",
           "config",
           "connection_id",
+          "connection_ref",
           "created_at",
           "created_by",
           "credentials",
           "last_ingestion",
           "last_ingestion.finished_at",
-          "last_ingestion.id",
+          "last_ingestion.ingestion_id",
           "last_ingestion.status",
           "name",
           "project_id",
-          "ref",
           "source_type",
           "stats",
           "stats.chunks",
@@ -812,16 +814,16 @@
           "advanced",
           "config",
           "connection_id",
+          "connection_ref",
           "created_at",
           "created_by",
           "credentials",
           "last_ingestion",
           "last_ingestion.finished_at",
-          "last_ingestion.id",
+          "last_ingestion.ingestion_id",
           "last_ingestion.status",
           "name",
           "project_id",
-          "ref",
           "source_type",
           "stats",
           "stats.chunks",
