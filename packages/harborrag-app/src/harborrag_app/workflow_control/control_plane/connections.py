@@ -16,7 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from typing import Any, Final, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
@@ -41,7 +41,6 @@ from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
 from harborrag_core.security.secret_refs import SecretSource, all_refs, stored_refs
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
     FieldIssue,
@@ -72,6 +71,9 @@ from harborrag_runtime.ingestion.connections import (
 from ..ingestion.models import IngestionCreateCommand
 from .connection_views import connection_view, ingestion_view, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
+
+if TYPE_CHECKING:
+    from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
 
