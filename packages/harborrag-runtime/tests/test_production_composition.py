@@ -278,3 +278,19 @@ def test_the_key_file_supplies_the_encryption_key(tmp_path: Path) -> None:
         secrets_encryption_key(
             RuntimeSettings(control_db_url=dsn, secrets_encryption_key_file=tmp_path / "missing")
         )
+
+
+@pytest.mark.whitebox
+def test_production_composition_exposes_config_store(tmp_path: Path) -> None:
+    """With SQLite the provider polls only: it is built without a change feed."""
+    from harborrag_adapters.repositories.database.control_plane.config_store import (
+        SqlSettingsStore,
+    )
+    from harborrag_runtime.config_store import CachedConfigProvider
+
+    control_plane = _production(tmp_path).control_plane
+
+    assert control_plane is not None
+    assert isinstance(control_plane.config_store, SqlSettingsStore)
+    assert isinstance(control_plane.config, CachedConfigProvider)
+    assert control_plane.config.has_feed is False

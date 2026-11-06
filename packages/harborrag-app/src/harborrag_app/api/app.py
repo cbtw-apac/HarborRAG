@@ -160,6 +160,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
     # cancelled -- on shutdown, letting queued exchanges finish.
+    if hasattr(service, "start_config_provider"):
+        await service.start_config_provider()
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
     if owns_memory_extraction:
         await service.start_memory_extraction()

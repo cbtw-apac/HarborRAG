@@ -134,6 +134,7 @@ module = [
     "google.cloud",
     "google.cloud.*",
     "langchain_text_splitters",
+    "asyncpg",
     "azure.identity",
     "azure.keyvault.secrets",
     "falkordb.asyncio",

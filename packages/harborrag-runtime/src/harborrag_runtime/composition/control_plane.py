@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from harborrag_core.ports.config_store import ConfigProvider, SettingsStore
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     ConnectionRepositoryPort,
@@ -34,6 +35,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from harborrag_runtime.config.settings import RuntimeSettings
+    from harborrag_runtime.config_store import CachedConfigProvider
 
 logger = logging.getLogger("harborrag.runtime.composition")
 
@@ -65,6 +67,8 @@ class ControlPlaneRepositories:
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
+    config_store: SettingsStore | None = None
+    config: ConfigProvider | None = None
 
 
 @dataclass(slots=True)
@@ -77,10 +81,22 @@ class CompositionRoot:
     control_db: dict[str, Any] = field(default_factory=dict)
     mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
+    _config_provider: CachedConfigProvider | None = field(default=None, repr=False)
+
+    async def start(self) -> None:
+        """Start the settings provider.
+
+        Raises:
+            HarborUnavailableError: The settings store is unreachable.
+        """
+        if self._config_provider is not None:
+            await self._config_provider.start()
 
     async def aclose(self) -> None:
-        """Dispose resources created by :meth:`production`."""
+        """Stop the settings provider and dispose resources created by :meth:`production`."""
 
+        if self._config_provider is not None:
+            await self._config_provider.aclose()
         if self._control_db_engine is not None:
             await self._control_db_engine.dispose()
             self._control_db_engine = None
@@ -142,6 +158,10 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.errors import SchemaAheadOfBuildError
         from harborrag_core.contracts.errors import HarborConfigurationError
+        from harborrag_runtime.composition.config_store import (
+            build_config_provider,
+            build_settings_store,
+        )
         from harborrag_runtime.config.settings import RuntimeSettings
 
         settings = settings or RuntimeSettings()
@@ -192,6 +212,8 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
+        config_store = build_settings_store(engine)
+        config_provider = build_config_provider(settings, engine=engine, store=config_store)
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
             connections=SqlConnectionRepository(sessions),
@@ -209,11 +231,14 @@ class CompositionRoot:
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
+            config_store=config_store,
+            config=config_provider,
         )
         composition = cls(
             control_plane=repositories,
             control_db=control_db,
             _control_db_engine=engine,
+            _config_provider=config_provider,
         )
         logger.info(
             "Control-plane composition completed database_scheme=%s ready=%s migration=%s",

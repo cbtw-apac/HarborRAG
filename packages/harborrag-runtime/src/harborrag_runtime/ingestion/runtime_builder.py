@@ -32,6 +32,7 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_runtime.composition.config_store import build_config_provider
 from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
     build_ingestion_control,
@@ -180,6 +181,7 @@ class IngestionRuntimeBuilder:
             connection_health=ConnectionHealth(stores.connections),
             connection_resolver=ConnectionResolver(stores.connections, stores.revisions),
             connection_stores=stores,
+            config=build_config_provider(settings, engine=stores.engine, store=stores.config_store),
             processing=build_processing_profile(
                 settings,
                 chunking_config=self._chunking_config,

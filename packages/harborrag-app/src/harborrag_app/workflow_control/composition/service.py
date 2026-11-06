@@ -392,6 +392,9 @@ class AppService(
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
         return await self._durable.control_ingestion(run_id, action)
 
+    async def start_config_provider(self) -> None:
+        await self._composition.start()
+
     async def aclose(self) -> None:
         try:
             await self._connection_service.aclose()
