@@ -14,6 +14,7 @@ from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..control_plane.connection_views import IngestionLinks
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
@@ -26,6 +27,7 @@ from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.operations import IngestionOperations
 from ..ingestion.ports import SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
@@ -151,11 +153,25 @@ class AppService(
             removal=self._resources.connection_removal,
             instance_id=self._instance_id,
         )
+        self._ingestion_operations = IngestionOperations(
+            connections=lambda: self._control_plane().connections,
+            runs=self._resources.task_registry,
+            links=IngestionLinks(
+                temporal_ui_url=self._settings.temporal_ui_url,
+                temporal_namespace=self._settings.temporal_namespace,
+                grafana_url=self._settings.grafana_url,
+            ),
+        )
         self._project_service = ProjectService(
             control_plane=self._control_plane,
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
+
+    @property
+    def ingestion_operations(self) -> IngestionOperations:
+        """Run reads behind the ``/v1/admin/ingestions`` routes."""
+        return self._ingestion_operations
 
     @property
     def connection_service(self) -> ConnectionService:

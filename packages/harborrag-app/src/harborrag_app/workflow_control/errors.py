@@ -56,10 +56,6 @@ class IngestionCursorError(HarborValidationError):
     error_code = "validation_error"
 
 
-class IngestionStatusFilterError(HarborValidationError):
-    error_code = "validation_error"
-
-
 # Error types whose messages are authored inside HarborRAG at the Temporal
 # boundary and only ever interpolate caller-supplied identifiers (run IDs,
 # connector names, queue names) -- never provider responses, credentials, or

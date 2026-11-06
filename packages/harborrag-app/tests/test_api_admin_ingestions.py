@@ -27,6 +27,7 @@ class _App(MockAppService):
         super().__init__()
         self.world = world
         self.connection_service = world.service
+        self.ingestion_operations = world.operations
         self.project_service = ProjectService(
             control_plane=lambda: world.control_plane,
             runs=world.service._runs,
@@ -60,23 +61,14 @@ def test_starting_an_ingestion_answers_202_with_its_location(client: TestClient)
     assert response.headers["location"] == f"/v1/admin/ingestions/{body['ingestion_id']}"
 
 
-def test_the_location_header_reads_the_started_run(
-    client: TestClient, app_service: _App, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_the_location_header_reads_the_started_run(client: TestClient) -> None:
     started = client.post(_START, json=_TARGET)
-    read = app_service.get_task
-
-    async def in_acme(task_id: str) -> dict[str, object]:
-        return {**await read(task_id), "tenant": "acme"}
-
-    monkeypatch.setattr(app_service, "get_task", in_acme)
 
     followed = client.get(started.headers["location"])
 
     assert followed.status_code == 200
-    assert followed.json()["ingestion_id"] == started.json()["ingestion_id"]
-    assert followed.json()["tenant_id"] == "acme"
-    assert followed.json()["source"] == {"type": "local", "source_key": "smoke-local"}
+    assert followed.json() == started.json()
+    assert set(started.json()["links"]) == {"temporal", "grafana", "langfuse"}
 
 
 def test_an_empty_mode_means_incremental(client: TestClient, app_service: _App) -> None:

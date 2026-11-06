@@ -2,8 +2,8 @@
 
 Handles:
 - ``POST`` (editor): start an ingestion of one connection
-- ``GET`` and ``GET /{ingestion_id}`` (reader): list runs and read one, with its documents and
-  its event stream
+- ``GET`` and ``GET /{ingestion_id}`` (editor): list runs and read one
+- ``GET /{ingestion_id}/documents|events`` (reader): a run's documents and its event stream
 - ``POST /{ingestion_id}/pause|resume|cancel|retry-failures`` (editor): control a run
 """
 
@@ -11,13 +11,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import AsyncIterator, Mapping
-from typing import Annotated, Any, cast
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
 from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.dependencies import authorize_task_tenant, authorize_tenant
+from harborrag_app.api.auth.dependencies import authorize_task_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
@@ -33,9 +33,8 @@ from .schemas import (
     IngestionActionResponse,
     IngestionDocumentPage,
     IngestionDocumentQuery,
-    IngestionTaskPage,
-    IngestionTaskQuery,
-    IngestionTaskResponse,
+    IngestionListQuery,
+    IngestionPage,
     RetryAcceptedResponse,
     RetryFailuresRequest,
 )
@@ -51,7 +50,6 @@ router = APIRouter(
     # until the last frame; streams carry their own deadline.
     dependencies=[Depends(require_api_capacity, scope="function")],
 )
-# TODO: Story 4 moves the reads to editor and X-Tenant-Id and returns the Ingestion shape.
 
 _PUBLIC_NAMES = {
     "task_id": "ingestion_id",
@@ -86,8 +84,9 @@ LIST_ERROR_RESPONSES = documented_error_responses(
     status_code=202,
     responses=error_responses(409, 422, 501),
 )
-async def start_ingestion(
+async def start_ingestion(  # noqa: PLR0913 - the route's dependencies and body
     service: Administration,
+    operations: IngestionServiceDependency,
     tenant: TenantDependency,
     principal: Editor,
     body: IngestionStartRequest,
@@ -99,7 +98,7 @@ async def start_ingestion(
     except HarborNotFoundError as exc:
         raise ReferenceNotFoundError(str(exc), {"field": "project_id"}) from exc
     try:
-        ingestion = await service.connection_service.sync(
+        started = await service.connection_service.sync(
             ConnectionKey(tenant, body.project_id, body.connection_id),
             actor=principal.subject,
             mode=body.mode,
@@ -108,65 +107,49 @@ async def start_ingestion(
         )
     except HarborNotFoundError as exc:
         raise ReferenceNotFoundError(str(exc), {"field": "connection_id"}) from exc
+    ingestion = await operations.ingestion_operations.get(
+        tenant_id=tenant, ingestion_id=started["ingestion_id"]
+    )
     response.headers["Location"] = f"/v1/admin/ingestions/{ingestion['ingestion_id']}"
     return ingestion
 
 
 @router.get(
     "",
-    response_model=IngestionTaskPage,
+    response_model=IngestionPage,
     responses=LIST_ERROR_RESPONSES,
 )
 async def list_ingestions(
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-    query: Annotated[IngestionTaskQuery, Query()],
-) -> IngestionTaskPage:
-    """Newest-first page of the caller's ingestion tasks.
-
-    The tenant filter is resolved to the caller's authorized scope before the
-    query runs, so an unscoped listing can never spill another tenant's tasks
-    -- unlike the by-ID routes, there is no single record to authorize after
-    the fact.
-    """
-    result = await service.list_tasks(
-        tenants=_authorized_tenants(principal, query.tenant_id),
-        statuses=[value.value for value in query.status] if query.status else None,
+    tenant: TenantDependency,
+    _principal: Editor,
+    query: Annotated[IngestionListQuery, Query()],
+) -> dict[str, Any]:
+    """Newest-first page of the tenant's ingestion runs."""
+    return await service.ingestion_operations.list(
+        tenant_id=tenant,
+        project_id=query.project_id,
+        connection_ref=query.connection_ref,
+        status=query.status,
+        created_after=query.created_after,
         cursor=query.cursor,
         limit=query.limit,
     )
-    items = cast("list[Mapping[str, Any]]", result["items"])
-    return IngestionTaskPage.model_validate({**result, "items": [_public(item) for item in items]})
-
-
-def _authorized_tenants(principal: Principal, tenant: str | None) -> frozenset[str] | None:
-    """Resolve the requested tenant filter into the scope this caller may read.
-
-    An explicit tenant outside the caller's scope is a rejected filter rather
-    than a hidden resource, so it is a 403 like a start in a tenant not held -- it
-    reveals nothing about whether that tenant has any tasks. Omitting it falls
-    back to the caller's own scope, where None means an unrestricted principal.
-    """
-
-    if tenant is None:
-        return principal.tenant_scope
-    authorize_tenant(principal, tenant)
-    return frozenset({tenant})
 
 
 @router.get(
     "/{ingestion_id}",
-    response_model=IngestionTaskResponse,
+    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
 )
 async def get_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-) -> IngestionTaskResponse:
-    result = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, result)
-    return IngestionTaskResponse.model_validate(_public(result))
+    tenant: TenantDependency,
+    _principal: Editor,
+) -> dict[str, Any]:
+    """One ingestion run of the tenant."""
+    return await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
 
 
 @router.get(

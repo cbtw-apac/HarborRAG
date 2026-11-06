@@ -2,27 +2,22 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import AsyncGenerator
 from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
+from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.contracts.events import HarborEvent
 
 
 class IngestionService(Protocol):
     """Narrow application facade required by the ingestion transport."""
 
-    async def get_task(self, task_id: str) -> dict[str, object]: ...
+    @property
+    def ingestion_operations(self) -> IngestionOperations: ...
 
-    async def list_tasks(
-        self,
-        *,
-        tenants: frozenset[str] | None,
-        statuses: Sequence[str] | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]: ...
+    async def get_task(self, task_id: str) -> dict[str, object]: ...
 
     async def list_documents(
         self,

@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionService,
     ConnectionWrite,
 )
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskPage
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
@@ -66,6 +69,12 @@ class Runs:
     async def progress(self, task_id: str) -> dict[str, int]:
         return {"published": 1}
 
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        return {task_id: {"published": 1} for task_id in task_ids}
+
+    async def list_tasks(self, **_filters: Any) -> TaskPage:
+        return TaskPage(tuple(self.tasks.values()), has_more=False)
+
 
 @dataclass
 class Submitter:
@@ -80,7 +89,7 @@ class Submitter:
     ) -> dict[str, object]:
         self.commands.append(command)
         task_id = f"ing_{len(self.commands)}"
-        self.runs.tasks[task_id] = running_task(task_id)
+        self.runs.tasks[task_id] = running_task(task_id, force=command.force_reprocess)
         return {"task_id": task_id, "status": "PENDING"}
 
     async def settle_if_ended(self, task_id: str) -> bool:
@@ -107,13 +116,17 @@ class Removal:
 
 
 def running_task(
-    task_id: str, status: IngestionTaskState = IngestionTaskState.PENDING
+    task_id: str, status: IngestionTaskState = IngestionTaskState.PENDING, *, force: bool = False
 ) -> IngestionTask:
     return IngestionTask(
         task_id=task_id,
         source_scope_id="scope-1",
         status=status,
-        request={"tenant_id": "acme", "connection_id": "cpm/cpm-tickets"},
+        request={
+            "tenant_id": "acme",
+            "connection_id": "cpm/cpm-tickets",
+            "force_reprocess": force,
+        },
     )
 
 
@@ -125,6 +138,19 @@ class ConnectionWorld:
     runs: Runs
     submitter: Submitter
     removal: Removal
+
+    @property
+    def operations(self) -> IngestionOperations:
+        """Run reads over the world's connections and runs."""
+
+        async def provide_runs() -> Runs:
+            return self.runs
+
+        return IngestionOperations(
+            connections=lambda: self.control_plane.connections,
+            runs=provide_runs,
+            links=IngestionLinks(None, "default", None),
+        )
 
 
 def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> ControlPlaneRepositories:

@@ -29,16 +29,14 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
         yield test_client
 
 
-def test_task_status_is_connector_independent_and_temporal_free(client: TestClient) -> None:
+def test_a_run_reads_as_the_ingestion_object(client: TestClient) -> None:
     response = client.get("/v1/admin/ingestions/ing_1")
 
     assert response.status_code == 200
     body = response.json()
-    assert body["stage"] == "PROCESSING_DOCUMENTS"
-    assert body["progress"]["processed"] == 1
-    forbidden = {"workflow_id", "activity_id", "task_queue", "retry_attempt"}
-    assert not (forbidden & set(body))
-    assert not any(name in response.text for name in forbidden)
+    assert body["status"] == "running"
+    assert body["counters"]["processed"] == 1
+    assert not {"stage", "progress", "activity_id", "task_queue"} & set(body)
 
 
 def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> None:

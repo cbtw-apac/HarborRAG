@@ -32,6 +32,11 @@ _INGESTION_STATUS = {
     IngestionTaskState.CANCELLED: "cancelled",
 }
 
+INGESTION_STATES = {
+    status: tuple(state.value for state, name in _INGESTION_STATUS.items() if name == status)
+    for status in dict.fromkeys(_INGESTION_STATUS.values())
+}
+
 
 def etag(version: int) -> str:
     """Return the weak ETag of a resource version."""

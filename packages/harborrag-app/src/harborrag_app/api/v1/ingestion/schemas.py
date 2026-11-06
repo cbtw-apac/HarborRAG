@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field, field_validator
 
 from harborrag_app.api.schemas import ApiModel
+from harborrag_app.api.v1.admin.connection_schemas import IngestionOut
 
 
 class IngestionStatus(StrEnum):
@@ -21,65 +22,18 @@ class IngestionStatus(StrEnum):
     CANCELLED = "CANCELLED"
 
 
-class IngestionStage(StrEnum):
-    QUEUED = "QUEUED"
-    DISCOVERING = "DISCOVERING"
-    PROCESSING_DOCUMENTS = "PROCESSING_DOCUMENTS"
-    RECONCILING = "RECONCILING"
-    COMPLETED = "COMPLETED"
-
-
-class SourceSummary(ApiModel):
-    type: str = Field(
-        min_length=1,
-        max_length=64,
-        pattern=r"^[a-z][a-z0-9_-]*$",
-    )
-    source_key: str
-
-
-class IngestionProgress(ApiModel):
-    discovered: int = Field(default=0, ge=0)
-    admitted: int = Field(default=0, ge=0)
-    processed: int = Field(default=0, ge=0)
-    succeeded: int = Field(default=0, ge=0)
-    failed: int = Field(default=0, ge=0)
-    skipped: int = Field(default=0, ge=0)
-    removed: int = Field(default=0, ge=0)
-
-
-class IngestionTaskResponse(ApiModel):
-    ingestion_id: str
-    tenant_id: str
-    status: IngestionStatus
-    stage: IngestionStage
-    source: SourceSummary
-    progress: IngestionProgress
-    submitted_at: datetime
-    started_at: datetime | None = None
-    completed_at: datetime | None = None
-    message: str | None = None
-
-
-class IngestionTaskPage(ApiModel):
-    items: list[IngestionTaskResponse]
+class IngestionPage(ApiModel):
+    items: list[IngestionOut]
     next_cursor: str | None = None
 
 
-class IngestionTaskQuery(ApiModel):
-    tenant_id: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-        description="Restrict the listing to one tenant the caller may read.",
-    )
-    status: list[IngestionStatus] | None = Field(
-        default=None,
-        description="Restrict to one or more statuses; repeat to OR them (?status=PENDING&status=RUNNING).",
-    )
+class IngestionListQuery(ApiModel):
+    project_id: str | None = None
+    connection_ref: str | None = None
+    status: Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"] | None = None
+    created_after: datetime | None = None
     cursor: str | None = None
-    limit: int = Field(default=50, ge=1, le=200)
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class DocumentResultStatus(StrEnum):

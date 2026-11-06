@@ -2,8 +2,9 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import and_, insert, or_, select
+from sqlalchemy import Select, and_, insert, or_, select
 from sqlalchemy.exc import IntegrityError
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -19,7 +20,7 @@ from harborrag_core.ingestion import (
 from harborrag_core.invariants import HarborInvariantError
 
 from .row_values import DatabaseRow, optional_datetime, required_mapping, required_text
-from .schema import INGESTION_TASKS
+from .schema import INGESTION_TASKS, SOURCE_SCOPES
 from .task_lifecycle import (
     SUBMISSION_CLAIM_STALE_AFTER,
     TaskLifecycleMixin,
@@ -196,13 +197,15 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
 
-    async def list_tasks(
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
         self,
         *,
         tenant_ids: frozenset[str] | None = None,
         statuses: Sequence[str] | None = None,
         before_submitted_at: datetime | None = None,
         before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage:
         """Newest-first keyset page of durable tasks for the public list API.
@@ -212,16 +215,23 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
         the caller read page one sorts ahead of the cursor rather than
         shifting rows past it. ``tenant_ids`` is the caller's authorized
         scope; None means unrestricted and is reserved for wildcard
-        principals and trusted system callers.
+        principals and trusted system callers. ``scope_connection_ids`` keeps the
+        runs of those connections (source keys); an empty set matches nothing.
+        ``created_after`` keeps runs submitted at or after it.
         """
 
         if not 1 <= limit <= 200:
             raise ValueError("ingestion task limit must be between 1 and 200")
         if (before_submitted_at is None) != (before_task_id is None):
             raise ValueError("ingestion task cursor values must be supplied together")
-        if (tenant_ids is not None and not tenant_ids) or (statuses is not None and not statuses):
+        if (
+            (tenant_ids is not None and not tenant_ids)
+            or (statuses is not None and not statuses)
+            or (scope_connection_ids is not None and not scope_connection_ids)
+        ):
             return TaskPage((), has_more=False)
         statement = select(INGESTION_TASKS)
+        statement = _narrowed(statement, tenant_ids, scope_connection_ids, created_after)
         if tenant_ids is not None:
             statement = statement.where(INGESTION_TASKS.c.tenant_id.in_(sorted(tenant_ids)))
         if statuses is not None:
@@ -297,6 +307,25 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
                 )
             )
             return tuple(_task_from_row(row) for row in result.mappings().all())
+
+
+def _narrowed(
+    statement: Select[Any],
+    tenant_ids: frozenset[str] | None,
+    scope_connection_ids: frozenset[str] | None,
+    created_after: datetime | None,
+) -> Select[Any]:
+    """Restrict a task query to the runs of some connections and to a submission time."""
+    if scope_connection_ids is not None:
+        scopes = select(SOURCE_SCOPES.c.source_scope_id).where(
+            SOURCE_SCOPES.c.connection_id.in_(sorted(scope_connection_ids))
+        )
+        if tenant_ids is not None:
+            scopes = scopes.where(SOURCE_SCOPES.c.tenant_id.in_(sorted(tenant_ids)))
+        statement = statement.where(INGESTION_TASKS.c.source_scope_id.in_(scopes.scalar_subquery()))
+    if created_after is not None:
+        statement = statement.where(INGESTION_TASKS.c.submitted_at >= created_after)
+    return statement
 
 
 def _task_from_row(row: DatabaseRow) -> IngestionTask:

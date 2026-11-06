@@ -59,13 +59,15 @@ class PublicTaskStore(Protocol):
 
     async def release_submission_claim(self, task_id: str, token: str) -> bool: ...
 
-    async def list_tasks(
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
         self,
         *,
         tenant_ids: frozenset[str] | None = None,
         statuses: Sequence[str] | None = None,
         before_submitted_at: datetime | None = None,
         before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage: ...
 

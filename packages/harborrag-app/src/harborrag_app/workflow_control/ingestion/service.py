@@ -54,7 +54,6 @@ from .presenters import (
 )
 from .recovery import retry_from_task, source_from_task
 from .retry_selection import retryable_document_ids
-from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
@@ -91,7 +90,7 @@ async def record_control_action(
     )
 
 
-class IngestionApplicationService(TaskListingMixin):
+class IngestionApplicationService:
     """Coordinate API persistence and workflow submission, never ingestion work."""
 
     def __init__(

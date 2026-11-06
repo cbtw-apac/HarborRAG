@@ -45,9 +45,6 @@ DOCUMENT_STATUS_NAMES = {
     "removed": "REMOVED",
     "cancelled": "CANCELLED",
 }
-# API status name -> the durable states it selects. Derived from STATUS_NAMES so
-# the filter can never drift from the name the same task is reported under.
-TASK_STATES = {name: (state.value,) for state, name in STATUS_NAMES.items()}
 STORAGE_STATUSES = {
     "PENDING": ("pending",),
     "PROCESSING": ("processing",),
@@ -220,7 +217,7 @@ def decode_cursor(value: str, *, task_id: str) -> DocumentPageCursor:
             raise ValueError
         return DocumentPageCursor(updated_at=updated_at, document_id=document_id)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise IngestionCursorError("Document cursor is invalid.") from error
+        raise IngestionCursorError("Document cursor is invalid.", {"field": "cursor"}) from error
 
 
 def encode_task_cursor(position: TaskPageCursor) -> str:
@@ -230,9 +227,7 @@ def encode_task_cursor(position: TaskPageCursor) -> str:
 def decode_task_cursor(value: str) -> TaskPageCursor:
     """Read a task-list keyset position, rejecting anything malformed.
 
-    Unlike the document cursor there is nothing in the path to bind against;
-    the cursor carries only a position, and the tenant and status filters are
-    re-derived from the caller's own request on every page.
+    The cursor carries only a position; the caller binds it to its filters.
     """
 
     try:
@@ -243,7 +238,7 @@ def decode_task_cursor(value: str) -> TaskPageCursor:
             raise ValueError
         return TaskPageCursor(submitted_at=submitted_at, task_id=task_id)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
-        raise IngestionCursorError("Task cursor is invalid.") from error
+        raise IngestionCursorError("Task cursor is invalid.", {"field": "cursor"}) from error
 
 
 def _pack(payload: dict[str, str]) -> str:

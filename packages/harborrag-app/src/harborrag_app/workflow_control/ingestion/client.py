@@ -8,8 +8,6 @@ ingestion application service without adding transport or policy of its own.
 
 from __future__ import annotations
 
-from collections.abc import Sequence
-
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .models import IngestionCreateCommand
@@ -33,21 +31,6 @@ class PublicIngestionClientMixin:
 
     async def get_task(self, task_id: str) -> dict[str, object]:
         return await self._public_ingestions.get_task(task_id)
-
-    async def list_tasks(
-        self,
-        *,
-        tenants: frozenset[str] | None,
-        statuses: Sequence[str] | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.list_tasks(
-            tenants=tenants,
-            statuses=statuses,
-            cursor=cursor,
-            limit=limit,
-        )
 
     async def list_documents(
         self,

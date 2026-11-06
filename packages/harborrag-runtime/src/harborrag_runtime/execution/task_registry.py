@@ -127,13 +127,15 @@ class IngestionTaskRegistry:
     async def release_submission_claim(self, task_id: str, token: str) -> bool:
         return await self._control.tasks.release_submission_claim(task_id, token)
 
-    async def list_tasks(
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
         self,
         *,
         tenant_ids: frozenset[str] | None = None,
         statuses: Sequence[str] | None = None,
         before_submitted_at: datetime | None = None,
         before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage:
         return await self._control.tasks.list_tasks(
@@ -141,6 +143,8 @@ class IngestionTaskRegistry:
             statuses=statuses,
             before_submitted_at=before_submitted_at,
             before_task_id=before_task_id,
+            scope_connection_ids=scope_connection_ids,
+            created_after=created_after,
             limit=limit,
         )
 
