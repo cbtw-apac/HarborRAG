@@ -126,8 +126,10 @@ Nothing is saved when any key is refused.
 
 `config/settings.yaml` seeds the tenant named by `HARBORRAG_INGESTION_TENANT_ID` once, at the
 first API start when that tenant has no revisions. The path is `HARBORRAG_SETTINGS_SEED_PATH`
-(`/app/config/settings.yaml` in the API image). The file is git-ignored; copy
-`config/settings.example.yaml`, which lists tenant-level keys only.
+(`/app/config/settings.yaml` in the API image). The file is git-ignored.
+`config/settings.example.yaml` lists every tenant-level key at its default; do not use it
+whole, because each key in the seed file becomes an override that replaces its boot setting.
+Keep only the keys you mean to override.
 
 Later starts do not re-apply the file. When it differs from the stored values, the API logs one
 warning, `config_yaml_drift path=<path> keys=<k1,k2,...>`, and the stored values stay.

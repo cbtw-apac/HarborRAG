@@ -215,9 +215,12 @@ document is reprocessed.
 
 `GET /v1/admin/settings` shows the registry default for a setting with no
 override, even when you changed its old knob. To carry a changed knob over,
-copy `config/settings.example.yaml` to `config/settings.yaml` before the
-first start of the new API and put your value in it, for example
-`retrieval.top_k: 8`. The API seeds the tenant `HARBORRAG_INGESTION_TENANT_ID`
+create `config/settings.yaml` before the first start of the new API, with
+only the keys whose old knob you changed and your value for each, for example
+`retrieval.top_k: 8`. Do not copy `config/settings.example.yaml` whole: it
+lists every key at its registry default, and every key in the seed file
+becomes an override that replaces its old knob, so a copied default would pin
+the default over a value you changed. The API seeds the tenant `HARBORRAG_INGESTION_TENANT_ID`
 from that file once, when the tenant has no settings revisions. Set
 `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another path. After the
 seed, edits to the file only log a `config_yaml_drift` warning; change
@@ -232,10 +235,14 @@ connection, because both feed the processing identity.
 
 1. A `parser: pdf` definition with a single `docling` engine in
    `config/parsers.yaml`, added with `enabled: false` so the shipped
-   `pdf-liteparse` definition stays the boot default. Uncomment the
-   `pdf-docling` block of the file, set `enabled: false`, and keep its
+   `pdf-liteparse` definition stays the boot default. Copy the whole
+   commented `pdf-docling:` block of `config/parsers.yaml`, from the
+   `pdf-docling:` line through its `engines` list and the last docling
+   setting (`max_file_size`), into the active `parsers:` section
+   uncommented, and change `enabled: true` to `enabled: false`. Keep its
    `engines` list to the single `docling` entry.
-2. The docling extra installed in the worker image.
+2. The `pdf-docling` extra of `harborrag-adapters` installed in the worker
+   image, for example `pip install "harborrag-adapters[pdf-docling]"`.
 
 Without them, PDF documents fail with `document_release_parser_unavailable`,
 recorded as retryable. Add the definition, then run `retry-failures`; the
