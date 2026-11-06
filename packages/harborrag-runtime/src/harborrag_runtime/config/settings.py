@@ -93,6 +93,8 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
     temporal_worker_identity: str = "harborrag-runtime"
     temporal_api_key: SecretStr | None = None
     temporal_tls: bool = False
+    temporal_ui_url: str | None = None
+    grafana_url: str | None = None
     temporal_allow_insecure_remote: bool = False
     temporal_health_timeout_seconds: float = Field(default=5.0, gt=0)
     temporal_max_concurrent_activities: int = Field(default=2, ge=1, le=1000)

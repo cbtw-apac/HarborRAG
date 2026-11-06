@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
@@ -96,42 +97,92 @@ def project_view(project: Project, *, connections: int, documents: int) -> dict[
     }
 
 
-def ingestion_view(
+@dataclass(frozen=True)
+class IngestionLinks:
+    """Operator UI bases a run links to; an unset base yields an empty link."""
+
+    temporal_ui_url: str | None
+    temporal_namespace: str
+    grafana_url: str | None
+
+    def for_run(self, workflow_id: str, ingestion_id: str) -> dict[str, str]:
+        """Return the spec's ``links`` object for one run."""
+        temporal = (
+            f"{self.temporal_ui_url}/namespaces/{self.temporal_namespace}/workflows/{workflow_id}"
+            if self.temporal_ui_url
+            else ""
+        )
+        grafana = (
+            f"{self.grafana_url}/d/harborrag-ingestion?var-run={ingestion_id}"
+            if self.grafana_url
+            else ""
+        )
+        return {"temporal": temporal, "grafana": grafana, "langfuse": ""}
+
+
+def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supply
     task: IngestionTask,
     *,
-    connection: Connection,
+    connection: Connection | None,
     progress: Mapping[str, int] | None = None,
     triggered_by: str | None = None,
+    principal_type: str | None = None,
     mode: str | None = None,
+    links: IngestionLinks | None = None,
 ) -> dict[str, Any]:
-    """Return the spec's ``Ingestion`` object for a durable task."""
+    """Return the spec's ``Ingestion`` object for a durable task.
+
+    Args:
+        task: The durable run.
+        connection: Its connection; ``None`` when deleted, then ids come from the stored source key.
+        progress: Result counts by status from the run registry.
+        triggered_by: Principal id, when the caller knows it.
+        principal_type: Principal type, when the caller knows it.
+        mode: Run mode, when the caller knows it.
+        links: Operator UI bases; without them every link is empty.
+    """
     counts = dict(progress or {})
     summary = task.summary
     request = task.request
+    if connection is not None:
+        tenant_id, project_id, connection_id = (
+            connection.tenant_id,
+            connection.project_id,
+            connection.connection_id,
+        )
+    else:
+        tenant_id = str(request.get("tenant_id") or "")
+        project_id, _, connection_id = str(request.get("connection_id") or "").rpartition("/")
+    retry = bool(request.get("retry_of"))
+    workflow_id = f"{'harborrag-retry' if retry else 'harborrag-source'}:{task.task_id}"
+    discovered = _count(summary, "discovered")
+    document_ids = request.get("document_ids")
+    if retry and not discovered and isinstance(document_ids, list):
+        discovered = len(document_ids)
     return {
         "ingestion_id": task.task_id,
-        "tenant_id": connection.tenant_id,
-        "project_id": connection.project_id,
-        "connection_id": connection.connection_id,
+        "tenant_id": tenant_id,
+        "project_id": project_id,
+        "connection_id": connection_id,
         "mode": mode or ("force" if request.get("force_reprocess") else "incremental"),
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "counters": {
-            "discovered": _count(summary, "discovered"),
-            "processed": sum(counts.values()),
+            "discovered": discovered,
+            "processed": counts.get("published", 0),
             "skipped": counts.get("unchanged", 0) + counts.get("skipped", 0),
             "failed": counts.get("failed", 0),
         },
         "stages": [],
         "error_category": summary.get("error_code") if isinstance(summary, Mapping) else None,
         "triggered_by": {
-            "principal_type": "user",
-            "principal_id": triggered_by or str(summary.get("actor", "")),
+            "principal_type": principal_type or str(request.get("actor_type") or "user"),
+            "principal_id": triggered_by or str(request.get("actor") or summary.get("actor") or ""),
         },
         "settings_revision": str(request.get("configuration_fingerprint") or ""),
-        "workflow_id": f"harborrag-source:{task.task_id}",
+        "workflow_id": workflow_id,
         "run_id": task.task_id,
         "trace_id": "",
-        "links": {"temporal": "", "grafana": "", "langfuse": ""},
+        "links": (links or IngestionLinks(None, "", None)).for_run(workflow_id, task.task_id),
         "created_at": task.submitted_at,
         "finished_at": task.completed_at,
     }
