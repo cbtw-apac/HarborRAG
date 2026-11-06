@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from pathlib import Path
 
@@ -131,6 +132,11 @@ class FakeTaskRegistry:
     async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
         self.summaries.append((task_id, dict(values)))
 
+    async def close_abandoned(
+        self, task_id: str, state: IngestionTaskState, *, reason: str
+    ) -> None:
+        self.transitions.append((task_id, state, {"error_code": reason}))
+
     async def fail_if_unsubmitted(
         self,
         task_id: str,
@@ -221,6 +227,15 @@ class FakeTemporalClient:
         self.resumed: list[str] = []
         self.cancelled: list[str] = []
         self.retries: list[IngestionRetryRequest] = []
+        self.statuses: dict[str, str | Exception] = {}
+
+    async def execution_status(self, task_id: str) -> str:
+        status = self.statuses.get(task_id, "running")
+        if isinstance(status, Exception):
+            raise status
+        if status == "hang":
+            await asyncio.sleep(60)
+        return status
 
     async def start_ingestion(
         self, source: PreparedSourceSubmission

@@ -43,6 +43,10 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 
+#### harborrag-app
+
+- A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
+
 #### Deployment
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`

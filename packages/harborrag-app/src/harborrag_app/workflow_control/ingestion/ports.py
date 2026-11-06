@@ -10,6 +10,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
     IngestionTask,
+    IngestionTaskState,
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
@@ -47,6 +48,10 @@ class PublicTaskStore(Protocol):
     ) -> TaskRegistration: ...
 
     async def get(self, task_id: str) -> IngestionTask | None: ...
+
+    async def close_abandoned(
+        self, task_id: str, state: IngestionTaskState, *, reason: str
+    ) -> None: ...
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Sequence
 from datetime import datetime
@@ -59,6 +60,14 @@ logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"
+_WORKFLOW_LOOKUP_SECONDS = 5.0
+_ENDED_WORKFLOW_STATES = {
+    "terminated": IngestionTaskState.CANCELLED,
+    "canceled": IngestionTaskState.CANCELLED,
+    "failed": IngestionTaskState.FAILED,
+    "timed_out": IngestionTaskState.FAILED,
+    "completed": IngestionTaskState.FAILED,
+}
 
 
 async def record_control_action(
@@ -314,18 +323,57 @@ class IngestionApplicationService(TaskListingMixin):
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
-        try:
-            await (await self._client_provider()).cancel(task_id)
-        except WorkflowOperationError as error:
-            raise HarborConnectionError(
-                "Ingestion cancellation is temporarily unavailable."
-            ) from error
+        if await self.settle_if_ended(task_id):
+            task = await self._required_task(store, task_id)
+        else:
+            try:
+                await (await self._client_provider()).cancel(task_id)
+            except WorkflowOperationError as error:
+                raise HarborConnectionError(
+                    "Ingestion cancellation is temporarily unavailable."
+                ) from error
         await record_control_action(store, task_id, action="cancel", actor=actor)
         return {
             "task_id": task.task_id,
             "status": STATUS_NAMES[task.status],
             "message": "Cancellation requested",
         }
+
+    async def settle_if_ended(self, task_id: str) -> bool:
+        """Record the end of a run whose workflow ended without recording it.
+
+        A workflow terminated in Temporal never runs the step that records its end,
+        so its run would stay active and block its connection. Only a workflow
+        Temporal reports as ended settles a run; any other answer, paused or not
+        found included, leaves it active, since a retry run has its own workflow id.
+
+        Args:
+            task_id: The run to check.
+
+        Returns:
+            True when the run is over and its record says so; False while it may run.
+        """
+        store = await self._task_store_provider()
+        task = await store.get(task_id)
+        if task is None or task.status in TERMINAL_STATES:
+            return True
+        try:
+            async with asyncio.timeout(_WORKFLOW_LOOKUP_SECONDS):
+                status = await (await self._client_provider()).execution_status(task_id)
+        except Exception:  # noqa: BLE001 - an unknown answer keeps the run active
+            logger.debug("Could not read the workflow of ingestion %s", task_id, exc_info=True)
+            return False
+        state = _ENDED_WORKFLOW_STATES.get(status)
+        if state is None:
+            return False
+        await store.close_abandoned(task_id, state, reason=f"workflow_{status}")
+        logger.warning(
+            "Ingestion %s ended outside HarborRAG (workflow %s); recorded as %s",
+            task_id,
+            status,
+            state.value,
+        )
+        return True
 
     async def retry_failures(
         self,

@@ -75,6 +75,18 @@ For a task created by an older worker, allow it to finish, deploy the corrected
 worker, and use `POST /v1/admin/ingestions/{ingestion_id}/retry-failures` for its retryable
 document failures.
 
+### A stopped ingestion still answers `409 already_running`
+
+Stop an ingestion with `POST /v1/admin/ingestions/{ingestion_id}/cancel`, not
+with Terminate in the Temporal UI. A terminated workflow never records its end,
+so the run stays `RUNNING`. HarborRAG checks Temporal before it refuses a start:
+a run whose workflow ended is recorded as `CANCELLED` (terminated or cancelled)
+or `FAILED` (failed, timed out, or completed unrecorded), and the start goes
+ahead. Removing the connection or cancelling the run does the same; until one of
+these happens, the run still reads `RUNNING`. A run Temporal reports as running
+or paused, or cannot describe, such as a terminated retry run, still blocks its
+connection.
+
 ## Chat and MCP
 
 Chat is HTTP/CLI-only; MCP exposes only retrieval tools.

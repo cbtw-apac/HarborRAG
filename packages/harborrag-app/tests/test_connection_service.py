@@ -232,6 +232,20 @@ async def test_sync_refuses_a_connection_a_run_would_reject(
 
 
 @pytest.mark.asyncio
+async def test_a_run_whose_workflow_ended_unrecorded_no_longer_blocks(
+    world: ConnectionWorld,
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.runs.active = running_task("ing_0", IngestionTaskState.RUNNING)
+    world.submitter.ended.add("ing_0")
+
+    assert not await world.service.connection_busy("acme", "cpm/cpm-tickets")
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert ingestion["ingestion_id"] == "ing_1"
+
+
+@pytest.mark.asyncio
 async def test_sync_starts_a_valid_connection_whatever_its_status(world: ConnectionWorld) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
     await _store_as(world, status="needs_reauth")

@@ -73,6 +73,7 @@ class Submitter:
 
     runs: Runs
     commands: list[IngestionCreateCommand] = field(default_factory=list)
+    ended: set[str] = field(default_factory=set)
 
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
@@ -81,6 +82,14 @@ class Submitter:
         task_id = f"ing_{len(self.commands)}"
         self.runs.tasks[task_id] = running_task(task_id)
         return {"task_id": task_id, "status": "PENDING"}
+
+    async def settle_if_ended(self, task_id: str) -> bool:
+        """End a run listed in ``ended``, as one whose workflow closed unrecorded."""
+        if task_id not in self.ended:
+            return False
+        if self.runs.active is not None and self.runs.active.task_id == task_id:
+            self.runs.active = None
+        return True
 
 
 @dataclass

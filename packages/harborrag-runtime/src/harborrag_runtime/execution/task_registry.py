@@ -5,6 +5,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
@@ -18,7 +19,7 @@ from harborrag_core.ingestion import (
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.composition.resources import build_ingestion_control
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion.source.tasks import pending_source_task
+from harborrag_runtime.ingestion.source.tasks import pending_source_task, source_scan_id
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
@@ -183,6 +184,35 @@ class IngestionTaskRegistry:
         summary: Mapping[str, object],
     ) -> IngestionTaskState | None:
         return await self._control.tasks.fail_if_unsubmitted(task_id, summary=summary)
+
+    async def close_abandoned(
+        self, task_id: str, state: IngestionTaskState, *, reason: str
+    ) -> None:
+        """End a run whose workflow closed without recording it, such as one terminated in Temporal.
+
+        Closes the run's source scan if discovery was still open, then moves the run
+        to ``state``, keeping its summary and adding ``reason`` as its ``error_code``.
+        A run that already ended is left as it is.
+
+        Args:
+            task_id: The run to end.
+            state: ``CANCELLED`` or ``FAILED``.
+            reason: Why the run ended, such as ``workflow_terminated``.
+        """
+        scan_id = source_scan_id(task_id)
+        if state is IngestionTaskState.CANCELLED:
+            await self._control.source_scans.cancel_if_started(scan_id)
+        else:
+            await self._control.source_scans.fail_if_started(scan_id, safe_reason=reason)
+        task = await self._control.tasks.get(task_id)
+        if task is None:
+            return
+        try:
+            await self._control.tasks.transition(
+                task_id, state, summary={**task.summary, "error_code": reason}
+            )
+        except HarborConflictError:
+            return
 
     async def progress(self, task_id: str) -> dict[str, int]:
         return await self._control.tasks.progress(task_id)

@@ -108,11 +108,13 @@ class ConnectionRuns(Protocol):
 
 
 class IngestionSubmitter(Protocol):
-    """Start an ingestion through the shared submission path."""
+    """Start an ingestion through the shared submission path; tell when a run ended unrecorded."""
 
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
     ) -> dict[str, object]: ...
+
+    async def settle_if_ended(self, task_id: str) -> bool: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -480,17 +482,17 @@ class ConnectionService:
             tenant_id=connection.tenant_id,
         )
         runs = await self._runs()
-        await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+        await self._refuse_if_running(key.tenant_id, connection.source_key)
         lease = f"connection-sync:{key.tenant_id}:{connection.source_key}"
         holder = f"{self._instance_id}:{uuid4().hex}"
         if not await self._control_plane().leases.try_acquire(
             lease, holder, ttl_seconds=SYNC_LEASE_TTL_SECONDS
         ):
-            await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+            await self._refuse_if_running(key.tenant_id, connection.source_key)
             raise HarborAlreadyRunningError(
                 "an ingestion is starting for this connection", details={"ingestion_id": None}
             )
-        await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
+        await self._refuse_if_running(key.tenant_id, connection.source_key)
         accepted = await self._ingestions.submit(
             IngestionCreateCommand(
                 tenant_id=key.tenant_id,
@@ -527,9 +529,7 @@ class ConnectionService:
         """
         control_plane = self._control_plane()
         connection = await self._require(key)
-        active = await (await self._runs()).active_for_connection(
-            tenant_id=key.tenant_id, connection_id=connection.source_key
-        )
+        active = await self._active_run(key.tenant_id, connection.source_key)
         if active is not None:
             raise HarborAlreadyRunningError(
                 "an ingestion is running for this connection",
@@ -611,22 +611,25 @@ class ConnectionService:
             )
         return len(connections)
 
-    @staticmethod
-    async def _refuse_if_running(runs: ConnectionRuns, tenant_id: str, source_key: str) -> None:
+    async def _refuse_if_running(self, tenant_id: str, source_key: str) -> None:
         """Raise ``already_running`` naming the connection's active ingestion, if any."""
-        active = await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
+        active = await self._active_run(tenant_id, source_key)
         if active is not None:
             raise HarborAlreadyRunningError(
                 "an ingestion is already running", details={"ingestion_id": active.task_id}
             )
 
+    async def _active_run(self, tenant_id: str, source_key: str) -> IngestionTask | None:
+        """The connection's pending, running or paused run; one whose workflow ended is settled."""
+        runs = await self._runs()
+        active = await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
+        if active is None or await self._ingestions.settle_if_ended(active.task_id):
+            return None
+        return active
+
     async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
         """True while an ingestion of the connection is pending, running or paused."""
-        runs = await self._runs()
-        return (
-            await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
-            is not None
-        )
+        return await self._active_run(tenant_id, source_key) is not None
 
     async def aclose(self) -> None:
         """Wait for background removals started by this process."""
