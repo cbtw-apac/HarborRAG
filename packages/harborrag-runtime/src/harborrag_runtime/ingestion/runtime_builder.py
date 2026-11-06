@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
@@ -62,6 +63,7 @@ from .document.normalizers import (
     default_source_document_normalizer_builder,
 )
 from .document.pipeline import DocumentStagePipeline
+from .document.run_tools import RunTools
 from .document.service import DocumentReleaseService
 from .field_indexes import declared_field_indexes
 from .maintenance.cleanup import ProjectionCleanupService
@@ -100,8 +102,15 @@ class IngestionRuntimeBuilder:
             metrics_port=settings.metrics_port,
             metrics_bind_address=settings.metrics_bind_address,
         )
-        parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+        parser_catalog = load_parser_catalog(settings.parser_config_path)
+        parser = parser_catalog.build_harbor_parser()
         chunking = chunking_settings_from(settings)
+        boot_chunking = replace(chunking, config=self._chunking_config or chunking.config)
+        boot_chunker = build_default_chunker(
+            config=boot_chunking.config,
+            additional_strategies=self._chunking_strategies,
+            refiner=chunking.refiner,
+        )
         rate_limiter = self._rate_limiter(telemetry)
         stores = build_connection_stores(settings)
         embed_client, model, dimensions = self._embedding_client()
@@ -126,11 +135,7 @@ class IngestionRuntimeBuilder:
         dependencies = DocumentReleaseDependencies(
             parser=parser,
             normalizer=self.build_document_normalizer(),
-            chunker=build_default_chunker(
-                config=self._chunking_config or chunking.config,
-                additional_strategies=self._chunking_strategies,
-                refiner=chunking.refiner,
-            ),
+            chunker=boot_chunker,
             representations=RepresentationReuseService(
                 ChunkRepresentationEncoder(
                     embed_client,
@@ -161,6 +166,17 @@ class IngestionRuntimeBuilder:
             ),
             vector_store=vector_store,
             graph_store=graph,
+            run_tools=RunTools(
+                parser=parser,
+                chunker=boot_chunker,
+                chunking=boot_chunking,
+                parsers=parser_catalog,
+                build_chunker=lambda config: build_default_chunker(
+                    config=config,
+                    additional_strategies=self._chunking_strategies,
+                    refiner=chunking.refiner,
+                ),
+            ),
         )
 
         stages = DocumentStagePipeline(dependencies)

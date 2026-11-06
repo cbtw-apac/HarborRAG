@@ -24,6 +24,7 @@ from harborrag_core.ingestion import (
     reject_runtime_fields,
 )
 from harborrag_core.storage import StorageOperationContext
+from harborrag_runtime.ingestion_contracts import RunSettings
 from harborrag_runtime.serialization import to_json_value
 
 from ..document.models import DocumentReleaseRequest
@@ -357,6 +358,9 @@ class SourcePlanRepository:
                     else None
                 ),
                 "force_reprocess": request.force_reprocess,
+                "run_settings": (
+                    request.run_settings.to_json() if request.run_settings is not None else None
+                ),
             },
         }
 
@@ -402,5 +406,6 @@ class SourcePlanRepository:
                     SourceAdmissionDecision(str(decision)) if decision is not None else None
                 ),
                 force_reprocess=bool(request.get("force_reprocess", False)),
+                run_settings=RunSettings.from_json(request.get("run_settings")),
             ),
         )

@@ -129,10 +129,12 @@ class DocumentCaptureStages:
                 context=context,
             )
             marks.append(perf_counter())
-            parsed = await asyncio.to_thread(
-                self._dependencies.parser.parse,
-                raw,
+            parser = (
+                self._dependencies.parser
+                if self._dependencies.run_tools is None
+                else self._dependencies.run_tools.parser_for(request.run_settings)
             )
+            parsed = await asyncio.to_thread(parser.parse, raw)
             marks.append(perf_counter())
             normalized = await asyncio.to_thread(
                 self._dependencies.normalizer.normalize,

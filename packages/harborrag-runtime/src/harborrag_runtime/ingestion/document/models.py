@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     SourceIdentity,
 )
+from harborrag_runtime.ingestion_contracts import RunSettings
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +26,7 @@ class DocumentReleaseRequest:
     configuration_fingerprint: str | None = None
     discovery_decision: SourceAdmissionDecision | None = None
     force_reprocess: bool = False
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         if not self.tenant_id.strip() or not self.connector_name.strip():

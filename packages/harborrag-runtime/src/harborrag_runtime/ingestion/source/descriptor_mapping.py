@@ -76,6 +76,7 @@ class SourceDescriptorMapper:
                             processing=request.processing,
                             configuration_fingerprint=request.configuration_fingerprint,
                             force_reprocess=request.force_reprocess,
+                            run_settings=request.run_settings,
                         ),
                         document_id=document_id,
                     ),
