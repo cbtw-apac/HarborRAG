@@ -121,8 +121,16 @@ class SettingsImporter:
                 config.invalidate(plan.tenant_id)
 
     async def export(self, *, tenant_id: str, level: SettingsLevel | None) -> SettingsDocument:
-        """Return the stored overrides of ``level``, or of every level when ``None``."""
-        return export_document(await self.snapshot(tenant_id=tenant_id), level)
+        """Return the stored overrides of ``level``, or of every level when ``None``.
+
+        Only registry keys leave through an export; any other stored key is left out.
+        """
+        document = export_document(await self.snapshot(tenant_id=tenant_id), level)
+        known = {
+            label: {key: value for key, value in body.items() if key in self._registry.definitions}
+            for label, body in document.levels.items()
+        }
+        return SettingsDocument({label: body for label, body in known.items() if body})
 
     def drift(self, snapshot: SettingsSnapshot, document: SettingsDocument) -> tuple[str, ...]:
         """Return the keys where ``document`` and the stored overrides differ."""

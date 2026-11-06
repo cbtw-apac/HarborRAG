@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app_test_connections import CONNECTION_KEY, JIRA_WRITE, connection_world
+from app_test_connections import FakeSecrets, fake_control_plane
 from app_test_fixtures import MockAppService
 from project_test_support import scaffold
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -24,13 +24,14 @@ from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry
 from harborrag_core.config_store.documents import plan_import
-from harborrag_core.domain.project import Project
+from harborrag_core.config_store.resolution import SettingChange
 from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 
 _TENANT = "DEFAULT"
 _KEY = "chunking.max_tokens"
 _STORED = f"{_KEY}: 384\n"
+_SENTINEL = "ATATT3xFfGF0-sentinel-9f2c"
 
 
 class _ConfigApp(MockAppService):
@@ -62,6 +63,18 @@ class _World:
 
         asyncio.run(write())
 
+    def store_unregistered(self, key: str, value: object) -> None:
+        change = SettingChange("tenant", key, None, value, "live")
+        asyncio.run(
+            self.store.write(
+                _TENANT,
+                [change],
+                expected_revision=self.revision(),
+                source="api",
+                created_by="test",
+            )
+        )
+
     def revision(self) -> int:
         return asyncio.run(self.store.latest_revision(_TENANT))
 
@@ -77,12 +90,8 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _World:
         async_sessionmaker(create_control_plane_engine(dsn), expire_on_commit=False)
     )
     registry = SettingsRegistry.default()
-    connections = connection_world(
-        [Project(id="cpm", name="CPM", collection="cpm", tenant_id=CONNECTION_KEY.tenant_id)]
-    )
-    asyncio.run(connections.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy"))
     plane = replace(
-        connections.control_plane,
+        fake_control_plane([], FakeSecrets()),
         config_store=store,
         config=CachedConfigProvider(store, registry),
     )
@@ -190,13 +199,23 @@ def test_export_round_trip_reports_no_changes(
 
     code, _, _ = _run(capsys, "export", "--output", str(exported))
     _, out, _ = _run(capsys, "import", str(exported))
-    _, printed, _ = _run(capsys, "export")
 
     assert code == 0
-    assert JIRA_WRITE.credentials["api_token"] not in exported.read_text(encoding="utf-8")
-    assert JIRA_WRITE.credentials["api_token"] not in printed
     assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\nretrieval.top_k: 7\n"
     assert "no changes" in out
+
+
+def test_export_carries_registry_keys_only(
+    world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.seed(f"{_KEY}: 512\n")
+    world.store_unregistered("auth.api_token", _SENTINEL)
+
+    code, out, _ = _run(capsys, "export")
+
+    assert code == 0
+    assert _SENTINEL not in out
+    assert out == f"{_KEY}: 512\n"
 
 
 def test_export_prints_one_level_to_stdout(
