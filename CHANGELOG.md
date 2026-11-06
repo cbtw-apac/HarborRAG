@@ -12,19 +12,33 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 ### Added
 
+#### harborrag-core
+
+- Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
+
 #### harborrag-adapters
 
+- Migration `0046` stores runtime settings overrides and an append-only revision log
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
 
 #### harborrag-runtime
 
+- Cached settings provider that reloads on Postgres `LISTEN`/`NOTIFY` and a 5-second revision poll
+- The API seeds settings from `config/settings.yaml` on first start and logs `config_yaml_drift` afterwards
+- Ingestion pins the run's settings and `settings_revision` at start; workers parse and chunk with them
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 
 #### harborrag-app
 
+- `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
+- `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
 - `harborrag init` scaffolds `config/chunking.yaml` and `harborrag doctor` validates it
+
+#### harborrag-mcp-server
+
+- `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it too
 
 ### Changed
 

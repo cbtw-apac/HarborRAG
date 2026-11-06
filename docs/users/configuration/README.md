@@ -36,6 +36,8 @@ HarborRAG has four independent configuration paths:
 3. [Model Configuration](model-config.md) - YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
 4. [Temporal Configuration](../../../deploy/temporal/README.md) - versioned YAML for connection policy, workers, queues, retries, and workflow timeouts.
 
+[Runtime Settings](runtime-settings.md) lists the six settings an administrator changes through the API without a restart.
+
 [Engine Configuration](config-file-reference.md) documents the small code-constructed engine dataclasses. [Tenant and Workspace Status](workspace-mode.md) explains tenant-aware repository context and what is not yet available as a workspace feature.
 
 For the composed chat surfaces and stored prompt catalog, see

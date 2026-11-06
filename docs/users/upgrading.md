@@ -18,7 +18,9 @@ each connection at the start of every run.
   file with `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`. A worker refuses to start
   without a key against a non-SQLite database. `scripts/deployment/dev.sh`
   generates the key when `env/.env.database` leaves it blank; keep a backup.
-- The API applies migrations `0041`–`0045` at start-up. Start the API before
+- The API applies migrations `0041`–`0046` at start-up. `0046` adds the
+  runtime settings tables: the overrides and an append-only revision log
+  ([Runtime settings](configuration/runtime-settings.md)). Start the API before
   the workers. `0044` drops the `agent_runs` table and `0045` the rest of the
   1.x agent traces: tool-call messages, replay records of agent sessions,
   run-scoped and working memories, and the session `kind`, message `run_id`
@@ -200,6 +202,44 @@ token is kept.
   listed by `GET /v1/chat/sessions` like any chat session. Session listings
   no longer carry `kind`, stored messages no longer carry `run_id`, and the
   `tool` message role is gone.
+
+### Runtime settings
+
+Six settings (`retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`,
+`chunking.max_tokens`, `ingestion.concurrency`, `models.embedding`) can now be
+changed through `/v1/admin/settings` ([Runtime settings](configuration/runtime-settings.md)).
+Nothing changes at upgrade: a setting with no override keeps using the knob
+that governs it today (`config/mcp.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
+`config/parsers.yaml`, `config/chunking.yaml`, `config/temporal.yaml`), and no
+document is reprocessed.
+
+`GET /v1/admin/settings` shows the registry default for a setting with no
+override, even when you changed its old knob. To carry a changed knob over,
+copy `config/settings.example.yaml` to `config/settings.yaml` before the
+first start of the new API and put your value in it, for example
+`retrieval.top_k: 8`. The API seeds the tenant `HARBORRAG_INGESTION_TENANT_ID`
+from that file once, when the tenant has no settings revisions. Set
+`HARBORRAG_SETTINGS_SEED_PATH` to read the file from another path. After the
+seed, edits to the file only log a `config_yaml_drift` warning; change
+settings with the API or `harborrag config import`.
+
+The first sync after any `parsing.*` or `chunking.*` override reprocesses that
+connection, because both feed the processing identity.
+
+#### Use docling for PDFs
+
+`parsing.pdf_parser: docling` needs two things HarborRAG does not ship:
+
+1. A `parser: pdf` definition with a single `docling` engine in
+   `config/parsers.yaml`, added with `enabled: false` so the shipped
+   `pdf-liteparse` definition stays the boot default. Uncomment the
+   `pdf-docling` block of the file, set `enabled: false`, and keep its
+   `engines` list to the single `docling` entry.
+2. The docling extra installed in the worker image.
+
+Without them, PDF documents fail with `document_release_parser_unavailable`,
+recorded as retryable. Add the definition, then run `retry-failures`; the
+retry replays the parser the run was pinned to.
 
 ### Not yet supported
 

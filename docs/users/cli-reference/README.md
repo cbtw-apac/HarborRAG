@@ -102,6 +102,20 @@ database, and - only with `--temporal` - the Temporal workflow service. Exit 1 w
 required check fails. `--json` returns `{"ok", "data": {"checks": [...], "summary": {...},
 "diagnostics": {...}}, "error"}`.
 
+## Runtime settings
+
+```bash
+harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]
+harborrag config export [--level LEVEL] [--tenant TENANT_ID] [--output PATH]
+```
+
+`import` prints what `FILE` would change and writes it as one revision only with `--apply`.
+`--prune` also removes stored overrides the file lacks, at any level. An invalid file exits 1
+naming the file and the key, and applies nothing. `export` writes registry keys only, in the shape `import`
+reads. `--level` is `tenant`, `project:ID` or `connection:PROJECT/CONNECTION`; without it
+`export` writes every level. The file shape and the keys are in
+[Runtime settings](../configuration/runtime-settings.md).
+
 ## Connections
 
 ```bash

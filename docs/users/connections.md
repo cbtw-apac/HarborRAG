@@ -238,7 +238,7 @@ type's `advanced_schema`:
 | `max_retries` | Jira, Confluence, SharePoint, GitHub | 3 |
 | `backoff_factor` | Jira, Confluence, SharePoint, GitHub | 0.5 |
 
-Local files have no advanced settings.
+Local files have no advanced settings. `advanced` stays on the connection; the settings store holds only the keys of [Runtime settings](configuration/runtime-settings.md).
 
 | You send | Result |
 | --- | --- |

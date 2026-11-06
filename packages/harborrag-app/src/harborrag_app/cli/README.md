@@ -58,10 +58,19 @@ need their service environment variables and network connectivity.
 | `harborrag ingest pause` | Request a durable pause |
 | `harborrag ingest resume` | Resume a paused run |
 | `harborrag ingest cancel` | Cancel at a safe workflow boundary |
+| `harborrag config import` | Show or apply a settings file as one revision |
+| `harborrag config export` | Print stored runtime settings overrides as a settings file |
 | `harborrag retrieve` | Run tenant-scoped Qdrant and FalkorDB retrieval |
 
 Use `harborrag COMMAND --help` or
 `harborrag ingest ACTION --help` for the authoritative option list.
+
+## Runtime settings
+
+`harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]` is a dry run
+unless `--apply` is given. `harborrag config export [--level LEVEL] [--tenant TENANT_ID]
+[--output PATH]` writes registry keys only. See
+[Runtime settings](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/runtime-settings.md).
 
 ## Diagnostics
 

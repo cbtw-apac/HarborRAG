@@ -82,6 +82,8 @@ operation gives its lowest role.
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
 | `POST` `GET` | `/v1/admin/ingestions` | `editor`, `reader` | Start an ingestion of the connection named in the body; list runs |
 | `GET` `POST` | `/v1/admin/ingestions/{ingestion_id}[/documents\|/events\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Read and control one run |
+| `GET` `PATCH` | `/v1/admin/settings` | `admin`; `editor` reads `connection:` levels | Read overrides or effective values at a `level`; change them with `If-Match` |
+| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by key: type, range, levels, when a change applies |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
@@ -216,6 +218,7 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
 | `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed chat body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
+| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Seed file for runtime settings, read once when the tenant has no revisions; later differences log `config_yaml_drift` |
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |

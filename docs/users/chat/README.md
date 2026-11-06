@@ -123,7 +123,7 @@ instructs the model to cite only sources it uses.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates |
+| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates; applies until `retrieval.top_k` is overridden ([Runtime settings](../configuration/runtime-settings.md)) |
 | `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Default graph mode |
 | `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold |
 

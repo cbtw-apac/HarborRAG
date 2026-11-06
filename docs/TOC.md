@@ -23,6 +23,7 @@
   - [Connector Configuration](users/configuration/connector-config.md)
   - [Parser Configuration](users/configuration/parser-config.md)
   - [Model Configuration](users/configuration/model-config.md)
+  - [Runtime Settings](users/configuration/runtime-settings.md)
   - [Engine Configuration](users/configuration/config-file-reference.md)
   - [Tenant and Workspace Status](users/configuration/workspace-mode.md)
 - [MCP Tools](users/detailed-guides/mcp-server/README.md)
