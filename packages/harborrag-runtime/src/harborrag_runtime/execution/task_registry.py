@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
+from typing import Any
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.contracts.errors import HarborConflictError
@@ -48,6 +49,8 @@ class IngestionTaskRegistry:
         *,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration:
         request = to_source_request(source)
         await self._control.source_scans.register_scope(
@@ -58,6 +61,9 @@ class IngestionTaskRegistry:
             configuration_fingerprint=request.configuration_fingerprint,
         )
         task = pending_source_task(request)
+        task = task.model_copy(
+            update={"request": _with_actor(task.request, actor=actor, actor_type=actor_type)}
+        )
         return await self._control.tasks.register(
             task,
             idempotency_key=idempotency_key,
@@ -70,6 +76,8 @@ class IngestionTaskRegistry:
         retry_task_id: str,
         original: IngestionTask,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration:
         request = original.request
         tenant_id = request.get("tenant_id")
@@ -89,7 +97,7 @@ class IngestionTaskRegistry:
                 task_id=retry_task_id,
                 source_scope_id=original.source_scope_id,
                 status=IngestionTaskState.PENDING,
-                request=retry_request,
+                request=_with_actor(retry_request, actor=actor, actor_type=actor_type),
             )
         )
 
@@ -252,3 +260,12 @@ class IngestionTaskRegistry:
 
     async def close(self) -> None:
         await self._control.close()
+
+
+def _with_actor(
+    request: dict[str, Any], *, actor: str | None, actor_type: str | None
+) -> dict[str, Any]:
+    """Return ``request`` with who started the run; unchanged when nobody is named."""
+    if actor is None:
+        return request
+    return {**request, "actor": actor, "actor_type": actor_type or "user"}

@@ -100,16 +100,3 @@ class RetryFailuresRequest(ApiModel):
         if any(not value for value in normalized):
             raise ValueError("document IDs must be non-empty")
         return list(dict.fromkeys(normalized))
-
-
-class IngestionActionResponse(ApiModel):
-    ingestion_id: str
-    status: IngestionStatus
-    message: str
-
-
-class RetryAcceptedResponse(ApiModel):
-    ingestion_id: str
-    retry_ingestion_id: str
-    accepted_document_count: int = Field(ge=1)
-    message: str

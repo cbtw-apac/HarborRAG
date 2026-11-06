@@ -10,7 +10,7 @@ Handles:
 from __future__ import annotations
 
 import json
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
@@ -30,12 +30,10 @@ from harborrag_core.contracts.events import HarborEvent
 
 from .dependencies import IngestionServiceDependency
 from .schemas import (
-    IngestionActionResponse,
     IngestionDocumentPage,
     IngestionDocumentQuery,
     IngestionListQuery,
     IngestionPage,
-    RetryAcceptedResponse,
     RetryFailuresRequest,
 )
 
@@ -50,13 +48,6 @@ router = APIRouter(
     # until the last frame; streams carry their own deadline.
     dependencies=[Depends(require_api_capacity, scope="function")],
 )
-
-_PUBLIC_NAMES = {
-    "task_id": "ingestion_id",
-    "retry_task_id": "retry_ingestion_id",
-    "tenant": "tenant_id",
-}
-_PUBLIC_SOURCE_NAMES = {"connection_id": "source_key"}
 
 
 ERROR_RESPONSES = documented_error_responses(
@@ -222,17 +213,6 @@ async def stream_ingestion(
     return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
-def _public(result: Mapping[str, Any]) -> dict[str, Any]:
-    """Rename the service's ``task_id``/``tenant``/``source.connection_id`` keys to the API's names."""
-    public = {_PUBLIC_NAMES.get(key, key): value for key, value in result.items()}
-    source = public.get("source")
-    if isinstance(source, Mapping):
-        public["source"] = {
-            _PUBLIC_SOURCE_NAMES.get(key, key): value for key, value in source.items()
-        }
-    return public
-
-
 def _parse_after_seq(last_event_id: str | None) -> int | None:
     if last_event_id is None:
         return None
@@ -251,75 +231,76 @@ def _sse_frame(event: HarborEvent) -> bytes:
 
 @router.post(
     "/{ingestion_id}/pause",
-    response_model=IngestionActionResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
 )
 async def pause_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
-) -> IngestionActionResponse:
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(
-        _public(await service.pause(ingestion_id, actor=principal.subject))
+    tenant: TenantDependency,
+    principal: Editor,
+) -> dict[str, Any]:
+    """Pause a run; 409 when its status does not allow it."""
+    return await service.ingestion_operations.act(
+        tenant_id=tenant, ingestion_id=ingestion_id, action="pause", actor=principal.subject
     )
 
 
 @router.post(
     "/{ingestion_id}/resume",
-    response_model=IngestionActionResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
 )
 async def resume_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
-) -> IngestionActionResponse:
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(
-        _public(await service.resume(ingestion_id, actor=principal.subject))
+    tenant: TenantDependency,
+    principal: Editor,
+) -> dict[str, Any]:
+    """Resume a run; 409 when its status does not allow it."""
+    return await service.ingestion_operations.act(
+        tenant_id=tenant, ingestion_id=ingestion_id, action="resume", actor=principal.subject
     )
 
 
 @router.post(
     "/{ingestion_id}/cancel",
-    response_model=IngestionActionResponse,
-    status_code=status.HTTP_202_ACCEPTED,
+    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
 )
 async def cancel_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
-) -> IngestionActionResponse:
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
-    return IngestionActionResponse.model_validate(
-        _public(await service.cancel(ingestion_id, actor=principal.subject))
+    tenant: TenantDependency,
+    principal: Editor,
+) -> dict[str, Any]:
+    """Cancel a run; 409 when its status does not allow it."""
+    return await service.ingestion_operations.act(
+        tenant_id=tenant, ingestion_id=ingestion_id, action="cancel", actor=principal.subject
     )
 
 
 @router.post(
     "/{ingestion_id}/retry-failures",
-    response_model=RetryAcceptedResponse,
+    response_model=IngestionOut,
     status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
 )
-async def retry_ingestion_failures(
+async def retry_ingestion_failures(  # noqa: PLR0913 - the route's dependencies and body
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("editor", tenant=False))],
+    tenant: TenantDependency,
+    principal: Editor,
+    response: Response,
     request: Annotated[RetryFailuresRequest | None, Body()] = None,
-) -> RetryAcceptedResponse:
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
-    document_ids = request.document_ids if request is not None else []
-    result = await service.retry_failures(
-        task_id=ingestion_id,
-        document_ids=document_ids,
+) -> dict[str, Any]:
+    """Start a retry run of the failed documents; 409 while the run is active or has none."""
+    retry = await service.ingestion_operations.retry_failures(
+        tenant_id=tenant,
+        ingestion_id=ingestion_id,
+        actor=principal.subject,
+        actor_type=principal.kind,
+        document_ids=request.document_ids if request is not None else [],
     )
-    return RetryAcceptedResponse.model_validate(_public(result))
+    response.headers["Location"] = f"/v1/admin/ingestions/{retry['ingestion_id']}"
+    return retry

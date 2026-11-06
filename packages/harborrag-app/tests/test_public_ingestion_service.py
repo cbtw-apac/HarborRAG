@@ -451,7 +451,7 @@ async def test_pause_and_resume_forward_to_temporal(
 
     paused = await service.pause(task_id)
     assert temporal.paused == [task_id]
-    assert paused["status"] == "PENDING"
+    assert paused["status"] == "RUNNING"
     assert paused["message"] == "Pause requested"
 
     # The Temporal activity settles the durable lifecycle asynchronously.

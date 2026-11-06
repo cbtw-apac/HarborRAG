@@ -63,8 +63,8 @@ def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestCl
     accepted = client.post("/v1/admin/ingestions/ing_1/cancel")
     conflict = client.post("/v1/admin/ingestions/complete/cancel")
 
-    assert accepted.status_code == 202
-    assert accepted.json()["message"] == "Cancellation requested"
+    assert accepted.status_code == 200
+    assert accepted.json()["ingestion_id"] == "ing_1"
     assert conflict.status_code == 409
     assert conflict.json()["error"]["code"] == "invalid_state"
 
@@ -75,16 +75,16 @@ def test_pause_and_resume_are_asynchronous_and_terminal_tasks_conflict(
     pause_accepted = client.post("/v1/admin/ingestions/ing_1/pause")
     pause_conflict = client.post("/v1/admin/ingestions/complete/pause")
 
-    assert pause_accepted.status_code == 202
-    assert pause_accepted.json()["message"] == "Pause requested"
+    assert pause_accepted.status_code == 200
+    assert pause_accepted.json()["ingestion_id"] == "ing_1"
     assert pause_conflict.status_code == 409
     assert pause_conflict.json()["error"]["code"] == "invalid_state"
 
     resume_accepted = client.post("/v1/admin/ingestions/ing_1/resume")
     resume_conflict = client.post("/v1/admin/ingestions/complete/resume")
 
-    assert resume_accepted.status_code == 202
-    assert resume_accepted.json()["message"] == "Resume requested"
+    assert resume_accepted.status_code == 200
+    assert resume_accepted.json()["ingestion_id"] == "ing_1"
     assert resume_conflict.status_code == 409
     assert resume_conflict.json()["error"]["code"] == "invalid_state"
 
@@ -97,8 +97,8 @@ def test_retry_failures_accepts_selected_or_all_documents(client: TestClient) ->
     all_failures = client.post("/v1/admin/ingestions/ing_1/retry-failures")
 
     assert selected.status_code == all_failures.status_code == 202
-    assert selected.json()["accepted_document_count"] == 1
-    assert UUID(selected.json()["retry_ingestion_id"])
+    assert UUID(selected.json()["ingestion_id"])
+    assert selected.headers["location"] == f"/v1/admin/ingestions/{selected.json()['ingestion_id']}"
 
 
 def test_retry_failures_rejects_an_oversized_document_id_list(client: TestClient) -> None:

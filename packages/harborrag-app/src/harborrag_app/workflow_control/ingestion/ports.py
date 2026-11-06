@@ -37,6 +37,8 @@ class PublicTaskStore(Protocol):
         *,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration: ...
 
     async def register_retry(
@@ -45,6 +47,8 @@ class PublicTaskStore(Protocol):
         retry_task_id: str,
         original: IngestionTask,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration: ...
 
     async def get(self, task_id: str) -> IngestionTask | None: ...

@@ -89,7 +89,12 @@ class Submitter:
     ) -> dict[str, object]:
         self.commands.append(command)
         task_id = f"ing_{len(self.commands)}"
-        self.runs.tasks[task_id] = running_task(task_id, force=command.force_reprocess)
+        self.runs.tasks[task_id] = running_task(
+            task_id,
+            force=command.force_reprocess,
+            actor=command.actor,
+            actor_type=command.actor_type,
+        )
         return {"task_id": task_id, "status": "PENDING"}
 
     async def settle_if_ended(self, task_id: str) -> bool:
@@ -116,7 +121,12 @@ class Removal:
 
 
 def running_task(
-    task_id: str, status: IngestionTaskState = IngestionTaskState.PENDING, *, force: bool = False
+    task_id: str,
+    status: IngestionTaskState = IngestionTaskState.PENDING,
+    *,
+    force: bool = False,
+    actor: str | None = None,
+    actor_type: str | None = None,
 ) -> IngestionTask:
     return IngestionTask(
         task_id=task_id,
@@ -126,6 +136,7 @@ def running_task(
             "tenant_id": "acme",
             "connection_id": "cpm/cpm-tickets",
             "force_reprocess": force,
+            **({"actor": actor, "actor_type": actor_type or "user"} if actor else {}),
         },
     )
 
@@ -150,6 +161,7 @@ class ConnectionWorld:
             connections=lambda: self.control_plane.connections,
             runs=provide_runs,
             links=IngestionLinks(None, "default", None),
+            actions=self.submitter,  # type: ignore[arg-type]
         )
 
 

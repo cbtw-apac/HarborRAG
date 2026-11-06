@@ -156,6 +156,7 @@ class AppService(
         self._ingestion_operations = IngestionOperations(
             connections=lambda: self._control_plane().connections,
             runs=self._resources.task_registry,
+            actions=self._public_ingestions,
             links=IngestionLinks(
                 temporal_ui_url=self._settings.temporal_ui_url,
                 temporal_namespace=self._settings.temporal_namespace,

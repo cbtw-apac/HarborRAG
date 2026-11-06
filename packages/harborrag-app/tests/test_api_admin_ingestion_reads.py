@@ -109,6 +109,7 @@ class _App(MockAppService):
             connections=lambda: world.control_plane.connections,
             runs=_provide(runs),
             links=IngestionLinks(None, "default", None),
+            actions=world.submitter,  # type: ignore[arg-type]
         )
 
 

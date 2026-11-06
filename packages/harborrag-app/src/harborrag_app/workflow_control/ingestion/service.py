@@ -122,6 +122,8 @@ class IngestionApplicationService:
                 source,
                 idempotency_key=idempotency_key,
                 request_hash=hashed_request if idempotency_key is not None else None,
+                actor=command.actor,
+                actor_type=command.actor_type,
             )
         except HarborConflictError as error:
             raise IngestionIdempotencyConflictError(str(error)) from error
@@ -295,7 +297,7 @@ class IngestionApplicationService:
         await record_control_action(store, task_id, action="pause", actor=actor)
         return {
             "task_id": task.task_id,
-            "status": STATUS_NAMES[IngestionTaskState.PENDING],
+            "status": STATUS_NAMES[task.status],
             "message": "Pause requested",
         }
 
@@ -379,6 +381,8 @@ class IngestionApplicationService:
         *,
         task_id: str,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> dict[str, object]:
         store = await self._task_store_provider()
         original = await self._required_task(store, task_id)
@@ -400,6 +404,8 @@ class IngestionApplicationService:
             retry_task_id=retry_task_id,
             original=original,
             document_ids=selected,
+            actor=actor,
+            actor_type=actor_type,
         )
         try:
             tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)

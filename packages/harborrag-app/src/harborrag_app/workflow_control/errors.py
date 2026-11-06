@@ -44,6 +44,10 @@ class IngestionAlreadyRunningError(HarborConflictError):
     error_code = "already_running"
 
 
+class IngestionActionStateError(HarborConflictError):
+    error_code = "invalid_state"
+
+
 class IngestionIdempotencyConflictError(HarborConflictError):
     error_code = "invalid_state"
 

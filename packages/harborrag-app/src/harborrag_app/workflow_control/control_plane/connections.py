@@ -448,16 +448,17 @@ class ConnectionService:
         report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
         return report.as_dict()
 
-    async def sync(
+    async def sync(  # noqa: PLR0913 - the caller, its type and the run options
         self,
         key: ConnectionKey,
         *,
         actor: str,
+        actor_type: str = "user",
         mode: str = "incremental",
         item_refs: tuple[str, ...] = (),
         updated_after: str | None = None,
     ) -> dict[str, Any]:
-        """Start an ingestion of the connection.
+        """Start an ingestion of the connection, recording ``actor`` and ``actor_type`` on the run.
 
         Returns:
             The spec's ``Ingestion`` object of the started run.
@@ -505,6 +506,8 @@ class ConnectionService:
                     "actor": actor,
                 },
                 updated_after=updated_after,
+                actor=actor,
+                actor_type=actor_type,
             ),
             idempotency_key=None,
         )
@@ -516,7 +519,6 @@ class ConnectionService:
             task,
             connection=connection,
             progress=await runs.progress(task.task_id),
-            triggered_by=actor,
             mode=mode,
         )
 

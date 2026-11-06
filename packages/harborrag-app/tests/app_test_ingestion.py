@@ -8,6 +8,7 @@ from typing import Any
 from uuid import uuid4
 
 from harborrag_app.workflow_control.errors import (
+    IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionNotFoundError,
 )
@@ -46,6 +47,17 @@ class FixtureIngestionOperations:
             "created_at": datetime(2026, 8, 1, 9, 24, tzinfo=UTC),
             "finished_at": None,
         }
+
+    async def act(self, *, tenant_id: str, ingestion_id: str, **_action: object) -> dict[str, Any]:
+        if ingestion_id == "complete":
+            raise IngestionActionStateError("the ingestion is already complete")
+        return await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+
+    async def retry_failures(
+        self, *, tenant_id: str, ingestion_id: str, **_retry: object
+    ) -> dict[str, Any]:
+        await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+        return await self.get(tenant_id=tenant_id, ingestion_id=str(uuid4()))
 
 
 class IngestionServiceFixture:
