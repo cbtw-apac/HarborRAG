@@ -270,7 +270,7 @@ async def test_recovery_skips_a_task_another_pass_has_claimed(
 
 
 @pytest.mark.asyncio
-async def test_status_and_cursor_pages_are_read_from_the_database(
+async def test_progress_is_read_from_the_stored_document_results(
     service_resources: tuple[
         IngestionApplicationService,
         IngestionControlPlaneDatabase,
@@ -300,18 +300,6 @@ async def test_status_and_cursor_pages_are_read_from_the_database(
         )
 
     task = await service.get_task(task_id)
-    first = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=None,
-        limit=2,
-    )
-    second = await service.list_documents(
-        task_id=task_id,
-        status="SUCCESS",
-        cursor=str(first["next_cursor"]),
-        limit=2,
-    )
 
     assert task["progress"] == {
         "discovered": 3,
@@ -322,8 +310,6 @@ async def test_status_and_cursor_pages_are_read_from_the_database(
         "skipped": 0,
         "removed": 0,
     }
-    assert len(first["items"]) == 2
-    assert len(second["items"]) == 1
     assert len(temporal.started) == 1
 
 

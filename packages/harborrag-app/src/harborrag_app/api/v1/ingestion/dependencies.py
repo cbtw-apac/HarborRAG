@@ -19,15 +19,6 @@ class IngestionService(Protocol):
 
     async def get_task(self, task_id: str) -> dict[str, object]: ...
 
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]: ...
-
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...
 
     async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...

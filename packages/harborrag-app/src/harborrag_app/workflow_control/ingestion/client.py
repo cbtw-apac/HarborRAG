@@ -32,21 +32,6 @@ class PublicIngestionClientMixin:
     async def get_task(self, task_id: str) -> dict[str, object]:
         return await self._public_ingestions.get_task(task_id)
 
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        return await self._public_ingestions.list_documents(
-            task_id=task_id,
-            status=status,
-            cursor=cursor,
-            limit=limit,
-        )
-
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         return await self._public_ingestions.pause(task_id, actor=actor)
 

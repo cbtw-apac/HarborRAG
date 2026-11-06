@@ -9,16 +9,40 @@ from hashlib import sha256
 from typing import Any, Literal, Protocol
 
 from harborrag_core.domain.connection import Connection
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskPage
+from harborrag_core.ingestion import (
+    IngestionTask,
+    IngestionTaskState,
+    StoredTaskDocumentResult,
+    TaskDocumentPage,
+    TaskPage,
+)
 from harborrag_core.invariants import require
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 
 from ..control_plane.connection_views import INGESTION_STATES, IngestionLinks, ingestion_view
 from ..errors import IngestionActionStateError, IngestionCursorError, IngestionNotFoundError
-from .models import TaskPageCursor
-from .presenters import TERMINAL_STATES, decode_task_cursor, encode_task_cursor
+from .models import DocumentPageCursor, TaskPageCursor
+from .presenters import (
+    TERMINAL_STATES,
+    decode_cursor,
+    decode_task_cursor,
+    encode_cursor,
+    encode_task_cursor,
+)
+from .stages import spec_stage
 
 ControlAction = Literal["pause", "resume", "cancel"]
+DocumentStatus = Literal["all", "succeeded", "skipped", "failed"]
+_SUCCEEDED_RESULTS = ("published", "success")
+_SKIPPED_RESULTS = ("unchanged", "skipped")
+_FAILED_RESULTS = ("failed",)
+_DOCUMENT_RESULT_STATUSES: dict[str, tuple[str, ...]] = {
+    "succeeded": _SUCCEEDED_RESULTS,
+    "skipped": _SKIPPED_RESULTS,
+    "failed": _FAILED_RESULTS,
+    "all": _SUCCEEDED_RESULTS + _SKIPPED_RESULTS + _FAILED_RESULTS,
+}
+_PUBLISH_STAGE = "publish"
 ACTION_WAIT_SECONDS: dict[str, int] = {"pause": 10, "resume": 10, "cancel": 30}
 ACTION_POLL_SECONDS = 0.5
 _ALLOWED_FROM: dict[str, frozenset[str]] = {
@@ -42,6 +66,16 @@ class IngestionRuns(Protocol):
     async def progress(self, task_id: str) -> dict[str, int]: ...
 
     async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
+
+    async def document_results_page(  # noqa: PLR0913 - the registry's page filters
+        self,
+        task_id: str,
+        *,
+        statuses: Sequence[str] | None = None,
+        after_updated_at: datetime | None = None,
+        after_document_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskDocumentPage: ...
 
     async def list_tasks(  # noqa: PLR0913 - the registry's listing filters
         self,
@@ -229,6 +263,56 @@ class IngestionOperations:
             links=self._links,
         )
 
+    async def documents(  # noqa: PLR0913 - the spec's page filters plus the tenant
+        self,
+        *,
+        tenant_id: str,
+        ingestion_id: str,
+        status: DocumentStatus,
+        cursor: str | None,
+        limit: int,
+    ) -> dict[str, Any]:
+        """Return a page of a run's succeeded, skipped and failed documents.
+
+        Args:
+            tenant_id: Tenant owning the run.
+            ingestion_id: The run.
+            status: Keep one document status, or ``all``.
+            cursor: ``next_cursor`` of the previous page.
+            limit: Page size.
+
+        Returns:
+            ``{"items": [document], "next_cursor": str | None}``.
+
+        Raises:
+            IngestionNotFoundError: No such run in the tenant.
+            IngestionCursorError: ``cursor`` is malformed or belongs to another run.
+        """
+        await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+        position = decode_cursor(cursor, task_id=ingestion_id) if cursor else None
+        runs = await self._runs()
+        page = await runs.document_results_page(
+            ingestion_id,
+            statuses=_DOCUMENT_RESULT_STATUSES[status],
+            after_updated_at=datetime.fromisoformat(position.updated_at) if position else None,
+            after_document_id=position.document_id if position else None,
+            limit=limit,
+        )
+        next_cursor = None
+        if page.has_more and page.items:
+            last = page.items[-1]
+            updated_at = require(last.updated_at, "paged document result has no updated_at")
+            next_cursor = encode_cursor(
+                task_id=ingestion_id,
+                position=DocumentPageCursor(
+                    updated_at=updated_at.isoformat(), document_id=str(last.document_id)
+                ),
+            )
+        return {
+            "items": [_document_item(result) for result in page.items],
+            "next_cursor": next_cursor,
+        }
+
     async def act(
         self, *, tenant_id: str, ingestion_id: str, action: ControlAction, actor: str
     ) -> dict[str, Any]:
@@ -301,6 +385,28 @@ class IngestionOperations:
                 return
             await self._sleep(ACTION_POLL_SECONDS)
             waited += ACTION_POLL_SECONDS
+
+
+def _document_item(result: StoredTaskDocumentResult) -> dict[str, Any]:
+    document_id = str(result.document_id)
+    base = {
+        "document_ref": str(result.result.get("source_item_id") or document_id),
+        "document_id": document_id,
+        # TODO: record per-document duration so duration_ms can be filled.
+        "duration_ms": None,
+    }
+    if result.status in _FAILED_RESULTS:
+        return base | {
+            "status": "failed",
+            "stage": spec_stage(_text(result.result.get("failure_stage"))),
+            "error_category": _text(result.result.get("safe_error_code")),
+        }
+    status = "succeeded" if result.status in _SUCCEEDED_RESULTS else "skipped"
+    return base | {"status": status, "stage": _PUBLISH_STAGE, "error_category": None}
+
+
+def _text(value: object) -> str | None:
+    return value if isinstance(value, str) and value else None
 
 
 def _require_allowed(action: str, ingestion: Mapping[str, Any]) -> None:

@@ -7,10 +7,8 @@ from hashlib import sha256
 from uuid import uuid4
 
 from harborrag_core.ingestion import (
-    ActiveDocumentVersion,
     IngestionTask,
     IngestionTaskState,
-    StoredTaskDocumentResult,
 )
 from harborrag_core.invariants import HarborInvariantError
 
@@ -33,40 +31,6 @@ STATUS_NAMES = {
     IngestionTaskState.PARTIAL: "PARTIAL",
     IngestionTaskState.FAILED: "FAILED",
     IngestionTaskState.CANCELLED: "CANCELLED",
-}
-DOCUMENT_STATUS_NAMES = {
-    "pending": "PENDING",
-    "processing": "PROCESSING",
-    "published": "SUCCESS",
-    "success": "SUCCESS",
-    "unchanged": "SKIPPED",
-    "skipped": "SKIPPED",
-    "failed": "FAILED",
-    "removed": "REMOVED",
-    "cancelled": "CANCELLED",
-}
-STORAGE_STATUSES = {
-    "PENDING": ("pending",),
-    "PROCESSING": ("processing",),
-    "SUCCESS": ("published", "success"),
-    "SKIPPED": ("unchanged", "skipped"),
-    "FAILED": ("failed",),
-    "REMOVED": ("removed",),
-    "CANCELLED": ("cancelled",),
-}
-FAILURE_STAGES = {
-    "FetchAndCaptureRaw": "FETCH",
-    "ParseAndNormalize": "PARSE",
-    "SyncContentUnits": "CANONICALIZE",
-    "PersistCanonical": "CANONICALIZE",
-    "ChunkAndValidate": "CHUNK",
-    "EncodeChunks": "ENCODE",
-    "BuildRelations": "GRAPH_INDEX",
-    "BuildProjections": "VECTOR_INDEX",
-    "WriteVectorProjection": "VECTOR_INDEX",
-    "WriteGraphProjection": "GRAPH_INDEX",
-    "VerifyProjections": "VERIFY",
-    "PublishVersion": "PUBLISH",
 }
 
 
@@ -146,39 +110,6 @@ def _task_message(status: str, stage: str) -> str:
         "FAILED": "Ingestion failed",
         "CANCELLED": "Ingestion was cancelled",
     }.get(status, "Ingestion completed")
-
-
-def document_response(
-    result: StoredTaskDocumentResult,
-    active: dict[str, ActiveDocumentVersion],
-) -> dict[str, object]:
-    metadata = result.result
-    document_id = str(result.document_id)
-    status = DOCUMENT_STATUS_NAMES.get(result.status.lower(), result.status.upper())
-    failure = None
-    if status == "FAILED":
-        internal_stage = str(metadata.get("failure_stage") or "FetchAndCaptureRaw")
-        failure = {
-            "code": str(metadata.get("safe_error_code") or "DOCUMENT_INGESTION_FAILED"),
-            "message": "Document ingestion failed",
-            "stage": FAILURE_STAGES.get(internal_stage, "FETCH"),
-            "retryable": metadata.get("retryable") is True,
-        }
-    active_version = active.get(document_id)
-    if result.updated_at is None:
-        raise HarborInvariantError("result.updated_at must not be None here")
-    return {
-        "document_id": document_id,
-        "source_item_id": str(metadata.get("source_item_id") or document_id),
-        "document_kind": str(metadata.get("document_kind") or "document"),
-        "title": metadata.get("title"),
-        "status": status,
-        "active_document_version_id": (
-            str(active_version.document_version_id) if active_version is not None else None
-        ),
-        "failure": failure,
-        "updated_at": result.updated_at,
-    }
 
 
 def request_hash(payload: dict[str, object]) -> str:

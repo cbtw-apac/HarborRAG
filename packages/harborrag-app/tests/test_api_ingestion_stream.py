@@ -21,14 +21,10 @@ from harborrag_core.contracts.events import HarborEvent
 class _StreamingAppService(MockAppService):
     """MockAppService plus a test-controllable stream_ingestion_events()."""
 
-    def __init__(self, *, status: str, events: list[HarborEvent]) -> None:
+    def __init__(self, *, events: list[HarborEvent]) -> None:
         super().__init__()
-        self._status = status
         self._events = events
         self.last_after_seq: int | None = None
-
-    async def get_task(self, task_id: str) -> dict[str, object]:
-        return {"task_id": task_id, "tenant": "DEFAULT", "status": self._status}
 
     async def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None
@@ -71,7 +67,7 @@ def test_stream_replays_backlog_and_closes_for_an_already_terminal_task(
         HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": 1}),
         HarborEvent(name="task.t1.done", trace_id="t1", payload={"n": 2}),
     ]
-    service = _StreamingAppService(status="SUCCESS", events=events)
+    service = _StreamingAppService(events=events)
     with _client(service, monkeypatch) as client:
         response = client.get("/v1/admin/ingestions/t1/events")
 
@@ -90,7 +86,7 @@ def test_stream_frames_carry_the_event_sequence_as_the_sse_id(
         HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": 1}, seq=5),
         HarborEvent(name="task.t1.done", trace_id="t1", payload={"n": 2}, seq=6),
     ]
-    service = _StreamingAppService(status="SUCCESS", events=events)
+    service = _StreamingAppService(events=events)
     with _client(service, monkeypatch) as client:
         response = client.get("/v1/admin/ingestions/t1/events")
 
@@ -102,7 +98,7 @@ def test_stream_forwards_last_event_id_header_as_the_backlog_cursor(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """A reconnecting EventSource's Last-Event-ID resumes the backlog past it."""
-    service = _StreamingAppService(status="SUCCESS", events=[])
+    service = _StreamingAppService(events=[])
     with _client(service, monkeypatch) as client:
         response = client.get("/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "5"})
 
@@ -113,7 +109,7 @@ def test_stream_forwards_last_event_id_header_as_the_backlog_cursor(
 def test_stream_ignores_a_malformed_last_event_id_header(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = _StreamingAppService(status="SUCCESS", events=[])
+    service = _StreamingAppService(events=[])
     with _client(service, monkeypatch) as client:
         response = client.get(
             "/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "not-a-number"}
@@ -126,7 +122,7 @@ def test_stream_ignores_a_malformed_last_event_id_header(
 def test_stream_of_a_task_with_no_backlog_returns_an_empty_stream(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    service = _StreamingAppService(status="FAILED", events=[])
+    service = _StreamingAppService(events=[])
     with _client(service, monkeypatch) as client:
         response = client.get("/v1/admin/ingestions/t1/events")
 
@@ -135,17 +131,11 @@ def test_stream_of_a_task_with_no_backlog_returns_an_empty_stream(
     assert _sse_frames(response.text) == []
 
 
-def test_stream_of_an_unknown_task_is_a_plain_enveloped_404(
+def test_stream_of_another_tenants_run_is_a_plain_enveloped_404(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class _NotFoundService(MockAppService):
-        async def get_task(self, task_id: str) -> dict[str, object]:
-            from harborrag_core.contracts.errors import HarborNotFoundError
-
-            raise HarborNotFoundError("Ingestion task was not found")
-
-    with _client(_NotFoundService(), monkeypatch) as client:
-        response = client.get("/v1/admin/ingestions/missing/events")
+    with _client(MockAppService(), monkeypatch) as client:
+        response = client.get("/v1/admin/ingestions/t1/events", headers={"X-Tenant-Id": "globex"})
 
     assert response.status_code == 404
     assert response.headers["content-type"].startswith("application/json")
@@ -167,9 +157,6 @@ async def test_stream_closes_the_app_service_generator_on_early_disconnect() -> 
     progress_event = HarborEvent(name="task.t1.progress", trace_id="t1", payload={"n": 1})
 
     class _HangingAppService(MockAppService):
-        async def get_task(self, task_id: str) -> dict[str, object]:
-            return {"task_id": task_id, "tenant": "DEFAULT", "status": "RUNNING"}
-
         async def stream_ingestion_events(
             self, task_id: str, *, after_seq: int | None = None
         ) -> AsyncIterator[HarborEvent]:
@@ -180,11 +167,11 @@ async def test_stream_closes_the_app_service_generator_on_early_disconnect() -> 
             finally:
                 closed["value"] = True
 
-    principal = Principal(subject="test", role="reader", tenant_ids=frozenset({"*"}))
     response = await stream_ingestion(
         "t1",
         service=_HangingAppService(),
-        principal=principal,
+        tenant="DEFAULT",
+        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id=None,
     )
     body = response.body_iterator

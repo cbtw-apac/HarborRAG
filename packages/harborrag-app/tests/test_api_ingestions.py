@@ -50,13 +50,13 @@ def test_metrics_labels_task_requests_by_route_template(client: TestClient) -> N
 def test_document_results_support_status_and_cursor_parameters(client: TestClient) -> None:
     response = client.get(
         "/v1/admin/ingestions/ing_1/documents",
-        params={"status": "SUCCESS", "cursor": "opaque", "limit": 25},
+        params={"status": "succeeded", "cursor": "opaque", "limit": 25},
     )
 
     assert response.status_code == 200
     item = response.json()["items"][0]
-    assert item["source_item_id"] == "adr/0001.md"
-    assert item["active_document_version_id"] == "document-version:1"
+    assert item["document_ref"] == "adr/0001.md"
+    assert item["status"] == "succeeded"
 
 
 def test_cancellation_is_asynchronous_and_terminal_tasks_conflict(client: TestClient) -> None:

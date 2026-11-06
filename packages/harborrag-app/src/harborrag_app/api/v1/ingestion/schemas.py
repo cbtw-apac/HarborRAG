@@ -36,55 +36,24 @@ class IngestionListQuery(ApiModel):
     limit: int = Field(default=20, ge=1, le=100)
 
 
-class DocumentResultStatus(StrEnum):
-    PENDING = "PENDING"
-    PROCESSING = "PROCESSING"
-    SUCCESS = "SUCCESS"
-    SKIPPED = "SKIPPED"
-    FAILED = "FAILED"
-    REMOVED = "REMOVED"
-    CANCELLED = "CANCELLED"
-
-
-class DocumentFailureStage(StrEnum):
-    FETCH = "FETCH"
-    PARSE = "PARSE"
-    CANONICALIZE = "CANONICALIZE"
-    CHUNK = "CHUNK"
-    ENCODE = "ENCODE"
-    VECTOR_INDEX = "VECTOR_INDEX"
-    GRAPH_INDEX = "GRAPH_INDEX"
-    VERIFY = "VERIFY"
-    PUBLISH = "PUBLISH"
-
-
-class DocumentFailure(ApiModel):
-    code: str
-    message: str
-    stage: DocumentFailureStage
-    retryable: bool
-
-
-class IngestionDocumentResult(ApiModel):
+class IngestionDocumentItem(ApiModel):
+    document_ref: str
     document_id: str
-    source_item_id: str
-    document_kind: str
-    title: str | None = None
-    status: DocumentResultStatus
-    active_document_version_id: str | None = None
-    failure: DocumentFailure | None = None
-    updated_at: datetime
+    status: Literal["succeeded", "skipped", "failed"]
+    stage: Literal["capture", "interpret", "commit", "derive", "publish"]
+    error_category: str | None = None
+    duration_ms: int | None = None
 
 
 class IngestionDocumentPage(ApiModel):
-    items: list[IngestionDocumentResult]
+    items: list[IngestionDocumentItem]
     next_cursor: str | None = None
 
 
 class IngestionDocumentQuery(ApiModel):
-    status: DocumentResultStatus | None = None
+    status: Literal["all", "succeeded", "skipped", "failed"] = "all"
     cursor: str | None = None
-    limit: int = Field(default=50, ge=1, le=200)
+    limit: int = Field(default=20, ge=1, le=100)
 
 
 class RetryFailuresRequest(ApiModel):

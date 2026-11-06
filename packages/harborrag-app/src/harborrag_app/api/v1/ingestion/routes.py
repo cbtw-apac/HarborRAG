@@ -3,7 +3,7 @@
 Handles:
 - ``POST`` (editor): start an ingestion of one connection
 - ``GET`` and ``GET /{ingestion_id}`` (editor): list runs and read one
-- ``GET /{ingestion_id}/documents|events`` (reader): a run's documents and its event stream
+- ``GET /{ingestion_id}/documents|events`` (editor): a run's documents and its event stream
 - ``POST /{ingestion_id}/pause|resume|cancel|retry-failures`` (editor): control a run
 """
 
@@ -16,9 +16,6 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.dependencies import authorize_task_tenant
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
@@ -152,18 +149,18 @@ async def get_ingestion(
 async def list_ingestion_documents(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
+    tenant: TenantDependency,
+    _principal: Editor,
     query: Annotated[IngestionDocumentQuery, Query()],
-) -> IngestionDocumentPage:
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
-    result = await service.list_documents(
-        task_id=ingestion_id,
-        status=query.status.value if query.status is not None else None,
+) -> dict[str, Any]:
+    """Page of a run's succeeded, skipped and failed documents."""
+    return await service.ingestion_operations.documents(
+        tenant_id=tenant,
+        ingestion_id=ingestion_id,
+        status=query.status,
         cursor=query.cursor,
         limit=query.limit,
     )
-    return IngestionDocumentPage.model_validate(result)
 
 
 @router.get(
@@ -173,23 +170,23 @@ async def list_ingestion_documents(
 async def stream_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
+    tenant: TenantDependency,
+    _principal: Editor,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
     """Backlog replay then a live tail of a task's progress events (SSE).
 
-    Pumps the first event outside of StreamingResponse: a missing/
-    unauthorized task must raise here, in the plain route coroutine, so
-    normal exception handling turns it into the usual enveloped 404 --
-    once StreamingResponse starts streaming, the HTTP status is already
-    committed and an error can no longer change it.
+    Pumps the first event outside of StreamingResponse: a missing or other-tenant
+    run must raise here, in the plain route coroutine, so normal exception
+    handling turns it into the usual enveloped 404 -- once StreamingResponse
+    starts streaming, the HTTP status is already committed and an error can no
+    longer change it.
 
     A reconnecting browser EventSource resends the last frame's ``id:`` as
     the ``Last-Event-ID`` header; that becomes ``after_seq`` so the backlog
     replay resumes past what the client already has instead of repeating it.
     """
-    task = await service.get_task(ingestion_id)
-    authorize_task_tenant(principal, task)
+    await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
     events = service.stream_ingestion_events(
         ingestion_id, after_seq=_parse_after_seq(last_event_id)
     )

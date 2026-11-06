@@ -48,6 +48,24 @@ class FixtureIngestionOperations:
             "finished_at": None,
         }
 
+    async def documents(
+        self, *, tenant_id: str, ingestion_id: str, **_page: object
+    ) -> dict[str, Any]:
+        await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id)
+        return {
+            "items": [
+                {
+                    "document_ref": "adr/0001.md",
+                    "document_id": "document:1",
+                    "status": "succeeded",
+                    "stage": "publish",
+                    "error_category": None,
+                    "duration_ms": None,
+                }
+            ],
+            "next_cursor": None,
+        }
+
     async def act(self, *, tenant_id: str, ingestion_id: str, **_action: object) -> dict[str, Any]:
         if ingestion_id == "complete":
             raise IngestionActionStateError("the ingestion is already complete")
@@ -157,31 +175,6 @@ class IngestionServiceFixture:
             "started_at": datetime(2026, 8, 1, 9, 24, 2, tzinfo=UTC),
             "completed_at": None,
             "message": "Processing admitted documents",
-        }
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        del task_id, status, cursor, limit
-        return {
-            "items": [
-                {
-                    "document_id": "document:1",
-                    "source_item_id": "adr/0001.md",
-                    "document_kind": "file",
-                    "title": "ADR-0001",
-                    "status": "SUCCESS",
-                    "active_document_version_id": "document-version:1",
-                    "failure": None,
-                    "updated_at": datetime(2026, 8, 1, 9, 25, tzinfo=UTC),
-                }
-            ],
-            "next_cursor": None,
         }
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:

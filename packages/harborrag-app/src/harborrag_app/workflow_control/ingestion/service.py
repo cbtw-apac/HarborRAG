@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from datetime import datetime
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -33,7 +32,7 @@ from ..errors import (
     IngestionNotFoundError,
     IngestionRetryConflictError,
 )
-from .models import DocumentPageCursor, IngestionCreateCommand
+from .models import IngestionCreateCommand
 from .ports import (
     ClientProvider,
     PublicTaskStore,
@@ -43,11 +42,7 @@ from .ports import (
 )
 from .presenters import (
     STATUS_NAMES,
-    STORAGE_STATUSES,
     TERMINAL_STATES,
-    decode_cursor,
-    document_response,
-    encode_cursor,
     request_hash,
     task_id,
     task_response,
@@ -244,44 +239,6 @@ class IngestionApplicationService:
             await store.release_submission_claim(task_id, claim)
         except Exception:  # noqa: BLE001 - the claim goes stale and is retried anyway
             logger.exception("Could not release the submission claim task_id=%s", task_id)
-
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        store = await self._task_store_provider()
-        await self._required_task(store, task_id)
-        position = decode_cursor(cursor, task_id=task_id) if cursor else None
-        page = await store.document_results_page(
-            task_id,
-            statuses=STORAGE_STATUSES[status] if status is not None else None,
-            after_updated_at=(
-                datetime.fromisoformat(position.updated_at) if position is not None else None
-            ),
-            after_document_id=(position.document_id if position is not None else None),
-            limit=limit,
-        )
-        active = await store.active_versions([str(item.document_id) for item in page.items])
-        items = [document_response(item, active) for item in page.items]
-        next_cursor = None
-        if page.has_more and page.items:
-            last = page.items[-1]
-            last_updated_at = require(
-                last.updated_at,
-                "paged document result is missing updated_at",
-            )
-            next_cursor = encode_cursor(
-                task_id=task_id,
-                position=DocumentPageCursor(
-                    updated_at=last_updated_at.isoformat(),
-                    document_id=str(last.document_id),
-                ),
-            )
-        return {"items": items, "next_cursor": next_cursor}
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
