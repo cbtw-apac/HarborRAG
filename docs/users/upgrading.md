@@ -171,6 +171,25 @@ token is kept.
 - **Ingestion runs moved to `/v1/admin/ingestions`:** `/v1/ingestions*` answers
   `404`; `{task_id}` is now `{ingestion_id}` and `/stream` is `/events`. The
   responses keep the task shape they had, with the identifier names below.
+- **Ingestion runs answer the explorer `Ingestion` shape**, and the task shape
+  (`progress`, `stage`, `source`, `submitted_at`, `message`) is retired with no
+  alias. A run carries `ingestion_id`, `tenant_id`, `project_id`,
+  `connection_id`, `mode`, a lowercase `status` (`queued`, `running`, `paused`,
+  `succeeded`, `failed`, `cancelled`), `counters`, `error_category`,
+  `triggered_by`, `settings_revision`, `workflow_id`, `run_id`, `trace_id`,
+  `links`, `created_at` and `finished_at`.
+- **Ingestion reads need role `editor` and send the tenant in `X-Tenant-Id`.**
+  The `?tenant_id` query parameter is removed; a run in another tenant is
+  `404`. The list filters are `project_id`, `connection_ref`, `status` and
+  `created_after`.
+- **Pause, resume and cancel answer `200` with the run** after waiting for the
+  new status; an action the state does not allow is `409 invalid_state`.
+  `retry-failures` answers `202` with the new run and its `Location`.
+- **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
+  for the failure inbox; see
+  [Change, ingest and delete](connections.md#change-ingest-and-delete).
+- **New settings:** `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL`
+  fill `links` of a run; add them to `env/.env.api`.
 - **Identifiers are named after what they identify**, never a bare `id`, and
   the old names are not accepted:
   - a project's `id` is `project_id`, and its `name` and `description` are

@@ -35,6 +35,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
 - `harborrag init` scaffolds `config/chunking.yaml` and `harborrag doctor` validates it
+- `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 
 #### harborrag-mcp-server
 
@@ -48,6 +49,9 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 #### harborrag-app
 
+- **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
+- Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
+- `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
 - `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
 
 ### Fixed

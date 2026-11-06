@@ -80,8 +80,14 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` `GET` | `/v1/admin/ingestions` | `editor`, `reader` | Start an ingestion of the connection named in the body; list runs |
-| `GET` `POST` | `/v1/admin/ingestions/{ingestion_id}[/documents\|/events\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Read and control one run |
+| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `created_after`, `limit`, `cursor`) |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | Run events |
+| `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action |
+| `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
+| `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |
+| `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run |
 | `GET` `PATCH` | `/v1/admin/settings` | `admin`; `editor` reads `connection:` levels | Read overrides or effective values at a `level`; change them with `If-Match` |
 | `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by key: type, range, levels, when a change applies |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
@@ -91,8 +97,21 @@ operation gives its lowest role.
 | `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
 
-The ingestion read and control routes keep the task shape they had under
-`/v1/ingestions`. Every other route that predates v2.0.0, including `/api/v1/*`,
+Every `/v1/admin/ingestions*` and `/v1/admin/failures*` route needs role
+`editor` and takes the tenant from `X-Tenant-Id`; there is no `?tenant_id`
+parameter, and a run in another tenant is `404 not_found`. A failure's `stage`
+is one of `capture`, `interpret`, `commit`, `derive` and `publish`, mapped from
+the workflow activity that failed: `FetchAndCaptureRaw` is `capture`;
+`ParseAndNormalize` and `ChunkAndValidate` are `interpret`; `PersistCanonical`
+and `SyncContentUnits` are `commit`; `EncodeChunks`, `BuildProjections`,
+`WriteVectorProjection`, `WriteGraphProjection` and `BuildRelations` are
+`derive`; `VerifyProjections` and `PublishVersion` are `publish`; an unmapped
+activity is `capture`. The `links` of a run point at the Temporal and Grafana
+UIs named by the two settings below, and are empty strings when those are unset.
+`links.langfuse` and `trace_id` are empty, and `run_id` is the run's
+`ingestion_id`.
+
+Every other route that predates v2.0.0, including `/api/v1/*`,
 `/v1/connections`, `/v1/ingestions*`, `/v1/agent/*`, `/v1/retrieval/*`,
 `/v1/graph/*`, `/v1/memory/*` and `/v1/schedules/*`, answers `404 not_found`
 with no deprecated alias.
@@ -222,6 +241,8 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
+| `HARBORRAG_TEMPORAL_UI_URL` | unset | Base URL of the Temporal UI, used for `links.temporal` of a run; empty when unset |
+| `HARBORRAG_GRAFANA_URL` | unset | Base URL of Grafana, used for `links.grafana` of a run; empty when unset |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 
 Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json`
