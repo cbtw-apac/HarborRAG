@@ -9,8 +9,10 @@ from typing import Protocol
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    FailurePage,
     IngestionTask,
     IngestionTaskState,
+    StoredFailure,
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
@@ -115,6 +117,31 @@ class PublicTaskStore(Protocol):
         after_document_id: str | None = None,
         limit: int = 50,
     ) -> TaskDocumentPage: ...
+
+    async def failure_page(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        resolved: bool,
+        q: str | None,
+        before: tuple[datetime, str, str] | None,
+        limit: int,
+        include_total: bool,
+    ) -> FailurePage: ...
+
+    async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        keys: Sequence[tuple[str, str]] | None,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        limit: int = 1000,
+    ) -> tuple[StoredFailure, ...]: ...
 
     async def active_versions(
         self,

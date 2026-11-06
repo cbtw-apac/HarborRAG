@@ -10,8 +10,10 @@ from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    FailurePage,
     IngestionTask,
     IngestionTaskState,
+    StoredFailure,
     TaskDocumentPage,
     TaskDocumentResult,
     TaskPage,
@@ -249,6 +251,50 @@ class IngestionTaskRegistry:
             statuses=statuses,
             after_updated_at=after_updated_at,
             after_document_id=after_document_id,
+            limit=limit,
+        )
+
+    async def failure_page(  # noqa: PLR0913 - mirrors the repository
+        self,
+        *,
+        tenant_id: str,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        resolved: bool,
+        q: str | None,
+        before: tuple[datetime, str, str] | None,
+        limit: int,
+        include_total: bool,
+    ) -> FailurePage:
+        return await self._control.failures.page(
+            tenant_id=tenant_id,
+            source_keys=source_keys,
+            error_category=error_category,
+            internal_stages=internal_stages,
+            resolved=resolved,
+            q=q,
+            before=before,
+            limit=limit,
+            include_total=include_total,
+        )
+
+    async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        keys: Sequence[tuple[str, str]] | None,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        limit: int = 1000,
+    ) -> tuple[StoredFailure, ...]:
+        return await self._control.failures.select(
+            tenant_id=tenant_id,
+            keys=keys,
+            source_keys=source_keys,
+            error_category=error_category,
+            internal_stages=internal_stages,
             limit=limit,
         )
 

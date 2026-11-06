@@ -102,6 +102,8 @@ from .states import (
     is_retryable_failure_code,
 )
 from .task_query_contracts import (
+    FailurePage,
+    StoredFailure,
     StoredTaskDocumentResult,
     TaskDocumentPage,
     TaskPage,
@@ -126,6 +128,7 @@ __all__ = [
     "CleanupJobState",
     "DiscoveredSourceItem",
     "DocumentFailure",
+    "FailurePage",
     "DocumentRetirementResult",
     "DocumentIdentityBuilder",
     "DocumentIngestionOutcome",
@@ -187,6 +190,7 @@ __all__ = [
     "SourceRelationDescriptor",
     "SourceScanState",
     "StoredSourceItem",
+    "StoredFailure",
     "StoredTaskDocumentResult",
     "SparseEncoderProfile",
     "SparseEncoding",
