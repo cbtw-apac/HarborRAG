@@ -79,8 +79,8 @@ class ReadinessChecks:
         return "ok" if ready else "fail"
 
 
-async def _address(host: str, port: int) -> str:
-    """Resolve ``host`` on the probes' own threads.
+async def _addresses(host: str, port: int) -> list[str]:
+    """Resolve ``host`` to its addresses, in resolver order, on the probes' own threads.
 
     The event loop's resolver threads are shared with the whole API, and a lookup of a
     stopped service can hold one for seconds; a probe must neither starve the API's
@@ -90,15 +90,32 @@ async def _address(host: str, port: int) -> str:
     infos = await loop.run_in_executor(
         _RESOLVER, socket.getaddrinfo, host, port, 0, socket.SOCK_STREAM
     )
-    return str(infos[0][4][0])
+    return list(dict.fromkeys(str(info[4][0]) for info in infos))
+
+
+async def _connect(
+    host: str, port: int, *, tls: bool
+) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    """Open a connection to the first of ``host``'s addresses that accepts one.
+
+    Raises:
+        OSError: No address accepted the connection.
+    """
+    context = ssl.create_default_context() if tls else None
+    refused: OSError = OSError(f"{host} resolved to no address")
+    for address in await _addresses(host, port):
+        try:
+            return await asyncio.open_connection(
+                address, port, ssl=context, server_hostname=host if tls else None
+            )
+        except OSError as error:
+            refused = error
+    raise refused
 
 
 async def _exchange(host: str, port: int, payload: bytes, *, tls: bool = False) -> bytes:
     """Send ``payload`` and return the first bytes of the reply."""
-    context = ssl.create_default_context() if tls else None
-    reader, writer = await asyncio.open_connection(
-        await _address(host, port), port, ssl=context, server_hostname=host if tls else None
-    )
+    reader, writer = await _connect(host, port, tls=tls)
     try:
         writer.write(payload)
         await writer.drain()

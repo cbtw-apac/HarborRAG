@@ -260,3 +260,28 @@ def test_a_slow_lookup_cannot_fail_a_healthy_dependency(monkeypatch: pytest.Monk
 
     assert report["redis"] == "ok"
     assert {report[f"missing{index}"] for index in range(3)} == {"fail"}
+
+
+def test_a_host_is_reached_on_its_next_address_when_the_first_refuses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import socket
+
+    resolve = socket.getaddrinfo
+
+    def lookup(host: str, port: int, *args: object, **kwargs: object) -> object:
+        if host == "dual-stack":
+            return [
+                (socket.AF_INET6, socket.SOCK_STREAM, 6, "", ("::1", port, 0, 0)),
+                (socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", port)),
+            ]
+        return resolve(host, port, *args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(socket, "getaddrinfo", lookup)
+
+    async def scenario() -> bool:
+        server, port, _ = await _serve(b"+PONG\r\n")
+        async with server:
+            return await redis_answers(f"redis://dual-stack:{port}")
+
+    assert asyncio.run(scenario())
