@@ -206,3 +206,24 @@ async def test_parse_activity_maps_parser_unavailable_to_non_retryable(
 
 def _passthrough_boundary(name: str) -> AbstractContextManager[None]:
     return nullcontext()
+
+
+@pytest.mark.asyncio
+async def test_missing_pdf_parser_failure_is_recorded_retryable() -> None:
+    from harborrag_runtime.ingestion.source.documents import SourceDocumentService
+    from harborrag_runtime.temporal.failure_handling import durable_failure
+    from runtime_ingestion.unit.source.test_plan import _planned
+
+    recorded = AsyncMock()
+    control = SimpleNamespace(tasks=SimpleNamespace(record_document_result=recorded))
+    service = SourceDocumentService(control=cast(Any, control), documents=cast(Any, object()))
+    error = ApplicationError("unavailable", type="parser_unavailable", non_retryable=True)
+    error_type, _ = durable_failure(error)
+
+    await service.record_failed_document(
+        "task-1", _planned(), error_type=error_type, failed_stage="ParseAndNormalize"
+    )
+
+    result = recorded.await_args.args[0].result
+    assert result["safe_error_code"] == "document_release_parser_unavailable"
+    assert result["retryable"] is True
