@@ -170,7 +170,7 @@ token is kept.
   removed.
 - **Ingestion runs moved to `/v1/admin/ingestions`:** `/v1/ingestions*` answers
   `404`; `{task_id}` is now `{ingestion_id}` and `/stream` is `/events`. The
-  responses keep the task shape they had, with the identifier names below.
+  responses use the `Ingestion` shape described below.
 - **Ingestion runs answer the explorer `Ingestion` shape**, and the task shape
   (`progress`, `stage`, `source`, `submitted_at`, `message`) is retired with no
   alias. A run carries `ingestion_id`, `tenant_id`, `project_id`,
@@ -202,10 +202,6 @@ token is kept.
     split into `tenant_id`, `project_id` and `connection_id`, and
     `triggered_by` is `{principal_type, principal_id}`. `workflow_id` and
     `run_id` keep their names.
-  - ingestion reads and controls return `ingestion_id` and `tenant_id` in
-    place of `task_id` and `tenant`, the reads return the connection's
-    `source.source_key` in place of `source.connection_id`, retry-failures
-    returns `retry_ingestion_id`, and the listing filter is `?tenant_id`.
   - a source type's `auth_methods[].id` is `auth_method_id`, and a connection
     test's `preview.sample[].ref` is `item_ref`.
   - `GET /v1/me` returns `principal.principal_type` and
@@ -270,9 +266,6 @@ retry replays the parser the run was pinned to.
 ### Not yet supported
 
 - `item_refs` on `POST /v1/admin/ingestions` answers `501 not_supported`.
-- The ingestion read and control routes still return the task shape
-  (`ingestion_id`, `tenant_id`, a `tenant_id` query filter), not the
-  `Ingestion` shape the start route returns.
 - Project ids are unique across tenants.
 
 ## 2.0.0a1 to 2.0.0a2
