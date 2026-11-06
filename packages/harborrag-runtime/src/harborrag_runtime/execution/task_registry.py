@@ -266,6 +266,7 @@ class IngestionTaskRegistry:
         before: tuple[datetime, str, str] | None,
         limit: int,
         include_total: bool,
+        known_stages: frozenset[str] | None = None,
     ) -> FailurePage:
         return await self._control.failures.page(
             tenant_id=tenant_id,
@@ -277,6 +278,7 @@ class IngestionTaskRegistry:
             before=before,
             limit=limit,
             include_total=include_total,
+            known_stages=known_stages,
         )
 
     async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
@@ -288,6 +290,7 @@ class IngestionTaskRegistry:
         error_category: str | None,
         internal_stages: frozenset[str] | None,
         limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
     ) -> tuple[StoredFailure, ...]:
         return await self._control.failures.select(
             tenant_id=tenant_id,
@@ -296,6 +299,7 @@ class IngestionTaskRegistry:
             error_category=error_category,
             internal_stages=internal_stages,
             limit=limit,
+            known_stages=known_stages,
         )
 
     async def document_results(self, task_id: str) -> tuple[TaskDocumentResult, ...]:

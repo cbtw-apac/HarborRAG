@@ -65,6 +65,7 @@ class FailureInboxRepository:
         before: FailureCursor | None,
         limit: int,
         include_total: bool,
+        known_stages: frozenset[str] | None = None,
     ) -> FailurePage:
         """Read one keyset page of failures, newest first.
 
@@ -78,6 +79,8 @@ class FailureInboxRepository:
             before: ``(failed_at, task_id, document_id)`` of the last item already seen.
             limit: Page size, 1 to 200.
             include_total: Set ``total`` to the number of matching items.
+            known_stages: Every internal stage the caller maps; when set, failures
+                without a stage or at a stage outside it also match ``internal_stages``.
 
         Returns:
             The page, whether more items follow, the matching items per error
@@ -92,11 +95,11 @@ class FailureInboxRepository:
         conditions = _item_conditions(
             ranked,
             error_category=error_category,
-            internal_stages=internal_stages,
+            stage_condition=_stage_condition(ranked, internal_stages, known_stages),
             resolved=resolved,
             q=q,
         )
-        category = func.coalesce(_text(ranked, "safe_error_code"), _UNKNOWN_CATEGORY)
+        category = _category(ranked)
         counts_statement = (
             select(category.label("category"), func.count().label("item_count"))
             .where(*conditions)
@@ -128,6 +131,7 @@ class FailureInboxRepository:
         error_category: str | None,
         internal_stages: frozenset[str] | None,
         limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
     ) -> tuple[StoredFailure, ...]:
         """Select unresolved failures that are marked retryable, newest first.
 
@@ -138,6 +142,8 @@ class FailureInboxRepository:
             error_category: Keep failures with this ``safe_error_code``.
             internal_stages: Keep failures at these internal pipeline stages.
             limit: Most failures to return.
+            known_stages: Every internal stage the caller maps; when set, failures
+                without a stage or at a stage outside it also match ``internal_stages``.
 
         Returns:
             Matching failures; a keyed pair matches only if it is still the
@@ -149,7 +155,7 @@ class FailureInboxRepository:
         conditions = _item_conditions(
             ranked,
             error_category=error_category,
-            internal_stages=internal_stages,
+            stage_condition=_stage_condition(ranked, internal_stages, known_stages),
             resolved=False,
             q=None,
         )
@@ -213,6 +219,10 @@ def _text(ranked: Subquery, key: str) -> ColumnElement[Any]:
     return accessor
 
 
+def _category(ranked: Subquery) -> ColumnElement[Any]:
+    return func.coalesce(_text(ranked, "safe_error_code"), _UNKNOWN_CATEGORY)
+
+
 def _is_resolved(ranked: Subquery) -> ColumnElement[bool]:
     return and_(
         ranked.c.last_resolved_at.is_not(None),
@@ -220,11 +230,23 @@ def _is_resolved(ranked: Subquery) -> ColumnElement[bool]:
     )
 
 
+def _stage_condition(
+    ranked: Subquery, internal_stages: frozenset[str] | None, known_stages: frozenset[str] | None
+) -> ColumnElement[bool] | None:
+    if internal_stages is None:
+        return None
+    stage = _text(ranked, "failure_stage")
+    in_stages = stage.in_(sorted(internal_stages))
+    if known_stages is None:
+        return in_stages
+    return or_(in_stages, stage.is_(None), stage.not_in(sorted(known_stages)))
+
+
 def _item_conditions(
     ranked: Subquery,
     *,
     error_category: str | None,
-    internal_stages: frozenset[str] | None,
+    stage_condition: ColumnElement[bool] | None,
     resolved: bool,
     q: str | None,
 ) -> list[ColumnElement[bool]]:
@@ -234,9 +256,9 @@ def _item_conditions(
         _is_resolved(ranked) if resolved else not_(_is_resolved(ranked)),
     ]
     if error_category is not None:
-        conditions.append(_text(ranked, "safe_error_code") == error_category)
-    if internal_stages is not None:
-        conditions.append(_text(ranked, "failure_stage").in_(sorted(internal_stages)))
+        conditions.append(_category(ranked) == error_category)
+    if stage_condition is not None:
+        conditions.append(stage_condition)
     if q:
         needle = q.lower()
         conditions.append(

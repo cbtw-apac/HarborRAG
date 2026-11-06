@@ -7,6 +7,7 @@ from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
+from harborrag_app.workflow_control.ingestion.failure_inbox import FailureInboxService
 from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.contracts.events import HarborEvent
 
@@ -16,6 +17,9 @@ class IngestionService(Protocol):
 
     @property
     def ingestion_operations(self) -> IngestionOperations: ...
+
+    @property
+    def failure_inbox(self) -> FailureInboxService: ...
 
     async def get_task(self, task_id: str) -> dict[str, object]: ...
 

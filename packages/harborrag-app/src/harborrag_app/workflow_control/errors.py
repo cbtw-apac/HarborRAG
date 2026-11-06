@@ -60,6 +60,10 @@ class IngestionCursorError(HarborValidationError):
     error_code = "validation_error"
 
 
+class IngestionFailureIdError(HarborValidationError):
+    error_code = "validation_error"
+
+
 class SettingsLevelNotFoundError(HarborValidationError):
     error_code = "reference_not_found"
 

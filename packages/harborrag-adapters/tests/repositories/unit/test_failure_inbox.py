@@ -298,3 +298,63 @@ async def test_select_by_keys_and_limit(inbox: Inbox) -> None:
 
     assert [(item.task_id, item.document_id) for item in keyed] == [("run-2", "doc-parse-00")]
     assert len(limited) == 4
+
+
+_KNOWN_STAGES = frozenset({"FetchAndCaptureRaw", "ParseAndNormalize"})
+
+
+@pytest.mark.asyncio
+async def test_unmapped_stages_match_the_stage_filter_when_the_known_set_is_given(
+    inbox: Inbox,
+) -> None:
+    control_plane, seed = inbox
+    await seed.result(
+        "run-1", "doc-no-stage", "failed", 60, {"safe_error_code": "odd", "retryable": True}
+    )
+    await seed.result("run-1", "doc-new-stage", "failed", 61, _failed("odd", stage="Brand New"))
+
+    strict = await _page(control_plane, internal_stages=frozenset({"FetchAndCaptureRaw"}))
+    capture = await _page(
+        control_plane,
+        internal_stages=frozenset({"FetchAndCaptureRaw"}),
+        known_stages=_KNOWN_STAGES,
+    )
+    interpret = await _page(control_plane, internal_stages=frozenset({"ParseAndNormalize"}))
+    selected = await control_plane.failures.select(
+        tenant_id="acme",
+        keys=None,
+        source_keys=None,
+        error_category="odd",
+        internal_stages=frozenset({"FetchAndCaptureRaw"}),
+        known_stages=_KNOWN_STAGES,
+    )
+
+    assert {item.document_id for item in strict.items} == {"doc-auth-0", "doc-auth-1", "doc-auth-2"}
+    assert {item.document_id for item in capture.items} == {
+        "doc-auth-0",
+        "doc-auth-1",
+        "doc-auth-2",
+        "doc-no-stage",
+        "doc-new-stage",
+    }
+    assert "doc-no-stage" not in {item.document_id for item in interpret.items}
+    assert {item.document_id for item in selected} == {"doc-no-stage", "doc-new-stage"}
+
+
+@pytest.mark.asyncio
+async def test_the_unknown_category_matches_failures_without_an_error_code(inbox: Inbox) -> None:
+    control_plane, seed = inbox
+    await seed.result("run-1", "doc-bare", "failed", 70, {"retryable": True})
+
+    page = await _page(control_plane, error_category="unknown")
+    selected = await control_plane.failures.select(
+        tenant_id="acme",
+        keys=None,
+        source_keys=None,
+        error_category="unknown",
+        internal_stages=None,
+    )
+
+    assert [item.document_id for item in page.items] == ["doc-bare"]
+    assert page.counts == {"unknown": 1}
+    assert [item.document_id for item in selected] == ["doc-bare"]

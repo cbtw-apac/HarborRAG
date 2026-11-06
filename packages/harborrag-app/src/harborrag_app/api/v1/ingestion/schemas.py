@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut
@@ -54,6 +54,67 @@ class IngestionDocumentQuery(ApiModel):
     status: Literal["all", "succeeded", "skipped", "failed"] = "all"
     cursor: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
+
+
+FailureStage = Literal["capture", "interpret", "commit", "derive", "publish"]
+
+
+class FailureOut(ApiModel):
+    failure_id: str
+    ingestion_id: str
+    connection_ref: str
+    document_ref: str
+    stage: FailureStage
+    error_category: str
+    message: str
+    attempts: int
+    retryable: bool
+    resolved: bool
+    created_at: datetime
+
+
+class FailurePage(ApiModel):
+    items: list[FailureOut]
+    next_cursor: str | None = None
+    counts: dict[str, int]
+    total: int | None = None
+
+
+class FailureQuery(ApiModel):
+    project_id: str | None = None
+    connection_ref: str | None = None
+    stage: FailureStage | None = None
+    error_category: str | None = None
+    resolved: bool = False
+    q: str | None = Field(default=None, max_length=200)
+    cursor: str | None = None
+    limit: int = Field(default=20, ge=1, le=100)
+    include_total: bool = False
+
+
+class FailureRetryFilter(ApiModel):
+    connection_ref: str | None = None
+    error_category: str | None = None
+    stage: FailureStage | None = None
+
+
+class FailureRetryRequest(ApiModel):
+    ids: list[Annotated[str, Field(max_length=400)]] | None = Field(
+        default=None, min_length=1, max_length=1000
+    )
+    filter: FailureRetryFilter | None = None
+
+    @model_validator(mode="after")
+    def require_exactly_one_selector(self) -> FailureRetryRequest:
+        if (self.ids is None) == (self.filter is None):
+            raise ValueError("send exactly one of ids or filter")
+        return self
+
+
+class FailureRetryAccepted(ApiModel):
+    ingestion_id: str | None
+    ingestion_ids: list[str]
+    queued: int
 
 
 class RetryFailuresRequest(ApiModel):

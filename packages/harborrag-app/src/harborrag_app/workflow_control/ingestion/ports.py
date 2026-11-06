@@ -130,6 +130,7 @@ class PublicTaskStore(Protocol):
         before: tuple[datetime, str, str] | None,
         limit: int,
         include_total: bool,
+        known_stages: frozenset[str] | None = None,
     ) -> FailurePage: ...
 
     async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
@@ -141,6 +142,7 @@ class PublicTaskStore(Protocol):
         error_category: str | None,
         internal_stages: frozenset[str] | None,
         limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
     ) -> tuple[StoredFailure, ...]: ...
 
     async def active_versions(

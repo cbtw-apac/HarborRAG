@@ -30,6 +30,7 @@ from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.failure_inbox import FailureInboxService
 from ..ingestion.operations import IngestionOperations
 from ..ingestion.ports import SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
@@ -167,6 +168,11 @@ class AppService(
                 grafana_url=self._settings.grafana_url,
             ),
         )
+        self._failure_inbox = FailureInboxService(
+            connections=lambda: self._control_plane().connections,
+            runs=self._resources.task_registry,
+            actions=self._public_ingestions,
+        )
         self._project_service = ProjectService(
             control_plane=self._control_plane,
             runs=self._resources.task_registry,
@@ -184,6 +190,11 @@ class AppService(
     def ingestion_operations(self) -> IngestionOperations:
         """Run reads behind the ``/v1/admin/ingestions`` routes."""
         return self._ingestion_operations
+
+    @property
+    def failure_inbox(self) -> FailureInboxService:
+        """Failure inbox behind the ``/v1/admin/failures`` routes."""
+        return self._failure_inbox
 
     @property
     def connection_service(self) -> ConnectionService:
