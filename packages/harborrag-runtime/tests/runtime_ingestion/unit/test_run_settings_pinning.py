@@ -286,3 +286,43 @@ async def test_patch_after_start_keeps_the_running_run(shipped_settings: Runtime
     assert first.run_settings == RunSettings("rev_3", None, 512, None)
     assert next_run.run_settings == RunSettings("rev_4", None, 256, None)
     assert first.processing != next_run.processing
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"chunking.max_tokens": 256}, RunSettings("rev_4", None, 256, None)),
+        ({}, RunSettings("rev_4")),
+    ],
+)
+async def test_sdk_temporal_input_pins_run_settings(
+    monkeypatch: pytest.MonkeyPatch,
+    shipped_settings: RuntimeSettings,
+    overrides: dict[str, object],
+    expected: RunSettings,
+) -> None:
+    from harborrag_runtime.contracts import AccessContext, IngestionRequest
+    from harborrag_runtime.execution import temporal as temporal_module
+
+    connections, revisions = await _stored_connection()
+    config = _MutableProvider(_snapshot(4, overrides))
+    config.start = AsyncMock()  # type: ignore[attr-defined]
+    config.aclose = AsyncMock()  # type: ignore[attr-defined]
+    stores = SimpleNamespace(
+        connections=connections, revisions=revisions, engine=object(), config_store=object()
+    )
+    monkeypatch.setattr(temporal_module, "build_connection_stores", lambda _settings: stores)
+    monkeypatch.setattr(temporal_module, "build_config_provider", lambda *_a, **_k: config)
+    executor = temporal_module.TemporalIngestionExecutor(shipped_settings)
+    request = IngestionRequest(
+        access=AccessContext(principal_id="user-1", tenant_id="tenant-1"),
+        connector_name="docs",
+        task_id="run-1",
+        connection_id="docs",
+    )
+
+    source = await executor._input(request)  # noqa: SLF001 - the input the SDK path starts runs with
+
+    assert source.run_settings == expected
+    config.start.assert_awaited_once_with()  # type: ignore[attr-defined]
