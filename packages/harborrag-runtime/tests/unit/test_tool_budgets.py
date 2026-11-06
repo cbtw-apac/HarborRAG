@@ -61,11 +61,35 @@ def test_a_tool_whose_schema_is_invalid_is_our_bug_not_the_callers() -> None:
         budget.check_output_schema({"ok": "yes"}, {"type": "object", "required": ["missing"]})
 
 
-def test_an_off_schema_call_reports_the_bare_contract() -> None:
-    with pytest.raises(ValueError) as rejected:
-        ToolBudget(label="MCP").check_call(_spec(), {"query": "far too long"})
+def test_detail_names_the_failing_field_only_when_asked() -> None:
+    """The default reports the bare contract; a budget that opts in names the field."""
 
-    assert str(rejected.value) == "MCP arguments do not match the tool schema."
+    quiet = ToolBudget(label="MCP")
+    loud = ToolBudget(label="MCP", detail_in_errors=True)
+
+    with pytest.raises(ValueError) as silent:
+        quiet.check_call(_spec(), {"query": "far too long"})
+    with pytest.raises(ValueError) as spoken:
+        loud.check_call(_spec(), {"query": "far too long"})
+
+    assert str(silent.value) == "MCP arguments do not match the tool schema."
+    assert "query: " in str(spoken.value)
+
+
+def test_a_long_detail_is_truncated_rather_than_forwarded_whole() -> None:
+    budget = ToolBudget(label="MCP", detail_in_errors=True)
+    wide = _spec(
+        input_schema={
+            "type": "object",
+            "properties": {"query": {"type": "string", "enum": ["option-" * 40] * 20}},
+        }
+    )
+
+    with pytest.raises(ValueError) as rejected:
+        budget.check_call(wide, {"query": "nope"})
+
+    assert str(rejected.value).endswith("...")
+    assert len(str(rejected.value)) < 400
 
 
 def test_results_are_counted_from_whichever_list_a_tool_returns() -> None:

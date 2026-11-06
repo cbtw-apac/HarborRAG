@@ -22,6 +22,7 @@ def test_the_mcp_policy_cannot_drift_from_the_shared_ceilings() -> None:
     assert isinstance(policy, ToolBudget)
     assert policy.max_results == MAX_TOOL_RESULTS
     assert policy.label == "MCP"
+    assert policy.detail_in_errors is True
 
 
 def test_the_configured_ceiling_matches_the_advertised_schema_maximum() -> None:
