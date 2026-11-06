@@ -46,10 +46,7 @@ connector_registry.register_provider(
         ConfluenceConnector,
         aliases=("confluence_cloud", "confluence_datacenter"),
         config_factory=ConfluenceSpaceConfig,
-        constructor_dependencies={
-            "parser": "attachment_parser",
-            "rate_limiter": "rate_limiter",
-        },
+        constructor_dependencies={"rate_limiter": "rate_limiter"},
         document_kind="page",
         document_transform_factory=ConfluenceDocumentTransform,
     )
@@ -69,10 +66,7 @@ connector_registry.register_provider(
         JiraConnector,
         aliases=("jira_cloud", "jira_datacenter"),
         config_factory=JiraProjectConfig,
-        constructor_dependencies={
-            "parser": "attachment_parser",
-            "rate_limiter": "rate_limiter",
-        },
+        constructor_dependencies={"rate_limiter": "rate_limiter"},
         document_kind="issue",
         document_transform_factory=JiraDocumentTransform,
     )
@@ -98,3 +92,29 @@ connector_registry.register_provider(
         document_kind="file",
     )
 )
+
+__all__ = [
+    "ConfluenceConnector",
+    "ConfluenceDeploymentType",
+    "ConfluenceDocumentTransform",
+    "ConfluenceSpaceConfig",
+    "ConnectorCapabilities",
+    "ConnectorDocumentDescriptor",
+    "ConnectorMetadata",
+    "ConnectorProviderDefinition",
+    "ConnectorQuery",
+    "ConnectorSkip",
+    "GitHubConnector",
+    "GitHubRepositoryConfig",
+    "HarborConnector",
+    "JiraConnector",
+    "JiraDeploymentType",
+    "JiraDocumentTransform",
+    "JiraProjectConfig",
+    "LocalDocumentTransform",
+    "LocalFileConfig",
+    "LocalFileConnector",
+    "SharePointConnector",
+    "SharePointSiteConfig",
+    "connector_registry",
+]

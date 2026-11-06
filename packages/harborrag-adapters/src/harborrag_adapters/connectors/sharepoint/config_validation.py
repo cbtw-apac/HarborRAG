@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from functools import cache
 from urllib.parse import urlparse
 
 from .drive_paths import normalize_drive_path
@@ -35,24 +34,14 @@ def validate_drive_path(name: str, value: str | None) -> str | None:
     return normalize_drive_path(text) or None
 
 
-@cache
-def supported_extensions() -> frozenset[str]:
-    """Return every file extension the default parser families can read."""
-    from harborrag_adapters.parsers.factory import HarborParserFactory
-
-    registry = HarborParserFactory().create_registry()
-    return frozenset(
-        extension.lower() for parser in registry.families() for extension in parser.extensions
-    )
-
-
 def validate_extensions(allowed: set[str]) -> None:
-    """Reject an empty allowlist and extensions no parser can extract."""
+    """Reject an empty allowlist.
+
+    Whether a parser can read each extension is checked where connections are
+    built, against the configured parsers (``harborrag_runtime``).
+    """
     if not allowed:
         raise ValueError("allowed_extensions must list at least one extension")
-    unknown = sorted(allowed - supported_extensions())
-    if unknown:
-        raise ValueError(f"allowed_extensions has unsupported extensions: {', '.join(unknown)}")
 
 
 def validate_scope(

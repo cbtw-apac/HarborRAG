@@ -248,6 +248,13 @@ def test_each_auth_method_publishes_its_own_hints_and_its_method() -> None:
             "config",
             "set site_url, site_id, or hostname and site_path",
         ),
+        (
+            "sharepoint",
+            {"method": "pat", "access_token": "t"},
+            {"site_id": "s1", "allowed_extensions": ["docx", ".EXE"]},
+            "config",
+            "unsupported extensions: .exe",
+        ),
     ],
 )
 def test_schemas_refuse_what_the_connector_would_refuse(
@@ -258,6 +265,17 @@ def test_schemas_refuse_what_the_connector_would_refuse(
 
     assert caught.value.issues[0].field == field
     assert issue in caught.value.issues[0].issue
+
+
+@pytest.mark.unit
+def test_jira_drops_a_removed_setting_instead_of_rejecting_it() -> None:
+    validated = validate(
+        "jira",
+        {"base_url": "https://acme.atlassian.net", "email": "a@b.c", "api_token": "t"},
+        {"project_keys": ["ENG"], "include_attachment_text_in_content": True},
+    )
+
+    assert dict(validated.config) == {"project_keys": ["ENG"]}
 
 
 def test_jira_accepts_the_spec_example_body() -> None:

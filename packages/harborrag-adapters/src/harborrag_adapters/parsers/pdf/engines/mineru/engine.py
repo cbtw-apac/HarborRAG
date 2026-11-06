@@ -12,7 +12,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Any, ClassVar
 
-from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_adapters.parsers.errors import ParseError
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_adapters.parsers.pdf.engines.mineru.config import MinerUPDFConfig

@@ -158,7 +158,7 @@ def build_connector(
     Args:
         snapshot: The run's connection snapshot.
         secret_values: Plaintext for each credential field held as a reference.
-        parser: Attachment parser; connectors that accept one run without it otherwise.
+        parser: Parser registry that ``allowed_extensions`` are checked against.
         rate_limiter: Shared limiter for connectors that use one.
 
     Returns:
@@ -196,6 +196,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     The connection test uses this for form values that were never saved.
     """
     spec = source_types.get(source_type)
+    config = spec.without_removed_fields(config)
     refused = spec.policy_issues(config)
     if refused:
         raise ConnectorConfigurationError(
@@ -212,10 +213,7 @@ def build_connector_from_parts(  # noqa: PLR0913 - the parts of one connection
     )
     if parser is not None:
         _require_parseable_extensions(spec.source_type, config, parser)
-    available: dict[str, object | None] = {
-        "attachment_parser": parser,
-        "rate_limiter": rate_limiter,
-    }
+    available: dict[str, object | None] = {"rate_limiter": rate_limiter}
     definition = connector_registry.get_definition(spec.provider)
     kwargs = {
         argument: available[dependency]

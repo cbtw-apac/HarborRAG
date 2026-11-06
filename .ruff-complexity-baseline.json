@@ -7,9 +7,6 @@
       "C901": 1,
       "PLR0913": 1
     },
-    "packages/harborrag-adapters/src/harborrag_adapters/connectors/attachments/processing.py": {
-      "PLR0913": 1
-    },
     "packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/query.py": {
       "PLR0913": 1
     },

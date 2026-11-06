@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_adapters.chunking.languages import guess_language
-from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import (
     read_parse_input_bytes,
     read_parse_input_text,

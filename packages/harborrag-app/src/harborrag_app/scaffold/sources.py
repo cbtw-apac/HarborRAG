@@ -116,7 +116,6 @@ _JIRA_BLOCK = """\
       include_comments: true
       include_attachments: false
       include_changelog: false
-      include_attachment_text_in_content: true
       max_attachment_size_bytes: 26214400
       max_comments: 1000
       max_attachments: 1000

@@ -7,9 +7,12 @@ lives in ``token_cache_path``, and ``pat`` is a pre-issued Graph token.
 
 from __future__ import annotations
 
+from functools import cache
 from typing import Self
 
 from pydantic import ConfigDict, Field, model_validator
+
+from harborrag_adapters.connectors.file_filters import normalize_extension
 
 from .common import PagedHttpTuning
 from .fields import HttpsUrl, Secret, StrictModel, widget
@@ -125,6 +128,26 @@ class SharePointConfig(StrictModel):
         if not (self.site_url or self.site_id or (self.hostname and self.site_path)):
             raise ValueError("set site_url, site_id, or hostname and site_path")
         return self
+
+    @model_validator(mode="after")
+    def _parseable_extensions(self) -> Self:
+        """Refuse an ``allowed_extensions`` entry no default parser family can read."""
+        allowed = {normalize_extension(value) for value in self.allowed_extensions or ()}
+        unknown = sorted(allowed - _parseable_extensions())
+        if unknown:
+            raise ValueError(f"allowed_extensions has unsupported extensions: {', '.join(unknown)}")
+        return self
+
+
+@cache
+def _parseable_extensions() -> frozenset[str]:
+    """Every file extension the default parser families can read."""
+    from harborrag_adapters.parsers.factory import HarborParserFactory
+
+    registry = HarborParserFactory().create_registry()
+    return frozenset(
+        extension.lower() for parser in registry.families() for extension in parser.extensions
+    )
 
 
 SHAREPOINT = SourceTypeSpec(

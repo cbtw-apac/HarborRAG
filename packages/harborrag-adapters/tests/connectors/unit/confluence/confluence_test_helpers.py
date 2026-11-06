@@ -1,11 +1,10 @@
-"""Shared fake client, parser, and fixture builders for Confluence connector tests."""
+"""Shared fake client and fixture builders for Confluence connector tests."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from harborrag_adapters.connectors.confluence import ConfluenceSpaceConfig
-from harborrag_core.domain.parser import ParsedDocument
 
 CLOUD_BASE = "https://example.atlassian.net/wiki"
 DC_BASE = "https://confluence.example.com"
@@ -36,14 +35,6 @@ class FakeConfluenceClient:
     def download_bytes(self, url: str, *, max_bytes: int | None = None) -> bytes | None:
         del max_bytes
         return self.downloads.get(url)
-
-
-class FakeAttachmentParser:
-    def parse(self, parse_input) -> ParsedDocument:
-        return ParsedDocument(
-            content=f"parsed:{parse_input.filename}",
-            parser_name="fake",
-        )
 
 
 def cloud_config(**overrides: Any) -> ConfluenceSpaceConfig:

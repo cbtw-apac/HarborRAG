@@ -78,9 +78,6 @@ class JiraConfig(StrictModel):
     include_comments: bool = Field(default=True, description="Index issue comments")
     include_attachments: bool = Field(default=False, description="Download and parse attachments")
     include_changelog: bool = Field(default=False, description="Index the issue changelog")
-    include_attachment_text_in_content: bool = Field(
-        default=True, description="Inline parsed attachment text in the issue document"
-    )
     include_all_fields: bool = Field(default=True, description="Fetch every issue field")
     fields: list[str] | None = Field(
         default=None, description="Issue fields to fetch when include_all_fields is false"
@@ -165,6 +162,8 @@ JIRA = SourceTypeSpec(
     endpoints=frozenset({"base_url"}),
     query_fields=frozenset({"jql"}),
     aliases=("jira_cloud", "jira_datacenter"),
+    # Removed in 2.0.0: attachments are always their own documents.
+    removed_config_fields=frozenset({"include_attachment_text_in_content"}),
     setups=_setups("Jira", "https://acme.atlassian.net", "https://jira.acme.internal"),
 )
 

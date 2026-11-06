@@ -13,7 +13,7 @@ from harborrag_runtime.config import ConnectorConfigurationError
 from .catalogs import build_connector, connector_catalog, connector_definition, parser_catalog
 from .environment import env, load_env
 from .metadata_rendering import format_metadata_value, render_metadata_section
-from .ocr_parser import RapidOcrImageParser, attachment_custom_parsers, build_harbor_parser
+from .ocr_parser import RapidOcrImageParser, build_harbor_parser
 from .output import (
     SUPPORTED_OUTPUT_FORMATS,
     output_path_for,
@@ -23,7 +23,7 @@ from .output import (
 )
 from .paths import CONFIG_DIR, DEFAULT_OUTPUT_DIR, REPO_ROOT
 from .previews import (
-    attachments_passed,
+    attachments_loaded,
     print_attachments,
     print_document,
     print_failure,
@@ -37,8 +37,7 @@ __all__ = [
     "SUPPORTED_OUTPUT_FORMATS",
     "ConnectorConfigurationError",
     "RapidOcrImageParser",
-    "attachment_custom_parsers",
-    "attachments_passed",
+    "attachments_loaded",
     "build_connector",
     "build_harbor_parser",
     "connector_catalog",

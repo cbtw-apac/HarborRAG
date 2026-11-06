@@ -87,7 +87,6 @@ def test_default_extensions_are_the_shared_document_and_image_set():
         ({"max_file_size_bytes": 0}, "greater than 0"),
         ({"max_file_size_bytes": -1}, "greater than or equal to 0"),
         ({"allowed_extensions": set()}, "at least one extension"),
-        ({"allowed_extensions": {".docx", ".exe"}}, "unsupported extensions: .exe"),
         ({"root_path": "Docs/../Secrets"}, "'..' segments"),
         ({"root_path": "Docs\\Secrets"}, "'/'-separated"),
         ({"site_url": "http://contoso.sharepoint.com/sites/x"}, "https://"),

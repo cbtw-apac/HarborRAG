@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.policies.http import (
 )
 from harborrag_core.security.redaction import redact_secrets
 
-from .processing import (
+from .classification import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
     attachment_extension,
     classify_attachment,
@@ -115,7 +115,7 @@ class AttachmentSourceGateway:
                 media_type=self._media_type(attachment),
                 size_bytes=0,
                 download_url="",
-                source_version=self._version(attachment),
+                source_version=self._failed_version(attachment),
                 status="failed",
                 reason=safe_reason,
             )
@@ -235,6 +235,19 @@ class AttachmentSourceGateway:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
+
+    @classmethod
+    def _failed_version(cls, attachment: Mapping[str, Any]) -> str:
+        """``_version``, or a hash of id and title when a field it reads is malformed.
+
+        A rejected attachment must stay a ``failed`` descriptor of its own, not
+        fail every attachment of its issue or page.
+        """
+        try:
+            return cls._version(attachment)
+        except (TypeError, ValueError):
+            identity = f"{attachment.get('id')}:{cls._title(attachment)}"
+            return hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _nested(

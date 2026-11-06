@@ -7,7 +7,6 @@ import logging
 import pytest
 from confluence_test_helpers import (
     CLOUD_BASE,
-    FakeAttachmentParser,
     FakeConfluenceClient,
     cloud_config,
     full_content,
@@ -21,7 +20,7 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
-def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
+def test_load_builds_raw_document_metadata_and_comments_without_attachment_text(caplog):
     client = FakeConfluenceClient()
     client.add("content/1", full_content())
     client.add(
@@ -36,25 +35,9 @@ def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
             ]
         },
     )
-    client.add(
-        "content/1/child/attachment",
-        {
-            "results": [
-                {
-                    "id": "a1",
-                    "title": "notes.md",
-                    "metadata": {"mediaType": "text/markdown"},
-                    "extensions": {"fileSize": 12},
-                    "_links": {"download": "/download/a1"},
-                }
-            ]
-        },
-    )
-    client.downloads[f"{CLOUD_BASE}/download/a1"] = b"# Notes"
     connector = ConfluenceConnector(
         cloud_config(include_comments=True, include_attachments=True),
         client=client,
-        parser=FakeAttachmentParser(),
     )
 
     with caplog.at_level(logging.INFO, logger="harborrag.adapters.connectors.confluence"):
@@ -72,52 +55,12 @@ def test_load_builds_raw_document_metadata_comments_and_attachments(caplog):
     assert document.metadata["breadcrumb"] == ["Root"]
     assert document.metadata["children"] == [{"id": "9", "title": "Child", "type": "page"}]
     assert document.metadata["comments"][0]["author"] == "Carol"
-    processed_attachments = [
-        attachment
-        for attachment in document.metadata["attachments"]
-        if attachment["status"] == "processed"
-    ]
-    assert len(processed_attachments) == 1
-    assert document.metadata["attachments"][0]["text"] == "parsed:notes.md"
+    assert document.metadata["attachments"] == []
     assert "attachments_summary" not in document.metadata
     assert "breadcrumb_text" not in document.metadata
     assert "canonical_url" not in document.metadata
     assert "display_url" not in document.metadata
-    assert "Confluence content loaded content_id=1 comments=1 attachments=1" in caplog.text
-
-
-def test_load_skips_cross_origin_attachment_download_urls():
-    client = FakeConfluenceClient()
-    client.add("content/1", full_content())
-    client.add(
-        "content/1/child/attachment",
-        {
-            "results": [
-                {
-                    "id": "a1",
-                    "title": "notes.md",
-                    "metadata": {"mediaType": "text/markdown"},
-                    "extensions": {"fileSize": 12},
-                    "_links": {"download": "https://evil.example/notes.md"},
-                }
-            ]
-        },
-    )
-    connector = ConfluenceConnector(
-        cloud_config(include_attachments=True),
-        client=client,
-        parser=FakeAttachmentParser(),
-    )
-
-    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
-
-    skipped_attachments = [
-        attachment
-        for attachment in document.metadata["attachments"]
-        if attachment["status"] == "skipped"
-    ]
-    assert len(skipped_attachments) == 1
-    assert "outside trusted origin" in document.metadata["attachments"][0]["reason"]
+    assert "Confluence content loaded content_id=1 comments=1" in caplog.text
 
 
 def test_load_truncates_comments_over_configured_limit():
@@ -140,29 +83,6 @@ def test_load_truncates_comments_over_configured_limit():
     document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
 
     assert [comment["id"] for comment in document.metadata["comments"]] == ["c1"]
-
-
-def test_load_truncates_attachments_over_configured_limit():
-    client = FakeConfluenceClient()
-    client.add("content/1", full_content())
-    client.add(
-        "content/1/child/attachment",
-        {
-            "results": [
-                {"id": "a1", "title": "one.md"},
-                {"id": "a2", "title": "two.md"},
-            ]
-        },
-    )
-    connector = ConfluenceConnector(
-        cloud_config(include_attachments=True, max_attachments=1),
-        client=client,
-        parser=FakeAttachmentParser(),
-    )
-
-    document = connector.load(SourceRecord("confluence://ENG/1", "text/html", "1"))
-
-    assert len(document.metadata["attachments"]) == 1
 
 
 def test_load_keeps_every_child_in_children_metadata():
@@ -221,7 +141,6 @@ def test_load_respects_record_comment_and_attachment_flags():
     connector = ConfluenceConnector(
         cloud_config(include_comments=True, include_attachments=True),
         client=client,
-        parser=FakeAttachmentParser(),
     )
     record = SourceRecord(
         "confluence://ENG/1",

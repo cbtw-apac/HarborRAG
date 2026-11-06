@@ -14,7 +14,6 @@ from .catalogs import parser_catalog
 from .ocr_server import apply_host_ocr_server_url
 
 if TYPE_CHECKING:
-    from harborrag_adapters.connectors.attachments.processing import CustomAttachmentParser
     from harborrag_adapters.parsers import HarborParserRegistry
     from harborrag_runtime.config import ParserCatalog
 
@@ -131,16 +130,6 @@ def _print_engine_selection(
         ]
         if engines:
             print(f"[parsers] {family.parser_name} engines={', '.join(engines)}")
-
-
-def attachment_custom_parsers() -> dict[Any, CustomAttachmentParser]:
-    """Take no attachment type away from the configured parser registry.
-
-    Image attachments used to be diverted to RapidOCR here. The catalog now
-    configures the image family itself, so leaving this empty lets every
-    attachment route through the same engines `config/parsers.yaml` selects.
-    """
-    return {}
 
 
 _RAPID_OCR_ENGINE: Any | None = None

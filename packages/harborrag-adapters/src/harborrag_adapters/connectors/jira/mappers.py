@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import Any
 from urllib.parse import urljoin
 
-from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_core.domain.source import SourceRecord
 
 from .content import custom_field_metadata, field_text
@@ -99,7 +98,6 @@ def build_document_metadata(
     *,
     content: str,
     comments: list[dict[str, Any]] | None = None,
-    attachments: list[AttachmentMetadata] | None = None,
     changelog: list[dict[str, Any]] | None = None,
 ) -> JiraMetadata:
     """Build parsed provenance metadata for a loaded JIRA issue."""
@@ -134,7 +132,6 @@ def build_document_metadata(
         subtasks=[_issue_ref(item) for item in fields.get("subtasks") or []],
         issue_links=[_issue_link(link) for link in fields.get("issuelinks") or []],
         comments=[_comment_metadata(comment) for comment in comments or []],
-        attachments=attachments or [],
         changelog=[_changelog_metadata(history) for history in changelog or []],
         custom_fields=custom_field_metadata(issue),
     )

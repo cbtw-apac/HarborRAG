@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_adapters.parsers.common.normalization import (
+from harborrag_adapters._shared.text.normalization import (
     compact_text,
     html_to_text_with_engine,
 )

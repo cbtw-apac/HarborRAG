@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
-from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.validation import guard_input_size
 from harborrag_adapters.parsers.errors import (

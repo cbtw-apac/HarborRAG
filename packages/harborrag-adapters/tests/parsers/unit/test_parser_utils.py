@@ -8,7 +8,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 def test_html_to_text_bytes_and_entities() -> None:
-    from harborrag_adapters.parsers.common.normalization import html_to_text
+    from harborrag_adapters._shared.text.normalization import html_to_text
 
     out = html_to_text(b"<p>Hello&amp;bye</p><script>x()</script>")
     assert "Hello&bye" in out
@@ -19,7 +19,7 @@ def test_html_to_text_excludes_head_title() -> None:
     """`<title>` lives in `<head>`; `get_text()` would otherwise include it
     ahead of the body, duplicating a differently-worded page/document title
     that also appears as a heading in the body (seen via the EPUB engine)."""
-    from harborrag_adapters.parsers.common.normalization import html_to_text
+    from harborrag_adapters._shared.text.normalization import html_to_text
 
     out = html_to_text(
         "<html><head><title>Page Title</title><meta charset='utf-8'></head>"
@@ -34,7 +34,7 @@ def test_fallback_html_parser_used_when_bs4_absent(monkeypatch) -> None:
     import builtins
     from typing import Any
 
-    from harborrag_adapters.parsers.common import normalization as text_extraction
+    from harborrag_adapters._shared.text import normalization as text_extraction
 
     real_import = builtins.__import__
     fallback_closed = False
@@ -75,7 +75,7 @@ def test_fallback_html_parser_excludes_head_title(monkeypatch) -> None:
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
-    from harborrag_adapters.parsers.common.normalization import html_to_text_with_engine
+    from harborrag_adapters._shared.text.normalization import html_to_text_with_engine
 
     text, engine = html_to_text_with_engine(
         "<html><head><title>Page Title</title></head><body><h1>Body Heading</h1></body></html>"

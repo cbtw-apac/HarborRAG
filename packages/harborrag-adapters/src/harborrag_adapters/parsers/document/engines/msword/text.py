@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_adapters._shared.text.normalization import compact_text
 
 FIELD_BEGIN = "\x13"
 FIELD_SEPARATOR = "\x14"

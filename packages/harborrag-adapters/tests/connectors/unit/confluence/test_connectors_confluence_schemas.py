@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.connectors.confluence.schemas import (
     ConfluenceCommentMetadata,
     ConfluenceMetadata,
@@ -72,17 +71,6 @@ def test_to_dict_is_json_serializable_with_nested_dataclasses():
                 body="hi",
                 author="Bob",
                 created_at=datetime(2024, 2, 1, tzinfo=UTC),
-            )
-        ],
-        attachments=[
-            AttachmentMetadata(
-                id="a1",
-                title="notes.md",
-                media_type="text/markdown",
-                size_bytes=10,
-                download_url="https://example.com/a1",
-                status="processed",
-                text="hello",
             )
         ],
     ).to_dict()

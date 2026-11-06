@@ -18,12 +18,12 @@ import re
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, TypeGuard
 
-from harborrag_adapters.parsers.common.markdown_tables import (
+from harborrag_adapters._shared.text.markdown_tables import (
     TableCell,
     markdown_table,
     positive_span,
 )
-from harborrag_adapters.parsers.common.normalization import html_to_text_with_engine
+from harborrag_adapters._shared.text.normalization import html_to_text_with_engine
 
 if TYPE_CHECKING:
     from bs4 import BeautifulSoup, Tag

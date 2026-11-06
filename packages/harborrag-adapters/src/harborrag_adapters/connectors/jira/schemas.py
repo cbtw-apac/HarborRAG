@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, ClassVar
 
-from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
 from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
@@ -133,6 +132,8 @@ class JiraMetadata(ConnectorMetadata):
     subtasks: list[JiraIssueReference]
     issue_links: list[JiraIssueLinkMetadata]
     comments: list[JiraCommentMetadata]
-    attachments: list[AttachmentMetadata]
+    # Always empty: attachments are their own documents. The key stays until the
+    # canonical-output change, because it is part of the retrieval metadata hash.
+    attachments: list[Any] = field(default_factory=list)
     changelog: list[JiraChangelogMetadata]
     custom_fields: list[JiraCustomFieldMetadata]

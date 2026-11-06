@@ -5,7 +5,7 @@ import zipfile
 from collections.abc import Callable
 from typing import Any, ClassVar
 
-from harborrag_adapters.parsers.common.normalization import html_to_text
+from harborrag_adapters._shared.text.normalization import html_to_text
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,

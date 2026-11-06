@@ -25,6 +25,7 @@ from harborrag_runtime.ingestion.connections import (
     ConnectionUnavailableError,
     ConnectorPool,
     build_connector,
+    build_connector_from_parts,
 )
 from runtime_ingestion.connection_support import connection_row
 
@@ -229,6 +230,26 @@ def test_build_connector_rejects_extensions_no_parser_can_read(tmp_path: Path) -
 
     message = str(raised.value)
     assert ".rtf" in message and ".xyz" in message and ".md" not in message
+
+
+@pytest.mark.unit
+def test_a_stored_jira_connection_with_a_removed_setting_still_builds(caplog) -> None:
+    # Installs that imported the 2.0.0a2 connectors.yaml stored this key.
+    connector = build_connector_from_parts(
+        "jira",
+        tenant_id="tenant-1",
+        credentials={
+            "base_url": "https://acme.atlassian.net",
+            "email": "user@example.com",
+            "api_token": "secret",
+        },
+        config={"project_keys": ["ENG"], "include_attachment_text_in_content": True},
+        tuning={},
+        secret_values={},
+    )
+
+    assert connector.provider.config.project_keys == ["ENG"]
+    assert "include_attachment_text_in_content" in caplog.text
 
 
 @pytest.mark.asyncio

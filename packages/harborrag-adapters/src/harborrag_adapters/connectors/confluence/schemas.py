@@ -2,12 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, ClassVar
 
-from harborrag_adapters.connectors.attachments.processing import (
-    AttachmentMetadata,
-)
 from harborrag_adapters.connectors.schemas import ConnectorMetadata
 
 
@@ -57,7 +54,9 @@ class ConfluenceMetadata(ConnectorMetadata):
     author: str | None
     labels: list[str]
     comments: list[ConfluenceCommentMetadata]
-    attachments: list[AttachmentMetadata]
+    # Always empty: attachments are their own documents. The key stays until the
+    # canonical-output change, because it is part of the retrieval metadata hash.
+    attachments: list[Any] = field(default_factory=list)
     ancestors: list[ConfluencePageReference]
     children: list[ConfluencePageReference]
     depth: int

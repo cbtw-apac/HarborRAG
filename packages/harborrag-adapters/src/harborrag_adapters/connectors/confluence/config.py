@@ -6,10 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
 
-from harborrag_adapters.connectors.attachments.processing import (
+from harborrag_adapters.connectors.attachments.classification import (
     DEFAULT_MAX_ATTACHMENT_SIZE_BYTES,
-    CustomAttachmentParser,
-    FileType,
 )
 from harborrag_adapters.connectors.policies.validation import (
     DEFAULT_MAX_NESTED_ITEMS,
@@ -51,7 +49,6 @@ class ConfluenceSpaceConfig:
     exclude_labels: list[str] = field(default_factory=list)
     include_comments: bool = False
     include_attachments: bool = False
-    custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
     process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
     allowed_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS))

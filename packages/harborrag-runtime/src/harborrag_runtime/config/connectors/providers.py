@@ -9,9 +9,7 @@ from harborrag_adapters.connectors.exceptions import ConnectorNotFoundError
 
 type ConnectorConfigFactory = Callable[..., object]
 
-PYTHON_ONLY_CONFIG_FIELDS = frozenset(
-    {"custom_parsers", "process_attachment_callback", "process_file_callback"}
-)
+PYTHON_ONLY_CONFIG_FIELDS = frozenset({"process_attachment_callback", "process_file_callback"})
 
 
 def canonical_provider_name(provider: str) -> str:

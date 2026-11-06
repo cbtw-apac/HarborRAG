@@ -69,7 +69,7 @@ def test_resolves_non_secret_settings_from_environment(tmp_path: Path) -> None:
     assert connector.provider.config.repo == "docs"
 
 
-def test_build_passes_runtime_parser_to_attachment_connector(tmp_path: Path) -> None:
+def test_build_passes_connector_kwargs_to_the_provider(tmp_path: Path) -> None:
     config_path = write_config(
         tmp_path,
         """
@@ -85,7 +85,7 @@ def test_build_passes_runtime_parser_to_attachment_connector(tmp_path: Path) -> 
               token_env: TEST_JIRA_TOKEN
         """,
     )
-    parser = object()
+    rate_limiter = object()
 
     connector = load_connector_catalog(config_path).build(
         "jira",
@@ -95,10 +95,10 @@ def test_build_passes_runtime_parser_to_attachment_connector(tmp_path: Path) -> 
             "TEST_JIRA_PROJECT_KEY": "ENG",
             "TEST_JIRA_TOKEN": "secret",
         },
-        connector_kwargs={"parser": parser},
+        connector_kwargs={"rate_limiter": rate_limiter},
     )
 
-    assert connector.provider._attachments.parser is parser
+    assert connector.provider.client._rate_limiter is rate_limiter
     assert connector.provider.config.project_keys == ["ENG"]
 
 

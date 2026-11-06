@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, ClassVar
 
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_adapters.parsers.common.legacy_office import (
     BINARY_DECODE_ERRORS,
     ContainerKind,
@@ -13,7 +14,6 @@ from harborrag_adapters.parsers.common.legacy_office import (
     read_ole_stream,
     sniff_container,
 )
-from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,

@@ -1,8 +1,9 @@
 """Unit tests for the config-driven attachment pass gate in the smoke scripts.
 
-`confluence.py`/`jira.py` skip their "load with attachments" pass entirely
-when `include_attachments` is `false` in the connector's catalog settings,
-and otherwise run it and propagate any attachment failure. These tests cover
+`confluence.py`/`jira.py` skip their attachment pass entirely when
+`include_attachments` is `false` in the connector's catalog settings, and
+otherwise load and parse each attachment as its own document and propagate any
+failure. These tests cover
 both branches without touching real connectors, parsers, or the network.
 """
 
@@ -14,6 +15,7 @@ import confluence
 import jira
 import pytest
 
+from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -21,26 +23,37 @@ pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
 
 class _FakeConnector:
-    """Stand-in for `HarborConnector` returning one canned record and document."""
+    """Stand-in for `HarborConnector`: one record, bound to the given attachments."""
 
-    def __init__(self, document: RawDocument) -> None:
-        self._document = document
+    def __init__(self, attachments: tuple[SourceRecord, ...] = ()) -> None:
+        self._attachments = attachments
 
     def discover(self, query):  # noqa: ARG002 - query is unused by the fake
         return [SourceRecord(id="fake://1", source_type="text/html", locator="1")]
 
-    def load(self, record):  # noqa: ARG002 - record is unused by the fake
-        return self._document
+    def describe(self, record):  # noqa: ARG002 - record is unused by the fake
+        return SimpleNamespace(bound_records=self._attachments)
+
+    def load(self, record):
+        return RawDocument(
+            id=record.id,
+            source="https://example.invalid/1",
+            content="body",
+            content_type="text/html",
+        )
 
 
-def _document(*, attachments: list[dict] | None = None) -> RawDocument:
-    return RawDocument(
-        id="fake://1",
-        source="https://example.invalid/1",
-        content="body",
-        content_type="text/html",
-        metadata={"attachments": attachments} if attachments is not None else {},
-    )
+class _FakeParser:
+    def __init__(self, *, fail: bool = False) -> None:
+        self._fail = fail
+
+    def parse(self, raw):
+        if self._fail:
+            raise ValueError("boom")
+        return ParsedDocument(content=f"parsed:{raw.id}", parser_name="fake")
+
+
+_ATTACHMENT = SourceRecord(id="fake://1/attachments/a1", source_type="text/plain", locator="a1")
 
 
 def _definition(provider: str, *, include_attachments: bool) -> SimpleNamespace:
@@ -66,10 +79,10 @@ def test_skips_attachment_pass_when_disabled_in_config(monkeypatch, module, prov
     build_calls: list[bool] = []
 
     def fake_build_connector(  # noqa: ARG001
-        name, *, include_attachments, parser=None, expected_provider=None
+        name, *, include_attachments, expected_provider=None
     ):
         build_calls.append(include_attachments)
-        return _FakeConnector(_document())
+        return _FakeConnector()
 
     monkeypatch.setattr(module, "build_connector", fake_build_connector)
     monkeypatch.setattr(
@@ -96,16 +109,14 @@ def test_runs_attachment_pass_and_reports_success_when_enabled(
             include_attachments=True,
         ),
     )
-    monkeypatch.setattr(module, "build_harbor_parser", lambda: object())
+    monkeypatch.setattr(module, "build_harbor_parser", _FakeParser)
 
-    without_attachments = _FakeConnector(_document())
-    with_attachments = _FakeConnector(
-        _document(attachments=[{"title": "a.txt", "status": "processed", "text": "hi"}])
-    )
+    without_attachments = _FakeConnector()
+    with_attachments = _FakeConnector((_ATTACHMENT,))
     build_calls: list[bool] = []
 
     def fake_build_connector(  # noqa: ARG001
-        name, *, include_attachments, parser=None, expected_provider=None
+        name, *, include_attachments, expected_provider=None
     ):
         build_calls.append(include_attachments)
         return with_attachments if include_attachments else without_attachments
@@ -128,15 +139,13 @@ def test_propagates_attachment_failure_when_enabled(monkeypatch, module, provide
             include_attachments=True,
         ),
     )
-    monkeypatch.setattr(module, "build_harbor_parser", lambda: object())
+    monkeypatch.setattr(module, "build_harbor_parser", lambda: _FakeParser(fail=True))
 
-    without_attachments = _FakeConnector(_document())
-    with_attachments = _FakeConnector(
-        _document(attachments=[{"title": "a.pdf", "status": "failed", "reason": "boom"}])
-    )
+    without_attachments = _FakeConnector()
+    with_attachments = _FakeConnector((_ATTACHMENT,))
 
     def fake_build_connector(  # noqa: ARG001
-        name, *, include_attachments, parser=None, expected_provider=None
+        name, *, include_attachments, expected_provider=None
     ):
         return with_attachments if include_attachments else without_attachments
 

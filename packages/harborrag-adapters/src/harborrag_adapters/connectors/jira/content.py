@@ -7,10 +7,9 @@ import re
 import unicodedata
 from typing import Any
 
-from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
-from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
-from harborrag_adapters.parsers.common.markdown_tables import TableCell, markdown_table
-from harborrag_adapters.parsers.common.normalization import compact_text
+from harborrag_adapters._shared.text.html_markdown import html_to_markdown
+from harborrag_adapters._shared.text.markdown_tables import TableCell, markdown_table
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_core.ingestion import is_runtime_field
 
 from .schemas import (
@@ -38,10 +37,8 @@ def build_raw_content(
     issue: dict[str, Any],
     *,
     comments: list[dict[str, Any]] | None = None,
-    attachments: list[AttachmentMetadata] | None = None,
-    include_attachment_text: bool = True,
 ) -> str:
-    """Render a JIRA issue and optional child data as readable plain text."""
+    """Render a JIRA issue and its comments as readable plain text."""
     fields = issue.get("fields", {})
     lines = [
         f"# {issue.get('key')} {fields.get('summary') or ''}".strip(),
@@ -68,18 +65,6 @@ def build_raw_content(
             author = _display_name(comment.get("author") or {})
             body = field_text(comment.get("body") or comment.get("renderedBody"))
             lines.append(labelled_block(author, body))
-
-    processed = [item for item in attachments or [] if item.text]
-    if processed and include_attachment_text:
-        lines.extend(["", "## Attachments"])
-        for attachment in processed:
-            # Carry the upload time into the rendered text, not just structured
-            # metadata, so retrieval over an attachment's own content can still
-            # answer when the file was attached.
-            heading = f"### {attachment.title}"
-            if attachment.created_at:
-                heading = f"{heading} (attached {attachment.created_at})"
-            lines.extend((heading, attachment.text or ""))
 
     return compact_text("\n".join(lines))
 

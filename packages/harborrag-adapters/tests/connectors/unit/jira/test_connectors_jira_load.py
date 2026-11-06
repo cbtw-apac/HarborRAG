@@ -8,7 +8,6 @@ import logging
 import pytest
 from jira_test_helpers import (
     CLOUD_BASE,
-    FakeAttachmentParser,
     FakeJiraClient,
     cloud_config,
     issue,
@@ -21,7 +20,7 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
-def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
+def test_load_builds_raw_document_comments_and_changelog_without_attachment_text(caplog):
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue())
     client.add_get(
@@ -60,11 +59,9 @@ def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
             ],
         },
     )
-    client.downloads[f"{CLOUD_BASE}/secure/attachment/a1/notes.md"] = b"# Notes"
     connector = JiraConnector(
         cloud_config(include_attachments=True, include_changelog=True),
         client=client,
-        parser=FakeAttachmentParser(),
     )
 
     with caplog.at_level(logging.INFO, logger="harborrag.adapters.connectors.jira"):
@@ -77,7 +74,7 @@ def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
     assert "Impact Area: Platform" in document.content
     assert "Teams: Docs" in document.content
     assert "Bob: Looks good" in document.content
-    assert "parsed:notes.md" in document.content
+    assert "notes.md" not in document.content
     assert document.source == f"{CLOUD_BASE}/browse/ENG-1"
     assert document.metadata["source_system"] == "jira"
     assert document.metadata["metadata_schema_version"] == 1
@@ -89,12 +86,7 @@ def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
     assert document.metadata["custom_fields"][0]["name"] == "Impact Area"
     assert document.metadata["custom_fields"][0]["text"] == "Platform"
     assert document.metadata["custom_fields"][1]["text"] == "Docs\nSearch"
-    processed_attachments = [
-        attachment
-        for attachment in document.metadata["attachments"]
-        if attachment["status"] == "processed"
-    ]
-    assert len(processed_attachments) == 1
+    assert document.metadata["attachments"] == []
     assert "attachments_summary" not in document.metadata
     assert "url" not in document.metadata
     assert document.metadata["changelog"][0]["items"][0]["field"] == "status"
@@ -106,33 +98,7 @@ def test_load_builds_raw_document_comments_attachments_and_changelog(caplog):
     assert isinstance(document.metadata["comments"][0]["created_at"], str)
     assert isinstance(document.metadata["changelog"][0]["created_at"], str)
     json.dumps(document.metadata)  # datetimes must be JSON-serializable
-    assert (
-        "JIRA issue loaded issue_key=ENG-1 comments=1 attachments=1 changelog_items=1"
-        in caplog.text
-    )
-
-
-def test_load_skips_cross_origin_attachment_download_urls():
-    bad_issue = issue()
-    bad_issue["fields"]["attachment"][0]["content"] = "https://evil.example/notes.md"
-    client = FakeJiraClient()
-    client.add_get("issue/ENG-1", bad_issue)
-    client.add_get("issue/ENG-1/comment", {"startAt": 0, "total": 0, "comments": []})
-    connector = JiraConnector(
-        cloud_config(include_attachments=True),
-        client=client,
-        parser=FakeAttachmentParser(),
-    )
-
-    document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
-
-    skipped_attachments = [
-        attachment
-        for attachment in document.metadata["attachments"]
-        if attachment["status"] == "skipped"
-    ]
-    assert len(skipped_attachments) == 1
-    assert "outside trusted origin" in document.metadata["attachments"][0]["reason"]
+    assert "JIRA issue loaded issue_key=ENG-1 comments=1 changelog_items=1" in caplog.text
 
 
 def test_load_truncates_comments_over_configured_limit():
@@ -159,41 +125,12 @@ def test_load_truncates_comments_over_configured_limit():
     assert [comment["id"] for comment in document.metadata["comments"]] == ["c1"]
 
 
-def test_load_truncates_attachments_over_configured_limit():
-    loaded_issue = issue()
-    loaded_issue["fields"]["attachment"].append(
-        {
-            "id": "a2",
-            "filename": "two.md",
-            "mimeType": "text/markdown",
-            "size": 12,
-            "content": f"{CLOUD_BASE}/secure/attachment/a2/two.md",
-        }
-    )
-    client = FakeJiraClient()
-    client.add_get("issue/ENG-1", loaded_issue)
-    connector = JiraConnector(
-        cloud_config(
-            include_comments=False,
-            include_attachments=True,
-            max_attachments=1,
-        ),
-        client=client,
-        parser=FakeAttachmentParser(),
-    )
-
-    document = connector.load(SourceRecord("jira://ENG/ENG-1", "jira", "ENG-1"))
-
-    assert len(document.metadata["attachments"]) == 1
-
-
 def test_load_does_not_fetch_comments_or_parse_attachments_when_disabled():
     client = FakeJiraClient()
     client.add_get("issue/ENG-1", issue())
     connector = JiraConnector(
         cloud_config(include_comments=True, include_attachments=True),
         client=client,
-        parser=FakeAttachmentParser(),
     )
     record = SourceRecord(
         "jira://ENG/ENG-1",

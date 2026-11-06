@@ -62,7 +62,6 @@ connectors:
       include_comments: true
       include_attachments: true
       include_changelog: false
-      include_attachment_text_in_content: true
       max_attachment_size_bytes: 20971520
       allowed_extensions: [md, markdown, txt, pdf, docx, doc, epub, odt, pptx, csv, xlsx, png, jpg, jpeg, html]
       excluded_extensions: []

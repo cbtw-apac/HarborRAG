@@ -36,11 +36,18 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 
+### Removed
+
+#### harborrag-adapters
+
+- **Breaking:** Jira and Confluence no longer copy attachment text into the issue or page; its setting and the custom attachment parser hooks are gone
+
 ### Fixed
 
 #### harborrag-adapters
 
 - **Breaking:** connectors use only the credentials configured for their source, never the worker's own
+- A Jira or Confluence attachment with a malformed size no longer fails every attachment of its issue or page
 - A per-request cost limit that cannot be enforced stops the model client at startup instead of rejecting every request
 - Repointing an embedding or rerank model no longer serves the previous model's cached results
 - Synchronous LangChain chat calls work more than once on the same client

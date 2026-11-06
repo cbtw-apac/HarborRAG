@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_adapters.parsers.common.html_markdown import html_to_markdown
+from harborrag_adapters._shared.text.html_markdown import html_to_markdown
 
 # Chrome the rendered view adds around real content: status icons and the
 # expand/collapse arrows on macros. They carry no text worth keeping and

@@ -13,7 +13,6 @@ from harborrag_core.domain.source import SourceRecord
 from .config import ConfluenceDeploymentType
 from .query import validate_content_id
 from .schemas import (
-    AttachmentMetadata,
     ConfluenceCommentMetadata,
     ConfluenceHierarchyMetadata,
     ConfluenceMetadata,
@@ -140,7 +139,6 @@ def build_document_metadata(
     content: dict[str, Any],
     *,
     comments: list[dict[str, Any]] | None = None,
-    attachments: list[AttachmentMetadata] | None = None,
 ) -> ConfluenceMetadata:
     """Build parsed provenance metadata for a loaded Confluence page."""
     content_id = str(content.get("id") or "")
@@ -150,7 +148,6 @@ def build_document_metadata(
     version = content.get("version", {})
     history = content.get("history", {})
     body_html = body_html_from_content(content)
-    attachment_values = attachments or []
     comment_values = comments or []
     hierarchy = _hierarchy_metadata(content)
 
@@ -171,7 +168,6 @@ def build_document_metadata(
         author=_author(content),
         labels=labels_from_content(content),
         comments=[_comment_metadata(comment) for comment in comment_values],
-        attachments=attachment_values,
         ancestors=hierarchy.ancestors,
         children=hierarchy.children,
         depth=hierarchy.depth,

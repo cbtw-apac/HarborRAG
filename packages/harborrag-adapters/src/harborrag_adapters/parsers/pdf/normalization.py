@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Iterator
 from typing import Any
 
+from harborrag_adapters._shared.text.normalization import compact_text
 from harborrag_adapters.parsers.common.metadata import parse_metadata
 from harborrag_adapters.parsers.common.models import (
     ParserAttempt,
     ParseResult,
     document_attempts,
 )
-from harborrag_adapters.parsers.common.normalization import compact_text
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParsedDocument, ParseInput

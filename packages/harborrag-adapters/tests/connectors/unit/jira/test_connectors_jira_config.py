@@ -65,13 +65,12 @@ def test_config_normalizes_comma_separated_environment_lists():
     assert config.issue_types == ["Bug", "Story"]
 
 
-def test_attachment_extensions_reach_both_attachment_paths():
+def test_attachment_extensions_reach_the_attachment_sources():
     connector = JiraConnector(
         cloud_config(allowed_extensions=["PDF", ".docx"], excluded_extensions=["exe"])
     )
     expected = ExtensionFilter(frozenset({".pdf", ".docx"}), frozenset({".exe"}))
 
-    assert connector._attachments.extension_filter == expected
     assert connector._descriptors._attachments._policy.extensions == expected
 
 

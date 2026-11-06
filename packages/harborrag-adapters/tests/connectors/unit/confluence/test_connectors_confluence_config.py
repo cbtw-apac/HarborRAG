@@ -55,11 +55,10 @@ def test_config_rejects_out_of_range_page_size():
         dc_config(page_size=0)
 
 
-def test_attachment_extensions_reach_both_attachment_paths():
+def test_attachment_extensions_reach_the_attachment_sources():
     connector = ConfluenceConnector(
         cloud_config(allowed_extensions=["pdf"], excluded_extensions=[".EXE"])
     )
     expected = ExtensionFilter(frozenset({".pdf"}), frozenset({".exe"}))
 
-    assert connector._attachments.extension_filter == expected
     assert connector._descriptors._attachments._policy.extensions == expected

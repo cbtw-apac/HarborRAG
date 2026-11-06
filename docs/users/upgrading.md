@@ -127,6 +127,12 @@ a row whose type is unknown becomes `error`.
   `LOCAL_SOURCE_PATH` set, a `local_file` connection must stay inside it.
   Without either on the API, the API refuses new `local_file` connections;
   the CLI and `connectors.yaml` still accept them.
+- **Jira and Confluence attachments are only their own documents.** Their text
+  is no longer copied into the issue or page, and the
+  `include_attachment_text_in_content` setting is gone. Existing Jira
+  connections keep working: the setting is ignored with a warning and dropped
+  the next time the connection is saved. Delete it from
+  `config/connectors.yaml`.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
 
 ### HTTP API changes

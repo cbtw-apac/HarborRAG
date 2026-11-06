@@ -295,7 +295,7 @@ secrets:
 
 Every referenced variable must exist and be non-empty when that connector is built. Disabled definitions do not need secrets when using `build_enabled()`.
 
-Callbacks and custom parser objects are Python values and cannot be represented safely in this YAML boundary. Supply `custom_parsers`, attachment callbacks, or file callbacks in provider config code or explicit overrides.
+Callbacks and custom parser objects are Python values and cannot be represented safely in this YAML boundary. Supply attachment callbacks or file callbacks in provider config code or explicit overrides.
 
 ## Operational limits
 

@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-from harborrag_adapters.parsers.common.html_markdown import (
+from harborrag_adapters._shared.text.html_markdown import (
     MARKDOWN_ENGINE,
     _render_fragment,
     html_to_markdown,

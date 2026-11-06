@@ -10,6 +10,7 @@ Does NOT resolve secret references or build connectors; see ``builder.py``.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal
@@ -20,6 +21,8 @@ from pydantic.fields import FieldInfo
 from harborrag_core.contracts.errors import HarborValidationError
 
 from .fields import WIDGET_MARKER, StrictModel, is_secret
+
+logger = logging.getLogger(__name__)
 
 AuthMethodId = Literal["api_token", "oauth", "pat", "app", "none"]
 Category = Literal["issue_tracker", "wiki", "files", "code"]
@@ -117,7 +120,9 @@ class SourceTypeSpec:
     is False when building the config reads the worker's file system, so
     the API cannot check it; ``policy`` holds install rules every write
     obeys and ``api_policy`` rules only API writes obey; ``setups`` are the
-    setups a connection template is offered for.
+    setups a connection template is offered for; ``removed_config_fields``
+    are config keys an earlier release accepted, dropped with a warning
+    wherever config is read so stored connections keep working.
     """
 
     source_type: str
@@ -138,6 +143,7 @@ class SourceTypeSpec:
     version: str = "2.0.0"
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
     api_policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
+    removed_config_fields: frozenset[str] = frozenset()
     setups: tuple[Setup, ...] = ()
 
     @property
@@ -212,6 +218,7 @@ class SourceTypeSpec:
             ConnectionValidationError: Any field fails; every failing field is listed.
         """
         issues: list[FieldIssue] = []
+        config = self.without_removed_fields(config)
         method_id = credentials.get(METHOD_KEY)
         try:
             method = self.auth_method(method_id)
@@ -269,6 +276,18 @@ class SourceTypeSpec:
     def policy_issues(self, config: Mapping[str, Any]) -> list[FieldIssue]:
         """Install-level rules a schema cannot express, such as allowed local roots."""
         return self.policy(config) if self.policy is not None else []
+
+    def without_removed_fields(self, config: Mapping[str, Any]) -> Mapping[str, Any]:
+        """Drop config keys an earlier release accepted, logging each one dropped."""
+        removed = sorted(self.removed_config_fields.intersection(config))
+        if not removed:
+            return config
+        logger.warning(
+            "Ignoring removed connection setting(s) source_type=%s settings=%s",
+            self.source_type,
+            ",".join(removed),
+        )
+        return {key: value for key, value in config.items() if key not in removed}
 
     def describe(self, defaults: Mapping[str, Any] | None = None) -> dict[str, Any]:
         """Return the API's ``SourceType`` object for this type.

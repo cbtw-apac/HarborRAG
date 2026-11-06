@@ -1,11 +1,11 @@
 """Markup-family text normalization policy."""
 
-from harborrag_adapters.parsers.common.family import FamilyResultNormalizer
-from harborrag_adapters.parsers.common.normalization import (
+from harborrag_adapters._shared.text.normalization import (
     compact_text,
     html_to_text,
     html_to_text_with_engine,
 )
+from harborrag_adapters.parsers.common.family import FamilyResultNormalizer
 
 
 class MarkupNormalizer(FamilyResultNormalizer):

@@ -7,7 +7,6 @@ from collections.abc import Iterator
 
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
-    AttachmentProcessor,
     AttachmentSourceGateway,
     AttachmentSourcePolicy,
     is_attachment_record,
@@ -22,7 +21,6 @@ from harborrag_adapters.connectors.schemas import (
     ConnectorPage,
     ConnectorQuery,
 )
-from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -47,8 +45,8 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
     """Connector for Confluence Cloud and Data Center REST APIs.
 
-    Discovery returns page/blogpost records from CQL search. Loading fetches the expanded
-    body and optional comments/attachments so parsing receives one complete document.
+    Discovery returns page/blogpost records from CQL search and binds each attachment as
+    its own document. Loading fetches the expanded body and optional comments.
     """
 
     provider_name = "confluence"
@@ -68,10 +66,9 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         config: ConfluenceSpaceConfig,
         *,
         client: ConfluenceClient | None = None,
-        parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize provider APIs and shared attachment processing."""
+        """Initialize provider APIs and attachment sources."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsConfluenceClient(
@@ -79,17 +76,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             rate_limiter=rate_limiter,
         )
         self._content = ConfluenceContentAPI(self.client, config)
-        self._attachments = AttachmentProcessor(
-            download_fn=self.client.download_bytes,
-            base_url=self.base_url,
-            parser=parser,
-            custom_parsers=config.custom_parsers,
-            process_attachment_callback=config.process_attachment_callback,
-            max_attachment_size_bytes=config.max_attachment_size_bytes,
-            fail_on_error=config.fail_on_error,
-            logger_=logger,
-            extension_filter=config.attachment_filter(),
-        )
         attachment_sources = AttachmentSourceGateway(
             download_fn=self.client.download_bytes,
             policy=AttachmentSourcePolicy(
@@ -257,19 +243,11 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             self.config.include_comments and record.metadata.get("include_comments", True)
         )
         comments = self._content.fetch_comments(content_id) if include_comments else []
-        attachments = []
-        include_attachments = bool(
-            self.config.include_attachments
-            and record.metadata.get("include_attachments", True)
-            and not record.metadata.get("defer_attachments", False)
-        )
-        if include_attachments:
-            attachments = self._attachments.process(self._content.list_attachments(content_id))
-
+        # Attachments are never part of the page: discovery binds each one as
+        # its own document (see ConfluenceDescriptorBuilder).
         metadata = build_document_metadata(
             self._content.complete_children(content),
             comments=comments,
-            attachments=attachments,
         )
         body_html = body_html_from_content(content)
         source_url = display_url(
@@ -298,10 +276,9 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
             raw=content,
         )
         logger.info(
-            "Confluence content loaded content_id=%s comments=%d attachments=%d content_chars=%d",
+            "Confluence content loaded content_id=%s comments=%d content_chars=%d",
             content_id,
             len(comments),
-            len(attachments),
             len(body_html),
         )
         return document

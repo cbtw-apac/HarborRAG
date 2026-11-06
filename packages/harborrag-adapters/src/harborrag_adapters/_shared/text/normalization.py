@@ -1,11 +1,10 @@
 from __future__ import annotations
 
+import logging
 import re
 from html.parser import HTMLParser as StdlibHTMLParser
 
-from harborrag_adapters.parsers.common.utils import get_parser_logger
-
-parser_logger = get_parser_logger("text_extraction")
+parser_logger = logging.getLogger("harborrag.adapters.parsers.text_extraction")
 
 _CODE_FENCE_LINE = re.compile(r"^[ \t]*(?:`{3,}|~{3,})[ \t]*[\w+#.-]*[ \t]*$", re.MULTILINE)
 

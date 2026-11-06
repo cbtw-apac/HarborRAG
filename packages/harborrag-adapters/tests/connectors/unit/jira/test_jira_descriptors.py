@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from jira_test_helpers import (
     CLOUD_BASE,
     FakeJiraClient,
@@ -7,6 +8,7 @@ from jira_test_helpers import (
     issue,
 )
 
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_core.chunking import RelationType
 from harborrag_core.domain.source import SourceRecord
@@ -206,3 +208,25 @@ def test_embedded_comments_are_capped_like_fetched_ones() -> None:
     descriptor = _describe(issue_value, client, max_comments=2)
 
     assert [comment.source_item_id for comment in descriptor.admission.comments] == ["c1", "c2"]
+
+
+def test_describe_refuses_more_attachments_than_max_attachments() -> None:
+    loaded = issue()
+    loaded["fields"]["attachment"].append(
+        {**loaded["fields"]["attachment"][0], "id": "a2", "filename": "two.md"}
+    )
+    client = FakeJiraClient()
+    client.add_get("issue/ENG-1", loaded)
+    connector = JiraConnector(
+        cloud_config(include_comments=False, include_attachments=True, max_attachments=1),
+        client=client,
+    )
+
+    with pytest.raises(DocumentProcessingError, match="exceeds max_attachments 1"):
+        connector.describe(
+            SourceRecord(
+                id="jira://ENG/ENG-1",
+                source_type="application/vnd.atlassian.jira.issue+json",
+                locator="ENG-1",
+            )
+        )

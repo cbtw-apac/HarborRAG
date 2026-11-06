@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from harborrag_adapters.parsers.common.normalization import (
+from harborrag_adapters._shared.text.normalization import (
     _FallbackHTMLTextParser,
     compact_text,
     html_to_text_with_engine,

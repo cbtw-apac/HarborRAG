@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import reprlib
+from collections.abc import Callable
 
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.security.redaction import redact_secrets
@@ -97,18 +98,36 @@ def print_parsed(provider: str, parsed: ParsedDocument, *, source: str) -> None:
             print(f"[{provider}] metadata preview={_preview(parsed.metadata)!r}")
 
 
-def attachments_passed(provider: str, document) -> bool:
-    """Require every attempted attachment to avoid an unsupported/failed state."""
-    attachments = (document.metadata or {}).get("attachments") or []
-    failures = [
-        attachment
-        for attachment in attachments
-        if attachment.get("status") in {"failed", "unsupported"}
-    ]
-    if not failures:
-        return True
-    print(f"[{provider}] attachment smoke failed: {len(failures)} attachment(s) failed")
-    return False
+def attachments_loaded(
+    provider: str,
+    connector,
+    record,
+    *,
+    parser,
+    save: Callable[[str, str], object],
+) -> bool:
+    """Load and parse every attachment of ``record`` as its own document, as ingestion does.
+
+    ``save`` receives each attachment's id and parsed text. Returns ``False`` when
+    describing the record, or loading or parsing any attachment, fails.
+    """
+    try:
+        attachments = connector.describe(record).bound_records
+    except Exception as exc:  # noqa: BLE001 - smoke runner reports and continues
+        print_failure(provider, exc)
+        return False
+    print(f"[{provider}] {record.id}: {len(attachments)} attachment(s)")
+    passed = True
+    for attachment in attachments:
+        try:
+            parsed = parser.parse(connector.load(attachment))
+        except Exception as exc:  # noqa: BLE001 - smoke runner reports and continues
+            print_failure(provider, exc)
+            passed = False
+            continue
+        print_parsed(provider, parsed, source=attachment.id)
+        save(attachment.id, parsed.content or "")
+    return passed
 
 
 def print_failure(provider: str, exc: Exception) -> None:

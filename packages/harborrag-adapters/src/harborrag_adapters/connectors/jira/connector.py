@@ -4,11 +4,9 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from typing import Any
 
 from harborrag_adapters.connectors.attachments import (
     AttachmentDocumentLoader,
-    AttachmentProcessor,
     AttachmentSourceGateway,
     AttachmentSourcePolicy,
     is_attachment_record,
@@ -19,14 +17,12 @@ from harborrag_adapters.connectors.descriptors import (
 )
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
-from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import (
     ConnectorCapabilities,
     ConnectorPage,
     ConnectorQuery,
 )
-from harborrag_adapters.parsers import HarborParserRegistry
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 
@@ -76,10 +72,9 @@ class JiraConnector(BaseConnector):
         config: JiraProjectConfig,
         *,
         client: JiraClient | None = None,
-        parser: HarborParserRegistry | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize issue operations and shared attachment processing."""
+        """Initialize issue operations and attachment sources."""
         self.config = config
         self.base_url = config.base_url.rstrip("/")
         self.client = client or _RequestsJiraClient(
@@ -88,17 +83,6 @@ class JiraConnector(BaseConnector):
         )
         self._issues = JiraIssueAPI(self.client, config)
         self._policy = JiraDiscoveryPolicy(config, base_url=self.base_url)
-        self._attachments = AttachmentProcessor(
-            download_fn=self.client.download_bytes,
-            base_url=self.base_url,
-            parser=parser,
-            custom_parsers=config.custom_parsers,
-            process_attachment_callback=config.process_attachment_callback,
-            max_attachment_size_bytes=config.max_attachment_size_bytes,
-            fail_on_error=config.fail_on_error,
-            logger_=logger,
-            extension_filter=config.attachment_filter(),
-        )
         attachment_sources = AttachmentSourceGateway(
             download_fn=self.client.download_bytes,
             policy=AttachmentSourcePolicy(
@@ -248,32 +232,13 @@ class JiraConnector(BaseConnector):
         )
         comments = self._issues.fetch_comments(issue_key) if include_comments else []
         changelog = self._issues.fetch_changelog(issue_key) if self.config.include_changelog else []
-        attachments = []
-        include_attachments = bool(
-            self.config.include_attachments
-            and record.metadata.get("include_attachments", True)
-            and not record.metadata.get("defer_attachments", False)
-        )
-        if include_attachments:
-            raw_attachments: list[dict[str, Any]] = []
-            truncate_with_limit(
-                raw_attachments,
-                issue.get("fields", {}).get("attachment") or [],
-                limit=self.config.max_attachments,
-            )
-            attachments = self._attachments.process(raw_attachments)
-
-        content = build_raw_content(
-            issue,
-            comments=comments,
-            attachments=attachments,
-            include_attachment_text=self.config.include_attachment_text_in_content,
-        )
+        # Attachments are never part of the issue: discovery binds each one as
+        # its own document (see JiraDescriptorBuilder).
+        content = build_raw_content(issue, comments=comments)
         metadata = build_document_metadata(
             issue,
             content=content,
             comments=comments,
-            attachments=attachments,
             changelog=changelog,
         )
 
@@ -289,11 +254,9 @@ class JiraConnector(BaseConnector):
             raw=issue,
         )
         logger.info(
-            "JIRA issue loaded issue_key=%s comments=%d attachments=%d "
-            "changelog_items=%d content_chars=%d",
+            "JIRA issue loaded issue_key=%s comments=%d changelog_items=%d content_chars=%d",
             issue_key,
             len(comments),
-            len(attachments),
             len(changelog),
             len(content),
         )

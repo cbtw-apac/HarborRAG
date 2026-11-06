@@ -15,3 +15,17 @@ from harborrag_adapters.connectors.jira.schemas import (
     JiraIssueReference,
     JiraMetadata,
 )
+
+__all__ = [
+    "JiraChangelogItemMetadata",
+    "JiraChangelogMetadata",
+    "JiraCommentMetadata",
+    "JiraConnector",
+    "JiraCustomFieldMetadata",
+    "JiraDeploymentType",
+    "JiraDocumentTransform",
+    "JiraIssueLinkMetadata",
+    "JiraIssueReference",
+    "JiraMetadata",
+    "JiraProjectConfig",
+]

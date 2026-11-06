@@ -104,8 +104,6 @@ def build_connector(
             ambiguous, disabled, for the wrong provider, or references a
             missing/empty environment variable.
     """
-    from .ocr_parser import attachment_custom_parsers
-
     definition = connector_definition(
         identifier,
         expected_provider=expected_provider,
@@ -113,12 +111,8 @@ def build_connector(
     overrides: dict[str, object] = {}
     if definition.provider in _ATTACHMENT_PROVIDERS:
         overrides["include_attachments"] = include_attachments
-        if include_attachments:
-            overrides["custom_parsers"] = attachment_custom_parsers()
 
-    connector_kwargs = {"parser": parser} if definition.provider in _ATTACHMENT_PROVIDERS else None
     return definition.build(
         environment=_connector_environment(definition.provider),
         overrides=overrides,
-        connector_kwargs=connector_kwargs,
     )

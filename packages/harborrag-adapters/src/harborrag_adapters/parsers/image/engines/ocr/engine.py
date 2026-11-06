@@ -4,8 +4,8 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any, ClassVar
 
+from harborrag_adapters._shared.text.normalization import strip_code_fences
 from harborrag_adapters.parsers.common.limits import IMAGE_MAX_PIXELS
-from harborrag_adapters.parsers.common.normalization import strip_code_fences
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
