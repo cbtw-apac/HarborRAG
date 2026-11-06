@@ -5,11 +5,13 @@ from __future__ import annotations
 import base64
 import binascii
 import json
+import logging
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import datetime
 from hashlib import sha256
 from typing import Any, Protocol
 
+from harborrag_core.contracts.errors import HarborError
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import FailurePage, IngestionTask, StoredFailure
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
@@ -17,6 +19,8 @@ from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 from ..errors import IngestionCursorError, IngestionFailureIdError
 from .operations import IngestionActions, connection_index, source_keys_for
 from .stages import SPEC_STAGES, internal_stages, spec_stage
+
+logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
 FAILURE_ID_PREFIX = "fail_"
 MAX_RETRY_FAILURES = 1000
@@ -188,6 +192,8 @@ class FailureInboxService:
 
         Raises:
             IngestionFailureIdError: An entry of ``ids`` is malformed.
+        HarborError: Every root run failed to start; the first error is re-raised. A root
+            that fails while others start is logged and left out of the answer.
         """
         runs = await self._runs()
         if ids is not None:
@@ -218,12 +224,26 @@ class FailureInboxService:
         by_root = await _group_by_root(runs, selected)
         started: list[str] = []
         queued = 0
+        first_error: HarborError | None = None
         for root_id, document_ids in by_root.items():
-            retry = await self._actions.retry_failures(
-                task_id=root_id, document_ids=document_ids, actor=actor, actor_type=actor_type
-            )
+            try:
+                retry = await self._actions.retry_failures(
+                    task_id=root_id, document_ids=document_ids, actor=actor, actor_type=actor_type
+                )
+            except HarborError as error:
+                logger.warning(
+                    "failure_retry_skipped",
+                    extra={
+                        "ingestion_id": root_id,
+                        "error_code": getattr(error, "error_code", type(error).__name__),
+                    },
+                )
+                first_error = first_error or error
+                continue
             started.append(str(retry["retry_task_id"]))
             queued += int(str(retry["accepted_document_count"]))
+        if first_error is not None and not started:
+            raise first_error
         return {
             "ingestion_id": started[0] if started else None,
             "ingestion_ids": started,

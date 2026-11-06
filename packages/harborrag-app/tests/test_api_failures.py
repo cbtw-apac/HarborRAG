@@ -16,6 +16,10 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.workflow_control.errors import (
+    IngestionNotFoundError,
+    IngestionRetryConflictError,
+)
 from harborrag_app.workflow_control.ingestion.failure_inbox import FailureInboxService
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import (
@@ -212,12 +216,15 @@ class _Actions:
 
     def __init__(self, runs: _Runs) -> None:
         self._runs = runs
+        self.failing: dict[str, Exception] = {}
         self.calls: list[dict[str, Any]] = []
 
     async def retry_failures(
         self, *, task_id: str, document_ids: Sequence[str], **kwargs: Any
     ) -> dict[str, object]:
         self.calls.append({"task_id": task_id, "document_ids": list(document_ids), **kwargs})
+        if task_id in self.failing:
+            raise self.failing[task_id]
         original = self._runs.tasks[task_id]
         retry_id = f"retry-{len(self.calls)}"
         self._runs.task(
@@ -543,3 +550,32 @@ def test_retry_stage_capture_filter_passes_the_known_stages(
     assert capture["known_stages"] and "ParseAndNormalize" in capture["known_stages"]
     assert interpret["known_stages"] is None
     assert interpret["internal_stages"] == {"ParseAndNormalize", "ChunkAndValidate"}
+
+
+def test_a_root_that_fails_is_skipped_and_the_others_are_reported(
+    client: TestClient, seeded: _Runs, actions: _Actions, keys: dict[str, str]
+) -> None:
+    seeded.task("run-3", tenant="acme", source_key=keys["cpm-tickets"])
+    seeded.fail("run-3", "doc-three", source_key=keys["cpm-tickets"], minutes=80)
+    actions.failing["run-wiki"] = IngestionRetryConflictError("root is still running")
+
+    response = client.post(_RETRY, json={"filter": {"error_category": "parse_failed"}})
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["ingestion_ids"] == ["retry-1", "retry-3"]
+    assert body["ingestion_id"] == "retry-1"
+    assert body["queued"] == 13
+    assert [call["task_id"] for call in actions.calls] == ["run-3", "run-wiki", "run-1"]
+
+
+def test_when_every_root_fails_the_first_error_is_answered(
+    client: TestClient, seeded: _Runs, actions: _Actions
+) -> None:
+    actions.failing["run-1"] = IngestionRetryConflictError("no matching retryable failures")
+    actions.failing["run-wiki"] = IngestionNotFoundError("run gone")
+
+    response = client.post(_RETRY, json={"filter": {"error_category": "parse_failed"}})
+
+    assert response.status_code == 404
+    assert response.json()["error"]["code"] == "not_found"
