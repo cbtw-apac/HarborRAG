@@ -25,6 +25,8 @@ from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
 
+_PINNED_SETTINGS_KEYS = ("settings_revision", "run_settings")
+
 
 class IngestionTaskRegistry:
     """Persist the PENDING task before its execution provider is called."""
@@ -91,6 +93,7 @@ class IngestionTaskRegistry:
             "connector_type": request["connector_type"],
             "connection_id": request["connection_id"],
             "source_scope_id": request["source_scope_id"],
+            **{key: request[key] for key in _PINNED_SETTINGS_KEYS if key in request},
         }
         return await self._control.tasks.register(
             IngestionTask(

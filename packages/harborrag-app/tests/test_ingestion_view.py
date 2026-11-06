@@ -83,3 +83,11 @@ def test_discovered_never_below_counted_results() -> None:
     view = _view(_task(), progress={"published": 2, "failed": 1})
 
     assert view["counters"] == {"discovered": 3, "processed": 2, "skipped": 0, "failed": 1}
+
+
+def test_settings_revision_prefers_settings_revision() -> None:
+    both = _task({"settings_revision": "rev_7", "configuration_fingerprint": "abc"})
+
+    assert _view(both)["settings_revision"] == "rev_7"
+    assert _view(_task({"configuration_fingerprint": "abc"}))["settings_revision"] == "abc"
+    assert _view(_task())["settings_revision"] == ""

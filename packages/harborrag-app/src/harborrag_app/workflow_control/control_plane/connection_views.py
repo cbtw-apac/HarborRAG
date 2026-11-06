@@ -187,7 +187,9 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
             "principal_type": principal_type or str(request.get("actor_type") or "user"),
             "principal_id": triggered_by or str(request.get("actor") or summary.get("actor") or ""),
         },
-        "settings_revision": str(request.get("configuration_fingerprint") or ""),
+        "settings_revision": str(
+            request.get("settings_revision") or request.get("configuration_fingerprint") or ""
+        ),
         "workflow_id": workflow_id,
         "run_id": task.task_id,
         "trace_id": "",

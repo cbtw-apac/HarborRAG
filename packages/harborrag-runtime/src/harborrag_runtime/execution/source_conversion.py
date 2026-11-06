@@ -41,6 +41,7 @@ def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionReques
         discovery_concurrency=source.discovery_concurrency,
         document_concurrency=source.document_concurrency,
         missing_threshold=source.missing_threshold,
+        run_settings=source.run_settings,
     )
 
 

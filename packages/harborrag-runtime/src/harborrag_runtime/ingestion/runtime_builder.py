@@ -48,6 +48,7 @@ from harborrag_runtime.config import load_parser_catalog
 from harborrag_runtime.config.chunking import RefinerConfig, chunking_settings_from
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import default_secret_resolver
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
@@ -171,6 +172,7 @@ class IngestionRuntimeBuilder:
             graph_store=graph,
             max_concurrency=settings.graph_relation_repair_concurrency,
         )
+        config = build_config_provider(settings, engine=stores.engine, store=stores.config_store)
         return IngestionRuntime(
             connector_pool=ConnectorPool(
                 revisions=stores.revisions,
@@ -179,9 +181,11 @@ class IngestionRuntimeBuilder:
                 rate_limiter=rate_limiter,
             ),
             connection_health=ConnectionHealth(stores.connections),
-            connection_resolver=ConnectionResolver(stores.connections, stores.revisions),
+            connection_resolver=ConnectionResolver(
+                stores.connections, stores.revisions, run_settings=RunSettingsResolver(config)
+            ),
             connection_stores=stores,
-            config=build_config_provider(settings, engine=stores.engine, store=stores.config_store),
+            config=config,
             processing=build_processing_profile(
                 settings,
                 chunking_config=self._chunking_config,

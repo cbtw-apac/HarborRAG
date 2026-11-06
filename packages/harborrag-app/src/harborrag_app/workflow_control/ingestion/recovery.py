@@ -10,6 +10,7 @@ from harborrag_core.ingestion import IngestionTask
 from harborrag_runtime.ingestion_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunSettings,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
@@ -45,6 +46,7 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
             ),
         ),
         force_reprocess=request.get("force_reprocess") is True,
+        run_settings=RunSettings.from_json(request.get("run_settings")),
     )
 
 
