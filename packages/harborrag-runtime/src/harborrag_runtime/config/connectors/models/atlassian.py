@@ -12,7 +12,7 @@ from pydantic import Field
 
 from .common import PagedHttpTuning
 from .fields import Email, HttpsUrl, Secret, StrictModel, widget
-from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec, constant_environment
 
 DeploymentType = Literal["cloud", "datacenter"]
 ContentType = Literal["page", "blogpost"]
@@ -164,6 +164,9 @@ JIRA = SourceTypeSpec(
     aliases=("jira_cloud", "jira_datacenter"),
     # Removed in 2.0.0: attachments are always their own documents.
     removed_config_fields=frozenset({"include_attachment_text_in_content"}),
+    environment_defaults=constant_environment(
+        {"token": ("JIRA_TOKEN", "JIRA_API_TOKEN"), "email": ("JIRA_EMAIL",)}
+    ),
     setups=_setups("Jira", "https://acme.atlassian.net", "https://jira.acme.internal"),
 )
 
@@ -179,6 +182,9 @@ CONFLUENCE = SourceTypeSpec(
     credential_renames={"api_token": "token"},
     endpoints=frozenset({"base_url"}),
     aliases=("confluence_cloud", "confluence_datacenter"),
+    environment_defaults=constant_environment(
+        {"token": ("CONFLUENCE_TOKEN",), "email": ("CONFLUENCE_EMAIL",)}
+    ),
     setups=_setups(
         "Confluence", "https://acme.atlassian.net/wiki", "https://confluence.acme.internal"
     ),

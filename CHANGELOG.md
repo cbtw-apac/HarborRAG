@@ -31,6 +31,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### harborrag-adapters
 
 - GitHub requests share the worker-wide rate limiter of their token
+- **Breaking:** connector configs built in Python no longer read credentials from the environment; `connectors.yaml` still falls back to the standard variables
 - **Breaking:** a GitHub 403 without a rate-limit signal fails only that item, not the run; a GitHub or SharePoint 404 counts as not found instead of a transient error
 
 #### harborrag-core

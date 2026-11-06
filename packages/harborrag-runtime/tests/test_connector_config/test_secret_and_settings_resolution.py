@@ -169,3 +169,89 @@ def test_quoted_yaml_boolean_is_coerced_and_invalid_boolean_is_rejected(
             environment=environment,
             overrides={"include_attachments": "sometimes"},
         )
+
+
+@pytest.mark.unit
+def test_an_implicit_credential_comes_from_the_source_types_default_variable(
+    tmp_path: Path,
+) -> None:
+    config_path = write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          jira:
+            provider: jira
+            settings:
+              base_url: https://example.atlassian.net
+              project_keys: [ENG]
+        """,
+    )
+
+    connector = load_connector_catalog(config_path).build(
+        "jira",
+        environment={"JIRA_API_TOKEN": "fallback-token", "JIRA_EMAIL": "user@example.test"},
+    )
+
+    assert connector.provider.config.token == "fallback-token"
+    assert connector.provider.config.email == "user@example.test"
+
+
+@pytest.mark.unit
+def test_a_configured_credential_wins_over_the_default_variable(tmp_path: Path) -> None:
+    config_path = write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          docs-repository:
+            provider: github
+            settings:
+              owner: example
+              repo: docs
+            secrets:
+              token_env: DOCS_TOKEN
+        """,
+    )
+
+    connector = load_connector_catalog(config_path).build(
+        "docs-repository",
+        environment={"DOCS_TOKEN": "configured", "GITHUB_TOKEN": "ambient"},
+    )
+
+    assert connector.provider.config.token == "configured"
+
+
+@pytest.mark.unit
+def test_a_device_code_sharepoint_definition_ignores_ambient_app_credentials(
+    tmp_path: Path,
+) -> None:
+    config_path = write_config(
+        tmp_path,
+        """
+        version: 1
+        connectors:
+          knowledge:
+            provider: sharepoint
+            settings:
+              site_url: https://example.sharepoint.com/sites/knowledge
+              auth_mode: device_code
+        """,
+    )
+
+    connector = load_connector_catalog(config_path).build(
+        "knowledge",
+        environment={
+            "MICROSOFT_TENANT_ID": "tid",
+            "MICROSOFT_CLIENT_ID": "cid",
+            "HARBORRAG_INGESTION_TENANT_ID": "acme",
+            "MICROSOFT_GRAPH_TOKEN": "ambient-token",
+            "MICROSOFT_CLIENT_SECRET": "ambient-secret",
+        },
+    )
+
+    config = connector.provider.config
+    assert (config.tenant_id, config.client_id) == ("tid", "cid")
+    assert config.access_token is None
+    assert config.client_secret is None
+    assert config.token_cache_path.endswith("/acme/token-tid-cid.json")

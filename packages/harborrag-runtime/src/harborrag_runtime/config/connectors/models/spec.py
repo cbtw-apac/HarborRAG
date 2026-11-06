@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, Literal
 
 from pydantic import ValidationError
@@ -23,6 +24,9 @@ from harborrag_core.contracts.errors import HarborValidationError
 from .fields import WIDGET_MARKER, StrictModel, is_secret
 
 logger = logging.getLogger(__name__)
+
+type EnvironmentDefaults = Callable[[Mapping[str, Any]], Mapping[str, tuple[str, ...]]]
+"""Map a definition's settings to the variables each unset credential may come from."""
 
 AuthMethodId = Literal["api_token", "oauth", "pat", "app", "none"]
 Category = Literal["issue_tracker", "wiki", "files", "code"]
@@ -105,6 +109,19 @@ class ValidatedConnection:
     tuning: dict[str, Any]
 
 
+def constant_environment(defaults: Mapping[str, tuple[str, ...]]) -> EnvironmentDefaults:
+    """Return ``EnvironmentDefaults`` that name the same variables whatever the settings.
+
+    Args:
+        defaults: Dataclass keyword of each credential, to the variables tried in order.
+
+    Returns:
+        A function that ignores the settings it receives.
+    """
+    frozen = MappingProxyType(dict(defaults))
+    return lambda settings: frozen
+
+
 @dataclass(frozen=True, slots=True)
 class SourceTypeSpec:
     """Everything HarborRAG knows about one source type.
@@ -122,7 +139,10 @@ class SourceTypeSpec:
     obeys and ``api_policy`` rules only API writes obey; ``setups`` are the
     setups a connection template is offered for; ``removed_config_fields``
     are config keys an earlier release accepted, dropped with a warning
-    wherever config is read so stored connections keep working.
+    wherever config is read so stored connections keep working;
+    ``environment_defaults`` names the process variables a ``connectors.yaml``
+    definition may leave implicit, such as ``JIRA_TOKEN`` (stored connections
+    never read them).
     """
 
     source_type: str
@@ -144,6 +164,7 @@ class SourceTypeSpec:
     policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
     api_policy: Callable[[Mapping[str, Any]], list[FieldIssue]] | None = None
     removed_config_fields: frozenset[str] = frozenset()
+    environment_defaults: EnvironmentDefaults | None = None
     setups: tuple[Setup, ...] = ()
 
     @property

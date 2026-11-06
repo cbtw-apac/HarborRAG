@@ -18,7 +18,6 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
-from ..environment import environment_default
 from .config_validation import (
     normalize_allowlist,
     normalize_path_prefixes,
@@ -118,17 +117,8 @@ class SharePointSiteConfig:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
         validate_https_url("graph_api_url", self.graph_api_url)
-        self.tenant_id = self.tenant_id or environment_default("MICROSOFT_TENANT_ID")
-        self.client_id = self.client_id or environment_default("MICROSOFT_CLIENT_ID")
         if self.auth_mode is not None:
-            # Normalize first so " Device_Code" still takes the delegated guard below.
             self.auth_mode = str(self.auth_mode).strip().lower()
-        if self.auth_mode != SharePointAuthMode.DEVICE_CODE:
-            # A delegated connection must never fall back to ambient app credentials.
-            self.access_token = self.access_token or environment_default("MICROSOFT_GRAPH_TOKEN")
-            self.client_secret = self.client_secret or environment_default(
-                "MICROSOFT_CLIENT_SECRET"
-            )
 
         if self.site_url:
             validate_site_url(self.site_url)
@@ -196,9 +186,7 @@ class SharePointSiteConfig:
         """
         if self.token_cache_path:
             return Path(self.token_cache_path).expanduser()
-        harborrag_tenant = self.harborrag_tenant_id or environment_default(
-            "HARBORRAG_INGESTION_TENANT_ID"
-        )
+        harborrag_tenant = self.harborrag_tenant_id
         if not harborrag_tenant:
             raise ValueError("auth_mode device_code needs token_cache_path or harborrag_tenant_id")
         return default_token_cache_path(harborrag_tenant, str(self.tenant_id), str(self.client_id))

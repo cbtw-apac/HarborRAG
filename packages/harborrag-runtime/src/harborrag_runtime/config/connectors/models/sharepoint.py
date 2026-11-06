@@ -7,8 +7,9 @@ lives in ``token_cache_path``, and ``pat`` is a pre-issued Graph token.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from functools import cache
-from typing import Self
+from typing import Any, Self
 
 from pydantic import ConfigDict, Field, model_validator
 
@@ -150,6 +151,28 @@ def _parseable_extensions() -> frozenset[str]:
     )
 
 
+_IDENTITY_ENVIRONMENT = {
+    "tenant_id": ("MICROSOFT_TENANT_ID",),
+    "client_id": ("MICROSOFT_CLIENT_ID",),
+    "harborrag_tenant_id": ("HARBORRAG_INGESTION_TENANT_ID",),
+}
+_APP_ENVIRONMENT = {
+    "access_token": ("MICROSOFT_GRAPH_TOKEN",),
+    "client_secret": ("MICROSOFT_CLIENT_SECRET",),
+}
+
+
+def _sharepoint_environment(settings: Mapping[str, Any]) -> Mapping[str, tuple[str, ...]]:
+    """Name the variables an unset SharePoint credential may come from.
+
+    A device-code definition signs in as a user, so it never picks up the
+    worker's app token or client secret.
+    """
+    if str(settings.get("auth_mode") or "").strip().lower() == "device_code":
+        return _IDENTITY_ENVIRONMENT
+    return {**_IDENTITY_ENVIRONMENT, **_APP_ENVIRONMENT}
+
+
 SHAREPOINT = SourceTypeSpec(
     source_type="sharepoint",
     name="SharePoint",
@@ -176,6 +199,7 @@ SHAREPOINT = SourceTypeSpec(
     operator_fields=frozenset({"token_cache_path"}),
     tenant_keyword="harborrag_tenant_id",
     aliases=("microsoft_sharepoint", "sharepoint_online"),
+    environment_defaults=_sharepoint_environment,
     setups=(
         Setup(
             "app",

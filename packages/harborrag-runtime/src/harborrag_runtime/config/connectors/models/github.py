@@ -8,7 +8,7 @@ from pydantic import ConfigDict, Field, ValidationInfo, field_validator, model_v
 
 from .common import HttpTuning
 from .fields import HttpsUrl, HttpUrl, Secret, StrictModel
-from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec
+from .spec import AuthMethodSpec, Capabilities, Setup, SourceTypeSpec, constant_environment
 
 _API_HELP = "REST API root; left out, https://api.github.com. Change for GitHub Enterprise Server"
 _WEB_HELP = "Web root used for document links; left out, https://github.com"
@@ -124,6 +124,7 @@ GITHUB = SourceTypeSpec(
     capabilities=Capabilities(incremental=True, attachments=False),
     endpoints=frozenset({"api_url", "web_url"}),
     aliases=("github_repo", "github_repository"),
+    environment_defaults=constant_environment({"token": ("GITHUB_TOKEN",)}),
     setups=(
         Setup(
             "public",

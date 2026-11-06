@@ -56,8 +56,9 @@ class ConnectorDefinition:
         """Resolve the effective provider settings without building a connector.
 
         Precedence is provider defaults, YAML settings, referenced environment
-        values, then explicit code overrides. Every referenced variable must be
-        present and non-empty.
+        values, the source type's default variables for credentials still unset
+        (such as ``JIRA_TOKEN``), then explicit code overrides. Every referenced
+        variable must be present and non-empty; a default variable may be absent.
         """
         values = dict(self.settings)
         source_environment = os.environ if environment is None else environment
@@ -72,6 +73,7 @@ class ConnectorDefinition:
                     )
                 values[config_field] = value
 
+        values.update(self._environment_defaults(values, source_environment))
         if overrides:
             values.update(overrides)
 
@@ -118,6 +120,25 @@ class ConnectorDefinition:
             raise ConnectorConfigurationError(
                 f"Connector {self.name!r} ({self.provider}) is invalid: {exc}"
             ) from exc
+
+    def _environment_defaults(
+        self, values: Mapping[str, Any], environment: Mapping[str, str]
+    ) -> dict[str, str]:
+        """Fill credentials the definition leaves unset from their default variables."""
+        try:
+            defaults = source_types.get(self.provider).environment_defaults
+        except ConnectionValidationError:
+            return {}
+        if defaults is None:
+            return {}
+        filled: dict[str, str] = {}
+        for config_field, variables in defaults(values).items():
+            if values.get(config_field):
+                continue
+            value = next((environment[name] for name in variables if environment.get(name)), None)
+            if value is not None:
+                filled[config_field] = value
+        return filled
 
     def _resolve_config_paths(
         self,

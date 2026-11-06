@@ -16,7 +16,6 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
-from ..environment import environment_default
 from ..file_filters import ExtensionFilter
 from ..limits import DEFAULT_ALLOWED_EXTENSIONS
 from .query import is_cloud_hostname
@@ -93,8 +92,6 @@ class JiraProjectConfig:
         """Normalize the deployment type and validate credentials and query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
-        self.token = self.token or environment_default("JIRA_TOKEN", "JIRA_API_TOKEN")
-        self.email = self.email or environment_default("JIRA_EMAIL")
         self.project_keys = self._string_list(self.project_keys)
         self.issue_types = self._string_list(self.issue_types)
         self.statuses = self._string_list(self.statuses)

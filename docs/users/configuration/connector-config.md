@@ -295,6 +295,14 @@ secrets:
 
 Every referenced variable must exist and be non-empty when that connector is built. Disabled definitions do not need secrets when using `build_enabled()`.
 
+A credential the definition does not set falls back to the source's standard
+variable when it is present: `JIRA_TOKEN` (or `JIRA_API_TOKEN`) and `JIRA_EMAIL`,
+`CONFLUENCE_TOKEN` and `CONFLUENCE_EMAIL`, `GITHUB_TOKEN`, and for SharePoint
+`MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `HARBORRAG_INGESTION_TENANT_ID`,
+plus `MICROSOFT_GRAPH_TOKEN` and `MICROSOFT_CLIENT_SECRET` unless `auth_mode` is
+`device_code`. Connections stored through the API never read these variables, and
+connector configs built in Python take credentials only from their caller.
+
 Callbacks and custom parser objects are Python values and cannot be represented safely in this YAML boundary. Supply attachment callbacks or file callbacks in provider config code or explicit overrides.
 
 ## Operational limits
