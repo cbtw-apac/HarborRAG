@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import cast
 
@@ -213,3 +213,39 @@ class ChunkingConfig:
             return self.profiles[profile_name]
         except KeyError as exc:
             raise ValueError(f"unknown chunking profile: {profile_name}") from exc
+
+
+def cap_chunking_config(config: ChunkingConfig, max_tokens: int) -> ChunkingConfig:
+    """Lower every profile whose hard maximum exceeds ``max_tokens``.
+
+    Args:
+        config: Configuration to cap.
+        max_tokens: Largest hard maximum a profile may keep.
+
+    Returns:
+        ``config`` itself when no profile exceeds the cap, else a copy whose
+        exceeding profiles satisfy ``ChunkingLimits`` at the cap.
+    """
+
+    profiles = {
+        name: profile if profile.maximum_tokens <= max_tokens else _capped(profile, max_tokens)
+        for name, profile in config.profiles.items()
+    }
+    if all(profiles[name] is profile for name, profile in config.profiles.items()):
+        return config
+    return replace(config, profiles=profiles)
+
+
+def _capped(profile: ChunkingProfile, max_tokens: int) -> ChunkingProfile:
+    limits = profile.limits
+    target = min(limits.target_tokens, max_tokens)
+    return replace(
+        profile,
+        limits=ChunkingLimits(
+            minimum_tokens=min(limits.minimum_tokens, target),
+            target_tokens=target,
+            maximum_tokens=max_tokens,
+            overlap_tokens=min(limits.overlap_tokens, target - 1),
+            soft_maximum_tokens=min(profile.soft_maximum_tokens, max_tokens),
+        ),
+    )

@@ -35,6 +35,52 @@ class SourceSubmission:
 
 
 @dataclass(frozen=True, slots=True)
+class RunSettings:
+    """Overridden ``next_ingestion`` settings pinned for one run.
+
+    ``None`` leaves the boot knob in charge.
+
+    Args:
+        settings_revision: Revision label the values were resolved at.
+        pdf_parser: PDF backend override.
+        chunk_max_tokens: Cap on every chunking profile's hard maximum.
+        document_concurrency: Concurrent documents override.
+    """
+
+    settings_revision: str
+    pdf_parser: str | None = None
+    chunk_max_tokens: int | None = None
+    document_concurrency: int | None = None
+
+    def to_json(self) -> dict[str, object]:
+        """Return the JSON-safe form stored in task requests and plans."""
+        return {
+            "settings_revision": self.settings_revision,
+            "pdf_parser": self.pdf_parser,
+            "chunk_max_tokens": self.chunk_max_tokens,
+            "document_concurrency": self.document_concurrency,
+        }
+
+    @classmethod
+    def from_json(cls, value: object) -> RunSettings | None:
+        """Rebuild from :meth:`to_json`; ``None`` for anything that is not a stored run."""
+        if not isinstance(value, dict):
+            return None
+        revision = value.get("settings_revision")
+        pdf_parser = value.get("pdf_parser")
+        max_tokens = value.get("chunk_max_tokens")
+        concurrency = value.get("document_concurrency")
+        if (
+            not isinstance(revision, str)
+            or not (pdf_parser is None or isinstance(pdf_parser, str))
+            or not (max_tokens is None or isinstance(max_tokens, int))
+            or not (concurrency is None or isinstance(concurrency, int))
+        ):
+            return None
+        return cls(revision, pdf_parser, max_tokens, concurrency)
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedSourceSubmission:
     """Resolved ingestion input without workflow history or provider options."""
 
@@ -54,6 +100,7 @@ class PreparedSourceSubmission:
     missing_threshold: int = 2
     batch_size: int = 200
     continue_after_batches: int = 25
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         identities = (
