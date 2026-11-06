@@ -67,7 +67,7 @@ python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
 ```
 
 Supported profiles come from `PdfParserProfile`. Exact backend choices are
-`docling`, `liteparse`, `mineru`, `paddleocr`, and `pymupdf`. PDF options used
+`docling`, `liteparse` and `pymupdf`. PDF options used
 with a non-PDF input return exit code `1`.
 
 ## Success criteria and output

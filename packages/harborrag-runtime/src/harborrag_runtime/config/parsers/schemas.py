@@ -27,7 +27,6 @@ class PdfBackendDefinition:
     backend: str
     settings: Mapping[str, Any] = field(default_factory=dict, repr=False)
     secret_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
-    process_environment: Mapping[str, str] = field(default_factory=dict, repr=False)
 
     def __post_init__(self) -> None:
         """Copy backend configuration into read-only mappings."""
@@ -36,11 +35,6 @@ class PdfBackendDefinition:
             self,
             "secret_environment",
             MappingProxyType(dict(self.secret_environment)),
-        )
-        object.__setattr__(
-            self,
-            "process_environment",
-            MappingProxyType(dict(self.process_environment)),
         )
 
     def build(
@@ -64,16 +58,6 @@ class PdfBackendDefinition:
                 parser_name=parser_name,
                 backend=self.backend,
             )
-        if self.process_environment:
-            values["env"] = {
-                target: _required_environment_value(
-                    source_environment,
-                    variable_name,
-                    parser_name=parser_name,
-                    backend=self.backend,
-                )
-                for target, variable_name in self.process_environment.items()
-            }
 
         try:
             return spec.build(values)

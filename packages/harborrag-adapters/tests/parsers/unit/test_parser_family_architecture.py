@@ -92,16 +92,11 @@ def test_factory_applies_custom_pdf_profile_order() -> None:
     assert [engine.name for engine in parser.engines] == ["docling", "pymupdf"]
 
 
-def test_ocr_first_profile_keeps_its_distinct_engine_policy() -> None:
+def test_ocr_first_profile_still_loads_and_runs_the_ocr_chain() -> None:
     parser = HarborParserFactory().create_pdf_parser(profile=PDFParserProfile.OCR_FIRST)
 
     assert parser.profile is PDFParserProfile.OCR_FIRST
-    assert [engine.name for engine in parser.engines] == [
-        "paddleocr",
-        "mineru",
-        "docling",
-        "pymupdf",
-    ]
+    assert [engine.name for engine in parser.engines] == ["docling", "pymupdf"]
 
 
 @pytest.mark.asyncio

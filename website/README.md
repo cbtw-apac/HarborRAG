@@ -186,7 +186,6 @@ Rules that follow from keeping READMEs short:
   better than a summary that will drift. For example:
   [liteparse](https://github.com/run-llama/liteparse),
   [Docling](https://github.com/docling-project/docling),
-  [MinerU](https://github.com/opendatalab/MinerU),
   [Qdrant](https://github.com/qdrant/qdrant).
 - **One heading level of nesting.** If you need `####`, the content wants its
   own page.

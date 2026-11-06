@@ -36,7 +36,7 @@ Do not narrow this to `uv sync --package harborrag-adapters`: that drops
 source, and the run then fails on `No module named 'yaml'`.
 
 Add `--extra image-rapidocr` (local ONNX image OCR) or `--extra pdf` (every
-PDF engine: Docling, MinerU, PaddleOCR, PyMuPDF) only when exercising one of
+PDF engine: Docling, LiteParse, PyMuPDF) only when exercising one of
 the commented-out alternatives in `config/parsers.yaml`.
 
 LiteParse OCRs scanned pages through the OCR server named by

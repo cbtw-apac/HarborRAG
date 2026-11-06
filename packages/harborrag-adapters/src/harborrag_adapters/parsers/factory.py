@@ -27,10 +27,6 @@ from harborrag_adapters.parsers.pdf.engines.docling.config import DoclingPDFConf
 from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingPDFEngine
 from harborrag_adapters.parsers.pdf.engines.liteparse.config import LiteParsePDFConfig
 from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParsePDFEngine
-from harborrag_adapters.parsers.pdf.engines.mineru.config import MinerUPDFConfig
-from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUPDFEngine
-from harborrag_adapters.parsers.pdf.engines.paddleocr.config import PaddleOCRPDFConfig
-from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import PaddleOCRPDFEngine
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_adapters.parsers.presentation.engines.msppt.engine import (
@@ -164,19 +160,11 @@ class HarborParserFactory:
         profile: PDFParserProfile, *, ocr_server_url: str | None
     ) -> dict[str, HarborPDFEngine]:
         docling_config = DoclingPDFConfig(do_ocr=True, do_table_structure=True)
-        mineru_config = MinerUPDFConfig(backend="pipeline")
-        paddleocr_config = PaddleOCRPDFConfig(use_table_recognition=True)
 
         if profile in {PDFParserProfile.OCR, PDFParserProfile.OCR_FIRST}:
             docling_config = DoclingPDFConfig(
                 force_full_page_ocr=True,
                 do_table_structure=True,
-            )
-            paddleocr_config = PaddleOCRPDFConfig(
-                use_doc_orientation_classify=True,
-                use_doc_unwarping=True,
-                use_textline_orientation=True,
-                use_table_recognition=True,
             )
         elif profile in {PDFParserProfile.QUALITY, PDFParserProfile.SCIENTIFIC}:
             docling_config = DoclingPDFConfig(
@@ -185,22 +173,10 @@ class HarborParserFactory:
                 table_do_cell_matching=True,
                 accelerator_device="auto",
             )
-            mineru_config = MinerUPDFConfig(backend="hybrid", effort="medium")
-            paddleocr_config = PaddleOCRPDFConfig(
-                use_doc_orientation_classify=True,
-                use_doc_unwarping=True,
-                use_textline_orientation=True,
-                use_table_recognition=True,
-                use_formula_recognition=True,
-                use_chart_recognition=True,
-                use_region_detection=True,
-            )
 
         engines: tuple[HarborPDFEngine, ...] = (
             PyMuPDFEngine(),
             DoclingPDFEngine(docling_config),
             LiteParsePDFEngine(LiteParsePDFConfig(ocr_server_url=ocr_server_url)),
-            MinerUPDFEngine(mineru_config),
-            PaddleOCRPDFEngine(paddleocr_config),
         )
         return {engine.name: engine for engine in engines}

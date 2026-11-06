@@ -81,54 +81,6 @@ parsers:
   #     profile: quality
   #     min_content_chars: 50
 
-  # Local MinerU pipeline; the mineru executable must be installed on PATH.
-  # pdf-mineru:
-  #   parser: pdf
-  #   enabled: true
-  #   settings:
-  #     min_content_chars: 20
-  #   engines:
-  #     - backend: mineru
-  #       settings:
-  #         backend: pipeline
-  #         executable: mineru
-  #         timeout_seconds: 600
-  #         method: auto
-  #         language: null
-  #         effort: medium
-  #         keep_output: false
-  #         extra_args: []
-
-  # OCR-heavy local PDF analysis with CPU-safe PaddleOCR settings.
-  # pdf-paddleocr:
-  #   parser: pdf
-  #   enabled: true
-  #   settings:
-  #     min_content_chars: 20
-  #   engines:
-  #     - backend: paddleocr
-  #       settings:
-  #         pipeline_class: PPStructureV3
-  #         fallback_pipeline_classes: [PaddleOCRVL, PPStructure]
-  #         lang: en
-  #         device: cpu
-  #         enable_hpi: false
-  #         use_tensorrt: false
-  #         precision: fp32
-  #         enable_mkldnn: true
-  #         cpu_threads: 4
-  #         use_doc_orientation_classify: true
-  #         use_doc_unwarping: true
-  #         use_textline_orientation: true
-  #         use_table_recognition: true
-  #         use_formula_recognition: false
-  #         use_chart_recognition: false
-  #         use_region_detection: true
-  #         format_block_content: true
-  #         markdown_ignore_labels: [header, footer]
-  #         extra_options: {}
-  #         legacy_ocr_options: {}
-
   # Legacy image OCR using the external Tesseract executable.
   # image-pytesseract:
   #   parser: image

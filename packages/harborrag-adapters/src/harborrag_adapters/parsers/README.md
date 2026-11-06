@@ -26,8 +26,7 @@ HarborParserRegistry
     -> HarborPDFParser
         -> PDFEngineRouter
             -> DoclingPDFEngine
-            -> MinerUPDFEngine
-            -> PaddleOCRPDFEngine
+            -> LiteParsePDFEngine
             -> PyMuPDFEngine
 ```
 
@@ -94,7 +93,7 @@ pip install -e "packages/harborrag-adapters[parsers-all]"
 
 Smaller extras are available for `document`, `spreadsheet`, `presentation`,
 `markup`, `image-tesseract`, `image-rapidocr`, `pdf-pymupdf`, `pdf-docling`,
-`pdf-liteparse`, `pdf-mineru`, and `pdf-ocr`. Provider imports remain lazy so
+and `pdf-liteparse`. Provider imports remain lazy so
 a family can be constructed when an unused optional dependency is absent.
 
 ## Adding a family or engine

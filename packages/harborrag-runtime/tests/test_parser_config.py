@@ -9,7 +9,6 @@ import pytest
 from harborrag_adapters.parsers.compat import (
     DoclingBackend,
     LiteParseBackend,
-    MinerUBackend,
     PdfParser,
     PdfParserProfile,
     PyMuPdfBackend,
@@ -164,9 +163,7 @@ def test_build_allows_explicit_code_overrides(tmp_path: Path) -> None:
     assert parser.min_content_chars == 100
 
 
-def test_backend_secrets_and_subprocess_environment_resolve_from_environment(
-    tmp_path: Path,
-) -> None:
+def test_backend_secrets_resolve_from_environment(tmp_path: Path) -> None:
     config_path = _write_config(
         tmp_path,
         """
@@ -178,34 +175,17 @@ def test_backend_secrets_and_subprocess_environment_resolve_from_environment(
               - backend: liteparse
                 secrets:
                   password_env: TEST_PDF_PASSWORD
-              - backend: mineru
-                settings:
-                  backend: vlm-http-client
-                  server_url: https://vlm.example.test/v1
-                environment:
-                  MINERU_VL_API_KEY: TEST_OPENAI_API_KEY
-                  MINERU_VL_MODEL_NAME: TEST_OPENAI_VLM_MODEL
         """,
     )
 
     parser = load_parser_catalog(config_path).build(
         "protected-pdf",
-        environment={
-            "TEST_PDF_PASSWORD": "pdf-secret",
-            "TEST_OPENAI_API_KEY": "api-secret",
-            "TEST_OPENAI_VLM_MODEL": "document-vlm",
-        },
+        environment={"TEST_PDF_PASSWORD": "pdf-secret"},
     )
 
     assert isinstance(parser, PdfParser)
     assert isinstance(parser.backends[0], LiteParseBackend)
     assert parser.backends[0].options.password == "pdf-secret"
-    assert isinstance(parser.backends[1], MinerUBackend)
-    assert parser.backends[1].options.server_url == "https://vlm.example.test/v1"
-    assert parser.backends[1].options.env == {
-        "MINERU_VL_API_KEY": "api-secret",
-        "MINERU_VL_MODEL_NAME": "document-vlm",
-    }
 
 
 def test_missing_backend_environment_reference_fails_at_build(tmp_path: Path) -> None:
@@ -325,7 +305,7 @@ def test_missing_backend_environment_reference_fails_at_build(tmp_path: Path) ->
                     environment:
                       OPENAI_API_KEY: OPENAI_API_KEY
             """,
-            "supported only for the MinerU",
+            "environment",
         ),
     ],
 )
@@ -353,14 +333,14 @@ def test_parser_definition_repr_hides_settings() -> None:
 
 def test_pdf_backend_definition_repr_hides_settings() -> None:
     backend = PdfBackendDefinition(
-        backend="mineru",
-        settings={"server_url": "https://secret.internal/v1"},
+        backend="liteparse",
+        settings={"ocr_server_url": "https://secret.internal/ocr"},
     )
 
     representation = repr(backend)
 
-    assert "https://secret.internal/v1" not in representation
-    assert "mineru" in representation
+    assert "https://secret.internal/ocr" not in representation
+    assert "liteparse" in representation
 
 
 def test_registry_rejects_multiple_enabled_profiles_for_same_parser(

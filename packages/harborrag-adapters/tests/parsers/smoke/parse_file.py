@@ -18,8 +18,6 @@ from harborrag_adapters.parsers import HarborParserFactory  # noqa: E402
 from harborrag_adapters.parsers.compat import (  # noqa: E402
     DoclingBackend,
     LiteParseBackend,
-    MinerUBackend,
-    PaddleOcrBackend,
     PdfParser,
     PdfParserProfile,
     PyMuPdfBackend,
@@ -29,8 +27,6 @@ from harborrag_core.domain.parser import ParseInput  # noqa: E402
 PDF_BACKENDS = {
     "docling": DoclingBackend,
     "liteparse": LiteParseBackend,
-    "mineru": MinerUBackend,
-    "paddleocr": PaddleOcrBackend,
     "pymupdf": PyMuPdfBackend,
 }
 

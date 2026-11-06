@@ -222,7 +222,7 @@ pip install "harborrag-adapters[parsers-all]"    # parsers plus every PDF backen
 ```
 
 Narrower extras exist for single backends: `pdf-pymupdf`, `pdf-liteparse`,
-`pdf-mineru`, `pdf-ocr`, `document`, `spreadsheet`, `presentation`, `markup`,
+`document`, `spreadsheet`, `presentation`, `markup`,
 `image`, `image-tesseract`, and `image-rapidocr`.
 
 In a checkout, use the editable form:

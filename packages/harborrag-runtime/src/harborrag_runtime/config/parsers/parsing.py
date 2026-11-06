@@ -27,7 +27,7 @@ from harborrag_runtime.config.parsers.schemas import (
 )
 
 _PARSER_KEYS = frozenset({"enabled", "engines", "parser", "settings"})
-_ENGINE_KEYS = frozenset({"backend", "environment", "secrets", "settings"})
+_ENGINE_KEYS = frozenset({"backend", "secrets", "settings"})
 
 
 def parse_parser_definitions(
@@ -196,11 +196,6 @@ def _parse_pdf_backend(
         key_suffix="_env",
         error_type=ParserConfigurationError,
     )
-    process_environment = parse_environment_references(
-        engine.get("environment", {}),
-        label=f"{label} environment",
-        error_type=ParserConfigurationError,
-    )
 
     unknown = sorted((set(settings) | set(secret_environment)) - spec.setting_names())
     if unknown:
@@ -223,13 +218,8 @@ def _parse_pdf_backend(
             f"{label} setting(s) require Python objects and cannot be loaded from "
             f"YAML: {', '.join(python_only)}"
         )
-    if process_environment and backend != "mineru":
-        raise ParserConfigurationError(
-            f"{label} environment is supported only for the MinerU subprocess backend"
-        )
     return PdfBackendDefinition(
         backend=backend,
         settings=settings,
         secret_environment=secret_environment,
-        process_environment=process_environment,
     )

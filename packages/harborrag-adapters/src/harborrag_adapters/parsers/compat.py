@@ -34,14 +34,6 @@ from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
     LiteParseBackend,
     LiteParseBackendOptions,
 )
-from harborrag_adapters.parsers.pdf.engines.mineru.engine import (
-    MinerUBackend,
-    MinerUBackendOptions,
-)
-from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import (
-    PaddleOcrBackend,
-    PaddleOcrBackendOptions,
-)
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPdfBackend
 from harborrag_adapters.parsers.pdf.models import PdfParseResult
 from harborrag_adapters.parsers.pdf.parser import PdfParser
@@ -67,12 +59,8 @@ __all__ = [
     "LiteParseBackend",
     "LiteParseBackendOptions",
     "MarkdownParser",
-    "MinerUBackend",
-    "MinerUBackendOptions",
     "MsWordParser",
     "OdtParser",
-    "PaddleOcrBackend",
-    "PaddleOcrBackendOptions",
     "ParseError",
     "PasswordProtectedError",
     "PdfBackend",

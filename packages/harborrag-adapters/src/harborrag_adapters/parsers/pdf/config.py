@@ -52,31 +52,29 @@ def default_pdf_profiles() -> dict[str, PDFProfileConfig]:
         # with PyMuPDF as a lightweight fallback when LiteParse is unavailable.
         "liteparse": PDFProfileConfig(("liteparse", "pymupdf"), 0.65),
         "fast": PDFProfileConfig(("pymupdf", "liteparse"), 0.65),
-        "balanced": PDFProfileConfig(
-            ("pymupdf", "docling", "liteparse", "mineru", "paddleocr"),
-            0.80,
-        ),
+        "balanced": PDFProfileConfig(("pymupdf", "docling", "liteparse"), 0.80),
         "ocr": PDFProfileConfig(
-            ("docling", "mineru", "paddleocr", "pymupdf"),
+            ("docling", "pymupdf"),
             0.75,
             preserve_tables=True,
             preserve_layout=True,
         ),
+        # Kept so configs naming it still load; without a local OCR engine it equals "ocr".
         "ocr_first": PDFProfileConfig(
-            ("paddleocr", "mineru", "docling", "pymupdf"),
+            ("docling", "pymupdf"),
             0.75,
             preserve_tables=True,
             preserve_layout=True,
         ),
         "quality": PDFProfileConfig(
-            ("docling", "mineru", "paddleocr", "pymupdf", "liteparse"),
+            ("docling", "pymupdf", "liteparse"),
             0.85,
             preserve_equations=True,
             preserve_tables=True,
             preserve_layout=True,
         ),
         "scientific": PDFProfileConfig(
-            ("mineru", "docling", "pymupdf"),
+            ("docling", "pymupdf"),
             0.85,
             preserve_equations=True,
             preserve_tables=True,

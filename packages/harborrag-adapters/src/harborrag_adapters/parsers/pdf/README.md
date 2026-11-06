@@ -61,7 +61,7 @@ config = PDFParserConfig(
         default_profile="research",
         profiles={
             "research": PDFProfileConfig(
-                engine_order=("docling", "mineru", "pymupdf"),
+                engine_order=("docling", "liteparse", "pymupdf"),
                 minimum_quality_score=0.85,
                 preserve_tables=True,
                 preserve_layout=True,
@@ -81,8 +81,6 @@ registered provider.
 | PyMuPDF | Fast embedded-text extraction | `pdf-pymupdf` |
 | Docling | Layout, tables, structured export, and OCR | `pdf-docling` |
 | LiteParse | Local parsing with page-oriented output | `pdf-liteparse` |
-| MinerU | CLI pipelines and generated Markdown/JSON | `pdf-mineru` |
-| PaddleOCR | OCR-heavy document analysis | `pdf-ocr` |
 
 Each provider keeps configuration in its own `config.py`. Optional imports and
 model initialization remain inside the provider so importing the PDF family

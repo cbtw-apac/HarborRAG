@@ -224,7 +224,7 @@ registered families and their extensions:
 | `document` | `.docx`, `.odt`, `.epub` |
 | `presentation` | `.pptx`, `.pptm` |
 | `image` | `.png`, `.jpg`, `.jpeg`, `.gif`, `.bmp`, `.tif`, `.tiff`, `.webp` - via OCR |
-| `pdf` | `.pdf`, with PyMuPDF, Docling, LiteParse, MinerU, and PaddleOCR engines |
+| `pdf` | `.pdf`, with PyMuPDF, Docling and LiteParse engines |
 
 List them at runtime with `registry.families()`. The `PptxParser`/`DocxParser`/
 `PdfParser`-style names are migration aliases in `parsers/compat.py`, kept out of the

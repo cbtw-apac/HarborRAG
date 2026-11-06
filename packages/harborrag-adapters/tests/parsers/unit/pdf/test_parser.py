@@ -188,16 +188,7 @@ def test_pdf_parser_raises_shared_typed_cause_when_every_engine_agrees():
 def test_pdf_quality_profile_builds_expected_advanced_backends():
     backends = HarborParserFactory().create_pdf_parser(profile=PdfParserProfile.QUALITY).backends
 
-    assert [backend.name for backend in backends] == [
-        "docling",
-        "mineru",
-        "paddleocr",
-        "pymupdf",
-        "liteparse",
-    ]
+    assert [backend.name for backend in backends] == ["docling", "pymupdf", "liteparse"]
     assert backends[0].options.do_ocr is True
     assert backends[0].options.do_table_structure is True
-    assert backends[1].options.backend == "hybrid"
-    assert backends[1].options.effort == "medium"
-    assert backends[2].options.use_formula_recognition is True
-    assert backends[2].options.use_region_detection is True
+    assert backends[0].options.table_do_cell_matching is True

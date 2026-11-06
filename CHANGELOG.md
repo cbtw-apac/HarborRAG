@@ -51,6 +51,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 #### harborrag-adapters
 
+- **Breaking:** the MinerU and PaddleOCR PDF engines and their `pdf-mineru` and `pdf-ocr` extras; named PDF profiles keep their other engines
 - **Breaking:** Jira and Confluence no longer copy attachment text into the issue or page; its setting and the custom attachment parser hooks are gone
 
 ### Fixed

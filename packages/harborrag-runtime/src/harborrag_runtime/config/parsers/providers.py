@@ -29,18 +29,6 @@ from harborrag_adapters.parsers.pdf.engines.liteparse.config import (
 from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
     LiteParsePDFEngine,
 )
-from harborrag_adapters.parsers.pdf.engines.mineru.config import (
-    MinerUPDFConfig,
-)
-from harborrag_adapters.parsers.pdf.engines.mineru.engine import (
-    MinerUPDFEngine,
-)
-from harborrag_adapters.parsers.pdf.engines.paddleocr.config import (
-    PaddleOCRPDFConfig,
-)
-from harborrag_adapters.parsers.pdf.engines.paddleocr.engine import (
-    PaddleOCRPDFEngine,
-)
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import (
@@ -200,13 +188,11 @@ _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),
     "liteparse": PdfBackendSpec(LiteParsePDFEngine, LiteParsePDFConfig),
-    "mineru": PdfBackendSpec(MinerUPDFEngine, MinerUPDFConfig),
-    "paddleocr": PdfBackendSpec(PaddleOCRPDFEngine, PaddleOCRPDFConfig),
     "pymupdf": PdfBackendSpec(PyMuPDFEngine),
 }
 
 PDF_BACKEND_SECRET_FIELDS = frozenset({"password"})
-PDF_BACKEND_PYTHON_ONLY_FIELDS = frozenset({"converter", "env", "parser", "pipeline_options"})
+PDF_BACKEND_PYTHON_ONLY_FIELDS = frozenset({"converter", "parser", "pipeline_options"})
 
 
 def parser_factory(parser: str) -> ParserFactory | None:

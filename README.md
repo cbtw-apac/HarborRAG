@@ -34,7 +34,7 @@ Engineering context does not live in one place. HarborRAG ingests from **local f
 GitHub, Confluence, Jira, and SharePoint** — including issue comments, changelogs, and
 attachments, not just page bodies — and reads **eight parser families** covering text,
 Markdown, HTML, JSON, CSV/Excel, DOCX, ODT, EPUB, PPTX, images, and PDF. PDFs route through
-your choice of PyMuPDF, Docling, LiteParse, MinerU, or PaddleOCR, so a scanned spec and a
+your choice of PyMuPDF, Docling or LiteParse, so a scanned spec and a
 born-digital one both land as text.
 
 ### Answers cannot cite a stale version
@@ -643,7 +643,7 @@ and a production JWT/JWKS verifier. See
 | --- | --- |
 | Connectors | Local files, GitHub, Confluence, Jira, SharePoint |
 | Parsers | Text, Markdown, JSON, CSV/TSV, HTML, EPUB, DOCX, PPTX, Excel, images, PDF |
-| PDF backends | PyMuPDF, Docling, LiteParse, MinerU, PaddleOCR |
+| PDF backends | PyMuPDF, Docling, LiteParse |
 | Model clients | Chat, embeddings, and reranking through provider-neutral clients and LiteLLM-backed transports |
 | Repositories | Qdrant, FalkorDB, Redis, PostgreSQL, SQLite, S3, filesystem, and in-memory implementations across vector, graph, cache, database, state, and object storage |
 | Runtime | PostgreSQL-backed local Temporal deployment, durable stage state, rolling artifact fan-out, graceful worker shutdown, activities, workers, client controls |

@@ -123,7 +123,7 @@ parsers:
           do_table_structure: true
 ```
 
-Supported backend names are `pymupdf`, `docling`, `liteparse`, `mineru`, and `paddleocr`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
+Supported backend names are `pymupdf`, `docling` and `liteparse`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
 
 `max_pages` refuses a longer PDF before any engine reads it; the default is
 200 and `null` turns the check off. A PDF that cannot be counted, such as an
@@ -174,17 +174,6 @@ Backend secrets use `<field>_env`:
 - backend: liteparse
   secrets:
     password_env: PDF_DOCUMENT_PASSWORD
-```
-
-MinerU subprocess environment forwarding maps a target variable to a source variable:
-
-```yaml
-- backend: mineru
-  settings:
-    backend: vlm-http-client
-    server_url: http://127.0.0.1:30000
-  environment:
-    MINERU_VL_API_KEY: OPENAI_API_KEY
 ```
 
 The referenced process variable must exist and be non-empty when the parser is
