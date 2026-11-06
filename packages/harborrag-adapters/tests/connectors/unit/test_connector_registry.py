@@ -135,3 +135,34 @@ def test_registry_unregister_unknown_name_raises():
     registry = ConnectorRegistry()
     with pytest.raises(ConnectorNotFoundError):
         registry.unregister("nope")
+
+
+def test_builtin_definitions_load_once_on_first_use_beside_earlier_plugins() -> None:
+    calls: list[int] = []
+
+    def builtins() -> tuple[ConnectorProviderDefinition, ...]:
+        calls.append(1)
+        return (ConnectorProviderDefinition("builtin", _DummyConnector),)
+
+    registry = ConnectorRegistry(builtins=builtins)
+    assert calls == []
+
+    registry.register_provider(ConnectorProviderDefinition("plugin", _DummyConnector))
+
+    assert registry.canonical_names() == ["builtin", "plugin"]
+    assert registry.get_class("builtin") is _DummyConnector
+    assert calls == [1]
+
+
+def test_importing_the_connectors_package_imports_no_provider() -> None:
+    import subprocess
+    import sys
+
+    probe = (
+        "import sys, harborrag_adapters.connectors as c; "
+        "assert not any(name.startswith(('harborrag_adapters.connectors.jira', "
+        "'harborrag_adapters.connectors.sharepoint')) for name in sys.modules); "
+        "c.JiraConnector; assert 'harborrag_adapters.connectors.jira' in sys.modules"
+    )
+
+    subprocess.run([sys.executable, "-c", probe], check=True)

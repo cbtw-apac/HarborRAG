@@ -1,30 +1,20 @@
-"""Connector provider registry and public connector imports."""
+"""Connectors that pull documents from source systems, and their registry.
 
-from harborrag_adapters.connectors.confluence import (
-    ConfluenceConnector,
-    ConfluenceDeploymentType,
-    ConfluenceDocumentTransform,
-    ConfluenceSpaceConfig,
-)
-from harborrag_adapters.connectors.descriptors import (
-    ConnectorDocumentDescriptor,
-)
-from harborrag_adapters.connectors.github import (
-    GitHubConnector,
-    GitHubRepositoryConfig,
-)
+Importing this package is cheap: the registry, query and metadata types load
+eagerly, while each provider (Confluence, GitHub, Jira, local files,
+SharePoint) loads on first access to its names or on the registry's first
+lookup. Connectors import ``_shared`` and core, never ``parsers``.
+
+Start from: connector_registry, HarborConnector.
+"""
+
+from __future__ import annotations
+
+import importlib
+from typing import TYPE_CHECKING
+
+from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
-from harborrag_adapters.connectors.jira import (
-    JiraConnector,
-    JiraDeploymentType,
-    JiraDocumentTransform,
-    JiraProjectConfig,
-)
-from harborrag_adapters.connectors.local import (
-    LocalDocumentTransform,
-    LocalFileConfig,
-    LocalFileConnector,
-)
 from harborrag_adapters.connectors.registry import (
     ConnectorProviderDefinition,
     connector_registry,
@@ -35,64 +25,57 @@ from harborrag_adapters.connectors.schemas import (
     ConnectorQuery,
     ConnectorSkip,
 )
-from harborrag_adapters.connectors.sharepoint import (
-    SharePointConnector,
-    SharePointSiteConfig,
-)
 
-connector_registry.register_provider(
-    ConnectorProviderDefinition(
-        "confluence",
+if TYPE_CHECKING:
+    from harborrag_adapters.connectors.confluence import (
         ConfluenceConnector,
-        aliases=("confluence_cloud", "confluence_datacenter"),
-        config_factory=ConfluenceSpaceConfig,
-        constructor_dependencies={"rate_limiter": "rate_limiter"},
-        document_kind="page",
-        document_transform_factory=ConfluenceDocumentTransform,
+        ConfluenceDeploymentType,
+        ConfluenceDocumentTransform,
+        ConfluenceSpaceConfig,
     )
-)
-connector_registry.register_provider(
-    ConnectorProviderDefinition(
-        "github",
-        GitHubConnector,
-        aliases=("github_repo", "github_repository"),
-        config_factory=GitHubRepositoryConfig,
-        constructor_dependencies={"rate_limiter": "rate_limiter"},
-        document_kind="file",
-    )
-)
-connector_registry.register_provider(
-    ConnectorProviderDefinition(
-        "jira",
+    from harborrag_adapters.connectors.github import GitHubConnector, GitHubRepositoryConfig
+    from harborrag_adapters.connectors.jira import (
         JiraConnector,
-        aliases=("jira_cloud", "jira_datacenter"),
-        config_factory=JiraProjectConfig,
-        constructor_dependencies={"rate_limiter": "rate_limiter"},
-        document_kind="issue",
-        document_transform_factory=JiraDocumentTransform,
+        JiraDeploymentType,
+        JiraDocumentTransform,
+        JiraProjectConfig,
     )
-)
-connector_registry.register_provider(
-    ConnectorProviderDefinition(
-        "local",
+    from harborrag_adapters.connectors.local import (
+        LocalDocumentTransform,
+        LocalFileConfig,
         LocalFileConnector,
-        aliases=("filesystem", "files", "local_files"),
-        config_factory=LocalFileConfig,
-        config_path_fields=("source_path",),
-        document_kind="file",
-        document_transform_factory=LocalDocumentTransform,
     )
-)
-connector_registry.register_provider(
-    ConnectorProviderDefinition(
-        "sharepoint",
-        SharePointConnector,
-        aliases=("microsoft_sharepoint", "sharepoint_online"),
-        config_factory=SharePointSiteConfig,
-        constructor_dependencies={"rate_limiter": "rate_limiter"},
-        document_kind="file",
-    )
-)
+    from harborrag_adapters.connectors.sharepoint import SharePointConnector, SharePointSiteConfig
+
+# Provider names this package re-exports, by the subpackage that defines them.
+_PROVIDER_EXPORTS = {
+    "ConfluenceConnector": "confluence",
+    "ConfluenceDeploymentType": "confluence",
+    "ConfluenceDocumentTransform": "confluence",
+    "ConfluenceSpaceConfig": "confluence",
+    "GitHubConnector": "github",
+    "GitHubRepositoryConfig": "github",
+    "JiraConnector": "jira",
+    "JiraDeploymentType": "jira",
+    "JiraDocumentTransform": "jira",
+    "JiraProjectConfig": "jira",
+    "LocalDocumentTransform": "local",
+    "LocalFileConfig": "local",
+    "LocalFileConnector": "local",
+    "SharePointConnector": "sharepoint",
+    "SharePointSiteConfig": "sharepoint",
+}
+
+
+def __getattr__(name: str) -> object:
+    """Import a provider's public name on first access."""
+    subpackage = _PROVIDER_EXPORTS.get(name)
+    if subpackage is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    value = getattr(importlib.import_module(f"{__name__}.{subpackage}"), name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     "ConfluenceConnector",
