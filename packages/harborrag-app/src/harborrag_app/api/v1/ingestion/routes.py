@@ -92,6 +92,7 @@ async def start_ingestion(  # noqa: PLR0913 - the route's dependencies and body
         started = await service.connection_service.sync(
             ConnectionKey(tenant, body.project_id, body.connection_id),
             actor=principal.subject,
+            actor_type=principal.kind,
             mode=body.mode,
             item_refs=tuple(body.item_refs),
             updated_after=body.updated_after.isoformat() if body.updated_after else None,

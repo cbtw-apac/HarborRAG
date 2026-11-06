@@ -14,6 +14,8 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
@@ -59,6 +61,21 @@ def test_starting_an_ingestion_answers_202_with_its_location(client: TestClient)
     body = response.json()
     assert body["ingestion_id"] == "ing_1"
     assert response.headers["location"] == f"/v1/admin/ingestions/{body['ingestion_id']}"
+
+
+def test_a_start_by_an_api_key_records_it_as_the_trigger(client: TestClient) -> None:
+    key = Principal(
+        subject="key_1", role="editor", tenant_ids=frozenset({"acme"}), token_kind="api_key"
+    )
+    client.app.dependency_overrides[get_principal] = lambda: key  # type: ignore[attr-defined]
+
+    started = client.post(_START, json=_TARGET)
+
+    assert started.json()["triggered_by"] == {"principal_type": "api_key", "principal_id": "key_1"}
+    assert (
+        client.get(started.headers["location"]).json()["triggered_by"]
+        == started.json()["triggered_by"]
+    )
 
 
 def test_the_location_header_reads_the_started_run(client: TestClient) -> None:
