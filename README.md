@@ -696,9 +696,9 @@ and ownership rules.
 | [`config/mcp.yaml`](config/mcp.yaml) | MCP tool enablement, defaults, limits, and tenant overrides |
 
 Annotated references and richer examples live alongside them:
-`config/temporal.example.yaml`, `config/models.advance.example.yaml`,
-`config/harborrag.example.yaml`, and `config/advance_chat/*.example.yaml`. Templates for
-every environment file live in [`env-example/`](env-example/).
+`config/temporal.example.yaml`, `config/models.advance.example.yaml` and
+`config/harborrag.example.yaml`. Templates for every environment file live in
+[`env-example/`](env-example/).
 
 Model configuration resolves `${VARIABLE}` references while loading, so a missing
 credential fails immediately rather than at first use. Inspect what a catalog resolves to
