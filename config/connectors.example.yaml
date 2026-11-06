@@ -141,6 +141,6 @@ connectors:
   #
   # Delegated (signed-in user) access instead of an app secret: drop
   # client_secret_env, add `auth_mode: device_code` to settings, and sign in
-  # once with `python -m harborrag_adapters.connectors.sharepoint.login`.
+  # once with `python -m harborrag_runtime.connections.sharepoint_login`.
   # Optional `token_cache_path` overrides
   # ~/.harborrag/sharepoint/token-<tenant>-<client>.json.

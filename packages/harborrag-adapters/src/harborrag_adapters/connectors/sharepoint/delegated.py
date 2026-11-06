@@ -1,7 +1,7 @@
 """Delegated (signed-in user) Microsoft Graph auth via device code flow.
 
 An operator signs in once with ``python -m
-harborrag_adapters.connectors.sharepoint.login``; the refresh token is stored
+harborrag_runtime.connections.sharepoint_login``; the refresh token is stored
 in a local cache file. Connector runs then redeem that refresh token for
 short-lived access tokens without further interaction, and write back the
 rotated refresh token Microsoft identity returns.
@@ -32,7 +32,7 @@ from .permissions import token_claims
 DELEGATED_SCOPE = "https://graph.microsoft.com/.default offline_access"
 DEVICE_CODE_GRANT = "urn:ietf:params:oauth:grant-type:device_code"
 LOGIN_HINT = (
-    "run `python -m harborrag_adapters.connectors.sharepoint.login` to sign in "
+    "run `python -m harborrag_runtime.connections.sharepoint_login` to sign in "
     "(for the Temporal worker: `scripts/deployment/dev.sh sharepoint-login`)"
 )
 

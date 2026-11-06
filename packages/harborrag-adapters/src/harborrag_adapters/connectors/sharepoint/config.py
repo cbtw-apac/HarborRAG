@@ -72,7 +72,7 @@ class SharePointSiteConfig:
     * ``access_token``: a pre-issued token, used as-is;
     * ``client_credentials``: app-only, with ``client_secret``;
     * ``device_code``: delegated, as the user who signed in with the
-      ``sharepoint.login`` command; its refresh token lives in
+      ``sharepoint_login`` command; its refresh token lives in
       ``token_cache_path``.
 
     When unset it is inferred from the credentials present, which never

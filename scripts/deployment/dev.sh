@@ -389,7 +389,7 @@ sharepoint_login() {
     # worker reads (and rotates); the IDs come from the worker's env/.env.connector.
     echo "Signing in to SharePoint for the worker..."
     temporal_compose --profile worker run --rm --no-deps temporal-worker \
-        python -m harborrag_adapters.connectors.sharepoint.login "$@"
+        python -m harborrag_runtime.connections.sharepoint_login "$@"
 }
 
 global_rebuild=0

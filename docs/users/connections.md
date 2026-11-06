@@ -70,7 +70,7 @@ For GitHub Enterprise Server, set `credentials.api_url` and
 `credentials.web_url`.
 
 SharePoint device-code sign-in reads as a user who signed in once with
-`python -m harborrag_adapters.connectors.sharepoint.login --tenant-id … --client-id … --harborrag-tenant …`
+`python -m harborrag_runtime.connections.sharepoint_login --tenant-id … --client-id … --harborrag-tenant …`
 on a host whose `token_cache_path` the workers can also read. Without a
 `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass the
 connection's tenant to `--harborrag-tenant`. The API cannot

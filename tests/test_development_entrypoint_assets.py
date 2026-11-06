@@ -58,12 +58,12 @@ def test_development_entrypoint_orchestrates_explicit_components() -> None:
             ("sharepoint-login",),
             "Signing in to SharePoint for the worker",
             "--profile worker run --rm --no-deps temporal-worker"
-            " python -m harborrag_adapters.connectors.sharepoint.login",
+            " python -m harborrag_runtime.connections.sharepoint_login",
         ),
         (
             ("sharepoint-login", "--logout"),
             "Signing in to SharePoint for the worker",
-            "harborrag_adapters.connectors.sharepoint.login --logout",
+            "harborrag_runtime.connections.sharepoint_login --logout",
         ),
     ),
 )

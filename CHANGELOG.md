@@ -39,6 +39,10 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - **Breaking:** knowledge-graph traversal requires an access scope and checks it on every hop
 
+#### harborrag-runtime
+
+- **Breaking:** the SharePoint sign-in command is now `python -m harborrag_runtime.connections.sharepoint_login`
+
 #### harborrag-engine
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them

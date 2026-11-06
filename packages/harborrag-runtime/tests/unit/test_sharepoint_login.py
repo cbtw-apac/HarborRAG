@@ -6,8 +6,8 @@ from pathlib import Path
 
 import pytest
 
-from harborrag_adapters.connectors.sharepoint import login
 from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
+from harborrag_runtime.connections import sharepoint_login as login
 
 _IDS = ("MICROSOFT_TENANT_ID", "MICROSOFT_CLIENT_ID")
 

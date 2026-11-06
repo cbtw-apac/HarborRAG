@@ -81,6 +81,9 @@ a row whose type is unknown becomes `error`.
 
 ### Behaviour that changes
 
+- **The SharePoint sign-in command moved** to
+  `python -m harborrag_runtime.connections.sharepoint_login`, with the same options;
+  `scripts/deployment/dev.sh sharepoint-login` already uses it.
 - **SharePoint delegated sign-ins move under the HarborRAG tenant.** Without a
   `token_cache_path`, the refresh token now lives in
   `~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`

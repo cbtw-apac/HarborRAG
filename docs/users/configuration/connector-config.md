@@ -244,14 +244,14 @@ connectors:
 Sign in once on the machine that runs ingestion:
 
 ```bash
-python -m harborrag_adapters.connectors.sharepoint.login \
+python -m harborrag_runtime.connections.sharepoint_login \
   --tenant-id <tenant-guid> --client-id <app-guid>
 ```
 
 The IDs default to `MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`. If they are not
 exported, the command reads those two values (and nothing else) from
 `env/.env.connector`, or from `$CONNECTOR_ENV_FILE`, relative to the current directory,
-so from a checkout `uv run python -m harborrag_adapters.connectors.sharepoint.login` is
+so from a checkout `uv run python -m harborrag_runtime.connections.sharepoint_login` is
 enough.
 
 That sign-in serves ingestion that runs on your machine (`harborrag ingest run`). The

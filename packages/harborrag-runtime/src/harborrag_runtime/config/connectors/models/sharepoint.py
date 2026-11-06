@@ -214,7 +214,7 @@ SHAREPOINT = SourceTypeSpec(
             "SharePoint device-code sign-in",
             "oauth",
             "Read as a user who signed in once with python -m "
-            "harborrag_adapters.connectors.sharepoint.login on a host whose token_cache_path "
+            "harborrag_runtime.connections.sharepoint_login on a host whose token_cache_path "
             "the workers can read; the app needs delegated Sites.Selected and offline_access "
             "and public client flows enabled",
         ),

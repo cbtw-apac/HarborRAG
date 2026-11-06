@@ -1,8 +1,13 @@
-"""Sign in to SharePoint for ``auth_mode: device_code`` connections.
+"""Command that signs a host in to SharePoint for ``auth_mode: device_code`` connections.
+
+It lives in runtime, not in the SharePoint adapter, because it reads the
+process environment and the connector env file; the adapter supplies only the
+device code flow and the token cache. The worker image ships runtime, so
+``dev.sh sharepoint-login`` runs it there too.
 
 Usage::
 
-    python -m harborrag_adapters.connectors.sharepoint.login \
+    python -m harborrag_runtime.connections.sharepoint_login \
         --tenant-id <tenant-guid> --client-id <app-guid>
 
 Tenant and client IDs default to ``MICROSOFT_TENANT_ID`` and
@@ -21,8 +26,11 @@ import sys
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import AuthenticationError
-
-from .delegated import DelegatedTokenCache, DeviceCodeLogin, default_token_cache_path
+from harborrag_adapters.connectors.sharepoint import (
+    DelegatedTokenCache,
+    DeviceCodeLogin,
+    default_token_cache_path,
+)
 
 _TENANT_ID = "MICROSOFT_TENANT_ID"
 _CLIENT_ID = "MICROSOFT_CLIENT_ID"

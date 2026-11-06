@@ -155,7 +155,7 @@ def test_client_without_sign_in_explains_how_to_log_in(tmp_path):
     client = _delegated_client(tmp_path)
     with pytest.raises(AuthenticationError, match="No SharePoint sign-in found.*login") as error:
         client._access_token()
-    assert str(error.value).count("sharepoint.login") == 1
+    assert str(error.value).count("sharepoint_login") == 1
 
 
 def test_client_rejects_broad_delegated_scopes(tmp_path):
