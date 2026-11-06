@@ -159,6 +159,10 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
     document_ids = request.get("document_ids")
     if retry and not discovered and isinstance(document_ids, list):
         discovered = len(document_ids)
+    processed = counts.get("published", 0)
+    skipped = counts.get("unchanged", 0) + counts.get("skipped", 0)
+    failed = counts.get("failed", 0)
+    discovered = max(discovered, processed + skipped + failed)
     return {
         "ingestion_id": task.task_id,
         "tenant_id": tenant_id,
@@ -168,9 +172,9 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "counters": {
             "discovered": discovered,
-            "processed": counts.get("published", 0),
-            "skipped": counts.get("unchanged", 0) + counts.get("skipped", 0),
-            "failed": counts.get("failed", 0),
+            "processed": processed,
+            "skipped": skipped,
+            "failed": failed,
         },
         "stages": [],
         "error_category": summary.get("error_code") if isinstance(summary, Mapping) else None,

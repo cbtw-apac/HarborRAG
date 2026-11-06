@@ -77,3 +77,9 @@ def test_run_of_deleted_connection_falls_back_to_source_key() -> None:
         "jira-main",
     )
     assert (bare["project_id"], bare["connection_id"]) == ("", "jira-main")
+
+
+def test_discovered_never_below_counted_results() -> None:
+    view = _view(_task(), progress={"published": 2, "failed": 1})
+
+    assert view["counters"] == {"discovered": 3, "processed": 2, "skipped": 0, "failed": 1}
