@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
 from jira_http_test_helpers import jira_client as _jira_client
@@ -137,7 +139,7 @@ def test_jira_download_bytes_rejects_cross_origin():
 
 def test_jira_download_bytes_streams_capped_body():
     client = _jira_client()
-    client.config.max_attachment_size_bytes = 1024
+    client.config = replace(client.config, max_attachment_size_bytes=1024)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"hello ", b"world"])]
     )
@@ -171,7 +173,7 @@ def test_jira_download_bytes_raises_fetch_error_when_body_too_large():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _jira_client()
-    client.config.max_attachment_size_bytes = 4
+    client.config = replace(client.config, max_attachment_size_bytes=4)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"way too big"])]
     )

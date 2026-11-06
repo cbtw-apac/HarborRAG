@@ -19,7 +19,7 @@ ChecksumMode = Literal["none", "stat", "sha256"]
 DEFAULT_MAX_FILE_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class LocalFileConfig:
     """Configuration for one local file or directory source scope.
 
@@ -46,18 +46,27 @@ class LocalFileConfig:
 
     def __post_init__(self) -> None:
         """Resolve paths and normalize filters before connector use."""
-        self.source_path = resolve_path(self.source_path)
-        if not self.source_path.exists():
-            raise ValueError(f"Local source path does not exist: {self.source_path}")
-        if not (self.source_path.is_file() or self.source_path.is_dir()):
+        source_path = resolve_path(self.source_path)
+        object.__setattr__(self, "source_path", source_path)
+        if not source_path.exists():
+            raise ValueError(f"Local source path does not exist: {source_path}")
+        if not (source_path.is_file() or source_path.is_dir()):
             raise ValueError("Local source path must be a regular file or directory")
         validate_non_negative_limit("max_depth", self.max_depth)
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
         if self.checksum_mode not in {"none", "stat", "sha256"}:
             raise ValueError("checksum_mode must be one of: none, stat, sha256")
 
-        self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
-        self.excluded_extensions = {
-            normalize_extension(value) for value in self.excluded_extensions
-        }
-        self.excluded_dir_names = {value.strip() for value in self.excluded_dir_names}
+        object.__setattr__(
+            self,
+            "allowed_extensions",
+            {normalize_extension(value) for value in self.allowed_extensions},
+        )
+        object.__setattr__(
+            self,
+            "excluded_extensions",
+            {normalize_extension(value) for value in self.excluded_extensions},
+        )
+        object.__setattr__(
+            self, "excluded_dir_names", {value.strip() for value in self.excluded_dir_names}
+        )

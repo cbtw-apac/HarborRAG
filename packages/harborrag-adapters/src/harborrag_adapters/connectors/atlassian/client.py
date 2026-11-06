@@ -45,13 +45,22 @@ def _is_trusted_redirect(location: str, base_url: str) -> bool:
 
 
 class AtlassianHttpConfig(Protocol):
-    """Configuration fields shared by the two Atlassian HTTP clients."""
+    """Read-only configuration the two Atlassian HTTP clients share."""
 
-    requests_per_minute: int
-    request_timeout_seconds: float
-    max_retries: int
-    backoff_factor: float
-    max_attachment_size_bytes: int | None
+    @property
+    def requests_per_minute(self) -> int: ...
+
+    @property
+    def request_timeout_seconds(self) -> float: ...
+
+    @property
+    def max_retries(self) -> int: ...
+
+    @property
+    def backoff_factor(self) -> float: ...
+
+    @property
+    def max_attachment_size_bytes(self) -> int | None: ...
 
 
 @dataclass(frozen=True, slots=True)

@@ -53,7 +53,7 @@ DEFAULT_ISSUE_FIELDS = (
 )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class JiraProjectConfig:
     """Configuration for one JIRA source scope.
 
@@ -90,25 +90,31 @@ class JiraProjectConfig:
 
     def __post_init__(self) -> None:
         """Normalize the deployment type and validate credentials and query/load limits."""
-        self.base_url = str(self.base_url).rstrip("/")
+        object.__setattr__(self, "base_url", str(self.base_url).rstrip("/"))
         validate_https_url("base_url", self.base_url)
-        self.project_keys = self._string_list(self.project_keys)
-        self.issue_types = self._string_list(self.issue_types)
-        self.statuses = self._string_list(self.statuses)
-        self.labels = self._string_list(self.labels)
+        object.__setattr__(self, "project_keys", self._string_list(self.project_keys))
+        object.__setattr__(self, "issue_types", self._string_list(self.issue_types))
+        object.__setattr__(self, "statuses", self._string_list(self.statuses))
+        object.__setattr__(self, "labels", self._string_list(self.labels))
         requested = DEFAULT_ISSUE_FIELDS if self.fields is None else self.fields
-        self.fields = tuple(
-            dict.fromkeys(str(field_name) for field_name in requested if field_name)
+        object.__setattr__(
+            self,
+            "fields",
+            tuple(dict.fromkeys(str(field_name) for field_name in requested if field_name)),
         )
 
         if self.deployment_type is None:
-            self.deployment_type = (
+            object.__setattr__(
+                self,
+                "deployment_type",
                 JiraDeploymentType.CLOUD
                 if is_cloud_hostname(self.base_url)
-                else JiraDeploymentType.DATACENTER
+                else JiraDeploymentType.DATACENTER,
             )
         elif isinstance(self.deployment_type, str):
-            self.deployment_type = JiraDeploymentType(self.deployment_type.lower())
+            object.__setattr__(
+                self, "deployment_type", JiraDeploymentType(self.deployment_type.lower())
+            )
 
         if self.deployment_type == JiraDeploymentType.CLOUD and not self.email:
             raise ValueError("email is required for JIRA Cloud API token auth")

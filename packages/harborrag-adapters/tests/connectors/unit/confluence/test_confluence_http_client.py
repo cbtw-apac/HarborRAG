@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from confluence_http_test_helpers import confluence_client as _confluence_client
 from harbor_test_builders import FakeResponse, FakeSession
@@ -50,7 +52,7 @@ def test_confluence_download_bytes_rejects_cross_origin():
 
 def test_confluence_download_bytes_streams_capped_body():
     client = _confluence_client()
-    client.config.max_attachment_size_bytes = 1024
+    client.config = replace(client.config, max_attachment_size_bytes=1024)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"hello ", b"world"])]
     )
@@ -67,7 +69,7 @@ def test_confluence_download_bytes_raises_fetch_error_when_body_too_large():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
-    client.config.max_attachment_size_bytes = 4
+    client.config = replace(client.config, max_attachment_size_bytes=4)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"way too big"])]
     )
@@ -141,7 +143,7 @@ def test_confluence_request_raises_rate_limit_error_after_exhausting_retries():
     from harborrag_adapters.connectors.exceptions import RateLimitError
 
     client = _confluence_client()
-    client.config.max_retries = 0
+    client.config = replace(client.config, max_retries=0)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=429, headers={}, text="slow down")]
     )
@@ -151,8 +153,7 @@ def test_confluence_request_raises_rate_limit_error_after_exhausting_retries():
 
 def test_confluence_request_retries_5xx_then_succeeds():
     client = _confluence_client()
-    client.config.max_retries = 1
-    client.config.backoff_factor = 0.0
+    client.config = replace(client.config, max_retries=1, backoff_factor=0.0)
     client.session = FakeSession(
         responses=[
             FakeResponse(status_code=500, text="boom", headers={}),
@@ -177,7 +178,7 @@ def test_confluence_request_retries_connection_errors_then_succeeds():
     import requests
 
     client = _confluence_client()
-    client.config.max_retries = 1
+    client.config = replace(client.config, max_retries=1)
     client.session = FakeSession(
         responses=[
             requests.ConnectionError("boom"),
@@ -193,19 +194,9 @@ def test_confluence_request_raises_fetch_error_after_exhausting_connection_error
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = _confluence_client()
-    client.config.max_retries = 0
+    client.config = replace(client.config, max_retries=0)
     client.session = FakeSession(responses=[requests.ConnectionError("boom")])
     with pytest.raises(FetchError, match="Confluence request failed"):
-        client.get_json("content/search")
-
-
-def test_confluence_request_raises_fetch_error_when_max_retries_is_negative():
-    from harborrag_adapters.connectors.exceptions import FetchError
-
-    client = _confluence_client()
-    client.config.max_retries = -1
-    client.session = FakeSession(responses=[])
-    with pytest.raises(FetchError):
         client.get_json("content/search")
 
 
@@ -216,7 +207,7 @@ def test_confluence_acquire_sleeps_when_requests_arrive_faster_than_budget(monke
     monkeypatch.setattr(time, "sleep", lambda seconds: sleeps.append(seconds))
 
     client = _confluence_client()
-    client.config.requests_per_minute = 1
+    client.config = replace(client.config, requests_per_minute=1)
     client.session = FakeSession(
         responses=[
             FakeResponse(status_code=200, _json={"a": 1}),

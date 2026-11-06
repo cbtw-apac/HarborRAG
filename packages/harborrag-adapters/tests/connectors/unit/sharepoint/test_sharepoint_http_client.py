@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 from harbor_test_builders import FakeResponse, FakeSession
 from sharepoint_http_test_helpers import sharepoint_client
@@ -51,7 +53,7 @@ def test_sharepoint_get_json_rejects_non_dict_payload():
 
 def test_sharepoint_get_bytes_streams_capped_body():
     client = sharepoint_client()
-    client.config.max_file_size_bytes = 1024
+    client.config = replace(client.config, max_file_size_bytes=1024)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"hello ", b"world"])]
     )
@@ -62,7 +64,7 @@ def test_sharepoint_get_bytes_raises_fetch_error_when_body_too_large():
     from harborrag_adapters.connectors.exceptions import FetchError
 
     client = sharepoint_client()
-    client.config.max_file_size_bytes = 4
+    client.config = replace(client.config, max_file_size_bytes=4)
     client.session = FakeSession(
         responses=[FakeResponse(status_code=200, _chunks=[b"way too big"])]
     )

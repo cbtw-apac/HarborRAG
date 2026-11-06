@@ -30,7 +30,7 @@ class ConfluenceDeploymentType(StrEnum):
     DATACENTER = "datacenter"
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class ConfluenceSpaceConfig:
     """Configuration for one Confluence source scope.
 
@@ -63,20 +63,28 @@ class ConfluenceSpaceConfig:
 
     def __post_init__(self) -> None:
         """Normalize the deployment type and validate credentials and ingestion limits."""
-        self.base_url = str(self.base_url).rstrip("/")
+        object.__setattr__(self, "base_url", str(self.base_url).rstrip("/"))
         validate_https_url("base_url", self.base_url)
-        self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
+        object.__setattr__(
+            self, "space_key", validate_token(str(self.space_key).strip(), field_name="space key")
+        )
 
         if self.deployment_type is None:
-            self.deployment_type = (
+            object.__setattr__(
+                self,
+                "deployment_type",
                 ConfluenceDeploymentType.CLOUD
                 if is_cloud_hostname(self.base_url)
-                else ConfluenceDeploymentType.DATACENTER
+                else ConfluenceDeploymentType.DATACENTER,
             )
         elif isinstance(self.deployment_type, str):
-            self.deployment_type = ConfluenceDeploymentType(self.deployment_type.lower())
+            object.__setattr__(
+                self, "deployment_type", ConfluenceDeploymentType(self.deployment_type.lower())
+            )
 
-        self.content_types = [content_type.lower() for content_type in self.content_types]
+        object.__setattr__(
+            self, "content_types", [content_type.lower() for content_type in self.content_types]
+        )
         invalid = sorted(set(self.content_types) - _VALID_CONTENT_TYPES)
         if invalid:
             raise ValueError(

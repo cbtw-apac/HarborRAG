@@ -46,7 +46,7 @@ DEFAULT_MAX_FILE_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
 DEFAULT_ALLOWED_EXTENSIONS = frozenset(SHARED_ALLOWED_EXTENSIONS)
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class SharePointSiteConfig:
     """Configuration for one SharePoint crawl scope.
 
@@ -115,17 +115,17 @@ class SharePointSiteConfig:
 
     def __post_init__(self) -> None:
         """Resolve site/auth shortcuts and validate paging and size limits."""
-        self.graph_api_url = self.graph_api_url.rstrip("/")
+        object.__setattr__(self, "graph_api_url", self.graph_api_url.rstrip("/"))
         validate_https_url("graph_api_url", self.graph_api_url)
         if self.auth_mode is not None:
-            self.auth_mode = str(self.auth_mode).strip().lower()
+            object.__setattr__(self, "auth_mode", str(self.auth_mode).strip().lower())
 
         if self.site_url:
             validate_site_url(self.site_url)
         if self.site_url and (not self.hostname or not self.site_path):
             hostname, site_path = parse_sharepoint_site_url(self.site_url)
-            self.hostname = self.hostname or hostname
-            self.site_path = self.site_path or site_path
+            object.__setattr__(self, "hostname", self.hostname or hostname)
+            object.__setattr__(self, "site_path", self.site_path or site_path)
 
         if not self.site_id and (not self.hostname or self.site_path is None):
             raise ValueError(
@@ -142,25 +142,33 @@ class SharePointSiteConfig:
             raise ValueError("page_size must be between 1 and 999")
         validate_non_negative_limit("max_file_size_bytes", self.max_file_size_bytes)
         validate_positive_limit("max_file_size_bytes", self.max_file_size_bytes)
-        self.root_path = validate_drive_path("root_path", self.root_path)
+        object.__setattr__(self, "root_path", validate_drive_path("root_path", self.root_path))
 
-        self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
-        self.excluded_extensions = {
-            normalize_extension(value) for value in self.excluded_extensions
-        }
+        object.__setattr__(
+            self,
+            "allowed_extensions",
+            {normalize_extension(value) for value in self.allowed_extensions},
+        )
+        object.__setattr__(
+            self,
+            "excluded_extensions",
+            {normalize_extension(value) for value in self.excluded_extensions},
+        )
         validate_extensions(self.allowed_extensions)
         self._normalize_scope_and_allowlists()
 
     def _resolve_auth_mode(self) -> None:
         if self.auth_mode is None:
             if self.access_token:
-                self.auth_mode = SharePointAuthMode.ACCESS_TOKEN
+                object.__setattr__(self, "auth_mode", SharePointAuthMode.ACCESS_TOKEN)
             elif self.client_secret:
-                self.auth_mode = SharePointAuthMode.CLIENT_CREDENTIALS
+                object.__setattr__(self, "auth_mode", SharePointAuthMode.CLIENT_CREDENTIALS)
             else:
                 raise ValueError("SharePoint config requires access_token or client credentials")
         try:
-            self.auth_mode = SharePointAuthMode(str(self.auth_mode).strip().lower())
+            object.__setattr__(
+                self, "auth_mode", SharePointAuthMode(str(self.auth_mode).strip().lower())
+            )
         except ValueError:
             modes = ", ".join(sorted(SharePointAuthMode))
             raise ValueError(f"auth_mode must be one of {modes}") from None
@@ -176,7 +184,7 @@ class SharePointSiteConfig:
                 raise ValueError("auth_mode device_code requires tenant_id and client_id")
             if self.client_secret or self.access_token:
                 raise ValueError("auth_mode device_code does not use client_secret or access_token")
-            self.token_cache_path = str(self._token_cache())
+            object.__setattr__(self, "token_cache_path", str(self._token_cache()))
 
     def _token_cache(self) -> Path:
         """Return the explicit cache path, or the default inside the HarborRAG tenant's folder.
@@ -193,7 +201,11 @@ class SharePointSiteConfig:
 
     def _normalize_scope_and_allowlists(self) -> None:
         if self.item_ids is not None:
-            self.item_ids = [str(value).strip() for value in self.item_ids if str(value).strip()]
+            object.__setattr__(
+                self,
+                "item_ids",
+                [str(value).strip() for value in self.item_ids if str(value).strip()],
+            )
         validate_scope(
             item_ids=self.item_ids,
             crawl_all_drives=self.crawl_all_drives,
@@ -201,10 +213,18 @@ class SharePointSiteConfig:
             root_path=self.root_path,
         )
         if self.allowed_tenant_ids is not None:
-            self.allowed_tenant_ids = normalize_allowlist(
-                "allowed_tenant_ids", self.allowed_tenant_ids, allow_urls=False
+            object.__setattr__(
+                self,
+                "allowed_tenant_ids",
+                normalize_allowlist(
+                    "allowed_tenant_ids", self.allowed_tenant_ids, allow_urls=False
+                ),
             )
         if self.allowed_sites is not None:
-            self.allowed_sites = normalize_allowlist("allowed_sites", self.allowed_sites)
+            object.__setattr__(
+                self, "allowed_sites", normalize_allowlist("allowed_sites", self.allowed_sites)
+            )
         if self.allowed_path_prefixes is not None:
-            self.allowed_path_prefixes = normalize_path_prefixes(self.allowed_path_prefixes)
+            object.__setattr__(
+                self, "allowed_path_prefixes", normalize_path_prefixes(self.allowed_path_prefixes)
+            )

@@ -24,7 +24,7 @@ from .repository_paths import (
 )
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class GitHubRepositoryConfig:
     """Configuration for one GitHub repository source scope.
 
@@ -60,15 +60,15 @@ class GitHubRepositoryConfig:
 
     def __post_init__(self) -> None:
         """Resolve repository URL shortcuts and validate mutually exclusive refs."""
-        self.api_url = self.api_url.rstrip("/")
-        self.web_url = self.web_url.rstrip("/")
+        object.__setattr__(self, "api_url", self.api_url.rstrip("/"))
+        object.__setattr__(self, "web_url", self.web_url.rstrip("/"))
         validate_https_url("api_url", self.api_url)
         validate_https_url("web_url", self.web_url)
 
         if self.repository_url and (not self.owner or not self.repo):
             owner, repo = parse_github_repository_url(self.repository_url)
-            self.owner = self.owner or owner
-            self.repo = self.repo or repo
+            object.__setattr__(self, "owner", self.owner or owner)
+            object.__setattr__(self, "repo", self.repo or repo)
 
         if not self.owner or not self.repo:
             raise ValueError("GitHub config requires owner/repo or repository_url")
@@ -84,7 +84,13 @@ class GitHubRepositoryConfig:
             backoff_factor=self.backoff_factor,
         )
 
-        self.allowed_extensions = {normalize_extension(value) for value in self.allowed_extensions}
-        self.excluded_extensions = {
-            normalize_extension(value) for value in self.excluded_extensions
-        }
+        object.__setattr__(
+            self,
+            "allowed_extensions",
+            {normalize_extension(value) for value in self.allowed_extensions},
+        )
+        object.__setattr__(
+            self,
+            "excluded_extensions",
+            {normalize_extension(value) for value in self.excluded_extensions},
+        )
