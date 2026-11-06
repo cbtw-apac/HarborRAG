@@ -440,10 +440,10 @@ class ConnectionService:
                 {k: v for k, v in effective.items() if isinstance(v, Mapping)},
                 tenant_id=key.tenant_id,
             )
-        except SecretUnavailableError:
+        except SecretUnavailableError as unavailable:
             report = ConnectionTestReport()
             report.passed("schema")
-            report.secret_unavailable()
+            report.secret_unavailable(unavailable)
             return report.as_dict()
         report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
         return report.as_dict()

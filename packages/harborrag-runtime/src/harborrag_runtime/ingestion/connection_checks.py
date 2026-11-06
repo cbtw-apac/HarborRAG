@@ -27,6 +27,10 @@ from harborrag_core.ingestion.errors import (
     SourceAuthenticationError,
     SourceAuthorizationError,
 )
+from harborrag_runtime.connections.secrets import (
+    EnvSecretUnavailableError,
+    SecretUnavailableError,
+)
 
 CheckName = Literal["schema", "auth", "reachable", "permissions", "preview"]
 ErrorCategory = Literal[
@@ -42,9 +46,7 @@ _SOURCE_CHECKS: tuple[CheckName, ...] = ("reachable", "auth", "permissions", "pr
 _NOT_PERMITTED = frozenset({403, 404})
 
 PREVIEW_SIZE = 5
-SECRET_UNAVAILABLE_MESSAGE = (
-    "the secret is read from the worker's environment; the API cannot check it"
-)
+ENV_SECRET_MESSAGE = "the secret is read from the worker's environment; the API cannot check it"
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,9 +81,10 @@ class ConnectionTestReport:
         self.checks.append(CheckResult(name, False, message))
         self.error_category = category
 
-    def secret_unavailable(self) -> None:
-        """Record that a referenced secret is held where the API cannot read it."""
-        self.failed("auth", "secret_unavailable", SECRET_UNAVAILABLE_MESSAGE)
+    def secret_unavailable(self, error: SecretUnavailableError) -> None:
+        """Record an unreadable secret; an ``env:`` one lives in the worker, not the API."""
+        message = ENV_SECRET_MESSAGE if isinstance(error, EnvSecretUnavailableError) else str(error)
+        self.failed("auth", "secret_unavailable", message)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the response body."""

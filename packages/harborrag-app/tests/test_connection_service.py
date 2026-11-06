@@ -323,6 +323,19 @@ async def test_a_test_with_an_unreadable_env_secret_is_not_an_auth_failure(
 
 
 @pytest.mark.asyncio
+async def test_a_test_with_a_missing_stored_secret_says_so(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    world.secrets.values.clear()
+
+    report = await world.service.test(CONNECTION_KEY, None)
+
+    assert report["ok"] is False
+    assert report["error_category"] == "secret_unavailable"
+    auth = next(check for check in report["checks"] if check["name"] == "auth")
+    assert auth["message"] == "a stored secret is missing"
+
+
+@pytest.mark.asyncio
 async def test_testing_form_values_saves_nothing(
     world: ConnectionWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
