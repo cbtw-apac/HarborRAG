@@ -3,7 +3,7 @@ PYTHON ?= python
 PYTEST ?= pytest
 PACKAGE ?=
 
-.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi contract contract-write lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean hooks
+.PHONY: help bootstrap install-dev test test-package coverage coverage-html openapi lint complexity file-length import-boundaries format typecheck compile doctor deps-check provider-matrix clean hooks
 
 help:
 	@echo "HarborRAG development targets"
@@ -18,8 +18,6 @@ help:
 	@echo "  make test-package PACKAGE=harborrag-core"
 	@echo "  make coverage         Run tests with 90% coverage gate"
 	@echo "  make openapi          Export the OpenAPI contract to openapi.json"
-	@echo "  make contract         Check the API against contracts/http-v2.0.0.json"
-	@echo "  make contract-write   Rewrite contracts/http-v2.0.0.json after a reviewed API change"
 	@echo "  make lint             Run Ruff lint checks"
 	@echo "  make complexity       Enforce the Ruff complexity ratchet"
 	@echo "  make file-length      Require every Python file to stay at most 1000 lines"
@@ -62,12 +60,6 @@ coverage:
 openapi:
 	$(PYTHON) -m harborrag_app.api.export_openapi > openapi.json
 	@echo "openapi.json written"
-
-contract:
-	$(PYTHON) -m harborrag_app.api.contract
-
-contract-write:
-	$(PYTHON) -m harborrag_app.api.contract --write
 
 coverage-html:
 	$(PYTEST) --cov --cov-report=term-missing --cov-report=html

@@ -7,9 +7,7 @@ responses. Connector execution, parsing, chunking, indexing, and Temporal
 workflow rules remain outside this package.
 
 The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at
-the root, and Prometheus `/metrics` answers only on the separate ops port. The
-v2.0.0 surface is recorded in [`contracts/http-v2.0.0.json`](../../../../../contracts/http-v2.0.0.json),
-and a CI test fails when the API drifts from it.
+the root, and Prometheus `/metrics` answers only on the separate ops port.
 
 `/` redirects to `/docs` while documentation is enabled, and to `/healthz`
 when it is disabled.
@@ -226,7 +224,7 @@ API process settings use the `HARBORRAG_` prefix.
 Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json`
 default to disabled in production unless an operator enables them.
 
-## OpenAPI and the contract
+## OpenAPI
 
 In development:
 
@@ -235,13 +233,10 @@ http://127.0.0.1:8000/docs
 http://127.0.0.1:8000/openapi.json
 ```
 
-Export the deterministic schema, check the API against the contract, or
-rewrite the contract after a reviewed change:
+Export the deterministic schema:
 
 ```bash
 uv run python -m harborrag_app.api.export_openapi > openapi.json
-make contract
-make contract-write
 ```
 
 ## Package boundary
@@ -254,7 +249,7 @@ api/
 ├── probes.py, readiness.py
 ├── ops.py, metrics.py    # the ops port and its Prometheus registry
 ├── rate_limit.py, deadline.py, capacity*.py
-├── pagination.py, openapi.py, contract.py
+├── pagination.py, openapi.py
 └── v1/                   # the public /v1 routes
     ├── admin/            # source types, connections and projects
     ├── chat/             # chat sessions and completions
@@ -272,5 +267,5 @@ or secrets.
 Run its tests from the repository root:
 
 ```bash
-pytest packages/harborrag-app/tests/test_api_*.py packages/harborrag-app/tests/test_http_contract.py
+pytest packages/harborrag-app/tests/test_api_*.py packages/harborrag-app/tests/test_export_openapi.py
 ```

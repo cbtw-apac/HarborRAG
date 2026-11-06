@@ -3,11 +3,15 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 import pytest
 
 from harborrag_app import __version__
 from harborrag_app.api.export_openapi import export_openapi
+
+_ERROR_REF = {"$ref": "#/components/schemas/Error"}
+_STANDARD_ERRORS = {"401", "403", "429", "500", "503", "504"}
 
 
 @pytest.mark.blackbox
@@ -94,3 +98,39 @@ def test_chat_request_examples_are_sendable_as_written() -> None:
     assert next(iter(examples)) == "existing_session"
     assert examples["existing_session"]["value"]["session_id"].startswith("session-")
     assert "session_id" not in examples["new_session"]["value"]
+
+
+@pytest.fixture(scope="module")
+def openapi() -> dict[str, Any]:
+    return json.loads(export_openapi())
+
+
+def test_every_operation_declares_its_role(openapi: dict[str, Any]) -> None:
+    for path, item in openapi["paths"].items():
+        if path.startswith("/v1/"):
+            for method, operation in item.items():
+                assert operation.get("x-min-role") in {"reader", "editor", "admin", "owner"}, (
+                    method,
+                    path,
+                )
+
+
+def test_every_error_response_uses_the_shared_error_schema(openapi: dict[str, Any]) -> None:
+    for path, item in openapi["paths"].items():
+        if not path.startswith("/v1/"):
+            continue
+        for method, operation in item.items():
+            responses = operation["responses"]
+            assert _STANDARD_ERRORS <= set(responses), (method, path)
+            for status, response in responses.items():
+                if int(status) >= 400:
+                    schema = response["content"]["application/json"]["schema"]
+                    assert schema == _ERROR_REF, (method, path, status)
+
+
+def test_framework_validation_schemas_are_gone(openapi: dict[str, Any]) -> None:
+    schemas = openapi["components"]["schemas"]
+
+    assert "HTTPValidationError" not in schemas
+    assert "ValidationError" not in schemas
+    assert set(schemas["Error"]["required"]) == {"error"}
