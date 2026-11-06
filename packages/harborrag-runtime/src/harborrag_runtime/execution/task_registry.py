@@ -9,6 +9,7 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
+    TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
     FailurePage,
     IngestionTask,
@@ -321,4 +322,5 @@ def _with_actor(
     """Return ``request`` with who started the run; unchanged when nobody is named."""
     if actor is None:
         return request
-    return {**request, "actor": actor, "actor_type": actor_type or "user"}
+    actor_key, actor_type_key = TASK_PROVENANCE_KEYS
+    return {**request, actor_key: actor, actor_type_key: actor_type or "user"}

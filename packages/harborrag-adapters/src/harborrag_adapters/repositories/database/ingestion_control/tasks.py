@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -11,6 +11,7 @@ from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClie
 from harborrag_core.base import utc_now
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
+    TASK_PROVENANCE_KEYS,
     IngestionTask,
     IngestionTaskState,
     TaskPage,
@@ -107,8 +108,8 @@ class IngestionTaskRepository(TaskLifecycleMixin, TaskDocumentResultsMixin):
                     )
                 if (
                     row["source_scope_id"],
-                    row["request"],
-                ) != (task.source_scope_id, task.request):
+                    _identity(required_mapping(row, "request")),
+                ) != (task.source_scope_id, _identity(task.request)):
                     raise HarborConflictError("ingestion task identity collision")
                 return TaskRegistration(_task_from_row(row), created=False)
         except IntegrityError as error:
@@ -326,6 +327,11 @@ def _narrowed(
     if created_after is not None:
         statement = statement.where(INGESTION_TASKS.c.submitted_at >= created_after)
     return statement
+
+
+def _identity(request: Mapping[str, object]) -> dict[str, object]:
+    """Return ``request`` without who started the run, which a re-registration may omit."""
+    return {key: value for key, value in request.items() if key not in TASK_PROVENANCE_KEYS}
 
 
 def _task_from_row(row: DatabaseRow) -> IngestionTask:

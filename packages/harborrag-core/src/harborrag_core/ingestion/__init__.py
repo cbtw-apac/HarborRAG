@@ -37,6 +37,7 @@ from .identity import (
     reject_runtime_fields,
 )
 from .lifecycle_contracts import (
+    TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
     DocumentFailure,
     DocumentRetirementResult,
@@ -194,6 +195,7 @@ __all__ = [
     "StoredTaskDocumentResult",
     "SparseEncoderProfile",
     "SparseEncoding",
+    "TASK_PROVENANCE_KEYS",
     "TaskDocumentResult",
     "TaskDocumentPage",
     "TaskPage",
