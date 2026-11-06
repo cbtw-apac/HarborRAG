@@ -39,7 +39,12 @@ class _RecordingSession:
         self.sent: list[str] = []
         self.token_requests = 0
 
-    def request(self, method: str, url: str, *, headers: dict[str, str], **_kwargs: Any):
+    def request(
+        self, method: str, url: str, *, headers: dict[str, str] | None = None, **kwargs: Any
+    ):
+        if method == "POST":
+            return self.post(url, **kwargs)
+        assert headers is not None
         self.sent.append(headers["Authorization"])
         return self.gets.pop(0)
 

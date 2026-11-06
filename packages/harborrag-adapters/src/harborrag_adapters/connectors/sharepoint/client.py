@@ -3,18 +3,17 @@
 from __future__ import annotations
 
 import logging
-import math
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, Unpack
 
 import requests
 
+from harborrag_adapters.connectors._http import RequestOptions, RetryingHttpClient, RetryPolicy
 from harborrag_adapters.connectors.exceptions import (
     AuthenticationError,
     AuthorizationError,
     FetchError,
-    RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_MAX_RETRY_DELAY_SECONDS,
@@ -22,8 +21,6 @@ from harborrag_adapters.connectors.policies.http import (
     read_capped_content,
     read_capped_json,
     require_same_origin_url,
-    retry_delay_seconds,
-    safe_response_error_detail,
 )
 from harborrag_adapters.connectors.policies.network import guarded_session
 from harborrag_adapters.connectors.rate_limiting import (
@@ -37,7 +34,6 @@ from .delegated import DELEGATED_SCOPE, LOGIN_HINT, DelegatedTokenCache, identit
 from .permissions import reject_broad_delegated_scopes, reject_broad_permissions
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 class SharePointClient(Protocol):
@@ -61,7 +57,41 @@ class SharePointClient(Protocol):
         pass
 
 
-class _RequestsGraphClient:
+class _GraphRetries(RetryingHttpClient):
+    """Retry policy shared by the Graph and identity clients of one site config."""
+
+    config: SharePointSiteConfig
+
+    def _retry_policy(self) -> RetryPolicy:
+        # Retrying before Graph's Retry-After only earns another throttle, so a
+        # longer requested wait ends the request and the item is retried next run.
+        return RetryPolicy(
+            self.config.max_retries,
+            self.config.backoff_factor,
+            max_retry_after_seconds=DEFAULT_MAX_RETRY_DELAY_SECONDS,
+        )
+
+
+class _IdentityClient(_GraphRetries):
+    """Token requests to Microsoft identity, outside the Graph rate-limit lane.
+
+    Args:
+        config: Site config that supplies the timeout and retry settings.
+        session: Session the Graph client owns; it carries no Graph token.
+    """
+
+    def __init__(self, config: SharePointSiteConfig, session: requests.Session) -> None:
+        super().__init__(label="Microsoft identity", logger=logger)
+        self.config = config
+        self._session = session
+
+    def _send(self, method: str, url: str, **options: Unpack[RequestOptions]) -> requests.Response:
+        return self._session.request(
+            method, url, timeout=self.config.request_timeout_seconds, **options
+        )
+
+
+class _RequestsGraphClient(_GraphRetries):
     """Authenticated, rate-limited Microsoft Graph client."""
 
     def __init__(
@@ -70,6 +100,7 @@ class _RequestsGraphClient:
         *,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
+        super().__init__(label="Microsoft Graph", logger=logger)
         self.config = config
         self.session = guarded_session()
         self.session.headers.update({"Accept": "application/json"})
@@ -92,7 +123,7 @@ class _RequestsGraphClient:
         params: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """GET a Graph endpoint and decode its JSON body."""
-        response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
+        response = self.request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
             payload = read_capped_json(response)
         except (ValueError, ResponseTooLargeError) as exc:
@@ -103,7 +134,7 @@ class _RequestsGraphClient:
 
     def get_bytes(self, endpoint: str) -> bytes:
         """GET a Graph endpoint that returns file bytes, capped by size limit."""
-        response = self._request(
+        response = self.request(
             "GET",
             self._api_url(endpoint),
             headers={"Accept": "*/*"},
@@ -114,79 +145,23 @@ class _RequestsGraphClient:
         except ResponseTooLargeError as exc:
             raise FetchError(str(exc)) from exc
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one Graph request with auth, shared rate limiting, and retries."""
-        last_error: Exception | None = None
-        headers = dict(kwargs.pop("headers", {}) or {})
-        refreshed = False
-
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                response = self._send(method, url, headers, **kwargs)
-                if response.status_code == 401 and not refreshed and self._can_refresh_token():
-                    # The cached token expired during a retry wait or was revoked
-                    # early; one fresh token tells that apart from bad credentials.
-                    refreshed = True
-                    response.close()
-                    self._discard_token()
-                    response = self._send(method, url, headers, **kwargs)
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == self.config.max_retries:
-                    raise FetchError("Microsoft Graph request failed") from exc
-                self._sleep(attempt, exc)
-                continue
-
-            final_attempt = attempt == self.config.max_retries or self._retry_after_too_long(
-                response
-            )
-            self._raise_for_final_status(response, final_attempt=final_attempt)
-            if response.status_code not in _RETRYABLE_STATUS or final_attempt:
-                return response
-
-            last_error = FetchError(f"Microsoft Graph request returned HTTP {response.status_code}")
-            retry_headers = response.headers
-            response.close()
-            self._sleep(attempt, last_error, retry_headers)
-
-        raise FetchError("Microsoft Graph request failed") from last_error
-
-    def _send(
-        self,
-        method: str,
-        url: str,
-        headers: dict[str, str],
-        **kwargs: Any,
-    ) -> requests.Response:
+    def _send(self, method: str, url: str, **options: Unpack[RequestOptions]) -> requests.Response:
         """Send one attempt with the current token; a retry may outlive the last one."""
-        headers["Authorization"] = f"Bearer {self._access_token()}"
+        # ``options`` is this attempt's own copy, so the token never leaks into a retry.
+        options["headers"] = {
+            **options.get("headers", {}),
+            "Authorization": f"Bearer {self._access_token()}",
+        }
         self._acquire()
         return self.session.request(
-            method,
-            url,
-            headers=headers,
-            timeout=self.config.request_timeout_seconds,
-            **kwargs,
+            method, url, timeout=self.config.request_timeout_seconds, **options
         )
 
-    @staticmethod
-    def _retry_after_too_long(response: requests.Response) -> bool:
-        """Whether Graph asks for a longer wait than one retry may sleep.
-
-        Retrying before ``Retry-After`` only earns another throttle, so such a
-        response ends the request instead and the item is skipped for a later
-        run.
-        """
-        if response.status_code not in _RETRYABLE_STATUS:
+    def _refresh_credentials(self) -> bool:
+        """Drop the cached token after a 401 so one resend tells expiry from bad credentials."""
+        if not self._can_refresh_token():
             return False
-        requested = retry_delay_seconds(response.headers, 0.0, max_delay=math.inf, jitter=False)
-        if requested <= DEFAULT_MAX_RETRY_DELAY_SECONDS:
-            return False
-        logger.warning(
-            "Microsoft Graph asked to retry after %.0fs, beyond the %.0fs retry wait; not retrying",
-            requested,
-            DEFAULT_MAX_RETRY_DELAY_SECONDS,
-        )
+        self._discard_token()
         return True
 
     def _can_refresh_token(self) -> bool:
@@ -196,30 +171,6 @@ class _RequestsGraphClient:
     def _discard_token(self) -> None:
         self._token = None
         self._token_expires_at = 0.0
-
-    @staticmethod
-    def _raise_for_final_status(response: requests.Response, *, final_attempt: bool) -> None:
-        """Raise the typed error for a response that will not be retried.
-
-        A 401 means the credentials are rejected, which is fatal for the run. A
-        403 means the app lacks access to that resource, which callers handle
-        per item (or as fatal when it is the configured site itself).
-        """
-        status = response.status_code
-        if status == 401:
-            raise AuthenticationError(safe_response_error_detail(response), status_code=401)
-        if status == 403:
-            raise AuthorizationError(safe_response_error_detail(response), status_code=403)
-        if status in _RETRYABLE_STATUS and not final_attempt:
-            return
-        if status == 429:
-            raise RateLimitError(safe_response_error_detail(response), status_code=429)
-        if status >= 400:
-            raise FetchError(
-                f"Microsoft Graph request failed with HTTP "
-                f"{status}: {safe_response_error_detail(response)}",
-                status_code=status,
-            )
 
     def _access_token(self) -> str:
         """Return a configured token or obtain/cache one for the auth mode.
@@ -289,39 +240,14 @@ class _RequestsGraphClient:
         )
 
     def _request_token(self, form: dict[str, str]) -> requests.Response:
-        """POST for an OAuth token, retrying transient failures and 429/5xx."""
+        """POST for an OAuth token; every failure to get one is an authentication failure."""
         token_url = identity_url(str(self.config.tenant_id), "token")
-        last_error: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            try:
-                response = self.session.post(
-                    token_url,
-                    data=form,
-                    timeout=self.config.request_timeout_seconds,
-                    stream=True,
-                )
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == self.config.max_retries:
-                    raise AuthenticationError("Microsoft identity request failed") from exc
-                self._sleep(attempt, exc)
-                continue
-
-            if response.status_code not in _RETRYABLE_STATUS:
-                if response.status_code >= 400:
-                    raise AuthenticationError(safe_response_error_detail(response))
-                return response
-            if attempt == self.config.max_retries:
-                raise AuthenticationError(safe_response_error_detail(response))
-
-            last_error = AuthenticationError(
-                f"Microsoft identity token request returned HTTP {response.status_code}"
+        try:
+            return _IdentityClient(self.config, self.session).request(
+                "POST", token_url, data=form, stream=True
             )
-            headers = response.headers
-            response.close()
-            self._sleep(attempt, last_error, headers)
-
-        raise AuthenticationError("Microsoft identity request failed") from last_error
+        except (AuthenticationError, AuthorizationError, FetchError) as exc:
+            raise AuthenticationError(str(exc), status_code=exc.status_code) from exc
 
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool and discard its token."""
@@ -348,16 +274,3 @@ class _RequestsGraphClient:
             self._rate_limit_identity.scope("graph"),
             requests_per_minute=self.config.requests_per_minute,
         )
-
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
-        """Sleep before retrying, honoring provider retry headers when present."""
-        fallback_delay = self.config.backoff_factor * (2**attempt)
-        delay = retry_delay_seconds(headers, fallback_delay)
-        logger.warning(
-            "Retrying Microsoft Graph request after %s, attempt %d/%d",
-            type(error).__name__,
-            attempt + 1,
-            self.config.max_retries,
-        )
-        if delay > 0:
-            time.sleep(delay)

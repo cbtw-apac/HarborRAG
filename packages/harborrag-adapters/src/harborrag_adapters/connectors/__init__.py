@@ -57,6 +57,7 @@ connector_registry.register_provider(
         GitHubConnector,
         aliases=("github_repo", "github_repository"),
         config_factory=GitHubRepositoryConfig,
+        constructor_dependencies={"rate_limiter": "rate_limiter"},
         document_kind="file",
     )
 )

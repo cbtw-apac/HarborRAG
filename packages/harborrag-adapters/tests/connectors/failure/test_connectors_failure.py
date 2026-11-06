@@ -28,8 +28,7 @@ pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 def _no_sleep(monkeypatch):
     """Neutralize retry/backoff sleeps in every connector client module."""
     for module in (
-        "harborrag_adapters.connectors.github.client",
-        "harborrag_adapters.connectors.atlassian.client",
+        "harborrag_adapters.connectors._http.client",
         "harborrag_adapters.connectors.sharepoint.client",
         "harborrag_adapters.connectors.sharepoint.connector",
     ):
@@ -86,11 +85,11 @@ def test_github_retries_after_rate_limit_then_succeeds():
     assert len(client.session.calls) == 2  # retried once
 
 
-def test_github_plain_403_becomes_authentication_error():
+def test_github_plain_403_becomes_authorization_error():
     client = _RequestsGitHubClient(_github_config())
     client.session = FakeSession(responses=[FakeResponse(status_code=403, text="Bad credentials")])
 
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthorizationError):
         client.get_json("repos/acme/harbor-rag")
     assert len(client.session.calls) == 1  # not retried
 

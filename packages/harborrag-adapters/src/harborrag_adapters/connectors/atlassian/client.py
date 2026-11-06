@@ -3,27 +3,20 @@
 from __future__ import annotations
 
 import logging
-import time
 from dataclasses import dataclass
 from threading import Lock, get_ident, local
-from typing import Any, Protocol
+from typing import Any, Protocol, Unpack
 from urllib.parse import urlparse
 
 import requests
 
-from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
-    AuthorizationError,
-    FetchError,
-    ItemNotFoundError,
-    RateLimitError,
-)
+from harborrag_adapters.connectors._http import RequestOptions, RetryingHttpClient, RetryPolicy
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.http import (
     ResponseTooLargeError,
     read_capped_content,
     read_capped_json,
     require_same_origin_url,
-    retry_delay_seconds,
     safe_response_error_detail,
     same_origin,
 )
@@ -33,8 +26,6 @@ from harborrag_adapters.connectors.rate_limiting import (
     LocalIntervalRateLimiter,
     RateLimitIdentity,
 )
-
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 # Confluence/Jira Cloud attachment downloads redirect once to Atlassian's
 # media platform with a short-lived, file-scoped signed URL baked into the
@@ -73,7 +64,7 @@ class AtlassianClientContext:
     rate_limit_identity: RateLimitIdentity
 
 
-class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
+class AtlassianRestClient[ConfigT: AtlassianHttpConfig](RetryingHttpClient):
     """Rate-limited requests client with shared errors and download safety."""
 
     def __init__(
@@ -83,6 +74,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         context: AtlassianClientContext,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
+        super().__init__(label=context.provider_label, logger=context.logger)
         self.config = config
         self.base_url = context.base_url.rstrip("/")
         self.session = guarded_session()
@@ -93,7 +85,6 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         self._sessions = {self.session, self._redirect_session}
         self._sessions_lock = Lock()
         self._provider_label = context.provider_label
-        self._logger = context.logger
         self._rate_limit_identity = context.rate_limit_identity
         self._rate_limiter = rate_limiter or LocalIntervalRateLimiter()
 
@@ -102,11 +93,11 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         method: str,
         url: str,
         endpoint: str,
-        **kwargs: Any,
+        **options: Unpack[RequestOptions],
     ) -> dict[str, Any]:
         """Send a request and require a JSON object response."""
-        kwargs.setdefault("stream", True)
-        response = self._request(method, url, **kwargs)
+        options.setdefault("stream", True)
+        response = self.request(method, url, **options)
         try:
             payload = read_capped_json(response)
         except (ValueError, ResponseTooLargeError) as exc:
@@ -131,7 +122,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             safe_url = require_same_origin_url(url, self.base_url, label=label)
         except ValueError as exc:
             raise FetchError(str(exc)) from exc
-        response = self._request(
+        response = self.request(
             "GET",
             safe_url,
             headers={"Accept": "*/*"},
@@ -185,57 +176,18 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             raise FetchError(f"{label} refused chained HTTP redirect {follow_up.status_code}")
         return follow_up
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one HTTP request with rate limiting and retry handling."""
-        last_error: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._acquire(url)
-            try:
-                response = self._session_for_thread().request(
-                    method,
-                    url,
-                    timeout=self.config.request_timeout_seconds,
-                    **kwargs,
-                )
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == self.config.max_retries:
-                    raise FetchError(f"{self._provider_label} request failed") from exc
-                self._sleep(attempt, exc)
-                continue
+    def _retry_policy(self) -> RetryPolicy:
+        return RetryPolicy(self.config.max_retries, self.config.backoff_factor)
 
-            if response.status_code == 401:
-                raise AuthenticationError(safe_response_error_detail(response), status_code=401)
-            if response.status_code == 403:
-                raise AuthorizationError(safe_response_error_detail(response), status_code=403)
-            if response.status_code == 429 and attempt == self.config.max_retries:
-                raise RateLimitError(safe_response_error_detail(response))
-            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
-                if response.status_code == 404:
-                    detail = safe_response_error_detail(response)
-                    raise ItemNotFoundError(
-                        f"{self._provider_label} request failed with HTTP 404: {detail}",
-                        status_code=404,
-                        detail=detail,
-                    )
-                if response.status_code >= 400:
-                    detail = safe_response_error_detail(response)
-                    raise FetchError(
-                        f"{self._provider_label} request failed with HTTP "
-                        f"{response.status_code}: {detail}",
-                        status_code=response.status_code,
-                        detail=detail,
-                    )
-                return response
-
-            last_error = FetchError(
-                f"{self._provider_label} request returned HTTP {response.status_code}"
-            )
-            headers = response.headers
-            response.close()
-            self._sleep(attempt, last_error, headers)
-
-        raise FetchError(f"{self._provider_label} request failed") from last_error
+    def _send(self, method: str, url: str, **options: Unpack[RequestOptions]) -> requests.Response:
+        """Send one throttled attempt on this thread's session."""
+        self._acquire(url)
+        return self._session_for_thread().request(
+            method,
+            url,
+            timeout=self.config.request_timeout_seconds,
+            **options,
+        )
 
     def close(self) -> None:
         """Close the connector-owned HTTP connection pool."""
@@ -275,17 +227,3 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
             self._rate_limit_identity.scope(api_family),
             requests_per_minute=self.config.requests_per_minute,
         )
-
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
-        """Sleep before retrying, honoring provider retry headers."""
-        fallback_delay = self.config.backoff_factor * (2**attempt)
-        delay = retry_delay_seconds(headers, fallback_delay)
-        self._logger.warning(
-            "Retrying %s request after %s, attempt %d/%d",
-            self._provider_label,
-            type(error).__name__,
-            attempt + 1,
-            self.config.max_retries,
-        )
-        if delay > 0:
-            time.sleep(delay)

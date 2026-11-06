@@ -28,6 +28,11 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 ### Changed
 
+#### harborrag-adapters
+
+- GitHub requests share the worker-wide rate limiter of their token
+- **Breaking:** a GitHub 403 without a rate-limit signal fails only that item, not the run; a GitHub or SharePoint 404 counts as not found instead of a transient error
+
 #### harborrag-core
 
 - **Breaking:** knowledge-graph traversal requires an access scope and checks it on every hop

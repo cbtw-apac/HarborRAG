@@ -8,6 +8,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError
+from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
@@ -40,6 +41,12 @@ class GitHubConnector(BaseConnector):
     Discovery resolves one repository ref and walks Git trees to produce file
     records. Loading fetches blob bytes by SHA so the loaded content matches the
     discovered commit instead of whatever the branch points to later.
+
+    Args:
+        config: Repository, ref, credentials and request settings.
+        client: Client to use instead of the requests-based one, such as a test fake.
+        rate_limiter: Limiter shared by every worker reading with the same token;
+            a per-process limiter when omitted.
     """
 
     provider_name = "github"
@@ -58,12 +65,13 @@ class GitHubConnector(BaseConnector):
         config: GitHubRepositoryConfig,
         *,
         client: GitHubClient | None = None,
+        rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
         """Initialize repository operations with an optional client override."""
         self.config = config
         self.owner = str(config.owner)
         self.repo = str(config.repo)
-        self.client = client or _RequestsGitHubClient(config)
+        self.client = client or _RequestsGitHubClient(config, rate_limiter=rate_limiter)
         self._github = GitHubRepositoryAPI(config, self.client)
 
     def connect(self) -> None:

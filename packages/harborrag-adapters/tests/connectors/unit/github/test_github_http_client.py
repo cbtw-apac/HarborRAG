@@ -131,14 +131,14 @@ def test_github_request_raises_authentication_error_on_401():
         client.get_json("repos/o/r")
 
 
-def test_github_request_raises_authentication_error_on_plain_403():
-    from harborrag_adapters.connectors.exceptions import AuthenticationError
+def test_github_request_raises_authorization_error_on_plain_403():
+    from harborrag_adapters.connectors.exceptions import AuthorizationError
 
     client = _github_client()
     client.session = FakeSession(
         responses=[FakeResponse(status_code=403, text="forbidden", headers={})]
     )
-    with pytest.raises(AuthenticationError):
+    with pytest.raises(AuthorizationError):
         client.get_json("repos/o/r")
 
 
@@ -279,7 +279,7 @@ def test_github_acquire_sleeps_when_requests_arrive_faster_than_budget(monkeypat
 
 @pytest.mark.parametrize(
     ("status", "error_type"),
-    [(401, "AuthenticationError"), (403, "AuthenticationError"), (404, "FetchError")],
+    [(401, "AuthenticationError"), (403, "AuthorizationError"), (404, "ItemNotFoundError")],
 )
 def test_github_errors_carry_the_http_status(status: int, error_type: str) -> None:
     from harborrag_adapters.connectors import exceptions

@@ -3,30 +3,29 @@
 from __future__ import annotations
 
 import logging
-import time
-from typing import Any, Protocol
+from typing import Any, Protocol, Unpack
 
 import requests
 
-from harborrag_adapters.connectors.exceptions import (
-    AuthenticationError,
-    FetchError,
-    RateLimitError,
-)
+from harborrag_adapters.connectors._http import RequestOptions, RetryingHttpClient, RetryPolicy
+from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.http import (
     DEFAULT_JSON_BODY_LIMIT,
     ResponseTooLargeError,
     read_capped_json,
     require_same_origin_url,
-    retry_delay_seconds,
     safe_response_error_detail,
 )
 from harborrag_adapters.connectors.policies.network import guarded_session
+from harborrag_adapters.connectors.rate_limiting import (
+    ConnectorRateLimiter,
+    LocalIntervalRateLimiter,
+    RateLimitIdentity,
+)
 
 from .config import GitHubRepositoryConfig
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
-_RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
 class GitHubClient(Protocol):
@@ -47,10 +46,25 @@ class GitHubClient(Protocol):
         ...
 
 
-class _RequestsGitHubClient:
-    """Authenticated, rate-limited GitHub REST client."""
+class _RequestsGitHubClient(RetryingHttpClient):
+    """GitHub REST client on the shared retry loop and the token's rate-limit lane.
 
-    def __init__(self, config: GitHubRepositoryConfig) -> None:
+    A 403 that carries GitHub's primary or secondary rate-limit signal is
+    retried like a 429.
+
+    Args:
+        config: Repository config that supplies the API URL, token and request settings.
+        rate_limiter: Limiter shared by every worker reading with the same token;
+            a per-process limiter when omitted.
+    """
+
+    def __init__(
+        self,
+        config: GitHubRepositoryConfig,
+        *,
+        rate_limiter: ConnectorRateLimiter | None = None,
+    ) -> None:
+        super().__init__(label="GitHub", logger=logger)
         self.config = config
         self.session = guarded_session()
         self.session.headers.update(
@@ -61,8 +75,14 @@ class _RequestsGitHubClient:
         )
         if config.token:
             self.session.headers.update({"Authorization": f"Bearer {config.token}"})
-        self._min_interval = 60.0 / config.requests_per_minute
-        self._last_request_at = 0.0
+        # GitHub throttles per token, so every worker using it shares one lane.
+        self._rate_limit_identity = RateLimitIdentity.from_http_source(
+            connector_type="github",
+            deployment_type="rest",
+            base_url=config.api_url,
+            credential_parts=(config.token or "",),
+        )
+        self._rate_limiter = rate_limiter or LocalIntervalRateLimiter()
 
     def close(self) -> None:
         """Close the underlying HTTP session."""
@@ -82,7 +102,7 @@ class _RequestsGitHubClient:
         max_bytes: int | None = None,
     ) -> dict[str, Any] | list[dict[str, Any]]:
         """GET a GitHub API endpoint and decode its JSON body."""
-        response = self._request("GET", self._api_url(endpoint), params=params, stream=True)
+        response = self.request("GET", self._api_url(endpoint), params=params, stream=True)
         try:
             payload = read_capped_json(
                 response,
@@ -103,56 +123,21 @@ class _RequestsGitHubClient:
             return items
         raise FetchError(f"GitHub returned invalid JSON for {endpoint}")
 
-    def _request(self, method: str, url: str, **kwargs: Any) -> requests.Response:
-        """Send one HTTP request with local rate limiting and retry handling."""
-        last_error: Exception | None = None
-        for attempt in range(self.config.max_retries + 1):
-            self._acquire()
-            try:
-                response = self.session.request(
-                    method,
-                    url,
-                    timeout=self.config.request_timeout_seconds,
-                    **kwargs,
-                )
-            except requests.RequestException as exc:
-                last_error = exc
-                if attempt == self.config.max_retries:
-                    raise FetchError("GitHub request failed") from exc
-                self._sleep(attempt, exc)
-                continue
+    def _retry_policy(self) -> RetryPolicy:
+        return RetryPolicy(self.config.max_retries, self.config.backoff_factor)
 
-            if response.status_code in (401,):
-                raise AuthenticationError(
-                    safe_response_error_detail(response), status_code=response.status_code
-                )
-            if self._rate_limited(response):
-                if attempt == self.config.max_retries:
-                    raise RateLimitError(safe_response_error_detail(response))
-                last_error = RateLimitError("GitHub rate limit exceeded")
-                retry_headers = response.headers
-                response.close()
-                self._sleep(attempt, last_error, retry_headers)
-                continue
-            if response.status_code == 403:
-                raise AuthenticationError(
-                    safe_response_error_detail(response), status_code=response.status_code
-                )
-            if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
-                if response.status_code >= 400:
-                    raise FetchError(
-                        f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {safe_response_error_detail(response)}",
-                        status_code=response.status_code,
-                    )
-                return response
-
-            last_error = FetchError(f"GitHub request returned HTTP {response.status_code}")
-            retry_headers = response.headers
-            response.close()
-            self._sleep(attempt, last_error, retry_headers)
-
-        raise FetchError("GitHub request failed") from last_error
+    def _send(self, method: str, url: str, **options: Unpack[RequestOptions]) -> requests.Response:
+        """Send one attempt through the shared limiter's REST lane."""
+        self._rate_limiter.acquire(
+            self._rate_limit_identity.scope("rest"),
+            requests_per_minute=self.config.requests_per_minute,
+        )
+        return self.session.request(
+            method,
+            url,
+            timeout=self.config.request_timeout_seconds,
+            **options,
+        )
 
     def _api_url(self, endpoint: str) -> str:
         """Build a GitHub API URL while rejecting cross-origin absolute URLs."""
@@ -169,6 +154,7 @@ class _RequestsGitHubClient:
 
     @staticmethod
     def _rate_limited(response: requests.Response) -> bool:
+        """A 429, or a 403 that carries GitHub's primary or secondary rate-limit signal."""
         if response.status_code == 429:
             return True
         if response.status_code != 403:
@@ -179,24 +165,3 @@ class _RequestsGitHubClient:
             return True
         body = safe_response_error_detail(response, limit=2_000).lower()
         return "secondary rate limit" in body or "abuse detection" in body
-
-    def _acquire(self) -> None:
-        """Throttle requests according to the configured per-minute budget."""
-        now = time.monotonic()
-        wait = self._min_interval - (now - self._last_request_at)
-        if wait > 0:
-            time.sleep(wait)
-        self._last_request_at = time.monotonic()
-
-    def _sleep(self, attempt: int, error: Exception, headers: Any = None) -> None:
-        """Sleep before retrying, honoring provider retry headers when present."""
-        fallback_delay = self.config.backoff_factor * (2**attempt)
-        delay = retry_delay_seconds(headers, fallback_delay)
-        logger.warning(
-            "Retrying GitHub request after %s, attempt %d/%d",
-            type(error).__name__,
-            attempt + 1,
-            self.config.max_retries,
-        )
-        if delay > 0:
-            time.sleep(delay)
