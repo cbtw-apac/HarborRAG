@@ -48,6 +48,7 @@ from .turn import (
 
 if TYPE_CHECKING:
     from harborrag_core.models.chat import HarborChatResponse
+    from harborrag_core.ports.config_store import ConfigProvider
 
 logger = logging.getLogger("harborrag.app.workflow_control.chat")
 
@@ -73,6 +74,7 @@ class ChatApplicationService:
         extraction: MemoryExtractionQueue | None = None,
         locks: SessionLocks | None = None,
         usage: ModelUsageRepository | None = None,
+        config: ConfigProvider | None = None,
     ) -> None:
         self._resources = ChatTurnResources(
             runtime_provider=runtime_provider,
@@ -81,6 +83,7 @@ class ChatApplicationService:
             memories=memories,
             index=index,
             usage=usage,
+            config=config,
         )
         self._projects = projects
         self._extraction = extraction

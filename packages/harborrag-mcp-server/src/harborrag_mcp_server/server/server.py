@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from harborrag_core.config_store import SettingsLevel
 from harborrag_core.contracts.tools import BaseTool, ToolInvocationContext, ToolSpec
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import TenantId
@@ -19,6 +20,7 @@ from harborrag_mcp_server.policy import McpToolPolicy
 from harborrag_mcp_server.server.base import BaseMcpServer, tool_reported_error
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_core.ports.reader import ReaderServices
     from harborrag_mcp_server.configuration import McpConfigurationStore
 
@@ -31,6 +33,8 @@ _default_policy = McpToolPolicy()
 # the audit record and the HTTP status mapping are unchanged.
 _CALLER_CORRECTABLE = "_harborrag_caller_correctable"
 _default_audit_log: McpAuditLog | None = None
+_TOP_K_KEY = "retrieval.top_k"
+_VECTOR_SEARCH = "vector_search"
 
 
 def _shared_audit_log() -> McpAuditLog:
@@ -62,6 +66,7 @@ class McpServer(BaseMcpServer):
     invoker: ToolInvoker | None = None
     corpus_mode: Literal["source_acl", "tenant_shared"] = "source_acl"
     shared_tenant_id: str | None = None
+    config_provider: ConfigProvider | None = None
 
     def __post_init__(self) -> None:
         if self.corpus_mode == "tenant_shared" and not self.shared_tenant_id:
@@ -133,9 +138,10 @@ class McpServer(BaseMcpServer):
             tenant_id=tenant_id,
         )
         try:
+            top_k_default = await self._tenant_top_k_override(name, tenant_id)
             try:
                 spec, policy, defaults, context = self._admit(
-                    name, payload, principal_id, tenant_id, context
+                    name, payload, principal_id, tenant_id, context, top_k_default
                 )
             except (ValueError, TypeError, PermissionError) as exc:
                 setattr(exc, _CALLER_CORRECTABLE, True)
@@ -169,13 +175,26 @@ class McpServer(BaseMcpServer):
             )
             raise
 
-    def _admit(
+    async def _tenant_top_k_override(self, name: str, tenant_id: str | None) -> int | None:
+        """Return the tenant-level ``retrieval.top_k`` override for ``vector_search``, else ``None``.
+
+        Raises:
+            HarborUnavailableError: The provider cannot load a never-cached tenant.
+        """
+        if self.config_provider is None or name != _VECTOR_SEARCH or tenant_id is None:
+            return None
+        effective = await self.config_provider.effective(tenant_id, SettingsLevel("tenant"))
+        override = effective.override(_TOP_K_KEY)
+        return override if isinstance(override, int) else None
+
+    def _admit(  # noqa: PLR0913 - one argument per input of the pre-execution checks
         self,
         name: str,
         payload: dict[str, object],
         principal_id: str,
         tenant_id: str | None,
         context: ToolInvocationContext | None,
+        top_k_default: int | None = None,
     ) -> tuple[ToolSpec, ToolBudget, dict[str, object] | None, ToolInvocationContext]:
         """Run every check that precedes the tool's own execution.
 
@@ -185,6 +204,9 @@ class McpServer(BaseMcpServer):
         The invoker repeats the same checks on the same inputs, so they cannot
         disagree; anything raised after this point comes from the tool itself
         and stays masked.
+
+        ``top_k_default`` replaces the configured ``top_k`` default, still
+        clamped by the tool's ``top_k`` limit and the policy ceiling.
         """
 
         if self.tools is None:
@@ -202,6 +224,8 @@ class McpServer(BaseMcpServer):
             defaults = configured.defaults
             spec = self.configuration.tool_spec(spec, tenant_id)
             policy = self.configuration.policy()
+            if top_k_default is not None:
+                defaults = {**defaults, "top_k": _clamped(top_k_default, policy, configured.limits)}
         if context is None:
             context = ToolInvocationContext(
                 access=AccessContext(
@@ -224,6 +248,11 @@ class McpServer(BaseMcpServer):
                 raise PermissionError("reader tool tenant does not match authenticated context")
             invoker.budget.narrowed(policy).check_call(spec, values)
         return spec, policy, defaults, context
+
+
+def _clamped(top_k: int, policy: McpToolPolicy, limits: dict[str, int | float]) -> int:
+    """Return ``top_k`` under the policy ceiling and the tool's ``top_k`` limit."""
+    return int(min(top_k, policy.max_results, limits.get("top_k", top_k)))
 
 
 def is_caller_correctable(exc: BaseException) -> bool:

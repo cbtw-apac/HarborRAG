@@ -5,12 +5,14 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
+from harborrag_core.config_store import SettingsLevel
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode, RetrievalRequest
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.contracts import RetrievalResponse
     from harborrag_runtime.memory import MemoryContext
@@ -43,13 +45,33 @@ def relevant_results(
     )
 
 
-async def search_documents(
+async def chat_top_k(
+    config: ConfigProvider | None, identity: MemoryIdentity, settings: RuntimeSettings
+) -> int:
+    """Return the ``retrieval.top_k`` override for the session's level, else the environment value.
+
+    Raises:
+        HarborUnavailableError: The provider cannot load a never-cached tenant.
+    """
+    if config is None:
+        return settings.chat_retrieval_top_k
+    level = (
+        SettingsLevel("project", project_id=identity.project_id)
+        if identity.project_id
+        else SettingsLevel("tenant")
+    )
+    override = (await config.effective(identity.tenant_id, level)).override("retrieval.top_k")
+    return override if isinstance(override, int) else settings.chat_retrieval_top_k
+
+
+async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrieval parameter
     runtime: HarborRAG,
     context: MemoryContext,
     *,
     identity: MemoryIdentity,
     settings: RuntimeSettings,
     graph_search: bool | None,
+    top_k: int,
 ) -> RetrievalResponse:
     """Search the current question with the selected retrieval mode."""
 
@@ -68,7 +90,7 @@ async def search_documents(
                 ),
             ),
             query=context.standalone_query,
-            top_k=settings.chat_retrieval_top_k,
+            top_k=top_k,
             lane=RetrievalLane.HYBRID,
             observe_graph=graph_enabled,
             mode=RetrievalMode.LOCAL_SEMANTIC if graph_enabled else RetrievalMode.FLAT,
@@ -76,4 +98,4 @@ async def search_documents(
     )
 
 
-__all__ = ["relevant_results", "search_documents"]
+__all__ = ["chat_top_k", "relevant_results", "search_documents"]

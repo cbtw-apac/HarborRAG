@@ -141,6 +141,7 @@ class AppService(
             index=index,
             extraction=self._extraction,
             usage=usage,
+            config=getattr(getattr(composition, "control_plane", None), "config", None),
         )
         self._durable = DurableIngestionOperations(
             self._settings,

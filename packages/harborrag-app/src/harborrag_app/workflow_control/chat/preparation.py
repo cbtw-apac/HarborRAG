@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from harborrag_core.models.chat import HarborChatRequest
+from harborrag_core.ports.config_store import ConfigProvider
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
@@ -24,7 +25,7 @@ from ..memory.identity import MemoryIdentity
 from .evidence import ChatEvidence
 from .options import ChatExecutionOptions
 from .prompting import build_chat_request, history_messages
-from .retrieval import relevant_results, search_documents
+from .retrieval import chat_top_k, relevant_results, search_documents
 
 # ``ChatEvidence`` budgets the rendered prompt in bytes; the policy states it in
 # tokens. Four is the usual conservative byte-per-token ratio for the mixed
@@ -53,6 +54,7 @@ class ChatTurnResources:
     memories: MemoryRepository | None = None
     index: MemoryIndex | None = None
     usage: ModelUsageRepository | None = None
+    config: ConfigProvider | None = None
 
     def runtime(self) -> HarborRAG:
         return self.runtime_provider()
@@ -87,6 +89,7 @@ async def prepare_turn(
         identity=identity,
         settings=resources.settings,
         graph_search=options.graph_search,
+        top_k=await chat_top_k(resources.config, identity, resources.settings),
     )
     # Gated once, before the results become both the model's evidence and the
     # caller's citations, so an answer is never reported as grounded in a

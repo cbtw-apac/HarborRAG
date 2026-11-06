@@ -309,6 +309,7 @@ def main(argv: Sequence[str] | None = None, *, ui: bool = False) -> int:
         references=runtime.references,
         corpus_mode=settings.corpus_access_mode,
         shared_tenant_id=settings.corpus_shared_tenant_id,
+        config_provider=runtime.config_provider,
     )
     configuration = _configure_registry(registry, arguments.config)
     transport = cast(
