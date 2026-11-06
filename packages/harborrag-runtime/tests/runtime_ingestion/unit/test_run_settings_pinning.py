@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from temporalio.converter import DataConverter
@@ -325,4 +326,39 @@ async def test_sdk_temporal_input_pins_run_settings(
     source = await executor._input(request)  # noqa: SLF001 - the input the SDK path starts runs with
 
     assert source.run_settings == expected
+    config.start.assert_awaited_once_with()  # type: ignore[attr-defined]
+
+
+@pytest.mark.asyncio
+async def test_concurrent_first_submits_start_one_config_provider(
+    monkeypatch: pytest.MonkeyPatch, shipped_settings: RuntimeSettings
+) -> None:
+    from harborrag_runtime.contracts import AccessContext, IngestionRequest
+    from harborrag_runtime.execution import temporal as temporal_module
+
+    connections, revisions = await _stored_connection()
+    config = _MutableProvider(_snapshot(4, {}))
+
+    async def yielding_start() -> None:
+        await asyncio.sleep(0)
+
+    config.start = AsyncMock(side_effect=yielding_start)  # type: ignore[attr-defined]
+    config.aclose = AsyncMock()  # type: ignore[attr-defined]
+    build = Mock(return_value=config)
+    stores = SimpleNamespace(
+        connections=connections, revisions=revisions, engine=object(), config_store=object()
+    )
+    monkeypatch.setattr(temporal_module, "build_connection_stores", lambda _settings: stores)
+    monkeypatch.setattr(temporal_module, "build_config_provider", build)
+    executor = temporal_module.TemporalIngestionExecutor(shipped_settings)
+    request = IngestionRequest(
+        access=AccessContext(principal_id="user-1", tenant_id="tenant-1"),
+        connector_name="docs",
+        task_id="run-1",
+        connection_id="docs",
+    )
+
+    await asyncio.gather(*(executor._input(request) for _ in range(3)))  # noqa: SLF001
+
+    build.assert_called_once()
     config.start.assert_awaited_once_with()  # type: ignore[attr-defined]
