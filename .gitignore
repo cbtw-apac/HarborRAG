@@ -251,3 +251,6 @@ docs/developers/architecture/http_backend/
 
 # Local macOS-compatible copy of dev.sh (bash 3.2 / BSD sed tweaks)
 scripts/deployment/dev-mac.sh
+
+# Local runtime settings seed (config/settings.example.yaml ships instead)
+/config/settings.yaml

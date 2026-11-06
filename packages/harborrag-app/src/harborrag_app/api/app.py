@@ -106,6 +106,18 @@ async def _import_connectors_once(service: object) -> None:
         logger.info("Imported %d connections from config/connectors.yaml", imported)
 
 
+async def _seed_settings_once(service: object) -> None:
+    """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
+
+    seeder = getattr(service, "seed_settings_once", None)
+    if seeder is None:
+        return
+    try:
+        await seeder()
+    except Exception:
+        logger.exception("Seeding settings from the settings file failed; use the settings API")
+
+
 async def _resume_connection_removals(app: FastAPI) -> None:
     """Finish connection and project removals a crash or failure left unfinished."""
 
@@ -166,6 +178,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if owns_memory_extraction:
         await service.start_memory_extraction()
     await _import_connectors_once(service)
+    await _seed_settings_once(service)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(

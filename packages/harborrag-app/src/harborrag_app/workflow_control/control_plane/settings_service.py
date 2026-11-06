@@ -84,7 +84,7 @@ class SettingsService:
             HarborUnavailableError: The settings store is not configured.
         """
         store = self._store()
-        await self._require_level(tenant_id, level)
+        await require_settings_level(self._control_plane(), tenant_id, level)
         snapshot = await store.load(tenant_id)
         if effective:
             resolved = resolve_effective(self._registry, snapshot, level)
@@ -127,7 +127,7 @@ class SettingsService:
             HarborUnavailableError: The settings store is not configured.
         """
         store = self._store()
-        await self._require_level(tenant_id, level)
+        await require_settings_level(self._control_plane(), tenant_id, level)
         snapshot = await store.load(tenant_id)
         if expected_revision not in {ANY_VERSION, snapshot.revision}:
             raise HarborPreconditionFailedError("settings changed since they were read")
@@ -168,24 +168,31 @@ class SettingsService:
             raise HarborUnavailableError("settings store is not configured")
         return store
 
-    async def _require_level(self, tenant_id: str, level: SettingsLevel) -> None:
-        if level.kind == "tenant":
-            return
-        control_plane = self._control_plane()
-        project_id = level.project_id or ""
-        if level.kind == "project":
-            exists = (
-                await control_plane.projects.get(project_id, tenant_ids=frozenset({tenant_id}))
-                is not None
+
+async def require_settings_level(
+    control_plane: ControlPlaneRepositories, tenant_id: str, level: SettingsLevel
+) -> None:
+    """Raise unless the project or connection of ``level`` exists in the tenant.
+
+    Raises:
+        SettingsLevelNotFoundError: The project or connection does not exist.
+    """
+    if level.kind == "tenant":
+        return
+    project_id = level.project_id or ""
+    if level.kind == "project":
+        exists = (
+            await control_plane.projects.get(project_id, tenant_ids=frozenset({tenant_id}))
+            is not None
+        )
+    else:
+        exists = (
+            await control_plane.connections.get(
+                tenant_id=tenant_id,
+                project_id=project_id,
+                connection_id=level.connection_id or "",
             )
-        else:
-            exists = (
-                await control_plane.connections.get(
-                    tenant_id=tenant_id,
-                    project_id=project_id,
-                    connection_id=level.connection_id or "",
-                )
-                is not None
-            )
-        if not exists:
-            raise SettingsLevelNotFoundError(f"{level} does not exist", details={"field": "level"})
+            is not None
+        )
+    if not exists:
+        raise SettingsLevelNotFoundError(f"{level} does not exist", details={"field": "level"})

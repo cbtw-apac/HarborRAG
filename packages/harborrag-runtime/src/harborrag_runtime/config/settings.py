@@ -120,6 +120,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
         pattern=r"^[A-Za-z0-9._-]+$",
     )
     connector_config_path: Path = Path("config/connectors.yaml")
+    settings_seed_path: Path = Path("config/settings.yaml")
     parser_config_path: Path = Path("config/parsers.yaml")
     model_config_path: Path = Path("config/models.yaml")
     graph_build_config_path: Path = Path("config/topology/graph_build.yaml")

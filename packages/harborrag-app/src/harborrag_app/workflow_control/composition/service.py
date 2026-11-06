@@ -23,6 +23,7 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
+from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
@@ -170,8 +171,12 @@ class AppService(
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
+        settings_registry = registry_for(self._settings)
         self._settings_service = SettingsService(
-            control_plane=self._control_plane, registry=registry_for(self._settings)
+            control_plane=self._control_plane, registry=settings_registry
+        )
+        self._settings_importer = SettingsImporter(
+            control_plane=self._control_plane, registry=settings_registry
         )
 
     @property
@@ -190,6 +195,11 @@ class AppService(
         return self._settings_service
 
     @property
+    def settings_importer(self) -> SettingsImporter:
+        """Settings file import, export and seeding."""
+        return self._settings_importer
+
+    @property
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
@@ -205,6 +215,14 @@ class AppService(
             settings=control_plane.settings,
         )
         return len(plan.writes) if plan is not None else 0
+
+    async def seed_settings_once(self) -> SeedOutcome:
+        """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
+        return await seed_settings_once(
+            self._settings_importer,
+            self._settings.settings_seed_path,
+            tenant_id=self._settings.ingestion_tenant_id,
+        )
 
     async def resume_connection_removals(self) -> int:
         """Finish removals a previous process left running; one API process at a time."""
