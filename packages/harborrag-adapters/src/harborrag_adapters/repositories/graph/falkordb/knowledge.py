@@ -32,6 +32,7 @@ from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
+    GraphTraversalQuery,
     GraphTripletQuery,
     GraphTripletResult,
 )
@@ -120,22 +121,12 @@ class FalkorKnowledgeGraphRepository:
 
     async def traverse(
         self,
-        start_node_key: str,
+        query: GraphTraversalQuery,
         *,
-        max_depth: int,
-        max_nodes: int,
-        direction: str,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal:
         return await knowledge_queries.traverse(
-            await self.database_for(context),
-            start_node_key,
-            bounds=knowledge_queries.TraversalBounds(
-                max_depth=max_depth,
-                max_nodes=max_nodes,
-                direction=direction,
-            ),
-            context=context,
+            await self.database_for(context), query, context=context
         )
 
     async def search_triplets(

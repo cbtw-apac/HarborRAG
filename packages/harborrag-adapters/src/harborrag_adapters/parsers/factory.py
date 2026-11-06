@@ -25,6 +25,7 @@ from harborrag_adapters.parsers.pdf.config import (
 )
 from harborrag_adapters.parsers.pdf.engines.docling.config import DoclingPDFConfig
 from harborrag_adapters.parsers.pdf.engines.docling.engine import DoclingPDFEngine
+from harborrag_adapters.parsers.pdf.engines.liteparse.config import LiteParsePDFConfig
 from harborrag_adapters.parsers.pdf.engines.liteparse.engine import LiteParsePDFEngine
 from harborrag_adapters.parsers.pdf.engines.mineru.config import MinerUPDFConfig
 from harborrag_adapters.parsers.pdf.engines.mineru.engine import MinerUPDFEngine
@@ -84,7 +85,9 @@ class HarborParserFactory:
                 default_profile=profile_name,
                 profiles=router_config.profiles,
             )
-        engines = self._configured_pdf_engines(profile_name, router_config)
+        engines = self._configured_pdf_engines(
+            profile_name, router_config, ocr_server_url=resolved_config.ocr_server_url
+        )
         return HarborPDFParser(
             engines=engines,
             min_content_chars=resolved_config.min_content_chars,
@@ -139,12 +142,14 @@ class HarborParserFactory:
         self,
         profile_name: str,
         router_config: PDFRouterConfig,
+        *,
+        ocr_server_url: str | None,
     ) -> tuple[HarborPDFEngine, ...]:
         try:
             profile = PDFParserProfile.normalize(profile_name)
         except ValueError:
             profile = PDFParserProfile.LITEPARSE
-        pool = self._pdf_engine_pool(profile)
+        pool = self._pdf_engine_pool(profile, ocr_server_url=ocr_server_url)
         configured: list[HarborPDFEngine] = []
         for engine_name in router_config.profiles[profile_name].engine_order:
             try:
@@ -154,7 +159,9 @@ class HarborParserFactory:
         return tuple(configured)
 
     @staticmethod
-    def _pdf_engine_pool(profile: PDFParserProfile) -> dict[str, HarborPDFEngine]:
+    def _pdf_engine_pool(
+        profile: PDFParserProfile, *, ocr_server_url: str | None
+    ) -> dict[str, HarborPDFEngine]:
         docling_config = DoclingPDFConfig(do_ocr=True, do_table_structure=True)
         mineru_config = MinerUPDFConfig(backend="pipeline")
         paddleocr_config = PaddleOCRPDFConfig(use_table_recognition=True)
@@ -191,7 +198,7 @@ class HarborParserFactory:
         engines: tuple[HarborPDFEngine, ...] = (
             PyMuPDFEngine(),
             DoclingPDFEngine(docling_config),
-            LiteParsePDFEngine(),
+            LiteParsePDFEngine(LiteParsePDFConfig(ocr_server_url=ocr_server_url)),
             MinerUPDFEngine(mineru_config),
             PaddleOCRPDFEngine(paddleocr_config),
         )

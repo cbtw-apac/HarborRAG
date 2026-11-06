@@ -43,8 +43,10 @@ class GitHubConnector(BaseConnector):
     """
 
     provider_name = "github"
+    # No native discover_page: the inherited fallback re-resolves the ref and re-walks
+    # the tree for every page, so the runtime streams discover() once instead.
     capabilities = ConnectorCapabilities(
-        pagination=True,
+        pagination=False,
         incremental_sync=True,
         full_sync=True,
         relationships=True,

@@ -189,8 +189,10 @@ class QdrantQueryExecutor:
 
         # Qdrant thresholds use metric-specific raw scores while HarborRAG exposes
         # normalized scores. Page through provider results until the requested
-        # normalized page is complete or the provider is exhausted; never apply a
-        # silent heuristic cap that can truncate deep pages.
+        # normalized page is complete, the provider is exhausted, or a point falls
+        # below the threshold; never apply a silent heuristic cap that can truncate
+        # deep pages. Points arrive best first and normalization preserves that order
+        # for every metric, so nothing after the first miss can match.
         output: list[VectorSearchResult] = []
         matching_seen = 0
         provider_offset = 0
@@ -208,7 +210,7 @@ class QdrantQueryExecutor:
             for point in points:
                 result = search_result(point, query, spec)
                 if result.score < query.score_threshold:
-                    continue
+                    return output
                 if matching_seen >= query.offset:
                     output.append(result)
                     if len(output) >= query.top_k:

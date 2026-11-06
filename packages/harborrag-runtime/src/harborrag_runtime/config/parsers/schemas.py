@@ -11,6 +11,7 @@ from typing import Any
 
 from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
 from harborrag_adapters.parsers.common.base import HarborParser
+from harborrag_adapters.parsers.common.family import HarborSingleEngineFamilyParser
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers.providers import (
@@ -180,10 +181,12 @@ class ParserCatalog:
         *,
         environment: Mapping[str, str] | None = None,
     ) -> HarborParserRegistry:
-        """Replace matching default families with enabled configured families.
+        """Merge enabled configured families into the default registry.
 
-        Exactly one enabled definition may exist for a parser family. Families
-        not configured remain on the default factory-built registry.
+        Exactly one enabled definition may exist for a parser family. A configured
+        family replaces the default engines for the formats it reads and keeps the
+        rest: configuring ``docx`` still parses ``.doc``, ``.odt`` and ``.epub``.
+        Families not configured remain on the default factory-built registry.
         """
         configured: dict[str, tuple[str, HarborParser]] = {}
         for config_name, parser in self.build_enabled(environment=environment).items():
@@ -199,7 +202,9 @@ class ParserCatalog:
         defaults = HarborParserFactory().create_registry().families()
         for default in defaults:
             replacement = configured.pop(default.parser_name, None)
-            parser_families.append(default if replacement is None else replacement[1])
+            parser_families.append(
+                default if replacement is None else _merge_family(default, replacement[1])
+            )
         parser_families.extend(parser for _, parser in configured.values())
         return HarborParserFactory().create_registry(families=parser_families)
 
@@ -209,6 +214,29 @@ class ParserCatalog:
         environment: Mapping[str, str] | None = None,
     ) -> HarborParserRegistry:
         return self.build_registry(environment=environment)
+
+
+def _merge_family(default: HarborParser, configured: HarborParser) -> HarborParser:
+    """Add the default engines whose formats no configured engine reads.
+
+    A default engine sharing any suffix or content type with the configured family is
+    dropped whole, so the merged family never routes one format to two engines. PDF
+    workflows are fallback chains rather than per-format engines and are replaced whole.
+    """
+    if not (
+        isinstance(default, HarborSingleEngineFamilyParser)
+        and isinstance(configured, HarborSingleEngineFamilyParser)
+    ):
+        return configured
+    claimed = configured.extensions | configured.mime_types
+    kept = tuple(
+        engine
+        for engine in default.engines
+        if claimed.isdisjoint(engine.suffixes | engine.content_types)
+    )
+    if not kept:
+        return configured
+    return type(configured)((*configured.engines, *kept))
 
 
 def _required_environment_value(

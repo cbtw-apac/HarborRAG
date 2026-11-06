@@ -9,8 +9,15 @@ from dataclasses import dataclass, field
 
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.ingestion import GraphNodeRecord, KnowledgeGraphTraversal, KnowledgeNodeKind
-from harborrag_core.retrieval import compact_node, compact_relation
+from harborrag_core.retrieval import (
+    GraphDirection,
+    GraphTraversalQuery,
+    compact_node,
+    compact_relation,
+)
 from harborrag_core.storage import StorageOperationContext
+from harborrag_core.topology.search import TopologySearchPort
+from harborrag_engine.retrieval import graph_access_scope
 
 from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
@@ -32,7 +39,7 @@ _GRAPH_OBSERVE_MAX_NODES = 100
 # Undirected: HAS_CHUNK and CONTAINS both point down the spine towards the chunk, so an
 # outgoing walk from a chunk seed cannot reach its own document, and memory seeds are
 # arbitrary graph nodes whose relations point either way.
-_GRAPH_OBSERVE_DIRECTION = "both"
+_GRAPH_OBSERVE_DIRECTION = GraphDirection.BOTH
 # Caller-supplied seeds (the graph entities this session's recalled memories
 # reference) get their own allowance *on top of* the result-seed budget rather
 # than sharing it. Sharing would let memory crowd out result provenance, and
@@ -62,8 +69,12 @@ class GraphObserver:
     def __init__(
         self,
         graph: KnowledgeGraphReader,
+        *,
+        authorizer: TopologySearchPort | None,
     ) -> None:
+        """``authorizer`` resolves what each caller may read; ``None`` means no access control."""
         self._graph = graph
+        self._authorizer = authorizer
 
     async def observe(
         self,
@@ -111,13 +122,17 @@ class GraphObserver:
         )[:_MEMORY_SEED_LIMIT]
         if not results and not extra:
             return GraphObservation()
+        access_scope = await graph_access_scope(self._authorizer, context)
         walks = await asyncio.gather(
             *(
                 self._graph.traverse(
-                    node_key,
-                    max_depth=_GRAPH_OBSERVE_DEPTH,
-                    max_nodes=_GRAPH_OBSERVE_MAX_NODES,
-                    direction=_GRAPH_OBSERVE_DIRECTION,
+                    GraphTraversalQuery(
+                        start_node_key=node_key,
+                        max_depth=_GRAPH_OBSERVE_DEPTH,
+                        max_nodes=_GRAPH_OBSERVE_MAX_NODES,
+                        direction=_GRAPH_OBSERVE_DIRECTION,
+                        access_scope=access_scope,
+                    ),
                     context=context,
                 )
                 for node_key in (*results, *extra)

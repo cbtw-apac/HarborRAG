@@ -10,6 +10,7 @@ from harborrag_adapters.repositories.errors import (
     HarborVectorDimensionError,
 )
 from harborrag_adapters.repositories.vector.qdrant import query as query_module
+from harborrag_adapters.repositories.vector.qdrant.mapping import QdrantMapper
 from harborrag_adapters.repositories.vector.qdrant.query import QdrantQueryExecutor
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorDistance, VectorIndexSpec, VectorSearchQuery
@@ -270,6 +271,52 @@ async def test_threshold_search_skips_results_below_threshold() -> None:
     results = await executor.search(query, context=context)
 
     assert [result.id for result in results] == ["high"]
+
+
+@pytest.mark.asyncio
+async def test_threshold_search_stops_at_the_first_point_below_the_threshold() -> None:
+    """Qdrant returns points best first, so the first one below the threshold proves
+    every later one is below it too; paging on would scan the whole collection."""
+    raw = FakeRawQdrant()
+    raw.points = [SimpleNamespace(id="match", score=1.0, payload={}, vector=None)] + [
+        SimpleNamespace(id=f"miss-{index}", score=-1.0, payload={}, vector=None)
+        for index in range(299)
+    ]
+    context = StorageOperationContext.system(tenant_id="tenant-a")
+    executor = QdrantQueryExecutor(
+        client=FakeQdrantClient(raw),  # type: ignore[arg-type]
+        config=make_config(),
+        specs={},
+    )
+    executor._specs[executor.spec_key("docs", context)] = VectorIndexSpec(
+        index_name="docs", dimension=3, distance=VectorDistance.COSINE
+    )
+    query = VectorSearchQuery(
+        index_name="docs", vector=[1.0, 0.0, 0.0], top_k=5, score_threshold=0.9
+    )
+
+    results = await executor.search(query, context=context)
+
+    assert [result.id for result in results] == ["match"]
+    assert len(raw.query_calls) == 1
+
+
+@pytest.mark.parametrize(
+    ("distance", "best_first_raw_scores"),
+    [
+        (VectorDistance.COSINE, [0.9, 0.1, -0.5]),
+        (VectorDistance.DOT_PRODUCT, [12.0, 0.0, -3.0]),
+        (VectorDistance.EUCLIDEAN, [0.1, 1.0, 5.0]),
+        (VectorDistance.MANHATTAN, [0.1, 1.0, 5.0]),
+    ],
+)
+def test_normalized_scores_keep_qdrants_best_first_order(
+    distance: VectorDistance, best_first_raw_scores: list[float]
+) -> None:
+    """The threshold search stops at its first miss only because of this order."""
+    normalized = [QdrantMapper.normalize_score(raw, distance) for raw in best_first_raw_scores]
+
+    assert normalized == sorted(normalized, reverse=True)
 
 
 @pytest.mark.asyncio

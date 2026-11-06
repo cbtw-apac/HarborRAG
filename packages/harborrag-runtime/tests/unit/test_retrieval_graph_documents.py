@@ -60,8 +60,10 @@ def _document_relation(
 class DocumentGraphRepository(FakeGraphRepository):
     """Returns a real 2-hop neighborhood: chunk-1 -SUPPORTS-> structure-1 <-CONTAINS- docversion-1."""
 
-    async def traverse(self, start_node_key, **kwargs):
-        self.queries.append((start_node_key, kwargs))
+    async def traverse(self, query, *, context):
+        del context
+        start_node_key = query.start_node_key
+        self.queries.append((start_node_key, query))
         chunk = _document_node("chunk-1", KnowledgeNodeKind.CHUNK)
         structure = _document_node(
             "structure-1",
@@ -125,8 +127,10 @@ async def test_graph_documents_reports_the_related_result_and_its_neighborhood()
 class CrossDocumentGraphRepository(FakeGraphRepository):
     """Two documents joined by one cross-document LINKS_TO relation from doc-1's structure."""
 
-    async def traverse(self, start_node_key, **kwargs):
-        self.queries.append((start_node_key, kwargs))
+    async def traverse(self, query, *, context):
+        del context
+        start_node_key = query.start_node_key
+        self.queries.append((start_node_key, query))
         chunk = _document_node("chunk-1", KnowledgeNodeKind.CHUNK)
         structure = _document_node(
             "structure-1",

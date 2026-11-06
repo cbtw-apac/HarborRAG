@@ -45,7 +45,6 @@ chat:
   budget:
     enabled: true
     max_request_tokens: 32000
-    max_request_cost_usd: 1.0
     daily_cost_usd: 100
     monthly_cost_usd: 2000
     rpm_limit: 300

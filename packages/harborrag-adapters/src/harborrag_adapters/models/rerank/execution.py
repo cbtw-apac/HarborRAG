@@ -10,6 +10,7 @@ from harborrag_adapters.models.runtime.cache import (
     CacheDecision,
     ModelResponseCache,
     ResponseCacheController,
+    configuration_cache_fingerprint,
 )
 from harborrag_adapters.models.runtime.execution import RoutedModelExecutor
 from harborrag_adapters.models.runtime.middleware import (
@@ -59,7 +60,12 @@ class RerankExecution:
         self.registry = registry
         self.middleware = middleware
         self.owns_cache = cache is None
-        self.cache = ResponseCacheController(config.cache, family="rerank", backend=cache)
+        self.cache = ResponseCacheController(
+            config.cache,
+            family="rerank",
+            backend=cache,
+            configuration_fingerprint=configuration_cache_fingerprint(config),
+        )
         self.telemetry = telemetry
         self.singleflight = singleflight
         self.budget = budget

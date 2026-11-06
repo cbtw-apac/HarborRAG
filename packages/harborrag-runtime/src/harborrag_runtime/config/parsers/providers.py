@@ -134,6 +134,7 @@ def _pdf_factory(
     backends: list[HarborPDFEngine] | None = None,
     min_content_chars: int = 20,
     profile: str = "liteparse",
+    ocr_server_url: str | None = None,
 ) -> HarborPDFParser:
     if backends is not None:
         return HarborPDFParser(
@@ -146,6 +147,7 @@ def _pdf_factory(
         PDFParserConfig(
             min_content_chars=min_content_chars,
             router=router,
+            ocr_server_url=ocr_server_url,
         )
     )
 
@@ -189,7 +191,7 @@ class PdfBackendSpec:
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
     **{name: frozenset() for name in _PARSER_FACTORIES if name not in {"image", "pdf"}},
     "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}),
-    "pdf": frozenset({"min_content_chars", "profile"}),
+    "pdf": frozenset({"min_content_chars", "ocr_server_url", "profile"}),
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),

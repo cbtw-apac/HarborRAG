@@ -72,7 +72,11 @@ class AsyncLoopRunner:
         return self.submit(awaitable).result()
 
     def stop(self) -> None:
-        """Stop the background event loop and join its thread."""
+        """Stop the background event loop and join its thread.
+
+        Called from the loop's own thread (a finalizer run by garbage collection there),
+        it only schedules the stop: a thread cannot join itself.
+        """
         with self._state_lock:
             if self._stopped:
                 return
@@ -80,7 +84,8 @@ class AsyncLoopRunner:
             loop = self._loop
             if loop is not None:
                 loop.call_soon_threadsafe(loop.stop)
-        self._thread.join()
+        if threading.current_thread() is not self._thread:
+            self._thread.join()
 
 
 def run_awaitable_synchronously[R](awaitable: Awaitable[R], *, thread_name: str) -> R:

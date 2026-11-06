@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -213,6 +214,24 @@ def test_runtime_service_builder_memory_and_redis() -> None:
     assert isinstance(redis_services.singleflight, RedisSingleFlight)
     assert isinstance(redis_services.budget, NoopBudgetPolicy)
     assert redis_services.redis is None
+
+
+@pytest.mark.parametrize("shared_redis", [True, False])
+def test_budgets_warn_that_their_windows_are_per_process_beside_redis(
+    caplog: pytest.LogCaptureFixture, shared_redis: bool
+) -> None:
+    """Redis-backed services mean several workers; each one counts budgets on its own."""
+    update: dict[str, object] = {"budget": BudgetPolicyConfig(enabled=True)}
+    if shared_redis:
+        update["redis"] = RedisConnectionConfig(url="redis://localhost", key_prefix="test")
+        update["routing"] = RoutingConfig(
+            strategy=RoutingStrategy.ORDERED, state_backend=RoutingStateBackend.REDIS
+        )
+
+    with caplog.at_level(logging.WARNING, logger="harborrag.models.runtime"):
+        build_runtime_services(chat_config().model_copy(update=update), redis=connections())
+
+    assert ("per process" in caplog.text) is shared_redis
 
 
 @pytest.mark.asyncio

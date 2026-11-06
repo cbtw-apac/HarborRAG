@@ -114,6 +114,8 @@ Important rules:
 - Keep embedding fallbacks in the same embedding space and dimension.
 - Opt in deliberately to custom providers, endpoint hosts, request auth headers, sensitive caching, and prompt/response logging.
 - Keep tenant identifiers in request metadata when tenant-isolated cache, budget, or routing features require them.
+- Budget windows (`rpm_limit`, `tpm_limit`, `daily_cost_usd`, `monthly_cost_usd`) are counted per process: with several workers each one can use the whole budget, so size the limits per worker. Startup logs a warning when budgets run beside Redis-backed services.
+- `max_request_cost_usd` needs a cost estimator supplied in code; set in YAML alone, the client refuses to start.
 - Do not put credentials in committed YAML, headers, fixtures, or rendered output.
 
 For paid, credentialed checks, use the model smoke scripts documented in [Testing](../../developers/testing/README.md#real-system-smoke-checks).

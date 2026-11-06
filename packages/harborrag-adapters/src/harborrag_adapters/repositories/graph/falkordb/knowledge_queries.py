@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
 from harborrag_adapters.repositories.graph.falkordb.client import FalkorDBClient
 from harborrag_adapters.repositories.graph.falkordb.knowledge_mapping import (
     KnowledgeGraphMapper,
@@ -32,71 +30,46 @@ from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
+    GraphTraversalQuery,
     GraphTripletQuery,
     GraphTripletResult,
 )
 from harborrag_core.storage import StorageOperationContext
 
-# Mirrors the Field(ge=..., le=...) bounds on GraphPathQuery/GraphSubgraphQuery in
-# harborrag_core.retrieval.graph. traverse() is reached without one of those query models,
-# so TraversalBounds below re-states the same envelope for that path.
-MIN_TRAVERSAL_DEPTH = 1
-MAX_TRAVERSAL_DEPTH = 8
-MIN_TRAVERSAL_NODES = 1
-MAX_TRAVERSAL_NODES = 5_000
-
 # How many matching triplets a read may collect before ordering them; see search_triplets.
 TRIPLET_SCAN_LIMIT = 500
 
 
-@dataclass(frozen=True, slots=True)
-class TraversalBounds:
-    """Envelope for one bounded traversal, validated on construction."""
-
-    max_depth: int
-    max_nodes: int
-    direction: str
-
-    def __post_init__(self) -> None:
-        if not MIN_TRAVERSAL_DEPTH <= self.max_depth <= MAX_TRAVERSAL_DEPTH:
-            raise ValueError(
-                f"graph traversal depth must be between "
-                f"{MIN_TRAVERSAL_DEPTH} and {MAX_TRAVERSAL_DEPTH}"
-            )
-        if not MIN_TRAVERSAL_NODES <= self.max_nodes <= MAX_TRAVERSAL_NODES:
-            raise ValueError(
-                f"graph traversal max_nodes must be between "
-                f"{MIN_TRAVERSAL_NODES} and {MAX_TRAVERSAL_NODES}"
-            )
-
-
 async def traverse(
     database: FalkorDBClient,
-    start_node_key: str,
+    query: GraphTraversalQuery,
     *,
-    bounds: TraversalBounds,
     context: StorageOperationContext,
 ) -> KnowledgeGraphTraversal:
-    """Traverse a bounded graph without exposing provider node IDs."""
+    """Traverse a bounded graph without exposing provider node IDs.
 
-    max_depth, max_nodes, direction = bounds.max_depth, bounds.max_nodes, bounds.direction
-    if not start_node_key.strip():
-        raise ValueError("graph traversal start_node_key must be non-empty")
-    left, right = GraphTraversalSyntax.arrows(direction)
-    path_limit = path_limit_for(max_nodes)
+    Every node and relation on a path must pass the access check, not just its ends: a
+    path through a document the caller cannot read would otherwise reveal what lies
+    beyond it.
+    """
+
+    left, right = GraphTraversalSyntax.arrows(query.direction)
+    path_limit = path_limit_for(query.max_nodes)
     rows = await read_rows(
         database,
         f"""
-        MATCH path=(start:KnowledgeNode){left}[*1..{max_depth}]
+        MATCH path=(start:KnowledgeNode){left}[*1..{query.max_depth}]
                    {right}(related:KnowledgeNode)
         WHERE start.tenant_id = $tenant_id
           AND start.node_key = $start_node_key
           AND start.graph_schema_version = $graph_schema_version
           AND all(node IN nodes(path) WHERE node.tenant_id = $tenant_id
-                  AND node.graph_schema_version = $graph_schema_version)
+                  AND node.graph_schema_version = $graph_schema_version
+                  AND {access_predicate("node")})
           AND all(relation IN relationships(path)
                   WHERE relation.tenant_id = $tenant_id
-                    AND relation.graph_schema_version = $graph_schema_version)
+                    AND relation.graph_schema_version = $graph_schema_version
+                    AND {access_predicate("relation")})
         RETURN nodes(path) AS path_nodes,
                relationships(path) AS path_relations
         ORDER BY size(path_relations)
@@ -105,11 +78,12 @@ async def traverse(
         {
             "tenant_id": str(context.tenant_id),
             "graph_schema_version": GRAPH_SCHEMA_VERSION,
-            "start_node_key": start_node_key,
+            "start_node_key": query.start_node_key,
             "path_limit": path_limit + 1,
+            **access_parameters(query.access_scope),
         },
     )
-    return build_knowledge_traversal(rows, max_nodes=max_nodes, path_limit=path_limit)
+    return build_knowledge_traversal(rows, max_nodes=query.max_nodes, path_limit=path_limit)
 
 
 async def search_triplets(

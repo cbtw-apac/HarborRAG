@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -62,12 +61,10 @@ class ConfluenceSpaceConfig:
     backoff_factor: float = 0.5
 
     def __post_init__(self) -> None:
-        """Normalize env-backed credentials and validate ingestion limits."""
+        """Normalize the deployment type and validate credentials and ingestion limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
-        self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
-        self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
 
         if self.deployment_type is None:
             self.deployment_type = (

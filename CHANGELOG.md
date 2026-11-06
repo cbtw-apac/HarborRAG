@@ -28,14 +28,28 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 ### Changed
 
+#### harborrag-core
+
+- **Breaking:** knowledge-graph traversal requires an access scope and checks it on every hop
+
 #### harborrag-engine
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 
 ### Fixed
 
+#### harborrag-adapters
+
+- **Breaking:** connectors use only the credentials configured for their source, never the worker's own
+- A per-request cost limit that cannot be enforced stops the model client at startup instead of rejecting every request
+- Repointing an embedding or rerank model no longer serves the previous model's cached results
+- Synchronous LangChain chat calls work more than once on the same client
+
 #### harborrag-runtime
 
+- Built-in PDF profiles can send scanned pages to the OCR server
+- Configuring one parser engine no longer leaves the other formats of its family unparseable
+- In development, ingestion migrates the control database instead of creating tables later upgrades cannot migrate
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 
 ## [2.0.0a2] - 2026-10-26

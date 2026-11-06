@@ -26,6 +26,7 @@ from harborrag_core.retrieval import (
     GraphPathQuery,
     GraphPathResult,
     GraphSubgraphQuery,
+    GraphTraversalQuery,
     GraphTripletQuery,
     GraphTripletResult,
 )
@@ -74,11 +75,8 @@ class RetrievalTelemetry(Protocol):
 class KnowledgeGraphReader(Protocol):
     async def traverse(
         self,
-        start_node_key: str,
+        query: GraphTraversalQuery,
         *,
-        max_depth: int,
-        max_nodes: int,
-        direction: str,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal: ...
 

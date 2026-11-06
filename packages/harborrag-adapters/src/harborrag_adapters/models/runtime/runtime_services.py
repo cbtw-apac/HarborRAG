@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 
 from .budget import InMemoryBudgetPolicy, ModelBudgetPolicy, NoopBudgetPolicy
@@ -18,6 +19,8 @@ from .singleflight import (
     RedisSingleFlight,
     SingleFlightCoordinator,
 )
+
+logger = logging.getLogger("harborrag.models.runtime")
 
 
 @dataclass(slots=True)
@@ -77,9 +80,7 @@ def build_runtime_services(
         )
     resolved_routing = routing_state or _routing_state(config, lifecycle)
     resolved_singleflight = singleflight or _singleflight(config, lifecycle)
-    resolved_budget = budget or (
-        InMemoryBudgetPolicy(config.budget) if config.budget.enabled else NoopBudgetPolicy()
-    )
+    resolved_budget = budget or _budget_policy(config, shared_redis=redis_needed)
     return ModelRuntimeServices(
         cache=resolved_cache,
         routing_state=resolved_routing,
@@ -87,6 +88,18 @@ def build_runtime_services(
         budget=resolved_budget,
         redis=lifecycle if redis is None else None,
     )
+
+
+def _budget_policy(config: ModelClientConfig, *, shared_redis: bool) -> ModelBudgetPolicy:
+    if not config.budget.enabled:
+        return NoopBudgetPolicy()
+    if shared_redis:
+        # Redis-backed services mean several workers, and budgets are not shared yet.
+        logger.warning(
+            "Model budget windows are enforced per process: with N workers the rpm, tpm, "
+            "daily and monthly limits each allow up to N times their configured value"
+        )
+    return InMemoryBudgetPolicy(config.budget)
 
 
 def _routing_state(

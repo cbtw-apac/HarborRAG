@@ -136,14 +136,16 @@ class FakeGraphRepository:
     def __init__(self) -> None:
         self.queries = []
 
-    async def traverse(self, start_node_key, **kwargs):
-        self.queries.append((start_node_key, kwargs))
+    async def traverse(self, query, *, context):
+        del context
+        start_node_key = query.start_node_key
+        self.queries.append((start_node_key, query))
         return KnowledgeGraphTraversal(nodes=(), relations=())
 
 
 class FailingGraphRepository(FakeGraphRepository):
-    async def traverse(self, start_node_key, **kwargs):
-        del start_node_key, kwargs
+    async def traverse(self, query, *, context):
+        del query, context
         raise ConnectionError("graph unavailable")
 
 

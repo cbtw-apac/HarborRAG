@@ -11,6 +11,7 @@ from harborrag_adapters.models.embed.validation import validate_embed_configurat
 from harborrag_adapters.models.rerank import HarborRerankClientConfig
 from harborrag_adapters.models.rerank.validation import validate_rerank_configuration
 from harborrag_adapters.models.runtime.loading import load_config_document
+from harborrag_adapters.models.runtime.runtime_services import build_runtime_services
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -85,3 +86,21 @@ def test_tool_enabled_examples_support_agent_parallel_calls(
         for deployment in logical_model.deployments:
             if deployment.capabilities.tools:
                 assert deployment.capabilities.parallel_tools is True
+
+
+@pytest.mark.parametrize("path", EXAMPLE_FILES, ids=lambda path: path.name)
+def test_advance_chat_example_builds_its_runtime_services(
+    path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A shipped example must start, not only validate: services are built at client startup."""
+
+    _load_environment(monkeypatch)
+    document = load_config_document(path)
+    families = [HarborChatClientConfig.from_file(path)]
+    if "embed" in document:
+        families.append(HarborEmbedClientConfig.from_file(path))
+    if "rerank" in document:
+        families.append(HarborRerankClientConfig.from_file(path))
+
+    for config in families:
+        build_runtime_services(config).close()

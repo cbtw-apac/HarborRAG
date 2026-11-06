@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -58,7 +57,6 @@ class GitHubRepositoryConfig:
 
     def __post_init__(self) -> None:
         """Resolve repository URL shortcuts and validate mutually exclusive refs."""
-        self.token = self.token or os.getenv("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")
         validate_https_url("api_url", self.api_url)

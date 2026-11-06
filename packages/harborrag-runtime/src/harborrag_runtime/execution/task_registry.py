@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
@@ -35,10 +36,16 @@ class IngestionTaskRegistry:
         cls,
         settings: RuntimeSettings,
     ) -> IngestionTaskRegistry:
+        if settings.env == "dev":
+            # Dev can submit before an API has migrated the database. The schema comes
+            # from Alembic, which stamps it; create_all would leave it unstamped.
+            from harborrag_adapters.repositories.database.control_plane.migrations import (
+                run_migrations,
+            )
+
+            await asyncio.to_thread(run_migrations, settings.control_db_url.get_secret_value())
         control = build_ingestion_control(settings)
         await control.connect()
-        if settings.env == "dev":
-            await control.provision()
         return cls(control)
 
     async def register(

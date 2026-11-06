@@ -181,8 +181,14 @@ def test_budget_request_limits_rates_and_scope() -> None:
         InMemoryBudgetPolicy(config, cost_estimator=lambda _r, _m: 0.6).authorize(
             request, logical_model="primary"
         )
-    with pytest.raises(BudgetEstimationError):
-        InMemoryBudgetPolicy(config).authorize(request, logical_model="primary")
+
+
+def test_a_cost_cap_without_an_estimator_fails_when_the_policy_is_built() -> None:
+    """Failing per request rejected every call; failing here stops a misconfigured startup."""
+    config = BudgetPolicyConfig(enabled=True, max_request_cost_usd=0.5)
+
+    with pytest.raises(BudgetEstimationError, match="max_request_cost_usd requires a cost"):
+        InMemoryBudgetPolicy(config)
 
 
 def test_budget_settlement_and_window_reset() -> None:

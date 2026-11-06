@@ -169,3 +169,49 @@ def test_supports_structured_output_falls_back_to_the_catalog_default() -> None:
 
     assert HarborChatModel(client).supports_structured_output is True
     assert HarborChatModel(client, logical_model="plain").supports_structured_output is False
+
+
+class _LoopRecordingInvocation(FakeInvocation):
+    """Records the event loop of each call, as the client's shared HTTP session would."""
+
+    def __init__(self, responses: list[object]) -> None:
+        super().__init__(responses)
+        self.loops: list[object] = []
+
+    async def acomplete(self, **kwargs: object) -> object:
+        import asyncio
+
+        self.loops.append(asyncio.get_running_loop())
+        return await super().acomplete(**kwargs)
+
+
+def test_sync_calls_through_one_client_share_one_event_loop(config) -> None:
+    """The client's shared HTTP session belongs to the first loop that uses it, so a
+    second synchronous call on a fresh loop failed."""
+    invocation = _LoopRecordingInvocation([response_dict(text) for text in ("a", "b", "c")])
+    client = async_client(config, backend=invocation)
+    first = HarborChatModel(client, logical_model="primary")
+    second = HarborChatModel(client, logical_model="primary")
+
+    first.invoke("one")
+    first.invoke("two")
+    second.invoke("three")
+
+    assert len(invocation.loops) == 3
+    assert len(set(map(id, invocation.loops))) == 1
+
+
+def test_the_sync_event_loop_stops_once_its_client_is_gone(config) -> None:
+    import gc
+    import threading
+
+    client = async_client(config, backend=FakeInvocation([response_dict("a")]))
+    before = set(threading.enumerate())
+    HarborChatModel(client, logical_model="primary").invoke("one")
+    [loop_thread] = set(threading.enumerate()) - before
+
+    del client
+    gc.collect()
+
+    loop_thread.join(timeout=5)
+    assert not loop_thread.is_alive()

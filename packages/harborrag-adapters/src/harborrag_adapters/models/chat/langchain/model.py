@@ -7,6 +7,8 @@ owned by HarborRAG while LangChain and LangGraph orchestrate on top.
 
 from __future__ import annotations
 
+import threading
+import weakref
 from collections.abc import AsyncIterator, Mapping, Sequence
 from typing import Any
 
@@ -24,7 +26,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from harborrag_adapters.models.chat.async_client import AsyncHarborChatClient
 from harborrag_adapters.models.chat.validation import default_deployment
-from harborrag_adapters.models.runtime.sync import run_awaitable_synchronously
+from harborrag_adapters.models.runtime.sync import AsyncLoopRunner
 from harborrag_core.models.chat import (
     HarborChatMetadata,
     HarborChatRequest,
@@ -52,6 +54,25 @@ from .tools import (
 
 _REQUEST_FIELDS = frozenset(HarborChatRequest.model_fields) - {"messages", "logical_model"}
 _SYNC_THREAD_NAME = "harborrag-langchain-chat"
+_SYNC_RUNNERS: weakref.WeakKeyDictionary[AsyncHarborChatClient, AsyncLoopRunner] = (
+    weakref.WeakKeyDictionary()
+)
+_SYNC_RUNNERS_LOCK = threading.Lock()
+
+
+def _sync_runner(client: AsyncHarborChatClient) -> AsyncLoopRunner:
+    """Return the one event loop that runs every synchronous call made through ``client``.
+
+    The client's shared HTTP session belongs to the first event loop that uses it, so
+    every model built on one client shares this loop. It stops once the client is gone.
+    """
+    with _SYNC_RUNNERS_LOCK:
+        runner = _SYNC_RUNNERS.get(client)
+        if runner is None:
+            runner = AsyncLoopRunner(thread_name=_SYNC_THREAD_NAME)
+            _SYNC_RUNNERS[client] = runner
+            weakref.finalize(client, runner.stop)
+        return runner
 
 
 class HarborChatModel(BaseChatModel):
@@ -62,6 +83,10 @@ class HarborChatModel(BaseChatModel):
     ``request_metadata`` (tenant, user, conversation identifiers) is attached to
     every request. ``sensitive`` defaults to ``True`` because conversation memory
     routinely contains personal data.
+
+    Synchronous calls (``invoke``, ``batch``) run on one background event loop per
+    client. Use a client either synchronously or asynchronously, not both: its shared
+    HTTP session is bound to the first event loop that uses it.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -177,9 +202,8 @@ class HarborChatModel(BaseChatModel):
         run_manager: CallbackManagerForLLMRun | None = None,
         **kwargs: Any,
     ) -> ChatResult:
-        return run_awaitable_synchronously(
-            self._agenerate(messages, stop=stop, run_manager=None, **kwargs),
-            thread_name=_SYNC_THREAD_NAME,
+        return _sync_runner(self.client).run(
+            self._agenerate(messages, stop=stop, run_manager=None, **kwargs)
         )
 
     async def _astream(

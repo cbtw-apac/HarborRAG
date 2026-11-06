@@ -26,6 +26,16 @@ re-embedded the next time it is ingested; no data migration is needed.
 3. **Keep the previous splitter (optional).** Set `refiner.strategy: recursive` in
    `config/chunking.yaml` and install `harborrag-adapters[chunking]`. This also changes the
    processing identity, so documents are still re-chunked once.
+4. **Connector credentials.** Connectors no longer read `GITHUB_TOKEN`, `JIRA_TOKEN`,
+   `JIRA_API_TOKEN`, `JIRA_EMAIL`, `CONFLUENCE_TOKEN`, `CONFLUENCE_EMAIL` or the
+   `MICROSOFT_*` variables by themselves. Name each credential under the connector's
+   `secrets` in `config/connectors.yaml` (`token_env`, `email_env`, and so on). A GitHub
+   connector without `token_env` now reads public repositories anonymously, at GitHub's
+   unauthenticated rate limit. See
+   [Secrets and dynamic values](configuration/connector-config.md#secrets-and-dynamic-values).
+5. **Model budgets.** Remove `budget.max_request_cost_usd` from model configuration: without
+   a cost estimator supplied in code it rejected every request, and it now stops the client
+   at startup instead.
 
 ## 2.0.0a1 to 2.0.0a2
 

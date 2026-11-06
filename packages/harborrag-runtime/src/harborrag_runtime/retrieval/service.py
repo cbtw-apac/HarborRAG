@@ -148,8 +148,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         self._close_resources = close_resources
         self._telemetry = telemetry or _NullRetrievalTelemetry()
+        # The observer walks only what the caller may read, but observation stays off
+        # under access control (a topology repository) until enabling it is decided.
         self._observer = (
-            GraphObserver(resources.graph_repository)
+            GraphObserver(resources.graph_repository, authorizer=resources.topology_repository)
             if resources.graph_repository is not None and resources.topology_repository is None
             else None
         )

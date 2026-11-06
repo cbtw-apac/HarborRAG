@@ -76,6 +76,11 @@ def _parse_definition(name: str, raw: object) -> ParserDefinition:
         raise ParserConfigurationError(
             f"Parser {name!r} cannot combine an explicit engines chain with profile"
         )
+    if pdf_backends and "ocr_server_url" in settings:
+        raise ParserConfigurationError(
+            f"Parser {name!r} has an explicit engines chain; set ocr_server_url on its "
+            "liteparse engine instead"
+        )
 
     return ParserDefinition(
         name=name,

@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     GraphSchemaMigrationVerification,
     KnowledgeGraphTraversal,
 )
+from harborrag_core.retrieval import GraphTraversalQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import (
     VectorFilter,
@@ -91,13 +92,12 @@ class KnowledgeGraphRepositoryPort(Protocol):
 
     async def traverse(
         self,
-        start_node_key: str,
+        query: GraphTraversalQuery,
         *,
-        max_depth: int,
-        max_nodes: int,
-        direction: str,
         context: StorageOperationContext,
-    ) -> KnowledgeGraphTraversal: ...
+    ) -> KnowledgeGraphTraversal:
+        """Walk the nodes and relations ``query.access_scope`` admits, every hop checked."""
+        ...
 
     async def delete_relations(
         self,

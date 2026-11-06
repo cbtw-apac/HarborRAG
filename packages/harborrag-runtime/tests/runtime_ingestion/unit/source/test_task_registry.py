@@ -77,3 +77,28 @@ async def test_registry_persists_pending_task_before_temporal_submission() -> No
 
     await registry.close()
     control.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_dev_registry_brings_the_control_database_to_the_migration_head(
+    tmp_path,
+) -> None:
+    """Tables created outside Alembic are never stamped, so the next migration fails."""
+    import sqlite3
+
+    from harborrag_adapters.repositories.database.control_plane.migrations import (
+        head_revision,
+    )
+    from harborrag_runtime.config.settings import RuntimeSettings
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+
+    registry = await IngestionTaskRegistry.connect(RuntimeSettings(env="dev", control_db_url=dsn))
+    await registry.close()
+
+    connection = sqlite3.connect(tmp_path / "control.db")
+    try:
+        revisions = connection.execute("SELECT version_num FROM alembic_version").fetchall()
+    finally:
+        connection.close()
+    assert revisions == [(head_revision(dsn),)]

@@ -224,6 +224,22 @@ def test_async_loop_runner_and_sync_awaitable() -> None:
     assert run_awaitable_synchronously(value(), thread_name="direct") == 7
 
 
+def test_async_loop_runner_stops_from_its_own_loop_without_joining_itself() -> None:
+    """A finalizer may stop the runner on the loop thread when garbage collection runs there."""
+    import threading
+
+    runner = AsyncLoopRunner(thread_name="test-self-stop")
+
+    async def stop_from_inside() -> None:
+        runner.stop()
+
+    runner.run(stop_from_inside())
+
+    [loop_thread] = [thread for thread in threading.enumerate() if thread.name == "test-self-stop"]
+    loop_thread.join(timeout=5)
+    assert not loop_thread.is_alive()
+
+
 @pytest.mark.asyncio
 async def test_sync_awaitable_inside_running_loop() -> None:
     """Run a coroutine safely from a thread that already owns an event loop."""

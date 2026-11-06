@@ -12,6 +12,7 @@ from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
     reject_runtime_fields,
 )
+from harborrag_core.retrieval import GraphDirection, GraphTraversalQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_core.schemas.vector import VectorIndexRecord
 from harborrag_engine.ingestion import EVIDENCE_INDEX
@@ -178,13 +179,20 @@ async def _graph_observations(
         traversal, outgoing, incoming = await asyncio.gather(
             *(
                 repository.traverse(
-                    node_key,
-                    max_depth=3,
-                    max_nodes=200,
-                    direction=direction,
+                    GraphTraversalQuery(
+                        start_node_key=node_key,
+                        max_depth=3,
+                        max_nodes=200,
+                        direction=direction,
+                        access_scope=None,
+                    ),
                     context=context,
                 )
-                for direction in ("both", "outgoing", "incoming")
+                for direction in (
+                    GraphDirection.BOTH,
+                    GraphDirection.OUTGOING,
+                    GraphDirection.INCOMING,
+                )
             )
         )
         relation_keys = tuple(

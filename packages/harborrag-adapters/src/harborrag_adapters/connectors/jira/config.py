@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -90,11 +89,9 @@ class JiraProjectConfig:
     backoff_factor: float = 0.5
 
     def __post_init__(self) -> None:
-        """Normalize env-backed credentials and validate query/load limits."""
+        """Normalize the deployment type and validate credentials and query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
-        self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
-        self.email = self.email or os.getenv("JIRA_EMAIL")
         self.project_keys = self._string_list(self.project_keys)
         self.issue_types = self._string_list(self.issue_types)
         self.statuses = self._string_list(self.statuses)

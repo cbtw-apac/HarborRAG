@@ -104,8 +104,14 @@ class InMemoryBudgetPolicy:
         cost_estimator: Callable[[BaseModel, str], float | None] | None = None,
         clock: Callable[[], float] = time.time,
     ) -> None:
-        """Store immutable limits and optional model-aware cost estimation."""
+        """Store immutable limits and optional model-aware cost estimation.
 
+        A per-request cost cap cannot be enforced without an estimator, so that pairing
+        is rejected here, at startup, rather than on every request.
+        """
+
+        if config.max_request_cost_usd is not None and cost_estimator is None:
+            raise BudgetEstimationError("max_request_cost_usd requires a cost estimator")
         self.config = config
         self._cost_estimator = cost_estimator
         self._clock = clock
@@ -192,8 +198,6 @@ class InMemoryBudgetPolicy:
 
     def _estimate_cost(self, request: BaseModel, logical_model: str) -> float | None:
         if self._cost_estimator is None:
-            if self.config.max_request_cost_usd is not None:
-                raise BudgetEstimationError("max_request_cost_usd requires a cost estimator")
             return None
         return self._cost_estimator(request, logical_model)
 

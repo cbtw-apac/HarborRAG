@@ -82,9 +82,11 @@ connector = HarborConnector(
 
 Applications can define multiple named connector instances in
 `config/connectors.yaml` and load them through `harborrag_runtime.config`. The
-runtime loader resolves environment
-secret references and then constructs the same validated provider config
+runtime loader resolves environment secret references (`token_env` and the other
+`<field>_env` keys) and then constructs the same validated provider config
 dataclasses shown below; adapters do not parse configuration files directly.
+Provider configs never read the process environment themselves: a source
+configured without a credential gets none, never the worker's own.
 
 See [Connector Configuration](../../../../../docs/users/configuration/connector-config.md)
 for the schema and loading API.
@@ -150,7 +152,7 @@ connector = GitHubConnector(
         repo="knowledge-base",
         branch="main",
         root_path="docs",
-        token=None,  # defaults to GITHUB_TOKEN
+        token=None,  # anonymous; pass a token for private repositories
     )
 )
 ```
@@ -169,8 +171,8 @@ connector = ConfluenceConnector(
         base_url="https://example.atlassian.net/wiki",
         include_comments=True,
         include_attachments=True,
-        token=None,  # defaults to CONFLUENCE_TOKEN
-        email=None,  # defaults to CONFLUENCE_EMAIL for Cloud
+        token="<api token>",
+        email="service-account@example.com",  # Cloud only
     )
 )
 ```
@@ -186,8 +188,8 @@ connector = JiraConnector(
         project_keys=["ENG"],
         include_comments=True,
         include_changelog=True,
-        token=None,  # defaults to JIRA_TOKEN or JIRA_API_TOKEN
-        email=None,  # defaults to JIRA_EMAIL for Cloud
+        token="<api token>",
+        email="service-account@example.com",  # Cloud only
     )
 )
 ```
@@ -202,7 +204,7 @@ connector = SharePointConnector(
         site_url="https://tenant.sharepoint.com/sites/Knowledge",
         drive_name="Documents",
         root_path="Shared Documents",
-        access_token=None,  # defaults to MICROSOFT_GRAPH_TOKEN
+        access_token="<graph token>",
     )
 )
 ```

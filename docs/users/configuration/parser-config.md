@@ -10,7 +10,7 @@ blocks.
 
 `HarborParser` routes by filename suffix and MIME type. Its default stack supports PPTX/PPTM, legacy PPT, DOCX, legacy DOC, ODT, Excel (including legacy XLS), CSV/TSV, images, HTML/XHTML, EPUB, JSON/JSONL/NDJSON, Markdown/MDX, PDFs, and plain text/source/config formats.
 
-An enabled catalog definition replaces the matching parser type in that default stack. Parser types not configured in YAML remain available.
+An enabled catalog definition replaces the default engine for the formats it reads; the rest of its family keeps the defaults, so configuring `docx` still parses `.doc`, `.odt` and `.epub`. A `pdf` definition replaces the whole PDF chain. Parser types not configured in YAML remain available.
 
 ### Legacy Microsoft Office binary formats
 
@@ -76,6 +76,21 @@ definition names neither `engines` nor `profile`: LiteParse, then PyMuPDF),
 scanned pages instead of running OCR in-process. It comes from
 `HARBORRAG_OCR_SERVER_URL` in `env/.env.parser`. When that is unset or empty no
 OCR server is used and LiteParse OCRs locally with Tesseract.
+
+A built-in profile takes `ocr_server_url` in its `settings` as well and hands it to
+LiteParse in every profile that runs it (`liteparse`, `fast`, `balanced`, `quality`):
+
+```yaml
+parsers:
+  pdf-balanced:
+    parser: pdf
+    enabled: true
+    settings:
+      profile: balanced
+      ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
+```
+
+An explicit `engines` chain sets `ocr_server_url` on its `liteparse` engine instead.
 
 For the containerized ingestion worker use a Docker DNS name rather than
 `localhost`, which would be the worker itself: the OCR server joins the

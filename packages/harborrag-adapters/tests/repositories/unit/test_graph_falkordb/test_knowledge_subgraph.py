@@ -8,7 +8,7 @@ from harborrag_core.ingestion import (
     GraphOwnershipScope,
     KnowledgeNodeKind,
 )
-from harborrag_core.retrieval import GraphAccessScope, GraphSubgraphQuery
+from harborrag_core.retrieval import GraphAccessScope, GraphSubgraphQuery, GraphTraversalQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 
 from .fakes import FakeFalkorDBClient, FakeQueryResult, HeaderItem
@@ -137,3 +137,33 @@ async def test_expand_subgraph_rejects_multiple_start_row_matches() -> None:
             GraphSubgraphQuery(start_node="Ops", max_depth=1, max_nodes=10),
             context=StorageOperationContext.system("tenant-1"),
         )
+
+
+@pytest.mark.asyncio
+async def test_traverse_checks_access_on_every_node_and_relation_of_a_path() -> None:
+    """A walk that checked only its endpoints could pass through a document the caller
+    cannot read and surface what lies beyond it, so every hop is checked before LIMIT."""
+    client = FakeFalkorDBClient()
+    client.read_results = [
+        FakeQueryResult([HeaderItem("path_nodes"), HeaderItem("path_relations")], [])
+    ]
+
+    await repository(client).traverse(
+        GraphTraversalQuery(
+            start_node_key="node-document",
+            max_depth=2,
+            max_nodes=10,
+            direction="both",
+            access_scope=GraphAccessScope(document_ids=("document-1",)),
+        ),
+        context=StorageOperationContext.system("tenant-1"),
+    )
+
+    statement, parameters = client.read_calls[0]
+    assert parameters["access_unrestricted"] is False
+    assert parameters["authorized_document_ids"] == ["document-1"]
+    nodes_check = statement.index("all(node IN nodes(path)")
+    relations_check = statement.index("all(relation IN relationships(path)")
+    assert statement.count("$authorized_document_ids") == 2
+    assert nodes_check < statement.index("$authorized_document_ids") < relations_check
+    assert statement.rindex("$authorized_document_ids") < statement.index("LIMIT $path_limit")

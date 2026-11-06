@@ -97,10 +97,15 @@ class PDFRouterConfig:
 
 @dataclass(frozen=True, slots=True)
 class PDFParserConfig:
-    """PDF parser quality threshold and routing profiles."""
+    """PDF parser quality threshold, routing profiles and the OCR service they share.
+
+    ``ocr_server_url`` is the OCR service LiteParse sends scanned pages to in every
+    profile that runs it; ``None`` OCRs locally.
+    """
 
     min_content_chars: int = 20
     router: PDFRouterConfig = field(default_factory=PDFRouterConfig)
+    ocr_server_url: str | None = None
 
     def __post_init__(self) -> None:
         if self.min_content_chars < 0:

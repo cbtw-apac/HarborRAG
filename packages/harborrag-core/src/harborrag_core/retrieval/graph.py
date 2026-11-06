@@ -5,7 +5,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Self
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 
 from harborrag_core.base import StrictModel
 from harborrag_core.chunking import RelationType
@@ -172,6 +172,29 @@ class GraphSubgraphQuery(StrictModel):
         if len(set(self.relationship_types)) != len(self.relationship_types):
             raise ValueError("subgraph relationship types must be unique")
         return self
+
+
+class GraphTraversalQuery(StrictModel):
+    """Walk a bounded neighborhood from one exact node key.
+
+    Internal callers (retrieval provenance, projection checks) start from a known
+    ``node_key`` rather than a portable selector, and may walk wider than a public
+    subgraph. ``access_scope`` has no default: ``None`` means no authorizer is
+    configured and the walk is unrestricted, so a caller must say so.
+    """
+
+    start_node_key: str = Field(min_length=1)
+    max_depth: int = Field(ge=1, le=8)
+    max_nodes: int = Field(ge=1, le=5_000)
+    direction: GraphDirection
+    access_scope: GraphAccessScope | None = Field(exclude=True, repr=False)
+
+    @field_validator("start_node_key")
+    @classmethod
+    def validate_start_node_key(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("graph traversal start_node_key must be non-empty")
+        return value
 
 
 def compact_node(node: GraphNodeRecord) -> dict[str, object]:

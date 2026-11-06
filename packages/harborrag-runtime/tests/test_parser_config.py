@@ -385,3 +385,79 @@ def test_registry_rejects_multiple_enabled_profiles_for_same_parser(
 
     with pytest.raises(ParserConfigurationError, match="both configure family"):
         catalog.build_harbor_parser()
+
+
+@pytest.mark.parametrize(
+    ("parser", "kept_suffix", "kept_engine"),
+    [
+        ("docx", ".doc", "doc"),
+        ("docx", ".odt", "odt"),
+        ("docx", ".epub", "epub"),
+        ("epub", ".docx", "docx"),
+        ("csv", ".xlsx", "excel"),
+        ("html", ".md", "markdown"),
+        ("pptx", ".ppt", "ppt"),
+    ],
+)
+def test_configuring_one_engine_keeps_the_rest_of_its_family(
+    tmp_path: Path, parser: str, kept_suffix: str, kept_engine: str
+) -> None:
+    config_path = _write_config(
+        tmp_path,
+        f"""
+        version: 1
+        parsers:
+          configured:
+            parser: {parser}
+        """,
+    )
+
+    registry = load_parser_catalog(config_path).build_harbor_parser()
+
+    family = registry.resolve(f"file{kept_suffix}", None)
+    [engine] = [engine for engine in family.engines if kept_suffix in engine.suffixes]
+    assert engine.name == kept_engine
+
+
+@pytest.mark.parametrize("profile", ["liteparse", "fast", "balanced", "quality"])
+def test_a_named_pdf_profile_sends_scanned_pages_to_the_ocr_server(
+    tmp_path: Path, profile: str
+) -> None:
+    config_path = _write_config(
+        tmp_path,
+        f"""
+        version: 1
+        parsers:
+          pdf-profile:
+            parser: pdf
+            settings:
+              profile: {profile}
+              ocr_server_url: http://ppocr-server:8888/ocr
+        """,
+    )
+
+    parser = load_parser_catalog(config_path).build("pdf-profile")
+
+    [liteparse] = [backend for backend in parser.backends if backend.name == "liteparse"]
+    assert liteparse.options.ocr_server_url == "http://ppocr-server:8888/ocr"
+
+
+def test_an_explicit_engines_chain_sets_the_ocr_server_on_its_liteparse_engine(
+    tmp_path: Path,
+) -> None:
+    config_path = _write_config(
+        tmp_path,
+        """
+        version: 1
+        parsers:
+          pdf-chain:
+            parser: pdf
+            settings:
+              ocr_server_url: http://ppocr-server:8888/ocr
+            engines:
+              - backend: liteparse
+        """,
+    )
+
+    with pytest.raises(ParserConfigurationError, match="liteparse engine"):
+        load_parser_catalog(config_path)

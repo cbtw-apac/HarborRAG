@@ -20,6 +20,7 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
 )
 from harborrag_core.ports.indexing import KnowledgeGraphRepositoryPort
+from harborrag_core.retrieval import GraphTraversalQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 
 
@@ -83,14 +84,12 @@ class FakeKnowledgeGraphRepository:
 
     async def traverse(
         self,
-        start_node_key: str,
+        query: GraphTraversalQuery,
         *,
-        max_depth: int,
-        max_nodes: int,
-        direction: str,
         context: StorageOperationContext,
     ) -> KnowledgeGraphTraversal:
-        del max_depth, direction, context
+        del context
+        start_node_key, max_nodes = query.start_node_key, query.max_nodes
         # One hop, undirected, which is all a fake needs to show that an edgeless node
         # reaches nothing -- the property the retraction contract below depends on.
         reached = tuple(

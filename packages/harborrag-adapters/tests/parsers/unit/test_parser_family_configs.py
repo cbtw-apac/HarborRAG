@@ -63,3 +63,17 @@ def test_liteparse_is_the_default_pdf_and_image_engine() -> None:
     parser = HarborParserFactory().create_pdf_parser()
     assert [engine.name for engine in parser.engines] == ["liteparse", "pymupdf"]
     assert OcrImageEngine().ocr_engine == "liteparse"
+
+
+def test_every_pdf_profile_hands_its_ocr_server_to_liteparse() -> None:
+    from harborrag_adapters.parsers import HarborParserFactory
+    from harborrag_adapters.parsers.pdf.config import PDFParserConfig
+
+    config = PDFParserConfig(ocr_server_url="http://ppocr-server:8888/ocr")
+
+    for profile, settings in config.router.profiles.items():
+        if "liteparse" not in settings.engine_order:
+            continue
+        parser = HarborParserFactory().create_pdf_parser(config, profile=profile)
+        [liteparse] = [engine for engine in parser.engines if engine.name == "liteparse"]
+        assert liteparse.options.ocr_server_url == "http://ppocr-server:8888/ocr", profile

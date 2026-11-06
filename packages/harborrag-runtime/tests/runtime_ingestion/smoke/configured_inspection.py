@@ -16,6 +16,7 @@ from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
 )
+from harborrag_core.retrieval import GraphDirection, GraphTraversalQuery
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_engine.ingestion import EVIDENCE_INDEX
 from harborrag_engine.retrieval import RetrievalLane
@@ -122,13 +123,16 @@ async def _inspect_graph(
     if root is None:
         raise AssertionError("configured smoke root document is not active")
     traversal = await stores.graph.traverse(
-        identities.document_version_node_key(
-            document_id=root_document_id,
-            document_version_id=str(root.document_version_id),
+        GraphTraversalQuery(
+            start_node_key=identities.document_version_node_key(
+                document_id=root_document_id,
+                document_version_id=str(root.document_version_id),
+            ),
+            max_depth=3,
+            max_nodes=300,
+            direction=GraphDirection.BOTH,
+            access_scope=None,
         ),
-        max_depth=3,
-        max_nodes=300,
-        direction="both",
         context=context,
     )
     if traversal.truncated:

@@ -64,8 +64,10 @@ def _relation(relation_id: str, source: str, target: str, document_id: str) -> G
 class _SeededGraph(FakeGraphRepository):
     """The result chunk sits in document-1; the memory-seeded node in document-2."""
 
-    async def traverse(self, start_node_key, **kwargs):
-        self.queries.append((start_node_key, kwargs))
+    async def traverse(self, query, *, context):
+        del context
+        start_node_key = query.start_node_key
+        self.queries.append((start_node_key, query))
         if start_node_key == "chunk-1":
             return KnowledgeGraphTraversal(
                 nodes=(
