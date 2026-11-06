@@ -12,6 +12,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config_store.defaults import registry_for
 
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.connection_views import IngestionLinks
@@ -22,6 +23,7 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
+from ..control_plane.settings_service import SettingsService
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
@@ -168,6 +170,9 @@ class AppService(
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
+        self._settings_service = SettingsService(
+            control_plane=self._control_plane, registry=registry_for(self._settings)
+        )
 
     @property
     def ingestion_operations(self) -> IngestionOperations:
@@ -178,6 +183,11 @@ class AppService(
     def connection_service(self) -> ConnectionService:
         """Connection use cases behind the ``/v1/admin`` connection routes."""
         return self._connection_service
+
+    @property
+    def settings_service(self) -> SettingsService:
+        """Runtime settings use cases behind the ``/v1/admin/settings`` routes."""
+        return self._settings_service
 
     @property
     def project_service(self) -> ProjectService:

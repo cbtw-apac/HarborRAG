@@ -39,6 +39,8 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/v1/admin/projects/{project_id}",
         "/v1/admin/projects/{project_id}/connections/{connection_id}",
         "/v1/admin/projects/{project_id}/connections/{connection_id}/test",
+        "/v1/admin/settings",
+        "/v1/admin/settings/schema",
         "/v1/admin/source-types",
         "/v1/chat/completions",
         "/v1/chat/sessions",
