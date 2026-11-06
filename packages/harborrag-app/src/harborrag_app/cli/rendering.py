@@ -14,6 +14,7 @@ from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
 
+from harborrag_app.cli.config_views import ConfigViews
 from harborrag_app.cli.rendering_values import (
     STATUS_STYLES,
     boolean,
@@ -107,6 +108,8 @@ class CliRenderer:
     ) -> Callable[[Mapping[str, Any]], None] | None:
         """Select the view for a command/action pair, or None for the generic tree."""
 
+        if command == "config":
+            return ConfigViews(self.console).for_action(action)
         if command == "source":
             return SourceViews(self.console).for_action(action)
         by_command = {"doctor": self._doctor, "chat": self._chat, "status": self._status}
