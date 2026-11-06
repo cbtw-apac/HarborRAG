@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app_test_connections import FakeSecrets, fake_control_plane
+from app_test_connections import CONNECTION_KEY, JIRA_WRITE, connection_world
 from app_test_fixtures import MockAppService
 from project_test_support import scaffold
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -24,6 +24,7 @@ from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry
 from harborrag_core.config_store.documents import plan_import
+from harborrag_core.domain.project import Project
 from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 
@@ -76,8 +77,12 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _World:
         async_sessionmaker(create_control_plane_engine(dsn), expire_on_commit=False)
     )
     registry = SettingsRegistry.default()
+    connections = connection_world(
+        [Project(id="cpm", name="CPM", collection="cpm", tenant_id=CONNECTION_KEY.tenant_id)]
+    )
+    asyncio.run(connections.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy"))
     plane = replace(
-        fake_control_plane([], FakeSecrets()),
+        connections.control_plane,
         config_store=store,
         config=CachedConfigProvider(store, registry),
     )
@@ -185,8 +190,11 @@ def test_export_round_trip_reports_no_changes(
 
     code, _, _ = _run(capsys, "export", "--output", str(exported))
     _, out, _ = _run(capsys, "import", str(exported))
+    _, printed, _ = _run(capsys, "export")
 
     assert code == 0
+    assert JIRA_WRITE.credentials["api_token"] not in exported.read_text(encoding="utf-8")
+    assert JIRA_WRITE.credentials["api_token"] not in printed
     assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\nretrieval.top_k: 7\n"
     assert "no changes" in out
 
