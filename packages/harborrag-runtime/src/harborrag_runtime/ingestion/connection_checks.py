@@ -29,12 +29,22 @@ from harborrag_core.ingestion.errors import (
 )
 
 CheckName = Literal["schema", "auth", "reachable", "permissions", "preview"]
-ErrorCategory = Literal["auth_invalid", "auth_expired", "forbidden", "unreachable", "rate_limited"]
+ErrorCategory = Literal[
+    "auth_invalid",
+    "auth_expired",
+    "forbidden",
+    "unreachable",
+    "rate_limited",
+    "secret_unavailable",
+]
 
 _SOURCE_CHECKS: tuple[CheckName, ...] = ("reachable", "auth", "permissions", "preview")
 _NOT_PERMITTED = frozenset({403, 404})
 
 PREVIEW_SIZE = 5
+SECRET_UNAVAILABLE_MESSAGE = (
+    "the secret is read from the worker's environment; the API cannot check it"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +78,10 @@ class ConnectionTestReport:
         """Record the check that failed and the category clients branch on."""
         self.checks.append(CheckResult(name, False, message))
         self.error_category = category
+
+    def secret_unavailable(self) -> None:
+        """Record that a referenced secret is held where the API cannot read it."""
+        self.failed("auth", "secret_unavailable", SECRET_UNAVAILABLE_MESSAGE)
 
     def as_dict(self) -> dict[str, Any]:
         """Return the response body."""

@@ -355,7 +355,15 @@ class ConnectionTestOut(BaseModel):
     ok: bool
     checks: list[CheckOut]
     error_category: (
-        Literal["auth_invalid", "auth_expired", "forbidden", "unreachable", "rate_limited"] | None
+        Literal[
+            "auth_invalid",
+            "auth_expired",
+            "forbidden",
+            "unreachable",
+            "rate_limited",
+            "secret_unavailable",
+        ]
+        | None
     )
     preview: PreviewOut
     latency_ms: int

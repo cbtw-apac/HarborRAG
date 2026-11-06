@@ -304,6 +304,25 @@ async def test_a_failed_removal_keeps_the_row_deleting_and_resumes(world: Connec
 
 
 @pytest.mark.asyncio
+async def test_a_test_with_an_unreadable_env_secret_is_not_an_auth_failure(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.delenv("MISSING_TOKEN", raising=False)
+    write = ConnectionWrite(
+        "jira", {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:MISSING_TOKEN"}}, {}
+    )
+
+    report = await world.service.test(CONNECTION_KEY, write, origin="operator")
+
+    assert report["ok"] is False
+    assert report["error_category"] == "secret_unavailable"
+    auth = next(check for check in report["checks"] if check["name"] == "auth")
+    assert auth["message"] == (
+        "the secret is read from the worker's environment; the API cannot check it"
+    )
+
+
+@pytest.mark.asyncio
 async def test_testing_form_values_saves_nothing(
     world: ConnectionWorld, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

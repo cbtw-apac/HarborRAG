@@ -443,7 +443,7 @@ class ConnectionService:
         except SecretUnavailableError:
             report = ConnectionTestReport()
             report.passed("schema")
-            report.failed("auth", "auth_invalid", "a referenced secret cannot be read")
+            report.secret_unavailable()
             return report.as_dict()
         report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
         return report.as_dict()

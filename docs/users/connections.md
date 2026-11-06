@@ -91,7 +91,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 The answer is always `200` for valid input. `ok` is `false` when a check fails,
 and `error_category` says why (`auth_invalid`, `forbidden`, `unreachable`,
-`rate_limited`). Up to five sample items show what a sync would read. A test
+`rate_limited`, or `secret_unavailable` when a token is an `env:` reference that
+only the worker can read). Up to five sample items show what a sync would read. A test
 gives up after 15 seconds. Without a body, the call tests the saved connection.
 
 **3. Save it.** `PUT` the same body:
