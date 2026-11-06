@@ -18,7 +18,7 @@ from harborrag_adapters.parsers.pdf.engines.pymupdf.config import (
 )
 from harborrag_adapters.parsers.pdf.models import PDFParseResult
 from harborrag_adapters.parsers.pdf.normalization import page_element
-from harborrag_adapters.parsers.pdf.utils import merge_dataclass_options
+from harborrag_adapters.parsers.pdf.utils import import_pymupdf, merge_dataclass_options
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.parser import ParseInput
 
@@ -46,7 +46,7 @@ class PyMuPDFEngine(HarborPDFEngine):
     def parse_input(self, input: ParseInput) -> PDFParseResult:
         """Extract text directly from PDF pages without OCR."""
 
-        pymupdf = self._import_pymupdf()
+        pymupdf = import_pymupdf()
         source_bytes = guard_input_size(read_parse_input_bytes(input))
         if (
             self.options.max_file_size is not None
@@ -119,25 +119,6 @@ class PyMuPDFEngine(HarborPDFEngine):
             )
         finally:
             document.close()
-
-    @staticmethod
-    def _import_pymupdf() -> Any:
-        """Import either modern `pymupdf` or legacy `fitz` package names."""
-
-        try:
-            import pymupdf
-
-            return pymupdf
-        except ImportError:
-            try:
-                import fitz
-
-                return fitz
-            except ImportError as exc:
-                raise ImportError(
-                    "PDF parsing with PyMuPDF requires `PyMuPDF`; install "
-                    "`harborrag-adapters[pdf-pymupdf]` or `pip install PyMuPDF`."
-                ) from exc
 
     @staticmethod
     def _warnings(pymupdf: Any) -> list[str]:

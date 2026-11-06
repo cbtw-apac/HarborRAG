@@ -123,11 +123,59 @@ parsers:
           do_table_structure: true
 ```
 
-Supported backend names are `pymupdf`, `docling` and `liteparse`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
+Supported backend names are `pymupdf`, `docling`, `liteparse` and `llm`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
 
 `max_pages` refuses a longer PDF before any engine reads it; the default is
 200 and `null` turns the check off. A PDF that cannot be counted, such as an
 encrypted one, goes to the engines, which report why it failed.
+
+## PDF pages read by a chat model
+
+The `llm` backend renders each page to an image and has a chat model from
+`config/models.yaml` transcribe it to Markdown, which reads scans, tables and
+multi-column layouts that text extraction gets wrong. The API key lives on the
+model's deployment in `models.yaml` like any other chat model; `parsers.yaml`
+only names the model.
+
+```yaml
+# config/models.yaml, under chat.models
+vision:
+  deployments:
+    - name: openai-vision
+      provider: openai
+      model: ${HARBOR_VISION_MODEL}
+      api_key: ${HARBOR_VISION_API_KEY}
+      capabilities:
+        multimodal: true
+```
+
+```yaml
+# config/parsers.yaml
+parsers:
+  pdf-llm:
+    parser: pdf
+    engines:
+      - backend: llm
+        settings:
+          model: vision
+          max_pages: 50
+          dpi: 150
+      - backend: pymupdf
+```
+
+- Every page image is sent to the model's provider, so use it only for
+  documents you may share with that provider. It is never part of a named
+  profile; only an explicit `engines` chain uses it.
+- Each page is one model call. `max_pages` (default 50) leaves a longer PDF to
+  the next engine; `dpi` (72 to 300, default 150) sets the image resolution.
+- Workers check at startup that the model exists and that every deployment
+  declares `multimodal: true`.
+- A rate limit, timeout or connection failure retries the document instead of
+  falling back, so what gets indexed does not depend on whether the provider
+  was up. Any other model failure falls back to the next engine.
+- Rendering pages needs PyMuPDF (the `pdf-pymupdf` extra).
+- Changing which provider model the name points to in `models.yaml` does not
+  re-parse documents already ingested; changing `parsers.yaml` does.
 
 ## Image OCR engine
 
@@ -199,6 +247,10 @@ pdf = catalog.build("pdf-liteparse")
 image = catalog.build("image-liteparse")
 parser_registry = catalog.build_harbor_parser()
 ```
+
+A catalog with an `llm` engine needs a synchronous chat client:
+`catalog.chat_models()` names the models it reads with, and
+`catalog.build_harbor_parser(chat_client=...)` passes the client to them.
 
 Only one enabled definition may replace a given stable parser name. `build_harbor_parser()` rejects conflicting enabled definitions instead of choosing silently.
 

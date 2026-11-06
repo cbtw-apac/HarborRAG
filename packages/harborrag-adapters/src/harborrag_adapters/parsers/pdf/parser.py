@@ -30,6 +30,7 @@ from harborrag_adapters.parsers.pdf.parser_failures import (
 from harborrag_adapters.parsers.pdf.parser_support import PDFParserSupportMixin
 from harborrag_adapters.parsers.pdf.quality import PDFQualityEvaluator
 from harborrag_adapters.parsers.pdf.router import PDFEngineRegistry, PDFEngineRouter
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("pdf")
@@ -116,7 +117,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
             started = perf_counter()
             try:
                 result = await engine.parse(request)
-            except EncryptedPdfError:
+            except (EncryptedPdfError, HarborUnavailableError):
                 raise
             except TYPED_ENGINE_FAILURES as error:
                 # A configured limit or no-extractable-text condition is
@@ -258,7 +259,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
             started = perf_counter()
             try:
                 result = engine.parse_input(input)
-            except EncryptedPdfError:
+            except (EncryptedPdfError, HarborUnavailableError):
                 raise
             except TYPED_ENGINE_FAILURES as error:
                 # See the matching branch in `parse()` above: a configured

@@ -13,6 +13,7 @@ from harborrag_adapters.parsers import HarborParserFactory, HarborParserRegistry
 from harborrag_adapters.parsers.common.base import HarborParser
 from harborrag_adapters.parsers.common.family import HarborSingleEngineFamilyParser
 from harborrag_adapters.parsers.pdf.base import HarborPDFEngine
+from harborrag_core.ports.model_clients import HarborChatClientProtocol
 from harborrag_runtime.config.errors import ParserConfigurationError
 from harborrag_runtime.config.parsers.providers import (
     parser_factory,
@@ -37,11 +38,21 @@ class PdfBackendDefinition:
             MappingProxyType(dict(self.secret_environment)),
         )
 
+    @property
+    def chat_model(self) -> str | None:
+        """Return the chat model this backend reads pages with, or ``None`` if it uses none."""
+        spec = pdf_backend_spec(self.backend)
+        model = self.settings.get("model")
+        if spec is None or not spec.uses_chat_model or not isinstance(model, str):
+            return None
+        return model
+
     def build(
         self,
         *,
         parser_name: str,
         environment: Mapping[str, str] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> HarborPDFEngine:
         """Build the configured PDF backend with contextual error reporting."""
         spec = pdf_backend_spec(self.backend)
@@ -60,7 +71,7 @@ class PdfBackendDefinition:
             )
 
         try:
-            return spec.build(values)
+            return spec.build(values, chat_client=chat_client)
         except (TypeError, ValueError) as exc:
             raise ParserConfigurationError(
                 f"Parser {parser_name!r} PDF backend {self.backend!r} is invalid: {exc}"
@@ -86,6 +97,7 @@ class ParserDefinition:
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> HarborParser:
         """Build the parser after merging YAML settings and code overrides."""
         factory = parser_factory(self.parser)
@@ -97,7 +109,11 @@ class ParserDefinition:
         values = dict(self.settings)
         if self.pdf_backends:
             values["backends"] = [
-                backend.build(parser_name=self.name, environment=environment)
+                backend.build(
+                    parser_name=self.name,
+                    environment=environment,
+                    chat_client=chat_client,
+                )
                 for backend in self.pdf_backends
             ]
         if overrides:
@@ -138,24 +154,42 @@ class ParserCatalog:
             if definition.enabled or not enabled_only
         )
 
+    def chat_models(self) -> frozenset[str]:
+        """Return the chat models enabled PDF backends read pages with.
+
+        Empty unless a definition lists an ``llm`` engine, so a deployment that
+        never parses with a model never needs a chat client.
+        """
+        return frozenset(
+            model
+            for definition in self.parsers.values()
+            if definition.enabled
+            for backend in definition.pdf_backends
+            if (model := backend.chat_model) is not None
+        )
+
     def build(
         self,
         name: str,
         *,
         environment: Mapping[str, str] | None = None,
         overrides: Mapping[str, Any] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> HarborParser:
         """Build one configured parser by application-level name."""
-        return self.get(name).build(environment=environment, overrides=overrides)
+        return self.get(name).build(
+            environment=environment, overrides=overrides, chat_client=chat_client
+        )
 
     def build_enabled(
         self,
         *,
         environment: Mapping[str, str] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> dict[str, HarborParser]:
         """Build all enabled parser definitions in their YAML order."""
         return {
-            name: definition.build(environment=environment)
+            name: definition.build(environment=environment, chat_client=chat_client)
             for name, definition in self.parsers.items()
             if definition.enabled
         }
@@ -164,6 +198,7 @@ class ParserCatalog:
         self,
         *,
         environment: Mapping[str, str] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> HarborParserRegistry:
         """Merge enabled configured families into the default registry.
 
@@ -171,9 +206,12 @@ class ParserCatalog:
         family replaces the default engines for the formats it reads and keeps the
         rest: configuring ``docx`` still parses ``.doc``, ``.odt`` and ``.epub``.
         Families not configured remain on the default factory-built registry.
+        ``chat_client`` serves the backends ``chat_models`` names.
         """
         configured: dict[str, tuple[str, HarborParser]] = {}
-        for config_name, parser in self.build_enabled(environment=environment).items():
+        for config_name, parser in self.build_enabled(
+            environment=environment, chat_client=chat_client
+        ).items():
             existing = configured.get(parser.parser_name)
             if existing is not None:
                 raise ParserConfigurationError(
@@ -196,8 +234,9 @@ class ParserCatalog:
         self,
         *,
         environment: Mapping[str, str] | None = None,
+        chat_client: HarborChatClientProtocol | None = None,
     ) -> HarborParserRegistry:
-        return self.build_registry(environment=environment)
+        return self.build_registry(environment=environment, chat_client=chat_client)
 
 
 def _merge_family(default: HarborParser, configured: HarborParser) -> HarborParser:

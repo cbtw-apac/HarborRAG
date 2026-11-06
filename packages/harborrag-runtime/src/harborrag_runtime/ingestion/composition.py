@@ -15,6 +15,7 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BUCKET
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.model_clients import HarborChatClientProtocol
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
 from harborrag_runtime.composition.connection_stores import ConnectionStores
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -76,6 +77,8 @@ class IngestionRuntime:
     connection_health: ConnectionHealth = field(default_factory=lambda: ConnectionHealth(None))
     connection_resolver: ConnectionResolver | None = None
     connection_stores: ConnectionStores | None = None
+    # Built only when a parser definition reads PDF pages with a chat model.
+    parser_chat_client: HarborChatClientProtocol | None = None
     # None keeps hand-built runtimes (tests, embedders) free of the purge.
     retention: RetiredVersionPurgeService | None = None
     # Safe display strings per resource label; read only on the failure path.
@@ -118,6 +121,7 @@ class IngestionRuntime:
                 *(close() for close in reversed(connected)),
                 asyncio.to_thread(self.connector_rate_limiter.close),
                 self.embed_client.aclose(),
+                self._close_parser_chat_client(),
                 return_exceptions=True,
             )
             raise
@@ -142,6 +146,7 @@ class IngestionRuntime:
             await asyncio.gather(
                 asyncio.to_thread(self.connector_rate_limiter.close),
                 self.embed_client.aclose(),
+                self._close_parser_chat_client(),
                 self.telemetry.close(),
                 self._close_connection_stores(),
             )
@@ -156,6 +161,7 @@ class IngestionRuntime:
             self.control.close(),
             asyncio.to_thread(self.connector_rate_limiter.close),
             self.embed_client.aclose(),
+            self._close_parser_chat_client(),
             self.telemetry.close(),
             return_exceptions=True,
         )
@@ -204,6 +210,11 @@ class IngestionRuntime:
         """Dispose the control-plane engine the connection stores use."""
         if self.connection_stores is not None:
             await self.connection_stores.aclose()
+
+    async def _close_parser_chat_client(self) -> None:
+        """Dispose the chat client PDF engines send pages through, if one was built."""
+        if self.parser_chat_client is not None:
+            await asyncio.to_thread(self.parser_chat_client.close)
 
 
 def build_ingestion_runtime(

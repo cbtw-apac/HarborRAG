@@ -28,6 +28,7 @@ async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture)
     telemetry = SimpleNamespace(start=AsyncMock(), close=AsyncMock())
     rate_limiter = SimpleNamespace(close=Mock())
     embed_client = SimpleNamespace(aclose=AsyncMock())
+    parser_chat_client = SimpleNamespace(close=Mock())
     runtime = object.__new__(IngestionRuntime)
     runtime.connector_pool = pool  # type: ignore[assignment]
     runtime.connection_stores = stores  # type: ignore[assignment]
@@ -38,6 +39,7 @@ async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture)
     runtime.telemetry = telemetry
     runtime.connector_rate_limiter = rate_limiter
     runtime.embed_client = embed_client
+    runtime.parser_chat_client = parser_chat_client  # type: ignore[assignment]
     runtime._started = False
 
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.ingestion.composition"):
@@ -46,6 +48,7 @@ async def test_runtime_logs_resource_lifecycle(caplog: pytest.LogCaptureFixture)
 
     pool.aclose.assert_awaited_once_with()
     stores.aclose.assert_awaited_once_with()
+    parser_chat_client.close.assert_called_once_with()
     assert "Ingestion runtime started resources=5" in caplog.text
     assert "Ingestion runtime closed" in caplog.text
 
@@ -70,6 +73,7 @@ async def test_runtime_close_attempts_every_resource_and_remains_retryable() -> 
     runtime.telemetry = telemetry
     runtime.connector_rate_limiter = rate_limiter
     runtime.embed_client = embed_client
+    runtime.parser_chat_client = None
     runtime._started = True
 
     with pytest.raises(BaseExceptionGroup):
@@ -101,6 +105,7 @@ def _startable_runtime(**overrides: object) -> IngestionRuntime:
     runtime.telemetry = SimpleNamespace(start=AsyncMock(), close=AsyncMock())  # type: ignore[assignment]
     runtime.connector_rate_limiter = SimpleNamespace(close=Mock())  # type: ignore[assignment]
     runtime.embed_client = SimpleNamespace(aclose=AsyncMock())  # type: ignore[assignment]
+    runtime.parser_chat_client = None
     runtime._started = False
     for name, resource in resources.items():
         setattr(runtime, name, resource)

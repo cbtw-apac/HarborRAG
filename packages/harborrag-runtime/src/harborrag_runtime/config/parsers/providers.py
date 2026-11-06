@@ -29,6 +29,7 @@ from harborrag_adapters.parsers.pdf.engines.liteparse.config import (
 from harborrag_adapters.parsers.pdf.engines.liteparse.engine import (
     LiteParsePDFEngine,
 )
+from harborrag_adapters.parsers.pdf.engines.llm import LlmPDFConfig, LlmPDFEngine
 from harborrag_adapters.parsers.pdf.engines.pymupdf.engine import PyMuPDFEngine
 from harborrag_adapters.parsers.pdf.parser import HarborPDFParser
 from harborrag_adapters.parsers.presentation.engines.python_pptx.engine import (
@@ -48,6 +49,7 @@ from harborrag_adapters.parsers.structured.engines.json.engine import (
 from harborrag_adapters.parsers.structured.parser import HarborStructuredParser
 from harborrag_adapters.parsers.text.engines.plain_text.engine import PlainTextEngine
 from harborrag_adapters.parsers.text.parser import HarborTextParser
+from harborrag_core.ports.model_clients import HarborChatClientProtocol
 
 type ParserFactory = Callable[..., HarborParser]
 type PdfBackendFactory = Callable[..., HarborPDFEngine]
@@ -161,10 +163,19 @@ _PARSER_FACTORIES: Mapping[str, ParserFactory] = {
 
 @dataclass(frozen=True, slots=True)
 class PdfBackendSpec:
-    """Constructor metadata for one declaratively configurable PDF backend."""
+    """Constructor metadata for one declaratively configurable PDF backend.
+
+    Attributes:
+        factory: Builds the engine from its typed options.
+        option_factory: Dataclass the YAML settings are validated into, or
+            ``None`` when the engine takes its settings as keywords.
+        uses_chat_model: The engine reads pages with the chat model its
+            ``model`` setting names, so it needs the runtime's chat client.
+    """
 
     factory: PdfBackendFactory
     option_factory: OptionFactory | None = None
+    uses_chat_model: bool = False
 
     def setting_names(self) -> set[str]:
         """Return YAML option names accepted by this backend."""
@@ -172,12 +183,36 @@ class PdfBackendSpec:
             return set()
         return {item.name for item in fields(self.option_factory)}  # type: ignore[arg-type]
 
-    def build(self, settings: Mapping[str, Any]) -> HarborPDFEngine:
-        """Construct a backend and its typed options from YAML settings."""
+    def build(
+        self,
+        settings: Mapping[str, Any],
+        *,
+        chat_client: HarborChatClientProtocol | None = None,
+    ) -> HarborPDFEngine:
+        """Construct a backend and its typed options from YAML settings.
+
+        Args:
+            settings: The backend's YAML settings, secrets already resolved.
+            chat_client: Client a ``uses_chat_model`` backend sends pages through;
+                other backends ignore it.
+
+        Returns:
+            The configured engine.
+
+        Raises:
+            ValueError: A chat-model backend was built without a chat client.
+        """
         if self.option_factory is None:
             return self.factory(**settings)
         options = self.option_factory(**settings)
-        return self.factory(options)
+        if not self.uses_chat_model:
+            return self.factory(options)
+        if chat_client is None:
+            raise ValueError(
+                "it reads pages with a chat model from models.yaml, and no chat client "
+                "was passed when the parsers were built"
+            )
+        return self.factory(options, chat_client=chat_client)
 
 
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
@@ -188,6 +223,7 @@ _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),
     "liteparse": PdfBackendSpec(LiteParsePDFEngine, LiteParsePDFConfig),
+    "llm": PdfBackendSpec(LlmPDFEngine, LlmPDFConfig, uses_chat_model=True),
     "pymupdf": PdfBackendSpec(PyMuPDFEngine),
 }
 

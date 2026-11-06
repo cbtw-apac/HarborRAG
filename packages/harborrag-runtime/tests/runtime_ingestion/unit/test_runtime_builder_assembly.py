@@ -72,7 +72,10 @@ def wired(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> SimpleNamespace:
         model_telemetry_flags=[],
         config_paths=[],
     )
-    catalog = SimpleNamespace(build_harbor_parser=lambda: infra.parser)
+    catalog = SimpleNamespace(
+        chat_models=frozenset,
+        build_harbor_parser=lambda *, chat_client: infra.parser,
+    )
     monkeypatch.setattr(runtime_builder, "load_parser_catalog", lambda _path: catalog)
     monkeypatch.setattr(runtime_builder, "build_ingestion_control", lambda _s: infra.control)
     monkeypatch.setattr(runtime_builder, "build_object_store", lambda _s: infra.object_store)

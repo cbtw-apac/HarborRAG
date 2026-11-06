@@ -16,6 +16,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
+- PDFs can be read page by page by a vision-capable chat model from `models.yaml`, as an opt-in parser engine
 
 #### harborrag-runtime
 

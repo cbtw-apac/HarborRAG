@@ -32,6 +32,7 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_runtime.chat.composition import build_parser_chat_client
 from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
     build_ingestion_control,
@@ -98,7 +99,12 @@ class IngestionRuntimeBuilder:
             metrics_port=settings.metrics_port,
             metrics_bind_address=settings.metrics_bind_address,
         )
-        parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+        parser_catalog = load_parser_catalog(settings.parser_config_path)
+        parser_models = parser_catalog.chat_models()
+        parser_chat_client = (
+            build_parser_chat_client(settings, parser_models) if parser_models else None
+        )
+        parser = parser_catalog.build_harbor_parser(chat_client=parser_chat_client)
         chunking = chunking_settings_from(settings)
         rate_limiter = self._rate_limiter(telemetry)
         stores = build_connection_stores(settings)
@@ -210,6 +216,7 @@ class IngestionRuntimeBuilder:
             vector_repository=vectors,
             graph_repository=graph,
             embed_client=embed_client,
+            parser_chat_client=parser_chat_client,
             connector_rate_limiter=rate_limiter,
             telemetry=telemetry,
             resource_targets=resource_targets(settings),

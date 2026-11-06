@@ -81,6 +81,7 @@ registered provider.
 | PyMuPDF | Fast embedded-text extraction | `pdf-pymupdf` |
 | Docling | Layout, tables, structured export, and OCR | `pdf-docling` |
 | LiteParse | Local parsing with page-oriented output | `pdf-liteparse` |
+| LLM | Scans, tables and layout read by a multimodal chat model; pages leave the process | `pdf-pymupdf` |
 
 Each provider keeps configuration in its own `config.py`. Optional imports and
 model initialization remain inside the provider so importing the PDF family
