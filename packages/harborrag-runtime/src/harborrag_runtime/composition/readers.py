@@ -39,6 +39,7 @@ class ReaderApplication:
         self.knowledge = KnowledgeFacade(self)
         self.tools = build_reader_tool_catalog(self, self.references)
         self.invoker = ToolInvoker(self.tools, audit=build_tool_execution_audit())
+        self._build_config_provider()
 
     async def _retrieval_service(self) -> RuntimeRetrievalService:
         async with self._lock:
@@ -49,10 +50,17 @@ class ReaderApplication:
             return self._service
 
     async def start(self) -> None:
-        await self._start_config_provider()
+        """Start the settings provider, then connect the retrieval backends.
+
+        Raises:
+            HarborUnavailableError: The settings store is unreachable.
+        """
+        if self.config_provider is not None:
+            await self.config_provider.start()
         await self._retrieval_service()
 
-    async def _start_config_provider(self) -> None:
+    def _build_config_provider(self) -> None:
+        """Build the unstarted settings provider over Postgres, so it exists before :meth:`start`."""
         dsn = self.settings.control_db_url.get_secret_value()
         if not dsn.startswith(_POSTGRES_DSN_PREFIX):
             return
@@ -61,23 +69,16 @@ class ReaderApplication:
         )
         from harborrag_runtime.composition.config_store import build_config_provider
 
-        engine = create_control_plane_engine(
+        self._config_engine = create_control_plane_engine(
             dsn, pool_size=_CONFIG_POOL_SIZE, max_overflow=_CONFIG_MAX_OVERFLOW, pool_pre_ping=True
         )
-        provider = build_config_provider(self.settings, engine=engine)
-        try:
-            await provider.start()
-        except BaseException:
-            await engine.dispose()
-            raise
-        self._config_engine, self.config_provider = engine, provider
+        self.config_provider = build_config_provider(self.settings, engine=self._config_engine)
 
     async def aclose(self) -> None:
-        if self.config_provider is not None and self._config_engine is not None:
-            provider, engine = self.config_provider, self._config_engine
-            self.config_provider = self._config_engine = None
-            await provider.aclose()
-            await engine.dispose()
+        if self.config_provider is not None:
+            await self.config_provider.aclose()
+        if self._config_engine is not None:
+            await self._config_engine.dispose()
         async with self._lock:
             if self._service is not None:
                 service, self._service = self._service, None
