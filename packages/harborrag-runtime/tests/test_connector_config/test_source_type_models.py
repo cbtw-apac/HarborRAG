@@ -155,7 +155,7 @@ def test_every_type_publishes_the_spec_shape(spec: Any) -> None:
     assert set(described["capabilities"]) == {"incremental", "acl_sync", "attachments"}
     assert described["capabilities"]["acl_sync"] is False
     for method in described["auth_methods"]:
-        assert method["id"] in {"api_token", "oauth", "pat", "app", "none"}
+        assert method["auth_method_id"] in {"api_token", "oauth", "pat", "app", "none"}
         assert method["schema"]["type"] == "object"
     hints = [described["ui"], *(method["ui"] for method in described["auth_methods"])]
     for ui in hints:

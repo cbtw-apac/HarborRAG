@@ -1,7 +1,7 @@
 version: 1
 
 # Connector keys are the `connection_id` values accepted by
-# POST /v1/ingestions. Keep credentials in referenced environment variables.
+# POST /v1/admin/ingestions. Keep credentials in referenced environment variables.
 connectors:
   # The active local connector keeps its source location in the environment.
   harborrag-workspace:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatRequest
-from harborrag_core.ports.conversation import ConversationMessage, ConversationTurn
+from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory
 from harborrag_runtime.memory import MemoryContext
 
@@ -171,26 +171,10 @@ def _source_label(index: int, result: RetrievalResult) -> str:
     return " ".join(parts)
 
 
-def turn_messages(turns: Sequence[ConversationTurn]) -> tuple[HarborChatMessage, ...]:
-    """Replay completed turns as alternating user/assistant messages."""
-
-    messages: list[HarborChatMessage] = []
-    for turn in turns:
-        messages.extend(
-            (
-                HarborChatMessage.user(turn.user_content),
-                HarborChatMessage.assistant(turn.assistant_content),
-            )
-        )
-    return tuple(messages)
-
-
 def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborChatMessage, ...]:
     """Replay stored per-message history as chat messages, oldest-first.
 
-    Tool traffic is dropped: the chat surface exposes no tools, so a tool
-    result would reach the model as an unexplained extra turn. The agent's
-    tool history lives in its run checkpoint instead.
+    Only user and assistant turns are replayed; stored system rows are not.
     """
 
     replayed: list[HarborChatMessage] = []
@@ -208,5 +192,4 @@ __all__ = [
     "build_chat_request",
     "history_messages",
     "prompt_text",
-    "turn_messages",
 ]

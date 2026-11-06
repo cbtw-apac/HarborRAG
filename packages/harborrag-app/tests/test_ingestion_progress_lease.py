@@ -37,7 +37,6 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.events.in_process import InProcessEventBus
 from harborrag_runtime.memory import InMemoryConversationMemory
@@ -97,7 +96,6 @@ def _build_service(
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
-        agent_runs=InMemoryAgentRunRepository(),
         secrets=FakeSecrets(),
         pending_effects=FakePendingEffectRepository(),
         leases=lease_repository,

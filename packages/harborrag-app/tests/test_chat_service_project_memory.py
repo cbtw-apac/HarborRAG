@@ -66,7 +66,7 @@ def _service(
 @pytest.mark.asyncio
 async def test_chat_completion_writes_user_and_assistant_messages_with_citations() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     answer = f"Hello {citation_marker(1, RESULTS[0])}"
     service = _service(memory, results=RESULTS, answer=answer)
 
@@ -96,7 +96,6 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
         {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}
     ]
     assert user.message_id != assistant.message_id
-    assert (user.run_id, assistant.run_id, assistant.tool_calls_json) == (None, None, None)
     # The turn view (phase-1 history reads) stays derivable from the message log.
     (turn,) = await memory.recent(IDENTITY, limit=2)
     assert (turn.user_content, turn.assistant_content) == ("Hello", answer)
@@ -105,7 +104,7 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
 @pytest.mark.asyncio
 async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     service = _service(memory, results=RESULTS)
 
     events = [
@@ -135,7 +134,7 @@ async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
 @pytest.mark.asyncio
 async def test_chat_completion_echoes_a_valid_project() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     projects = FakeProjects(_project("proj-1"))
     service = _service(memory, projects=projects)
 
@@ -157,7 +156,7 @@ async def test_chat_completion_echoes_a_valid_project() -> None:
 @pytest.mark.parametrize("project_id", ["missing", "foreign"])
 async def test_chat_completion_rejects_unknown_or_foreign_project(project_id: str) -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     service = _service(memory, projects=FakeProjects(_project("foreign", tenant_id="OTHER")))
 
     with pytest.raises(HarborNotFoundError, match="Project was not found"):
@@ -175,7 +174,7 @@ async def test_chat_completion_rejects_unknown_or_foreign_project(project_id: st
 @pytest.mark.asyncio
 async def test_chat_completion_rejects_a_project_without_a_control_plane() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     service = _service(memory)
 
     with pytest.raises(HarborNotFoundError, match="Project was not found"):
@@ -192,7 +191,7 @@ async def test_chat_completion_rejects_a_project_without_a_control_plane() -> No
 @pytest.mark.asyncio
 async def test_chat_stream_reports_unknown_project_as_terminal_error() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     service = _service(memory, projects=FakeProjects())
 
     events = [

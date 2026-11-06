@@ -1,4 +1,3 @@
-# SDK/runtime facade configuration for HarborRAG 2.0.0 Alpha 2 (2.0.0a2).
 execution_mode: direct
 discover_plugins: false
 
@@ -7,4 +6,5 @@ runtime:
   temporal_config_path: config/temporal.yaml
   connector_config_path: config/connectors.yaml
   parser_config_path: config/parsers.yaml
+  chunking_config_path: config/chunking.yaml
   model_config_path: config/models.yaml

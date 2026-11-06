@@ -34,6 +34,6 @@ def test_start_up_imports_once_and_survives_a_failure(
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
 
     with TestClient(create_fastapi_app(ApiSettings())) as client:
-        assert client.get("/api/v1/health").status_code == 200
+        assert client.get("/healthz").status_code == 200
 
     assert service.imports == 1

@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Literal
 
 from harborrag_core.ports.completion_requests import CompletionClaim
-from harborrag_core.ports.conversation import ConversationKind
 
 from ..memory import ConversationSessionService
 from ..memory.access import MemoryAccess
@@ -22,9 +20,9 @@ class ChatClientMixin:
     _sessions: ConversationSessionService
 
     async def validate_completion_scope(
-        self, query: str, access: MemoryAccess, *, model: str | None, mode: Literal["rag", "agent"]
+        self, query: str, access: MemoryAccess, *, model: str | None
     ) -> None:
-        await self._chat.validate_scope(query, access, model=model, mode=mode)
+        await self._chat.validate_scope(query, access, model=model)
 
     async def claim_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
@@ -69,7 +67,6 @@ class ChatClientMixin:
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
-        kind: ConversationKind = "chat",
     ) -> AppResponse:
         """``user_id`` owns the new conversation and defaults to the principal.
 
@@ -82,7 +79,6 @@ class ChatClientMixin:
         return await self._sessions.create(
             tenant_id=tenant_id,
             principal_id=principal_id,
-            kind=kind,
             user_id=user_id,
             title=title,
         )

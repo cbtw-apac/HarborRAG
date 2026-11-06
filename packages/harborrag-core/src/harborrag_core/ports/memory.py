@@ -1,4 +1,4 @@
-"""Scope-aware memory port shared by chat, agent, and persistence adapters.
+"""Scope-aware memory port shared by chat and persistence adapters.
 
 A ``Memory`` belongs to one ``MemoryOwner`` (the isolation key of the caller
 that wrote it) and is tagged with the ``MemoryScope`` at which it should be
@@ -37,13 +37,11 @@ class MemoryType(StrEnum):
     DECISION = "decision"
     EPISODE = "episode"
     SUMMARY = "summary"
-    WORKING = "working"
 
 
 class MemoryScope(StrEnum):
     """How broadly a memory applies, narrowest to broadest isolation key."""
 
-    RUN = "run"
     SESSION = "session"
     USER = "user"
     PROJECT = "project"
@@ -57,10 +55,9 @@ _SCOPE_OWNER_FIELDS: dict[MemoryScope, tuple[str, ...]] = {
     MemoryScope.PROJECT: ("tenant_id", "project_id"),
     MemoryScope.USER: ("tenant_id", "user_id"),
     MemoryScope.SESSION: ("tenant_id", "user_id", "session_id"),
-    MemoryScope.RUN: ("tenant_id", "user_id", "session_id", "run_id"),
 }
 
-_OWNER_OPTIONAL_FIELDS = ("project_id", "user_id", "principal_id", "session_id", "run_id")
+_OWNER_OPTIONAL_FIELDS = ("project_id", "user_id", "principal_id", "session_id")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,9 +66,9 @@ class MemoryOwner:
 
     Which fields are load-bearing for a given memory depends on its
     ``MemoryScope`` -- a ``TENANT``-scoped memory only requires
-    ``tenant_id`` to match, while a ``RUN``-scoped memory requires every
-    field through ``run_id``. ``user_id`` is the stable identity of the human
-    the memory is about and keys the ``USER``/``SESSION``/``RUN`` scopes;
+    ``tenant_id`` to match, while a ``SESSION``-scoped memory requires every
+    field through ``session_id``. ``user_id`` is the stable identity of the human
+    the memory is about and keys the ``USER`` and ``SESSION`` scopes;
     ``principal_id`` is the authenticated credential that wrote it and stays
     the ownership key for conversation sessions.
     """
@@ -81,7 +78,6 @@ class MemoryOwner:
     user_id: str | None = None
     principal_id: str | None = None
     session_id: str | None = None
-    run_id: str | None = None
 
     def __post_init__(self) -> None:
         for name in ("tenant_id", *_OWNER_OPTIONAL_FIELDS):
@@ -101,9 +97,9 @@ def visible_to(memory_scope: MemoryScope, memory_owner: MemoryOwner, caller: Mem
 
     Every field ``memory_scope`` requires (see ``scope_owner_fields``) must be
     present on both owners and equal -- a caller missing a required field
-    (e.g. searching without a ``run_id``) never matches a ``RUN``-scoped
-    memory, and neither does a caller in a different tenant, project,
-    session, or run.
+    (e.g. searching without a ``session_id``) never matches a ``SESSION``-scoped
+    memory, and neither does a caller in a different tenant, project or
+    session.
     """
 
     return all(

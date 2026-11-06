@@ -22,7 +22,7 @@ from harborrag_adapters.repositories.database.control_plane.migrations import (
     _build_config,
     run_migrations,
 )
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationSessionRow,
 )
 from harborrag_core.ports.conversation import (
@@ -68,28 +68,22 @@ async def test_conversation_memory_returns_latest_two_isolated_turns(
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_conversation_sessions_are_bound_to_their_kind(tmp_path: Path) -> None:
+async def test_conversation_sessions_are_bound_to_their_owner(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
     engine = create_control_plane_engine(dsn)
     repo = SqlConversationMemoryRepository(create_session_factory(engine))
     chat = ConversationIdentity("ACME", "principal-1", "chat-session", "user-1")
-    agent = ConversationIdentity("ACME", "principal-1", "agent-session", "user-1")
     try:
         await repo.create(chat)
-        await repo.create(agent, kind="agent")
 
-        assert await repo.exists(chat, kind="chat") is True
-        assert await repo.exists(chat, kind="agent") is False
-        assert await repo.exists(agent, kind="agent") is True
-        assert await repo.exists(agent, kind="chat") is False
-        assert await repo.exists(agent) is True
+        assert await repo.exists(chat) is True
         # The credential is not the owner: the same human reaching their own
         # session through a second principal still finds it.
-        other_principal = ConversationIdentity("ACME", "principal-2", "agent-session", "user-1")
+        other_principal = ConversationIdentity("ACME", "principal-2", "chat-session", "user-1")
         assert await repo.exists(other_principal) is True
         # A different human with the exact session id does not.
-        other_user = ConversationIdentity("ACME", "principal-1", "agent-session", "user-2")
+        other_user = ConversationIdentity("ACME", "principal-1", "chat-session", "user-2")
         assert await repo.exists(other_user) is False
     finally:
         await engine.dispose()
@@ -107,7 +101,7 @@ def _message(message_id: str, role: ConversationRole, content: str, **extra: obj
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_messages_round_trip_with_tool_and_citation_payloads(tmp_path: Path) -> None:
+async def test_messages_round_trip_with_citation_payloads(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
     engine = create_control_plane_engine(dsn)
@@ -119,9 +113,9 @@ async def test_messages_round_trip_with_tool_and_citation_payloads(tmp_path: Pat
         await repo.create(identity)
         messages = (
             _message("m-1", "user", "what is the policy?", token_count=5),
-            _message("m-2", "assistant", "", tool_calls_json='[{"name": "search"}]', run_id="r1"),
-            _message("m-3", "tool", '{"hits": 2}', tool_call_id="call-1", run_id="r1"),
-            _message("m-4", "assistant", "here it is", citations_json='["doc-1"]', run_id="r1"),
+            _message("m-2", "assistant", "the policy", partial=True),
+            _message("m-3", "user", "and the rest?"),
+            _message("m-4", "assistant", "here it is", citations_json='["doc-1"]'),
         )
         await repo.append_messages(identity, messages)
 
@@ -151,14 +145,14 @@ async def test_recent_turns_are_derived_from_messages(tmp_path: Path) -> None:
             identity,
             (
                 _message("u-1", "user", "q-1"),
-                _message("t-1", "assistant", "", tool_calls_json="[]"),
-                _message("t-2", "tool", "result", tool_call_id="c"),
+                _message("t-1", "assistant", ""),
+                _message("t-2", "assistant", "cut short", partial=True),
                 _message("a-1", "assistant", "a-1"),
                 _message("u-2", "user", "unanswered"),
             ),
         )
 
-        # Empty/tool-call stubs do not displace the completed answer.
+        # Empty and partial answers do not displace the completed answer.
         assert await repo.recent(identity, limit=5) == (
             ConversationTurn("q-0", "a-0"),
             ConversationTurn("q-1", "a-1"),

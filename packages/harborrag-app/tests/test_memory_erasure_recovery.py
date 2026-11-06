@@ -65,7 +65,7 @@ async def test_session_purge_failure_recovers_without_a_client_retry(stores, mon
     identity = ConversationIdentity(
         row.owner.tenant_id, row.owner.principal_id, row.owner.session_id, row.owner.user_id
     )
-    await stores.conversations.create(identity, kind="chat")
+    await stores.conversations.create(identity)
     await stores.memories.save(row)
     search = stores.memories.search
     monkeypatch.setattr(stores.memories, "search", AsyncMock(side_effect=RuntimeError("offline")))
@@ -152,3 +152,30 @@ async def test_session_recovery_remains_authorized_when_session_was_already_dele
     assert await recover(stores) == 1
     assert not stores.memories.rows
     assert stores.index.deleted == [row.memory_id]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["erase_memory", "erase_memory_session"])
+async def test_an_intent_queued_before_the_upgrade_still_recovers(stores, kind):
+    from dataclasses import asdict
+
+    from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
+
+    row = memory("memory-1", scope=MemoryScope.SESSION, session_id="session-1")
+    await stores.memories.save(row)
+    await stores.pending_effects.enqueue(
+        PendingControlPlaneEffect(
+            id="queued-before-0045",
+            kind=kind,
+            payload={
+                "owner": {**asdict(row.owner), "run_id": None},
+                "memory_id": row.memory_id,
+                "memories_required": True,
+                "index_required": True,
+            },
+        )
+    )
+    assert await recover(stores) == 1
+    assert not stores.memories.rows
+    assert stores.index.deleted == [row.memory_id]
+    assert not stores.pending_effects.effects

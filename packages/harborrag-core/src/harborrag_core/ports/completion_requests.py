@@ -19,6 +19,10 @@ CompletionClaimStatus = Literal["claimed", "in_progress", "completed", "failed",
 # ran the paid completion again and recorded its own outcome over the first.
 STALE_CLAIM_SECONDS = 4_800
 
+# How long a key is remembered. A claim older than this, unless it is a live
+# ``in_progress`` one, no longer replays or conflicts: the key starts over.
+KEY_RETENTION_SECONDS = 86_400
+
 
 @dataclass(frozen=True, slots=True)
 class CompletionClaim:
@@ -30,6 +34,9 @@ class CompletionClaim:
 
 class CompletionRequestStore(Protocol):
     """Claim once, then retain a terminal response or failure for duplicate requests.
+
+    A key is retained for ``KEY_RETENTION_SECONDS``; after that any request may
+    claim it again.
 
     Failed and interrupted claims are never automatically retried: a model may
     already have charged for a request whose result could not be persisted.

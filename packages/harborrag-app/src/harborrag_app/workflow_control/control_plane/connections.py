@@ -16,7 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from typing import Any, Final, Literal, Protocol
+from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
@@ -41,7 +41,6 @@ from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
 from harborrag_core.security.secret_refs import SecretSource, all_refs, stored_refs
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
     FieldIssue,
@@ -72,6 +71,9 @@ from harborrag_runtime.ingestion.connections import (
 from ..ingestion.models import IngestionCreateCommand
 from .connection_views import connection_view, ingestion_view, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
+
+if TYPE_CHECKING:
+    from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
 
@@ -201,18 +203,6 @@ class ConnectionService:
         )
         return [await self._view(connection) for connection in connections], next_cursor
 
-    async def catalog(self, *, tenant_ids: frozenset[str] | None) -> list[dict[str, str]]:
-        """Connection identities ``POST /v1/ingestions`` accepts, by ``source_key``."""
-        connections, _ = await self._control_plane().connections.list(tenant_ids=tenant_ids)
-        return sorted(
-            (
-                {"connection_id": connection.source_key, "source_type": connection.source_type}
-                for connection in connections
-                if connection.status != "deleting"
-            ),
-            key=lambda item: item["connection_id"],
-        )
-
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
         """Connections of one project as reader filter chips.
 
@@ -229,7 +219,7 @@ class ConnectionService:
         runs = await self._runs()
         return [
             {
-                "ref": connection.ref,
+                "connection_ref": connection.ref,
                 "connection_id": connection.connection_id,
                 "source_type": connection.source_type,
                 "name": connection.name,
@@ -514,7 +504,7 @@ class ConnectionService:
         await self._record(connection, "synced", actor, None, summary=f"Started a {mode} sync")
         return ingestion_view(
             task,
-            connection_ref=connection.ref,
+            connection=connection,
             progress=await runs.progress(task.task_id),
             triggered_by=actor,
             mode=mode,

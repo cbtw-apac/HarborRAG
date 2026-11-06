@@ -4,53 +4,11 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import Field, field_validator
 
 from harborrag_app.api.schemas import ApiModel
-
-
-class IngestionMode(StrEnum):
-    """Control whether unchanged source records may be skipped."""
-
-    INCREMENTAL = "incremental"
-    FORCE = "force"
-
-
-class IngestionCreateRequest(ApiModel):
-    connection_id: str = Field(
-        min_length=1,
-        max_length=255,
-        description=(
-            "The connection's source_key: project_id/connection_id, or the key a "
-            "connection imported from connectors.yaml keeps."
-        ),
-    )
-    tenant: str = Field(
-        default="DEFAULT",
-        min_length=1,
-        max_length=128,
-        pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]*$",
-        description="Tenant projection namespace; defaults to DEFAULT.",
-    )
-    source_scope_id: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=128,
-        description=(
-            "Stable corpus scope these documents join; derived from the request when "
-            "omitted. Naming one requires the admin role, because permission grants "
-            "are issued per source scope."
-        ),
-    )
-    mode: IngestionMode = Field(
-        default=IngestionMode.INCREMENTAL,
-        description=(
-            "incremental skips unchanged documents; force fetches and evaluates "
-            "unchanged documents again without deleting data or forcing a reindex"
-        ),
-    )
 
 
 class IngestionStatus(StrEnum):
@@ -77,7 +35,7 @@ class SourceSummary(ApiModel):
         max_length=64,
         pattern=r"^[a-z][a-z0-9_-]*$",
     )
-    connection_id: str
+    source_key: str
 
 
 class IngestionProgress(ApiModel):
@@ -91,8 +49,8 @@ class IngestionProgress(ApiModel):
 
 
 class IngestionTaskResponse(ApiModel):
-    task_id: str
-    tenant: str
+    ingestion_id: str
+    tenant_id: str
     status: IngestionStatus
     stage: IngestionStage
     source: SourceSummary
@@ -109,7 +67,7 @@ class IngestionTaskPage(ApiModel):
 
 
 class IngestionTaskQuery(ApiModel):
-    tenant: str | None = Field(
+    tenant_id: str | None = Field(
         default=None,
         min_length=1,
         max_length=128,
@@ -190,21 +148,14 @@ class RetryFailuresRequest(ApiModel):
         return list(dict.fromkeys(normalized))
 
 
-class IngestionAcceptedResponse(ApiModel):
-    task_id: str
-    status: Literal["PENDING"]
-    message: str
-    submitted_at: datetime
-
-
 class IngestionActionResponse(ApiModel):
-    task_id: str
+    ingestion_id: str
     status: IngestionStatus
     message: str
 
 
 class RetryAcceptedResponse(ApiModel):
-    task_id: str
-    retry_task_id: str
+    ingestion_id: str
+    retry_ingestion_id: str
     accepted_document_count: int = Field(ge=1)
     message: str

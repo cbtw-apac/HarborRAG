@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 
-from harborrag_adapters.chunking import RecursiveTextRefiner
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
 from harborrag_adapters.models.runtime import ResourceOwnership
@@ -45,13 +44,21 @@ from harborrag_runtime.composition.resources import (
     resource_targets,
 )
 from harborrag_runtime.config import load_parser_catalog
+from harborrag_runtime.config import (
+    ConnectorConfigurationError,
+    ConnectorDefinition,
+    connector_fingerprint,
+    load_connector_catalog,
+    load_parser_catalog,
+)
+from harborrag_runtime.config.chunking import RefinerConfig, chunking_settings_from
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.connections import default_secret_resolver
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
-from .chunking_profile import default_chunking_config
+from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
 from .document.dependencies import DocumentReleaseDependencies
@@ -99,6 +106,7 @@ class IngestionRuntimeBuilder:
             metrics_bind_address=settings.metrics_bind_address,
         )
         parser = load_parser_catalog(settings.parser_config_path).build_harbor_parser()
+        chunking = chunking_settings_from(settings)
         rate_limiter = self._rate_limiter(telemetry)
         stores = build_connection_stores(settings)
         embed_client, model, dimensions = self._embedding_client()
@@ -124,8 +132,9 @@ class IngestionRuntimeBuilder:
             parser=parser,
             normalizer=self.build_document_normalizer(),
             chunker=build_default_chunker(
-                config=self._chunking_config,
+                config=self._chunking_config or chunking.config,
                 additional_strategies=self._chunking_strategies,
+                refiner=chunking.refiner,
             ),
             representations=RepresentationReuseService(
                 ChunkRepresentationEncoder(
@@ -261,6 +270,7 @@ def build_default_chunker(
     *,
     config: ChunkingConfig | None = None,
     additional_strategies: tuple[ChunkStrategy, ...] = (),
+    refiner: RefinerConfig | None = None,
 ) -> BaseChunker:
     """Build canonical chunking with optional source-owned extensions."""
 
@@ -268,7 +278,7 @@ def build_default_chunker(
     return build_chunking_service(
         config=config or default_chunking_config(),
         token_counter=token_counter,
-        refiner=RecursiveTextRefiner(token_counter),
+        refiner=build_refiner(token_counter, refiner),
         additional_strategies=additional_strategies,
     )
 

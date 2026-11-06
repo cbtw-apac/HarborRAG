@@ -11,7 +11,6 @@ from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_app.workflow_control.schemas import AppResponse
-from harborrag_core.ports.conversation import ConversationKind
 
 
 class ChatService(QueryScopeValidator, Protocol):
@@ -22,7 +21,6 @@ class ChatService(QueryScopeValidator, Protocol):
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
-        kind: ConversationKind = "chat",
     ) -> AppResponse: ...
 
     async def chat_session_exists(
@@ -68,7 +66,6 @@ class ConversationService(Protocol):
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> AppResponse: ...
@@ -80,10 +77,6 @@ class ConversationService(Protocol):
         after: str | None = None,
         limit: int = 50,
     ) -> AppResponse: ...
-
-    async def rename_conversation(self, access: MemoryAccess, *, title: str) -> AppResponse: ...
-
-    async def delete_conversation(self, access: MemoryAccess) -> AppResponse: ...
 
 
 def chat_service(request: Request) -> ChatService:

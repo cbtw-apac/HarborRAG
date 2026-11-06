@@ -59,8 +59,8 @@ async def search_documents(
             access=AccessContext(
                 principal_id=identity.principal_id,
                 tenant_id=TenantId(identity.tenant_id),
-                # Same rule as the agent path: only the configured shared tenant
-                # reads on the shared basis; every other tenant stays ACL-scoped.
+                # Only the configured shared tenant reads on the shared basis;
+                # every other tenant stays ACL-scoped.
                 corpus_mode=(
                     settings.corpus_access_mode
                     if identity.tenant_id == settings.corpus_shared_tenant_id

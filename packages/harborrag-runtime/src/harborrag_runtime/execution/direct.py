@@ -96,6 +96,7 @@ class DirectIngestionExecutor:
         await asyncio.to_thread(migrate_control_plane, self._settings)
         await import_connectors_once(
             self._settings.connector_config_path,
+            tenant_id=self._settings.ingestion_tenant_id,
             projects=stores.projects,
             connections=stores.connections,
             settings=stores.settings,

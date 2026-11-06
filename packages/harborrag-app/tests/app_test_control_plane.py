@@ -5,7 +5,6 @@ from __future__ import annotations
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection
-from harborrag_core.domain.graph_conflict import GraphConflict
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -29,7 +28,6 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.memory import InMemoryConversationMemory
 
@@ -45,7 +43,6 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
     secrets: SecretsPort | None = None,
     pending_effects: PendingEffectRepositoryPort | None = None,
     leases: LeaseRepositoryPort | None = None,
-    graph_conflicts: list[GraphConflict] | None = None,
 ) -> AppService:
     """Build a service with test-only, seedable control-plane repositories.
 
@@ -64,13 +61,10 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
-        agent_runs=InMemoryAgentRunRepository(),
         secrets=secrets or FakeSecrets(),
         pending_effects=pending_effects or FakePendingEffectRepository(),
         leases=leases or FakeLeaseRepository(),
-        graph_conflicts=FakeGraphConflictRepository(
-            {conflict.id: conflict for conflict in graph_conflicts or []}
-        ),
+        graph_conflicts=FakeGraphConflictRepository(),
         connection_revisions=FakeConnectionRevisionRepository(),
     )
     composition = CompositionRoot(

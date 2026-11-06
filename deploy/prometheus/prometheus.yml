@@ -9,3 +9,10 @@ scrape_configs:
     metrics_path: /metrics
     static_configs:
       - targets: ["temporal-worker:9464"]
+  - job_name: harborrag-api
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/secrets/api-scrape-token
+    static_configs:
+      - targets: ["api:9465"]

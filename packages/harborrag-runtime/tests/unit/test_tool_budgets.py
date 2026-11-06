@@ -1,4 +1,4 @@
-"""The ceilings both transports enforce around one tool call."""
+"""The ceilings enforced around one tool call."""
 
 from __future__ import annotations
 
@@ -26,12 +26,12 @@ def _spec(**overrides: object) -> ToolSpec:
 
 
 def test_an_ingestion_tool_is_refused_unless_it_is_switched_on() -> None:
-    budget = ToolBudget(label="Agent")
+    budget = ToolBudget(label="MCP")
 
     with pytest.raises(PermissionError, match="ingestion tools are disabled"):
         budget.check_call(_spec(capability="ingestion"), {"query": "x"})
 
-    ToolBudget(label="Agent", allow_ingestion=True).check_call(
+    ToolBudget(label="MCP", allow_ingestion=True).check_call(
         _spec(capability="ingestion"), {"query": "x"}
     )
 
@@ -48,7 +48,7 @@ def test_a_payload_that_cannot_be_serialized_is_named_as_such() -> None:
 
 
 def test_a_tool_whose_schema_is_invalid_is_our_bug_not_the_callers() -> None:
-    budget = ToolBudget(label="Agent")
+    budget = ToolBudget(label="MCP")
     broken = _spec(input_schema={"type": "not-a-type"})
 
     with pytest.raises(RuntimeError, match="invalid input schema"):
@@ -61,35 +61,11 @@ def test_a_tool_whose_schema_is_invalid_is_our_bug_not_the_callers() -> None:
         budget.check_output_schema({"ok": "yes"}, {"type": "object", "required": ["missing"]})
 
 
-def test_detail_is_offered_only_where_a_model_has_to_self_correct() -> None:
-    """MCP reports the bare contract; the agent loop needs the failing field."""
-
-    quiet = ToolBudget(label="MCP")
-    loud = ToolBudget(label="Agent", detail_in_errors=True)
-
-    with pytest.raises(ValueError) as silent:
-        quiet.check_call(_spec(), {"query": "far too long"})
-    with pytest.raises(ValueError) as spoken:
-        loud.check_call(_spec(), {"query": "far too long"})
-
-    assert str(silent.value) == "MCP arguments do not match the tool schema."
-    assert "$.query" in str(spoken.value)
-
-
-def test_a_long_detail_is_truncated_rather_than_forwarded_whole() -> None:
-    budget = ToolBudget(label="Agent", detail_in_errors=True)
-    wide = _spec(
-        input_schema={
-            "type": "object",
-            "properties": {"query": {"type": "string", "enum": ["option-" * 40] * 20}},
-        }
-    )
-
+def test_an_off_schema_call_reports_the_bare_contract() -> None:
     with pytest.raises(ValueError) as rejected:
-        budget.check_call(wide, {"query": "nope"})
+        ToolBudget(label="MCP").check_call(_spec(), {"query": "far too long"})
 
-    assert str(rejected.value).endswith("...")
-    assert len(str(rejected.value)) < 400
+    assert str(rejected.value) == "MCP arguments do not match the tool schema."
 
 
 def test_results_are_counted_from_whichever_list_a_tool_returns() -> None:
@@ -107,7 +83,7 @@ def test_a_compiled_schema_is_reused_across_calls() -> None:
 
     _compiled.cache_clear()
     spec = _spec()
-    budget = ToolBudget(label="Agent")
+    budget = ToolBudget(label="MCP")
 
     budget.check_call(spec, {"query": "x"})
     budget.check_call(spec, {"query": "y"})

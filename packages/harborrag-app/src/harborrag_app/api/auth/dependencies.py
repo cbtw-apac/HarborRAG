@@ -1,13 +1,22 @@
-"""FastAPI auth dependencies: principal extraction and role enforcement (ST4)."""
+"""Who is calling: bearer tokens, API keys and the role and tenant checks on a principal.
+
+Handles:
+- Verifying a user token (HS256 JWT) or an API key into a ``Principal``
+- One ``401 unauthenticated`` message for every rejected credential, whatever check failed
+- Role and tenant checks on a principal that handlers call for fields in a body
+
+Does NOT order the checks of a route; ``auth.access.require_role`` does.
+"""
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from ipaddress import ip_address
-from typing import Annotated
+from typing import Annotated, Protocol, cast
 
-from fastapi import Depends, Request, Security
+from fastapi import FastAPI, Request, Security
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
@@ -18,14 +27,43 @@ from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
     HarborConfigurationError,
+    HarborConnectionError,
     HarborNotFoundError,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
+from harborrag_core.ports.api_keys import AuthStoreUnavailable
+from harborrag_core.security.api_keys import parse_key
 
 logger = logging.getLogger("harborrag.app.api.auth")
 
 _bearer_scheme = HTTPBearer(auto_error=False)
+UNAUTHENTICATED = "missing or invalid credentials"
+API_KEY_ROLE: Role = "reader"
+
+
+class TenantForbiddenError(HarborAuthError):
+    """The request names a tenant the credential does not hold."""
+
+    error_code = "tenant_forbidden"
+
+    def __init__(self, message: str = "the credential does not hold this tenant") -> None:
+        super().__init__(message, forbidden=True)
+
+
+class VerifiedApiKey(Protocol):
+    @property
+    def key_id(self) -> str: ...
+
+    @property
+    def tenant_id(self) -> str: ...
+
+    @property
+    def owner(self) -> str: ...
+
+
+class ApiKeyVerifier(Protocol):
+    async def verify_key(self, raw_key: str) -> VerifiedApiKey | None: ...
 
 
 def build_token_verifier(settings: ApiSettings) -> BaseTokenVerifier | None:
@@ -113,14 +151,72 @@ def _arrived_on_loopback(request: Request) -> bool:
     return _is_loopback_host(host)
 
 
-def get_principal(
+async def _api_key_verifier(app: FastAPI) -> ApiKeyVerifier:
+    """The app's API key verifier, built over the control database on first use."""
+    verifier: ApiKeyVerifier | None = getattr(app.state, "api_key_verifier", None)
+    if verifier is not None:
+        return verifier
+    lock = getattr(app.state, "api_key_verifier_lock", None)
+    if lock is None:
+        lock = app.state.api_key_verifier_lock = asyncio.Lock()
+    async with lock:
+        verifier = getattr(app.state, "api_key_verifier", None)
+        if verifier is None:
+            from harborrag_runtime.composition.mcp_auth import build_api_key_verification
+            from harborrag_runtime.config.settings import RuntimeSettings
+
+            verifier = build_api_key_verification(RuntimeSettings())
+            app.state.api_key_verifier = verifier
+    return cast(ApiKeyVerifier, verifier)
+
+
+async def _api_key_principal(app: FastAPI, raw_key: str) -> Principal:
+    """Verify an API key into a reader principal of its one tenant."""
+    verifier = await _api_key_verifier(app)
+    try:
+        key = await verifier.verify_key(raw_key)
+    except AuthStoreUnavailable as exc:
+        raise HarborConnectionError("the API key store is unavailable") from exc
+    if key is None:
+        raise HarborAuthError("unknown, revoked or expired API key")
+    return Principal(
+        subject=key.key_id,
+        role=API_KEY_ROLE,
+        tenant_ids=frozenset({key.tenant_id}),
+        token_kind="api_key",
+        user_id=key.owner,
+        name=key.owner,
+    )
+
+
+async def _verified_principal(request: Request, token: str) -> Principal:
+    """Verify an API key or a user token."""
+    if parse_key(token) is not None:
+        return await _api_key_principal(request.app, token)
+    verifier: BaseTokenVerifier = request.app.state.token_verifier
+    return verifier.verify(token)
+
+
+async def get_principal(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Security(_bearer_scheme)] = None,
 ) -> Principal:
-    """Resolve the caller's Principal from the bearer token.
+    """Resolve the caller's ``Principal`` from the bearer credential.
 
-    auth_mode=none yields an implicit owner (dev default); otherwise a missing
-    or invalid token raises HarborAuthError (401 envelope).
+    ``auth_mode=none`` yields an implicit owner on loopback connections. Every other
+    mode verifies the credential and answers one message whichever check failed.
+
+    Args:
+        request: The incoming request.
+        credentials: The ``Authorization: Bearer`` credential, if any.
+
+    Returns:
+        The authenticated principal.
+
+    Raises:
+        HarborAuthError: The credential is missing or invalid (401), or ``auth_mode=none``
+            served a non-loopback connection (403).
+        HarborConnectionError: The API key store is unreachable.
     """
     settings: ApiSettings = request.app.state.settings
     if settings.auth_mode == "none":
@@ -137,11 +233,17 @@ def get_principal(
             tenant_ids=frozenset({"*"}),
             token_kind="none",
             user_id=DEFAULT_USER,
+            name="dev",
         )
     if credentials is None:
-        raise HarborAuthError("missing bearer token")
-    verifier: BaseTokenVerifier = request.app.state.token_verifier
-    return verifier.verify(credentials.credentials)
+        raise HarborAuthError(UNAUTHENTICATED)
+    try:
+        return await _verified_principal(request, credentials.credentials)
+    except HarborAuthError as exc:
+        if exc.forbidden:
+            raise
+        logger.info("Rejected a bearer credential: %s", exc)
+        raise HarborAuthError(UNAUTHENTICATED) from None
 
 
 def authorize_role(principal: Principal, minimum: Role) -> None:
@@ -151,24 +253,14 @@ def authorize_role(principal: Principal, minimum: Role) -> None:
         raise HarborAuthError(f"requires {minimum} role", forbidden=True)
 
 
-def require_role(minimum: Role) -> Callable[..., Principal]:
-    """Dependency factory enforcing a minimum role on a route (403 below it)."""
-
-    def dependency(
-        principal: Annotated[Principal, Depends(get_principal)],
-    ) -> Principal:
-        """Pass the principal through when its role clears the minimum."""
-        authorize_role(principal, minimum)
-        return principal
-
-    return dependency
-
-
 def authorize_tenant(principal: Principal, tenant_id: str) -> None:
-    """Reject cross-tenant access even when the caller has a high global role."""
+    """Reject a tenant named in a body or query that the credential does not hold.
 
+    Raises:
+        TenantForbiddenError: The credential does not hold ``tenant_id``.
+    """
     if not principal.can_access_tenant(tenant_id):
-        raise HarborAuthError("tenant access is not permitted", forbidden=True)
+        raise TenantForbiddenError()
 
 
 def authorize_task_tenant(principal: Principal, task: Mapping[str, object]) -> None:

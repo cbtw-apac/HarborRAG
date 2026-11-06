@@ -48,9 +48,7 @@ def resources(answer, *, failure=None):
 async def test_gate_uses_selected_model_bounded_owned_history_and_records_cost(scope):
     configured, chat, memory, usage = resources(json.dumps({"scope": scope}))
     access = MemoryAccess("ACME", "credential", "human", session_id="session-1")
-    await require_query_scope(
-        configured, "What is my name?", access, model="tenant-model", mode="rag"
-    )
+    await require_query_scope(configured, "What is my name?", access, model="tenant-model")
     request = chat.complete.call_args.args[0]
     assert chat.complete.call_args.kwargs["prompt"] is ChatPrompt.QUERY_GATE
     assert request.logical_model == "tenant-model" and request.sensitive
@@ -73,11 +71,10 @@ async def test_unsupported_snake_game_decision_blocks_and_accounts_without_histo
             "Give me Python code for a snake game",
             MemoryAccess("ACME", "credential", "human"),
             model=None,
-            mode="agent",
         )
     memory.recent.assert_not_awaited()
     assert chat.complete.await_count == 1
-    assert usage.record.call_args.args[0].surface == "agent"
+    assert usage.record.await_count == 1
 
 
 @pytest.mark.asyncio
@@ -88,7 +85,7 @@ async def test_invalid_gate_output_never_falls_through_to_generation(answer):
     configured, _, _, usage = resources(answer)
     with pytest.raises(HarborUnavailableError):
         await require_query_scope(
-            configured, "Question", MemoryAccess("ACME", "c", "u"), model=None, mode="rag"
+            configured, "Question", MemoryAccess("ACME", "c", "u"), model=None
         )
     usage.record.assert_awaited_once()
 
@@ -99,5 +96,5 @@ async def test_usage_outage_cannot_turn_a_rejection_into_acceptance():
     usage.record.side_effect = RuntimeError("storage unavailable")
     with pytest.raises(HarborValidationError):
         await require_query_scope(
-            configured, "Write a game", MemoryAccess("ACME", "c", "u"), model=None, mode="agent"
+            configured, "Write a game", MemoryAccess("ACME", "c", "u"), model=None
         )

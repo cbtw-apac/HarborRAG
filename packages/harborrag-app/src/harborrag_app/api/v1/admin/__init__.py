@@ -1,5 +1,1 @@
-"""Administrative projection routes."""
-
-from .routes import router
-
-__all__ = ["router"]
+"""Administrative routes: source types, connections and projects."""

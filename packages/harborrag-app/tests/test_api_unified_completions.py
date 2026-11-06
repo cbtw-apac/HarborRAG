@@ -32,31 +32,28 @@ def client(monkeypatch, service: MockAppService):
         yield client
 
 
-@pytest.mark.parametrize("mode", ["rag", "agent"])
-def test_modes_share_session_and_final_json_sse_contract(client, service, mode):
+def test_json_and_sse_share_the_session_and_final_payload(client, service):
     session = client.post("/v1/chat/sessions", json={}).json()["session_id"]
-    path = "/v1/agent/completions" if mode == "agent" else "/v1/chat/completions"
-    body = {"session_id": session, "prompt": "Explain the release", "mode": mode}
+    path = "/v1/chat/completions"
+    body = {"session_id": session, "prompt": "Explain the release", "mode": "rag"}
     ordinary = client.post(path, json=body)
     streamed = client.post(path, json={**body, "stream": True})
     assert ordinary.status_code == streamed.status_code == 200
     frames = _sse_frames(streamed.text)
     assert frames[0] == (
         "response.started",
-        {"session_id": session, "mode": mode, "replayed": False},
+        {"session_id": session, "mode": "rag", "replayed": False},
     )
     assert frames[-1] == ("response.completed", ordinary.json())
     assert ordinary.json()["cost"]["amount_usd"] is None
     assert ordinary.json()["cost"]["status"] == "unavailable"
-    assert ordinary.json()["mode"] == mode
-    calls = service.chat_calls if mode == "rag" else service.agent_calls
-    assert calls[0]["user_id"] == "DEFAULT_USER"
+    assert ordinary.json()["mode"] == "rag"
+    assert service.chat_calls[0]["user_id"] == "DEFAULT_USER"
 
 
-@pytest.mark.parametrize("mode", ["rag", "agent"])
-def test_retry_without_session_replays_without_new_session_or_model_call(client, service, mode):
-    path = "/v1/agent/completions" if mode == "agent" else "/v1/chat/completions"
-    body = {"prompt": "Explain the release", "mode": mode, "idempotency_key": "request-1"}
+def test_retry_without_session_replays_without_new_session_or_model_call(client, service):
+    path = "/v1/chat/completions"
+    body = {"prompt": "Explain the release", "idempotency_key": "request-1"}
     first = client.post(path, json=body)
     again = client.post(path, json=body)
     stream = client.post(path, json={**body, "stream": True})
@@ -66,8 +63,7 @@ def test_retry_without_session_replays_without_new_session_or_model_call(client,
     frames = _sse_frames(stream.text)
     assert frames[0][1]["replayed"] is True
     assert frames[-1] == ("response.completed", first.json())
-    calls = service.chat_calls if mode == "rag" else service.agent_calls
-    assert len(calls) == 1
+    assert len(service.chat_calls) == 1
     assert len(client.get(path.replace("/completions", "/sessions")).json()["sessions"]) == 1
 
 
@@ -97,14 +93,15 @@ def test_stream_result_can_be_retried_as_json(client, service):
     assert len(service.chat_calls) == 1
 
 
-def test_reusing_a_key_for_a_different_prompt_is_conflict(client, service):
+def test_reusing_a_key_for_a_different_prompt_is_a_validation_error(client, service):
     headers = {"Idempotency-Key": "same-key"}
     assert (
         client.post("/v1/chat/completions", json={"prompt": "one"}, headers=headers).status_code
         == 200
     )
-    conflict = client.post("/v1/chat/completions", json={"prompt": "two"}, headers=headers)
-    assert conflict.status_code == 409
+    reused = client.post("/v1/chat/completions", json={"prompt": "two"}, headers=headers)
+    assert reused.status_code == 422
+    assert reused.json()["error"]["code"] == "validation_error"
     assert len(service.chat_calls) == 1
 
 
@@ -139,15 +136,6 @@ def test_failure_before_dispatch_leaves_the_key_reusable(client, service, monkey
     assert len(service.chat_calls) == 1
 
 
-def test_deleted_conversation_cannot_be_replayed(client, service):
-    body = {"prompt": "Private answer", "idempotency_key": "erased-1"}
-    first = client.post("/v1/chat/completions", json=body)
-    session = first.json()["session_id"]
-    assert client.delete(f"/v1/chat/sessions/{session}").status_code == 200
-    assert client.post("/v1/chat/completions", json=body).status_code == 409
-    assert len(service.chat_calls) == 1
-
-
 def test_initial_title_and_client_user_identity_are_rejected(client):
     assert client.post("/v1/chat/sessions", json={"title": "Initial"}).status_code == 422
     assert (
@@ -156,21 +144,19 @@ def test_initial_title_and_client_user_identity_are_rejected(client):
     )
 
 
-def test_session_families_replace_conversation_routes(client):
+def test_chat_session_routes_are_the_only_conversation_routes(client):
     paths = client.app.openapi()["paths"]
-    for surface in ("chat", "agent"):
-        created = client.post(f"/v1/{surface}/sessions", json={})
-        assert created.status_code == 201
-        assert "deprecation" not in created.headers
-        assert not paths[f"/v1/{surface}/completions"]["post"].get("deprecated", False)
-        assert set(paths[f"/v1/{surface}/sessions"]) == {"get", "post"}
-        assert set(paths[f"/v1/{surface}/sessions/{{session_id}}"]) == {"patch", "delete"}
-        assert set(paths[f"/v1/{surface}/sessions/{{session_id}}/messages"]) == {"get"}
+    created = client.post("/v1/chat/sessions", json={})
+    assert created.status_code == 201
+    assert "deprecation" not in created.headers
+    assert not paths["/v1/chat/completions"]["post"].get("deprecated", False)
+    assert set(paths["/v1/chat/sessions"]) == {"get", "post"}
+    assert "/v1/chat/sessions/{session_id}" not in paths
+    assert set(paths["/v1/chat/sessions/{session_id}/messages"]) == {"get"}
     for removed in ("/v1/conversations", "/v1/chat/conversations"):
         assert client.get(removed).status_code == 404
         assert client.post(removed, json={}).status_code == 404
         assert removed not in paths
-    assert "/v1/runs/{run_id}/resume" not in paths
 
 
 @pytest.mark.asyncio

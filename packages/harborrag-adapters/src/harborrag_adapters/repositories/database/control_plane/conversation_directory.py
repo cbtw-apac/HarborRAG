@@ -23,7 +23,7 @@ from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationMessageRow,
     ConversationSessionRow,
 )
@@ -31,7 +31,6 @@ from harborrag_core.ports.conversation import (
     CONVERSATION_CURSOR_ERROR,
     MAX_CONVERSATION_PAGE_LIMIT,
     ConversationIdentity,
-    ConversationKind,
     ConversationPage,
     ConversationSummaryRow,
     decode_conversation_cursor,
@@ -62,7 +61,6 @@ class ConversationListRequest:
 
     tenant_id: str
     user_id: str
-    kind: ConversationKind | None = None
     cursor: str | None = None
     limit: int = 20
 
@@ -108,10 +106,8 @@ async def _anchor(
 
 def _summary(row: sa.Row[tuple[ConversationSessionRow, int]]) -> ConversationSummaryRow:
     stored, message_count = row
-    kind: ConversationKind = "agent" if stored.kind == "agent" else "chat"
     return ConversationSummaryRow(
         session_id=stored.session_id,
-        kind=kind,
         title=stored.title,
         created_at=stored.created_at,
         updated_at=stored.updated_at,
@@ -126,8 +122,6 @@ async def list_conversations(
     """Return one keyset page of the user's conversations, newest activity first."""
 
     conditions: list[ColumnElement[bool]] = list(owner_filter(request.tenant_id, request.user_id))
-    if request.kind is not None:
-        conditions.append(ConversationSessionRow.kind == request.kind)
     if request.cursor is not None:
         anchor_id = decode_conversation_cursor(request.cursor)
         conditions.append(await _anchor(session, request, anchor_id))

@@ -45,10 +45,10 @@ class MemoryRetention:
     """Days a newly written memory is kept, per scope; 0 means no automatic expiry.
 
     Retention becomes ``Memory.expires_at`` at write time, and repositories
-    stop returning a row once it has passed. RUN memories follow the session.
-    TENANT and GLOBAL memories are never written with an expiry. The default
-    expires nothing, so a library caller opts in. The runtime wires the
-    ``HARBORRAG_MEMORY_RETENTION_DAYS_*`` settings here.
+    stop returning a row once it has passed. TENANT and GLOBAL memories are
+    never written with an expiry. The default expires nothing, so a library
+    caller opts in. The runtime wires the ``HARBORRAG_MEMORY_RETENTION_DAYS_*``
+    settings here.
     """
 
     session_days: int = 0
@@ -63,7 +63,7 @@ class MemoryRetention:
     def days(self, scope: MemoryScope) -> int:
         """Retention for ``scope`` in days; 0 means the scope never auto-expires."""
 
-        if scope is MemoryScope.SESSION or scope is MemoryScope.RUN:
+        if scope is MemoryScope.SESSION:
             return self.session_days
         if scope is MemoryScope.USER:
             return self.user_days
@@ -98,14 +98,14 @@ class MemoryPolicy:
     type hint. It only ever re-ranks: recall still searches every recallable
     type, and retention stays keyed on scope.
 
-    ``extraction_project_scope`` lets extraction and the agent memory tools
-    store a fact at PROJECT scope, where every user of the project recalls it.
-    It is off by default because both write from model output that restates
-    retrieved, untrusted content; a project write is then stored for the
-    session instead (see ``write_scope``).
+    ``extraction_project_scope`` lets extraction store a fact at PROJECT scope,
+    where every user of the project recalls it. It is off by default because
+    extraction writes from model output that restates retrieved, untrusted
+    content; a project write is then stored for the session instead (see
+    ``write_scope``).
 
-    ``retention`` sets ``expires_at`` on every memory that extraction, the
-    rolling summary, and the agent memory tools write.
+    ``retention`` sets ``expires_at`` on every memory that extraction and the
+    rolling summary write.
     """
 
     enabled: bool = True

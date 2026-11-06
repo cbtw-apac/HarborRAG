@@ -26,7 +26,6 @@ src/harborrag_runtime/
     configuration.py
   composition/
     readers.py      # MCP reader-only service and tool composition
-    agent_tools.py  # optional reader/memory service binding for engine agent tools
     control_plane.py # production repository assembly
     resources.py     # storage/control resource factories
     storage_providers.py # registered storage factories selected by runtime settings
@@ -51,9 +50,6 @@ src/harborrag_runtime/
   chat/
     __init__.py     # retrieval-grounded chat service
     prompts/        # packaged system prompt templates
-  agent/
-    __init__.py     # bounded multi-step agent service
-    tools.py        # thin optional agent adapter over the shared tool invoker
   observability/    # telemetry shared by reader and ingestion compositions
   events/           # runtime event contracts and publication
   config/

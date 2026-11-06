@@ -1,20 +1,22 @@
-"""Map the HarborError hierarchy onto enveloped HTTP responses.
+"""The error catalog and the handlers that answer every failure with one envelope.
 
-One handler, one envelope: {"error": {"code", "message", "details", "trace_id"}}.
-Codes are derived mechanically from the exception class name (CamelCase -> snake_case),
-so new HarborError subclasses only need a row in _STATUS_BY_TYPE.
+Handles:
+- Mapping ``HarborError`` classes, request validation, framework HTTP errors and
+  unhandled exceptions onto ``{"error": {"code", "message", "details", "trace_id"}}``
+- Choosing each response's ``code`` from the catalog, so clients branch on stable strings
+- Naming the dependency when an untranslated connection failure reaches the handler
+
+Does NOT decide what a service raises; the services own their exceptions.
 """
 
 from __future__ import annotations
 
 import logging
-import re
 from collections.abc import Mapping
 from http import HTTPStatus
-from typing import Any
+from typing import Any, NamedTuple
 
 from fastapi import FastAPI, Request
-from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -37,17 +39,62 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 
-from .schemas import ErrorResponse
+from .dependency_failures import failed_dependency
+from .middleware import TRACE_HEADER, current_trace_id
+from .schemas import Error
 
 logger = logging.getLogger("harborrag.app.api.errors")
 
-_OPAQUE_ERRORS = (HarborConfigurationError,)
-"""Errors whose text is infrastructure, not a message for the caller.
+CATALOG: Mapping[str, int] = {
+    "tenant_required": 400,
+    "unauthenticated": 401,
+    "forbidden": 403,
+    "tenant_forbidden": 403,
+    "not_found": 404,
+    "already_exists": 409,
+    "already_running": 409,
+    "session_busy": 409,
+    "in_use": 409,
+    "immutable_field": 409,
+    "invalid_state": 409,
+    "no_indexed_content": 409,
+    "reindex_required": 409,
+    "precondition_failed": 412,
+    "payload_too_large": 413,
+    "validation_error": 422,
+    "reference_not_found": 422,
+    "mode_unavailable": 422,
+    "connection_out_of_scope": 422,
+    "rate_limited": 429,
+    "internal_error": 500,
+    "not_supported": 501,
+    "llm_unavailable": 503,
+    "dependency_unavailable": 503,
+    "not_ready": 503,
+    "deadline_exceeded": 504,
+}
+"""Every ``code`` a response may carry, with its HTTP status."""
 
-They are raised below the service layer that allowlists what it returns, so
-nothing has vetted their wording: a configuration failure names the DSN or the
-settings key it could not read.
-"""
+_DEFAULT_CODES: Mapping[int, str] = {
+    400: "validation_error",
+    401: "unauthenticated",
+    403: "forbidden",
+    404: "not_found",
+    405: "not_found",
+    409: "invalid_state",
+    412: "precondition_failed",
+    413: "payload_too_large",
+    422: "validation_error",
+    429: "rate_limited",
+    500: "internal_error",
+    501: "not_supported",
+    503: "dependency_unavailable",
+    504: "deadline_exceeded",
+}
+
+_OPAQUE_ERRORS = (HarborConfigurationError, HarborSecretDecryptionError)
+_INTERNAL_MESSAGE = "the server could not complete the request"
+_AUTHENTICATE = 'Bearer realm="harborrag"'
 
 
 class TenantRequiredError(HarborError):
@@ -56,13 +103,17 @@ class TenantRequiredError(HarborError):
     error_code = "tenant_required"
 
 
+class ReferenceNotFoundError(HarborValidationError):
+    """An ID in the body or query does not exist or is not visible to the caller."""
+
+    error_code = "reference_not_found"
+
+
 _STATUS_BY_TYPE: dict[type[HarborError], int] = {
     TenantRequiredError: 400,
     HarborPreconditionFailedError: 412,
     HarborValidationError: 422,
     HarborNotFoundError: 404,
-    # 409, not 404: the tenant and project exist, their index just has no
-    # content yet. A 404 would say the thing they named is missing.
     HarborNoIndexedContentError: 409,
     HarborConflictError: 409,
     HarborCapabilityError: 501,
@@ -79,94 +130,15 @@ _STATUS_BY_TYPE: dict[type[HarborError], int] = {
 def documented_error_responses(
     descriptions: Mapping[int, str],
 ) -> dict[int | str, dict[str, Any]]:
-    """Build consistent OpenAPI entries for enveloped error responses."""
-
+    """Build OpenAPI entries for error responses that use the shared ``Error`` schema."""
     return {
-        status_code: {"model": ErrorResponse, "description": description}
+        status_code: {"model": Error, "description": description}
         for status_code, description in descriptions.items()
     }
 
 
-_SPEC_PREFIXES = (
-    "/v1/admin/source-types",
-    "/v1/admin/connections",
-    "/v1/admin/projects",
-    "/v1/projects/",
-)
-_SPEC_CODES = {
-    400: "bad_request",
-    401: "unauthenticated",
-    403: "forbidden",
-    404: "not_found",
-    409: "conflict",
-    412: "precondition_failed",
-    422: "validation_error",
-    429: "rate_limited",
-    500: "internal_error",
-    501: "not_supported",
-    503: "dependency_unavailable",
-    504: "deadline_exceeded",
-}
-_SPEC_EXPLICIT_CODES = frozenset(
-    {
-        "tenant_required",
-        "tenant_forbidden",
-        "already_exists",
-        "already_running",
-        "in_use",
-        "immutable_field",
-        "invalid_state",
-        "precondition_failed",
-        "validation_error",
-        "reference_not_found",
-    }
-)
-
-
-def is_spec_route(request: Request) -> bool:
-    """True for routes that answer with the HTTP API spec's error codes."""
-    return request.url.path.startswith(_SPEC_PREFIXES)
-
-
-def _spec_error(exc: Exception, status: int) -> str:
-    """The spec's code for an error raised on a spec route."""
-    explicit = getattr(exc, "error_code", None)
-    if isinstance(explicit, str) and explicit in _SPEC_EXPLICIT_CODES:
-        return explicit
-    return _SPEC_CODES.get(status, "internal_error")
-
-
-def _spec_details(exc: Exception, details: object) -> object:
-    """Field errors as the spec's ``[{field, issue}]`` list; other details as given."""
-    if isinstance(exc, HarborValidationError):
-        errors = details.get("errors") if isinstance(details, dict) else None
-        if isinstance(errors, list) and all(
-            isinstance(item, dict) and "field" in item for item in errors
-        ):
-            return errors
-        return [{"field": "", "issue": str(exc)}]
-    return details or None
-
-
-def _code_for(exc: Exception) -> str:
-    """Derive the wire error code from the exception class name.
-
-    CamelCase -> snake_case, e.g., HarborNotFoundError -> harbor_not_found_error.
-    """
-    explicit = getattr(exc, "error_code", None)
-    if isinstance(explicit, str) and explicit:
-        return explicit
-    return re.sub(r"(?<!^)(?=[A-Z])", "_", type(exc).__name__).lower()
-
-
 def _status_for(exc: HarborError) -> int:
-    """Resolve the HTTP status for a HarborError.
-
-    HarborAuthError fans out to 401 (unauthenticated) or 403 (forbidden);
-    every other class walks its MRO so subclasses inherit their parent's
-    status without needing their own _STATUS_BY_TYPE row. Unknown branches
-    of the hierarchy default to 500."""
-
+    """Resolve the HTTP status of a ``HarborError`` from its class."""
     if isinstance(exc, HarborAuthError):
         return 403 if exc.forbidden else 401
     for klass in type(exc).__mro__:
@@ -175,144 +147,164 @@ def _status_for(exc: HarborError) -> int:
     return 500
 
 
-def error_envelope(
-    request: Request,
-    code: str,
-    message: str,
-    details: object,
-) -> dict[str, object]:
-    """Build the single error envelope every non-2xx response uses.
+def catalog_code(status: int, explicit: object = None) -> str:
+    """Return ``explicit`` when the catalog lists it for ``status``, else the status default.
 
-    trace_id is read from request.state (populated by the trace middleware);
-    it is present-but-null until that middleware is wired in.
+    Args:
+        status: The response's HTTP status.
+        explicit: The code the exception asked for, if any.
+
+    Returns:
+        A code from ``CATALOG``.
     """
+    if isinstance(explicit, str) and CATALOG.get(explicit) == status:
+        return explicit
+    return _DEFAULT_CODES.get(status, "internal_error" if status >= 500 else "validation_error")
+
+
+def _code_for(exc: HarborError, status: int) -> str:
+    """The catalog code of a ``HarborError``."""
+    if isinstance(exc, HarborNoIndexedContentError):
+        return "no_indexed_content"
+    return catalog_code(status, getattr(exc, "error_code", None))
+
+
+def _details_for(exc: HarborError, status: int) -> object:
+    """Field errors as ``[{field, issue}]``; other details as given, ``None`` when empty."""
+    if isinstance(exc, _OPAQUE_ERRORS):
+        return None
+    details = getattr(exc, "details", None)
+    if not isinstance(exc, HarborValidationError) or _code_for(exc, status) != "validation_error":
+        return details or None
+    errors = details.get("errors") if isinstance(details, dict) else None
+    if isinstance(errors, list) and all(
+        isinstance(item, dict) and "field" in item for item in errors
+    ):
+        return errors
+    field = details.get("field") if isinstance(details, dict) else None
+    return [{"field": field if isinstance(field, str) else "", "issue": str(exc)}]
+
+
+def error_envelope(request: Request, code: str, message: str, details: object) -> dict[str, object]:
+    """Build the error envelope for ``request``."""
     return {
         "error": {
             "code": code,
             "message": message,
-            "details": details,
-            "trace_id": getattr(request.state, "trace_id", None),
+            "details": details or None,
+            "trace_id": current_trace_id(request),
         }
     }
+
+
+class _Body(NamedTuple):
+    code: str
+    message: str
+    details: object = None
+
+
+def _respond(
+    request: Request,
+    status: int,
+    body: _Body,
+    headers: Mapping[str, str] | None = None,
+) -> JSONResponse:
+    """Answer with the envelope and the trace header, whichever middleware runs."""
+    response_headers = {TRACE_HEADER: current_trace_id(request), **(headers or {})}
+    if status == HTTPStatus.UNAUTHORIZED:
+        response_headers.setdefault("WWW-Authenticate", _AUTHENTICATE)
+    return JSONResponse(
+        status_code=status,
+        content=error_envelope(request, *body),
+        headers=response_headers,
+    )
 
 
 def spec_error_body(request: Request, exc: HarborError) -> dict[str, object]:
-    """Return the spec's error object for ``exc`` without raising it, e.g. inside a 2xx body."""
+    """Return the error object for ``exc`` without raising it, e.g. inside a 2xx body."""
     status = _status_for(exc)
-    internal = isinstance(exc, _OPAQUE_ERRORS)
-    details = {} if internal else getattr(exc, "details", {})
-    message = "the server could not complete the request" if internal else str(exc)
-    return {
-        "code": _spec_error(exc, status),
-        "message": message,
-        "details": _spec_details(exc, details),
-        "trace_id": getattr(request.state, "trace_id", None),
-    }
+    message = _INTERNAL_MESSAGE if isinstance(exc, _OPAQUE_ERRORS) else str(exc)
+    return error_envelope(request, _code_for(exc, status), message, _details_for(exc, status))[
+        "error"
+    ]  # type: ignore[return-value]
+
+
+def _field_of(location: tuple[object, ...], kind: str) -> str:
+    """The dotted field a validation error names; ``body`` for an unparsable body."""
+    if kind == "json_invalid":
+        return "body"
+    parts = [str(part) for part in location if part not in {"body", "query", "path", "header"}]
+    return ".".join(parts) or "body"
+
+
+def _validation_details(exc: RequestValidationError) -> list[dict[str, str]]:
+    """Every failing field of a request as ``{field, issue}``."""
+    return [
+        {"field": _field_of(tuple(error["loc"]), str(error.get("type"))), "issue": error["msg"]}
+        for error in exc.errors()
+    ]
 
 
 def register_error_handlers(app: FastAPI) -> None:
-    """Attach the three exception handlers to a FastAPI app.
-
-    HarborError -> mapped status + mechanical code; RequestValidationError ->
-    422 with FastAPI's field errors as details; anything else -> generic 500
-    that leaks no internal detail (full traceback belongs in logs only)."""
+    """Attach the handlers that turn every failure into the error envelope."""
 
     @app.exception_handler(HarborError)
     async def _harbor_error(request: Request, exc: HarborError) -> JSONResponse:
-        """Envelope any HarborError with its mapped HTTP status.
-
-        A 4xx message is the caller's to act on. Most 5xx messages reaching
-        here are written for the caller too -- "Retrieval service is
-        unavailable" is chosen by the service layer, which allowlists what it
-        returns -- so they are forwarded as well.
-
-        The exception is an error that never passed through that layer and
-        whose text is infrastructure: a configuration failure can name a DSN or
-        a settings key. Those fall through to 500 by default, carry no
-        envelope, and are replaced here. Their detail goes to the log, which is
-        what the handler's own promise to leak nothing requires.
-        """
-
+        """Envelope a ``HarborError`` with its mapped status and catalog code."""
         status = _status_for(exc)
-        internal = isinstance(exc, _OPAQUE_ERRORS)
         if status >= HTTPStatus.INTERNAL_SERVER_ERROR:
             logger.exception("%s returned as %s", type(exc).__name__, status)
-        details = {} if internal else getattr(exc, "details", {})
-        message = "the server could not complete the request" if internal else str(exc)
-        headers = None
+        message = _INTERNAL_MESSAGE if isinstance(exc, _OPAQUE_ERRORS) else str(exc)
+        details = _details_for(exc, status)
+        headers: dict[str, str] = {}
         if isinstance(exc, HarborRateLimitError):
-            headers = {"Retry-After": str(exc.details["retry_after_seconds"])}
-        if is_spec_route(request):
-            return JSONResponse(
-                status_code=status,
-                content=error_envelope(
-                    request, _spec_error(exc, status), message, _spec_details(exc, details)
-                ),
-                headers=headers,
-            )
-        return JSONResponse(
-            status_code=status,
-            content=error_envelope(request, _code_for(exc), message, details),
-            headers=headers,
-        )
+            headers["Retry-After"] = str(exc.details["retry_after_seconds"])
+        if (
+            isinstance(exc, (HarborConnectionError, HarborUnavailableError))
+            and not details
+            and (dependency := failed_dependency(exc)) is not None
+        ):
+            details = {"dependency": dependency}
+        return _respond(request, status, _Body(_code_for(exc, status), message, details), headers)
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
-        """Envelope FastAPI request-validation failures as 422."""
-        if is_spec_route(request):
-            fields = [
-                {
-                    "field": ".".join(
-                        str(part) for part in error["loc"] if part not in {"body", "query", "path"}
-                    ),
-                    "issue": str(error["msg"]),
-                }
-                for error in exc.errors()
-            ]
-            return JSONResponse(
-                status_code=422,
-                content=error_envelope(
-                    request, "validation_error", "Request validation failed", fields
-                ),
-            )
-        details: dict[str, object] = {
-            "errors": jsonable_encoder(
-                [
-                    {key: value for key, value in error.items() if key not in {"input", "ctx"}}
-                    for error in exc.errors()
-                ],
-                custom_encoder={ValueError: str},
-            )
-        }
-        return JSONResponse(
-            status_code=422,
-            content=error_envelope(
-                request, "harbor_validation_error", "Request validation failed", details
-            ),
-        )
+        """Envelope request validation failures as ``422 validation_error``."""
+        body = _Body("validation_error", "Request validation failed", _validation_details(exc))
+        return _respond(request, 422, body)
 
     @app.exception_handler(StarletteHTTPException)
     async def _http_exception(request: Request, exc: StarletteHTTPException) -> JSONResponse:
-        """Envelope framework HTTPExceptions (404 no-route, 405, ...) too —
-        no response may bypass the envelope (ST3 DoD)."""
-        code = HTTPStatus(exc.status_code).name.lower()
-        return JSONResponse(
-            status_code=exc.status_code,
-            content=error_envelope(request, code, str(exc.detail), {}),
-            headers=exc.headers,
-        )
+        """Envelope framework HTTP errors such as an unknown route or a wrong method."""
+        body = _Body(catalog_code(exc.status_code), str(exc.detail))
+        return _respond(request, exc.status_code, body, exc.headers)
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        """Envelope unexpected exceptions as a generic 500."""
+        """Envelope a lost dependency as ``503``, anything else as a generic ``500``."""
+        dependency = failed_dependency(exc)
         logger.exception(
             "Unhandled API exception trace_id=%s method=%s path=%s",
-            getattr(request.state, "trace_id", None),
+            current_trace_id(request),
             request.method,
             request.url.path,
             exc_info=exc,
         )
-        return JSONResponse(
-            status_code=500,
-            content=error_envelope(request, "internal_error", "Internal server error", {}),
-        )
+        if dependency is not None:
+            body = _Body(
+                "dependency_unavailable", f"{dependency} is unavailable", {"dependency": dependency}
+            )
+            return _respond(request, 503, body)
+        return _respond(request, 500, _Body("internal_error", "Internal server error"))
+
+
+__all__ = [
+    "CATALOG",
+    "ReferenceNotFoundError",
+    "TenantRequiredError",
+    "catalog_code",
+    "documented_error_responses",
+    "error_envelope",
+    "register_error_handlers",
+    "spec_error_body",
+]

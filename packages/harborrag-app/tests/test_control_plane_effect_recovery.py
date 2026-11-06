@@ -1,10 +1,9 @@
 """Secret retirement and activity logging must survive a failed first attempt.
 
-Regression coverage for a coderabbit finding: create/update/delete_source
-each follow a committed source write with secret retirement and/or activity
-logging. Previously, a failure in either step raised straight out of the
-use case even though the source write had already succeeded, leaving
-orphaned secrets or a missing audit trail with nothing recorded for retry.
+Connection and project writes follow a committed row write with secret
+retirement and activity logging through ``retire_refs`` and ``log_activity``.
+A failure in either step must be queued for retry, never raised, because the
+row write already succeeded.
 """
 
 from __future__ import annotations
@@ -14,6 +13,7 @@ from dataclasses import dataclass, field
 import pytest
 from app_test_control_plane import control_plane_app_service
 
+from harborrag_app.workflow_control.control_plane.effect_recovery import log_activity, retire_refs
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
@@ -77,147 +77,63 @@ class _AlwaysFailsPendingEffects:
         self.effects.pop(effect_id, None)
 
 
-_LOCAL_ROOT = "/srv/harborrag"
-_LOCAL_DOCS = f"{_LOCAL_ROOT}/docs"
-
-
-@pytest.fixture(autouse=True)
-def local_source_root(monkeypatch: pytest.MonkeyPatch) -> None:
-    """API writes of local sources need a configured source root."""
-    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", _LOCAL_ROOT)
-
-
 @pytest.fixture
 def project() -> Project:
     return Project(id="proj-a", name="A", collection="a", tenant_id="DEFAULT")
 
 
+def _entry() -> ActivityEntry:
+    return ActivityEntry(
+        id="act_1",
+        tenant_id="DEFAULT",
+        actor="tester",
+        verb="created",
+        entity_type="connection",
+        entity_id="docs",
+        summary="Created connection 'Docs'",
+    )
+
+
 @pytest.mark.asyncio
-async def test_create_source_survives_a_failed_activity_log_and_queues_it_for_retry(
-    project: Project,
-) -> None:
+async def test_a_failed_activity_log_is_queued_and_replayed(project: Project) -> None:
     activity_repo = _FlakyActivityRepository(FakeActivityRepository())
     pending = FakePendingEffectRepository()
     service = control_plane_app_service(
         projects=[project], activity_repository=activity_repo, pending_effects=pending
     )
 
-    response = await service.create_source(
-        tenant_id="DEFAULT",
-        project_id="proj-a",
-        source_type="local",
-        name="Docs",
-        config={"source_path": _LOCAL_DOCS},
-        schedule=None,
-        actor="tester",
-    )
+    await log_activity(service._control_plane(), _entry())
 
-    assert response.ok
     assert not activity_repo.inner.entries
-    assert len(pending.effects) == 1
-    effect = next(iter(pending.effects.values()))
-    assert effect.kind == "log_activity"
+    assert [effect.kind for effect in pending.effects.values()] == ["log_activity"]
 
     recovered = await service.recover_pending_control_plane_effects()
 
     assert recovered == 1
     assert not pending.effects
-    assert len(activity_repo.inner.entries) == 1
-    assert activity_repo.inner.entries[0].verb == "created"
+    assert [entry.id for entry in activity_repo.inner.entries] == ["act_1"]
 
 
 @pytest.mark.asyncio
-async def test_update_source_survives_failed_stale_secret_retirement_and_activity_log(
-    project: Project,
-) -> None:
+async def test_a_failed_secret_retirement_is_queued_and_replayed(project: Project) -> None:
     secrets = FakeSecrets()
-    activity = FakeActivityRepository()
-    service = control_plane_app_service(
-        projects=[project], secrets=secrets, activity_repository=activity
-    )
-    created = await service.create_source(
-        tenant_id="DEFAULT",
-        project_id="proj-a",
-        source_type="jira",
-        name="AuTa board",
-        config={"base_url": "https://example.atlassian.net", "token": "old-token"},
-        schedule=None,
-        actor="tester",
-    )
-    old_ref = created.data["source"].secret_refs[0]
-
+    ref = await secrets.put("hunter2", tenant_id="DEFAULT")
     flaky_secrets = _FlakySecrets(secrets, fail_times=1)
-    flaky_activity = _FlakyActivityRepository(activity, fail_times=1)
     pending = FakePendingEffectRepository()
     service = control_plane_app_service(
-        projects=[project],
-        sources=[created.data["source"]],
-        secrets=flaky_secrets,
-        activity_repository=flaky_activity,
-        pending_effects=pending,
+        projects=[project], secrets=flaky_secrets, pending_effects=pending
     )
 
-    response = await service.update_source(
-        created.data["source"].id,
-        updates={"config": {"base_url": "https://example.atlassian.net", "token": "new-token"}},
-        actor="tester",
-        tenant_ids=None,
-    )
+    await retire_refs(service._control_plane(), [ref], tenant_id="DEFAULT")
 
-    assert response.ok
-    # The stale-ref delete failed, so it is still there.
-    assert ("DEFAULT", old_ref) in flaky_secrets.inner.values
-    kinds = {effect.kind for effect in pending.effects.values()}
-    assert kinds == {"retire_secret", "log_activity"}
+    assert ("DEFAULT", ref) in secrets.values
+    assert [effect.kind for effect in pending.effects.values()] == ["retire_secret"]
 
     recovered = await service.recover_pending_control_plane_effects()
 
-    assert recovered == 2
+    assert recovered == 1
     assert not pending.effects
-    assert ("DEFAULT", old_ref) not in flaky_secrets.inner.values
-
-
-@pytest.mark.asyncio
-async def test_delete_source_survives_failed_secret_retirement_and_activity_log(
-    project: Project,
-) -> None:
-    secrets = FakeSecrets()
-    service = control_plane_app_service(projects=[project], secrets=secrets)
-    created = await service.create_source(
-        tenant_id="DEFAULT",
-        project_id="proj-a",
-        source_type="jira",
-        name="AuTa board",
-        config={"base_url": "https://example.atlassian.net", "token": "hunter2"},
-        schedule=None,
-        actor="tester",
-    )
-    source_id = created.data["source"].id
-    ref = created.data["source"].secret_refs[0]
-
-    flaky_secrets = _FlakySecrets(secrets, fail_times=1)
-    flaky_activity = _FlakyActivityRepository(FakeActivityRepository(), fail_times=1)
-    pending = FakePendingEffectRepository()
-    service = control_plane_app_service(
-        projects=[project],
-        sources=[created.data["source"]],
-        secrets=flaky_secrets,
-        activity_repository=flaky_activity,
-        pending_effects=pending,
-    )
-
-    response = await service.delete_source(source_id, actor="tester", tenant_ids=None)
-
-    assert response.ok
-    assert ("DEFAULT", ref) in flaky_secrets.inner.values
-    kinds = {effect.kind for effect in pending.effects.values()}
-    assert kinds == {"retire_secret", "log_activity"}
-
-    recovered = await service.recover_pending_control_plane_effects()
-
-    assert recovered == 2
-    assert ("DEFAULT", ref) not in flaky_secrets.inner.values
-    assert len(flaky_activity.inner.entries) == 1
+    assert ("DEFAULT", ref) not in secrets.values
 
 
 @pytest.mark.asyncio
@@ -334,14 +250,6 @@ async def test_a_failed_enqueue_is_logged_and_swallowed_not_raised(project: Proj
         pending_effects=_AlwaysFailsPendingEffects(),
     )
 
-    response = await service.create_source(
-        tenant_id="DEFAULT",
-        project_id="proj-a",
-        source_type="local",
-        name="Docs",
-        config={"source_path": _LOCAL_DOCS},
-        schedule=None,
-        actor="tester",
-    )
+    await log_activity(service._control_plane(), _entry())
 
-    assert response.ok
+    assert not activity_repo.inner.entries

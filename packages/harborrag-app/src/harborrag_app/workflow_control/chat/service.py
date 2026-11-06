@@ -5,7 +5,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from collections.abc import AsyncGenerator
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from harborrag_app.workflow_control.errors import failure_response
 from harborrag_app.workflow_control.memory.access import MemoryAccess
@@ -98,11 +98,9 @@ class ChatApplicationService:
 
         await self._resources.runtime().chat.validate_model(model, tenant_id=tenant_id)
 
-    async def validate_scope(
-        self, query: str, access: MemoryAccess, *, model: str | None, mode: Literal["rag", "agent"]
-    ) -> None:
+    async def validate_scope(self, query: str, access: MemoryAccess, *, model: str | None) -> None:
         await self.validate_project(access.project_id, tenant_id=access.tenant_id)
-        await require_query_scope(self._resources, query, access, model=model, mode=mode)
+        await require_query_scope(self._resources, query, access, model=model)
 
     async def validate_project(self, project_id: str | None, *, tenant_id: str) -> None:
         """Reject a project this tenant does not have, before the turn starts.

@@ -1,4 +1,4 @@
-"""The fixed three-exchange context shared by public chat and agent turns."""
+"""The fixed three-exchange context of a public chat turn."""
 
 from __future__ import annotations
 

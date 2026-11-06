@@ -2,7 +2,7 @@ import { apiRequestError } from "./errors.js";
 import type { HarborClientOptions, HarborRequestOptions } from "./options.js";
 import type { components } from "./schema.js";
 
-export type SessionSurface = "chat" | "agent";
+export type SessionSurface = "chat";
 export interface SessionListOptions {
   tenant?: string;
   cursor?: string;
@@ -14,7 +14,7 @@ export interface SessionHistoryOptions {
   limit?: number;
 }
 
-/** Session IDs are shared; lists are filtered by the surface that created them. */
+/** Chat sessions: create, list, and read a session's messages. */
 export function createSessionMethods(options: HarborClientOptions) {
   const doFetch = options.fetchImpl ?? fetch;
 
@@ -75,22 +75,6 @@ export function createSessionMethods(options: HarborClientOptions) {
     ) {
       return request<components["schemas"]["ConversationMessageListResponse"]>(
         surface, "GET", `${sessionPath(sessionId)}/messages`, { ...query }, undefined, requestOptions,
-      );
-    },
-    renameSession(
-      surface: SessionSurface, sessionId: string, title: string, tenant = "DEFAULT",
-      requestOptions: HarborRequestOptions = {},
-    ) {
-      return request<components["schemas"]["ConversationRenameResponse"]>(
-        surface, "PATCH", sessionPath(sessionId), { tenant }, { title }, requestOptions,
-      );
-    },
-    deleteSession(
-      surface: SessionSurface, sessionId: string, tenant = "DEFAULT",
-      requestOptions: HarborRequestOptions = {},
-    ) {
-      return request<components["schemas"]["SessionErasureResponse"]>(
-        surface, "DELETE", sessionPath(sessionId), { tenant }, undefined, requestOptions,
       );
     },
   };

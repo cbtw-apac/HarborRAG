@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
+from collections.abc import Mapping
+from dataclasses import asdict, fields
+from typing import Any
 from uuid import uuid4
 
 from harborrag_core.contracts.errors import HarborUnavailableError
@@ -14,6 +16,20 @@ from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryOwner, Memory
 logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
 MEMORY_ERASURE = "erase_memory"
 SESSION_ERASURE = "erase_memory_session"
+_OWNER_FIELDS = frozenset(field.name for field in fields(MemoryOwner))
+
+
+def stored_owner(payload: Mapping[str, Any]) -> MemoryOwner:
+    """Rebuild the owner an erasure intent recorded.
+
+    Args:
+        payload: The ``owner`` mapping of a pending effect.
+
+    Returns:
+        The owner, ignoring fields an earlier release wrote (``run_id``).
+    """
+
+    return MemoryOwner(**{key: value for key, value in payload.items() if key in _OWNER_FIELDS})
 
 
 class MemoryErasureJournal:
@@ -71,7 +87,7 @@ class MemoryErasureJournal:
     async def replay(self, effect: PendingControlPlaneEffect) -> bool:
         if effect.kind != MEMORY_ERASURE:
             return False
-        owner = MemoryOwner(**effect.payload["owner"])
+        owner = stored_owner(effect.payload["owner"])
         memory_id = effect.payload["memory_id"]
         if self.memories is None or (effect.payload.get("index_required") and self.index is None):
             raise HarborUnavailableError("memory erasure stores are not configured")

@@ -21,9 +21,6 @@ from harborrag_runtime.execution.gateway import (
     connect_temporal_client as connect_temporal_client,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-from harborrag_runtime.ingestion.maintenance.projection_admin import (
-    ProjectionAdministrationService,
-)
 from harborrag_runtime.ingestion_contracts import (
     IngestionGateway,
 )
@@ -40,10 +37,6 @@ type ClientFactory = Callable[
 type ScheduleBackendFactory = Callable[[RuntimeSettings], Awaitable[ScheduleBackend]]
 type GatewayDescriptionFactory = Callable[[RuntimeSettings], IngestionGatewayDescription]
 type RetrievalRuntimeFactory = Callable[[RuntimeSettings], HarborRAG]
-type ProjectionAdminFactory = Callable[
-    [RuntimeSettings],
-    ProjectionAdministrationService,
-]
 type EventBusFactory = Callable[[], EventBusPort]
 
 
@@ -86,5 +79,4 @@ class AppServiceFactories:
     source_input_builder: SourceInputBuilder | None = None
     source_preparation: SourcePreparation = prepare_configured_source_submission
     task_registry: TaskRegistryFactory = IngestionTaskRegistry.connect
-    projection_admin: ProjectionAdminFactory = ProjectionAdministrationService
     event_bus: EventBusFactory = InProcessEventBus

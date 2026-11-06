@@ -1,4 +1,4 @@
-"""Chat/agent mode validation and the canonical resumable completion contract."""
+"""Chat completion model validation, scope refusals and replay."""
 
 import json
 
@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.api.v1.chat.replay import _stored_response
 from harborrag_app.api.v1.chat.schemas import (
     ChatCitation,
     ChatCompletionResponse,
@@ -30,86 +31,33 @@ def client(monkeypatch, service):
         yield client
 
 
-@pytest.mark.parametrize("mode", ["rag", "agent"])
 @pytest.mark.parametrize("stream", [False, True])
-def test_mode_uses_its_own_model_validator_before_creating_or_streaming(
-    client, service, monkeypatch, mode, stream
-):
+def test_the_model_is_validated_before_creating_or_streaming(client, service, monkeypatch, stream):
     calls = []
 
     async def reject(model, *, tenant_id):
         calls.append((model, tenant_id))
-        raise HarborValidationError("Model unavailable for this mode")
+        raise HarborValidationError("Model unavailable")
 
-    method = "validate_agent_model" if mode == "agent" else "validate_chat_model"
-    monkeypatch.setattr(service, method, reject)
-    response = client.post(
-        f"/v1/{'agent' if mode == 'agent' else 'chat'}/completions",
-        json={"prompt": "Hello", "mode": mode, "stream": stream},
-    )
+    monkeypatch.setattr(service, "validate_chat_model", reject)
+    response = client.post("/v1/chat/completions", json={"prompt": "Hello", "stream": stream})
     assert response.status_code == 422
     assert response.headers["content-type"].startswith("application/json")
     assert calls == [(None, "DEFAULT")]
-    assert not service.agent_calls and not service.chat_calls
+    assert not service.chat_calls
     assert client.get("/v1/chat/sessions").json()["sessions"] == []
 
 
-@pytest.mark.parametrize("path", ["/v1/agent/runs/run-1/resume"])
-def test_resume_preserves_shared_completion_fields_and_prevents_caching(client, service, path):
-    session = client.post("/v1/chat/sessions", json={}).json()["session_id"]
-    started = client.post(
-        "/v1/agent/completions",
-        json={"prompt": "Hello", "mode": "agent", "session_id": session},
-    )
-    resumed = client.post(path, json={"session_id": session})
-    assert started.status_code == resumed.status_code == 200
-    assert resumed.json() == started.json()
-    assert resumed.json()["mode"] == "agent"
-    assert resumed.json()["citation_validation"]["complete"] is True
-    assert resumed.headers["cache-control"] == "no-store"
-    assert "deprecation" not in resumed.headers
-    assert len(service.agent_resume_calls) == 1
-
-
-@pytest.mark.parametrize("extra", [{"prompt": "new"}, {"model": "other"}, {"stream": True}])
-def test_canonical_resume_rejects_new_prompt_model_and_stream(client, service, extra):
-    response = client.post("/v1/agent/runs/run-1/resume", json={"session_id": "session-1", **extra})
-    assert response.status_code == 422
-    assert not service.agent_resume_calls
-
-
-def test_openapi_explains_modes_header_and_canonical_resume(client):
-    schema = client.app.openapi()
-    completion = schema["paths"]["/v1/chat/completions"]["post"]
-    assert "/v1/agent/completions" in completion["description"]
+def test_openapi_documents_the_idempotency_header(client):
+    completion = client.app.openapi()["paths"]["/v1/chat/completions"]["post"]
     key = next(p for p in completion["parameters"] if p["name"] == "Idempotency-Key")
     assert key["in"] == "header" and not key["required"]
-    resume = schema["paths"]["/v1/agent/runs/{run_id}/resume"]["post"]
-    assert not resume.get("deprecated", False)
-    assert "409" in resume["responses"]
-    agent = schema["components"]["schemas"]["AgentCompletionResponse"]
-    agent_completion = schema["paths"]["/v1/agent/completions"]["post"]
-    agent_response = {"$ref": "#/components/schemas/AgentCompletionResponse"}
-    assert (
-        agent_completion["responses"]["200"]["content"]["application/json"]["schema"]
-        == agent_response
-    )
-    assert resume["responses"]["200"]["content"]["application/json"]["schema"] == agent_response
-    assert {"mode", "citations", "citation_validation", "cost"} <= agent["properties"].keys()
-    assert {"run_id", "stop_reason", "turns", "tool_calls"} <= set(agent["required"])
 
 
-@pytest.mark.parametrize(
-    "path,mode",
-    [
-        ("/v1/chat/completions", "rag"),
-        ("/v1/agent/completions", "agent"),
-        ("/v1/agent/completions", None),
-    ],
-)
+@pytest.mark.parametrize("mode", ["rag", None])
 @pytest.mark.parametrize("stream", [False, True])
 def test_scope_refusal_uses_completion_schema_without_answer_generation(
-    client, monkeypatch, path, mode, stream
+    client, monkeypatch, mode, stream
 ):
     service = client.app.state.app_service
 
@@ -125,7 +73,7 @@ def test_scope_refusal_uses_completion_schema_without_answer_generation(
     }
     if mode is not None:
         body["mode"] = mode
-    response = client.post(path, json=body)
+    response = client.post("/v1/chat/completions", json=body)
     assert response.status_code == 200
     if stream:
         frames = [
@@ -147,7 +95,7 @@ def test_scope_refusal_uses_completion_schema_without_answer_generation(
     assert public.session_id == session
     assert public.citations == ()
     assert public.memory_persisted is False
-    assert not service.chat_calls and not service.agent_calls
+    assert not service.chat_calls
 
 
 def test_scope_refusal_creates_session_and_replays_without_reclassifying(
@@ -207,3 +155,34 @@ def test_response_text_preserves_source_indentation_and_streamed_whitespace():
     citation = ChatCitation(document_id="doc", chunk_id="chunk", score=0.0, content=content)
     message = ChatMessageResponse(role="assistant", content=content)
     assert citation.content == message.content == content
+
+
+def test_a_result_stored_before_the_upgrade_still_replays():
+    stored = {
+        "id": "answer-1",
+        "model": "primary",
+        "provider": "mock",
+        "provider_model": "mock-chat",
+        "message": {"role": "assistant", "content": "Answer"},
+        "finish_reason": "stop",
+        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+        "retry_count": 0,
+        "fallback_count": 0,
+        "citations": [
+            {"document_id": "doc", "chunk_id": "chunk", "score": 0.5, "tool": "vector_search"}
+        ],
+        "citation_validation": {"complete": True},
+        "session_id": "session-1",
+        "run_id": "run-1",
+        "stop_reason": "final_answer",
+        "turns": 2,
+        "tool_call_count": 1,
+        "tool_calls": [{"step": 1, "tool": "vector_search", "ok": True}],
+    }
+
+    replayed = _stored_response(json.dumps(stored))
+
+    assert replayed.completion_id == "answer-1"
+    assert replayed.session_id == "session-1"
+    assert replayed.citations[0].chunk_id == "chunk"
+    assert "run_id" not in replayed.model_dump()

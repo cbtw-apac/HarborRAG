@@ -239,11 +239,6 @@ class ConnectionBuilder:
         self._status_detail = detail
         return self
 
-    def schedule(self, value: str | None) -> Self:
-        """Set the legacy cron schedule kept for ``/api/v1/sources``."""
-        self._schedule = value
-        return self
-
     def actor(self, subject: str) -> Self:
         """Record who is writing; it becomes ``updated_by`` and, on create, ``created_by``."""
         self._actor = subject or SYSTEM_ACTOR

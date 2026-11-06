@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from harborrag_app.workflow_control.memory import agent_run_checkpoints, conversation_memory
+from harborrag_app.workflow_control.memory import conversation_memory
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_runtime.memory import InMemoryConversationMemory
 
@@ -48,5 +48,3 @@ def test_missing_persistent_memory_fails_closed_in_production() -> None:
 
     with pytest.raises(HarborConfigurationError, match="persistent conversation_memory"):
         conversation_memory(composition)
-    with pytest.raises(HarborConfigurationError, match="persistent agent_runs"):
-        agent_run_checkpoints(composition)

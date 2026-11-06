@@ -51,8 +51,6 @@ def test_api_boots_production_composition_end_to_end(
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     monkeypatch.setenv("HARBORRAG_CONTROL_DB_URL", f"sqlite+aiosqlite:///{tmp_path}/control.db")
     with TestClient(create_fastapi_app(ApiSettings())) as client:
-        assert client.get("/api/v1/health").status_code == 200
-        assert client.get("/metrics").status_code == 404
-        assert client.get("/api/v1/metrics").status_code == 200
+        assert client.get("/healthz").status_code == 200
         assert client.app.state.composition_mode == "production"
         assert client.app.state.app_service.health().ok is True

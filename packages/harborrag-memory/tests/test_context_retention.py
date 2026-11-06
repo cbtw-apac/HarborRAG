@@ -23,7 +23,6 @@ from harborrag_memory import (
     MemoryRetention,
 )
 from harborrag_memory.errors import MemoryConfigurationError
-from harborrag_memory.tools.memory_tools import AgentMemoryTools
 
 pytestmark = [pytest.mark.unit]
 
@@ -109,41 +108,10 @@ async def test_the_rolling_summary_expires_after_the_session_retention(
     assert summary.expires_at == NOW + timedelta(days=90)
 
 
-@pytest.mark.asyncio
-async def test_an_agent_recorded_memory_carries_the_scope_retention(owner: MemoryOwner) -> None:
-    memories = MemoryRepositoryFake()
-    tools = AgentMemoryTools(
-        owner=owner, memories=memories, policy=MemoryPolicy(retention=RETENTION)
-    )
-
-    result = await tools.manage({"content": "Dana owns ingest.", "scope": "user"})
-
-    stored = memories.rows[str(result["memory_id"])]
-    assert stored.expires_at is not None
-    assert stored.expires_at - stored.created_at == timedelta(days=365)
-
-
-@pytest.mark.asyncio
-async def test_an_agent_recorded_project_memory_never_expires_with_zero_days(
-    owner: MemoryOwner,
-) -> None:
-    memories = MemoryRepositoryFake()
-    tools = AgentMemoryTools(
-        owner=owner,
-        memories=memories,
-        policy=MemoryPolicy(retention=RETENTION, extraction_project_scope=True),
-    )
-
-    result = await tools.manage({"content": "Ingest runs nightly.", "scope": "project"})
-
-    assert memories.rows[str(result["memory_id"])].expires_at is None
-
-
 def test_retention_rejects_negative_days() -> None:
     with pytest.raises(MemoryConfigurationError):
         MemoryRetention(user_days=-1)
 
 
-def test_run_memories_follow_the_session_and_tenant_memories_never_expire() -> None:
-    assert RETENTION.days(MemoryScope.RUN) == 90
+def test_tenant_memories_never_expire() -> None:
     assert RETENTION.expires_at(MemoryScope.TENANT, NOW) is None

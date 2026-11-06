@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
@@ -193,16 +194,27 @@ async def test_first_start_imports_once_and_never_reads_the_file_again(tmp_path:
     settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
 
     first = await import_connectors_once(
-        path, projects=projects, connections=connections, settings=settings, environ=_ENVIRONMENT
+        path,
+        tenant_id="DEFAULT",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
     )
     path.write_text("not: [valid", encoding="utf-8")
     second = await import_connectors_once(
-        path, projects=projects, connections=connections, settings=settings, environ=_ENVIRONMENT
+        path,
+        tenant_id="DEFAULT",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
     )
 
     assert first is not None and len(first.writes) == 3
     assert second is None
     marker = (await settings.get()).data[IMPORT_MARKER_KEY]
+    assert marker["status"] == "done"
     assert (marker["created"], marker["skipped"], marker["errors"]) == (3, 1, 1)
     broken = await connections.get_by_source_key(tenant_id="DEFAULT", source_key="broken")
     assert broken is not None and broken.status == "error"
@@ -232,6 +244,7 @@ async def test_first_start_import_skips_installs_that_already_have_data(tmp_path
 
     skipped = await import_connectors_once(
         path,
+        tenant_id="DEFAULT",
         projects=projects,
         connections=FakeConnectionRepository(),
         settings=settings,
@@ -239,6 +252,7 @@ async def test_first_start_import_skips_installs_that_already_have_data(tmp_path
     )
     missing = await import_connectors_once(
         tmp_path / "absent.yaml",
+        tenant_id="DEFAULT",
         projects=FakeProjectRepository(),
         connections=FakeConnectionRepository(),
         settings=settings,
@@ -249,7 +263,7 @@ async def test_first_start_import_skips_installs_that_already_have_data(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_first_start_imports_next_to_rows_carried_over_from_api_v1_sources(
+async def test_first_start_import_skips_an_install_with_carried_over_rows(
     tmp_path: Path,
 ) -> None:
     path = tmp_path / "connectors.yaml"
@@ -267,25 +281,17 @@ async def test_first_start_imports_next_to_rows_carried_over_from_api_v1_sources
     settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
 
     plan = await import_connectors_once(
-        path, projects=projects, connections=connections, settings=settings, environ=_ENVIRONMENT
-    )
-    created = (
-        ConnectionBuilder.for_new(tenant_id="DEFAULT", project_id="cpm", connection_id="tickets")
-        .source_type("jira")
-        .actor("u_huy")
-        .build()
-    )
-    blocked = await import_connectors_once(
         path,
+        tenant_id="DEFAULT",
         projects=projects,
-        connections=FakeConnectionRepository({created.id: created}),
-        settings=FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT")),
+        connections=connections,
+        settings=settings,
         environ=_ENVIRONMENT,
     )
 
-    assert plan is not None and len(plan.writes) == 3
-    assert await connections.get_by_source_key(tenant_id="DEFAULT", source_key="jira-main")
-    assert blocked is None
+    assert plan is None
+    stored, _ = await connections.list(tenant_ids=None)
+    assert [connection.source_key for connection in stored] == [migrated.source_key]
 
 
 @pytest.mark.asyncio
@@ -329,7 +335,9 @@ async def test_an_interrupted_first_start_import_resumes(tmp_path: Path) -> None
     path = tmp_path / "connectors.yaml"
     path.write_text(_LEGACY, encoding="utf-8")
     projects, connections = FakeProjectRepository(), FakeConnectionRepository()
-    settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
+    settings = FakeSettingsRepository(
+        WorkspaceSettings(tenant_id="DEFAULT", data={IMPORT_MARKER_KEY: {"status": "running"}})
+    )
     service = ConnectionImportService(
         projects=projects, connections=connections, environ=_ENVIRONMENT
     )
@@ -342,15 +350,137 @@ async def test_an_interrupted_first_start_import_resumes(tmp_path: Path) -> None
     await connections.put(first_write.connection)
 
     resumed = await import_connectors_once(
-        path, projects=projects, connections=connections, settings=settings, environ=_ENVIRONMENT
+        path,
+        tenant_id="DEFAULT",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
     )
 
     assert resumed is not None
     actions = {change.source_key: change.action for change in resumed.changes}
     assert actions[first_write.source_key] == "unchanged"
-    assert IMPORT_MARKER_KEY in (await settings.get()).data
+    assert (await settings.get()).data[IMPORT_MARKER_KEY]["status"] == "done"
     stored, _ = await connections.list(tenant_ids=None)
     assert len(stored) == 3
+
+
+_LOCAL = """
+version: 1
+connectors:
+  docs:
+    provider: local
+    environment:
+      source_path: MISSING_SOURCE_PATH
+    settings:
+      allowed_extensions: [md, pdf]
+      excluded_extensions: []
+"""
+
+
+@pytest.mark.asyncio
+async def test_an_entry_kept_with_errors_stores_its_collections_as_json_lists(
+    stores: Any,
+) -> None:
+    plan = await _service(stores).plan(_LOCAL, tenant_id="DEFAULT")
+
+    (change,) = plan.writes
+    assert change.connection is not None and change.connection.status == "error"
+    config = change.connection.config
+    assert json.loads(json.dumps(config)) == config
+    assert sorted(config["allowed_extensions"]) == ["md", "pdf"]
+    assert config["excluded_extensions"] == []
+
+
+@pytest.mark.asyncio
+async def test_first_start_import_skips_an_install_that_has_a_project(tmp_path: Path) -> None:
+    path = tmp_path / "connectors.yaml"
+    path.write_text(_LEGACY, encoding="utf-8")
+    made = Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")
+    projects, connections = FakeProjectRepository({"cpm": made}), FakeConnectionRepository()
+    settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
+
+    plan = await import_connectors_once(
+        path,
+        tenant_id="DEFAULT",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
+    )
+
+    assert plan is None
+    assert [project.id for project in await projects.list(tenant_ids=None)] == ["cpm"]
+    assert await connections.list(tenant_ids=None) == ([], None)
+    assert IMPORT_MARKER_KEY not in (await settings.get()).data
+
+
+@pytest.mark.asyncio
+async def test_first_start_imports_into_the_configured_tenant(tmp_path: Path) -> None:
+    path = tmp_path / "connectors.yaml"
+    path.write_text(_LEGACY, encoding="utf-8")
+    projects, connections = FakeProjectRepository(), FakeConnectionRepository()
+    settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
+
+    plan = await import_connectors_once(
+        path,
+        tenant_id="acme",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
+    )
+
+    assert plan is not None
+    stored, _ = await connections.list(tenant_ids=None)
+    assert {connection.tenant_id for connection in stored} == {"acme"}
+    assert {project.tenant_id for project in await projects.list(tenant_ids=None)} == {"acme"}
+
+
+class _SecondWriteFails(FakeConnectionRepository):
+    """A connection store that accepts one write, then fails."""
+
+    async def put(self, connection: Any, **kwargs: Any) -> Any:
+        if len(self.connections) >= 1:
+            raise RuntimeError("database down")
+        return await super().put(connection, **kwargs)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_first_start_import_is_recorded_and_never_retried(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "connectors.yaml"
+    path.write_text(_LEGACY, encoding="utf-8")
+    projects, connections = FakeProjectRepository(), _SecondWriteFails()
+    settings = FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT"))
+
+    with pytest.raises(RuntimeError, match="database down"):
+        await import_connectors_once(
+            path,
+            tenant_id="DEFAULT",
+            projects=projects,
+            connections=connections,
+            settings=settings,
+            environ=_ENVIRONMENT,
+        )
+
+    again = await import_connectors_once(
+        path,
+        tenant_id="DEFAULT",
+        projects=projects,
+        connections=connections,
+        settings=settings,
+        environ=_ENVIRONMENT,
+    )
+
+    assert again is None
+    stored, _ = await connections.list(tenant_ids=None)
+    holding = {connection.project_id for connection in stored}
+    assert {project.id for project in await projects.list(tenant_ids=None)} == holding
+    marker = (await settings.get()).data[IMPORT_MARKER_KEY]
+    assert (marker["status"], marker["error"]) == ("failed", "RuntimeError")
 
 
 class _RacedConnections(FakeConnectionRepository):

@@ -9,8 +9,9 @@ next run on every worker, with no restart.
 A connection has four parts: `credentials` (how to sign in), `config` (what
 to sync), `advanced` (request rate, paging, timeouts and retries) and a `name`.
 
-`config/connectors.yaml` is read once, at the first start of an install that
-has no connections, and imported. After that, change connections through the
+`config/connectors.yaml` is read once, at the first start of a fresh install
+with no projects and no connections, and imported into the tenant
+`HARBORRAG_INGESTION_TENANT_ID` names. After that, change connections through the
 API. See [Upgrading](upgrading.md).
 
 ## Add a connection in three calls
@@ -93,7 +94,7 @@ and `error_category` says why (`auth_invalid`, `forbidden`, `unreachable`,
 `rate_limited`). Up to five sample items show what a sync would read. A test
 gives up after 15 seconds. Without a body, the call tests the saved connection.
 
-**3. Save it.** `PUT` the same body; `sync_now` starts the first ingestion:
+**3. Save it.** `PUT` the same body:
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -101,8 +102,15 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json
   -d '{"source_type": "jira", "name": "CPM tickets",
        "credentials": {"base_url": "https://acme.atlassian.net",
                        "email": "bot@acme.com", "api_token": "ATATT3x..."},
-       "config": {"jql": "project = CPM"},
-       "sync_now": true}'
+       "config": {"jql": "project = CPM"}}'
+```
+
+**4. Start the first ingestion.** Saving a connection never starts one:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  https://harborrag.example.com/v1/admin/ingestions \
+  -d '{"project_id": "cpm", "connection_id": "cpm-tickets"}'
 ```
 
 `201` means it was created, `200` that it was overwritten. There is no
@@ -114,7 +122,7 @@ names a project by its display name answers
 
 ## Swagger UI templates
 
-The API's interactive documentation, at `/api/v1/docs`, offers a complete
+The API's interactive documentation, at `/docs`, offers a complete
 request body for each setup in the table above. Open **Create or replace a
 connection** (or **Test a connection**), select **Try it out**, and pick a
 template from the list Swagger UI labels **Examples**:
@@ -136,8 +144,7 @@ Each template sets `credentials.method` and lists every `config` and
 connector's own defaults, such as `max_comments: 1000` for Jira or the six
 default file types for SharePoint. Replace the placeholder values, such as
 `bot@acme.com` and `ATATT3x…`, then run it. `project_id` is filled with
-`default`; type a new `connection_id` to create a connection. Every template
-sets `sync_now` to `false`; set it to `true` to start the first sync.
+`default`; type a new `connection_id` to create a connection.
 
 To edit a saved connection, read it with **Get a connection** and copy its
 `credentials`, `config` and `advanced` into the `PUT` body with `source_type`
@@ -145,14 +152,14 @@ and `name`. The other fields of the response, such as `status` and
 `created_at`, are rejected in a request. A secret reads back as its status;
 leave it out, or paste the status back, to keep the stored value.
 
-## Change, sync and delete
+## Change, ingest and delete
 
 | Call | What it does |
 | --- | --- |
 | `GET /v1/admin/connections` | Every connection in the tenant, needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
 | `GET …/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
-| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. With `sync_now`, a sync that cannot start, for example because one is running, leaves `ingestion` null and explains why in `sync_error`; the connection is saved either way. |
-| `POST …/connections/{connection_id}/sync` | Starts an `incremental` or `force` sync and answers `202` with the ingestion. A second start while one runs answers `409 already_running` with the running ingestion's id. |
+| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
+| `POST /v1/admin/ingestions` | Starts an `incremental` or `force` ingestion of the connection named by `project_id` and `connection_id` in the body, and answers `202` with the ingestion and its `Location`. A second start while one runs answers `409 already_running` with the running ingestion's id; an unknown project or connection is `422 reference_not_found`. |
 | `DELETE …/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Readers: the project's connections for filter chips. |
 
@@ -339,16 +346,17 @@ Errors use `{"error": {"code", "message", "details", "trace_id"}}`. A
 `[{"field": "credentials.base_url", "issue": "..."}]`; fields are named
 `credentials.<name>`, `config.<name>` or `advanced.<name>`.
 
-## Deprecated routes
+## Removed routes
 
-These keep working in 2.0.x and send `Deprecation`, `Sunset` and
-`Link: rel="successor-version"` headers:
+These are gone in 2.0.0 and answer `404`, with no deprecated alias:
 
-| Route | Successor |
+| Route | Replacement |
 | --- | --- |
 | `GET /v1/connections` | `GET /v1/admin/connections` |
 | `/api/v1/sources*` | `/v1/admin/projects/{project_id}/connections/{connection_id}` |
-| `POST /v1/ingestions` | `POST …/connections/{connection_id}/sync` |
+| `POST /v1/ingestions` | `POST /v1/admin/ingestions` |
+| `/v1/ingestions/{task_id}*` | `/v1/admin/ingestions/{ingestion_id}*` (`/stream` is `/events`) |
 
-`POST /v1/ingestions` takes the connection's `source_key` as `connection_id`.
-For a connection imported from `connectors.yaml`, that is the YAML key.
+`POST /v1/admin/ingestions` starts a run of the connection its `project_id` and
+`connection_id` name. A connection imported from `connectors.yaml` sits in project
+`default`, with its YAML key as `connection_id`.

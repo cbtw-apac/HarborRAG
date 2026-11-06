@@ -3,14 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from dataclasses import dataclass
 
 from harborrag_app.api.auth.principal import Principal
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import (
+    HarborAlreadyRunningError,
+    HarborConflictError,
+    HarborValidationError,
+)
 
 from .completion_dependency import CompletionService
-from .schemas import ChatCompletionResponse, CompletionRequest
+from .schemas import ChatCitation, ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
@@ -26,7 +31,7 @@ class CompletionAttempt:
 
     @classmethod
     def for_request(
-        cls, service: CompletionService, request: CompletionRequest, principal: Principal
+        cls, service: CompletionService, request: ChatCompletionRequest, principal: Principal
     ) -> CompletionAttempt:
         # Delivery format does not alter the paid operation. A retry may ask
         # for JSON after its stream disconnected and receive the saved result.
@@ -38,7 +43,7 @@ class CompletionAttempt:
         serialized = request.model_dump_json(exclude={"stream", "idempotency_key", "session_id"})
         return cls(
             service,
-            request.tenant,
+            request.tenant_id,
             principal.user_id or principal.subject,
             request.idempotency_key,
             hashlib.sha256(serialized.encode()).hexdigest(),
@@ -54,13 +59,18 @@ class CompletionAttempt:
             request_hash=self.request_hash,
         )
         if claim.status == "completed" and claim.result_json is not None:
-            return ChatCompletionResponse.model_validate_json(claim.result_json)
+            return _stored_response(claim.result_json)
+        if claim.status == "conflict":
+            raise HarborValidationError(
+                "Idempotency key was already used with a different request",
+                {"field": "Idempotency-Key"},
+            )
+        if claim.status == "in_progress":
+            raise HarborAlreadyRunningError(
+                "This completion is already running or its outcome is uncertain"
+            )
         if claim.status != "claimed":
-            messages = {
-                "conflict": "Idempotency key was already used with a different request",
-                "in_progress": "This completion is already running or its outcome is uncertain",
-                "failed": "This completion failed; use a new idempotency key to retry",
-            }
+            messages = {"failed": "This completion failed; use a new idempotency key to retry"}
             raise HarborConflictError(messages.get(claim.status, "Completion cannot be replayed"))
         self.claimed = True
         return None
@@ -106,3 +116,22 @@ class CompletionAttempt:
             logger.exception("Completion replay state could not be saved")
         finally:
             self.claimed = False
+
+
+def _stored_response(text: str) -> ChatCompletionResponse:
+    """Load a stored completion, ignoring fields this release no longer returns.
+
+    A replay saved before an upgrade can carry fields removed since, which the
+    response model would otherwise refuse, and its ``id`` under the old name.
+    """
+    stored = json.loads(text)
+    if "id" in stored:
+        stored.setdefault("completion_id", stored.pop("id"))
+    data = {
+        key: value for key, value in stored.items() if key in ChatCompletionResponse.model_fields
+    }
+    data["citations"] = [
+        {key: value for key, value in citation.items() if key in ChatCitation.model_fields}
+        for citation in data.get("citations", [])
+    ]
+    return ChatCompletionResponse.model_validate(data)

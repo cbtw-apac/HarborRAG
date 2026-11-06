@@ -240,25 +240,22 @@ replaces the authenticated principal.
 
 ### HTTP API
 
-Public API request bodies use the top-level field name `tenant`:
+The API takes the tenant from the credential. A token that holds several
+tenants names one with `X-Tenant-Id`:
 
 ```bash
 curl --fail-with-body \
-  --request POST \
-  --header 'Content-Type: application/json' \
   --header "Authorization: Bearer $HARBORRAG_API_TOKEN" \
-  --data '{
-    "query": "deployment requirements",
-    "tenant": "tenant-1",
-    "top_k": 5,
-    "lane": "hybrid"
-  }' \
-  http://127.0.0.1:8000/v1/retrieval/vector
+  --header 'X-Tenant-Id: tenant-1' \
+  http://127.0.0.1:8000/v1/admin/connections
 ```
 
+Chat requests also carry `tenant` in the body, which must be one the token
+holds.
+
 With HMAC authentication enabled, the bearer token contains the principal's
-role and a `tenants` claim. The API rejects a request whose `tenant` is not in
-that grant, even if the principal has a high role. A `*` grant is unrestricted
+role and a `tenants` claim. The API rejects a tenant that is not in that grant
+with `403 tenant_forbidden`, even if the principal has a high role. A `*` grant is unrestricted
 and should be reserved for trusted administrative callers.
 
 `HARBORRAG_AUTH_MODE=none` is a development-only mode that treats every request
@@ -276,7 +273,7 @@ settings are:
 | `HARBORRAG_ENV` | `dev`; set `prod` for production | Enables production fail-closed checks. |
 | `HARBORRAG_AUTH_MODE` | `none`; use `hmac` for an exposed service | Selects the token verifier. `oidc` is reserved but not implemented. |
 | `HARBORRAG_AUTH_SECRET` | Required for HMAC; at least 32 UTF-8 bytes | Verifies HS256 signatures. Load it from protected deployment configuration. |
-| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat, agent, and user-scoped memory. Required in every token. |
+| `HARBORRAG_AUTH_USER_ID_CLAIM` | `sub` | Signed claim that owns chat and user-scoped memory. Required in every token. |
 | `HARBORRAG_AUTH_ISSUER` | `harborrag` | Required `iss` claim. |
 | `HARBORRAG_AUTH_AUDIENCE` | `harborrag-api` | Required `aud` claim. |
 | `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | `3600` | Maximum accepted difference between `iat` and `exp`. |
@@ -319,7 +316,7 @@ The API role ladder is `reader < editor < admin < owner`:
 
 | Role | Tenant-relevant access |
 | --- | --- |
-| `reader` | Retrieval, chat, agent, and read-only task/control-plane routes within granted tenants. |
+| `reader` | Chat and read-only task/control-plane routes within granted tenants. |
 | `editor` | Reader access plus ingestion submission and other editor mutations. |
 | `admin` | Editor access plus administrative routes that require the admin level. |
 | `owner` | Highest API role. MCP transports currently require this role independently. |
@@ -636,7 +633,7 @@ There is no one-call cascade across all persistence families. A retirement plan
 must account for:
 
 - control-plane projects, sources, providers, members, activity, jobs, settings,
-  ingestion tasks, and conversation/agent memory;
+  ingestion tasks, and conversation memory;
 - canonical SQL documents, versions, chunks, events, and outbox data;
 - each tenant-specific Qdrant collection;
 - the tenant's nodes and relationships in the shared FalkorDB graph;

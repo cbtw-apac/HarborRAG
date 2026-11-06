@@ -10,6 +10,7 @@ Everything lives in the project folder and you rarely need more than two files:
 | which sources are ingested | `config/connectors.yaml` (+ the `${VARIABLES}` it names, in `.env`) | `harborrag doctor`, then `harborrag ingest run NAME` |
 | the chat or embedding model | `config/models.yaml` | `harborrag doctor`; re-ingest with `--force-reprocess` if the *embedding* model changed |
 | how PDFs, Office files and images are parsed | `config/parsers.yaml` | re-ingest the affected files |
+| chunk sizes, per-source profiles, how oversized code and prose are split | `config/chunking.yaml` | `harborrag doctor`; documents re-chunk on their next ingestion |
 
 Rules that keep this simple:
 
@@ -31,6 +32,7 @@ HarborRAG has four independent configuration paths:
 
 1. [Connector Configuration](connector-config.md) - versioned YAML loaded by `harborrag-runtime`.
 2. [Parser Configuration](parser-config.md) - versioned YAML loaded by `harborrag-runtime`.
+   [Chunking Configuration](chunking-config.md) - optional versioned YAML for chunk sizes, source profiles and the oversized-unit refiner.
 3. [Model Configuration](model-config.md) - YAML or JSON loaded by the chat, embedding, and reranking clients in `harborrag-adapters`.
 4. [Temporal Configuration](../../../deploy/temporal/README.md) - versioned YAML for connection policy, workers, queues, retries, and workflow timeouts.
 

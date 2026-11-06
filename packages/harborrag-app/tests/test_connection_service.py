@@ -51,7 +51,7 @@ async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
 
     view = result.connection
     assert (result.created, result.version) == (True, 1)
-    assert view["ref"] == "cpm/cpm-tickets" and view["name"] == "CPM tickets"
+    assert view["connection_ref"] == "cpm/cpm-tickets" and view["name"] == "CPM tickets"
     assert view["credentials"]["api_token"] == {
         "set": True,
         "last4": "9f2c",
@@ -166,9 +166,14 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
 
     ingestion = await world.service.sync(CONNECTION_KEY, actor="u_huy", mode="force")
 
-    assert ingestion["id"] == "ing_1" and ingestion["connection"] == "cpm/cpm-tickets"
+    assert ingestion["ingestion_id"] == "ing_1"
+    assert (ingestion["tenant_id"], ingestion["project_id"], ingestion["connection_id"]) == (
+        "acme",
+        "cpm",
+        "cpm-tickets",
+    )
     assert ingestion["status"] == "queued"
-    assert ingestion["triggered_by"] == {"type": "user", "id": "u_huy"}
+    assert ingestion["triggered_by"] == {"principal_type": "user", "principal_id": "u_huy"}
     command = world.submitter.commands[0]
     assert (command.connection_id, command.force_reprocess) == ("cpm/cpm-tickets", True)
 
@@ -185,7 +190,7 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
 async def test_put_with_sync_now_returns_the_ingestion(world: ConnectionWorld) -> None:
     result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)
 
-    assert result.ingestion is not None and result.ingestion["id"] == "ing_1"
+    assert result.ingestion is not None and result.ingestion["ingestion_id"] == "ing_1"
 
 
 @pytest.mark.asyncio
@@ -264,10 +269,10 @@ async def test_list_and_searchable_hide_nothing_but_secrets(world: ConnectionWor
     items, cursor = await world.service.list_page(tenant_id="acme")
     chips = await world.service.searchable(tenant_id="acme", project_id="cpm")
 
-    assert [item["ref"] for item in items] == ["cpm/cpm-tickets"] and cursor is None
+    assert [item["connection_ref"] for item in items] == ["cpm/cpm-tickets"] and cursor is None
     assert chips == [
         {
-            "ref": "cpm/cpm-tickets",
+            "connection_ref": "cpm/cpm-tickets",
             "connection_id": "cpm-tickets",
             "source_type": "jira",
             "name": "CPM tickets",
@@ -627,7 +632,9 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
     builder = connection_sources.ConnectionSourceInputBuilder(
         lambda: no_revisions, prepare=lambda *args, **kwargs: None
     )
-    settings = type("Settings", (), {"connector_config_path": "connectors.yaml"})()
+    settings = type(
+        "Settings", (), {"connector_config_path": "connectors.yaml", "ingestion_tenant_id": "acme"}
+    )()
     submission = SourceSubmission(
         task_id="t",
         tenant_id="acme",

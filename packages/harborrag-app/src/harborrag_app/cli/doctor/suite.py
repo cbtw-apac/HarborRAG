@@ -149,6 +149,7 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
         checks.append(Check("parsers catalog", "config", "ok", str(settings.parser_config_path)))
     except Exception as exc:  # noqa: BLE001
         checks.append(Check("parsers catalog", "config", "fail", str(exc), hint=_INIT_HINT))
+    checks.append(_chunking_check(settings))
     checks.append(models_check(settings.model_config_path))
     if catalog is not None:
         checks.extend(source_path_checks(catalog))
@@ -156,6 +157,29 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
         if credentials is not None:
             checks.append(credentials)
     return checks
+
+
+def _chunking_check(settings: RuntimeSettings) -> Check:
+    """Validate chunking.yaml and report when code would split without its grammars."""
+
+    from harborrag_runtime.config.chunking import chunking_settings_from
+    from harborrag_runtime.ingestion.chunking_profile import code_grammar_problems
+
+    try:
+        chunking = chunking_settings_from(settings)
+    except Exception as exc:  # noqa: BLE001 - reported as a check, never raised
+        return Check("chunking policy", "config", "fail", str(exc), hint=_INIT_HINT)
+    detail = str(chunking.source_path) if chunking.source_path else "built-in defaults"
+    problems = code_grammar_problems(chunking.refiner)
+    if not problems:
+        return Check("chunking policy", "config", "ok", detail)
+    return Check(
+        "chunking policy",
+        "config",
+        "fail" if chunking.refiner.require_code_grammars else "warn",
+        f"{detail}; code splits at separators ({len(problems)} grammar packages missing)",
+        hint='Install syntax-aware code splitting: pip install "harborrag-adapters[chunking-code]"',
+    )
 
 
 def _control_db_check(settings: RuntimeSettings) -> Check | None:

@@ -34,7 +34,8 @@ api = [
 ]
 durable = ["harborrag-runtime[temporal]==2.0.0a2"]
 production = [
-    "harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2",
+    # chunking-code: `harborrag ingest run` chunks inline and requires the code grammars.
+    "harborrag-adapters[chunking-code,control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2",
     "harborrag-runtime[temporal]==2.0.0a2",
 ]
 

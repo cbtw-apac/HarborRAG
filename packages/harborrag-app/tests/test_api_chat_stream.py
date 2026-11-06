@@ -48,7 +48,7 @@ def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
 
 
 def _session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant": tenant})
+    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
     assert response.status_code == 201
     return response.json()["session_id"]
 
@@ -61,7 +61,7 @@ def test_chat_stream_emits_citations_then_deltas_then_completion(
     response = client.post(
         "/v1/chat/completions",
         json={
-            "tenant": "ACME",
+            "tenant_id": "ACME",
             "prompt": "What is HarborRAG?",
             "graph_search": True,
             "stream": True,
@@ -114,7 +114,7 @@ def test_chat_stream_ends_with_error_event_on_failure(
     assert frames[1:] == [
         (
             "response.error",
-            {"code": "harbor_connection_error", "message": "Chat service is unavailable"},
+            {"code": "dependency_unavailable", "message": "Chat service is unavailable"},
         )
     ]
     assert "private endpoint" not in response.text
@@ -188,7 +188,7 @@ def test_chat_stream_past_its_deadline_ends_with_a_terminal_error_frame(
         "response.error",
     ]
     assert frames[-1][1] == {
-        "code": "harbor_deadline_exceeded",
+        "code": "deadline_exceeded",
         "message": "Chat stream exceeded its server deadline",
     }
     assert response.text.endswith("\n\n")
@@ -223,13 +223,3 @@ def test_chat_stream_projects_memory_warning_as_non_terminal_frame(
     ]
     assert frames[1][1]["code"] == "conversation_memory_unavailable"
     assert frames[-1][1]["memory_persisted"] is False
-
-
-def test_chat_stream_accepts_an_agent_session(client: TestClient) -> None:
-    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
-    response = client.post(
-        "/v1/chat/completions",
-        json={"prompt": "Hello", "session_id": created.json()["session_id"], "stream": True},
-    )
-
-    assert response.status_code == 200

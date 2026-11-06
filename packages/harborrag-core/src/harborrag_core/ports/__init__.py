@@ -57,7 +57,6 @@ from .usage import (
     ModelUsageRecord,
     ModelUsageRepository,
     ModelUsageTotals,
-    UsageSurface,
     new_usage_id,
 )
 
@@ -108,7 +107,6 @@ __all__ = [
     "TenantModelDefinition",
     "TenantModelDeployment",
     "TenantScopedRepositoryProvider",
-    "UsageSurface",
     "VectorIndexRepositoryPort",
     "new_message_id",
     "new_session_id",

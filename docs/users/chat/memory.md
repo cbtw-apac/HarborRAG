@@ -1,6 +1,6 @@
 # Conversation memory
 
-Public chat and agent requests use the latest **three completed
+Public chat requests use the latest **three completed
 user/assistant exchanges** from their conversation. Older messages remain
 stored for browsing; dropping them from a prompt does not erase history.
 
@@ -19,9 +19,6 @@ application-service calls that omit one use `DEFAULT_USER`. Tenant authorization
 continues to apply. Existing sessions under the old shared identity require a
 trusted owner mapping before migration; the API does not expose them to all users.
 
-A session can alternate between the chat and agent completion endpoints.
-Its stored `kind` describes how it was created, not an execution restriction.
-
 ## Which history is used
 
 Before generation, the server reads the newest three complete exchanges,
@@ -29,14 +26,12 @@ oldest first, then appends the current question once. It excludes:
 
 - Unanswered user messages and orphan assistant messages.
 - Partial or empty answers.
-- Assistant tool-call stubs and tool results.
 
 Only prior complete exchanges enter this window. In RAG mode, retrieval
 searches the raw question. Public completion requests do not run rolling
-summaries, query rewriting, long-term recall, automatic extraction, or memory
-tools. The configurable lower-level SDK memory facilities remain available
-for explicit use; their settings do not change this public three-exchange
-policy.
+summaries, query rewriting, long-term recall, or automatic extraction. The
+configurable lower-level SDK memory facilities remain available for explicit
+use; their settings do not change this public three-exchange policy.
 
 The model's context budget may retain fewer complete pairs. A history read
 failure falls back to an empty window and logs identifiers without message
@@ -49,9 +44,8 @@ and its actual citations. Interrupted output is marked `partial: true`.
 It remains visible in message history but is excluded from subsequent
 completion context.
 
-Agent runs store their question and final answer with a `run_id`.
-Intermediate tool activity belongs to the run checkpoint. A failed or
-cancelled run can remain resumable independently of conversation history.
+Messages from 1.x agent runs read back as plain user and assistant
+messages; their tool-call steps were removed on upgrade.
 
 `memory_persisted` reports whether the exchange was saved. A persistence
 failure leaves a successful answer available and sets this field to
@@ -66,52 +60,40 @@ Configure durable storage with `HARBORRAG_CONTROL_DB_URL`; deployed instances
 should share a PostgreSQL control database. The development in-memory
 fallback is bounded and does not survive restart or coordinate replicas.
 
-## Browse, rename, and erase
+## Browse sessions
 
 All endpoints below require tenant access and the `reader` role when
 authentication is enabled.
 
 ```bash
-curl "http://localhost:8000/v1/chat/sessions?tenant=DEFAULT&limit=20" \
+curl "http://localhost:8000/v1/chat/sessions?tenant_id=DEFAULT&limit=20" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant=DEFAULT&limit=50" \
+curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant_id=DEFAULT&limit=50" \
   -H "Authorization: Bearer $TOKEN"
-
-curl -X PATCH "http://localhost:8000/v1/chat/sessions/session-...?tenant=DEFAULT" \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  --data '{"title":"Release policy"}'
 ```
 
 Session lists return a `sessions` array, newest-activity first, default to 20 rows,
-and accept `limit=1..100` and opaque `cursor`. Use `/v1/agent/sessions` for
-sessions created by the agent surface; its history, rename, and delete paths
-have the same shape. The path determines the listing kind, not a query parameter.
+and accept `limit=1..100` and opaque `cursor`.
 Message lists are oldest first, default to 50 rows, and accept
 `limit=1..200`; pass the returned `next_cursor` as `after`.
 Messages include citations, timestamps, run IDs, and partial status.
 
-Delete with `DELETE /v1/chat/sessions/{session_id}?tenant=DEFAULT`.
-The operation removes the session and its history, associated stored
-checkpoints through the repository, and session-scoped memory/index entries.
-The response reports deletion counts; it is not a claim that unrelated
-user/project memories were removed.
-
-Existing long-term memory can still be inspected or erased through
-`/v1/memory/memories`; user-wide erasure requires `admin`. These maintenance
-operations are separate from completion context.
+Renaming and deleting a session over HTTP, and the `/v1/memory/*` routes, are
+removed in 2.0.0 and return `404`; they come back with the v2.1 session and
+memory endpoints.
 
 ## SDK memory settings
 
-These variables configure the SDK memory facade (`HarborRAG.memory.*`) and
-the opt-in agent memory tools. They do not change the public
+These variables configure the SDK memory facade (`HarborRAG.memory.*`). They
+do not change the public
 three-exchange policy above.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
 | `HARBORRAG_MEMORY_ENABLED` | `true` | Off restores a short verbatim window with no summary, recall, rewriting, or extraction. |
 | `HARBORRAG_MEMORY_EXTRACTION_ENABLED` | `true` | Distils durable facts from an exchange passed to the SDK `extract` call. |
-| `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | `false` | Allows extraction and the agent memory tools to store facts at project scope, where every user of the project recalls them. Off, a project write is kept to its session. One user's extraction never supersedes a project memory another user wrote. |
+| `HARBORRAG_MEMORY_EXTRACTION_PROJECT_SCOPE` | `false` | Allows extraction to store facts at project scope, where every user of the project recalls them. Off, a project write is kept to its session. One user's extraction never supersedes a project memory another user wrote. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_SESSION` | `90` | Expiry for session memories and rolling summaries. A summary's expiry restarts at each refresh. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_USER` | `365` | Expiry for user memories. |
 | `HARBORRAG_MEMORY_RETENTION_DAYS_PROJECT` | `0` | Expiry for project memories. |

@@ -32,9 +32,6 @@ class ModelUsageRow(Base):
     user_id: Mapped[str] = mapped_column(sa.String(512), nullable=False, index=True)
     principal_id: Mapped[str] = mapped_column(sa.String(512), nullable=False)
     session_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
-    run_id: Mapped[str | None] = mapped_column(sa.String(128), nullable=True)
-    # "chat" | "agent": the completion surface that issued the model call.
-    surface: Mapped[str] = mapped_column(sa.String(16), nullable=False)
     logical_model: Mapped[str] = mapped_column(sa.String(256), nullable=False)
     provider: Mapped[str] = mapped_column(sa.String(64), nullable=False)
     provider_model: Mapped[str] = mapped_column(sa.String(256), nullable=False)

@@ -25,7 +25,7 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
 
 
 def _session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant": tenant})
+    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
     assert response.status_code == 201
     payload = response.json()
     assert payload["greeting"]
@@ -42,7 +42,7 @@ def test_chat_session_then_completion_uses_only_session_identity(
     response = client.post(
         "/v1/chat/completions",
         json={
-            "tenant": "ACME",
+            "tenant_id": "ACME",
             "session_id": session_id,
             "prompt": "Explain HarborRAG",
             "graph_search": "true",
@@ -76,11 +76,11 @@ def test_chat_completion_rejects_unknown_or_cross_tenant_session(client: TestCli
 
     missing = client.post(
         "/v1/chat/completions",
-        json={"tenant": "ACME", "session_id": "session-missing", "prompt": "Hello"},
+        json={"tenant_id": "ACME", "session_id": "session-missing", "prompt": "Hello"},
     )
     wrong_tenant = client.post(
         "/v1/chat/completions",
-        json={"tenant": "OTHER", "session_id": session_id, "prompt": "Hello"},
+        json={"tenant_id": "OTHER", "session_id": session_id, "prompt": "Hello"},
     )
 
     assert missing.status_code == 404
@@ -114,20 +114,6 @@ def test_chat_completion_rejects_provider_specific_query_parameters(client: Test
     assert response.status_code == 422
 
 
-def test_chat_completion_accepts_an_agent_session(client: TestClient) -> None:
-    """Execution modes share the same conversation identity."""
-
-    created = client.post("/v1/agent/sessions", json={"tenant": "DEFAULT"})
-    assert created.status_code == 201
-
-    response = client.post(
-        "/v1/chat/completions",
-        json={"session_id": created.json()["session_id"], "prompt": "Hello"},
-    )
-
-    assert response.status_code == 200
-
-
 def test_chat_completion_exposes_memory_persisted_flag(
     client: TestClient,
     service: MockAppService,
@@ -153,7 +139,7 @@ def test_chat_completion_forwards_project_and_user_identity(
     response = client.post(
         "/v1/chat/completions",
         json={
-            "tenant": "ACME",
+            "tenant_id": "ACME",
             "session_id": session_id,
             "prompt": "Explain HarborRAG",
             "project_id": "proj-1",

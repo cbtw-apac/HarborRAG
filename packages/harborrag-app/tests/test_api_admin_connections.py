@@ -9,7 +9,7 @@ from typing import Any
 
 import jwt
 import pytest
-from app_test_connections import ConnectionWorld, connection_world, running_task
+from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
@@ -101,16 +101,20 @@ def test_source_types_publish_every_v2_type(client: TestClient) -> None:
 
 
 def test_three_calls_add_a_jira_connection(client: TestClient, app_service: _ConnectionApp) -> None:
-    created = client.put(_PATH, json={**_BODY, "sync_now": True})
+    created = client.put(_PATH, json=_BODY)
+    started = client.post(
+        "/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"}
+    )
 
     body = created.json()
     assert created.status_code == 201
     assert created.headers["ETag"] == 'W/"rev-1"'
-    assert body["ref"] == "cpm/cpm-tickets"
+    assert body["connection_ref"] == "cpm/cpm-tickets"
     assert body["credentials"]["api_token"]["from"] == "stored"
     assert body["credentials"]["api_token"]["last4"] == "9f2c"
     assert body["created_by"] == body["updated_by"] == "u_huy"
-    assert body["ingestion"]["id"] == "ing_1"
+    assert "ingestion" not in body
+    assert started.status_code == 202 and started.json()["ingestion_id"] == "ing_1"
     assert "sentinel" not in created.text
 
     read = client.get(_PATH)
@@ -132,7 +136,8 @@ def test_the_raw_token_reaches_no_log_line(
 ) -> None:
     caplog.set_level(logging.DEBUG)
 
-    client.put(_PATH, json={**_BODY, "sync_now": True})
+    client.put(_PATH, json=_BODY)
+    client.post("/v1/admin/ingestions", json={"project_id": "cpm", "connection_id": "cpm-tickets"})
     client.put(_PATH, json={**_BODY, "name": "Renamed"})
     client.get(_PATH)
     client.get("/v1/admin/connections")
@@ -189,15 +194,16 @@ def test_list_test_sync_and_delete(
         f"{_PATH}/test",
         json={"source_type": "local_file", "config": {"source_path": str(tmp_path / "nope")}},
     )
-    synced = client.post(f"{_PATH}/sync", json={"mode": "force"})
+    target = {"project_id": "cpm", "connection_id": "cpm-tickets"}
+    synced = client.post("/v1/admin/ingestions", json={**target, "mode": "force"})
     app_service.world.runs.active = app_service.world.runs.tasks["ing_1"]
-    again = client.post(f"{_PATH}/sync", json={})
+    again = client.post("/v1/admin/ingestions", json=target)
     busy_delete = client.delete(_PATH)
     app_service.world.runs.active = None
     deleted = client.delete(_PATH, params={"purge": "true"})
 
     assert listed.status_code == 200 and listed.json()["next_cursor"] is None
-    assert [item["ref"] for item in listed.json()["items"]] == ["cpm/cpm-tickets"]
+    assert [item["connection_ref"] for item in listed.json()["items"]] == ["cpm/cpm-tickets"]
     assert tested.status_code == 200 and tested.json()["ok"] is False
     assert tested.json()["error_category"] == "unreachable"
     assert synced.status_code == 202
@@ -215,9 +221,9 @@ def test_list_test_sync_and_delete(
 def test_projects_and_reader_chips(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, app_service: _ConnectionApp
 ) -> None:
-    created = client.put("/v1/admin/projects/hr", json={"name": "HR"})
+    created = client.put("/v1/admin/projects/hr", json={"project_name": "HR"})
     updated = client.put(
-        "/v1/admin/projects/hr", json={"name": "HR team"}, headers={"If-Match": 'W/"rev-1"'}
+        "/v1/admin/projects/hr", json={"project_name": "HR team"}, headers={"If-Match": 'W/"rev-1"'}
     )
     listed = client.get("/v1/admin/projects")
     client.put(_PATH, json=_BODY)
@@ -228,10 +234,10 @@ def test_projects_and_reader_chips(
     forbidden = client.get("/v1/admin/projects", headers=reader)
 
     assert created.status_code == 201 and created.headers["ETag"] == 'W/"rev-1"'
-    assert updated.status_code == 200 and updated.json()["name"] == "HR team"
-    assert [item["id"] for item in listed.json()["items"]] == ["cpm", "hr"]
+    assert updated.status_code == 200 and updated.json()["project_name"] == "HR team"
+    assert [item["project_id"] for item in listed.json()["items"]] == ["cpm", "hr"]
     assert (in_use.status_code, in_use.json()["error"]["code"]) == (409, "in_use")
-    assert in_use.json()["error"]["details"] == {"connections": ["cpm/cpm-tickets"]}
+    assert in_use.json()["error"]["details"] == {"connection_refs": ["cpm/cpm-tickets"]}
     assert empty.status_code == 204
     assert chips.status_code == 200 and chips.json()["items"][0]["documents"] == 7
     assert (forbidden.status_code, forbidden.json()["error"]["code"]) == (403, "forbidden")
@@ -251,31 +257,8 @@ def test_the_tenant_comes_from_the_credential_or_x_tenant_id(
     assert (foreign.status_code, foreign.json()["error"]["code"]) == (403, "tenant_forbidden")
 
 
-@pytest.mark.parametrize(
-    ("method", "path", "successor"),
-    [
-        ("get", "/v1/connections", "/v1/admin/connections"),
-        ("get", "/api/v1/sources", "/v1/admin/connections"),
-        (
-            "post",
-            "/v1/ingestions",
-            "/v1/admin/projects/{project_id}/connections/{connection_id}/sync",
-        ),
-    ],
-)
-def test_old_routes_announce_their_successor(
-    client: TestClient, method: str, path: str, successor: str
-) -> None:
-    kwargs: dict[str, Any] = {"json": {"connection_id": "jira-main"}} if method == "post" else {}
-    response = getattr(client, method)(path, **kwargs)
-
-    assert response.headers["Deprecation"] == "true"
-    assert response.headers["Sunset"] == "Sun, 07 Feb 2027 00:00:00 GMT"
-    assert response.headers["Link"] == f'<{successor}>; rel="successor-version"'
-
-
 def test_listing_ingestions_is_not_deprecated(client: TestClient) -> None:
-    assert "Deprecation" not in client.get("/v1/ingestions").headers
+    assert "Deprecation" not in client.get("/v1/admin/ingestions").headers
 
 
 def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
@@ -290,10 +273,10 @@ def test_openapi_documents_the_connection_routes(client: TestClient) -> None:
         "delete",
     }
     assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/test"]
-    assert "post" in paths["/v1/admin/projects/{project_id}/connections/{connection_id}/sync"]
-    assert paths["/v1/connections"]["get"]["deprecated"] is True
-    assert paths["/v1/ingestions"]["post"]["deprecated"] is True
-    assert paths["/api/v1/sources"]["post"]["deprecated"] is True
+    assert "/v1/admin/projects/{project_id}/connections/{connection_id}/sync" not in paths
+    assert set(paths["/v1/admin/ingestions"]) == {"get", "post"}
+    assert "/v1/connections" not in paths
+    assert "/api/v1/sources" not in paths
 
 
 def test_local_connections_stay_inside_the_source_root(
@@ -333,7 +316,7 @@ def test_templates_are_offered_per_setup(client: TestClient) -> None:
         "github-token": "GitHub private repository",
     }
     assert all(template["description"].startswith("Template: ") for template in templates.values())
-    assert not any(template["value"]["sync_now"] for template in templates.values())
+    assert not any("sync_now" in template["value"] for template in templates.values())
     for template in templates.values():
         assert {"allowed_extensions", "excluded_extensions"} <= set(template["value"]["config"])
 
@@ -378,14 +361,13 @@ def test_every_template_creates_a_connection_that_builds_its_connector(
     assert set(built) == set(templates)
 
 
-def test_test_route_templates_are_the_put_bodies_without_sync_now(client: TestClient) -> None:
+def test_test_route_templates_are_the_put_bodies(client: TestClient) -> None:
     paths = client.app.openapi()["paths"]  # type: ignore[attr-defined]
     put = paths[_ROUTE]["put"]["requestBody"]["content"]["application/json"]["examples"]
     test = paths[f"{_ROUTE}/test"]["post"]["requestBody"]["content"]["application/json"]
 
     assert {name: example["value"] for name, example in test["examples"].items()} == {
-        name: {key: value for key, value in example["value"].items() if key != "sync_now"}
-        for name, example in put.items()
+        name: example["value"] for name, example in put.items()
     }
     assert paths[_ROUTE]["put"]["summary"] == "Create or replace a connection"
 
@@ -426,12 +408,9 @@ def test_source_types_publish_their_advanced_schema(client: TestClient) -> None:
     assert items["jira"]["ui"]["page_size"]["group"] == "Advanced"
 
 
-def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
-    client: TestClient, app_service: _ConnectionApp
-) -> None:
+def test_a_read_body_sent_back_keeps_its_secrets(client: TestClient) -> None:
     created = client.put(_PATH, json=_BODY)
     read = client.get(_PATH).json()
-    app_service.world.runs.active = running_task("ing_0")
 
     echoed = client.put(
         _PATH,
@@ -440,7 +419,6 @@ def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
             "name": "Renamed",
             "credentials": read["credentials"],
             "config": read["config"],
-            "sync_now": True,
         },
         headers={"If-Match": "*"},
     )
@@ -448,10 +426,8 @@ def test_a_read_body_sent_back_keeps_secrets_and_a_failed_sync_now_still_saves(
     assert created.status_code == 201
     assert echoed.status_code == 200 and echoed.headers["ETag"] == 'W/"rev-2"'
     body = echoed.json()
-    assert body["name"] == "Renamed" and body["ingestion"] is None
+    assert body["name"] == "Renamed"
     assert body["credentials"]["api_token"]["last4"] == read["credentials"]["api_token"]["last4"]
-    assert body["sync_error"]["code"] == "already_running"
-    assert body["sync_error"]["details"] == {"ingestion_id": "ing_0"}
 
 
 def test_put_body_schema_documents_method_and_secret_shapes(client: TestClient) -> None:
@@ -489,10 +465,11 @@ def test_a_body_built_only_from_the_published_schema_is_accepted(
             "config": config,
         }
         response = client.put(
-            f"/v1/admin/projects/cpm/connections/{source_type}-{method['id']}", json=body
+            f"/v1/admin/projects/cpm/connections/{source_type}-{method['auth_method_id']}",
+            json=body,
         )
 
-        assert response.status_code == 201, (method["id"], response.json())
+        assert response.status_code == 201, (method["auth_method_id"], response.json())
 
 
 def _sample(schema: dict[str, Any]) -> dict[str, Any]:

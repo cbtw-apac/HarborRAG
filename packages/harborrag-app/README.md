@@ -28,9 +28,9 @@ replays from the earliest reusable immutable artifact.
 
 ## Scheduled ingestion
 
-Schedules are managed through Temporal, with config and API-owned modes. See
-the [Scheduled Ingestion runbook](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md) for
-configuration, API operations, incident pause/resume, backfill, and monitoring.
+Schedules run in Temporal and are declared in `config/schedules.yaml`, which the
+API reconciles at start-up. See the [Scheduled Ingestion runbook](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md) for
+configuration, incident pause/resume, and monitoring.
 
 Every one-shot command accepts `--json` after its action and returns
 `{"ok":...,"data":...,"error":...}`. A failed operation exits with status 1.

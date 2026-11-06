@@ -201,7 +201,7 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
 
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     memory = InMemoryConversationMemory()
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = ChatApplicationService(
         lambda: FakeRuntime(_CitingChat(), FakeRetrievalFacade(_results(3))),  # type: ignore[arg-type]
         RuntimeSettings(),
@@ -265,7 +265,7 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
 
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     memory = InMemoryConversationMemory()
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = ChatApplicationService(
         lambda: FakeRuntime(_CitingStream(), FakeRetrievalFacade(_results(3))),  # type: ignore[arg-type]
         RuntimeSettings(),

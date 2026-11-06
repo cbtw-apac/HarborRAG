@@ -69,15 +69,6 @@ def test_health_reports_not_ready_for_any_unusable_diagnostics(diagnostics: obje
     assert response.error == "runtime not ready"
 
 
-def test_ingest_once_directs_the_caller_to_the_workflow_command() -> None:
-    service, _, _ = build_service()
-
-    response = service.ingest_once()
-
-    assert response.ok is False
-    assert "ingest start" in str(response.error)
-
-
 # --------------------------------------------------------------------------
 # Runtime calls
 # --------------------------------------------------------------------------

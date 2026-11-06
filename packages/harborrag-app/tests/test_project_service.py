@@ -59,10 +59,10 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
     )
     assert (created, version) == (True, 1)
     assert view == {
-        "id": "cpm",
+        "project_id": "cpm",
         "tenant_id": "acme",
-        "name": "CPM",
-        "description": None,
+        "project_name": "CPM",
+        "project_description": None,
         "connection_count": 0,
         "document_count": 0,
         "created_at": view["created_at"],
@@ -118,9 +118,9 @@ async def test_list_pages_by_id_and_filters_by_name(services: Any) -> None:
     second, last = await projects.list_page(tenant_id="acme", limit=2, cursor=cursor)
     filtered, _ = await projects.list_page(tenant_id="acme", query="alp")
 
-    assert [item["id"] for item in first + second] == ["a", "b", "c"]
+    assert [item["project_id"] for item in first + second] == ["a", "b", "c"]
     assert last is None
-    assert [item["id"] for item in filtered] == ["a"]
+    assert [item["project_id"] for item in filtered] == ["a"]
 
 
 @pytest.mark.asyncio
@@ -133,7 +133,7 @@ async def test_delete_needs_cascade_once_connections_exist(services: Any) -> Non
 
     with pytest.raises(HarborInUseError) as in_use:
         await projects.delete(tenant_id="acme", project_id="cpm", actor="u")
-    assert in_use.value.details == {"connections": ["cpm/cpm-tickets"]}
+    assert in_use.value.details == {"connection_refs": ["cpm/cpm-tickets"]}
 
     job_id = await projects.delete(tenant_id="acme", project_id="cpm", actor="u", cascade=True)
     await connections.aclose()

@@ -13,7 +13,6 @@
 - [Chat](users/chat/README.md)
   - [Chat Models](users/chat/models.md)
   - [Conversation Memory](users/chat/memory.md)
-  - [Agent](users/chat/agent.md)
   - [Limits and Accounting](users/chat/limits.md)
 - [Connections](users/connections.md)
 - [Ingestion Modes](users/ingestion-modes.md)

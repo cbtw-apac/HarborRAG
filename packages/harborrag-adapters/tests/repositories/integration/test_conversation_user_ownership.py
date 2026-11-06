@@ -28,7 +28,7 @@ from harborrag_adapters.repositories.database.control_plane.migrations import (
     _build_config,
     run_migrations,
 )
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationSessionRow,
 )
 from harborrag_core.ports.conversation import (

@@ -62,7 +62,7 @@ test("streamChat posts auth and custom headers and exposes the durable completio
       assert.equal(init.signal, controller.signal);
       assert.equal(init.headers.get("Authorization"), "Bearer test-token");
       assert.equal(init.headers.get("Accept"), "text/event-stream");
-      assert.equal(init.headers.get("X-Request-Id"), "trace-1");
+      assert.equal(init.headers.get("X-Trace-Id"), "trace-1");
       assert.deepEqual(JSON.parse(init.body), { prompt: "hello", tenant: "ACME", stream: true });
       return sseResponse(byteStream(
         frame("response.started", { session_id: "session-1", mode: "rag", replayed: false }) +
@@ -72,44 +72,23 @@ test("streamChat posts auth and custom headers and exposes the durable completio
     },
   });
   const events = await collect(api.streamChat({ prompt: "hello", tenant: "ACME" }, {
-    signal: controller.signal, headers: { "X-Request-Id": "trace-1" },
+    signal: controller.signal, headers: { "X-Trace-Id": "trace-1" },
   }));
   assert.equal(events[1].data.content, "Hello 🌊");
   assert.deepEqual(events.at(-1), { event: "response.completed", data: completion });
 });
 
-for (const [method, surface] of [["completeChat", "chat"], ["completeAgent", "agent"]]) {
-  test(`${method} uses its own endpoint with stream false`, async () => {
-    const api = createHarborClient({
-      baseUrl: "https://example.test",
-      fetchImpl: async (url, init) => {
-        assert.equal(url, `https://example.test/v1/${surface}/completions`);
-        assert.equal(JSON.parse(init.body).stream, false);
-        assert.equal(init.headers.get("Accept"), "application/json");
-        return Response.json(completion);
-      },
-    });
-    assert.deepEqual(await api[method]({ prompt: "hello" }), completion);
-  });
-}
-
-test("resumeAgent uses canonical JSON resume with auth, cancellation and evidence", async () => {
-  const controller = new AbortController();
-  const result = { ...completion, mode: "agent", run_id: "run-1", citations: [
-    { chunk_id: "chunk-1", document_id: "doc-1", score: null, content: "Source\npassage" },
-  ] };
-  const api = createHarborClient({ baseUrl: "https://example.test/", getToken: () => "token",
+test("completeChat posts to the chat endpoint with stream false", async () => {
+  const api = createHarborClient({
+    baseUrl: "https://example.test",
     fetchImpl: async (url, init) => {
-      assert.equal(url, "https://example.test/v1/agent/runs/run-1/resume");
-      assert.deepEqual(JSON.parse(init.body), { session_id: "session-1", max_steps: 3 });
-      assert.equal(init.headers.get("Authorization"), "Bearer token");
+      assert.equal(url, "https://example.test/v1/chat/completions");
+      assert.equal(JSON.parse(init.body).stream, false);
       assert.equal(init.headers.get("Accept"), "application/json");
-      assert.equal(init.signal, controller.signal);
-      return Response.json(result);
+      return Response.json(completion);
     },
   });
-  assert.deepEqual(await api.resumeAgent("run-1", { session_id: "session-1", max_steps: 3 },
-    { signal: controller.signal }), result);
+  assert.deepEqual(await api.completeChat({ prompt: "hello" }), completion);
 });
 
 test("evidence survives split-byte SSE and the final answer remains authoritative", async () => {
@@ -121,7 +100,7 @@ test("evidence survives split-byte SSE and the final answer remains authoritativ
       citations, session_id: "session-1", project_id: null,
     }) + frame("response.completed", result) + frame("response.error", { code: "too_late" }))),
   });
-  const events = await collect(api.streamAgent({ prompt: "Question" }));
+  const events = await collect(api.streamChat({ prompt: "Question" }));
   assert.equal(events.length, 2);
   assert.deepEqual(events[0].data.citations, citations);
   assert.deepEqual(events[1].data, result);
@@ -164,9 +143,9 @@ test("streamChat preserves HTTP error envelopes and supports non-JSON proxy erro
 
 test("terminal response.error throws and a truncated stream never reports success", async () => {
   const failed = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async () =>
-    sseResponse(byteStream(frame("response.error", { code: "chat_stream_error", message: "Failed" }))) });
+    sseResponse(byteStream(frame("response.error", { code: "llm_unavailable", message: "Failed" }))) });
   await assert.rejects(collect(failed.streamChat({ prompt: "hello" })), (error) =>
-    error instanceof HarborChatStreamError && error.code === "chat_stream_error");
+    error instanceof HarborChatStreamError && error.code === "llm_unavailable");
   const truncated = createHarborClient({ baseUrl: "https://example.test", fetchImpl: async () =>
     sseResponse(byteStream(frame("response.output_text.delta", { content: "partial" }))) });
   await assert.rejects(collect(truncated.streamChat({ prompt: "hello" })), (error) =>
@@ -219,10 +198,10 @@ test("breaking iteration cancels the response body", async () => {
   assert.equal(cancelled, true);
 });
 
-test("operational helpers keep the existing api/v1 route prefix", async () => {
+test("generic helpers send the full route path", async () => {
   const api = createHarborClient({ baseUrl: "https://example.test/", fetchImpl: async (url) => {
-    assert.equal(url, "https://example.test/api/v1/health");
+    assert.equal(url, "https://example.test/healthz");
     return Response.json({ status: "ok" });
   } });
-  assert.deepEqual(await api.get("/health"), { status: "ok" });
+  assert.deepEqual(await api.get("/healthz"), { status: "ok" });
 });

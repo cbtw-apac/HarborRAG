@@ -36,10 +36,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0043"
+    assert control_db["migrations"] == "0045"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0043" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0045" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -65,7 +65,6 @@ async def test_production_repositories_hit_the_real_database(
                 tenant_id="DEFAULT",
                 user_id="user-1",
                 principal_id="principal-1",
-                surface="chat",
                 logical_model="chat-default",
                 provider="openai",
                 provider_model="gpt-4.1-mini",
@@ -198,6 +197,43 @@ def test_migration_failure_logs_safe_actionable_diagnostics(
     assert "error_type=OperationalError" in message
     assert "already exists" not in message
     assert "hint=" in message, "the recoverable case must name its remedy"
+
+
+@pytest.mark.whitebox
+def test_database_ahead_of_this_build_names_both_revisions_and_the_remedy(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    """Startup against a control DB migrated by a newer build says so and how to recover.
+
+    Starting an older API image against a database a newer branch had migrated reported
+    only "migrations failed; inspect the startup logs"; the unknown revision was buried in
+    an Alembic traceback and the API crash-looped without naming the cause.
+    """
+
+    import sqlite3
+
+    from harborrag_adapters.repositories.database.control_plane.migrations import (
+        head_revision,
+        run_migrations,
+    )
+
+    dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
+    run_migrations(dsn)
+    connection = sqlite3.connect(f"{tmp_path}/control.db")
+    connection.execute("UPDATE alembic_version SET version_num = '9999'")
+    connection.commit()
+    connection.close()
+    head = head_revision(dsn)
+
+    with caplog.at_level(logging.ERROR, logger="harborrag.runtime.composition"):
+        with pytest.raises(HarborConfigurationError) as caught:
+            CompositionRoot.production(RuntimeSettings(control_db_url=dsn))
+
+    message = str(caught.value)
+    assert f"schema revision 9999, newer than this build's head {head}" in message
+    assert f"downgrade the database to {head}" in message
+    assert f"database_revision=9999 build_head={head}" in caplog.text
 
 
 @pytest.mark.whitebox

@@ -1,4 +1,4 @@
-"""Every HarborError maps to one eveloped HTTP response."""
+"""Every HarborError maps to one enveloped HTTP response with a catalog code."""
 
 import pytest
 from fastapi import FastAPI
@@ -12,6 +12,7 @@ from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborDeadlineExceeded,
     HarborError,
+    HarborNoIndexedContentError,
     HarborNotFoundError,
     HarborRateLimitError,
     HarborSecretDecryptionError,
@@ -21,23 +22,24 @@ from harborrag_core.contracts.errors import (
 )
 
 CASES = [
-    (HarborValidationError("bad"), 422, "harbor_validation_error"),
-    (HarborNotFoundError("missing"), 404, "harbor_not_found_error"),
-    (HarborConflictError("clash"), 409, "harbor_conflict_error"),
-    (HarborAuthError("no token"), 401, "harbor_auth_error"),
-    (HarborAuthError("wrong role", forbidden=True), 403, "harbor_auth_error"),
-    (HarborCapabilityError("nope"), 501, "harbor_capability_error"),
-    (HarborSecurityError("denied"), 403, "harbor_security_error"),
-    (HarborDeadlineExceeded("slow"), 504, "harbor_deadline_exceeded"),
-    (HarborConfigurationError("broken"), 500, "harbor_configuration_error"),
-    (HarborRateLimitError("slow down"), 429, "harbor_rate_limit_error"),
-    (HarborUnavailableError("down"), 503, "harbor_unavailable_error"),
-    (HarborSecretDecryptionError("cannot decrypt"), 500, "harbor_secret_decryption_error"),
+    (HarborValidationError("bad"), 422, "validation_error"),
+    (HarborNotFoundError("missing"), 404, "not_found"),
+    (HarborConflictError("clash"), 409, "invalid_state"),
+    (HarborNoIndexedContentError("empty"), 409, "no_indexed_content"),
+    (HarborAuthError("no token"), 401, "unauthenticated"),
+    (HarborAuthError("wrong role", forbidden=True), 403, "forbidden"),
+    (HarborCapabilityError("nope"), 501, "not_supported"),
+    (HarborSecurityError("denied"), 403, "forbidden"),
+    (HarborDeadlineExceeded("slow"), 504, "deadline_exceeded"),
+    (HarborConfigurationError("broken"), 500, "internal_error"),
+    (HarborRateLimitError("slow down"), 429, "rate_limited"),
+    (HarborUnavailableError("down"), 503, "dependency_unavailable"),
+    (HarborSecretDecryptionError("cannot decrypt"), 500, "internal_error"),
 ]
 
 
 def _app_raising(exc: Exception) -> TestClient:
-    """BUild a throwaway FastAPI app whose /boom route
+    """Build a throwaway FastAPI app whose /boom route
     raises `exc` with the production error handlers registered."""
     app = FastAPI()
     register_error_handlers(app)
@@ -61,7 +63,7 @@ def test_harbor_errors_are_enveloped(exc: HarborError, status: int, code: str) -
     assert body["error"]["code"] == code
     assert body["error"]["message"]
     assert "details" in body["error"]
-    assert "trace_id" in body["error"]
+    assert body["error"]["trace_id"] == response.headers["x-trace-id"]
 
 
 @pytest.mark.blackbox

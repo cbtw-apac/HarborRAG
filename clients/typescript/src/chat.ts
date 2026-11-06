@@ -10,12 +10,7 @@ export interface ChatCompletionRequest {
   model?: string;
   project_id?: string;
   graph_search?: boolean;
-  max_steps?: number;
   idempotency_key?: string;
-}
-
-export interface AgentCompletionRequest extends Omit<ChatCompletionRequest, "mode"> {
-  mode?: "agent";
 }
 
 export interface ChatUsage {
@@ -41,7 +36,6 @@ export interface ChatCitation {
   document_id: string;
   chunk_id: string;
   score: number | null;
-  tool?: string | null;
   document_title?: string | null;
   section_path?: string[];
   location?: string | null;
@@ -66,61 +60,28 @@ export interface ChatCompletionResponse {
   retry_count: number;
   fallback_count: number;
   citations: ChatCitation[];
-  citation_validation?: {
-    complete: boolean;
-    evidence_available: boolean;
-    marker_count: number;
-    validated_count: number;
-    invalid_count: number;
-  } | null;
   session_id: string;
   title: string | null;
-  mode: "rag" | "agent";
-  run_id: string | null;
-  stop_reason: string | null;
-  turns: number | null;
-  tool_call_count: number | null;
-  tool_calls: { step: number; tool: string; ok: boolean }[] | null;
+  mode: "rag";
   project_id: string | null;
   memory_persisted: boolean;
 }
 
-export interface AgentResumeRequest {
-  session_id: string;
-  tenant?: string;
-  project_id?: string;
-  graph_search?: boolean;
-  max_steps?: number;
-}
-
-export interface AgentCompletionResponse extends ChatCompletionResponse {
-  mode: "agent";
-  run_id: string;
-  stop_reason: string;
-  turns: number;
-  tool_call_count: number;
-  tool_calls: { step: number; tool: string; ok: boolean }[];
-}
-
 export type ChatStreamEvent =
-  | { event: "response.started"; data: { session_id: string; mode: "rag" | "agent"; replayed: boolean } }
+  | { event: "response.started"; data: { session_id: string; mode: "rag"; replayed: boolean } }
   | { event: "response.output_text.delta"; data: { content: string; [key: string]: unknown } }
   | { event: "response.completed"; data: ChatCompletionResponse }
   | {
       event: "retrieval.completed" | "response.citations";
       data: { citations: ChatCitation[]; session_id: string; project_id: string | null };
     }
-  | {
-      event: "response.agent.progress" | "response.warning";
-      data: Record<string, unknown>;
-    };
+  | { event: "response.warning"; data: Record<string, unknown> };
 
 const PROGRESS_EVENTS = new Set([
   "response.started",
   "response.output_text.delta",
   "retrieval.completed",
   "response.citations",
-  "response.agent.progress",
   "response.warning",
 ]);
 
@@ -130,7 +91,7 @@ export function createChatMethods(options: HarborClientOptions) {
 
   async function fetchCompletion(
     path: string,
-    body: ((ChatCompletionRequest | AgentCompletionRequest) & { stream: boolean }) | AgentResumeRequest,
+    body: ChatCompletionRequest & { stream: boolean },
     stream: boolean,
     requestOptions: HarborRequestOptions,
   ): Promise<Response> {
@@ -160,30 +121,9 @@ export function createChatMethods(options: HarborClientOptions) {
     )).json()) as ChatCompletionResponse;
   }
 
-  async function completeAgent(
-    request: AgentCompletionRequest,
-    requestOptions: HarborRequestOptions = {},
-  ): Promise<ChatCompletionResponse> {
-    return (await (await fetchCompletion(
-      "/v1/agent/completions", { ...request, stream: false }, false, requestOptions,
-    )).json()) as ChatCompletionResponse;
-  }
-
-  /** Resume an unfinished run, retaining its original prompt and model. JSON only. */
-  async function resumeAgent(
-    runId: string,
-    request: AgentResumeRequest,
-    requestOptions: HarborRequestOptions = {},
-  ): Promise<AgentCompletionResponse> {
-    if (!runId.trim()) throw new TypeError("runId must not be blank");
-    return (await (await fetchCompletion(
-      `/v1/agent/runs/${encodeURIComponent(runId)}/resume`, request, false, requestOptions,
-    )).json()) as AgentCompletionResponse;
-  }
-
   async function* streamCompletion(
     path: string,
-    request: ChatCompletionRequest | AgentCompletionRequest,
+    request: ChatCompletionRequest,
     requestOptions: HarborRequestOptions = {},
   ): AsyncGenerator<ChatStreamEvent, void, undefined> {
     const response = await fetchCompletion(
@@ -233,9 +173,5 @@ export function createChatMethods(options: HarborClientOptions) {
     return streamCompletion("/v1/chat/completions", request, requestOptions);
   }
 
-  function streamAgent(request: AgentCompletionRequest, requestOptions: HarborRequestOptions = {}) {
-    return streamCompletion("/v1/agent/completions", request, requestOptions);
-  }
-
-  return { completeChat, streamChat, completeAgent, streamAgent, resumeAgent };
+  return { completeChat, streamChat };
 }

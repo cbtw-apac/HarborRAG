@@ -21,6 +21,14 @@ CI (`.github/workflows/contract.yml`) does this on every PR and gates merges
 on `oasdiff breaking` against the target branch (`contract-break-approved`
 label overrides, requires lead review).
 
+`package.json` overrides `minimatch` to a release without GHSA-g3hv-75wg-m249:
+`openapi-typescript` 7 still depends on `@redocly/openapi-core` 1.x, which
+pins a vulnerable `minimatch`. Generation from the local `openapi.json` is
+unaffected (the generated types are identical). The one redocly path that
+calls `minimatch`, header matching for remote `$ref` URLs, does not work
+under the override, so keep the generator on local files. Drop the override
+once `openapi-typescript` moves to `@redocly/openapi-core` 2.
+
 ## Usage (WebUI)
 
 ```ts
@@ -52,7 +60,7 @@ let sessionId: string | undefined;
 try {
   for await (const event of api.streamChat(
     { tenant: "ACME", prompt: "Explain our release policy", idempotency_key: crypto.randomUUID() },
-    { signal: controller.signal, headers: { "X-Request-Id": crypto.randomUUID() } },
+    { signal: controller.signal, headers: { "X-Trace-Id": crypto.randomUUID().replaceAll("-", "") } },
   )) {
     if (event.event === "response.started") {
       sessionId = event.data.session_id;
@@ -60,7 +68,7 @@ try {
       answer += event.data.content;
       console.log(answer);
     } else if (event.event === "response.completed") {
-      // This final value also handles agent responses and completed-request replays.
+      // This final value also handles completed-request replays.
       answer = event.data.message.content;
       sessionId = event.data.session_id;
       console.log(event.data.title, event.data.usage, event.data.cost);
@@ -103,61 +111,38 @@ const next = await api.completeChat({
 console.log(next.message.content, next.citations, next.cost);
 ```
 
-The generic `get`, `post`, `patch`, and `delete` helpers retain their `/api/v1` prefix.
-Chat helpers use `/v1/chat/completions` directly.
+The generic `get`, `post`, `patch`, and `delete` helpers take the full route path,
+such as `/v1/admin/projects`. Chat helpers use `/v1/chat/completions`.
 The server resolves the end user from a verified token claim. Provide a token
 for the current user on each request; a shared credential needs a stable signed
 end-user claim configured with `HARBORRAG_AUTH_USER_ID_CLAIM`. Changing that
 claim changes which sessions the token can see.
 
-## Agent resume and evidence
+## Evidence
 
-```ts
-const resumed = await api.resumeAgent("run-...", {
-  tenant: "ACME", session_id: "session-...", max_steps: 4,
-});
-for (const citation of resumed.citations) {
-  console.log(citation.document_title, citation.content, citation.content_truncated);
-}
-```
-
-`resumeAgent` posts to `/v1/agent/runs/{run_id}/resume` and accepts the same per-request
-headers and abort signal as chat. It cannot change the run's prompt/model or stream.
-For new agent runs use `completeAgent` / `streamAgent`; both post to
-`/v1/agent/completions` and need only `prompt`. Both streaming helpers use the
-same event parser and cancellation behavior.
-`completeAgent` returns `ChatCompletionResponse`; check `outcome` before using
-run fields, which are null when a scope refusal prevented the run.
 Citation content is bounded, authorized source text; render it as text, not raw HTML.
 During SSE, candidate citations arrive in `retrieval.completed`; replace them with the
-final answer's citations rather than assuming every candidate was used. Agent text
-arrives at completion, with progress events beforehand. Out-of-scope prompts
-complete with `outcome: "refused"` and `refusal_reason: "out_of_scope"` in the
-same JSON or `response.completed` schema as an answer. Invalid requests and
-service failures still use `HarborApiRequestError`.
+final answer's citations rather than assuming every candidate was used. Out-of-scope
+prompts complete with `outcome: "refused"` and `refusal_reason: "out_of_scope"` in the
+same JSON or `response.completed` schema as an answer. Invalid requests and service
+failures still use `HarborApiRequestError`.
 
 ## Session history
 
 ```ts
 const page = await api.listSessions("chat", { tenant: "ACME", limit: 20 });
-const agentPage = await api.listSessions("agent", { tenant: "ACME" });
 const history = await api.getSessionHistory("chat", sessionId, {
   tenant: "ACME", limit: 50,
 });
 // Continue with { after: history.next_cursor } when present.
-await api.renameSession("chat", sessionId, "Release policy", "ACME");
 // Explicit creation is optional; completions can create sessions automatically.
-const session = await api.createSession("agent", "ACME");
+const session = await api.createSession("chat", "ACME");
 ```
 
 Lists contain `sessions` and optional `next_cursor`; history contains `messages`
 and optional `next_cursor`. Pass a list cursor as `cursor`, a history cursor as
-`after`. `deleteSession(surface, sessionId, tenant)` erases history and associated
-memory. Every helper accepts headers and an abort signal as its final options
-argument. Lists are filtered by creating surface; session IDs remain shared.
-
-The conversation routes and generic `/v1/runs/*` routes are removed. Session helpers
-use `/v1/{chat|agent}/sessions`; they do not use the operational `/api/v1` prefix.
+`after`. Every helper accepts headers and an abort signal as its final options
+argument. Session helpers use `/v1/chat/sessions`.
 
 ## Test
 

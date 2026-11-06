@@ -31,7 +31,7 @@ def new_message_id() -> str:
     return f"msg-{uuid4().hex}"
 
 
-def question_message(content: str, *, run_id: str | None = None) -> ConversationMessage:
+def question_message(content: str) -> ConversationMessage:
     """The user's question, persisted before the model is called.
 
     Prompt tokens are not attributable to one message, so this record carries
@@ -43,7 +43,6 @@ def question_message(content: str, *, run_id: str | None = None) -> Conversation
         role="user",
         content=content,
         created_at=utc_now(),
-        run_id=run_id,
     )
 
 
@@ -52,7 +51,6 @@ def answer_message(
     *,
     citations: Sequence[object] = (),
     completion_tokens: int | None = None,
-    run_id: str | None = None,
     partial: bool = False,
 ) -> ConversationMessage:
     """The assistant answer, with the citations already returned to the caller.
@@ -71,7 +69,6 @@ def answer_message(
         created_at=utc_now(),
         token_count=completion_tokens,
         citations_json=json.dumps(list(citations)) if citations else None,
-        run_id=run_id,
         partial=partial,
     )
 

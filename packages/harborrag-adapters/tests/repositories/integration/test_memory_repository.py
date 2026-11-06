@@ -1,7 +1,7 @@
 """Integration coverage for the SQL canonical long-term memory store.
 
 The scope-isolation cases here are the security-relevant contract: a
-``RUN``-scoped memory must never surface outside its own run, and a
+``SESSION``-scoped memory must never surface outside its own session, and a
 ``USER``-scoped memory must never cross tenants, mirroring the pure
 ``visible_to`` checks in ``test_ports_memory.py``.
 """
@@ -146,27 +146,23 @@ async def test_expired_memories_are_not_readable_or_searchable(tmp_path: Path) -
 
 @pytest.mark.asyncio
 @pytest.mark.whitebox
-async def test_run_scoped_memory_does_not_leak_across_runs(tmp_path: Path) -> None:
+async def test_session_scoped_memory_does_not_leak_across_sessions(tmp_path: Path) -> None:
     dsn = f"sqlite+aiosqlite:///{tmp_path}/control.db"
     run_migrations(dsn)
     engine = create_control_plane_engine(dsn)
     sessions = create_session_factory(engine)
     try:
         repo = SqlMemoryRepository(sessions)
-        owner = MemoryOwner(
-            tenant_id="ACME", user_id="user-1", session_id="session-1", run_id="run-1"
-        )
-        memory = _memory(owner, MemoryScope.RUN, "scratch note for run-1")
+        owner = MemoryOwner(tenant_id="ACME", user_id="user-1", session_id="session-1")
+        memory = _memory(owner, MemoryScope.SESSION, "note for session-1")
         await repo.save(memory)
 
-        other_run = MemoryOwner(
-            tenant_id="ACME", user_id="user-1", session_id="session-1", run_id="run-2"
-        )
-        assert await repo.get(other_run, memory.memory_id) is None
-        results = await repo.search(MemoryQuery(owner=other_run, scopes=(MemoryScope.RUN,)))
+        other_session = MemoryOwner(tenant_id="ACME", user_id="user-1", session_id="session-2")
+        assert await repo.get(other_session, memory.memory_id) is None
+        results = await repo.search(MemoryQuery(owner=other_session, scopes=(MemoryScope.SESSION,)))
         assert results == ()
 
-        results = await repo.search(MemoryQuery(owner=owner, scopes=(MemoryScope.RUN,)))
+        results = await repo.search(MemoryQuery(owner=owner, scopes=(MemoryScope.SESSION,)))
         assert [item.memory_id for item in results] == [memory.memory_id]
     finally:
         await engine.dispose()

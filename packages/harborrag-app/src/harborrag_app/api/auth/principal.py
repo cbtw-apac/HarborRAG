@@ -25,10 +25,16 @@ class Principal:
     # The verifier supplies a trusted end-user claim for authenticated calls.
     # Direct callers and unauthenticated local development retain the default.
     user_id: str = DEFAULT_USER
+    name: str = ""
 
     def __post_init__(self) -> None:
         if not self.user_id or not self.user_id.strip():
             raise ValueError("principal user_id must not be blank")
+
+    @property
+    def kind(self) -> str:
+        """``api_key`` for an API key, ``user`` for every other credential."""
+        return "api_key" if self.token_kind == "api_key" else "user"
 
     def can_access_tenant(self, tenant_id: str) -> bool:
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids

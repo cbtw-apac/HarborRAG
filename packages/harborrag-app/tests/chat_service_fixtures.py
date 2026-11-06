@@ -291,11 +291,10 @@ def fake_runtime_config(
     corpus_access_mode: str = "source_acl",
     corpus_shared_tenant_id: str | None = None,
 ) -> SimpleNamespace:
-    """The slice of ``RuntimeSettings`` the agent surface reads off the runtime.
+    """The slice of ``RuntimeSettings`` chat retrieval reads off the runtime.
 
-    The agent service resolves a run's corpus mode from
-    ``runtime.config.runtime``, so any double standing in for the runtime has to
-    carry it. The defaults mirror ``RuntimeSettings``: a tenant is
+    Chat resolves a turn's corpus mode from ``runtime.config.runtime``, so any
+    double standing in for the runtime has to carry it. The defaults mirror ``RuntimeSettings``: a tenant is
     ``source_acl`` unless it is *the* shared one, and there is no shared tenant
     unless a deployment names one.
     """
