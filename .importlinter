@@ -161,3 +161,40 @@ forbidden_modules =
     harborrag_runtime.sdk
     harborrag_runtime.execution
     harborrag_runtime.config.temporal
+
+[importlinter:contract:15]
+name = Adapter families never import each other
+type = independence
+modules =
+    harborrag_adapters.chunking
+    harborrag_adapters.connectors
+    harborrag_adapters.models
+    harborrag_adapters.parsers
+    harborrag_adapters.repositories
+    harborrag_adapters.topology
+# Known debt, each removed by its cleanup step; an entry that no longer matches fails CI.
+ignore_imports =
+    harborrag_adapters.parsers.markup.engines.markdown.engine -> harborrag_adapters.chunking.languages
+    harborrag_adapters.parsers.text.engines.plain_text.engine -> harborrag_adapters.chunking.languages
+    harborrag_adapters.repositories.database.control_plane.model_catalog_rows -> harborrag_adapters.models.chat.registry
+    harborrag_adapters.topology.descriptions -> harborrag_adapters.models.chat.configs
+    harborrag_adapters.topology.descriptions -> harborrag_adapters.models.chat.structured
+    harborrag_adapters.topology.descriptions -> harborrag_adapters.models.runtime.provider
+    harborrag_adapters.topology.extractor -> harborrag_adapters.models.chat
+    harborrag_adapters.topology.extractor -> harborrag_adapters.models.chat.backend_config
+    harborrag_adapters.topology.extractor -> harborrag_adapters.models.chat.structured
+    harborrag_adapters.topology.artifacts -> harborrag_adapters.repositories.object_store.ingestion_artifacts
+unmatched_ignore_imports_alerting = error
+
+[importlinter:contract:16]
+name = Shared adapter helpers import no adapter family
+type = forbidden
+source_modules =
+    harborrag_adapters._shared
+forbidden_modules =
+    harborrag_adapters.chunking
+    harborrag_adapters.connectors
+    harborrag_adapters.models
+    harborrag_adapters.parsers
+    harborrag_adapters.repositories
+    harborrag_adapters.topology
