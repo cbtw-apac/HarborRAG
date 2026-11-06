@@ -195,7 +195,7 @@ class PdfBackendSpec:
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
     **{name: frozenset() for name in _PARSER_FACTORIES if name not in {"image", "pdf"}},
     "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}),
-    "pdf": frozenset({"max_pages", "min_content_chars", "profile"}),
+    "pdf": frozenset({"max_pages", "min_content_chars", "ocr_server_url", "profile"}),
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),
