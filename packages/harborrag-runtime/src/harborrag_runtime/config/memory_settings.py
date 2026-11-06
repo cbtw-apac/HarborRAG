@@ -66,18 +66,12 @@ class MemorySettingsMixin(BaseSettings):
     # and recall ranks on relevance, recency, and importance alone.
     memory_entity_linking: bool = True
 
-    # Agent memory tools. Off by default because they let an agent run read and
-    # record long-term memory for the caller it is acting as; the owner fields
-    # are always bound server-side, never supplied by the model.
-    memory_agent_tools: bool = False
-
     # Background extraction.
     memory_extraction_enabled: bool = True
-    # PROJECT-scope writes by extraction and the agent memory tools. A project
-    # fact is recalled into every project member's turns, and both writers act
-    # on model output that can restate retrieved, untrusted content (Jira,
-    # Confluence, SharePoint), so it is opt-in. Off, a project write is kept to
-    # the session it was stated in.
+    # PROJECT-scope writes by extraction. A project fact is recalled into every
+    # project member's turns, and extraction acts on model output that can
+    # restate retrieved, untrusted content (Jira, Confluence, SharePoint), so it
+    # is opt-in. Off, a project write is kept to the session it was stated in.
     memory_extraction_project_scope: bool = False
     memory_extraction_min_importance: float = Field(default=0.3, ge=0.0, le=1.0)
     memory_dedup_threshold: float = Field(default=0.92, ge=0.5, le=1.0)
@@ -87,8 +81,8 @@ class MemorySettingsMixin(BaseSettings):
     memory_embed_profile: str | None = None
 
     # Retention per scope; 0 means no automatic expiry. Applied as
-    # ``expires_at`` when extraction, the rolling summary, or an agent memory
-    # tool writes a memory; repositories stop returning a row once it passes.
+    # ``expires_at`` when extraction or the rolling summary writes a memory;
+    # repositories stop returning a row once it passes.
     # There is no sweeper, so expired rows stay stored until erased.
     memory_retention_days_session: int = Field(default=90, ge=0)
     memory_retention_days_user: int = Field(default=365, ge=0)
@@ -137,7 +131,7 @@ class MemorySettingsMixin(BaseSettings):
     def memory_retention_days(self, scope: MemoryScope) -> int:
         """Retention for one scope in days; 0 means the scope never auto-expires."""
 
-        if scope is MemoryScope.SESSION or scope is MemoryScope.RUN:
+        if scope is MemoryScope.SESSION:
             return self.memory_retention_days_session
         if scope is MemoryScope.USER:
             return self.memory_retention_days_user

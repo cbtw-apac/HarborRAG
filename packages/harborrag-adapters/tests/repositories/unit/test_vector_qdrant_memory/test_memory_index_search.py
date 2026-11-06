@@ -64,12 +64,12 @@ async def test_a_caller_missing_a_required_field_never_searches_that_scope(
     index: QdrantMemoryIndex,
     raw: ExtendedRawQdrant,
 ) -> None:
-    anonymous = owner(user_id=None, session_id=None, run_id=None, project_id=None)
+    anonymous = owner(user_id=None, session_id=None, project_id=None)
 
     matches = await index.search_memories(
         _query(
             owner=anonymous,
-            scopes=(MemoryScope.RUN, MemoryScope.SESSION, MemoryScope.USER, MemoryScope.TENANT),
+            scopes=(MemoryScope.SESSION, MemoryScope.USER, MemoryScope.TENANT),
         )
     )
 
@@ -85,7 +85,6 @@ async def test_every_scope_is_searched_when_the_query_names_none(
     await index.search_memories(_query())
 
     assert [must_conditions(call)["scope"] for call in raw.query_calls] == [
-        "run",
         "session",
         "user",
         "project",

@@ -29,7 +29,6 @@ MODULES = {
     "harborrag-memory": ["harborrag_memory", "harborrag_memory.context"],
     "harborrag-engine": [
         "harborrag_engine",
-        "harborrag_engine.agent.tools",
         "harborrag_engine.chat.prompts",
         "harborrag_engine.config",
         "harborrag_engine.retrieval.pipeline",
@@ -38,7 +37,6 @@ MODULES = {
         "harborrag_runtime",
         "harborrag_runtime.sdk",
         "harborrag_runtime.config.settings",
-        "harborrag_runtime.composition.agent_tools",
         "harborrag_runtime.topology.summary_operations",
     ],
     "harborrag-app": [

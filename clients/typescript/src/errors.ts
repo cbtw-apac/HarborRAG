@@ -3,7 +3,7 @@ export interface HarborApiError {
   error: {
     code: string;
     message: string;
-    details: Record<string, unknown>;
+    details: Record<string, unknown> | Record<string, unknown>[] | null;
     trace_id: string | null;
   };
 }
@@ -40,8 +40,8 @@ export async function apiRequestError(response: Response): Promise<HarborApiRequ
     error: {
       code: "http_error",
       message: `Request failed with HTTP ${response.status}`,
-      details: {},
-      trace_id: response.headers.get("x-request-id"),
+      details: null,
+      trace_id: response.headers.get("x-trace-id"),
     },
   });
 }

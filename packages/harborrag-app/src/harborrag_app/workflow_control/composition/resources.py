@@ -9,10 +9,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion.maintenance.projection_admin import (
-    ProjectionAdministrationService,
-)
 from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG
@@ -46,8 +44,8 @@ class AppResources:
         self._schedule_backend: ScheduleBackend | None = None
         self._retrieval_runtime: HarborRAG | None = None
         self._task_registry: TaskRegistry | None = None
-        self._projection_admin: ProjectionAdministrationService | None = None
         self._event_bus: EventBusPort | None = None
+        self._connection_removal: ConnectionRemoval | None = None
         self._client_lock = asyncio.Lock()
         self._schedule_backend_lock = asyncio.Lock()
         self._task_registry_lock = asyncio.Lock()
@@ -93,10 +91,11 @@ class AppResources:
     async def public_task_store(self) -> PublicTaskStore:
         return await self.task_registry()
 
-    def projection_administration(self) -> ProjectionAdministrationService:
-        if self._projection_admin is None:
-            self._projection_admin = self._factories.projection_admin(self._settings)
-        return self._projection_admin
+    def connection_removal(self) -> ConnectionRemoval:
+        """The stores connection removals use, built on first use."""
+        if self._connection_removal is None:
+            self._connection_removal = ConnectionRemoval(self._settings)
+        return self._connection_removal
 
     def event_bus(self) -> EventBusPort:
         if self._event_bus is None:
@@ -111,7 +110,7 @@ class AppResources:
             for resource in (
                 self._retrieval_runtime.aclose if self._retrieval_runtime else None,
                 self._task_registry.close if self._task_registry else None,
-                self._projection_admin.close if self._projection_admin else None,
+                self._connection_removal.aclose if self._connection_removal else None,
                 # Temporal clients (ingestion gateway and schedule backend) expose
                 # no close; their connections end with the process.
             )

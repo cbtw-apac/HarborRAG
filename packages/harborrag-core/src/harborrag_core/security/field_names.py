@@ -75,6 +75,15 @@ exception is deliberately narrow and applies to ``token`` alone.
 """
 
 
+_CREDENTIAL_LOCATIONS = frozenset({"token_cache_path"})
+"""Exact names that hold where a credential is kept, not the credential itself.
+
+``token_cache_path`` names the file a SharePoint refresh token lives in. Only
+this exact name is exempt: ``token_file`` or ``token_dir`` may still hold or
+point at a value, so they stay sensitive.
+"""
+
+
 _SINGLE_WORD_TOKENS = frozenset(t for t in SENSITIVE_FIELD_TOKENS if "_" not in t)
 
 # Matched as substrings of the name with every separator removed, so ``apikey``,
@@ -107,6 +116,8 @@ def is_sensitive_field_name(value: object) -> bool:
     """
 
     name = canonical_field_name(value)
+    if name in _CREDENTIAL_LOCATIONS:
+        return False
     squashed = name.replace("_", "")
     if any(entry in squashed for entry in _UNSEPARATED_ENTRIES):
         return True

@@ -16,7 +16,7 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_session_factory,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationSessionRow,
 )
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
@@ -42,21 +42,21 @@ def _message(message_id: str) -> ConversationMessage:
 
 
 async def _seed(repo: SqlConversationMemoryRepository, sessions: SessionFactory) -> None:
-    """Three chat sessions and one agent session, with fixed activity stamps.
+    """Four chat sessions with fixed activity stamps.
 
     ``updated_at`` is stamped explicitly rather than left to the append clock
     so ordering and paging assertions cannot tie or flake.
     """
 
     plan = (
-        ("chat-a", "chat", 1, 1),
-        ("chat-b", "chat", 2, 3),
-        ("chat-c", "chat", 3, 0),
-        ("agent-a", "agent", 4, 2),
+        ("chat-a", 1, 1),
+        ("chat-b", 2, 3),
+        ("chat-c", 3, 0),
+        ("chat-d", 4, 2),
     )
-    for session_id, kind, offset, messages in plan:
+    for session_id, offset, messages in plan:
         identity = _identity(session_id)
-        await repo.create(identity, kind=kind, title=f"title {session_id}")  # type: ignore[arg-type]
+        await repo.create(identity, title=f"title {session_id}")
         for index in range(messages):
             await repo.append_messages(identity, (_message(f"{session_id}-{index}"),))
         async with sessions.begin() as session:
@@ -80,19 +80,15 @@ async def test_conversations_list_newest_first_with_message_counts(tmp_path: Pat
 
         page = await repo.list_conversations(tenant_id="ACME", user_id="user-1")
         assert [row.session_id for row in page.conversations] == [
-            "agent-a",
+            "chat-d",
             "chat-c",
             "chat-b",
             "chat-a",
         ]
         assert [row.message_count for row in page.conversations] == [2, 0, 3, 1]
-        assert [row.title for row in page.conversations][0] == "title agent-a"
+        assert [row.title for row in page.conversations][0] == "title chat-d"
         assert page.next_cursor is None
 
-        chats = await repo.list_conversations(tenant_id="ACME", user_id="user-1", kind="chat")
-        assert [row.session_id for row in chats.conversations] == ["chat-c", "chat-b", "chat-a"]
-        agents = await repo.list_conversations(tenant_id="ACME", user_id="user-1", kind="agent")
-        assert [row.kind for row in agents.conversations] == ["agent"]
         # Another tenant with the same user id sees nothing.
         other = await repo.list_conversations(tenant_id="OTHER", user_id="user-1")
         assert other.conversations == ()
@@ -121,7 +117,7 @@ async def test_conversation_paging_walks_the_whole_listing_once(tmp_path: Path) 
             cursor = page.next_cursor
             if cursor is None:
                 break
-        assert seen == ["agent-a", "chat-c", "chat-b", "chat-a"]
+        assert seen == ["chat-d", "chat-c", "chat-b", "chat-a"]
         assert cursor is None
 
         # Limits are clamped to 1..100, never rejected.

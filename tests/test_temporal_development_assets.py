@@ -132,9 +132,7 @@ def test_server_only_temporal_does_not_interpolate_worker_encryption_secret() ->
     assert "require_control_plane_encryption_key" not in temporal_function
     assert "require_control_plane_encryption_key" in worker_function
     assert "require_control_plane_encryption_key" in api_function
-    assert up_function.index("require_control_plane_encryption_key") < up_function.index(
-        "start_data"
-    )
+    assert up_function.index("bootstrap_environment") < up_function.index("start_data")
 
 
 def test_temporal_startup_and_dependents_require_cluster_health() -> None:

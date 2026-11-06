@@ -1,4 +1,4 @@
-"""Checked execution shared by MCP and agent consumers."""
+"""Checked tool execution for MCP."""
 
 from __future__ import annotations
 

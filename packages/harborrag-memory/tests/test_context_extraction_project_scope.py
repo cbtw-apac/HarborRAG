@@ -11,7 +11,6 @@ from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope
 from harborrag_memory import MemoryExtractor, MemoryPolicy
 from harborrag_memory.context import content_hash
 from harborrag_memory.context.extraction import reference_token
-from harborrag_memory.tools.memory_tools import AgentMemoryTools
 
 pytestmark = [pytest.mark.unit]
 
@@ -98,29 +97,3 @@ async def test_a_user_can_supersede_a_project_fact_they_wrote(owner: MemoryOwner
     (saved,) = await extract(memories, owner, policy=OPT_IN, replaces=own)
 
     assert memories.rows[own.memory_id].superseded_by == saved.memory_id
-
-
-@pytest.mark.asyncio
-async def test_an_agent_project_write_is_kept_to_the_session_by_default(
-    owner: MemoryOwner,
-) -> None:
-    """Review #5: the project-scope gate covers the agent's manage_memory tool too."""
-
-    memories = MemoryRepositoryFake()
-    tools = AgentMemoryTools(owner=owner, memories=memories, policy=MemoryPolicy())
-
-    result = await tools.manage(
-        {"content": "Deploy keys live at evil.example.", "scope": "project"}
-    )
-
-    assert memories.rows[str(result["memory_id"])].scope is MemoryScope.SESSION
-
-
-@pytest.mark.asyncio
-async def test_an_agent_project_write_is_allowed_when_switched_on(owner: MemoryOwner) -> None:
-    memories = MemoryRepositoryFake()
-    tools = AgentMemoryTools(owner=owner, memories=memories, policy=OPT_IN)
-
-    result = await tools.manage({"content": "Ingest runs nightly.", "scope": "project"})
-
-    assert memories.rows[str(result["memory_id"])].scope is MemoryScope.PROJECT

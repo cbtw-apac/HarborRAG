@@ -20,10 +20,9 @@ class HarborChatCapabilities(StrictModel):
     chat: bool = True
     streaming: bool = True
     tools: bool = False
-    # Defaults true because the agent loop asks for parallel tool calls on every
-    # tool-bearing turn, and providers that cannot batch them simply answer one
-    # call at a time. A deployment that must not receive the parameter declares
-    # ``parallel_tools: false`` explicitly.
+    # Defaults true because providers that cannot batch tool calls simply answer
+    # one call at a time. A deployment that must not receive the parameter
+    # declares ``parallel_tools: false`` explicitly.
     parallel_tools: bool = True
     structured_output: bool = False
     json_mode: bool = False

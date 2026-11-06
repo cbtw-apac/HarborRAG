@@ -11,8 +11,8 @@ from harborrag_engine.tools.budgets import ToolBudget
 class McpToolPolicy(ToolBudget):
     """MCP's view of the shared tool ceilings.
 
-    The limits themselves are transport-neutral and live with the tools, so the
-    agent transport enforces the same ones. This type stays because MCP's
+    The limits themselves are transport-neutral and live with the tools. This
+    type stays because MCP's
     configuration layer resolves per-tenant values into it and because the
     ``MCP ...`` message wording is part of this transport's reported contract --
     but it only overrides the label, so a ceiling added to ``ToolBudget`` is

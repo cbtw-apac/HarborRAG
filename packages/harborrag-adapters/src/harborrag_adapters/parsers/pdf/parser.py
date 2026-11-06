@@ -8,6 +8,7 @@ from time import perf_counter
 from typing import ClassVar
 
 from harborrag_adapters.parsers.common.base import HarborParser
+from harborrag_adapters.parsers.common.limits import PDF_MAX_PAGES
 from harborrag_adapters.parsers.common.models import ParserAttempt, ParseRequest, ParseResult
 from harborrag_adapters.parsers.common.utils import (
     get_parser_logger,
@@ -21,6 +22,7 @@ from harborrag_adapters.parsers.pdf.config import (
     PDFRouterConfig,
 )
 from harborrag_adapters.parsers.pdf.normalization import PDFNormalizer
+from harborrag_adapters.parsers.pdf.page_limit import PdfPageLimit
 from harborrag_adapters.parsers.pdf.parser_failures import (
     TYPED_ENGINE_FAILURES,
     raise_pdf_failure,
@@ -47,6 +49,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
         engines: Sequence[HarborPDFEngine] | None = None,
         backends: Sequence[HarborPDFEngine] | None = None,
         min_content_chars: int = 20,
+        max_pages: int | None = PDF_MAX_PAGES,
         profile: PDFParserProfile | str = PDFParserProfile.LITEPARSE,
         router: PDFEngineRouter | None = None,
         router_config: PDFRouterConfig | None = None,
@@ -65,6 +68,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
             )
         engine_list = list(configured_engines)
         self.min_content_chars = min_content_chars
+        self.page_limit = PdfPageLimit(max_pages)
         self._registry = PDFEngineRegistry(tuple(engine_list))
         if router is None:
             resolved_router_config = router_config or self._router_config(
@@ -106,6 +110,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 warnings=[],
             )
         self._guard_request_size(request)
+        self._guard_page_count(request)
 
         for engine in self._router.resolve_candidates(request):
             started = perf_counter()
@@ -236,6 +241,7 @@ class HarborPDFParser(PDFParserSupportMixin, HarborParser):
                 warnings=[],
             )
         self._guard_size(input)
+        self.page_limit.check(input)
 
         for engine in self._router.resolve_candidates(request):
             parser_logger.debug(

@@ -31,7 +31,7 @@ class ToolSpec:
 
 
 class BaseTool(ABC):
-    """Contract for a service-level tool shared by agent and MCP transports."""
+    """Contract for a service-level tool served over MCP."""
 
     spec: ToolSpec
 

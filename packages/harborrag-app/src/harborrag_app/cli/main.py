@@ -12,7 +12,7 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import auth, chat, doctor, ingest, init, retrieve, topology
+from harborrag_app.cli.commands import auth, chat, doctor, ingest, init, retrieve, source, topology
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
@@ -93,6 +93,12 @@ app.add_typer(
     rich_help_panel="Ingestion",
 )
 app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
+app.add_typer(
+    source.app,
+    name="source",
+    help="Manage connections (source list|show|add|update|test|sync|remove).",
+    rich_help_panel="Ingestion",
+)
 app.add_typer(
     auth.app,
     name="auth",

@@ -35,7 +35,6 @@ def test_cli_imports_without_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert module is not None
 
 
-@pytest.mark.smoke
 def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
     """Temporal submission must not initialize LiteLLM or perform model-network I/O."""
 
@@ -58,7 +57,6 @@ def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.smoke
 def test_cli_import_does_not_load_storage_clients() -> None:
     """`harborrag --help` must not pay for the storage client libraries."""
 

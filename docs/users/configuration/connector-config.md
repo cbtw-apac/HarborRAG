@@ -1,5 +1,12 @@
 # Connector Configuration
 
+> From 2.0.0, connections live in the control database and are managed
+> through the API ([Connections](../connections.md)). The service reads this
+> file once, at the first start of an install, and imports each entry
+> ([Upgrading](../upgrading.md)). Later edits to the file do not reach the
+> service. `harborrag init`, `harborrag doctor` and the Python loader below
+> still read it.
+
 The runtime loader reads versioned YAML containing named connector instances. Start from [`config/connectors.example.yaml`](../../../config/connectors.example.yaml).
 
 ## Supported providers
@@ -27,7 +34,7 @@ connectors:
       allowed_extensions: [md, txt, pdf]
       include_hidden: false
       follow_symlinks: false
-      max_file_size_bytes: 104857600
+      max_file_size_bytes: 20971520
 ```
 
 Each key under `connectors` is an application-level name and the public
@@ -107,6 +114,24 @@ and `exclude_globs` remove candidates from that set. Filters affect future
 discovery; removing an already published document still follows the normal
 source reconciliation and cleanup lifecycle.
 
+### Filter Jira and Confluence attachments by type
+
+```yaml
+connectors:
+  jira-main:
+    provider: jira
+    settings:
+      include_attachments: true
+      allowed_extensions: [pdf, docx]
+      excluded_extensions: [exe]
+```
+
+The filters apply to attachments only; issues and pages are always read. An
+excluded type wins over an allowed one. Left out, `allowed_extensions` is the
+shared list of document and image types and `max_attachment_size_bytes` is
+20 MiB; an empty `allowed_extensions` keeps every type. The type comes from the attachment's file name, or from its
+media type when the name has none.
+
 ### Include SharePoint pages
 
 By default the SharePoint connector reads only files from the site's document
@@ -166,7 +191,9 @@ that is set, and it is checked before its content is downloaded:
   drive root. Folders that cannot contain an allowed path are not listed at
   all. Site pages are not in a drive and are not filtered by path.
 
-`allowed_extensions` defaults to `docx, pdf, pptx, xlsx, txt, md`. Every entry
+`allowed_extensions` defaults to the shared list `md, markdown, txt, pdf, docx,
+doc, epub, odt, pptx, csv, xlsx, png, jpg, jpeg, html`, and `max_file_size_bytes`
+to 20 MiB. Every entry
 must be readable by a HarborRAG parser, and `max_file_size_bytes` must be
 greater than 0. Invalid settings (a malformed path or URL, an unknown extension,
 an empty scope list) fail when the connector is built.
@@ -243,8 +270,12 @@ predates this command.
 
 The command prints a code to enter at `https://microsoft.com/devicelogin`,
 then stores the refresh token in
-`~/.harborrag/sharepoint/token-<tenant>-<client>.json` (override with
-`token_cache_path` on both the connection and `--token-cache-path`). Each run
+`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the
+folder of the HarborRAG tenant the connection belongs to, so two tenants never
+share a sign-in. The tenant comes from `--harborrag-tenant`, else
+`HARBORRAG_INGESTION_TENANT_ID` (which the worker image sets), else `DEFAULT`.
+Override the whole path with `token_cache_path` on both the connection and
+`--token-cache-path`. Each run
 redeems it and stores the rotated token. If the token expires or access is
 revoked, the run fails with an authentication error asking you to sign in
 again. `--logout` deletes the stored sign-in. The broad-permission check above

@@ -21,6 +21,7 @@ from harborrag_adapters.connectors.policies.http import (
     retry_delay_seconds,
     safe_response_error_detail,
 )
+from harborrag_adapters.connectors.policies.network import guarded_session
 
 from .config import GitHubRepositoryConfig
 
@@ -51,7 +52,7 @@ class _RequestsGitHubClient:
 
     def __init__(self, config: GitHubRepositoryConfig) -> None:
         self.config = config
-        self.session = requests.Session()
+        self.session = guarded_session()
         self.session.headers.update(
             {
                 "Accept": "application/vnd.github+json",
@@ -122,7 +123,9 @@ class _RequestsGitHubClient:
                 continue
 
             if response.status_code in (401,):
-                raise AuthenticationError(safe_response_error_detail(response))
+                raise AuthenticationError(
+                    safe_response_error_detail(response), status_code=response.status_code
+                )
             if self._rate_limited(response):
                 if attempt == self.config.max_retries:
                     raise RateLimitError(safe_response_error_detail(response))
@@ -132,12 +135,15 @@ class _RequestsGitHubClient:
                 self._sleep(attempt, last_error, retry_headers)
                 continue
             if response.status_code == 403:
-                raise AuthenticationError(safe_response_error_detail(response))
+                raise AuthenticationError(
+                    safe_response_error_detail(response), status_code=response.status_code
+                )
             if response.status_code not in _RETRYABLE_STATUS or attempt == self.config.max_retries:
                 if response.status_code >= 400:
                     raise FetchError(
                         f"GitHub request failed with HTTP "
-                        f"{response.status_code}: {safe_response_error_detail(response)}"
+                        f"{response.status_code}: {safe_response_error_detail(response)}",
+                        status_code=response.status_code,
                     )
                 return response
 

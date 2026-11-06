@@ -14,7 +14,6 @@ from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_core.ports.conversation import (
     ConversationHistoryRepository,
     ConversationIdentity,
-    ConversationKind,
     ConversationMessage,
     ConversationPage,
     ConversationTurn,
@@ -54,22 +53,11 @@ class DatabaseConversationMemory:
     ) -> tuple[ConversationTurn, ...]:
         return await self.repository.recent(identity, limit=limit)
 
-    async def create(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind = "chat",
-        title: str | None = None,
-    ) -> None:
-        await self.repository.create(identity, kind=kind, title=title)
+    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
+        await self.repository.create(identity, title=title)
 
-    async def exists(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind | None = None,
-    ) -> bool:
-        return await self.repository.exists(identity, kind=kind)
+    async def exists(self, identity: ConversationIdentity) -> bool:
+        return await self.repository.exists(identity)
 
     async def append(
         self,
@@ -123,14 +111,12 @@ class DatabaseConversationMemory:
         *,
         tenant_id: str,
         user_id: str,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> ConversationPage:
         return await self.repository.list_conversations(
             tenant_id=tenant_id,
             user_id=user_id,
-            kind=kind,
             cursor=cursor,
             limit=limit,
         )

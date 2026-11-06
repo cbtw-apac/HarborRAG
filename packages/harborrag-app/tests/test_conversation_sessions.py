@@ -39,25 +39,6 @@ async def test_session_creation_shares_default_user_but_preserves_explicit_scope
 
 
 @pytest.mark.asyncio
-async def test_session_kind_remains_an_optional_metadata_filter() -> None:
-    sessions = ConversationSessionService(InMemoryConversationMemory())
-
-    chat = str(
-        (await sessions.create(tenant_id="ACME", principal_id="r", kind="chat")).data["session_id"]
-    )
-    agent = str(
-        (await sessions.create(tenant_id="ACME", principal_id="r", kind="agent")).data["session_id"]
-    )
-
-    assert await sessions.exists(chat, tenant_id="ACME", principal_id="r", kind="chat")
-    assert not await sessions.exists(chat, tenant_id="ACME", principal_id="r", kind="agent")
-    assert await sessions.exists(agent, tenant_id="ACME", principal_id="r", kind="agent")
-    assert not await sessions.exists(agent, tenant_id="ACME", principal_id="r", kind="chat")
-    # Without a kind, existence is surface-agnostic.
-    assert await sessions.exists(agent, tenant_id="ACME", principal_id="r")
-
-
-@pytest.mark.asyncio
 async def test_a_session_can_be_named_at_creation() -> None:
     """A client may name the conversation instead of creating then renaming."""
 

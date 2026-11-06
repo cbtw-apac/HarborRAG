@@ -91,7 +91,6 @@ def owner(**overrides: Any) -> MemoryOwner:
         "user_id": "user-1",
         "principal_id": "principal-1",
         "session_id": "session-1",
-        "run_id": "run-1",
     }
     fields.update(overrides)
     return MemoryOwner(**fields)

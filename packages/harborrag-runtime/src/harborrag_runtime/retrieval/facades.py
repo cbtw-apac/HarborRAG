@@ -119,7 +119,7 @@ class GraphFacade:
 
 
 class KnowledgeFacade:
-    """Canonical evidence and semantic reads used by MCP and agents."""
+    """Canonical evidence and semantic reads used by MCP and the SDK."""
 
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner

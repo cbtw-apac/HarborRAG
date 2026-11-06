@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.connectors.sharepoint import login
+from harborrag_adapters.connectors.sharepoint.config import SharePointSiteConfig
 
 _IDS = ("MICROSOFT_TENANT_ID", "MICROSOFT_CLIENT_ID")
 
@@ -15,7 +16,12 @@ _IDS = ("MICROSOFT_TENANT_ID", "MICROSOFT_CLIENT_ID")
 def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """A checkout-like CWD with HOME inside it, so the default token path is predictable."""
 
-    for name in (*_IDS, "MICROSOFT_CLIENT_SECRET", "CONNECTOR_ENV_FILE"):
+    for name in (
+        *_IDS,
+        "MICROSOFT_CLIENT_SECRET",
+        "CONNECTOR_ENV_FILE",
+        "HARBORRAG_INGESTION_TENANT_ID",
+    ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     monkeypatch.chdir(tmp_path)
@@ -30,7 +36,7 @@ def _write(root: Path, relative: str, body: str) -> Path:
 
 
 def _token_path(root: Path, tenant: str, client: str) -> Path:
-    return root / "home" / ".harborrag" / "sharepoint" / f"token-{tenant}-{client}.json"
+    return root / "home" / ".harborrag" / "sharepoint" / "DEFAULT" / f"token-{tenant}-{client}.json"
 
 
 def test_ids_are_read_from_the_connector_env_file(workspace: Path, capsys) -> None:
@@ -98,3 +104,28 @@ def test_missing_ids_name_the_file_that_was_checked(workspace: Path, capsys) -> 
     out = capsys.readouterr().out
     assert "--tenant-id and --client-id" in out
     assert "env/.env.connector" in out
+
+
+def test_sign_in_writes_where_the_worker_of_that_tenant_reads(workspace: Path, capsys) -> None:
+    worker = SharePointSiteConfig(
+        site_url="https://ex.sharepoint.com/sites/s",
+        auth_mode="device_code",
+        tenant_id="tid",
+        client_id="cid",
+        harborrag_tenant_id="acme",
+    )
+
+    code = login.main(
+        ["--tenant-id", "tid", "--client-id", "cid", "--harborrag-tenant", "acme", "--logout"]
+    )
+
+    assert code == 0
+    assert worker.token_cache_path in capsys.readouterr().out
+    assert "/acme/" in worker.token_cache_path
+
+
+def test_sign_in_refuses_an_id_that_would_leave_the_cache_folder(workspace: Path, capsys) -> None:
+    code = login.main(["--tenant-id", "../../etc", "--client-id", "cid", "--logout"])
+
+    assert code == 2
+    assert "tenant_id must be a plain id" in capsys.readouterr().out

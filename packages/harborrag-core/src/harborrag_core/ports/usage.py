@@ -16,13 +16,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Literal, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 from harborrag_core.base import utc_now
-
-UsageSurface = Literal["chat", "agent"]
-"""Which completion surface issued the model call."""
 
 
 def new_usage_id() -> str:
@@ -38,7 +35,6 @@ class ModelUsageRecord:
     tenant_id: str
     user_id: str
     principal_id: str
-    surface: UsageSurface
     logical_model: str
     provider: str
     provider_model: str
@@ -46,7 +42,6 @@ class ModelUsageRecord:
     completion_tokens: int
     total_tokens: int
     session_id: str | None = None
-    run_id: str | None = None
     estimated_cost_usd: float | None = None
     finish_reason: str | None = None
     created_at: datetime = field(default_factory=utc_now)
@@ -105,6 +100,5 @@ __all__ = [
     "ModelUsageRecord",
     "ModelUsageRepository",
     "ModelUsageTotals",
-    "UsageSurface",
     "new_usage_id",
 ]

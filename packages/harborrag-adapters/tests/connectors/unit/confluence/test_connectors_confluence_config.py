@@ -6,9 +6,11 @@ import pytest
 from confluence_test_helpers import CLOUD_BASE, DC_BASE, cloud_config, dc_config
 
 from harborrag_adapters.connectors.confluence import (
+    ConfluenceConnector,
     ConfluenceDeploymentType,
     ConfluenceSpaceConfig,
 )
+from harborrag_adapters.connectors.file_filters import ExtensionFilter
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
@@ -51,3 +53,13 @@ def test_config_rejects_out_of_range_requests_per_minute():
 def test_config_rejects_out_of_range_page_size():
     with pytest.raises(ValueError, match="page_size must be between"):
         dc_config(page_size=0)
+
+
+def test_attachment_extensions_reach_both_attachment_paths():
+    connector = ConfluenceConnector(
+        cloud_config(allowed_extensions=["pdf"], excluded_extensions=[".EXE"])
+    )
+    expected = ExtensionFilter(frozenset({".pdf"}), frozenset({".exe"}))
+
+    assert connector._attachments.extension_filter == expected
+    assert connector._descriptors._attachments._policy.extensions == expected

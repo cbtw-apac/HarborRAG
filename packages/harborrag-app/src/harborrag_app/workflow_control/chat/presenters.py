@@ -194,7 +194,7 @@ def chat_response_data(
     """
 
     return {
-        "id": response.id,
+        "completion_id": response.id,
         "created": response.created,
         "model": response.logical_model,
         "provider": response.provider,

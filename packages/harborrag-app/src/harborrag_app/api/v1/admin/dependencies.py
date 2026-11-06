@@ -1,29 +1,30 @@
-"""Narrow application-service dependency for projection administration."""
+"""Dependencies shared by the ``/v1/admin`` routes."""
 
 from __future__ import annotations
 
-from typing import Annotated, Protocol, cast
+from typing import Annotated, Any, cast
 
 from fastapi import Depends, Request
 
-
-class ProjectionAdminService(Protocol):
-    async def projection_inventory(self, tenant: str) -> dict[str, object]: ...
-
-    async def delete_projections(
-        self,
-        tenant: str,
-        *,
-        confirmation: str,
-        stores: frozenset[str],
-    ) -> dict[str, object]: ...
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.principal import Principal
+from harborrag_app.api.schemas import Error
+from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 
 
-def projection_admin_service(request: Request) -> ProjectionAdminService:
-    return cast(ProjectionAdminService, request.app.state.app_service)
+def _administration(request: Request) -> ConnectionAdministration:
+    """The app service the lifespan composed."""
+    return cast(ConnectionAdministration, request.app.state.app_service)
 
 
-ProjectionAdminServiceDependency = Annotated[
-    ProjectionAdminService,
-    Depends(projection_admin_service),
-]
+Administration = Annotated[ConnectionAdministration, Depends(_administration)]
+Editor = Annotated[Principal, Depends(require_role("editor"))]
+Admin = Annotated[Principal, Depends(require_role("admin"))]
+
+
+def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
+    """OpenAPI entries for error responses on the shared ``Error`` schema."""
+    return {code: {"model": Error} for code in codes}
+
+
+__all__ = ["Admin", "Administration", "Editor", "error_responses"]

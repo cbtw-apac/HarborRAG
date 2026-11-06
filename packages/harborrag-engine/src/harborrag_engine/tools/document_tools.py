@@ -1,4 +1,4 @@
-"""Document discovery shared by MCP and agent clients."""
+"""Document discovery for MCP clients."""
 
 from __future__ import annotations
 

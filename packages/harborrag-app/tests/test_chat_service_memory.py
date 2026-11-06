@@ -58,7 +58,7 @@ async def test_chat_completion_returns_the_answer_when_memory_append_fails(
 
     memory = _BrokenAppendMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
 
     # The append lives in the memory module, so that is the logger to arm.
@@ -85,9 +85,7 @@ async def test_chat_completion_returns_the_answer_when_memory_append_fails(
 @pytest.mark.asyncio
 async def test_chat_completion_reports_memory_persisted_on_success() -> None:
     memory = InMemoryConversationMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
 
     response = await service.complete(
@@ -99,25 +97,6 @@ async def test_chat_completion_reports_memory_persisted_on_success() -> None:
 
     assert response.ok is True
     assert response.data["memory_persisted"] is True
-
-
-@pytest.mark.asyncio
-async def test_chat_completion_can_continue_an_agent_conversation() -> None:
-    memory = InMemoryConversationMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "agent-session", "reader-1"), kind="agent"
-    )
-    chat = FakeChatFacade()
-    service = _chat_service(FakeRuntime(chat), memory)
-
-    response = await service.complete(
-        "Hello",
-        tenant_id="ACME",
-        principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="agent-session", user_id="reader-1"),
-    )
-    assert response.ok
-    assert len(chat.requests) == 1
 
 
 @pytest.mark.asyncio
@@ -136,9 +115,7 @@ async def test_concurrent_completions_on_one_session_are_serialized() -> None:
 
     chat = _SlowChat()
     memory = InMemoryConversationMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     service = _chat_service(FakeRuntime(chat), memory)
     options = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 
@@ -173,7 +150,7 @@ async def test_chat_completion_reports_memory_lost_when_only_the_question_fails(
 
     memory = _BrokenQuestionAppendMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
 
     response = await service.complete(
@@ -196,9 +173,7 @@ async def test_chat_stream_warns_when_only_the_question_append_fails() -> None:
     """The streaming surface reports the same half-written turn as a warning."""
 
     memory = _BrokenQuestionAppendMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     service = _chat_service(FakeRuntime(FakeChatFacade()), memory)
 
     events = [

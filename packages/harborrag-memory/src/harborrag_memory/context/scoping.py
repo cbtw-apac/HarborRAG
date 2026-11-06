@@ -34,7 +34,6 @@ def scope_query_owner(owner: MemoryOwner, scope: MemoryScope) -> MemoryOwner | N
         project_id=values.get("project_id"),
         user_id=values.get("user_id"),
         session_id=values.get("session_id"),
-        run_id=values.get("run_id"),
     )
 
 

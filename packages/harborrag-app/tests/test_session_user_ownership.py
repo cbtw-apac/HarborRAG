@@ -11,19 +11,14 @@ can catch.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 from chat_service_fixtures import (
     FakeChatFacade,
     FakeRetrievalFacade,
     FakeRuntime,
-    fake_runtime_config,
 )
-from test_agent_service import _Chat
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.agent import AgentExecutionOptions
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
@@ -80,29 +75,6 @@ async def test_another_user_on_the_same_credential_does_not_see_that_session() -
     assert not await service.chat_session_exists(
         session_id, tenant_id=TENANT, principal_id=PRINCIPAL, user_id="bob@example.com"
     )
-
-
-@pytest.mark.asyncio
-async def test_an_agent_session_created_for_a_user_is_found_on_that_user_s_run() -> None:
-    service = _service(SimpleNamespace(chat=_Chat(), config=fake_runtime_config()))
-
-    created = await service.create_agent_session(
-        tenant_id=TENANT,
-        principal_id=PRINCIPAL,
-        user_id=USER,
-    )
-    session_id = str(created.data["session_id"])
-
-    assert await service.agent_session_exists(
-        session_id, tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER
-    )
-    result = await service.agent_completion(
-        "Hello",
-        tenant_id=TENANT,
-        principal_id=PRINCIPAL,
-        options=AgentExecutionOptions(session_id=session_id, user_id=USER),
-    )
-    assert result.ok is True
 
 
 @pytest.mark.asyncio

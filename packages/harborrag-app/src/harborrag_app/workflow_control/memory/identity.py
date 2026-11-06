@@ -11,7 +11,7 @@ from harborrag_core.ports.memory import MemoryOwner
 
 @dataclass(frozen=True, slots=True)
 class MemoryIdentity:
-    """Who a chat/agent turn is remembered for.
+    """Who a chat turn is remembered for.
 
     ``principal_id`` is the authenticated subject that owns the session;
     ``user_id`` is the identity user-scoped memory is keyed by; ``project_id``

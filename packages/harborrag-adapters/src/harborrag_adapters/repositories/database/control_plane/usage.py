@@ -29,8 +29,6 @@ def _row(usage: ModelUsageRecord) -> ModelUsageRow:
         user_id=usage.user_id,
         principal_id=usage.principal_id,
         session_id=usage.session_id,
-        run_id=usage.run_id,
-        surface=usage.surface,
         logical_model=usage.logical_model,
         provider=usage.provider,
         provider_model=usage.provider_model,
@@ -66,11 +64,10 @@ class SqlModelUsageRepository:
         except Exception as exc:  # noqa: BLE001 - accounting must not fail an answer
             logger.error(
                 "Model usage record failed tenant_id=%s user_id=%s session_id=%s "
-                "surface=%s usage_id=%s error_type=%s",
+                "usage_id=%s error_type=%s",
                 usage.tenant_id,
                 usage.user_id,
                 usage.session_id,
-                usage.surface,
                 usage.id,
                 type(exc).__name__,
             )

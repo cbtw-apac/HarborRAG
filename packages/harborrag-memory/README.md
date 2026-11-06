@@ -1,6 +1,6 @@
 # harborrag-memory
 
-Scope-aware memory shared by chat and agent orchestration in
+Scope-aware memory for chat orchestration in
 [HarborRAG](https://github.com/cbtw-apac/HarborRAG). This package owns the memory facade;
 storage lives in `harborrag-adapters` and the contracts live in `harborrag-core`.
 
@@ -16,15 +16,14 @@ It is a required dependency of `harborrag-runtime`, so any HarborRAG install alr
 pip install harborrag-memory
 ```
 
-## Three tiers, one facade
+## Two tiers, one facade
 
 | Tier | Holds | Lifetime |
 | --- | --- | --- |
 | Short-term | conversation turns | the session |
-| Working | per-run scratch state | the run, bounded by a TTL |
 | Long-term | durable memories in a repository | until deleted |
 
-`MemoryManager` is the single facade chat and agent code imports. Each tier is optional -
+`MemoryManager` is the single facade chat code imports. Each tier is optional -
 pass only the ones you configured, and calling into an unconfigured tier raises
 `MemoryConfigurationError`.
 
@@ -41,7 +40,6 @@ owner = MemoryOwner(
     project_id="handbook",
     principal_id="user-1",
     session_id="session-1",
-    run_id="run-1",
 )
 ```
 
@@ -52,9 +50,8 @@ How much of that owner is load-bearing depends on the memory's `MemoryScope`:
 | `GLOBAL` | none |
 | `TENANT` | `tenant_id` |
 | `PROJECT` | `tenant_id`, `project_id` |
-| `USER` | `tenant_id`, `principal_id` |
-| `SESSION` | `tenant_id`, `principal_id`, `session_id` |
-| `RUN` | every field through `run_id` |
+| `USER` | `tenant_id`, `user_id` |
+| `SESSION` | `tenant_id`, `user_id`, `session_id` |
 
 > **Security rule.** Build the owner from authenticated request context. Never pass
 > user-supplied owner fields through - doing so lets a caller read another tenant's,
@@ -63,31 +60,30 @@ How much of that owner is load-bearing depends on the memory's `MemoryScope`:
 
 ## Worked example
 
+The in-memory store comes from `harborrag-runtime`; any `ConversationRepository` works.
+
 ```python
 import asyncio
 
 from harborrag_memory import (
-    InMemoryWorkingMemoryStore,
+    ConversationIdentity,
+    ConversationTurn,
     MemoryManager,
     MemoryOwner,
-    WorkingMemory,
+    ShortTermMemory,
 )
+from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 async def main() -> None:
-    owner = MemoryOwner(
-        tenant_id="tenant-1",
-        principal_id="user-1",
-        session_id="session-1",
-        run_id="run-1",
-    )
-    memory = MemoryManager(working=WorkingMemory(InMemoryWorkingMemoryStore()))
+    owner = MemoryOwner(tenant_id="tenant-1", principal_id="user-1", session_id="session-1")
+    store = InMemoryConversationMemory()
+    await store.create(ConversationIdentity("tenant-1", "user-1", "session-1", "user-1"))
+    memory = MemoryManager(short_term=ShortTermMemory(store))
 
-    await memory.update(owner, {"step": "retrieval", "candidates": 12})
-    print(await memory.scratch(owner))          # {'step': 'retrieval', 'candidates': 12}
-
-    snapshot = await memory.snapshot(owner)     # recent turns + working state + memories
-    print(snapshot.working_state)
+    await memory.append(owner, ConversationTurn("Who owns ingestion?", "Dana Lee."))
+    snapshot = await memory.snapshot(owner)     # recent turns + recalled memories
+    print(snapshot.recent_turns)
 
 
 asyncio.run(main())
@@ -98,13 +94,12 @@ asyncio.run(main())
 | Tier | Methods |
 | --- | --- |
 | Short-term | `recent(owner, limit=...)`, `append(owner, turn)`, `clear(owner)` |
-| Working | `scratch(owner)`, `update(owner, state, ttl_seconds=...)`, `clear_working(owner)` |
 | Long-term | `save(caller, memory)`, `get(caller, memory_id)`, `search(caller, query)`, `delete(caller, memory_id)` |
 | Combined | `snapshot(owner, query=..., recent_limit=...)` |
 
 ## Per-turn context
 
-`MemoryContextBuilder` assembles everything one chat or agent turn needs from memory into
+`MemoryContextBuilder` assembles everything one chat turn needs from memory into
 one immutable `MemoryContext`: the verbatim window to replay, the rolling session summary
 covering the turns the window dropped, and the standalone query to send to retrieval.
 
@@ -187,13 +182,10 @@ raises `MemoryConfigurationError` at wiring time.
    summary retains its original ownership/provenance fields across credential or
    project-context changes within the same user-owned session.
 6. Token-trim the window to `recent_max_tokens` with LangChain's `trim_messages`
-   (`strategy="last"`, `start_on="human"`), so the window never opens on a tool result
-   separated from the assistant tool call that produced it. The post-summary boundary is
-   walked back to the nearest user turn for the same reason, so a refresh may keep more
-   than `summary_keep_messages` -- and when the whole window belongs to one user turn
-   (an agent turn that is one question followed by a long tool chain) nothing is older
-   than the boundary, so no summary is written and the turn rides on token-trimming
-   alone. A budget too small for one message still keeps the newest message.
+   (`strategy="last"`, `start_on="human"`), so the window never opens on an answer
+   whose question was cut. The post-summary boundary is walked back to the nearest user
+   turn for the same reason, so a refresh may keep more than `summary_keep_messages`. A
+   budget too small for one message still keeps the newest message.
 7. Condense the summary, the window, and the question into one self-contained retrieval
    query, and ask the same call which memory types the question wants. An empty or
    implausibly long rewrite is rejected, and `rewritten` is true only when the model
@@ -392,9 +384,8 @@ is `()` when the failure lands before the first save. Neither ever raises into t
 ## Module ownership
 
 - `tiers/short_term.py` - conversation history facade.
-- `tiers/working.py` - per-run scratch state facade and local store.
 - `tiers/long_term.py` - canonical repository facade for durable memory.
-- `manager.py` - `MemoryManager`, the single facade chat and agent import.
+- `manager.py` - `MemoryManager`, the single facade chat imports.
 - `schemas.py` - stable re-exports of the core-owned memory contracts.
 - `config.py` - `MemoryManagerConfig`, including the default recent-turn limit.
 - `errors.py` - `MemoryError`, `MemoryConfigurationError`, `MemoryScopeError`.

@@ -17,12 +17,12 @@ from harborrag_core.invariants import require
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
-from harborrag_runtime.execution.source_submission import prepare_source_submission
 from harborrag_runtime.ingestion_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
     SourceSubmission,
 )
+from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import (
     IngestionAlreadyCompletedError,
@@ -91,7 +91,7 @@ class IngestionApplicationService(TaskListingMixin):
         *,
         client_provider: ClientProvider,
         task_store_provider: TaskStoreProvider,
-        source_input_builder: SourceInputBuilder = prepare_source_submission,
+        source_input_builder: SourceInputBuilder,
         task_id_factory: TaskIdFactory | None = None,
     ) -> None:
         self._settings = settings
@@ -106,7 +106,7 @@ class IngestionApplicationService(TaskListingMixin):
         *,
         idempotency_key: str | None,
     ) -> dict[str, object]:
-        source = self._build_source(command)
+        source = await self._build_source(command)
         hashed_request = request_hash(command.public_request)
         store = await self._task_store_provider()
         try:
@@ -378,9 +378,14 @@ class IngestionApplicationService(TaskListingMixin):
             "message": "Failed documents accepted for retry",
         }
 
-    def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
+    async def _build_source(self, command: IngestionCreateCommand) -> PreparedSourceSubmission:
+        """Prepare the submission of the connection ``command`` names.
+
+        Raises:
+            HarborValidationError: The connection's settings cannot build its connector.
+        """
         try:
-            source = self._source_input_builder(
+            source = await self._source_input_builder(
                 self._settings,
                 SourceSubmission(
                     task_id=self._task_id_factory(),
@@ -389,6 +394,7 @@ class IngestionApplicationService(TaskListingMixin):
                     connection_id=command.connection_id,
                     source_scope_id=command.source_scope_id,
                     force_reprocess=command.force_reprocess,
+                    query=SourceQuery(updated_after=command.updated_after),
                 ),
             )
         except ConnectorConfigurationError as error:

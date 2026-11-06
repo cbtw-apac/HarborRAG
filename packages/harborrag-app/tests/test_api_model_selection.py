@@ -30,13 +30,7 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
 
 
 def _chat_session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant": tenant})
-    assert response.status_code == 201
-    return str(response.json()["session_id"])
-
-
-def _agent_session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/agent/sessions", json={"tenant": tenant})
+    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
     assert response.status_code == 201
     return str(response.json()["session_id"])
 
@@ -44,7 +38,7 @@ def _agent_session(client: TestClient, tenant: str = "DEFAULT") -> str:
 def _completion(client: TestClient, session_id: str, **extra: object) -> object:
     return client.post(
         "/v1/chat/completions",
-        json={"tenant": "DEFAULT", "session_id": session_id, "prompt": "Hi", **extra},
+        json={"tenant_id": "DEFAULT", "session_id": session_id, "prompt": "Hi", **extra},
     )
 
 
@@ -68,8 +62,8 @@ def test_a_model_the_tenant_catalog_does_not_configure_is_a_422(
 
     assert response.status_code == 422  # type: ignore[attr-defined]
     error = response.json()["error"]  # type: ignore[attr-defined]
-    assert error["code"] == "harbor_validation_error"
-    assert error["details"] == {"field": "model"}
+    assert error["code"] == "validation_error"
+    assert [item["field"] for item in error["details"]] == ["model"]
     # The turn never started, so nothing was spent and nothing remembered.
     assert service.chat_calls == []
 
@@ -115,54 +109,3 @@ def test_a_blank_model_is_rejected_by_the_schema(
     session_id = _chat_session(client)
 
     assert _completion(client, session_id, model="").status_code == 422  # type: ignore[attr-defined]
-
-
-def test_the_agent_surface_bounds_the_model_the_same_way(
-    client: TestClient, service: MockAppService
-) -> None:
-    service.tenant_models["DEFAULT"] = {"tenant-fast"}
-    session_id = _agent_session(client)
-
-    allowed = client.post(
-        "/v1/agent/completions",
-        json={
-            "tenant": "DEFAULT",
-            "session_id": session_id,
-            "prompt": "Hi",
-            "model": "tenant-fast",
-        },
-    )
-    assert allowed.status_code == 200
-    assert service.agent_calls[-1]["model"] == "tenant-fast"
-
-    rejected = client.post(
-        "/v1/agent/completions",
-        json={
-            "tenant": "DEFAULT",
-            "session_id": session_id,
-            "prompt": "Hi",
-            "model": "primary",
-        },
-    )
-    assert rejected.status_code == 422
-    assert rejected.json()["error"]["details"] == {"field": "model"}
-
-
-def test_a_resumed_agent_run_takes_no_model_of_its_own(
-    client: TestClient, service: MockAppService
-) -> None:
-    # A checkpoint is never continued under a different model, so the field is
-    # deliberately absent from the resume contract.
-    session_id = _agent_session(client)
-    started = client.post(
-        "/v1/agent/completions",
-        json={"tenant": "DEFAULT", "session_id": session_id, "prompt": "Hi"},
-    )
-    assert started.status_code == 200
-
-    resumed = client.post(
-        f"/v1/agent/runs/{started.json()['run_id']}/resume",
-        json={"tenant": "DEFAULT", "session_id": session_id, "model": "primary"},
-    )
-
-    assert resumed.status_code == 422

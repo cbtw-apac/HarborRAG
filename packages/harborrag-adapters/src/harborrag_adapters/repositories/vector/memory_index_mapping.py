@@ -42,7 +42,6 @@ _PAYLOAD_INDEXES = (
     "user_id",
     "project_id",
     "session_id",
-    "run_id",
 )
 
 
@@ -84,7 +83,6 @@ def memory_payload(memory: Memory) -> dict[str, Any]:
         "user_id": owner.user_id,
         "project_id": owner.project_id,
         "session_id": owner.session_id,
-        "run_id": owner.run_id,
         "importance": memory.importance,
         "valid_from": _instant(memory.valid_from),
         "invalid_at": _instant(memory.invalid_at),
@@ -101,7 +99,7 @@ def scope_filter(scope: MemoryScope, query: MemoryQuery) -> VectorFilter | None:
     """Filter selecting exactly the memories at ``scope`` visible to the caller.
 
     Returns ``None`` when the caller lacks a field the scope requires (for
-    example searching without a ``run_id``): such a caller can never see a
+    example searching without a ``session_id``): such a caller can never see a
     memory at that scope, so the scope is skipped rather than searched with a
     weaker predicate. ``tenant_id`` is always asserted, even though each
     tenant has its own physical collection and even for ``GLOBAL`` memories,

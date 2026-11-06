@@ -15,14 +15,12 @@ from harborrag_core.ports.memory import (
     visible_to,
 )
 from harborrag_memory import (
-    InMemoryWorkingMemoryStore,
     LongTermMemory,
     MemoryConfigurationError,
     MemoryManager,
     MemoryManagerConfig,
     MemoryScopeError,
     ShortTermMemory,
-    WorkingMemory,
 )
 
 
@@ -82,7 +80,6 @@ def owner() -> MemoryOwner:
         user_id="user-1",
         principal_id="user-1",
         session_id="session-1",
-        run_id="run-1",
     )
 
 
@@ -99,8 +96,6 @@ def make_memory(owner: MemoryOwner, *, memory_id: str = "memory-1") -> Memory:
 def test_config_rejects_invalid_bounds() -> None:
     with pytest.raises(ValueError, match="recent_turn_limit"):
         MemoryManagerConfig(recent_turn_limit=0)
-    with pytest.raises(ValueError, match="working_ttl_seconds"):
-        MemoryManagerConfig(working_ttl_seconds=-1)
 
 
 @pytest.mark.asyncio
@@ -117,46 +112,6 @@ async def test_short_term_uses_conversation_turns_and_validates_owner(
 
     with pytest.raises(MemoryScopeError, match="principal_id and session_id"):
         await tier.recent(MemoryOwner(tenant_id="tenant-a"))
-
-
-@pytest.mark.asyncio
-async def test_in_memory_working_store_is_scoped_and_does_not_alias_state(
-    owner: MemoryOwner,
-) -> None:
-    working = WorkingMemory(InMemoryWorkingMemoryStore(), default_ttl_seconds=30)
-    state = {"nested": {"step": 1}}
-    await working.update(owner, state)
-    state["nested"]["step"] = 2
-    fetched = await working.scratch(owner)
-    assert fetched == {"nested": {"step": 1}}
-    fetched["nested"]["step"] = 3
-    assert await working.scratch(owner) == {"nested": {"step": 1}}
-
-    other_run = MemoryOwner(
-        tenant_id=owner.tenant_id,
-        user_id=owner.user_id,
-        principal_id=owner.principal_id,
-        session_id=owner.session_id,
-        run_id="run-2",
-    )
-    assert await working.scratch(other_run) == {}
-    await working.clear(owner)
-    assert await working.scratch(owner) == {}
-
-
-@pytest.mark.asyncio
-async def test_working_memory_requires_run_scope_and_positive_ttl(owner: MemoryOwner) -> None:
-    working = WorkingMemory(InMemoryWorkingMemoryStore())
-    with pytest.raises(MemoryScopeError, match="run_id"):
-        await working.scratch(
-            MemoryOwner(
-                tenant_id=owner.tenant_id,
-                principal_id=owner.principal_id,
-                session_id=owner.session_id,
-            )
-        )
-    with pytest.raises(ValueError, match="TTL"):
-        await working.update(owner, {}, ttl_seconds=0)
 
 
 @pytest.mark.asyncio
@@ -216,7 +171,6 @@ async def test_long_term_rejects_forged_and_global_writes(owner: MemoryOwner) ->
         user_id=owner.user_id,
         principal_id=owner.principal_id,
         session_id=owner.session_id,
-        run_id=owner.run_id,
     )
     with pytest.raises(MemoryScopeError, match="not authorized"):
         await tier.save(attacker, memory)
@@ -240,26 +194,20 @@ async def test_long_term_rejects_forged_and_global_writes(owner: MemoryOwner) ->
 
 
 @pytest.mark.asyncio
-async def test_manager_delegates_and_builds_immutable_snapshot(owner: MemoryOwner) -> None:
+async def test_manager_delegates_and_builds_a_snapshot(owner: MemoryOwner) -> None:
     conversation = ConversationRepositoryFake()
     short = ShortTermMemory(conversation)
-    working = WorkingMemory(InMemoryWorkingMemoryStore())
     repository = MemoryRepositoryFake()
     long = LongTermMemory(repository)
-    manager = MemoryManager(short, working, long)
+    manager = MemoryManager(short, long)
     turn = ConversationTurn(user_content="question", assistant_content="answer")
     memory = make_memory(owner)
     await manager.append(owner, turn)
-    await manager.update(owner, {"nested": {"step": 1}})
     await manager.save(owner, memory)
 
     snapshot = await manager.snapshot(owner, query=MemoryQuery(owner=owner))
     assert snapshot.recent_turns == (turn,)
     assert snapshot.memories == (memory,)
-    with pytest.raises(TypeError):
-        snapshot.working_state["new"] = "value"
-    with pytest.raises(TypeError):
-        snapshot.working_state["nested"]["step"] = 2
 
 
 @pytest.mark.asyncio

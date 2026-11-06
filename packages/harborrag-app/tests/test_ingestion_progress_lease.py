@@ -26,6 +26,7 @@ from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeConnectionRepository,
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
@@ -34,10 +35,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
-    FakeSourceRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.events.in_process import InProcessEventBus
 from harborrag_runtime.memory import InMemoryConversationMemory
@@ -90,14 +89,13 @@ def _build_service(
 ) -> AppService:
     control_plane = ControlPlaneRepositories(
         projects=FakeProjectRepository(),
-        sources=FakeSourceRepository(),
+        connections=FakeConnectionRepository(),
         jobs=FakeJobRepository(),
         activity=FakeActivityRepository(),
         settings=FakeSettingsRepository(WorkspaceSettings(tenant_id="DEFAULT")),
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
-        agent_runs=InMemoryAgentRunRepository(),
         secrets=FakeSecrets(),
         pending_effects=FakePendingEffectRepository(),
         leases=lease_repository,
@@ -157,11 +155,8 @@ async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     assert await process_a.sync_ingestion_progress() == 1  # a becomes leader
 
     # a's lease lapses (crash / restart / its own clock rolling forward past
-    # ttl). Modeled by backdating the *existing* row's expiry, not by
-    # deleting it: SqlLeaseRepository.try_acquire returns False outright for
-    # an unseeded/unknown lease name (the row is seeded once, by migration,
-    # and never removed), so clearing the dict here would prove failover
-    # from a state production never reaches -- deterministic, no sleep.
+    # ttl). Modeled by backdating the existing row's expiry: lease rows are
+    # never removed, so this is the state production reaches.
     holder, _ = lease_repository.leases[LEASE_NAME]
     lease_repository.leases[LEASE_NAME] = (holder, utc_now() - timedelta(seconds=1))
 

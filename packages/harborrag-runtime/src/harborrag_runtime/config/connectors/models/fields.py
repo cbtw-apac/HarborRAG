@@ -1,0 +1,115 @@
+"""Field types shared by the source-type models.
+
+Handles:
+- ``Secret``: a write-only credential that is a value or a secret reference
+- ``HttpUrl``, ``HttpsUrl`` and ``Email``: string fields with a published JSON Schema format
+- widget markers that turn into ``ui`` hints for the connection form
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Annotated, Any, Literal, get_args, get_origin
+from urllib.parse import urlparse
+
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic.fields import FieldInfo
+
+Widget = Literal["text", "secret", "select", "textarea", "path", "list", "toggle", "number"]
+
+WIDGET_MARKER = "x-widget"
+_HTTP_URL = re.compile(r"^https?://[^\s/]+\S*$")
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+$")
+
+
+class StrictModel(BaseModel):
+    """Base model for credentials, config and tuning: unknown fields are errors."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+
+class SecretReference(BaseModel):
+    """A stored or external secret pointer; extra keys carry the stored status."""
+
+    model_config = ConfigDict(extra="allow")
+
+    secret_ref: str = Field(min_length=1)
+
+
+class SecretMarker:
+    """Annotation metadata that flags a field as a write-only secret."""
+
+
+def _require_email(value: str) -> str:
+    """Accept ``local@domain``; self-hosted sites often use internal domains."""
+    if not _EMAIL.match(value):
+        raise ValueError("must be an email address")
+    return value
+
+
+def _require_http_url(value: str) -> str:
+    """Accept only an absolute http(s) URL with no embedded user or password.
+
+    A user or password in the URL would be stored as plain config and read back
+    on every GET, outside the secret store.
+    """
+    if not _HTTP_URL.match(value):
+        raise ValueError("must be an absolute http(s) URL")
+    parsed = urlparse(value)
+    if parsed.username is not None or parsed.password is not None:
+        raise ValueError("must not carry a user or password; send the token as a credential")
+    return value.rstrip("/")
+
+
+def _require_https_url(value: str) -> str:
+    """Accept only an ``https://`` URL with a host and no embedded user or password."""
+    parsed = urlparse(value)
+    if (
+        parsed.scheme.lower() != "https"
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+    ):
+        raise ValueError("must be an https:// URL without a user or password in it")
+    return value.rstrip("/")
+
+
+Secret = Annotated[
+    str | SecretReference,
+    SecretMarker(),
+    WithJsonSchema({"type": "string", "writeOnly": True}),
+]
+HttpUrl = Annotated[
+    str,
+    AfterValidator(_require_http_url),
+    WithJsonSchema({"type": "string", "format": "uri"}),
+]
+HttpsUrl = Annotated[
+    str,
+    AfterValidator(_require_https_url),
+    WithJsonSchema({"type": "string", "format": "uri", "pattern": "^https://"}),
+]
+Email = Annotated[
+    str,
+    AfterValidator(_require_email),
+    WithJsonSchema({"type": "string", "format": "email"}),
+]
+
+
+def widget(kind: Widget, **extra: Any) -> dict[str, Any]:
+    """Return ``json_schema_extra`` that pins the form widget of a field."""
+    return {WIDGET_MARKER: kind, **extra}
+
+
+def is_secret(field: FieldInfo) -> bool:
+    """True when ``field`` was declared with the ``Secret`` type, optional or not."""
+    if any(isinstance(item, SecretMarker) for item in field.metadata):
+        return True
+    return _carries_marker(field.annotation)
+
+
+def _carries_marker(annotation: Any) -> bool:
+    """Search ``annotation`` and its union members for ``SecretMarker`` metadata."""
+    if get_origin(annotation) is Annotated:
+        return any(isinstance(item, SecretMarker) for item in annotation.__metadata__)
+    return any(_carries_marker(member) for member in get_args(annotation))

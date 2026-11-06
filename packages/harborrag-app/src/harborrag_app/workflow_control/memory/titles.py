@@ -14,7 +14,6 @@ async def conversation_title(
     identity: ConversationIdentity,
     *,
     prompt: str | None = None,
-    run_id: str | None = None,
 ) -> str | None:
     """Optionally initialize the title, then return its current stored value.
 
@@ -24,18 +23,6 @@ async def conversation_title(
     """
 
     try:
-        if run_id is not None:
-            messages = await repository.recent_messages(identity, limit=2)
-            if (
-                len(messages) != 2
-                or messages[0].role != "user"
-                or messages[-1].role != "assistant"
-                or messages[-1].run_id != run_id
-                or messages[-1].partial
-            ):
-                prompt = None
-            else:
-                prompt = messages[0].content
         if prompt is not None:
             title = " ".join(prompt.split()[:10])[:80].rstrip()
             if title:

@@ -11,7 +11,6 @@ from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatResponse,
 )
-from harborrag_core.ports.agent_runs import AgentEvidenceReference, AgentRunIdentity
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
@@ -91,8 +90,6 @@ def test_an_isolation_key_cannot_be_blank(blank: str) -> None:
         ConversationIdentity("tenant", "principal", blank, "user")
     with pytest.raises(ValueError, match="non-empty"):
         ConversationIdentity(blank, "principal", "session", "user")
-    with pytest.raises(ValueError, match="non-empty"):
-        AgentRunIdentity("tenant", "principal", "session", blank, "user")
 
 
 def test_a_blank_principal_stays_allowed_as_a_lookup_key() -> None:
@@ -120,12 +117,3 @@ def test_frozen_metadata_survives_deep_freeze_by_type_not_by_name() -> None:
     original = FrozenMetadata({"a": 1})
 
     assert Holder(metadata=original).metadata is original
-
-
-def test_an_evidence_marker_survives_optimized_bytecode() -> None:
-    """The marker was guarded by ``assert``, which -O erases."""
-
-    reference = AgentEvidenceReference(tool="vector_search", chunk_id="c1", document_id="d1")
-
-    assert reference.marker
-    assert reference.marker == reference.canonical_marker

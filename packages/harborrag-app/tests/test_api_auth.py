@@ -19,7 +19,7 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
-PROTECTED = "/v1/ingestions/missing/cancel"
+PROTECTED = "/v1/admin/ingestions/missing/cancel"
 
 
 @pytest.fixture(autouse=True)
@@ -62,26 +62,7 @@ def test_none_mode_grants_implicit_owner() -> None:
     with TestClient(create_fastapi_app(ApiSettings())) as client:
         response = client.post(PROTECTED)
         assert response.status_code == 404
-        assert response.json()["error"]["code"] == "INGESTION_NOT_FOUND"
-
-
-@pytest.mark.blackbox
-def test_metrics_requires_admin_in_hmac_mode() -> None:
-    """Operational metrics do not expose process data without admin auth."""
-    with _hmac_client() as client:
-        assert client.get("/metrics").status_code == 404
-        assert client.get("/api/v1/metrics").status_code == 401
-        reader = client.get(
-            "/api/v1/metrics",
-            headers={"Authorization": f"Bearer {_token('reader')}"},
-        )
-        assert reader.status_code == 403
-        admin = client.get(
-            "/api/v1/metrics",
-            headers={"Authorization": f"Bearer {_token('admin')}"},
-        )
-        assert admin.status_code == 200
-        assert "harborrag_api_info" in admin.text
+        assert response.json()["error"]["code"] == "not_found"
 
 
 @pytest.mark.blackbox
@@ -122,7 +103,8 @@ def test_hmac_mode_enforces_auth_and_roles(
         response = client.post(PROTECTED, headers=headers)
         assert response.status_code == expected_status
         if expected_status in {401, 403}:
-            assert response.json()["error"]["code"] == "harbor_auth_error"
+            expected_code = "unauthenticated" if expected_status == 401 else "forbidden"
+            assert response.json()["error"]["code"] == expected_code
 
 
 @pytest.mark.blackbox
@@ -135,7 +117,7 @@ def test_oidc_mode_is_a_declared_missing_capability() -> None:
 @pytest.mark.blackbox
 def test_non_string_role_claim_is_401_not_500() -> None:
     """A JWT whose role claim is not a string (e.g. a list) must be rejected
-    as 401 harbor_auth_error, never crash the lookup into a 500."""
+    as 401 unauthenticated, never crash the lookup into a 500."""
     bad = jwt.encode(
         {
             "sub": "u1",
@@ -151,7 +133,7 @@ def test_non_string_role_claim_is_401_not_500() -> None:
     with _hmac_client() as client:
         response = client.post(PROTECTED, headers={"Authorization": f"Bearer {bad}"})
         assert response.status_code == 401
-        assert response.json()["error"]["code"] == "harbor_auth_error"
+        assert response.json()["error"]["code"] == "unauthenticated"
 
 
 @pytest.mark.blackbox
@@ -246,7 +228,7 @@ def test_disabled_auth_serves_a_request_that_arrived_on_loopback() -> None:
     with TestClient(app, base_url="http://127.0.0.1:8000") as client:
         response = client.post(PROTECTED)
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "INGESTION_NOT_FOUND"
+    assert response.json()["error"]["code"] == "not_found"
 
 
 @pytest.mark.blackbox
@@ -265,8 +247,9 @@ def test_tenant_authorization_is_independent_of_global_role() -> None:
     )
 
     authorize_tenant(principal, "tenant-a")
-    with pytest.raises(HarborAuthError, match="tenant access"):
+    with pytest.raises(HarborAuthError, match="does not hold this tenant") as raised:
         authorize_tenant(principal, "tenant-b")
+    assert raised.value.error_code == "tenant_forbidden"
 
 
 @pytest.mark.whitebox

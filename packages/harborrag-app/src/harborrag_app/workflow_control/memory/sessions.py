@@ -10,7 +10,6 @@ from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_runtime.memory import (
     ConversationIdentity,
-    ConversationKind,
     ConversationRepository,
     new_session_id,
 )
@@ -41,7 +40,6 @@ class ConversationSessionService:
         *,
         tenant_id: str,
         principal_id: str,
-        kind: ConversationKind = "chat",
         user_id: str | None = None,
         title: str | None = None,
     ) -> AppResponse:
@@ -55,7 +53,6 @@ class ConversationSessionService:
         session_id = new_session_id()
         await self._repository.create(
             _identity(tenant_id, principal_id, session_id, user_id),
-            kind=kind,
             title=title,
         )
         return AppResponse(
@@ -72,14 +69,10 @@ class ConversationSessionService:
         *,
         tenant_id: str,
         principal_id: str,
-        kind: ConversationKind | None = None,
         user_id: str | None = None,
     ) -> bool:
-        """``kind`` restricts the match to sessions created by that surface."""
-
         return await self._repository.exists(
-            _identity(tenant_id, principal_id, session_id, user_id),
-            kind=kind,
+            _identity(tenant_id, principal_id, session_id, user_id)
         )
 
     async def claim_completion(

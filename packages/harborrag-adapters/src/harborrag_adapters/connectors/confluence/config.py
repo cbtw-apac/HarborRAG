@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -19,6 +18,9 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
+from ..environment import environment_default
+from ..file_filters import ExtensionFilter
+from ..limits import DEFAULT_ALLOWED_EXTENSIONS
 from .query import is_cloud_hostname, validate_token
 
 _VALID_CONTENT_TYPES = {"page", "blogpost"}
@@ -52,6 +54,8 @@ class ConfluenceSpaceConfig:
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
     process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
+    allowed_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS))
+    excluded_extensions: list[str] = field(default_factory=list)
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
     fail_on_error: bool = False
@@ -66,8 +70,8 @@ class ConfluenceSpaceConfig:
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
         self.space_key = validate_token(str(self.space_key).strip(), field_name="space key")
-        self.token = self.token or os.getenv("CONFLUENCE_TOKEN")
-        self.email = self.email or os.getenv("CONFLUENCE_EMAIL")
+        self.token = self.token or environment_default("CONFLUENCE_TOKEN")
+        self.email = self.email or environment_default("CONFLUENCE_EMAIL")
 
         if self.deployment_type is None:
             self.deployment_type = (
@@ -103,6 +107,10 @@ class ConfluenceSpaceConfig:
         )
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
+
+    def attachment_filter(self) -> ExtensionFilter:
+        """Return the attachment extension filter this config selects."""
+        return ExtensionFilter.of(self.allowed_extensions, self.excluded_extensions)
 
     @property
     def deployment(self) -> ConfluenceDeploymentType:

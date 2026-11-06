@@ -167,7 +167,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
                 sheet_names = workbook.sheetnames
                 sections: list[str] = []
                 elements: list[DocumentElement] = []
-                budget = ParseResourceBudget()
+                budget = ParseResourceBudget.for_spreadsheet()
                 for sheet in workbook.worksheets:
                     self._guard_declared_table_size(
                         rows=int(sheet.max_row or 0),
@@ -271,7 +271,7 @@ class ExcelSpreadsheetEngine(HarborSpreadsheetEngine):
             sheet_names = workbook.sheet_names()
             sections: list[str] = []
             elements: list[DocumentElement] = []
-            budget = ParseResourceBudget()
+            budget = ParseResourceBudget.for_spreadsheet()
             try:
                 # Load sheets one at a time (Book.sheets() would defeat on_demand and
                 # load them all), unloading each after rendering to bound memory.

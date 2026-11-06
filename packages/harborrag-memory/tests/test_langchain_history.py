@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -82,42 +81,22 @@ def row(role: str, content: str, **extra: object) -> ConversationMessage:
 
 @pytest.mark.asyncio
 async def test_history_round_trips_messages_through_store(store, identity) -> None:
-    history = HarborChatMessageHistory(store, identity, run_id="run-1", clock=lambda: NOW)
+    history = HarborChatMessageHistory(store, identity, clock=lambda: NOW)
 
     await history.aadd_messages(
         [
             SystemMessage(content="You are helpful"),
             HumanMessage(content="hello"),
-            AIMessage(
-                content="",
-                tool_calls=[{"name": "search", "args": {"q": "x"}, "id": "call-1"}],
-            ),
-            ToolMessage(content="result", tool_call_id="call-1"),
             AIMessage(content="done"),
         ]
     )
 
     rows = store.values[identity]
-    assert [r.role for r in rows] == ["system", "user", "assistant", "tool", "assistant"]
-    assert all(r.run_id == "run-1" and r.created_at == NOW for r in rows)
-    assert json.loads(rows[2].tool_calls_json or "[]")[0]["name"] == "search"
-    assert rows[3].tool_call_id == "call-1"
+    assert [r.role for r in rows] == ["system", "user", "assistant"]
+    assert all(r.created_at == NOW for r in rows)
 
     messages = await history.aget_messages()
-    assert [type(m).__name__ for m in messages] == [
-        "SystemMessage",
-        "HumanMessage",
-        "AIMessage",
-        "ToolMessage",
-        "AIMessage",
-    ]
-    assistant = messages[2]
-    assert isinstance(assistant, AIMessage)
-    assert assistant.tool_calls[0]["args"] == {"q": "x"}
-    assert assistant.tool_calls[0]["id"] == "call-1"
-    tool = messages[3]
-    assert isinstance(tool, ToolMessage)
-    assert tool.tool_call_id == "call-1"
+    assert [type(m).__name__ for m in messages] == ["SystemMessage", "HumanMessage", "AIMessage"]
     assert [m.id for m in messages] == [r.message_id for r in rows]
 
 
@@ -153,33 +132,24 @@ def test_sync_methods_raise_clear_error(store, identity) -> None:
         HarborChatMessageHistory(store, identity, recent_limit=0)
 
 
-def test_converters_preserve_metadata_and_accept_openai_tool_call_shape() -> None:
+def test_converters_preserve_metadata() -> None:
     stored = row(
         "assistant",
         "see sources",
         token_count=7,
-        run_id="run-9",
         citations_json='[{"chunk_id": "c1"}]',
-        tool_calls_json=json.dumps(
-            [{"id": "call-2", "function": {"name": "lookup", "arguments": '{"k": 1}'}}]
-        ),
     )
 
     message = to_langchain_message(stored)
 
     assert isinstance(message, AIMessage)
-    assert message.tool_calls == [
-        {"name": "lookup", "args": {"k": 1}, "id": "call-2", "type": "tool_call"}
-    ]
     assert message.additional_kwargs["citations"] == [{"chunk_id": "c1"}]
 
     back = from_langchain_message(message)
     assert back.message_id == stored.message_id
     assert back.created_at == NOW
     assert back.token_count == 7
-    assert back.run_id == "run-9"
     assert back.citations_json == '[{"chunk_id": "c1"}]'
-    assert json.loads(back.tool_calls_json or "[]")[0]["args"] == {"k": 1}
 
 
 def test_from_langchain_message_generates_identity_and_timestamp() -> None:
@@ -188,7 +158,6 @@ def test_from_langchain_message_generates_identity_and_timestamp() -> None:
     assert message.message_id
     assert message.role == "user"
     assert message.created_at == NOW
-    assert message.tool_calls_json is None
 
 
 def test_unsupported_message_types_are_rejected() -> None:
@@ -196,4 +165,6 @@ def test_unsupported_message_types_are_rejected() -> None:
 
     with pytest.raises(TypeError, match="unsupported LangChain message type"):
         from_langchain_message(FunctionMessage(content="x", name="f"))
+    with pytest.raises(TypeError, match="unsupported LangChain message type"):
+        from_langchain_message(ToolMessage(content="x", tool_call_id="call-1"))
     assert to_langchain_messages([row("system", "s")])[0].text == "s"

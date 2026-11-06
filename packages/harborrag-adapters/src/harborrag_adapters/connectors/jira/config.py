@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -19,6 +18,9 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
+from ..environment import environment_default
+from ..file_filters import ExtensionFilter
+from ..limits import DEFAULT_ALLOWED_EXTENSIONS
 from .query import is_cloud_hostname
 
 
@@ -79,6 +81,8 @@ class JiraProjectConfig:
     custom_parsers: dict[FileType, CustomAttachmentParser] = field(default_factory=dict)
     process_attachment_callback: Callable[[str, int, str], tuple[bool, str]] | None = None
     max_attachment_size_bytes: int | None = DEFAULT_MAX_ATTACHMENT_SIZE_BYTES
+    allowed_extensions: list[str] = field(default_factory=lambda: list(DEFAULT_ALLOWED_EXTENSIONS))
+    excluded_extensions: list[str] = field(default_factory=list)
     max_comments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_attachments: int | None = DEFAULT_MAX_NESTED_ITEMS
     max_changelog_items: int | None = DEFAULT_MAX_NESTED_ITEMS
@@ -93,14 +97,15 @@ class JiraProjectConfig:
         """Normalize env-backed credentials and validate query/load limits."""
         self.base_url = str(self.base_url).rstrip("/")
         validate_https_url("base_url", self.base_url)
-        self.token = self.token or os.getenv("JIRA_TOKEN") or os.getenv("JIRA_API_TOKEN")
-        self.email = self.email or os.getenv("JIRA_EMAIL")
+        self.token = self.token or environment_default("JIRA_TOKEN", "JIRA_API_TOKEN")
+        self.email = self.email or environment_default("JIRA_EMAIL")
         self.project_keys = self._string_list(self.project_keys)
         self.issue_types = self._string_list(self.issue_types)
         self.statuses = self._string_list(self.statuses)
         self.labels = self._string_list(self.labels)
+        requested = DEFAULT_ISSUE_FIELDS if self.fields is None else self.fields
         self.fields = tuple(
-            dict.fromkeys(str(field_name) for field_name in self.fields if field_name)
+            dict.fromkeys(str(field_name) for field_name in requested if field_name)
         )
 
         if self.deployment_type is None:
@@ -131,6 +136,10 @@ class JiraProjectConfig:
         )
         if not 1 <= self.page_size <= 100:
             raise ValueError("page_size must be between 1 and 100")
+
+    def attachment_filter(self) -> ExtensionFilter:
+        """Return the attachment extension filter this config selects."""
+        return ExtensionFilter.of(self.allowed_extensions, self.excluded_extensions)
 
     def requested_fields(self) -> tuple[str, ...]:
         """Return the JIRA field selector for search and issue loads."""

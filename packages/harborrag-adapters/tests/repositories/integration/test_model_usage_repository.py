@@ -28,7 +28,6 @@ def _usage(user_id: str, *, tenant_id: str = "ACME", **overrides: Any) -> ModelU
         "tenant_id": tenant_id,
         "user_id": user_id,
         "principal_id": "shared-principal",
-        "surface": "chat",
         "logical_model": "chat-default",
         "provider": "openai",
         "provider_model": "gpt-4.1-mini",
@@ -56,8 +55,6 @@ async def test_usage_records_round_trip_and_aggregate_by_tenant_user_and_window(
             _usage(
                 "user-1",
                 session_id="session-1",
-                run_id="run-1",
-                surface="agent",
                 finish_reason="stop",
             )
         )

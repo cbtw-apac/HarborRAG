@@ -22,7 +22,6 @@ from harborrag_adapters.repositories.database.control_plane.pending_effects impo
 )
 from harborrag_adapters.repositories.database.control_plane.projects import (
     SqlProjectRepository,
-    SqlSourceRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.secrets import SqlSecretsRepository
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
@@ -30,13 +29,13 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import (
     HarborConflictError,
     HarborNotFoundError,
+    HarborPreconditionFailedError,
     HarborSecretDecryptionError,
 )
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
-from harborrag_core.domain.source_config import SourceConfig
 
 pytestmark = pytest.mark.integration
 
@@ -68,55 +67,15 @@ async def test_project_repository_roundtrip(sessions: SessionFactory) -> None:
     assert updated is not None and updated.name == "Docs v2"
     assert updated.updated_at >= project.created_at
     assert [p.id for p in await repo.list(tenant_ids=None)] == ["p1"]
+    assert updated.version == 2
+    with pytest.raises(HarborPreconditionFailedError):
+        await repo.update(project, expected_version=1)
+    assert (await repo.update(project, expected_version=2)).version == 3
     project.tenant_id = "tenant-b"
     with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
         await repo.update(project)
     await repo.delete("p1", tenant_ids=None)
     assert await repo.get("p1", tenant_ids=None) is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.whitebox
-async def test_source_repository_roundtrip_and_project_filter(
-    sessions: SessionFactory,
-) -> None:
-    """Source CRUD + list(project_id=...) scoping; config keeps secret_refs only."""
-
-    projects = SqlProjectRepository(sessions)
-    await projects.create(Project(id="p1", tenant_id="tenant-a", name="A", collection="a"))
-    await projects.create(Project(id="p2", tenant_id="tenant-b", name="B", collection="b"))
-    repo = SqlSourceRepository(sessions)
-    source = SourceConfig(
-        id="s1",
-        tenant_id="tenant-a",
-        project_id="p1",
-        source_type="local_file",
-        name="docs",
-        config={"path": "/data", "token": {"secret_ref": "secret://x"}},
-        secret_refs=["secret://x"],
-    )
-    await repo.create(source)
-    await repo.create(
-        SourceConfig(
-            id="s2",
-            tenant_id="tenant-b",
-            project_id="p2",
-            source_type="github",
-            name="repo",
-        )
-    )
-    assert await repo.get("s1", tenant_ids=None) == source
-    assert [s.id for s in await repo.list(project_id="p1", tenant_ids=None)] == ["s1"]
-    assert len(await repo.list(tenant_ids=None)) == 2
-    source.status = "paused"
-    await repo.update(source)
-    paused = await repo.get("s1", tenant_ids=None)
-    assert paused is not None and paused.status == "paused"
-    source.tenant_id = "tenant-b"
-    with pytest.raises(HarborConflictError, match="tenant identity is immutable"):
-        await repo.update(source)
-    await repo.delete("s2", tenant_ids=None)
-    assert await repo.get("s2", tenant_ids=None) is None
 
 
 @pytest.mark.asyncio
@@ -243,7 +202,21 @@ async def test_lease_repository_grants_exactly_one_live_holder_at_a_time(
     assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True  # b takes over
     assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is False  # a is now the rival
 
-    assert await repo.try_acquire("no_such_lease", "holder-a", ttl_seconds=1000) is False
+
+@pytest.mark.asyncio
+@pytest.mark.whitebox
+async def test_lease_repository_creates_an_unseeded_lease_on_first_acquire(
+    sessions: SessionFactory,
+) -> None:
+    """A lease name with no migration row, such as a per-connection sync lease, still works."""
+
+    repo = SqlLeaseRepository(sessions)
+    name = "connection-sync:acme:cpm/cpm-tickets"
+
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=1000) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is False
+    assert await repo.try_acquire(name, "holder-a", ttl_seconds=-1) is True
+    assert await repo.try_acquire(name, "holder-b", ttl_seconds=1000) is True
 
 
 @pytest.mark.asyncio
@@ -296,15 +269,7 @@ async def test_lease_repository_ignores_a_skewed_local_clock(
 async def test_lease_repository_has_a_seeded_row_for_effect_recovery(
     sessions: SessionFactory,
 ) -> None:
-    """try_acquire returns False for any lease name with no row (it can only
-    ever UPDATE an existing row). AppService.recover_pending_control_plane_effects
-    acquires "control_plane_effect_recovery" (see
-    harborrag_app.workflow_control.control_plane.effect_recovery.EFFECT_RECOVERY_LEASE_NAME)
-    before every drain pass, so migrations must seed that row the same way
-    migration 0017 seeded "ingestion_progress_bridge" -- otherwise recovery
-    silently never acquires the lease in production and pending effects
-    (secret retirement, audit logging) never drain.
-    """
+    """Migration 0018 seeds the effect-recovery lease row as already lapsed."""
 
     repo = SqlLeaseRepository(sessions)
     name = "control_plane_effect_recovery"  # seeded (already-expired) by migration 0018

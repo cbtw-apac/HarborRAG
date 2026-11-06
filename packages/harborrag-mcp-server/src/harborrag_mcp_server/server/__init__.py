@@ -267,8 +267,7 @@ def _tool_handler(
                 # on stdio, which has no token, and under a wildcard grant --
                 # the two default transports -- for a call that reads no
                 # tenant's data. Authorize the principal, leave the tenant
-                # unbound, and let ``call_tool`` resolve the local context, as
-                # the agent transport already does for the same schema.
+                # unbound, and let ``call_tool`` resolve the local context.
                 principal = _request_principal_id()
         except PermissionError as exc:
             # Resolving the principal as a call argument put it *before*

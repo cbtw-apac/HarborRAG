@@ -25,7 +25,6 @@ ELISION_MARKER = "\n[... {omitted} characters omitted ...]\n"
 _ROLE_LABELS = {
     "user": "User",
     "assistant": "Assistant",
-    "tool": "Tool result",
     "system": "System",
 }
 

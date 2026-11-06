@@ -72,20 +72,6 @@ class IngestionServiceFixture:
             },
         )
 
-    def ingest_once(self) -> AppResponse:
-        return AppResponse(
-            True,
-            {
-                "documents": ["mock://app/1"],
-                "summary": {
-                    "discovered": 1,
-                    "loaded": 1,
-                    "parsed": 1,
-                    "indexed": 0,
-                },
-            },
-        )
-
     async def submit(
         self,
         command: IngestionCreateCommand,
@@ -143,14 +129,6 @@ class IngestionServiceFixture:
         return {
             "items": [await self.get_task("00000000-0000-4000-8000-000000000001")],
             "next_cursor": "eyJzdWJtaXR0ZWRfYXQiOiIyMDI2LTA4LTAxVDA5OjI0OjAwKzAwOjAwIn0",
-        }
-
-    async def list_connections(self) -> dict[str, object]:
-        return {
-            "items": [
-                {"connection_id": "confluence-main", "source_type": "confluence"},
-                {"connection_id": "harborrag-workspace", "source_type": "local"},
-            ]
         }
 
     async def list_documents(

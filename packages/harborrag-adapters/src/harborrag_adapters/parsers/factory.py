@@ -88,6 +88,7 @@ class HarborParserFactory:
         return HarborPDFParser(
             engines=engines,
             min_content_chars=resolved_config.min_content_chars,
+            max_pages=resolved_config.max_pages,
             profile=profile_name,
             router_config=router_config,
         )

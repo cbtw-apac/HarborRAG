@@ -49,7 +49,7 @@ async def test_messages_come_back_oldest_first(
         "session-1",
         messages=(
             message("msg-1", "user", "where is the runbook?"),
-            message("msg-2", "assistant", "in the wiki", token_count=3, run_id="run-1"),
+            message("msg-2", "assistant", "in the wiki", token_count=3),
         ),
     )
 
@@ -65,7 +65,6 @@ async def test_messages_come_back_oldest_first(
         "created_at": payload["messages"][1]["created_at"],
         "token_count": 3,
         "citations": [],
-        "run_id": "run-1",
         "partial": False,
     }
     assert "next_cursor" not in payload
@@ -165,14 +164,14 @@ async def test_an_unknown_message_cursor_is_a_client_error(
     response = client.get(_path(), params={"after": "msg-absent"}, headers=auth())
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "harbor_validation_error"
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 def test_an_unknown_conversation_is_the_not_found_envelope(client: TestClient) -> None:
     response = client.get(_path("session-absent"), headers=auth())
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
+    assert response.json()["error"]["code"] == "not_found"
 
 
 @pytest.mark.asyncio
@@ -197,7 +196,7 @@ async def test_reading_messages_requires_a_bearer_token(
     response = client.get(_path())
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert response.json()["error"]["code"] == "unauthenticated"
 
 
 @pytest.mark.asyncio
@@ -207,7 +206,7 @@ async def test_a_foreign_tenant_is_refused(
 ) -> None:
     await seed(service, "session-1", messages=(message("msg-1"),))
 
-    response = client.get(_path(), params={"tenant": "OTHER"}, headers=auth())
+    response = client.get(_path(), params={"tenant_id": "OTHER"}, headers=auth())
 
     assert response.status_code == 403
 

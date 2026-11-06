@@ -1,4 +1,4 @@
-"""Durable paging behavior behind GET /v1/ingestions."""
+"""Durable paging behavior behind GET /v1/admin/ingestions."""
 
 from __future__ import annotations
 

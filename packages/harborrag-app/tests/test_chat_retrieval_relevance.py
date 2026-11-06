@@ -40,7 +40,7 @@ RESULTS = (
 
 async def _complete(min_relevance: float) -> tuple[FakeChatFacade, dict]:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     visible = tuple(
         result
         for result in RESULTS

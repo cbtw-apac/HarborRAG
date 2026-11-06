@@ -12,6 +12,7 @@ from __future__ import annotations
 import contextlib
 import json
 import os
+import re
 import tempfile
 import time
 from collections.abc import Callable
@@ -41,9 +42,27 @@ def identity_url(tenant_id: str, endpoint: str) -> str:
     return f"https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/{endpoint}"
 
 
-def default_token_cache_path(tenant_id: str, client_id: str) -> Path:
-    """Return the per-user cache file for one tenant/app pair."""
-    return Path.home() / ".harborrag" / "sharepoint" / f"token-{tenant_id}-{client_id}.json"
+_PATH_SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}")
+
+
+def default_token_cache_path(harborrag_tenant_id: str, tenant_id: str, client_id: str) -> Path:
+    """Return the cache file of one tenant/app pair inside one HarborRAG tenant.
+
+    Each HarborRAG tenant gets its own folder, so two tenants that enter the
+    same Entra tenant and app never share a signed-in refresh token.
+
+    Raises:
+        ValueError: An id is not a plain name, so it could leave the cache folder.
+    """
+    for label, value in (
+        ("HarborRAG tenant", harborrag_tenant_id),
+        ("tenant_id", tenant_id),
+        ("client_id", client_id),
+    ):
+        if not _PATH_SEGMENT.fullmatch(value) or ".." in value:
+            raise ValueError(f"{label} must be a plain id of letters, digits, '.', '_' or '-'")
+    folder = Path.home() / ".harborrag" / "sharepoint" / harborrag_tenant_id
+    return folder / f"token-{tenant_id}-{client_id}.json"
 
 
 @dataclass(slots=True)

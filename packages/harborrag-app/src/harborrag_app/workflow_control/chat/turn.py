@@ -197,7 +197,7 @@ async def record_turn_usage(
     one's, so they are recorded whenever the provider reported them.
     """
 
-    return await record_model_usage(resources.usage, identity, answer.call, surface="chat")
+    return await record_model_usage(resources.usage, identity, answer.call)
 
 
 __all__ = [

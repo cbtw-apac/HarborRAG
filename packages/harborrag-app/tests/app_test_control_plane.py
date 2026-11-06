@@ -4,11 +4,10 @@ from __future__ import annotations
 
 from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
-from harborrag_core.domain.graph_conflict import GraphConflict
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
     LeaseRepositoryPort,
@@ -17,6 +16,8 @@ from harborrag_core.ports.control_plane import (
 from harborrag_core.ports.secrets import SecretsPort
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
+    FakeConnectionRepository,
+    FakeConnectionRevisionRepository,
     FakeGraphConflictRepository,
     FakeJobRepository,
     FakeLeaseRepository,
@@ -25,10 +26,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeProjectRepository,
     FakeProviderRepository,
     FakeSettingsRepository,
-    FakeSourceRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.agent import InMemoryAgentRunRepository
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.memory import InMemoryConversationMemory
 
@@ -36,7 +35,7 @@ from harborrag_runtime.memory import InMemoryConversationMemory
 def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control-plane repository
     *,
     projects: list[Project] | None = None,
-    sources: list[SourceConfig] | None = None,
+    sources: list[Connection] | None = None,
     jobs: list[Job] | None = None,
     activity: list[ActivityEntry] | None = None,
     activity_repository: ActivityRepositoryPort | None = None,
@@ -44,7 +43,6 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
     secrets: SecretsPort | None = None,
     pending_effects: PendingEffectRepositoryPort | None = None,
     leases: LeaseRepositoryPort | None = None,
-    graph_conflicts: list[GraphConflict] | None = None,
 ) -> AppService:
     """Build a service with test-only, seedable control-plane repositories.
 
@@ -56,20 +54,18 @@ def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control
 
     control_plane = ControlPlaneRepositories(
         projects=FakeProjectRepository({project.id: project for project in projects or []}),
-        sources=FakeSourceRepository({source.id: source for source in sources or []}),
+        connections=FakeConnectionRepository({source.id: source for source in sources or []}),
         jobs=FakeJobRepository({job.id: job for job in jobs or []}),
         activity=activity_repository or FakeActivityRepository(list(activity or [])),
         settings=FakeSettingsRepository(settings or WorkspaceSettings(tenant_id="DEFAULT")),
         providers=FakeProviderRepository(),
         members=FakeMemberRepository(),
         conversation_memory=InMemoryConversationMemory(),
-        agent_runs=InMemoryAgentRunRepository(),
         secrets=secrets or FakeSecrets(),
         pending_effects=pending_effects or FakePendingEffectRepository(),
         leases=leases or FakeLeaseRepository(),
-        graph_conflicts=FakeGraphConflictRepository(
-            {conflict.id: conflict for conflict in graph_conflicts or []}
-        ),
+        graph_conflicts=FakeGraphConflictRepository(),
+        connection_revisions=FakeConnectionRevisionRepository(),
     )
     composition = CompositionRoot(
         control_plane=control_plane,

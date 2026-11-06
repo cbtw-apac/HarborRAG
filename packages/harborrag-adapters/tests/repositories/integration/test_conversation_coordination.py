@@ -14,7 +14,7 @@ from harborrag_adapters.repositories.database.control_plane.conversation import 
     SqlConversationMemoryRepository,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import _build_config
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationMessageRow,
     ConversationSessionRow,
 )
@@ -69,7 +69,7 @@ async def test_append_cannot_write_into_another_users_session(sessions: SessionF
 
 
 @pytest.mark.asyncio
-async def test_recent_complete_messages_skips_partial_and_tool_turns(
+async def test_recent_complete_messages_skips_partial_and_empty_turns(
     sessions: SessionFactory,
 ) -> None:
     repo = SqlConversationMemoryRepository(sessions)
@@ -81,10 +81,7 @@ async def test_recent_complete_messages_skips_partial_and_tool_turns(
         for index in range(4)
         for message in (
             ConversationMessage(f"u-{index}", "user", f"question {index}", now),
-            ConversationMessage(
-                f"call-{index}", "assistant", "Searching", now, tool_calls_json="[{}]"
-            ),
-            ConversationMessage(f"t-{index}", "tool", "search result", now),
+            ConversationMessage(f"empty-{index}", "assistant", "", now),
             ConversationMessage(f"a-{index}", "assistant", f"answer {index}", now),
         )
     ]

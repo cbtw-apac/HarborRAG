@@ -23,8 +23,8 @@ pytestmark = [pytest.mark.slow, pytest.mark.blackbox, pytest.mark.timeout(30)]
 def test_multi_megabyte_text_inputs_parse() -> None:
     parser = HarborParserFactory().create_registry()
 
-    csv_row = "1234567,alpha,beta,gamma,delta\n"
-    csv_body = "a,b,c,d,e\n" + csv_row * 60_000
+    csv_row = "1234567890123,alphabetical,betamaxing,gammaray,deltawing\n"
+    csv_body = "a,b,c,d,e\n" + csv_row * 39_000
     assert len(csv_body.encode("utf-8")) > 1_500_000
     csv_doc = parser.parse(ParseInput(content=csv_body, filename="big.csv"))
     assert csv_doc.content

@@ -1,14 +1,12 @@
 """Durable retry queue for control-plane secret retirement and audit logging.
 
-Split out of writes.py (file-length gate) as a sibling module. writes.py's
-create_source/update_source/delete_source call ``retire_refs``/``log_activity``
-here instead of touching ``control_plane.secrets``/``activity`` directly, so a
-failure after their write already committed is queued for retry rather than
-raised -- never turning a successful write into an API error.
-``recover_pending_control_plane_effects`` (delegated to from
-``ControlPlaneWritesMixin``) drains that queue later. Both replayed actions
-are safe to retry blindly: secret deletion is a no-op on an already-gone ref,
-and a requeued activity entry keeps its original id, so it can't double-write.
+Connection and project writes call ``retire_refs``/``log_activity`` here instead
+of touching ``control_plane.secrets``/``activity`` directly, so a failure after
+their write already committed is queued for retry rather than raised -- never
+turning a successful write into an API error. ``recover_pending_control_plane_effects``
+drains that queue later. Both replayed actions are safe to retry blindly: secret
+deletion is a no-op on an already-gone ref, and a requeued activity entry keeps
+its original id, so it can't double-write.
 """
 
 from __future__ import annotations
@@ -27,7 +25,10 @@ from harborrag_runtime.composition import ControlPlaneRepositories
 logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_recovery")
 
 _RETIRE_SECRET_KIND = "retire_secret"
+_RETIRE_WHEN_IDLE_KIND = "retire_secret_when_idle"
 _LOG_ACTIVITY_KIND = "log_activity"
+
+type ConnectionBusy = Callable[[str, str], Awaitable[bool]]
 # The tenant migration 0032 gives a legacy secret no source row still owns.
 LEGACY_SECRET_TENANT_ID = "DEFAULT"
 
@@ -78,11 +79,28 @@ async def log_activity(control_plane: ControlPlaneRepositories, entry: ActivityE
         await _queue_effect(control_plane, _LOG_ACTIVITY_KIND, _activity_payload(entry))
 
 
+async def defer_retirement(
+    control_plane: ControlPlaneRepositories,
+    refs: list[str],
+    *,
+    tenant_id: str,
+    source_key: str,
+) -> None:
+    """Queue stored refs to be deleted once no run of the connection still uses them."""
+    for ref in refs:
+        await _queue_effect(
+            control_plane,
+            _RETIRE_WHEN_IDLE_KIND,
+            {"ref": ref, "tenant_id": tenant_id, "source_key": source_key},
+        )
+
+
 async def recover_pending_control_plane_effects(
     control_plane: ControlPlaneRepositories,
     *,
     limit: int = 100,
     erasure_handler: Callable[[PendingControlPlaneEffect], Awaitable[bool]] | None = None,
+    connection_busy: ConnectionBusy | None = None,
 ) -> int:
     """Retry queued effects and authorized cross-store erasure intents.
 
@@ -94,6 +112,8 @@ async def recover_pending_control_plane_effects(
     recovered = 0
     for effect in await control_plane.pending_effects.list_pending(limit=limit):
         try:
+            if await _still_in_use(effect, connection_busy):
+                continue
             if erasure_handler is None or not await erasure_handler(effect):
                 await _replay_effect(control_plane, effect)
         except Exception:
@@ -143,9 +163,27 @@ async def _queue_effect(
         )
 
 
+async def _still_in_use(
+    effect: PendingControlPlaneEffect, connection_busy: ConnectionBusy | None
+) -> bool:
+    """True while a deferred retirement's connection still has an active run."""
+    if effect.kind != _RETIRE_WHEN_IDLE_KIND:
+        return False
+    if connection_busy is None:
+        return True
+    return await connection_busy(
+        str(effect.payload["tenant_id"]), str(effect.payload["source_key"])
+    )
+
+
 async def _replay_effect(
     control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
 ) -> None:
+    if effect.kind == _RETIRE_WHEN_IDLE_KIND:
+        await control_plane.secrets.delete(
+            str(effect.payload["ref"]), tenant_id=str(effect.payload["tenant_id"])
+        )
+        return
     if effect.kind == _RETIRE_SECRET_KIND:
         tenant_id = effect.payload.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id:

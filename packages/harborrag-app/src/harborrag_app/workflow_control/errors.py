@@ -29,51 +29,35 @@ from .schemas import AppResponse
 
 
 class IngestionNotFoundError(HarborNotFoundError):
-    error_code = "INGESTION_NOT_FOUND"
+    error_code = "not_found"
 
 
 class IngestionAlreadyCompletedError(HarborConflictError):
-    error_code = "INGESTION_ALREADY_COMPLETED"
+    error_code = "invalid_state"
 
 
 class IngestionAlreadyPausedError(HarborConflictError):
-    error_code = "INGESTION_ALREADY_PAUSED"
+    error_code = "invalid_state"
 
 
 class IngestionAlreadyRunningError(HarborConflictError):
-    error_code = "INGESTION_ALREADY_RUNNING"
+    error_code = "already_running"
 
 
 class IngestionIdempotencyConflictError(HarborConflictError):
-    error_code = "INGESTION_IDEMPOTENCY_CONFLICT"
+    error_code = "invalid_state"
 
 
 class IngestionRetryConflictError(HarborConflictError):
-    error_code = "INGESTION_NO_RETRYABLE_FAILURES"
+    error_code = "invalid_state"
 
 
 class IngestionCursorError(HarborValidationError):
-    error_code = "INGESTION_CURSOR_INVALID"
+    error_code = "validation_error"
 
 
 class IngestionStatusFilterError(HarborValidationError):
-    error_code = "INGESTION_STATUS_INVALID"
-
-
-class ScheduleNotFoundAppError(HarborNotFoundError):
-    error_code = "SCHEDULE_NOT_FOUND"
-
-
-class ScheduleAlreadyExistsError(HarborConflictError):
-    error_code = "SCHEDULE_ALREADY_EXISTS"
-
-
-class ScheduleManagedByConfigError(HarborConflictError):
-    error_code = "SCHEDULE_MANAGED_BY_CONFIG"
-
-
-class ScheduleInvalidError(HarborValidationError):
-    error_code = "SCHEDULE_INVALID"
+    error_code = "validation_error"
 
 
 # Error types whose messages are authored inside HarborRAG at the Temporal

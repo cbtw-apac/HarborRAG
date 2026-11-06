@@ -275,3 +275,21 @@ def test_github_acquire_sleeps_when_requests_arrive_faster_than_budget(monkeypat
     client.get_json("repos/o/r")
 
     assert any(seconds > 0 for seconds in sleeps)
+
+
+@pytest.mark.parametrize(
+    ("status", "error_type"),
+    [(401, "AuthenticationError"), (403, "AuthenticationError"), (404, "FetchError")],
+)
+def test_github_errors_carry_the_http_status(status: int, error_type: str) -> None:
+    from harborrag_adapters.connectors import exceptions
+
+    client = _github_client()
+    client.session = FakeSession(
+        responses=[FakeResponse(status_code=status, text="not visible to this token", headers={})]
+    )
+
+    with pytest.raises(getattr(exceptions, error_type)) as raised:
+        client.get_json("repos/o/r")
+
+    assert raised.value.status_code == status

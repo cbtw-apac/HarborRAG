@@ -50,12 +50,11 @@ async def test_listing_returns_the_callers_own_conversations(
     rows = response.json()["sessions"]
     assert len(rows) == 1
     assert rows[0]["session_id"] == "session-1"
-    assert rows[0]["kind"] == "chat"
     assert rows[0]["title"] == "Runbooks"
     assert rows[0]["message_count"] == 1
     assert rows[0]["created_at"] and rows[0]["updated_at"]
     # No owner field is echoed back: the caller already is the owner.
-    assert "user_id" not in rows[0]
+    assert set(rows[0]) == {"session_id", "title", "created_at", "updated_at", "message_count"}
     assert "next_cursor" not in response.json()
 
 
@@ -65,7 +64,7 @@ async def test_initial_session_creation_rejects_a_caller_supplied_title(
 ) -> None:
     created = client.post(
         "/v1/chat/sessions",
-        json={"tenant": "DEFAULT", "title": "  Quarterly report  "},
+        json={"tenant_id": "DEFAULT", "title": "  Quarterly report  "},
         headers=auth(),
     )
     assert created.status_code == 422
@@ -80,21 +79,6 @@ def test_creating_a_session_without_a_title_is_unchanged(client: TestClient) -> 
     assert created.status_code == 201
     rows = client.get(CONVERSATIONS, headers=auth()).json()["sessions"]
     assert "title" not in rows[0]
-
-
-@pytest.mark.asyncio
-async def test_the_kind_filter_separates_chat_from_agent_conversations(
-    client: TestClient,
-    service: MockAppService,
-) -> None:
-    await seed(service, "session-chat")
-    await seed(service, "session-agent", kind="agent")
-
-    chats = client.get(CONVERSATIONS, headers=auth())
-    agents = client.get("/v1/agent/sessions", headers=auth())
-
-    assert _sessions(chats.json()) == ["session-chat"]
-    assert _sessions(agents.json()) == ["session-agent"]
 
 
 @pytest.mark.asyncio
@@ -134,7 +118,7 @@ async def test_a_malformed_cursor_is_a_client_error_not_a_server_error(
     response = client.get(CONVERSATIONS, params={"cursor": "!!!!"}, headers=auth())
 
     assert response.status_code == 422
-    assert response.json()["error"]["code"] == "harbor_validation_error"
+    assert response.json()["error"]["code"] == "validation_error"
 
 
 @pytest.mark.asyncio
@@ -194,13 +178,13 @@ def test_listing_requires_a_bearer_token(client: TestClient) -> None:
     response = client.get(CONVERSATIONS)
 
     assert response.status_code == 401
-    assert response.json()["error"]["code"] == "harbor_auth_error"
+    assert response.json()["error"]["code"] == "unauthenticated"
 
 
 def test_a_foreign_tenant_is_refused(client: TestClient) -> None:
     response = client.get(
         CONVERSATIONS,
-        params={"tenant": "OTHER"},
+        params={"tenant_id": "OTHER"},
         headers=auth(tenants=("DEFAULT",)),
     )
 

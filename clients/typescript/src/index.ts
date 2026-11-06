@@ -23,13 +23,9 @@ export type {
   ChatCitation,
   ChatUsage,
   ChatStreamEvent,
-  AgentCompletionRequest,
-  AgentResumeRequest,
-  AgentCompletionResponse,
 } from "./chat.js";
 
-/** Minimal typed fetch seam; screens use this until generated per-resource
- *  helpers land alongside the M1 endpoints. */
+/** Minimal typed fetch seam; ``path`` is the full route, such as ``/v1/admin/projects``. */
 export function createHarborClient(options: HarborClientOptions) {
   const doFetch = options.fetchImpl ?? fetch;
 
@@ -44,7 +40,7 @@ export function createHarborClient(options: HarborClientOptions) {
     if (body !== undefined) headers["Content-Type"] = "application/json";
 
     const response = await doFetch(
-      `${options.baseUrl.replace(/\/+$/, "")}/api/v1${path}`,
+      `${options.baseUrl.replace(/\/+$/, "")}${path}`,
       {
         method,
         headers,

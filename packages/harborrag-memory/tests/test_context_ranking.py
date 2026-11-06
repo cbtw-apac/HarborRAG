@@ -187,7 +187,6 @@ def test_scope_query_owner_refuses_a_scope_the_owner_cannot_address() -> None:
     projectless = MemoryOwner(tenant_id="tenant-1", principal_id="principal-1", session_id="s-1")
 
     assert scope_query_owner(projectless, MemoryScope.PROJECT) is None
-    assert scope_query_owner(projectless, MemoryScope.RUN) is None
 
 
 def test_scope_query_owner_derives_user_id_from_principal_id() -> None:

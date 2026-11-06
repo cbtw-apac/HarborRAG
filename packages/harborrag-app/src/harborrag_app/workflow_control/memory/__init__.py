@@ -4,7 +4,6 @@ from .access import MemoryAccess
 from .administration import ErasureReport, MemoryAdministrationService
 from .client import MemoryAdminClientMixin
 from .composition import (
-    agent_run_checkpoints,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
@@ -37,7 +36,6 @@ __all__ = [
     "MemoryIdentity",
     "ModelCall",
     "SessionLocks",
-    "agent_run_checkpoints",
     "answer_message",
     "conversation_memory",
     "conversation_message_data",

@@ -99,7 +99,7 @@ class FakeTaskRegistry:
         return None
 
 
-def _source_input(
+async def _source_input(
     _settings: RuntimeSettings,
     submission: SourceSubmission,
 ) -> SourceIngestionInput:

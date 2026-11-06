@@ -251,9 +251,7 @@ async def test_a_persisted_chat_turn_does_not_trigger_automatic_extraction() -> 
     facade = FakeMemoryFacade()
     runtime = FakeRuntime(FakeChatFacade(), memory=facade)
     history = InMemoryConversationMemory()
-    await history.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await history.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     queue = _queue(runtime, workers=1)
     await queue.start()
     service = _chat_service(runtime, history, queue)
@@ -279,9 +277,7 @@ async def test_an_unpersisted_chat_turn_is_never_submitted() -> None:
     facade = FakeMemoryFacade()
     runtime = FakeRuntime(FakeChatFacade(), memory=facade)
     history = _BrokenAppendMemory()
-    await history.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await history.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     queue = _queue(runtime, workers=1)
     await queue.start()
     service = _chat_service(runtime, history, queue)

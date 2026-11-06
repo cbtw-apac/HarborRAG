@@ -1,6 +1,6 @@
 """Triplet, path, and subgraph retrieval tools.
 
-Schemas live beside the shared reader catalog so MCP and agent discovery use
+Schemas live beside the shared reader catalog so every MCP client discovers
 the same descriptions and validation rules.
 """
 

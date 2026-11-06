@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from inspect import signature
 from types import UnionType
 from typing import Any, Union, get_args, get_origin, get_type_hints
 
@@ -10,7 +9,6 @@ from harborrag_adapters.connectors.exceptions import ConnectorNotFoundError
 
 type ConnectorConfigFactory = Callable[..., object]
 
-SECRET_CONFIG_FIELDS = frozenset({"access_token", "client_secret", "token"})
 PYTHON_ONLY_CONFIG_FIELDS = frozenset(
     {"custom_parsers", "process_attachment_callback", "process_file_callback"}
 )
@@ -23,20 +21,6 @@ def canonical_provider_name(provider: str) -> str:
         return connector_registry.canonical_name(normalized)
     except ConnectorNotFoundError:
         return normalized
-
-
-def config_factory(provider: str) -> ConnectorConfigFactory | None:
-    """Return the provider config constructor, or ``None`` if unsupported."""
-    try:
-        factory = connector_registry.get_definition(provider).config_factory
-    except ConnectorNotFoundError:
-        return None
-    return factory
-
-
-def config_field_names(factory: ConnectorConfigFactory) -> set[str]:
-    """Return keyword fields accepted by a provider config dataclass."""
-    return set(signature(factory).parameters)
 
 
 def coerce_config_values(

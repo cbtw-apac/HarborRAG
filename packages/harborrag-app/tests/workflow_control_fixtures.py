@@ -185,7 +185,7 @@ def build_service(
     return service, client, factory_calls
 
 
-def source_input(
+async def source_input(
     _settings: RuntimeSettings,
     submission: SourceSubmission,
 ) -> PreparedSourceSubmission:
@@ -245,7 +245,7 @@ class FakeTemporalClient:
         return IngestionExecutionReference(request.retry_task_id, "internal", "internal-run")
 
 
-def public_ingestion_source_input(
+async def public_ingestion_source_input(
     _settings: RuntimeSettings,
     submission: SourceSubmission,
 ) -> PreparedSourceSubmission:

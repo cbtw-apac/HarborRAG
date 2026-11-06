@@ -54,6 +54,7 @@ parsers:
     enabled: true
     settings:
       min_content_chars: 20
+      max_pages: 200
     engines:
       - backend: liteparse
         settings:
@@ -109,6 +110,10 @@ parsers:
 
 Supported backend names are `pymupdf`, `docling`, `liteparse`, `mineru`, and `paddleocr`. An explicit `engines` chain cannot also set `profile`. Backend settings are strict and checked against typed option dataclasses.
 
+`max_pages` refuses a longer PDF before any engine reads it; the default is
+200 and `null` turns the check off. A PDF that cannot be counted, such as an
+encrypted one, goes to the engines, which report why it failed.
+
 ## Image OCR engine
 
 ```yaml
@@ -120,7 +125,7 @@ parsers:
       ocr_engine: liteparse
       ocr_server_url: ${HARBORRAG_OCR_SERVER_URL:-}
       lang: en
-      max_pixels: 100000000
+      max_pixels: 25000000
 ```
 
 `liteparse` sends raster images to the same OCR server as scanned PDF pages
@@ -134,6 +139,17 @@ uses `ocr_server_url`.
 Image OCR supports `rapidocr` and `pytesseract`. RapidOCR is loaded lazily and
 one engine instance is reused by the configured parser. The `lang`, `config`,
 and `timeout` settings apply to the `pytesseract` alternative.
+
+## Document limits
+
+| Document | Limit | Setting |
+| --- | --- | --- |
+| PDF | 200 pages | `max_pages` on the `pdf` parser |
+| Image | 25 megapixels | `max_pixels` on the `image` parser |
+| Spreadsheet (`xlsx`, `xls`, `csv`) | 50,000 rows or 200,000 cells per file | Fixed |
+| Office and EPUB archives | 256 MiB unzipped, 5,000 members, 100:1 per member | Fixed |
+
+A document over a limit fails with a parser error and is not retried.
 
 ## Environment and secrets
 

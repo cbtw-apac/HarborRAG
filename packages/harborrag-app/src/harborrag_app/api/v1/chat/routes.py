@@ -9,7 +9,8 @@ from uuid import uuid4
 from fastapi import APIRouter, Body, Depends, Header, Response
 from fastapi.responses import StreamingResponse
 
-from harborrag_app.api.auth.dependencies import authorize_tenant, require_role
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.dependencies import authorize_tenant
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
 from harborrag_app.api.dependencies import ResponseContextDependency
@@ -33,7 +34,6 @@ from .schemas import (
     ChatSessionCreateRequest,
     ChatSessionResponse,
     ChatUsageResponse,
-    CompletionRequest,
 )
 from .streaming import stream_response
 
@@ -54,7 +54,7 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
                 "schema": {
                     "type": "string",
                     "description": "response.started, retrieval.completed, response.output_text.delta, "
-                    "response.citations, response.agent.progress, response.warning, and exactly one "
+                    "response.citations, response.warning, and exactly one "
                     "response.completed or response.error. Scope refusals use response.completed "
                     "with the same payload schema as JSON.",
                 }
@@ -73,11 +73,11 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
 async def create_chat_session(
     request: ChatSessionCreateRequest,
     service: ChatServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
 ) -> ChatSessionResponse:
-    authorize_tenant(principal, request.tenant)
+    authorize_tenant(principal, request.tenant_id)
     result = await service.create_chat_session(
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         user_id=principal.user_id,
     )
@@ -91,8 +91,7 @@ async def create_chat_session(
     response_model=ChatCompletionResponse,
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
     summary="Create a retrieval chat completion",
-    description="For bounded tool runs use POST /v1/agent/completions. "
-    "Omit session_id to create a session. Set stream=true for SSE with the same final "
+    description="Omit session_id to create a session. Set stream=true for SSE with the same final "
     "completion payload. Use Idempotency-Key to safely replay a completed request.",
 )
 async def create_chat_completion(
@@ -104,7 +103,7 @@ async def create_chat_completion(
                     "summary": "Continue a session",
                     "description": "Use the session_id returned by an earlier completion.",
                     "value": {
-                        "tenant": "DEFAULT",
+                        "tenant_id": "DEFAULT",
                         "session_id": "session-0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
                         "prompt": "What changed next?",
                         "stream": False,
@@ -113,7 +112,7 @@ async def create_chat_completion(
                 "new_session": {
                     "summary": "Create a session",
                     "value": {
-                        "tenant": "DEFAULT",
+                        "tenant_id": "DEFAULT",
                         "prompt": "What changed in the release policy?",
                         "stream": False,
                     },
@@ -122,7 +121,7 @@ async def create_chat_completion(
         ),
     ],
     service: CompletionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader"))],
+    principal: Annotated[Principal, Depends(require_role("reader", tenant=False, bucket="chat"))],
     context: ResponseContextDependency,
     _capacity: ApiCapacityDependency,
     header_key: Annotated[
@@ -134,18 +133,6 @@ async def create_chat_completion(
         ),
     ] = None,
 ) -> ChatCompletionResponse | StreamingResponse:
-    return await complete_request(request, service, principal, context, header_key)
-
-
-async def complete_request(
-    request: CompletionRequest,
-    service: CompletionService,
-    principal: Principal,
-    context: ResponseContextDependency,
-    header_key: str | None,
-) -> ChatCompletionResponse | StreamingResponse:
-    """Shared admission, replay, and SSE lifecycle for both public surfaces."""
-
     if header_key is not None:
         if request.idempotency_key is not None and request.idempotency_key != header_key:
             raise HarborValidationError("Body and header idempotency keys must match")
@@ -159,13 +146,13 @@ async def complete_request(
 
 async def _require_session(
     service: CompletionService,
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     principal: Principal,
     session_id: str,
 ) -> None:
     if not await service.chat_session_exists(
         session_id,
-        tenant_id=request.tenant,
+        tenant_id=request.tenant_id,
         principal_id=principal.subject,
         user_id=principal.user_id,
     ):
@@ -173,22 +160,19 @@ async def _require_session(
 
 
 async def _validate_request(
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     service: CompletionService,
     principal: Principal,
 ) -> None:
-    authorize_tenant(principal, request.tenant)
-    if request.mode == "agent":
-        await service.validate_agent_model(request.model, tenant_id=request.tenant)
-    else:
-        await service.validate_chat_model(request.model, tenant_id=request.tenant)
-    await service.validate_chat_project(request.project_id, tenant_id=request.tenant)
+    authorize_tenant(principal, request.tenant_id)
+    await service.validate_chat_model(request.model, tenant_id=request.tenant_id)
+    await service.validate_chat_project(request.project_id, tenant_id=request.tenant_id)
     if request.session_id is not None:
         await _require_session(service, request, principal, request.session_id)
 
 
 async def _complete_chat(
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     service: CompletionService,
     principal: Principal,
     response: Response,
@@ -211,11 +195,9 @@ async def _complete_chat(
             await _require_session(service, request, principal, replay.session_id)
         elif request.session_id is None:
             created = await service.create_chat_session(
-                tenant_id=request.tenant,
+                tenant_id=request.tenant_id,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
-                # Session lists are scoped to the surface that created them.
-                kind="agent" if request.mode == "agent" else "chat",
             )
             if not created.ok:
                 raise HarborConnectionError("Chat service is unavailable")
@@ -230,7 +212,7 @@ async def _complete_chat(
         if replay is not None:
             return replay
         dispatched = True
-        result = await dispatch.complete(service, request, principal, settings)
+        result = await dispatch.complete(service, request, principal)
         if not result.ok:
             raise HarborConnectionError("Chat service is unavailable")
         payload = ChatCompletionResponse.model_validate({**result.data, "mode": request.mode})
@@ -249,20 +231,19 @@ async def _complete_chat(
 
 
 async def _classify_refusal(
-    request: CompletionRequest, service: CompletionService, principal: Principal
+    request: ChatCompletionRequest, service: CompletionService, principal: Principal
 ) -> str | None:
     try:
         await service.validate_completion_scope(
             request.prompt,
             MemoryAccess(
-                tenant_id=request.tenant,
+                tenant_id=request.tenant_id,
                 principal_id=principal.subject,
                 user_id=principal.user_id,
                 project_id=request.project_id,
                 session_id=request.session_id,
             ),
             model=request.model,
-            mode=request.mode,
         )
     except HarborValidationError as error:
         if error.details.get("reason") != "out_of_scope":
@@ -272,7 +253,7 @@ async def _classify_refusal(
 
 
 async def _completed_refusal(
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     principal: Principal,
     attempt: CompletionAttempt,
     settings: ApiSettings,
@@ -292,13 +273,13 @@ async def _completed_refusal(
     return refusal
 
 
-def _scope_refusal(request: CompletionRequest, message: str) -> ChatCompletionResponse:
+def _scope_refusal(request: ChatCompletionRequest, message: str) -> ChatCompletionResponse:
     """Represent policy admission as a completion without claiming answer-model work."""
 
     if request.session_id is None:
         raise ValueError("completion session must be resolved before a refusal")
     return ChatCompletionResponse(
-        id=f"policy-{uuid4().hex}",
+        completion_id=f"policy-{uuid4().hex}",
         created=int(time()),
         model="scope_gate",
         provider="policy",

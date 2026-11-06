@@ -1,7 +1,7 @@
 """Retrieval portion of the application-service public facade.
 
 Split out of composition/service.py (file-length gate); mixed into AppService
-alongside AgentClientMixin/ChatClientMixin/ControlPlane*Mixin, following the
+alongside ChatClientMixin/ControlPlane*Mixin, following the
 same thin-delegate pattern.
 """
 
@@ -9,24 +9,17 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from harborrag_core.retrieval import (
-    GraphPathQuery,
-    GraphSubgraphQuery,
-    GraphTripletQuery,
-)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from ..composition.resources import AppResources
 from ..schemas import AppResponse
-from .graph import GraphRetrievalService
 from .query import retrieve
 
 
 class RetrievalClientMixin:
     _resources: AppResources
     _settings: RuntimeSettings
-    _graph: GraphRetrievalService
 
     async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
         self,
@@ -58,30 +51,3 @@ class RetrievalClientMixin:
             include_metadata=include_metadata,
             score_threshold=score_threshold,
         )
-
-    async def retrieve_graph_triplets(
-        self,
-        query: GraphTripletQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.triplets(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_paths(
-        self,
-        query: GraphPathQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.paths(query, tenant_id=tenant_id, principal_id=principal_id)
-
-    async def retrieve_graph_subgraph(
-        self,
-        query: GraphSubgraphQuery,
-        *,
-        tenant_id: str,
-        principal_id: str,
-    ) -> AppResponse:
-        return await self._graph.subgraph(query, tenant_id=tenant_id, principal_id=principal_id)

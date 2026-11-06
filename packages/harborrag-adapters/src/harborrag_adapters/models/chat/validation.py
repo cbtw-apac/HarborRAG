@@ -189,9 +189,9 @@ def validate_stream_capability(
 def _validate_reasoning_capability(
     request: HarborChatRequest, deployment: HarborChatProviderConfig
 ) -> None:
-    # ``none`` is an opt-out used by agent tool turns. It requires no
-    # reasoning feature from a deployment; providers that do not advertise
-    # the typed control omit it during parameter rendering.
+    # ``none`` opts out of reasoning and requires no reasoning feature from a
+    # deployment; providers that do not advertise the typed control omit it
+    # during parameter rendering.
     if request.reasoning_effort in {None, "none"}:
         return
     if not (deployment.capabilities.reasoning or deployment.capabilities.reasoning_effort):

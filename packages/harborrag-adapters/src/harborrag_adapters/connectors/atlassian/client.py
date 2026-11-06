@@ -27,6 +27,7 @@ from harborrag_adapters.connectors.policies.http import (
     safe_response_error_detail,
     same_origin,
 )
+from harborrag_adapters.connectors.policies.network import guarded_session
 from harborrag_adapters.connectors.rate_limiting import (
     ConnectorRateLimiter,
     LocalIntervalRateLimiter,
@@ -84,11 +85,12 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
     ) -> None:
         self.config = config
         self.base_url = context.base_url.rstrip("/")
-        self.session = requests.Session()
+        self.session = guarded_session()
         self.session.headers.update({"Accept": "application/json"})
+        self._redirect_session = guarded_session()
         self._owner_thread = get_ident()
         self._thread_sessions = local()
-        self._sessions = {self.session}
+        self._sessions = {self.session, self._redirect_session}
         self._sessions_lock = Lock()
         self._provider_label = context.provider_label
         self._logger = context.logger
@@ -165,7 +167,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         if not location or not _is_trusted_redirect(location, self.base_url):
             raise FetchError(f"{label} refused HTTP redirect {response.status_code}")
         try:
-            follow_up = requests.get(
+            follow_up = self._redirect_session.get(
                 location,
                 headers={"Accept": "*/*"},
                 timeout=self.config.request_timeout_seconds,
@@ -252,7 +254,7 @@ class AtlassianRestClient[ConfigT: AtlassianHttpConfig]:
         session: requests.Session | None = getattr(self._thread_sessions, "session", None)
         if session is not None:
             return session
-        session = requests.Session()
+        session = guarded_session()
         session.headers.update(self.session.headers)
         session.auth = self.session.auth
         session.cookies.update(self.session.cookies)

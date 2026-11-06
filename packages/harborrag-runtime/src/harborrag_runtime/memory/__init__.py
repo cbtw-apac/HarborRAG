@@ -10,7 +10,6 @@ from harborrag_core.ports.conversation import (
     MAX_CONVERSATION_TITLE_LENGTH,
     ConversationDirectory,
     ConversationHistoryRepository,
-    ConversationKind,
     ConversationMessage,
     ConversationMessageStore,
     ConversationPage,
@@ -34,7 +33,6 @@ from harborrag_core.ports.usage import (
     ModelUsageRecord,
     ModelUsageRepository,
     ModelUsageTotals,
-    UsageSurface,
     new_usage_id,
 )
 from harborrag_runtime.contracts import MemoryContextRequest
@@ -104,7 +102,6 @@ __all__ = [
     "ConversationDirectory",
     "ConversationHistoryRepository",
     "ConversationIdentity",
-    "ConversationKind",
     "ConversationMemory",
     "ConversationMessage",
     "ConversationMessageStore",
@@ -134,7 +131,6 @@ __all__ = [
     "ModelUsageRepository",
     "ModelUsageTotals",
     "RuntimeMemoryContextService",
-    "UsageSurface",
     "build_memory_chat_model",
     "build_memory_embedder",
     "build_memory_index",

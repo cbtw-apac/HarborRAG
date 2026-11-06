@@ -7,6 +7,7 @@ from .chunking import (
     TokenCounter,
 )
 from .errors import (
+    HarborAlreadyRunningError,
     HarborAuthError,
     HarborCapabilityError,
     HarborConfigurationError,
@@ -14,9 +15,12 @@ from .errors import (
     HarborConnectionError,
     HarborDeadlineExceeded,
     HarborError,
+    HarborImmutableFieldError,
     HarborImportError,
+    HarborInUseError,
     HarborNotFoundError,
     HarborNotSupportedError,
+    HarborPreconditionFailedError,
     HarborRateLimitError,
     HarborSecretDecryptionError,
     HarborSecurityError,
@@ -25,6 +29,7 @@ from .errors import (
 from .events import HarborEvent
 
 __all__ = [
+    "HarborAlreadyRunningError",
     "HarborAuthError",
     "HarborCapabilityError",
     "HarborConfigurationError",
@@ -33,8 +38,11 @@ __all__ = [
     "HarborDeadlineExceeded",
     "HarborError",
     "HarborEvent",
+    "HarborImmutableFieldError",
     "HarborImportError",
+    "HarborInUseError",
     "HarborNotFoundError",
+    "HarborPreconditionFailedError",
     "HarborRateLimitError",
     "HarborNotSupportedError",
     "HarborSecretDecryptionError",
