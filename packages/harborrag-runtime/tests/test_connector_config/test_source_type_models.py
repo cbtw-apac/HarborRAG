@@ -10,6 +10,7 @@ from typing import Any
 
 import pytest
 
+from harborrag_adapters.connectors.jira.config import JiraDeploymentType
 from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
 from harborrag_runtime.config import load_connector_catalog
 from harborrag_runtime.config.connectors.models import (
@@ -354,6 +355,46 @@ def test_example_yaml_entries_split_into_valid_parts(tmp_path: Path) -> None:
         spec = source_types.get(definition.provider)
         credentials, config, tuning = spec.split_flat(flat)
         validate(spec.source_type, credentials, config, tuning)
+
+
+@pytest.mark.parametrize(
+    ("source_type", "flat", "method"),
+    [
+        (
+            "jira",
+            {"base_url": "https://jira.acme.internal", "deployment_type": "cloud"},
+            "api_token",
+        ),
+        ("jira", {"base_url": "https://acme.atlassian.net"}, "api_token"),
+        ("confluence", {"base_url": "https://acme.atlassian.net/wiki"}, "api_token"),
+        (
+            "jira",
+            {"base_url": "https://acme.atlassian.net", "deployment_type": JiraDeploymentType.CLOUD},
+            "api_token",
+        ),
+        ("jira", {"base_url": "https://jira.acme.internal"}, "pat"),
+        (
+            "jira",
+            {"base_url": "https://acme.atlassian.net", "deployment_type": "datacenter"},
+            "pat",
+        ),
+        (
+            "jira",
+            {
+                "base_url": "https://jira.acme.internal",
+                "deployment_type": "datacenter",
+                "email": "bot@acme.com",
+            },
+            "api_token",
+        ),
+    ],
+)
+def test_an_atlassian_entry_without_its_email_keeps_the_method_of_its_deployment(
+    source_type: str, flat: dict[str, Any], method: str
+) -> None:
+    credentials, _, _ = source_types.get(source_type).split_flat({**flat, "token": "t"})
+
+    assert credentials["method"] == method
 
 
 @pytest.mark.parametrize(

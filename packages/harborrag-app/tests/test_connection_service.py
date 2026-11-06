@@ -186,6 +186,61 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
         await world.service.sync(CONNECTION_KEY, actor="u", item_refs=("ENG-1",))
 
 
+async def _store_as(world: ConnectionWorld, **changes: Any) -> None:
+    """Overwrite the stored test connection, skipping the validation ``put`` applies."""
+    stored = await world.control_plane.connections.get(
+        tenant_id=CONNECTION_KEY.tenant_id,
+        project_id=CONNECTION_KEY.project_id,
+        connection_id=CONNECTION_KEY.connection_id,
+    )
+    assert stored is not None
+    edit = changes.pop("credentials", None)
+    if edit is not None:
+        changes["credentials"] = edit(dict(stored.credentials))
+    await world.control_plane.connections.put(replace(stored, **changes))
+
+
+def _without_email(credentials: dict[str, Any]) -> dict[str, Any]:
+    credentials.pop("email")
+    return credentials
+
+
+def _cloud_pat(credentials: dict[str, Any]) -> dict[str, Any]:
+    return {**_without_email(credentials), "method": "pat"}
+
+
+@pytest.mark.parametrize(
+    ("edit", "issue"),
+    [
+        (_without_email, "required"),
+        (_cloud_pat, "email is required for JIRA Cloud API token auth"),
+    ],
+    ids=["schema", "connector"],
+)
+@pytest.mark.asyncio
+async def test_sync_refuses_a_connection_a_run_would_reject(
+    world: ConnectionWorld, edit: Any, issue: str
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    await _store_as(world, credentials=edit, status="error")
+
+    with pytest.raises(ConnectionValidationError) as invalid:
+        await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert [(i.field, i.issue) for i in invalid.value.issues] == [("credentials.email", issue)]
+    assert world.submitter.commands == []
+
+
+@pytest.mark.asyncio
+async def test_sync_starts_a_valid_connection_whatever_its_status(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    await _store_as(world, status="needs_reauth")
+
+    ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
+
+    assert ingestion["ingestion_id"] == "ing_1"
+
+
 @pytest.mark.asyncio
 async def test_put_with_sync_now_returns_the_ingestion(world: ConnectionWorld) -> None:
     result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u", sync_now=True)

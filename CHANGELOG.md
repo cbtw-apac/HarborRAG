@@ -32,11 +32,21 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 
+#### harborrag-app
+
+- `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
+
 ### Fixed
 
 #### harborrag-runtime
 
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
+- The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
+
+#### Deployment
+
+- The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
+- The SharePoint entry of `config/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
 
 ## [2.0.0a2] - 2026-10-26
 

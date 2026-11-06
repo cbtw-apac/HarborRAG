@@ -64,7 +64,8 @@ Each entry becomes a connection:
   created when missing.
 - A disabled entry is skipped. An entry with a missing environment variable or
   an invalid value is imported with status `error` and its field issues; fix it
-  with `PUT`.
+  with `PUT`. A Jira or Confluence Cloud entry keeps the `api_token` method
+  without its email, so the `PUT` only adds the `email`.
 
 The plan is logged and the import is recorded in the workspace settings. The
 file is never read again: later changes go through the API. `harborrag init`
@@ -78,6 +79,11 @@ Existing rows become connections. Each gets a `connection_id` slugged from its
 name, made unique in its project with `-2`, `-3` and so on, and the
 `source_key` `<project_id>/<connection_id>`. A `paused` row becomes `active`;
 a row whose type is unknown becomes `error`.
+
+A Jira or Confluence row without an email gets the `pat` method, which a Cloud
+site cannot use: starting its ingestion answers `422` on `credentials.email`.
+`PUT` the connection with `"method": "api_token"` and the `email`; the stored
+token is kept.
 
 ### Behaviour that changes
 

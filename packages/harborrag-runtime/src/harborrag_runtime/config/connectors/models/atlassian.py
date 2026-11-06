@@ -6,9 +6,12 @@ Data Center personal access token. ``api_token`` feeds the dataclass ``token``.
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 
 from pydantic import Field
+
+from harborrag_adapters.connectors.atlassian.query import is_cloud_hostname
 
 from .common import PagedHttpTuning
 from .fields import Email, HttpsUrl, Secret, StrictModel, widget
@@ -124,10 +127,18 @@ class ConfluenceConfig(StrictModel):
     fail_on_error: bool = Field(default=False, description="Stop the run on the first item error")
 
 
+def _is_cloud(flat: Mapping[str, Any]) -> bool:
+    """True for a Cloud site: named by ``deployment_type`` or, when unset, by its host."""
+    deployment = str(flat.get("deployment_type") or "").strip().lower()
+    if deployment:
+        return deployment == "cloud"
+    return is_cloud_hostname(str(flat.get("base_url") or ""))
+
+
 def _auth_methods() -> tuple[AuthMethodSpec, ...]:
     """Return the auth methods Jira and Confluence share."""
     return (
-        AuthMethodSpec("api_token", "API token", AtlassianCloudCredentials),
+        AuthMethodSpec("api_token", "API token", AtlassianCloudCredentials, implied_by=_is_cloud),
         AuthMethodSpec("pat", "Personal access token", AtlassianDataCenterCredentials),
     )
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
+from dataclasses import replace
 
 import pytest
 from app_test_connections import ConnectionWorld, connection_world
@@ -128,6 +130,27 @@ def test_a_bad_body_is_a_validation_error(
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
     assert [item["field"] for item in response.json()["error"]["details"]] == [field]
+
+
+def test_a_connection_that_fails_its_schema_is_refused_with_its_fields(
+    client: TestClient, app_service: _App
+) -> None:
+    connections = app_service.world.control_plane.connections
+    stored = asyncio.run(
+        connections.get(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
+    )
+    assert stored is not None
+    credentials = {k: v for k, v in stored.credentials.items() if k != "email"}
+    asyncio.run(connections.put(replace(stored, credentials=credentials, status="error")))
+
+    response = client.post(_START, json=_TARGET)
+
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["details"] == [
+        {"field": "credentials.email", "issue": "required"}
+    ]
+    assert app_service.world.submitter.commands == []
 
 
 def test_a_scoped_run_is_not_supported_yet(client: TestClient) -> None:

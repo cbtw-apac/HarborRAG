@@ -48,7 +48,7 @@ from harborrag_runtime.config.connectors.models import (
     ValidatedConnection,
     source_types,
 )
-from harborrag_runtime.config.connectors.models.builder import connector_config_issues
+from harborrag_runtime.config.connectors.models.builder import validate_connection
 from harborrag_runtime.config.connectors.models.spec import METHOD_KEY
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.connections import (
@@ -465,12 +465,20 @@ class ConnectionService:
             HarborAlreadyRunningError: An ingestion is active; ``details.ingestion_id`` names it.
             HarborCapabilityError: ``item_refs`` was sent; per-item syncs are not supported yet.
             ConnectionUnavailableError: The connection is being deleted.
+            ConnectionValidationError: The stored values fail the schema or the connector.
         """
         if item_refs:
             raise HarborCapabilityError("syncing selected items is not supported yet")
         connection = await self._require(key)
         if connection.status == "deleting":
             raise ConnectionUnavailableError(f"connection {connection.ref!r} is being deleted")
+        validate_connection(
+            source_types.get(connection.source_type),
+            connection.credentials,
+            connection.config,
+            connection.tuning,
+            tenant_id=connection.tenant_id,
+        )
         runs = await self._runs()
         await self._refuse_if_running(runs, key.tenant_id, connection.source_key)
         lease = f"connection-sync:{key.tenant_id}:{connection.source_key}"
@@ -902,11 +910,9 @@ def _validate(
     Raises:
         ConnectionValidationError: A schema or the connector rejects the values.
     """
-    validated = spec.validate(credentials, write.config, write.effective_tuning(existing))
-    issues = connector_config_issues(spec, validated, tenant_id=tenant_id)
-    if issues:
-        raise ConnectionValidationError(issues)
-    return validated
+    return validate_connection(
+        spec, credentials, write.config, write.effective_tuning(existing), tenant_id=tenant_id
+    )
 
 
 def _build(  # noqa: PLR0913 - the parts of one stored connection

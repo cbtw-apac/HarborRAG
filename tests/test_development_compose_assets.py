@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import tomllib
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from harborrag_runtime.config.connectors.importing import ConnectionImportService
+
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
+CONNECTORS = ROOT / "config/connectors.yaml"
 
 
 def test_dev_api_uses_the_temporal_development_network() -> None:
@@ -212,3 +216,46 @@ def test_the_api_reads_the_same_local_sources_as_the_workers() -> None:
     assert api_mounts == worker_mounts
     assert len(api_mounts) == 1 and api_mounts[0].endswith(":/data/sources:ro")
     assert api["environment"]["LOCAL_SOURCE_PATH"] == worker["environment"]["LOCAL_SOURCE_PATH"]
+
+
+class _FreshInstallStore:
+    """Project and connection store of an install that holds nothing yet."""
+
+    async def get(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+    async def get_by_source_key(self, *_args: object, **_kwargs: object) -> None:
+        return None
+
+
+def test_the_api_has_every_variable_the_connector_import_reads() -> None:
+    """The first-start import runs in the API: it reads plain values there, secrets stay out."""
+    environment = set(_service("deploy/compose/docker-compose.yml", "api")["environment"])
+    importer = ConnectionImportService(
+        projects=_FreshInstallStore(),
+        connections=_FreshInstallStore(),
+        environ=dict.fromkeys(environment, "set"),
+    )
+
+    plan = asyncio.run(
+        importer.plan(
+            CONNECTORS.read_text(encoding="utf-8"),
+            tenant_id="DEFAULT",
+            base_directory=CONNECTORS.parent,
+        )
+    )
+
+    unset = [
+        f"{change.connection_id}: {issue}"
+        for change in plan.changes
+        for issue in (change.reason or "").split("; ")
+        if issue.endswith("is not set")
+    ]
+    referenced = {
+        reference.removeprefix("env:")
+        for change in plan.changes
+        if change.connection is not None
+        for reference in change.connection.secret_refs
+    }
+    assert unset == []
+    assert referenced.isdisjoint(environment)
