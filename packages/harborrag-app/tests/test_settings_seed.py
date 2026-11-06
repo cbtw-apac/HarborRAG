@@ -130,3 +130,24 @@ async def test_seed_race_writes_one_revision(world: _World) -> None:
 
     assert set(outcomes) == {"seeded", "raced"}
     assert await world.store.latest_revision(_TENANT) == 1
+
+
+async def test_shipped_example_seeds_cleanly(world: _World) -> None:
+    world.write_file((Path(__file__).parents[3] / "config/settings.example.yaml").read_text())
+
+    assert await world.seed() == "seeded"
+    assert await world.effective() == (1200, "tenant")
+
+
+async def test_unknown_project_in_seed_file_names_level(
+    world: _World, caplog: pytest.LogCaptureFixture
+) -> None:
+    world.write_file("projects:\n  ghost:\n    retrieval.top_k: 7\n")
+
+    assert await world.seed() == "invalid"
+
+    errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert str(world.path) in errors[0].getMessage()
+    assert "level=project:ghost" in errors[0].getMessage()
+    assert await world.store.latest_revision(_TENANT) == 0

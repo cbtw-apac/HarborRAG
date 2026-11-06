@@ -34,6 +34,7 @@ from harborrag_runtime.config.settings_document import (
     load_settings_document,
 )
 
+from ..errors import SettingsLevelNotFoundError
 from .settings_service import require_settings_level
 
 logger = logging.getLogger(__name__)
@@ -77,9 +78,14 @@ class SettingsImporter:
         """
         snapshot = await self.snapshot(tenant_id=tenant_id)
         for label in document.levels:
-            await require_settings_level(
-                self._control_plane(), tenant_id, SettingsLevel.parse(label)
-            )
+            try:
+                await require_settings_level(
+                    self._control_plane(), tenant_id, SettingsLevel.parse(label)
+                )
+            except SettingsLevelNotFoundError as error:
+                raise SettingsLevelNotFoundError(
+                    str(error), details={"field": "level", "level": label}
+                ) from error
         return plan_import(self._registry, snapshot, document, prune=prune)
 
     async def apply(

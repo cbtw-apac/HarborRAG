@@ -5,11 +5,3 @@ parsing.pdf_parser: liteparse
 chunking.max_tokens: 1200
 ingestion.concurrency: 8
 models.embedding: null
-projects:
-  example-project:
-    retrieval.top_k: 8
-    chunking.max_tokens: 800
-connections:
-  example-project/example-connection:
-    parsing.pdf_parser: docling
-    ingestion.concurrency: 2

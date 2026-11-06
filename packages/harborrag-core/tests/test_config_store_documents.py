@@ -113,3 +113,12 @@ def test_drift_keys() -> None:
 
     assert drift_keys(REGISTRY, SNAPSHOT, document) == (KEY, "retrieval.top_k")
     assert drift_keys(REGISTRY, SNAPSHOT, export_document(SNAPSHOT, None)) == ()
+
+
+def test_plan_import_prune_skips_stored_reindex_key() -> None:
+    snapshot = SettingsSnapshot("acme", 1, {"tenant": {KEY: 512, "models.embedding": "a:b"}})
+
+    plan = plan_import(REGISTRY, snapshot, _document(), prune=True)
+
+    assert [(change.key, change.to_value) for change in plan.changes] == [(KEY, None)]
+    assert plan.skipped == (SkippedSetting("tenant", "models.embedding", "reindex_required"),)

@@ -125,11 +125,14 @@ def plan_import(
         )
         skipped.extend(level_skipped)
         if prune:
-            body |= {
-                key: None
-                for key in snapshot.at(level)
-                if key not in document.levels.get(label, {}) and key in registry.definitions
-            }
+            declared = document.levels.get(label, {})
+            for key in snapshot.at(level):
+                if key in declared or key not in registry.definitions:
+                    continue
+                if registry.definitions[key].applies == "reindex":
+                    skipped.append(SkippedSetting(label, key, "reindex_required"))
+                else:
+                    body[key] = None
         try:
             changes.extend(plan_changes(registry, snapshot, level, body))
         except HarborValidationError as error:
