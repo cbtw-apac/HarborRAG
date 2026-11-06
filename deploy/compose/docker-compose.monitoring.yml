@@ -8,6 +8,12 @@ services:
     volumes:
       - ../prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../prometheus/harborrag_alerts.yml:/etc/prometheus/harborrag_alerts.yml:ro
+      - type: bind
+        source: ${HARBORRAG_METRICS_SCRAPE_TOKEN_FILE:-../../env/api-scrape-token}
+        target: /etc/prometheus/secrets/api-scrape-token
+        read_only: true
+        bind:
+          create_host_path: false
       - prometheus_data:/prometheus
     networks:
       - monitoring-network

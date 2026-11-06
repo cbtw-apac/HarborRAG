@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,6 +16,8 @@ from harborrag_adapters.repositories.backends.sqlalchemy import UTCDateTime
 
 from .schemas import SingletonLeaseRow
 from .session import SessionFactory
+
+_LAPSED = datetime(1970, 1, 1, tzinfo=UTC)
 
 
 @dataclass(slots=True)
@@ -28,8 +32,8 @@ class SqlLeaseRepository:
         Not a read-then-write: the WHERE clause (already this holder, or the
         current holder's lease has lapsed) is evaluated atomically by the
         database, so two processes racing this at once can never both
-        believe they hold the lease. The row must already exist (seeded by
-        this lease's migration) -- an unknown ``name`` always returns False.
+        believe they hold the lease. A ``name`` with no row yet, such as a
+        per-connection sync lease, first gets an already-lapsed row.
 
         Both the expiry check and the new expiry value are anchored to the
         *database's* clock (``_server_now``), never this process's own: if
@@ -40,6 +44,7 @@ class SqlLeaseRepository:
         prevent.
         """
         async with self.sessions.begin() as session:
+            await self._ensure_row(session, name)
             now = await self._server_now(session)
             expires_at = now + timedelta(seconds=ttl_seconds)
             result = cast(
@@ -57,6 +62,16 @@ class SqlLeaseRepository:
                 ),
             )
             return result.rowcount == 1
+
+    @staticmethod
+    async def _ensure_row(session: AsyncSession, name: str) -> None:
+        """Insert a lapsed, unheld row for ``name`` unless one exists."""
+        factory = sqlite_insert if session.get_bind().dialect.name == "sqlite" else pg_insert
+        await session.execute(
+            factory(SingletonLeaseRow)
+            .values(name=name, holder="", expires_at=_LAPSED)
+            .on_conflict_do_nothing(index_elements=["name"])
+        )
 
     @staticmethod
     async def _server_now(session: AsyncSession) -> datetime:

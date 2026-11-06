@@ -5,8 +5,7 @@ The model adapter provides separate chat, embedding, and reranking clients. Each
 Start with:
 
 - [`config/models.example.yaml`](../../../config/models.example.yaml) for a compact direct-provider example;
-- [`config/models.advance.example.yaml`](../../../config/models.advance.example.yaml) for more routing and provider controls;
-- [`config/advance_chat/`](../../../config/advance_chat/) for direct SDK, LiteLLM Router, proxy, and distributed examples.
+- [`config/models.advance.example.yaml`](../../../config/models.advance.example.yaml) for more routing and provider controls.
 
 Install `harborrag-adapters[llm]` when it is not already present in the development environment.
 

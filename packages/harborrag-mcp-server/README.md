@@ -56,6 +56,23 @@ executor, and it does not provision object-store buckets:
 uv sync --package harborrag-mcp-server --extra reader
 ```
 
+### Before running the MCP server on Docker Desktop (Windows)
+
+The MCP container reaches the data services on the host through `127.0.0.1`,
+which only works when Docker Desktop host networking is enabled. This is a
+per-machine setting, so every developer must do it once on their own machine:
+
+1. Open Docker Desktop > Settings > Resources > Network.
+2. Turn on **Enable host networking**, then click **Apply & restart**.
+3. In `env/.env.mcp`, set `HARBORRAG_QDRANT_PREFER_GRPC=false`. gRPC (port
+   6334) does not work reliably through Docker Desktop host networking, so the
+   Qdrant client must use HTTP (port 6333).
+4. Restart Claude Desktop after any change to its MCP configuration or to
+   `env/.env.mcp`.
+
+Without step 2 the container cannot reach Qdrant or the other data services,
+and Claude Desktop reports the HarborRAG server as disconnected.
+
 Run the standard stdio transport from a checkout:
 
 ```bash

@@ -1,7 +1,7 @@
 """Public ingestion portion of the application-service facade.
 
 Split out of composition/service.py (file-length gate); mixed into AppService
-alongside AgentClientMixin/ChatClientMixin/RetrievalClientMixin, following the
+alongside ChatClientMixin/RetrievalClientMixin, following the
 same thin-delegate pattern. Every method here forwards to the durable
 ingestion application service without adding transport or policy of its own.
 """
@@ -12,7 +12,6 @@ from collections.abc import Sequence
 
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from .connections import connection_catalog
 from .models import IngestionCreateCommand
 from .service import IngestionApplicationService
 
@@ -87,11 +86,6 @@ class PublicIngestionClientMixin:
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
-
-    async def list_connections(self) -> dict[str, object]:
-        """Enabled connection identities from the worker's connector catalog."""
-
-        return connection_catalog(self._settings)
 
 
 __all__ = ["PublicIngestionClientMixin"]

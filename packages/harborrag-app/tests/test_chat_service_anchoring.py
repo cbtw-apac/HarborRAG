@@ -59,9 +59,7 @@ async def _service(
     memories: _Memories | None = None,
 ) -> ChatApplicationService:
     conversations = InMemoryConversationMemory()
-    await conversations.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await conversations.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     runtime = FakeRuntime(FakeChatFacade(), retrieval, memory=memory_facade)
     return ChatApplicationService(
         lambda: runtime,  # type: ignore[arg-type,return-value]

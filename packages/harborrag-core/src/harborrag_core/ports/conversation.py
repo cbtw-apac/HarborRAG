@@ -1,11 +1,11 @@
-"""Conversation-memory port shared by chat, agents, and persistence adapters.
+"""Conversation-memory port shared by chat and persistence adapters.
 
 Two views of the same history coexist here. ``ConversationMessage`` is the
-canonical per-message record (user, assistant, tool, and system messages with
-their tool-call and citation payloads); ``ConversationTurn`` is the legacy
-completed user/assistant pair that chat and agent prompt builders still
-consume. Adapters persist messages only and derive turns from them with
-``turns_from_messages`` so both views can never disagree.
+canonical per-message record (user, assistant and system messages with their
+citation payloads); ``ConversationTurn`` is the completed user/assistant pair
+that chat prompt builders consume. Adapters persist messages only and
+derive turns from them with ``turns_from_messages`` so both views can never
+disagree.
 """
 
 from __future__ import annotations
@@ -21,14 +21,7 @@ from uuid import uuid4
 from harborrag_core.domain.validation import require_identity_fields
 from harborrag_core.ports.completion_requests import CompletionRequestStore
 
-ConversationKind = Literal["chat", "agent"]
-"""The mode that created a conversation, retained for listing and filtering.
-
-Chat and agent completions can continue the same owned session; its original
-kind is metadata and does not restrict which mode may serve the next turn.
-"""
-
-ConversationRole = Literal["user", "assistant", "tool", "system"]
+ConversationRole = Literal["user", "assistant", "system"]
 """Who authored one persisted conversation message."""
 
 MAX_CONVERSATION_TITLE_LENGTH = 200
@@ -140,10 +133,7 @@ class ConversationMessage:
     content: str
     created_at: datetime
     token_count: int | None = None
-    tool_calls_json: str | None = None
-    tool_call_id: str | None = None
     citations_json: str | None = None
-    run_id: str | None = None
     partial: bool = False
     """True when the stored text is only what a stream delivered before it ended.
 
@@ -166,10 +156,10 @@ def turns_from_messages(messages: Iterable[ConversationMessage]) -> tuple[Conver
     """Derive completed user/assistant turns from oldest-first messages.
 
     A turn is a user message followed by the next completed assistant reply.
-    Partial, blank, and tool-call answers are skipped, as are tool and system
-    messages; a user message with no completed assistant reply yet
-    (or displaced by a later user message) does not form a turn, and an
-    assistant message without a preceding user message is ignored.
+    Partial and blank answers are skipped, as are system messages; a user
+    message with no completed assistant reply yet (or displaced by a later
+    user message) does not form a turn, and an assistant message without a
+    preceding user message is ignored.
     """
 
     turns: list[ConversationTurn] = []
@@ -190,7 +180,7 @@ def complete_message_pairs(
 ) -> tuple[ConversationMessage, ...]:
     """Return the newest complete user/assistant pairs, retaining message metadata.
 
-    Tool-call assistant messages and partial answers are not completed replies.
+    Partial and blank answers are not completed replies.
     A later user message displaces an unanswered question. The returned pairs
     are oldest-first so they can be inserted directly into a model prompt.
     """
@@ -211,12 +201,7 @@ def complete_message_pairs(
 def is_complete_reply(message: ConversationMessage) -> bool:
     """Whether a message is a completed assistant answer suitable for history."""
 
-    return bool(
-        message.role == "assistant"
-        and not message.partial
-        and message.content.strip()
-        and message.tool_calls_json in (None, "", "[]")
-    )
+    return bool(message.role == "assistant" and not message.partial and message.content.strip())
 
 
 class ConversationMemory(Protocol):
@@ -285,21 +270,10 @@ class ConversationMessageStore(Protocol):
 class ConversationSessions(Protocol):
     """Lifecycle contract for persisted conversation session resources."""
 
-    async def create(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind = "chat",
-        title: str | None = None,
-    ) -> None: ...
+    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None: ...
 
-    async def exists(
-        self,
-        identity: ConversationIdentity,
-        *,
-        kind: ConversationKind | None = None,
-    ) -> bool:
-        """Report whether the session exists; ``kind`` additionally requires a match."""
+    async def exists(self, identity: ConversationIdentity) -> bool:
+        """Report whether the session exists."""
         ...
 
     async def delete(self, identity: ConversationIdentity) -> bool:
@@ -317,7 +291,6 @@ class ConversationSummaryRow:
     """One row of a conversation listing, without any message content."""
 
     session_id: str
-    kind: ConversationKind
     title: str | None
     created_at: datetime
     updated_at: datetime
@@ -340,7 +313,6 @@ class ConversationDirectory(Protocol):
         *,
         tenant_id: str,
         user_id: str,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> ConversationPage:
@@ -420,7 +392,6 @@ __all__ = [
     "ConversationDirectory",
     "ConversationHistoryRepository",
     "ConversationIdentity",
-    "ConversationKind",
     "ConversationMemory",
     "ConversationMessage",
     "ConversationMessageStore",

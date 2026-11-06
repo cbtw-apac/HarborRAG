@@ -7,7 +7,7 @@ returns one transport-neutral response envelope.
 
 ## Package layout
 
-- `agent/`, `chat/`, and `memory/` own interactive use cases.
+- `chat/` and `memory/` own interactive use cases.
 - `ingestion/` owns ingestion commands, ports, presentation, recovery, and orchestration.
 - `retrieval/` owns vector and graph retrieval use cases.
 - `control_plane/` owns project, source, activity, settings, and metrics reads.

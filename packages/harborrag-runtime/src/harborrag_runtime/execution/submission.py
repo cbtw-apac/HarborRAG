@@ -7,13 +7,30 @@ import json
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
+from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.source_query import SourceQuery
+
+
+def request_source_key(request: IngestionRequest) -> str:
+    """Return the ``source_key`` an SDK request names."""
+    return request.connection_id or request.connector_name
+
+
+async def resolve_request_connection(
+    resolver: ConnectionResolver, request: IngestionRequest
+) -> ResolvedConnection:
+    """Load and snapshot the connection an SDK request names."""
+    return await resolver.resolve(
+        tenant_id=str(request.access.tenant_id), source_key=request_source_key(request)
+    )
 
 
 def build_ingestion_input(
     settings: RuntimeSettings,
     request: IngestionRequest,
+    *,
+    connection: ResolvedConnection,
 ) -> PreparedSourceSubmission:
     """Build the single source input shared by direct and Temporal strategies."""
 
@@ -44,4 +61,5 @@ def build_ingestion_input(
             discovery_concurrency=request.discovery_concurrency,
             document_concurrency=request.document_concurrency,
         ),
+        connection=connection,
     )

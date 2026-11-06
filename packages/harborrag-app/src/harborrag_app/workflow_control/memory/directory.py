@@ -26,10 +26,7 @@ from harborrag_core.ports.conversation import (
 from .presenters import conversation_message_data, conversation_summary_data
 
 if TYPE_CHECKING:
-    from harborrag_core.ports.conversation import (
-        ConversationHistoryRepository,
-        ConversationKind,
-    )
+    from harborrag_core.ports.conversation import ConversationHistoryRepository
 
     from .access import MemoryAccess
     from .administration import MemoryAdministrationService
@@ -52,7 +49,6 @@ class ConversationDirectoryService:
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> dict[str, object]:
@@ -62,12 +58,11 @@ class ConversationDirectoryService:
             page = await self._repository.list_conversations(
                 tenant_id=access.tenant_id,
                 user_id=access.user_id,
-                kind=kind,
                 cursor=cursor,
                 limit=limit,
             )
         except ValueError as exc:
-            raise HarborValidationError(str(exc)) from exc
+            raise HarborValidationError(str(exc), {"field": "cursor"}) from exc
         return {
             "conversations": [conversation_summary_data(row) for row in page.conversations],
             "next_cursor": page.next_cursor,
@@ -96,7 +91,7 @@ class ConversationDirectoryService:
                 limit=limit + 1,
             )
         except ValueError as exc:
-            raise HarborValidationError(str(exc)) from exc
+            raise HarborValidationError(str(exc), {"field": "after"}) from exc
         page = found[:limit]
         return {
             "messages": [conversation_message_data(message) for message in page],

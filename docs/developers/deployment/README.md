@@ -80,9 +80,10 @@ Use the repository smoke runner in [Testing](../testing/README.md#real-system-sm
 Loki services using files under `deploy/prometheus`, `deploy/grafana`, and
 `deploy/loki`. Prometheus and Grafana publish loopback-only ports by default;
 Loki is reachable only inside the private monitoring network.
-Prometheus joins `harborrag-data-network`; API metrics at `/api/v1/metrics`
-require an admin bearer token, while the default configuration scrapes
-the ingestion worker on port `9464`. The API exports request count,
+Prometheus joins `harborrag-data-network` and scrapes the ingestion worker on
+port `9464` and the API's ops port `9465`. API `/metrics` answers only on the ops
+port, only to the bearer token in `HARBORRAG_METRICS_SCRAPE_TOKEN`; `dev.sh`
+generates it and writes the copy Prometheus reads to `env/api-scrape-token`. The API exports request count,
 latency, in-flight, Python runtime, and process metrics using bounded route
 template labels. The worker exports bounded stage, document, artifact,
 chunk, retry, cleanup, verification, stale-candidate, and connector

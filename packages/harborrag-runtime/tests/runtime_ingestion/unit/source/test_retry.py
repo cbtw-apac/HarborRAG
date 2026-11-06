@@ -62,7 +62,7 @@ async def test_retry_reuses_document_version_without_constructing_connector(
             retry_task_id="retry",
             original_task_id="original",
             planned=planned,
-            connector_factory=lambda: pytest.fail("connector must not be constructed"),
+            connector_factory=AsyncMock(side_effect=AssertionError("connector must not be built")),
         )
 
         assert result == "unchanged"
@@ -106,7 +106,7 @@ async def test_fetch_failure_retries_from_the_configured_connector(
             retry_task_id="retry",
             original_task_id="original",
             planned=planned,
-            connector_factory=lambda: connector,
+            connector_factory=AsyncMock(return_value=connector),
         )
 
         documents.release.assert_awaited_once_with(planned.request, connector)

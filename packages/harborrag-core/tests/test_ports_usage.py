@@ -20,7 +20,6 @@ def _usage(**overrides: object) -> ModelUsageRecord:
         "tenant_id": "ACME",
         "user_id": "user-1",
         "principal_id": "principal-1",
-        "surface": "chat",
         "logical_model": "chat-default",
         "provider": "openai",
         "provider_model": "gpt-4.1-mini",

@@ -55,15 +55,15 @@ fixtures so production deployments cannot enable them accidentally.
 Before automating the proposed test plan, align it with the current public
 contract:
 
-- REST ingestion routes are under `/v1/ingestions`; cancellation is
-  `POST /v1/ingestions/{task_id}/cancel` and failed-only retry is
-  `POST /v1/ingestions/{task_id}/retry-failures`.
+- REST ingestion routes are under `/v1/admin/ingestions`; cancellation is
+  `POST /v1/admin/ingestions/{ingestion_id}/cancel` and failed-only retry is
+  `POST /v1/admin/ingestions/{ingestion_id}/retry-failures`.
 - Public API success values are `SUCCESS`, and partial success is `PARTIAL`;
   `Completed`, `Succeeded`, and `CompletedWithErrors` are not public values.
-- A create request selects a configured `connection_id`; it does not accept an
-  arbitrary caller-provided `source_id`.
+- A start request names a stored connection by `project_id` and
+  `connection_id`; it does not accept an arbitrary caller-provided `source_id`.
 - Pause and resume are available through the CLI, SDK, and
-  `POST /v1/ingestions/{task_id}/pause|resume`. They take effect at safe batch
+  `POST /v1/admin/ingestions/{ingestion_id}/pause|resume`. They take effect at safe batch
   boundaries. Native `Paused`/`Running` execution status in Temporal UI also
   requires `frontend.WorkflowPauseEnabled` on the Temporal server; cooperative
   ingestion controls remain available when that optional native API is absent.

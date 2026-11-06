@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -12,39 +13,31 @@ from harborrag_runtime.execution.source_submission import (
     SourceSubmissionDefaults,
     prepare_source_submission,
 )
+from harborrag_runtime.ingestion.connections import ResolvedConnection
 from harborrag_runtime.temporal.schemas import SourceQuery
 from harborrag_runtime.temporal.submission import (
     SourceSubmission,
     build_source_input,
 )
+from runtime_ingestion.connection_support import resolved_connection
+
+_JIRA_CREDENTIALS = {
+    "base_url": "https://jira.example.test",
+    "email": "bot@example.test",
+    "api_token": {"secret_ref": "secret://db/first"},
+}
 
 
 def _settings(tmp_path: Path) -> RuntimeSettings:
-    connectors = tmp_path / "connectors.yaml"
-    connectors.write_text(
-        """
-version: 1
-connectors:
-  docs:
-    provider: jira
-    enabled: true
-    environment:
-      base_url: JIRA_BASE_URL
-      project_keys: JIRA_PROJECT_KEYS
-    settings:
-      deployment_type: cloud
-    secrets:
-      token_env: JIRA_TOKEN
-      email_env: JIRA_EMAIL
-""".strip(),
-        encoding="utf-8",
-    )
     parsers = tmp_path / "parsers.yaml"
     parsers.write_text("version: 1\n", encoding="utf-8")
-    return RuntimeSettings(
-        connector_config_path=connectors,
-        parser_config_path=parsers,
-    )
+    return RuntimeSettings(parser_config_path=parsers)
+
+
+def _jira(**changes: Any) -> ResolvedConnection:
+    credentials = {**_JIRA_CREDENTIALS, **changes.pop("credentials", {})}
+    config = {"project_keys": ["DOCS"], **changes.pop("config", {})}
+    return resolved_connection("jira", credentials=credentials, config=config, **changes)
 
 
 def _submission(**changes: object) -> SourceSubmission:
@@ -61,66 +54,53 @@ def test_submission_builds_deterministic_secret_free_source_identity(
     tmp_path: Path,
 ) -> None:
     settings = _settings(tmp_path)
-    environment = {
-        "JIRA_BASE_URL": "https://jira.example.test",
-        "JIRA_PROJECT_KEYS": "DOCS",
-        "JIRA_TOKEN": "first-secret",
-    }
 
-    first = build_source_input(
-        settings,
-        _submission(),
-        environment=environment,
-    )
-    second = build_source_input(
-        settings,
-        _submission(),
-        environment={**environment, "JIRA_TOKEN": "rotated-secret"},
-    )
+    first = build_source_input(settings, _submission(), connection=_jira())
+    second = build_source_input(settings, _submission(), connection=_jira())
 
     assert first == second
     assert first.connector_type == "jira"
     assert first.connection_id == "docs"
     assert first.source_scope_id.startswith("scope-")
+    assert first.configuration_fingerprint.startswith("connection-")
     assert first.processing.vector_projection_schema == "vector-v2"
     assert first.processing.graph_projection_version == "graph-v5-unique-visible-edges"
     assert first.discovery_page_size == 50
     assert first.discovery_concurrency == 4
-    assert "first-secret" not in first.configuration_fingerprint
+
+
+def test_a_rotated_secret_reference_changes_the_fingerprint_but_not_the_scope(
+    tmp_path: Path,
+) -> None:
+    rotated_reference = _jira(credentials={"api_token": {"secret_ref": "secret://db/second"}})
+
+    first = build_source_input(_settings(tmp_path), _submission(), connection=_jira())
+    second = build_source_input(_settings(tmp_path), _submission(), connection=rotated_reference)
+
+    assert first.source_scope_id == second.source_scope_id
+    assert first.configuration_fingerprint != second.configuration_fingerprint
 
 
 def test_query_changes_scope_without_changing_connector_configuration(
     tmp_path: Path,
 ) -> None:
     settings = _settings(tmp_path)
-    environment = {
-        "JIRA_BASE_URL": "https://jira.example.test",
-        "JIRA_PROJECT_KEYS": "DOCS",
-    }
 
     first = build_source_input(
-        settings,
-        _submission(query=SourceQuery(pattern="*.md")),
-        environment=environment,
+        settings, _submission(query=SourceQuery(pattern="*.md")), connection=_jira()
     )
     second = build_source_input(
-        settings,
-        _submission(query=SourceQuery(pattern="*.txt")),
-        environment=environment,
+        settings, _submission(query=SourceQuery(pattern="*.txt")), connection=_jira()
     )
 
     assert first.source_scope_id != second.source_scope_id
     assert first.configuration_fingerprint == second.configuration_fingerprint
 
 
-def test_execution_toggles_do_not_split_scope_and_connector_can_disable_attachments(
+def test_execution_toggles_do_not_split_scope_and_connection_can_disable_attachments(
     tmp_path: Path,
 ) -> None:
     settings = _settings(tmp_path)
-    environment = {
-        "JIRA_BASE_URL": "https://jira.example.test",
-        "JIRA_PROJECT_KEYS": "DOCS",
-    }
 
     enabled_request = build_source_input(
         settings,
@@ -130,7 +110,7 @@ def test_execution_toggles_do_not_split_scope_and_connector_can_disable_attachme
                 filters_json='{"include_comments":true,"build_graph":true}',
             )
         ),
-        environment=environment,
+        connection=_jira(),
     )
     disabled_request = build_source_input(
         settings,
@@ -140,7 +120,7 @@ def test_execution_toggles_do_not_split_scope_and_connector_can_disable_attachme
                 filters_json='{"include_comments":false,"build_graph":false}',
             )
         ),
-        environment=environment,
+        connection=_jira(),
     )
 
     assert enabled_request.query.include_attachments is False
@@ -148,57 +128,46 @@ def test_execution_toggles_do_not_split_scope_and_connector_can_disable_attachme
     assert enabled_request.source_scope_id == disabled_request.source_scope_id
 
 
-def test_non_secret_connector_change_updates_configuration_fingerprint(
-    tmp_path: Path,
-) -> None:
+def test_config_jql_reaches_the_query_but_editing_it_keeps_the_scope(tmp_path: Path) -> None:
     settings = _settings(tmp_path)
 
     first = build_source_input(
-        settings,
-        _submission(),
-        environment={
-            "JIRA_BASE_URL": "https://jira-a.example.test",
-            "JIRA_PROJECT_KEYS": "DOCS",
-        },
+        settings, _submission(), connection=_jira(config={"jql": "project = CPM"})
     )
     second = build_source_input(
-        settings,
+        settings, _submission(), connection=_jira(config={"jql": "project = HR"})
+    )
+
+    assert '"jql":"project = CPM"' in first.query.filters_json
+    assert first.source_scope_id == second.source_scope_id
+    assert first.configuration_fingerprint != second.configuration_fingerprint
+
+
+def test_non_secret_connection_change_updates_configuration_fingerprint(
+    tmp_path: Path,
+) -> None:
+    first = build_source_input(_settings(tmp_path), _submission(), connection=_jira())
+    second = build_source_input(
+        _settings(tmp_path),
         _submission(),
-        environment={
-            "JIRA_BASE_URL": "https://jira-b.example.test",
-            "JIRA_PROJECT_KEYS": "DOCS",
-        },
+        connection=_jira(credentials={"base_url": "https://jira-b.example.test"}),
     )
 
     assert first.configuration_fingerprint != second.configuration_fingerprint
 
 
-def test_explicit_connection_and_scope_are_preserved(tmp_path: Path) -> None:
+def test_the_source_key_names_the_connection_and_an_explicit_scope_is_preserved(
+    tmp_path: Path,
+) -> None:
     source = build_source_input(
         _settings(tmp_path),
-        _submission(
-            connection_id="shared-files",
-            source_scope_id="engineering-docs",
-        ),
-        environment={
-            "JIRA_BASE_URL": "https://jira.example.test",
-            "JIRA_PROJECT_KEYS": "DOCS",
-        },
+        _submission(connection_id="shared-files", source_scope_id="engineering-docs"),
+        connection=_jira(source_key="shared-files"),
     )
 
     assert source.connection_id == "shared-files"
+    assert source.connector_name == "shared-files"
     assert source.source_scope_id == "engineering-docs"
-
-
-def test_missing_non_secret_connector_environment_is_rejected(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(ConnectorConfigurationError, match="JIRA_BASE_URL"):
-        build_source_input(
-            _settings(tmp_path),
-            _submission(),
-            environment={},
-        )
 
 
 @pytest.mark.parametrize(
@@ -232,27 +201,15 @@ def _settings_with_ingestion_defaults(
         f"  document_concurrency: {document_concurrency}\n",
         encoding="utf-8",
     )
-    return settings.__class__(
-        connector_config_path=settings.connector_config_path,
-        parser_config_path=settings.parser_config_path,
-        temporal_config_path=temporal_config,
-    )
+    return settings.model_copy(update={"temporal_config_path": temporal_config})
 
 
 def test_unset_batching_falls_back_to_the_configured_ingestion_defaults(
     tmp_path: Path,
 ) -> None:
-    settings = _settings_with_ingestion_defaults(
-        tmp_path,
-        batch_size=5,
-        document_concurrency=5,
-    )
-    environment = {
-        "JIRA_BASE_URL": "https://jira.example.test",
-        "JIRA_PROJECT_KEYS": "DOCS",
-    }
+    settings = _settings_with_ingestion_defaults(tmp_path, batch_size=5, document_concurrency=5)
 
-    source = build_source_input(settings, _submission(), environment=environment)
+    source = build_source_input(settings, _submission(), connection=_jira())
 
     assert source.batch_size == 5
     assert source.document_concurrency == 5
@@ -261,20 +218,12 @@ def test_unset_batching_falls_back_to_the_configured_ingestion_defaults(
 def test_explicit_batching_overrides_the_configured_ingestion_defaults(
     tmp_path: Path,
 ) -> None:
-    settings = _settings_with_ingestion_defaults(
-        tmp_path,
-        batch_size=5,
-        document_concurrency=5,
-    )
-    environment = {
-        "JIRA_BASE_URL": "https://jira.example.test",
-        "JIRA_PROJECT_KEYS": "DOCS",
-    }
+    settings = _settings_with_ingestion_defaults(tmp_path, batch_size=5, document_concurrency=5)
 
     source = build_source_input(
         settings,
         _submission(batch_size=200, document_concurrency=8),
-        environment=environment,
+        connection=_jira(),
     )
 
     assert source.batch_size == 200
@@ -284,15 +233,14 @@ def test_explicit_batching_overrides_the_configured_ingestion_defaults(
 def test_neutral_preparation_uses_injected_defaults_without_reading_temporal_config(
     tmp_path: Path,
 ) -> None:
-    settings = _settings(tmp_path)
     invalid_temporal = tmp_path / "temporal.yaml"
     invalid_temporal.write_text("not: a temporal configuration", encoding="utf-8")
-    settings = settings.model_copy(update={"temporal_config_path": invalid_temporal})
+    settings = _settings(tmp_path).model_copy(update={"temporal_config_path": invalid_temporal})
 
     source = prepare_source_submission(
         settings,
         _submission(),
-        environment={"JIRA_BASE_URL": "https://jira.example.test", "JIRA_PROJECT_KEYS": "DOCS"},
+        connection=_jira(),
         defaults=SourceSubmissionDefaults(batch_size=12, document_concurrency=3),
     )
 
@@ -301,38 +249,20 @@ def test_neutral_preparation_uses_injected_defaults_without_reading_temporal_con
     assert not hasattr(source, "workflow_options")
 
 
-def _local_settings(tmp_path: Path) -> RuntimeSettings:
+def _local(tmp_path: Path) -> ResolvedConnection:
     source = tmp_path / "docs"
-    source.mkdir()
-    connectors = tmp_path / "local-connectors.yaml"
-    connectors.write_text(
-        f"""
-version: 1
-connectors:
-  files:
-    provider: local
-    enabled: true
-    settings:
-      source_path: {source}
-""".strip(),
-        encoding="utf-8",
+    source.mkdir(exist_ok=True)
+    return resolved_connection(
+        "local_file", source_key="files", config={"source_path": str(source)}
     )
-    parsers = tmp_path / "parsers.yaml"
-    parsers.write_text("version: 1\n", encoding="utf-8")
-    return RuntimeSettings(connector_config_path=connectors, parser_config_path=parsers)
 
 
 def test_unknown_local_filter_keys_are_rejected(tmp_path: Path) -> None:
-    settings = _local_settings(tmp_path)
-
     with pytest.raises(ConnectorConfigurationError) as raised:
         prepare_source_submission(
-            settings,
-            _submission(
-                connector_name="files",
-                query=SourceQuery(filters_json='{"bogus": 1}'),
-            ),
-            environment={},
+            _settings(tmp_path),
+            _submission(connector_name="files", query=SourceQuery(filters_json='{"bogus": 1}')),
+            connection=_local(tmp_path),
         )
 
     message = str(raised.value)
@@ -342,17 +272,15 @@ def test_unknown_local_filter_keys_are_rejected(tmp_path: Path) -> None:
 
 
 def test_known_local_filter_keys_are_accepted(tmp_path: Path) -> None:
-    settings = _local_settings(tmp_path)
-
     prepared = prepare_source_submission(
-        settings,
+        _settings(tmp_path),
         _submission(
             connector_name="files",
             query=SourceQuery(
                 filters_json='{"extensions": [".md"], "include_comments": false, "files": []}'
             ),
         ),
-        environment={},
+        connection=_local(tmp_path),
     )
 
     assert prepared.connector_type == "local"

@@ -1,6 +1,9 @@
 from .control_plane import (
     ActivityRepositoryPort,
     ActivityRepositoryProvider,
+    ConnectionRepositoryPort,
+    ConnectionRepositoryProvider,
+    ConnectionRevisionRepositoryPort,
     JobRepositoryPort,
     JobRepositoryProvider,
     MemberRepositoryPort,
@@ -12,8 +15,6 @@ from .control_plane import (
     ProviderRepositoryProvider,
     SettingsRepositoryPort,
     SettingsRepositoryProvider,
-    SourceRepositoryPort,
-    SourceRepositoryProvider,
     TenantScopedRepositoryProvider,
 )
 from .conversation import (
@@ -56,7 +57,6 @@ from .usage import (
     ModelUsageRecord,
     ModelUsageRepository,
     ModelUsageTotals,
-    UsageSurface,
     new_usage_id,
 )
 
@@ -66,6 +66,9 @@ __all__ = [
     "AsyncHarborChatClientProtocol",
     "AsyncHarborEmbedClientProtocol",
     "AsyncHarborRerankClientProtocol",
+    "ConnectionRepositoryPort",
+    "ConnectionRepositoryProvider",
+    "ConnectionRevisionRepositoryPort",
     "ConversationDirectory",
     "ConversationHistoryRepository",
     "ConversationIdentity",
@@ -99,14 +102,11 @@ __all__ = [
     "SecretsPort",
     "SettingsRepositoryProvider",
     "SettingsRepositoryPort",
-    "SourceRepositoryProvider",
-    "SourceRepositoryPort",
     "TenantChatCatalog",
     "TenantModelCatalogPort",
     "TenantModelDefinition",
     "TenantModelDeployment",
     "TenantScopedRepositoryProvider",
-    "UsageSurface",
     "VectorIndexRepositoryPort",
     "new_message_id",
     "new_session_id",

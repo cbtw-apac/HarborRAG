@@ -157,8 +157,9 @@ def _apply_control_db_url(path: Path) -> bool:
 
 
 _REFUSAL = (
-    "Refusing to ingest from a repo checkout into the local sqlite control DB: the stores "
-    "are shared with the stack but run state would not be. Set HARBORRAG_CONTROL_DB_URL to "
+    "Refusing to ingest or change connections from a repo checkout in the local sqlite "
+    "control DB: the stores are shared with the stack but run state and connections would "
+    "not be. Set HARBORRAG_CONTROL_DB_URL to "
     "the stack's Postgres, exported or as a line in env/.env.database (rebuild the images "
     "first: scripts/deployment/dev.sh up --build), or run from a project created with "
     "`harborrag init`."
@@ -208,7 +209,7 @@ def _is_default_control_db(url: str) -> bool:
 
 
 def refuse_checkout_write() -> None:
-    """Exit 1 with the refusal on stderr; the first statement of every ingest write."""
+    """Exit 1 with the refusal on stderr; the first statement of every ingest or source write."""
 
     message = checkout_write_refusal()
     if message is not None:

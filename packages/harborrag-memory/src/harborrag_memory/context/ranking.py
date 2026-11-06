@@ -18,7 +18,7 @@ from harborrag_core.ports.memory import Memory, MemoryScope, MemoryType
 from .hashing import normalize_content
 
 SCOPE_RANK: dict[MemoryScope, int] = {scope: index for index, scope in enumerate(MemoryScope)}
-"""Narrower scopes rank lower and win ties: RUN < SESSION < USER < PROJECT < TENANT < GLOBAL."""
+"""Narrower scopes rank lower and win ties: SESSION < USER < PROJECT < TENANT < GLOBAL."""
 
 SECONDS_PER_HOUR = 3600.0
 

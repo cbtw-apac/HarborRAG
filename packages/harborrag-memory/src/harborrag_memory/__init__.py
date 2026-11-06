@@ -1,4 +1,4 @@
-"""Scope-aware short-term, working, and long-term memory for HarborRAG."""
+"""Scope-aware short-term and long-term memory for HarborRAG."""
 
 from __future__ import annotations
 
@@ -47,13 +47,7 @@ from .schemas import (
     scope_owner_fields,
     visible_to,
 )
-from .tiers import (
-    InMemoryWorkingMemoryStore,
-    LongTermMemory,
-    ShortTermMemory,
-    WorkingMemory,
-    WorkingMemoryStore,
-)
+from .tiers import LongTermMemory, ShortTermMemory
 
 __all__ = [
     "NO_AFFINITY",
@@ -62,7 +56,6 @@ __all__ = [
     "ExtractedFact",
     "ConversationMemory",
     "ConversationTurn",
-    "InMemoryWorkingMemoryStore",
     "LongTermMemory",
     "ConversationRepository",
     "ConversationSessions",
@@ -93,8 +86,6 @@ __all__ = [
     "ScoringContext",
     "ShortTermMemory",
     "TypeAffinity",
-    "WorkingMemory",
-    "WorkingMemoryStore",
     "approximate_tokens",
     "new_memory_id",
     "new_session_id",

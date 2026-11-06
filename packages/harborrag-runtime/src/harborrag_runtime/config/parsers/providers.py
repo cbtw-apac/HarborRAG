@@ -5,6 +5,7 @@ from dataclasses import dataclass, fields
 from typing import Any
 
 from harborrag_adapters.parsers.common.base import HarborParser
+from harborrag_adapters.parsers.common.limits import PDF_MAX_PAGES
 from harborrag_adapters.parsers.document.engines.docx.engine import DocxDocumentEngine
 from harborrag_adapters.parsers.document.engines.epub.engine import EpubDocumentEngine
 from harborrag_adapters.parsers.document.parser import HarborDocumentParser
@@ -133,6 +134,7 @@ def _pdf_factory(
     *,
     backends: list[HarborPDFEngine] | None = None,
     min_content_chars: int = 20,
+    max_pages: int | None = PDF_MAX_PAGES,
     profile: str = "liteparse",
     ocr_server_url: str | None = None,
 ) -> HarborPDFParser:
@@ -140,12 +142,14 @@ def _pdf_factory(
         return HarborPDFParser(
             backends=backends,
             min_content_chars=min_content_chars,
+            max_pages=max_pages,
             profile=profile,
         )
     router = PDFRouterConfig(default_profile=profile)
     return HarborParserFactory().create_pdf_parser(
         PDFParserConfig(
             min_content_chars=min_content_chars,
+            max_pages=max_pages,
             router=router,
             ocr_server_url=ocr_server_url,
         )
@@ -191,7 +195,7 @@ class PdfBackendSpec:
 _PARSER_SETTING_NAMES: Mapping[str, frozenset[str]] = {
     **{name: frozenset() for name in _PARSER_FACTORIES if name not in {"image", "pdf"}},
     "image": frozenset({"config", "lang", "max_pixels", "ocr_engine", "ocr_server_url", "timeout"}),
-    "pdf": frozenset({"min_content_chars", "ocr_server_url", "profile"}),
+    "pdf": frozenset({"max_pages", "min_content_chars", "profile"}),
 }
 _PDF_BACKENDS: Mapping[str, PdfBackendSpec] = {
     "docling": PdfBackendSpec(DoclingPDFEngine, DoclingPDFConfig),

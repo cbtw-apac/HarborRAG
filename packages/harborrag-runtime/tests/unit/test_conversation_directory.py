@@ -61,20 +61,17 @@ async def test_a_second_user_cannot_reach_the_first_users_session() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.blackbox
-async def test_listing_orders_by_activity_filters_kind_and_pages() -> None:
+async def test_listing_orders_by_activity_and_pages() -> None:
     memory = InMemoryConversationMemory()
-    for index, kind in enumerate(("chat", "chat", "agent")):
+    for index in range(3):
         identity = ConversationIdentity("tenant", "p", f"session-{index}", "user-1")
-        await memory.create(identity, kind=kind)  # type: ignore[arg-type]
+        await memory.create(identity)
         await memory.append_messages(identity, (_message(f"m-{index}"),))
 
     page = await memory.list_conversations(tenant_id="tenant", user_id="user-1")
     ordered = [row.session_id for row in page.conversations]
     assert ordered == ["session-2", "session-1", "session-0"]
     assert page.next_cursor is None
-
-    chats = await memory.list_conversations(tenant_id="tenant", user_id="user-1", kind="chat")
-    assert [row.session_id for row in chats.conversations] == ["session-1", "session-0"]
 
     first = await memory.list_conversations(tenant_id="tenant", user_id="user-1", limit=2)
     assert [row.session_id for row in first.conversations] == ["session-2", "session-1"]

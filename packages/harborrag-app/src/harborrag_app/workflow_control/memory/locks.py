@@ -16,9 +16,13 @@ from harborrag_core.ports.conversation import ConversationIdentity, Conversation
 class ConversationTurnBusyError(HarborConflictError):
     """The session remained busy beyond the configured acquisition deadline."""
 
+    error_code = "session_busy"
+
 
 class ConversationTurnLeaseLostError(HarborConflictError):
     """A running completion could no longer prove exclusive session ownership."""
+
+    error_code = "session_busy"
 
 
 class SessionLocks:

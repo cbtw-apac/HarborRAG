@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from io import BytesIO
 from typing import Any, ClassVar
 
+from harborrag_adapters.parsers.common.limits import IMAGE_MAX_PIXELS
 from harborrag_adapters.parsers.common.normalization import strip_code_fences
 from harborrag_adapters.parsers.common.resources import read_parse_input_bytes
 from harborrag_adapters.parsers.common.utils import (
@@ -23,7 +24,7 @@ from harborrag_core.domain.parser import ParsedDocument, ParseInput
 
 parser_logger = get_parser_logger("image")
 
-DEFAULT_MAX_IMAGE_PIXELS = 100_000_000  # 100 megapixels decoded
+DEFAULT_MAX_IMAGE_PIXELS = IMAGE_MAX_PIXELS
 
 
 @dataclass(slots=True)

@@ -21,7 +21,6 @@ dependencies = [
 [project.optional-dependencies]
 reader = ["harborrag-adapters[control-plane,falkordb,llm,postgres,qdrant,s3]==2.0.0a2"]
 chat = ["harborrag-adapters[llm]==2.0.0a2"]
-agent = []
 memory = ["harborrag-memory==2.0.0a2"]
 temporal = [
     "temporalio>=1.30,<2",

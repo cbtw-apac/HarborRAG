@@ -8,12 +8,17 @@ from enum import StrEnum
 from pathlib import Path
 
 from harborrag_adapters.connectors.file_filters import normalize_extension
+from harborrag_adapters.connectors.limits import (
+    DEFAULT_ALLOWED_EXTENSIONS as SHARED_ALLOWED_EXTENSIONS,
+)
+from harborrag_adapters.connectors.limits import DEFAULT_MAX_DOCUMENT_BYTES
 from harborrag_adapters.connectors.policies.validation import (
     validate_http_tuning,
     validate_https_url,
     validate_non_negative_limit,
 )
 
+from ..environment import environment_default
 from .config_validation import (
     normalize_allowlist,
     normalize_path_prefixes,
@@ -38,8 +43,8 @@ class SharePointAuthMode(StrEnum):
 # Fallbacks for fields a connection omits. Deployments set these per connection
 # under `settings` in config/connectors.yaml; see config/connectors.example.yaml.
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
-DEFAULT_MAX_FILE_SIZE_BYTES = 100 * 1024 * 1024
-DEFAULT_ALLOWED_EXTENSIONS = frozenset({".docx", ".pdf", ".pptx", ".xlsx", ".txt", ".md"})
+DEFAULT_MAX_FILE_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
+DEFAULT_ALLOWED_EXTENSIONS = frozenset(SHARED_ALLOWED_EXTENSIONS)
 
 
 @dataclass(slots=True)
@@ -94,6 +99,7 @@ class SharePointSiteConfig:
     client_secret: str | None = field(default=None, repr=False)  # secret
     auth_mode: SharePointAuthMode | str | None = None
     token_cache_path: str | None = None
+    harborrag_tenant_id: str | None = None
     graph_api_url: str = DEFAULT_GRAPH_API_URL
     allowed_extensions: set[str] = field(default_factory=lambda: set(DEFAULT_ALLOWED_EXTENSIONS))
     excluded_extensions: set[str] = field(default_factory=set)
@@ -112,6 +118,17 @@ class SharePointSiteConfig:
         """Resolve site/auth shortcuts and validate paging and size limits."""
         self.graph_api_url = self.graph_api_url.rstrip("/")
         validate_https_url("graph_api_url", self.graph_api_url)
+        self.tenant_id = self.tenant_id or environment_default("MICROSOFT_TENANT_ID")
+        self.client_id = self.client_id or environment_default("MICROSOFT_CLIENT_ID")
+        if self.auth_mode is not None:
+            # Normalize first so " Device_Code" still takes the delegated guard below.
+            self.auth_mode = str(self.auth_mode).strip().lower()
+        if self.auth_mode != SharePointAuthMode.DEVICE_CODE:
+            # A delegated connection must never fall back to ambient app credentials.
+            self.access_token = self.access_token or environment_default("MICROSOFT_GRAPH_TOKEN")
+            self.client_secret = self.client_secret or environment_default(
+                "MICROSOFT_CLIENT_SECRET"
+            )
 
         if self.site_url:
             validate_site_url(self.site_url)
@@ -169,11 +186,22 @@ class SharePointSiteConfig:
                 raise ValueError("auth_mode device_code requires tenant_id and client_id")
             if self.client_secret or self.access_token:
                 raise ValueError("auth_mode device_code does not use client_secret or access_token")
-            self.token_cache_path = str(
-                Path(self.token_cache_path).expanduser()
-                if self.token_cache_path
-                else default_token_cache_path(self.tenant_id, self.client_id)
-            )
+            self.token_cache_path = str(self._token_cache())
+
+    def _token_cache(self) -> Path:
+        """Return the explicit cache path, or the default inside the HarborRAG tenant's folder.
+
+        Raises:
+            ValueError: No path is set and no HarborRAG tenant is known to scope the default.
+        """
+        if self.token_cache_path:
+            return Path(self.token_cache_path).expanduser()
+        harborrag_tenant = self.harborrag_tenant_id or environment_default(
+            "HARBORRAG_INGESTION_TENANT_ID"
+        )
+        if not harborrag_tenant:
+            raise ValueError("auth_mode device_code needs token_cache_path or harborrag_tenant_id")
+        return default_token_cache_path(harborrag_tenant, str(self.tenant_id), str(self.client_id))
 
     def _normalize_scope_and_allowlists(self) -> None:
         if self.item_ids is not None:

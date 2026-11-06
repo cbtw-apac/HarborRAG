@@ -66,6 +66,10 @@ class GitHubConnector(BaseConnector):
         self.client = client or _RequestsGitHubClient(config)
         self._github = GitHubRepositoryAPI(config, self.client)
 
+    def connect(self) -> None:
+        """Read the repository once: proves the API answers and the token can see it."""
+        self._github.resolve_repository()
+
     def close(self) -> None:
         """Release the underlying GitHub HTTP client's resources."""
         close = getattr(self.client, "close", None)

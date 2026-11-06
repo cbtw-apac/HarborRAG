@@ -7,8 +7,10 @@ Usage::
 
 Tenant and client IDs default to ``MICROSOFT_TENANT_ID`` and
 ``MICROSOFT_CLIENT_ID``, from the environment or else from the connector env file
-(``env/.env.connector``, or ``$CONNECTOR_ENV_FILE``) the CLI reads. ``--logout``
-deletes the stored sign-in.
+(``env/.env.connector``, or ``$CONNECTOR_ENV_FILE``) the CLI reads. The default
+token file sits in the folder of the HarborRAG tenant the connection belongs to:
+``--harborrag-tenant``, else ``HARBORRAG_INGESTION_TENANT_ID``, else ``DEFAULT``.
+``--logout`` deletes the stored sign-in.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from .delegated import DelegatedTokenCache, DeviceCodeLogin, default_token_cache
 
 _TENANT_ID = "MICROSOFT_TENANT_ID"
 _CLIENT_ID = "MICROSOFT_CLIENT_ID"
+_HARBORRAG_TENANT = "HARBORRAG_INGESTION_TENANT_ID"
 _CONNECTOR_ENV_FILE = "env/.env.connector"
 
 
@@ -55,6 +58,11 @@ def _arguments(argv: list[str] | None, file_ids: dict[str, str]) -> argparse.Nam
     parser.add_argument("--tenant-id", default=_default(_TENANT_ID, file_ids))
     parser.add_argument("--client-id", default=_default(_CLIENT_ID, file_ids))
     parser.add_argument(
+        "--harborrag-tenant",
+        default=os.getenv(_HARBORRAG_TENANT) or "DEFAULT",
+        help="HarborRAG tenant of the connection; picks the default token file's folder.",
+    )
+    parser.add_argument(
         "--token-cache-path",
         type=Path,
         default=None,
@@ -74,12 +82,15 @@ def main(argv: list[str] | None = None) -> int:
             f"or in {env_file}) are required"
         )
         return 2
+    try:
+        path = args.token_cache_path or default_token_cache_path(
+            args.harborrag_tenant, args.tenant_id, args.client_id
+        )
+    except ValueError as error:
+        print(str(error))
+        return 2
     cache = DelegatedTokenCache(
-        path=(
-            args.token_cache_path or default_token_cache_path(args.tenant_id, args.client_id)
-        ).expanduser(),
-        tenant_id=args.tenant_id,
-        client_id=args.client_id,
+        path=path.expanduser(), tenant_id=args.tenant_id, client_id=args.client_id
     )
     if args.logout:
         cache.clear()

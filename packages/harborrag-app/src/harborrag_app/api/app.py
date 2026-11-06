@@ -25,7 +25,10 @@ from harborrag_app.api.capacity import build_api_capacity_limiter
 from harborrag_app.api.errors import register_error_handlers
 from harborrag_app.api.metrics import ApiMetrics, ApiMetricsMiddleware
 from harborrag_app.api.middleware import TRACE_HEADER, RequestBodyLimitMiddleware, TraceIdMiddleware
-from harborrag_app.api.router import OPERATIONAL_PREFIX, register_routes
+from harborrag_app.api.openapi import install_openapi
+from harborrag_app.api.ops import OpsPortMiddleware
+from harborrag_app.api.rate_limit import build_rate_limiter
+from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
@@ -35,19 +38,14 @@ logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
 _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
+_CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
-    """Send humans to docs when enabled, otherwise to the health endpoint."""
+    """Send humans to docs when enabled, otherwise to the liveness probe."""
     settings: ApiSettings = request.app.state.settings
-    destination = "docs" if settings.docs_enabled else "health"
-    return RedirectResponse(url=f"{OPERATIONAL_PREFIX}/{destination}")
-
-
-def _redirect_docs() -> RedirectResponse:
-    """Preserve the familiar Swagger path without duplicating the API route."""
-    return RedirectResponse(url=f"{OPERATIONAL_PREFIX}/docs")
+    return RedirectResponse(url="/docs" if settings.docs_enabled else "/healthz")
 
 
 async def _recover_pending_submissions(app: FastAPI) -> None:
@@ -93,6 +91,36 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
         await asyncio.sleep(_CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS)
 
 
+async def _import_connectors_once(service: object) -> None:
+    """Carry an existing ``config/connectors.yaml`` into the database on the first start."""
+
+    importer = getattr(service, "import_connectors_once", None)
+    if importer is None:
+        return
+    try:
+        imported = await importer()
+    except Exception:
+        logger.exception("Importing config/connectors.yaml failed; add connections through the API")
+        return
+    if imported:
+        logger.info("Imported %d connections from config/connectors.yaml", imported)
+
+
+async def _resume_connection_removals(app: FastAPI) -> None:
+    """Finish connection and project removals a crash or failure left unfinished."""
+
+    while True:
+        try:
+            resumed = await app.state.app_service.resume_connection_removals()
+            if resumed:
+                logger.info("Resumed %d connection removals", resumed)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("Connection removal recovery pass failed")
+        await asyncio.sleep(_CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS)
+
+
 async def _sync_declared_schedules(app: FastAPI) -> None:
     """Reconcile declared schedules once, retrying while the engine is unreachable.
 
@@ -135,6 +163,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
     if owns_memory_extraction:
         await service.start_memory_extraction()
+    await _import_connectors_once(service)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
@@ -143,6 +172,8 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     background_tasks = [recovery_task, progress_task, control_plane_effect_recovery_task]
     if hasattr(service, "sync_declared_schedules"):
         background_tasks.append(asyncio.create_task(_sync_declared_schedules(app)))
+    if hasattr(service, "resume_connection_removals"):
+        background_tasks.append(asyncio.create_task(_resume_connection_removals(app)))
     try:
         yield
     finally:
@@ -160,6 +191,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
                     await result
         finally:
             await app.state.api_capacity_limiter.aclose()
+            await app.state.rate_limiter.aclose()
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
@@ -171,8 +203,8 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
     app = FastAPI(
         title="HarborRAG Control Plane API",
         version=__version__,
-        openapi_url=(f"{OPERATIONAL_PREFIX}/openapi.json" if settings.docs_enabled else None),
-        docs_url=f"{OPERATIONAL_PREFIX}/docs" if settings.docs_enabled else None,
+        openapi_url="/openapi.json" if settings.docs_enabled else None,
+        docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
         lifespan=_lifespan,
     )
@@ -193,7 +225,9 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
             max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
         ),
     )
+    app.state.rate_limiter = build_rate_limiter(redis_url)
     app.state.api_metrics = ApiMetrics(version=app.version)
+    app.add_middleware(OpsPortMiddleware, settings=settings, metrics=app.state.api_metrics)
     app.add_middleware(
         RequestBodyLimitMiddleware,
         max_body_bytes=settings.max_request_body_bytes,
@@ -215,21 +249,14 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
                 TRACE_HEADER,
                 "Idempotency-Replayed",
                 "Retry-After",
-                "Deprecation",
-                "Sunset",
-                "Link",
+                "ETag",
+                "Location",
             ],
         )
     register_error_handlers(app)
     app.add_api_route("/", _redirect_root, methods=["GET"], include_in_schema=False)
-    if settings.docs_enabled:
-        app.add_api_route(
-            "/docs",
-            _redirect_docs,
-            methods=["GET"],
-            include_in_schema=False,
-        )
     register_routes(app)
+    install_openapi(app)
     app.state.api_metric_routes = tuple(
         (path, compile_path(path)[0]) for path in app.openapi()["paths"]
     )

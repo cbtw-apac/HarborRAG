@@ -29,7 +29,7 @@ class _NoIndexRetrieval:
 
 async def _service() -> ChatApplicationService:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     runtime = FakeRuntime(FakeChatFacade(), _NoIndexRetrieval())  # type: ignore[arg-type]
     return ChatApplicationService(lambda: runtime, RuntimeSettings(), memory=memory)  # type: ignore[arg-type]
 

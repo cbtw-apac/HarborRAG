@@ -2,13 +2,14 @@
 
 The public ingestion API supports two admission modes: `incremental` and
 `force`. The mode controls how discovered source records are evaluated. It does
-not replace the connector configuration in `config/connectors.yaml`.
+not replace the connection's stored configuration; see
+[Connections](connections.md).
 
 Every mode below is reachable from three surfaces, and they set the same underlying knob:
 
 | Surface | How to force re-evaluation |
 | --- | --- |
-| HTTP | `"mode": "force"` in the `POST /v1/ingestions` body |
+| HTTP | `"mode": "force"` in the `POST /v1/admin/ingestions` body |
 | CLI | `harborrag ingest start --force-reprocess` |
 | Python SDK | `IngestionRequest(force_reprocess=True)` |
 
@@ -28,13 +29,12 @@ Submit an incremental ingestion with:
 curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
-  --header 'Idempotency-Key: confluence-main-2026-08-02' \
   --data '{
+    "project_id": "default",
     "connection_id": "confluence-main",
-    "tenant": "DEFAULT",
     "mode": "incremental"
   }' \
-  http://127.0.0.1:8000/v1/ingestions
+  http://127.0.0.1:8000/v1/admin/ingestions
 ```
 
 Because `incremental` is the default, omitting `mode` has the same effect.
@@ -57,7 +57,7 @@ inside the connector's source root; for the local connector, relative to
 `source_path`), `--pattern` (a case-insensitive substring, or a glob matched
 against the path relative to the source root) and `--filters-json` (connector
 filters as a JSON object; unknown keys are rejected for local connectors).
-Attachment/comment behavior remains in `config/connectors.yaml`.
+Attachment/comment behavior remains in the connection's `config`.
 
 There are two change checkpoints. Descriptor admission runs before content is
 loaded and can skip a source item cheaply. Canonical admission runs after parsing
@@ -74,13 +74,12 @@ Submit a force ingestion with:
 curl --fail-with-body \
   --request POST \
   --header 'Content-Type: application/json' \
-  --header 'Idempotency-Key: confluence-main-force-2026-08-02' \
   --data '{
+    "project_id": "default",
     "connection_id": "confluence-main",
-    "tenant": "DEFAULT",
     "mode": "force"
   }' \
-  http://127.0.0.1:8000/v1/ingestions
+  http://127.0.0.1:8000/v1/admin/ingestions
 ```
 
 Force mode bypasses the early unchanged check. Every discovered record is
@@ -146,9 +145,9 @@ CLI can migrate the database ahead of the running services.
 | Processing configuration changed | `incremental`; the processing fingerprint triggers required reprocessing |
 | Source change metadata may be stale or incorrect | `force` |
 | Verify a parser or connector fix against every source document | `force` |
-| Retry failures from one completed task | `POST /v1/ingestions/{task_id}/retry-failures` |
+| Retry failures from one completed task | `POST /v1/admin/ingestions/{ingestion_id}/retry-failures` |
 | Rebuild vector/graph projections from canonical artifacts | Reindex workflow, not `force` |
 | Delete obsolete Qdrant collections | Maintenance script after verified reindex, not either ingestion mode |
 
-Use a new `Idempotency-Key` for each ingestion execution you intentionally want
-to create. Reusing the same key with the same request returns the existing task.
+A start while the connection is already ingesting answers `409 already_running`,
+with `details.ingestion_id` naming the running ingestion; no `Idempotency-Key` is needed.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.contracts.errors import HarborError
+from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.document import Document, DocumentRelation
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.job import Job
@@ -12,7 +13,6 @@ from harborrag_core.domain.provenance import DocumentProvenance
 from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.retrieval import RetrievalQuery, RetrievalResult
-from harborrag_core.domain.source_config import SourceConfig
 from harborrag_core.security.redaction import redact_mapping, redact_secrets
 from harborrag_core.security.url_policy import URLPolicy, URLPolicyError
 
@@ -68,7 +68,9 @@ def test_provider_rejects_blank_or_whitespace_id(bad_id: str) -> None:
 @pytest.mark.parametrize("bad_id", ["", "   ", "has space"])
 def test_source_config_rejects_blank_or_whitespace_id(bad_id: str) -> None:
     with pytest.raises(ValueError, match="id must be non-empty"):
-        SourceConfig(
+        Connection(
+            connection_id="docs",
+            source_key="p1/docs",
             id=bad_id,
             tenant_id="DEFAULT",
             project_id="proj-1",

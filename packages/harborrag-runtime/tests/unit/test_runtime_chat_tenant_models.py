@@ -1,8 +1,8 @@
 """``RuntimeChatService`` picks the client, and bounds the model, per tenant.
 
 Which client answers is read from ``request.metadata.tenant_id`` -- the same
-field the chat surface and the engine agent both already stamp -- so nothing
-had to be threaded through the request contract to make this work.
+field the chat surface already stamps -- so nothing had to be threaded through
+the request contract to make this work.
 """
 
 from __future__ import annotations

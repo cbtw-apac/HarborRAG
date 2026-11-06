@@ -50,6 +50,9 @@ class ApiSettings(BaseSettings):
     # 0.0.0.0 and must acknowledge disabled authentication in development.
     host: str = "127.0.0.1"
     port: int = 8000
+    # Prometheus /metrics answers only on this second socket, only to the scrape token.
+    ops_port: int | None = Field(default=9465, ge=1, le=65_535)
+    metrics_scrape_token: SecretStr | None = None
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
     cors_origins: list[str] = []
@@ -82,14 +85,15 @@ class ApiSettings(BaseSettings):
     # JSON object mapping tenant id -> per-tenant limit overrides, e.g.
     # HARBORRAG_API_TENANT_CAPACITY_OVERRIDES='{"acme":{"tenant_requests_per_minute":6000}}'
     api_tenant_capacity_overrides: dict[str, TenantCapacityOverride] = {}
+    # Requests per second per principal: every /v1 route, and chat completions on their own.
+    http_rate_default: int = Field(default=10, ge=1, le=100_000)
+    http_rate_chat: int = Field(default=2, ge=1, le=100_000)
     api_request_timeout_seconds: float = Field(default=120.0, ge=1.0, le=900.0)
     # Wall-clock budget for one SSE body (``stream: true`` completions). The
     # request timeout above covers only the handler, so a stream that outlives
     # this budget ends with one in-band ``event: error`` frame instead of a
     # truncated body.
     api_stream_timeout_seconds: float = Field(default=600.0, ge=1.0, le=3600.0)
-    # Total prompt+completion token budget for one agent run (all steps).
-    api_agent_token_budget: int = Field(default=120_000, ge=4_096, le=2_000_000)
     docs_enabled: bool = True
 
     @model_validator(mode="before")
@@ -111,6 +115,12 @@ class ApiSettings(BaseSettings):
         ):
             data = {**data, "docs_enabled": False}
         return data
+
+    @model_validator(mode="after")
+    def _validate_ops_port(self) -> ApiSettings:
+        if self.ops_port is not None and self.ops_port == self.port:
+            raise ValueError("HARBORRAG_OPS_PORT must differ from HARBORRAG_PORT")
+        return self
 
     @model_validator(mode="after")
     def _validate_capacity_backend(self) -> ApiSettings:

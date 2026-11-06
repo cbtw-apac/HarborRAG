@@ -72,7 +72,6 @@ def test_a_page_carries_its_rows_and_next_cursor() -> None:
     now = datetime.now(UTC)
     row = ConversationSummaryRow(
         session_id="session-1",
-        kind="chat",
         title=None,
         created_at=now,
         updated_at=now,

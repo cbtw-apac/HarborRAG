@@ -1,4 +1,4 @@
-"""Public ingestion API."""
+"""Ingestion runs under ``/v1/admin/ingestions``."""
 
 from .routes import router
 

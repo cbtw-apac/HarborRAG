@@ -33,12 +33,12 @@ class ChatServiceFixture:
     # ``require_project`` makes it in production.
     known_projects: set[str]
 
-    async def validate_completion_scope(self, query, access, *, model, mode):
+    async def validate_completion_scope(self, query, access, *, model):
         # Gate classification is covered with a real gate and controlled model
         # in test_query_scope; endpoint fixtures record admission independently.
         if not hasattr(self, "scope_calls"):
             self.scope_calls = []
-        self.scope_calls.append((query, access, model, mode))
+        self.scope_calls.append((query, access, model))
 
     async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None:
         del tenant_id
@@ -143,7 +143,7 @@ class ChatServiceFixture:
     @staticmethod
     def _chat_payload(session_id: str, project_id: str | None = None) -> dict[str, object]:
         return {
-            "id": "chat-1",
+            "completion_id": "chat-1",
             "created": 1_785_600_000,
             "model": "primary",
             "provider": "mock",

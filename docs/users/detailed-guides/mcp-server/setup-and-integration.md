@@ -17,8 +17,8 @@ All transports expose the same eleven read-only tools listed in [MCP Tools](READ
 and pass through the same policy and audit boundary. HTTP tool calls accept `reader`
 or `owner` tokens with tenant grants; the local administration API requires `owner`.
 
-Chat and agent are **not** in the MCP catalog. They are served only through the
-HarborRAG REST API at `/v1/chat/completions` and `/v1/agent/completions`.
+Chat is **not** in the MCP catalog. It is served only through the HarborRAG REST
+API at `/v1/chat/completions`.
 
 ## Before you start
 
@@ -317,6 +317,50 @@ non-matching issue is fused back in.
 
 The map and the attachment-to-issue link are written at ingestion, so documents
 ingested earlier gain them on their next reprocessing.
+
+#### Filter keys for `vector_search`
+
+`vector_search` and the retrieval API accept three families of keys in
+`filters`: the indexed payload keys below, `fields.<key>` (see above), and
+`facet.<name>` (see above). Any other key is rejected with
+`unsupported evidence filter key(s)`, and `tenant_id` is never a filter key. The
+tenant is set by the top-level request field.
+
+The indexed keys are:
+
+| Group | Keys |
+| --- | --- |
+| Document and chunk | `document_id`, `document_version_id`, `record_kind`, `chunk_kind`, `document_kind`, `language`, `relative_path` |
+| Connector and source item | `connector_type`, `source_scope_id`, `source_item_id`, `parent_source_item_id`, `attachment_id`, `graph_source_node_key` |
+| Connector container | `space_id`, `page_id`, `project_id`, `project_key`, `issue_key` |
+| Source descriptor | `status`, `status_category`, `item_type`, `priority`, `assignee`, `reporter`, `labels`, `components`, `created_at`, `updated_at` |
+
+Matching rules:
+
+- A string matches exactly.
+- A list matches any of its members. Its items must be unique strings.
+- `created_at` and `updated_at` take exact ISO-8601 strings. They do not accept
+  ranges.
+- Every indexed key above is exact-match only. A range such as `{"gte": ...}`
+  on one of them is rejected with `exact_match_only`.
+- Range bounds (`gte`, `gt`, `lte`, `lt`) apply only to `fields.<key>` and
+  `facet.<name>` fields that are stored as numbers.
+
+Example:
+
+```json
+{
+  "source_scope_id": "jira-main",
+  "status_category": ["To Do", "In Progress"],
+  "updated_at": "2026-10-01T00:00:00Z"
+}
+```
+
+Keys are combined with AND. The API builds only equality, any-of and range
+conditions from `filters`, so it cannot express "not equal" or "field exists".
+
+Source: `EVIDENCE_PAYLOAD_INDEXES` in
+`packages/harborrag-engine/src/harborrag_engine/ingestion/projections/vector/vector_store.py`.
 
 A card also reports its `coverage_mode`. `partial` means the connector
 discovered source items -- an attachment still in OCR, or one nothing can parse
@@ -619,9 +663,9 @@ the server for its tools.
 
 The normal catalog contains eleven reader tools. The interactive Explorer
 runs as a separate server; see [Explorer MCP UI server](#explorer-mcp-ui-server).
-Chat and agent are not part
-of the MCP catalog; they are served only through the HarborRAG REST API's
-`/v1/chat` and `/v1/agent` endpoints.
+Chat is not part
+of the MCP catalog; it is served only through the HarborRAG REST API's
+`/v1/chat` endpoints.
 
 Do not run the stdio command as an interactive service. An MCP client must
 launch it with stdin and stdout connected to pipes. A direct terminal launch

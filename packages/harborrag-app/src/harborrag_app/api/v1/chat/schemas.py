@@ -18,7 +18,7 @@ VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 
 class ChatTenantRequest(ApiModel):
-    tenant: str = Field(
+    tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
         max_length=128,
@@ -29,7 +29,7 @@ class ChatTenantRequest(ApiModel):
 class ChatSessionCreateRequest(ChatTenantRequest):
     """Create an unnamed conversation; its first successful turn supplies a title."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant": "DEFAULT"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant_id": "DEFAULT"}]})
 
 
 class ChatSessionResponse(ApiModel):
@@ -38,14 +38,14 @@ class ChatSessionResponse(ApiModel):
     title: str | None = None
 
 
-class CompletionRequest(ChatTenantRequest):
+class ChatCompletionRequest(ChatTenantRequest):
     # Only the prompt is required. Keep examples free of placeholder model
     # and project names, which would be rejected when copied into a request.
     model_config = ConfigDict(
         json_schema_extra={
             "examples": [
                 {
-                    "tenant": "DEFAULT",
+                    "tenant_id": "DEFAULT",
                     "prompt": "What changed in the release policy?",
                     "stream": False,
                 }
@@ -62,8 +62,7 @@ class CompletionRequest(ChatTenantRequest):
     )
     prompt: str = Field(min_length=1, max_length=65_536)
     stream: bool = False
-    mode: Literal["rag", "agent"] = "rag"
-    max_steps: int = Field(default=4, ge=1, le=8)
+    mode: Literal["rag"] = "rag"
     idempotency_key: str | None = Field(
         default=None,
         min_length=1,
@@ -72,7 +71,7 @@ class CompletionRequest(ChatTenantRequest):
         description="Stable client request key; a completed duplicate replays without a model call.",
     )
     graph_search: bool | None = None
-    # Optional project scope; must exist within ``tenant`` (otherwise ``404``).
+    # Optional project scope; must exist within ``tenant_id`` (otherwise ``404``).
     project_id: str | None = Field(
         default=None,
         min_length=1,
@@ -91,12 +90,6 @@ class CompletionRequest(ChatTenantRequest):
     )
 
 
-class ChatCompletionRequest(CompletionRequest):
-    """Retrieval chat only; bounded tool runs use the agent endpoint."""
-
-    mode: Literal["rag"] = "rag"
-
-
 class ChatMessageResponse(ApiModel):
     role: Literal["assistant"]
     content: VerbatimText
@@ -106,7 +99,6 @@ class ChatCitation(ApiModel):
     document_id: str
     chunk_id: str
     score: float
-    tool: str | None = Field(default=None, exclude_if=lambda value: value is None)
     document_title: str | None = Field(default=None, exclude_if=lambda value: value is None)
     section_path: tuple[str, ...] = Field(default=(), exclude_if=lambda value: not value)
     location: str | None = Field(default=None, exclude_if=lambda value: value is None)
@@ -124,14 +116,6 @@ class ChatCitation(ApiModel):
     )
 
 
-class AgentCitationValidation(ApiModel):
-    complete: bool
-    evidence_available: bool
-    marker_count: int = Field(ge=0)
-    validated_count: int = Field(ge=0)
-    invalid_count: int = Field(ge=0)
-
-
 class ChatUsageResponse(ApiModel):
     prompt_tokens: int = Field(ge=0)
     completion_tokens: int = Field(ge=0)
@@ -141,14 +125,8 @@ class ChatUsageResponse(ApiModel):
     reasoning_tokens: int | None = Field(default=None, ge=0)
 
 
-class ChatToolCallResponse(ApiModel):
-    step: int = Field(ge=1)
-    tool: str
-    ok: bool
-
-
 class ChatCompletionResponse(ApiModel):
-    id: str
+    completion_id: str
     created: int | None = None
     model: str
     provider: str
@@ -163,17 +141,9 @@ class ChatCompletionResponse(ApiModel):
     retry_count: int = Field(..., ge=0)
     fallback_count: int = Field(..., ge=0)
     citations: tuple[ChatCitation, ...] = ()
-    citation_validation: AgentCitationValidation | None = Field(
-        default=None, exclude_if=lambda value: value is None
-    )
     session_id: str
     title: str | None = None
-    mode: Literal["rag", "agent"] = "rag"
-    run_id: str | None = None
-    stop_reason: str | None = None
-    turns: int | None = Field(default=None, ge=0)
-    tool_call_count: int | None = Field(default=None, ge=0)
-    tool_calls: list[ChatToolCallResponse] | None = None
+    mode: Literal["rag"] = "rag"
     # The validated project the turn was scoped to; null when none was given.
     project_id: str | None = None
     # False when the answer was produced but could not be saved to conversation
@@ -202,7 +172,6 @@ class ConversationSummary(ApiModel):
     """One conversation of the caller's own, without any message content."""
 
     session_id: str
-    kind: Literal["chat", "agent"]
     title: str | None = None
     created_at: str
     updated_at: str
@@ -220,14 +189,13 @@ class ConversationMessageRecord(ApiModel):
     """One stored message of a conversation, as it was persisted."""
 
     message_id: str
-    role: Literal["user", "assistant", "tool", "system"]
+    role: Literal["user", "assistant", "system"]
     content: VerbatimText
     created_at: str
     token_count: int | None = Field(default=None, ge=0)
     # Whatever the turn returned to the caller; shape follows the turn that
     # wrote it, so this is deliberately not narrowed to one citation model.
     citations: list[JsonValue] = Field(default_factory=list)
-    run_id: str | None = None
     # True when a stream ended before the answer was complete: the text that
     # reached the user is kept, and marked so a reader can tell.
     partial: bool = False
@@ -238,16 +206,3 @@ class ConversationMessageListResponse(ApiModel):
 
     messages: list[ConversationMessageRecord] = Field(default_factory=list)
     next_cursor: str | None = None
-
-
-class ConversationRenameRequest(ApiModel):
-    """Retitle one conversation; an empty or whitespace title clears it."""
-
-    model_config = ConfigDict(json_schema_extra={"examples": [{"title": "Release policy"}]})
-
-    title: str = Field(default="", max_length=MAX_TITLE_INPUT)
-
-
-class ConversationRenameResponse(ApiModel):
-    session_id: str
-    title: str | None = None

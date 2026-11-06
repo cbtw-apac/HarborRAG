@@ -25,6 +25,7 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
     RateLimitError,
 )
+from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.permissions import reject_broad_permissions
 from harborrag_adapters.connectors.sharepoint.skips import SharePointItemSkippedError
@@ -75,8 +76,9 @@ def _jwt(claims: dict[str, Any]) -> str:
 # --- Config (AC10) ------------------------------------------------------------
 
 
-def test_default_extensions_are_the_supported_office_and_text_set():
-    assert config().allowed_extensions == {".docx", ".pdf", ".pptx", ".xlsx", ".txt", ".md"}
+def test_default_extensions_are_the_shared_document_and_image_set():
+    assert config().allowed_extensions == set(DEFAULT_ALLOWED_EXTENSIONS)
+    assert config().max_file_size_bytes == 20 * 1024 * 1024
 
 
 @pytest.mark.parametrize(

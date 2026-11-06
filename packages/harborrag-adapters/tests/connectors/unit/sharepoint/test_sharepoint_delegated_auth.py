@@ -73,6 +73,7 @@ def test_config_device_code_rejects_client_secret():
 
 
 def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
+    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -83,11 +84,12 @@ def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
     )
     assert config.access_token is None
     assert config.client_secret is None
-    assert config.token_cache_path.endswith("token-tid-cid.json")
+    assert config.token_cache_path.endswith("/acme/token-tid-cid.json")
 
 
 @pytest.mark.parametrize("auth_mode", ["Device_Code", " device_code "])
 def test_config_device_code_guard_normalizes_auth_mode(monkeypatch, auth_mode):
+    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -265,3 +267,42 @@ def test_device_code_login_requires_refresh_token(tmp_path):
 def test_reject_broad_delegated_scopes_allows_sites_selected():
     reject_broad_delegated_scopes(_jwt(scp="Sites.Selected offline_access"))
     reject_broad_delegated_scopes("not-a-jwt")
+
+
+_DELEGATED_SITE = {
+    "site_url": "https://ex.sharepoint.com/sites/s",
+    "auth_mode": "device_code",
+    "tenant_id": "tid",
+    "client_id": "cid",
+}
+
+
+def test_each_harborrag_tenant_gets_its_own_default_token_file() -> None:
+    acme = SharePointSiteConfig(**_DELEGATED_SITE, harborrag_tenant_id="acme")
+    globex = SharePointSiteConfig(**_DELEGATED_SITE, harborrag_tenant_id="globex")
+    explicit = SharePointSiteConfig(
+        **_DELEGATED_SITE, harborrag_tenant_id="acme", token_cache_path="/srv/kb/token.json"
+    )
+
+    assert acme.token_cache_path != globex.token_cache_path
+    assert acme.token_cache_path.endswith("/acme/token-tid-cid.json")
+    assert explicit.token_cache_path == "/srv/kb/token.json"
+
+
+def test_a_delegated_config_without_a_tenant_or_path_fails_closed(monkeypatch) -> None:
+    monkeypatch.delenv("HARBORRAG_INGESTION_TENANT_ID", raising=False)
+
+    with pytest.raises(ValueError, match="needs token_cache_path or harborrag_tenant_id"):
+        SharePointSiteConfig(**_DELEGATED_SITE)
+
+
+@pytest.mark.parametrize(
+    ("harborrag_tenant", "tenant_id"), [("../other", "tid"), ("acme", "../../etc"), ("a/b", "tid")]
+)
+def test_default_token_file_ids_cannot_leave_the_cache_folder(
+    harborrag_tenant: str, tenant_id: str
+) -> None:
+    with pytest.raises(ValueError, match="must be a plain id"):
+        SharePointSiteConfig(
+            **{**_DELEGATED_SITE, "tenant_id": tenant_id}, harborrag_tenant_id=harborrag_tenant
+        )

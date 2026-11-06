@@ -191,7 +191,7 @@ HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
 above is read but never used, and the `temporal` check reports `skip`.
 
 The Temporal UI is at <http://localhost:8080>, and `dev.sh api` prints the API health URL
-(`http://127.0.0.1:8000/api/v1/health` by default).
+(`http://127.0.0.1:8000/healthz` by default).
 
 ### 8. Ingest something
 

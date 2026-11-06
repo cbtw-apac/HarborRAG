@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import ColumnElement
 
 from harborrag_adapters.repositories.database.control_plane.mapping import utc_now
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import (
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
     ConversationSessionRow,
 )
 from harborrag_core.contracts.errors import HarborConflictError

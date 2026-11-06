@@ -371,7 +371,7 @@ openssl rand -hex 32
 three connections: `harborrag-workspace` (local files, no credentials), `confluence-main`,
 and `jira-main`. The two remote ones need credentials in `env/.env.connector` before they
 will build - until then the worker logs a warning at startup, they still appear in
-`GET /v1/connections`, and submitting against them fails:
+`GET /v1/admin/connections`, and submitting against them fails:
 
 ```dotenv
 JIRA_BASE_URL=https://your-domain.atlassian.net
@@ -508,10 +508,39 @@ uv run harborrag ingest start \
   --wait
 ```
 
-`--connector-id` names a connector defined in
-[`config/connectors.yaml`](config/connectors.yaml) - the checked-in catalog defines
-`harborrag-workspace`, `confluence-main`, and `jira-main`. It is not a source *type*, so
-`--connector-id local` fails with the list of valid IDs.
+`--connector-id` names a stored connection by its `source_key`. At the first start, the
+service imports [`config/connectors.yaml`](config/connectors.yaml) once, so the
+checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` become
+connections under those keys. It is not a source *type*, so `--connector-id local` fails.
+
+After that first start, add and change connections through the API: list the source
+types, test the form values, save the connection, then start an ingestion. For example,
+a GitHub repository:
+
+```bash
+curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/v1/admin/projects/default/connections/docs-repo \
+  -d '{"source_type": "github", "name": "Docs repository",
+       "credentials": {"token": "github_pat_11A..."},
+       "config": {"owner": "acme", "repo": "docs"}}'
+
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:8000/v1/admin/ingestions \
+  -d '{"project_id": "default", "connection_id": "docs-repo"}'
+```
+
+The token is stored encrypted in the control database and never read back. References
+such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/connectors.yaml`
+and the `harborrag source` CLI, never through the API.
+
+To fill the body in a browser, open <http://localhost:8000/docs>, go to
+**Create or replace a connection**, and pick a template such as "Jira Cloud" or
+"GitHub private repository". Each template lists every setting with its default.
+From a terminal, save the same body to a file and run
+`uv run harborrag source add default/docs-repo --file docs-repo.yaml`.
+
+See [Connections](docs/users/connections.md) for the full flow and
+[Upgrading](docs/users/upgrading.md) for what changes from 2.0.0a2.
 
 Save the returned run ID - add `--json` for machine-readable output - and drive it with the
 operator commands:
@@ -559,8 +588,25 @@ Tenant-scoped calls require an explicit tenant, pass JSON-schema and
 budget validation, and is recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 
-Chat and agent operations are **not** MCP tools - they are served through the REST API.
+Chat is **not** an MCP tool - it is served through the REST API.
 Ingestion is controlled through the CLI or the authenticated API.
+
+### Before running MCP on Docker Desktop (Windows)
+
+The MCP container reaches the data services on the host through `127.0.0.1`,
+which only works when Docker Desktop host networking is enabled. This is a
+per-machine setting, so every developer must do it once on their own machine:
+
+1. Open Docker Desktop > Settings > Resources > Network.
+2. Turn on **Enable host networking**, then click **Apply & restart**.
+3. In `env/.env.mcp`, set `HARBORRAG_QDRANT_PREFER_GRPC=false`. gRPC (port
+   6334) does not work reliably through Docker Desktop host networking, so the
+   Qdrant client must use HTTP (port 6333).
+4. Restart Claude Desktop after any change to its MCP configuration or to
+   `env/.env.mcp`.
+
+Without step 2 the container cannot reach Qdrant or the other data services,
+and Claude Desktop reports the HarborRAG server as disconnected.
 
 Check the installation and list the advertised tools:
 
@@ -667,9 +713,9 @@ and ownership rules.
 | [`config/mcp.yaml`](config/mcp.yaml) | MCP tool enablement, defaults, limits, and tenant overrides |
 
 Annotated references and richer examples live alongside them:
-`config/temporal.example.yaml`, `config/models.advance.example.yaml`,
-`config/harborrag.example.yaml`, and `config/advance_chat/*.example.yaml`. Templates for
-every environment file live in [`env-example/`](env-example/).
+`config/temporal.example.yaml`, `config/models.advance.example.yaml` and
+`config/harborrag.example.yaml`. Templates for every environment file live in
+[`env-example/`](env-example/).
 
 Model configuration resolves `${VARIABLE}` references while loading, so a missing
 credential fails immediately rather than at first use. Inspect what a catalog resolves to

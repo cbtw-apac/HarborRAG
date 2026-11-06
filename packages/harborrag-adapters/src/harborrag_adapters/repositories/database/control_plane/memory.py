@@ -15,7 +15,9 @@ from typing import Any
 
 import sqlalchemy as sa
 
-from harborrag_adapters.repositories.database.control_plane.schemas_agent_memory import MemoryRow
+from harborrag_adapters.repositories.database.control_plane.schemas_conversation_memory import (
+    MemoryRow,
+)
 from harborrag_adapters.repositories.database.control_plane.session import SessionFactory
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConflictError
@@ -52,7 +54,6 @@ def _row_values(memory: Memory) -> dict[str, Any]:
         "user_id": memory.owner.user_id,
         "principal_id": memory.owner.principal_id,
         "session_id": memory.owner.session_id,
-        "run_id": memory.owner.run_id,
         "content": memory.content,
         "metadata_json": dict(memory.metadata),
         "importance": memory.importance,
@@ -80,7 +81,6 @@ def _row_to_memory(row: MemoryRow) -> Memory:
             user_id=row.user_id,
             principal_id=row.principal_id,
             session_id=row.session_id,
-            run_id=row.run_id,
         ),
         content=row.content,
         metadata=dict(row.metadata_json),
@@ -101,7 +101,7 @@ def _row_to_memory(row: MemoryRow) -> Memory:
 def _scope_condition(scope: MemoryScope, caller: MemoryOwner) -> sa.ColumnElement[bool]:
     """One scope's visibility predicate: matches ``visible_to`` field-for-field.
 
-    A caller missing a field the scope requires (e.g. no ``run_id``) can
+    A caller missing a field the scope requires (e.g. no ``session_id``) can
     never match a memory at that scope, mirroring ``visible_to``'s behavior
     for the same case.
     """

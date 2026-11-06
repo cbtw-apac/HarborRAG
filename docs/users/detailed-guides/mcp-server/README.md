@@ -47,9 +47,8 @@ search, read and trace the corpus, rather than an evidence source for models.
 | `list_documents` | `tenant_id` | Cursor, limit (1–20) | Active readable documents with title, version, source, and chunk count |
 | `find_entities` | `tenant_id`, `query` | `facets`, `source_ids`, `limit` (1–20, default 10) | Ranked entities with summary, facets, and released evidence chunk IDs for `fetch_evidence` |
 
-Chat and agent are **not** MCP tools. Both use the HarborRAG REST API
-at `/v1/chat/completions` and `/v1/agent/completions`, respectively — see
-[Chat](../../chat/README.md).
+Chat is **not** an MCP tool; it uses the HarborRAG REST API at
+`/v1/chat/completions` — see [Chat](../../chat/README.md).
 Ingestion is controlled through the CLI or the authenticated API, never through MCP.
 
 > Defaults advertised in the schema can be overridden per deployment in
@@ -57,7 +56,6 @@ Ingestion is controlled through the CLI or the authenticated API, never through 
 > `top_k`; graph observation remains off. Confirm effective values with
 > `GET /api/tools?tenant_id=<tenant>`.
 
-The REST agent and MCP use the same runtime catalog, input schemas, and tool execution.
 For compact discovery, set `include_content: false` and fetch selected evidence separately.
 Vector and composed search report `cost.status: unavailable` until actual LiteLLM
 embedding/reranking invocation cost telemetry is available; an unknown charge is never zero.

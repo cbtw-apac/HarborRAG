@@ -10,6 +10,7 @@ import pytest
 
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion import runtime_builder
+from harborrag_runtime.ingestion.connections import ConnectorPool
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
 from harborrag_runtime.ingestion.runtime_builder import (
     IngestionRuntimeBuilder,
@@ -138,9 +139,9 @@ def test_build_wires_injected_infrastructure_into_every_service(
 
     runtime = IngestionRuntimeBuilder(settings, normalizer_builder=normalizers).build()
 
-    assert set(runtime.connectors) == {"local-docs"}
-    assert set(runtime.connector_fingerprints) == {"local-docs"}
-    assert runtime.connector_errors == {}
+    assert isinstance(runtime.connector_pool, ConnectorPool)
+    assert runtime.connection_resolver is not None
+    assert runtime.connection_stores is not None
     assert runtime.control is wired.control
     assert runtime.object_store is wired.object_store
     assert runtime.vector_repository is wired.vectors
@@ -181,7 +182,7 @@ def test_build_ingestion_runtime_uses_the_supplied_settings(
     )
 
     assert runtime.control is wired.control
-    assert set(runtime.connectors) == {"local-docs"}
+    assert isinstance(runtime.connector_pool, ConnectorPool)
 
 
 def test_document_normalizer_comes_from_the_configured_builder() -> None:
@@ -217,22 +218,6 @@ def test_rate_limit_waits_are_recorded_on_the_ingestion_telemetry(
         {"connector_type": "confluence"},
     )
     assert events == 1.0
-
-
-def test_connector_kwargs_map_registry_dependencies_to_runtime_objects() -> None:
-    parser, limiter = object(), object()
-
-    kwargs = IngestionRuntimeBuilder._connector_kwargs(
-        "confluence",
-        {"attachment_parser": parser, "rate_limiter": limiter},
-    )
-
-    assert kwargs == {"parser": parser, "rate_limiter": limiter}
-
-
-def test_connector_kwargs_reject_a_provider_whose_dependencies_are_unavailable() -> None:
-    with pytest.raises(ValueError, match=r"'jira' requires .*attachment_parser, rate_limiter"):
-        IngestionRuntimeBuilder._connector_kwargs("jira", {})
 
 
 def test_resource_targets_never_render_credentials() -> None:

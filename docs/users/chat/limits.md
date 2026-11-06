@@ -7,17 +7,14 @@ conversation coordination. Cost reporting uses LiteLLM's response pricing.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | JSON completion/resume deadline; exceeding it returns `504` |
+| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | JSON completion deadline; exceeding it returns `504` |
 | `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | SSE lifetime; deadline failures use `response.error` |
-| `HARBORRAG_API_AGENT_TOKEN_BUDGET` | `120000` | Aggregate prompt and completion tokens across an agent run |
 
-The agent's execution timeout reserves 30 seconds for final synthesis and
-a five-second margin inside the applicable HTTP deadline. A nonpositive
-derived budget is rejected. Request bodies cannot extend these server limits.
+Request bodies cannot extend these server limits.
 
-RAG retrieval always uses dense/sparse hybrid search. Graph mode is
+Chat retrieval always uses dense/sparse hybrid search. Graph mode is
 optional; it adds graph evidence and work to retrieval. Use
-`graph_search: true` or `false` to override the RAG server default.
+`graph_search: true` or `false` to override the server default.
 See [retrieval settings](README.md#retrieval-and-models).
 
 ## Capacity and concurrency
@@ -87,8 +84,6 @@ HarborRAG does not maintain a separate handwritten pricing table here.
 See [LiteLLM cost accounting](https://docs.litellm.ai/docs/completion/token_usage)
 for the response fields and calculator contract.
 
-For agent runs, amounts and token counts include every generation step and
-synthesis call, including checkpointed work before resumption.
 `amount_usd` is the known subtotal; `complete: false` signals unpriced
 calls. With no prices available, the amount is `null` and status is
 `unavailable`. An explicitly reported zero remains a valid estimate.
@@ -97,15 +92,13 @@ The scope is **answer generation**. Retrieval embeddings, reranking,
 request-scope classification, infrastructure, and separately invoked memory operations
 are not included. HTTP admission uses one additional bounded model call per fresh
 request, recorded separately in the usage ledger with `finish_reason=query_scope_gate`,
-even when it rejects the request. Completed replays and run resumptions skip admission.
+even when it rejects the request. Completed replays skip admission.
 Automatic conversation titles add no model call.
 
-The usage ledger records completed chat/agent usage and reported usage from
-partial RAG streams. Complete agent aggregates are recorded as their full
-cost; an aggregate with missing prices records a null scalar cost rather
+The usage ledger records completed chat usage and reported usage from
+partial streams. A call with missing prices records a null scalar cost rather
 than claiming a complete bill. A ledger failure does not discard the answer.
-Totals retain tenant, verified user, principal, session, and run attribution
-where applicable.
+Totals retain tenant, verified user, principal, and session attribution.
 
 See [Chat migration](README.md#migration) before upgrading an existing
 control database, and [Conversation memory](memory.md) for persistence and

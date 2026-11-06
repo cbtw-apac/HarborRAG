@@ -28,6 +28,7 @@ from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import failure_response
 from ..schemas import AppResponse
+from .ports import SourceInputBuilder
 from .presenters import TERMINAL_STATES, task_response
 from .service import record_control_action
 
@@ -36,10 +37,6 @@ if TYPE_CHECKING:
 
 type RuntimeClientProvider = Callable[[], Awaitable[IngestionGateway]]
 type TaskRegistryProvider = Callable[[], Awaitable["TaskRegistry"]]
-type SourceInputBuilder = Callable[
-    [RuntimeSettings, SourceSubmission],
-    PreparedSourceSubmission,
-]
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.durable")
 
@@ -97,7 +94,7 @@ class DurableIngestionOperations:
         suffix = uuid4().hex
         run_id = run_id or f"ingestion-{suffix}"
         try:
-            request = self._source_input_builder(
+            request = await self._source_input_builder(
                 self._settings,
                 SourceSubmission(
                     task_id=run_id,

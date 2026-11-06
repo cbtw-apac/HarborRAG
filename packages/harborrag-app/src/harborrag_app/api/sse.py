@@ -9,7 +9,7 @@ from collections.abc import AsyncGenerator, AsyncIterator
 
 logger = logging.getLogger("harborrag.app.api.sse")
 
-STREAM_DEADLINE_ERROR_CODE = "harbor_deadline_exceeded"
+STREAM_DEADLINE_ERROR_CODE = "deadline_exceeded"
 
 
 def sse_frame(name: str, payload: object) -> bytes:

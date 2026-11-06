@@ -16,7 +16,6 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
-    ConversationKind,
     ConversationMessage,
 )
 
@@ -83,7 +82,6 @@ def message(  # noqa: PLR0913 - one stored message field per argument
     *,
     token_count: int | None = None,
     citations_json: str | None = None,
-    run_id: str | None = None,
     partial: bool = False,
 ) -> ConversationMessage:
     """One stored conversation message."""
@@ -95,7 +93,6 @@ def message(  # noqa: PLR0913 - one stored message field per argument
         created_at=utc_now(),
         token_count=token_count,
         citations_json=citations_json,
-        run_id=run_id,
         partial=partial,
     )
 
@@ -105,7 +102,6 @@ async def seed(  # noqa: PLR0913 - one stored conversation attribute per argumen
     session_id: str,
     caller: tuple[str, str] = ALICE,
     *,
-    kind: ConversationKind = "chat",
     title: str | None = None,
     messages: Sequence[ConversationMessage] = (),
     tenant: str = "DEFAULT",
@@ -113,7 +109,7 @@ async def seed(  # noqa: PLR0913 - one stored conversation attribute per argumen
     """Create one stored conversation, optionally with messages."""
 
     owner = identity(session_id, caller, tenant=tenant)
-    await service.conversations.create(owner, kind=kind, title=title)
+    await service.conversations.create(owner, title=title)
     if messages:
         await service.conversations.append_messages(owner, tuple(messages))
     return owner

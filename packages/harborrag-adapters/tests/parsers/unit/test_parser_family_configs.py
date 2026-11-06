@@ -31,11 +31,11 @@ def test_parser_family_configuration_defaults_define_deterministic_routing() -> 
 
     image = ImageParserConfig()
     ocr = OcrEngineConfig()
-    assert (image.engine, image.max_pixels) == ("liteparse", 100_000_000)
+    assert (image.engine, image.max_pixels) == ("liteparse", 25_000_000)
     assert (ocr.provider, ocr.timeout, ocr.max_pixels) == (
         "liteparse",
         60,
-        100_000_000,
+        25_000_000,
     )
 
     assert MarkupParserConfig().engine_order == ("html", "markdown")

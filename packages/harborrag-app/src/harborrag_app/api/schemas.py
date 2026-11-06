@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Literal, Self
+from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApiModel(BaseModel):
@@ -13,52 +13,20 @@ class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
-class ApiError(ApiModel):
-    """Stable error payload returned inside an :class:`ErrorResponse`."""
+class ApiError(BaseModel):
+    """The body of every 4xx and 5xx response."""
 
-    code: str
-    message: str
-    details: dict[str, JsonValue] | None = None
-    trace_id: str | None = None
+    code: str = Field(description="Stable code; clients branch on this, never on message")
+    message: str = Field(description="Human-readable; wording may change")
+    details: dict[str, Any] | list[dict[str, Any]] | None = Field(
+        description="Extra context, e.g. the failing fields for 422"
+    )
+    trace_id: str = Field(
+        pattern=r"^[0-9a-f]{32}$", description="Find this request in the logs and traces"
+    )
 
 
-class ErrorResponse(ApiModel):
-    """Envelope used by every non-success API response."""
+class Error(BaseModel):
+    """Envelope of every 4xx and 5xx response, and of the SSE ``error`` event."""
 
     error: ApiError
-
-
-class IngestionWorkflowInput(ApiModel):
-    """Deprecated Temporal-run submission contract."""
-
-    tenant_id: str = Field(min_length=1, max_length=255)
-    connector_name: str = Field(min_length=1, max_length=100)
-    run_id: str | None = Field(default=None, min_length=1, max_length=512)
-    # Accepted by the schema but never forwarded to the service, so a client
-    # that set one believed it had pinned a manifest while nothing had. This
-    # legacy endpoint cannot honour them, so it says so rather than dropping
-    # them silently.
-    manifest_id: str | None = Field(default=None, min_length=1, max_length=512, deprecated=True)
-    generation_id: str | None = Field(default=None, min_length=1, max_length=512, deprecated=True)
-    max_artifacts: int | None = Field(default=None, ge=1)
-    wait: bool = False
-
-
-class IngestionControlInput(ApiModel):
-    """Deprecated Temporal-run control contract."""
-
-    action: Literal["pause", "resume", "cancel", "retry"]
-    artifact_ids: list[str] = Field(default_factory=list, max_length=1_000)
-    graceful: bool = True
-
-    @model_validator(mode="after")
-    def validate_artifact_ids(self) -> Self:
-        if self.action == "retry" and not self.artifact_ids:
-            raise ValueError("artifact_ids is required when action is retry")
-        if self.action != "retry" and self.artifact_ids:
-            raise ValueError("artifact_ids is only supported when action is retry")
-        if any(not artifact_id.strip() for artifact_id in self.artifact_ids):
-            raise ValueError("artifact_ids cannot contain blank values")
-        if len(set(self.artifact_ids)) != len(self.artifact_ids):
-            raise ValueError("artifact_ids cannot contain duplicate values")
-        return self

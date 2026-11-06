@@ -114,30 +114,27 @@ built normally and the skipped row is logged with its id.
 
 ## Choosing a model per request
 
-`POST /v1/chat/completions` and `POST /v1/agent/completions` accept an
-optional `model`:
+`POST /v1/chat/completions` accepts an optional `model`:
 
 ```json
-{"tenant": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
+{"tenant_id": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
 ```
 
 Omitting it resolves the catalog's default, exactly as before. When the tenant
 has its own catalog the name must be one that catalog configured; otherwise it
 must exist in `config/models.yaml`. A name outside that bound is rejected
 before the turn starts with `422` and
-`{"code":"harbor_validation_error","details":{"field":"model"}}` -- never a
+`{"code":"validation_error","details":[{"field":"model","issue":"..."}]}` -- never a
 provider error, and never a silent fall back to the default. Streaming
 requests are checked the same way, before any frame is written, so a rejected
 name is one status code rather than an error mid-body.
 
 The response reports the model that actually answered in its existing `model`
-field. `POST /v1/agent/runs/{run_id}/resume` takes no `model`: a run continues
-under the model it started with.
+field.
 
 ## See also
 
 - [Chat](README.md) - the HTTP and CLI surfaces
 - [Chat models](models.md) - the model catalog and per-tenant overrides
 - [Conversation memory](memory.md) - what a turn remembers and for how long
-- [Agent](agent.md) - the bounded multi-turn surface
 - [Limits and accounting](limits.md) - deadlines, admission control, usage

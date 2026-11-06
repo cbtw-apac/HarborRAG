@@ -17,7 +17,6 @@ from .extraction import drain_extraction_queue
 from .presenters import memory_data
 
 if TYPE_CHECKING:
-    from harborrag_core.ports.conversation import ConversationKind
     from harborrag_core.ports.memory import MemoryScope
 
     from .access import MemoryAccess
@@ -92,7 +91,6 @@ class MemoryAdminClientMixin:
         self,
         access: MemoryAccess,
         *,
-        kind: ConversationKind | None = None,
         cursor: str | None = None,
         limit: int = 20,
     ) -> AppResponse:
@@ -100,7 +98,6 @@ class MemoryAdminClientMixin:
             True,
             await self._conversation_directory.list_conversations(
                 access,
-                kind=kind,
                 cursor=cursor,
                 limit=limit,
             ),

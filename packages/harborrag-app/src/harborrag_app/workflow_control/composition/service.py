@@ -6,26 +6,27 @@ import asyncio
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Mapping
-from datetime import datetime
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
+from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from ..agent import AgentApplicationService, AgentClientMixin
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
     EFFECT_RECOVERY_LEASE_TTL_SECONDS,
     recover_pending_control_plane_effects,
 )
-from ..control_plane.reads import ControlPlaneReadsMixin
-from ..control_plane.writes import ControlPlaneWritesMixin
+from ..control_plane.projects import ProjectService
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
+from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.ports import SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
 from ..ingestion.service import IngestionApplicationService
@@ -35,7 +36,6 @@ from ..memory import (
     MemoryAdminClientMixin,
     MemoryAdministrationService,
     MemoryExtractionQueue,
-    agent_run_checkpoints,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
@@ -45,20 +45,17 @@ from ..memory import (
 from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
 from ..retrieval.client import RetrievalClientMixin
-from ..retrieval.graph import GraphRetrievalService
-from ..scheduling.models import ScheduleCommand
 from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse
 from .factories import AppServiceFactories
 from .resources import AppResources
 
+REMOVAL_RECOVERY_LEASE_NAME = "connection_removal_recovery"
+
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
 class AppService(
-    ControlPlaneReadsMixin,
-    ControlPlaneWritesMixin,
-    AgentClientMixin,
     ChatClientMixin,
     MemoryAdminClientMixin,
     PublicIngestionClientMixin,
@@ -82,7 +79,10 @@ class AppService(
         self._instance_id = uuid.uuid4().hex
         selected = factories or AppServiceFactories()
         self._runtime_config = selected.ingestion_description(self._settings)
-        self._source_input_builder = selected.source_input_builder
+        self._source_input_builder: SourceInputBuilder = (
+            selected.source_input_builder
+            or ConnectionSourceInputBuilder(self._control_plane, selected.source_preparation)
+        )
         self._resources = AppResources(
             self._settings,
             factories=selected,
@@ -102,7 +102,6 @@ class AppService(
         memory = conversation_memory(self._composition)
         memories = long_term_memories(self._composition)
         index = long_term_memory_index(self._composition)
-        runs = agent_run_checkpoints(self._composition)
         projects = project_lookup(self._composition)
         usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
@@ -122,7 +121,6 @@ class AppService(
             conversations=memory,
             memories=memories,
             index=index,
-            runs=runs,
             pending_effects=getattr(
                 getattr(composition, "control_plane", None), "pending_effects", None
             ),
@@ -139,19 +137,6 @@ class AppService(
             extraction=self._extraction,
             usage=usage,
         )
-        self._agent = AgentApplicationService(
-            self._resources.runtime_sdk,
-            memory=memory,
-            locks=locks,
-            runs=runs,
-            projects=projects,
-            memories=memories,
-            index=index,
-            extraction=self._extraction,
-            memory_tools=self._settings.memory_agent_tools,
-            usage=usage,
-        )
-        self._graph = GraphRetrievalService(self._resources.runtime_sdk)
         self._durable = DurableIngestionOperations(
             self._settings,
             runtime_client=self._resources.runtime_client,
@@ -159,6 +144,53 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
+        self._connection_service = ConnectionService(
+            control_plane=self._control_plane,
+            runs=self._resources.task_registry,
+            ingestions=self._public_ingestions,
+            removal=self._resources.connection_removal,
+            instance_id=self._instance_id,
+        )
+        self._project_service = ProjectService(
+            control_plane=self._control_plane,
+            runs=self._resources.task_registry,
+            connections=self._connection_service,
+        )
+
+    @property
+    def connection_service(self) -> ConnectionService:
+        """Connection use cases behind the ``/v1/admin`` connection routes."""
+        return self._connection_service
+
+    @property
+    def project_service(self) -> ProjectService:
+        """Project use cases behind the ``/v1/admin/projects`` routes."""
+        return self._project_service
+
+    async def import_connectors_once(self) -> int:
+        """Import ``connectors.yaml`` on the first start of a fresh install."""
+        control_plane = self._control_plane()
+        plan = await import_connectors_once(
+            self._settings.connector_config_path,
+            tenant_id=self._settings.ingestion_tenant_id,
+            projects=control_plane.projects,
+            connections=control_plane.connections,
+            settings=control_plane.settings,
+        )
+        return len(plan.writes) if plan is not None else 0
+
+    async def resume_connection_removals(self) -> int:
+        """Finish removals a previous process left running; one API process at a time."""
+        acquired = await self._control_plane().leases.try_acquire(
+            REMOVAL_RECOVERY_LEASE_NAME,
+            self._instance_id,
+            ttl_seconds=EFFECT_RECOVERY_LEASE_TTL_SECONDS,
+        )
+        if not acquired:
+            return 0
+        return await self._connection_service.resume_deletions() + (
+            await self._project_service.resume_deletions()
+        )
 
     def _control_plane(self) -> ControlPlaneRepositories:
         control_plane = self._composition.control_plane
@@ -174,12 +206,6 @@ class AppService(
             ok=ready,
             data={"diagnostics": diagnostics},
             error=None if ready else "runtime not ready",
-        )
-
-    def ingest_once(self) -> AppResponse:
-        return AppResponse(
-            False,
-            error="use 'harborrag ingest start' to submit an ingestion workflow",
         )
 
     async def runtime_health(self) -> AppResponse:
@@ -204,35 +230,6 @@ class AppService(
     async def sync_declared_schedules(self) -> dict[str, int] | None:
         return await self._schedules.sync_declared()
 
-    async def create_schedule(self, command: ScheduleCommand) -> dict[str, object]:
-        return await self._schedules.create(command)
-
-    async def update_schedule(self, command: ScheduleCommand) -> dict[str, object]:
-        return await self._schedules.update(command)
-
-    async def list_schedules(self, *, tenant_ids: frozenset[str] | None) -> dict[str, object]:
-        return await self._schedules.list_all(tenant_ids=tenant_ids)
-
-    async def get_schedule(self, schedule_id: str) -> dict[str, object]:
-        return await self._schedules.get(schedule_id)
-
-    async def pause_schedule(self, schedule_id: str, *, note: str | None) -> dict[str, object]:
-        return await self._schedules.pause(schedule_id, note=note)
-
-    async def unpause_schedule(self, schedule_id: str, *, note: str | None) -> dict[str, object]:
-        return await self._schedules.unpause(schedule_id, note=note)
-
-    async def trigger_schedule(self, schedule_id: str) -> dict[str, object]:
-        return await self._schedules.trigger(schedule_id)
-
-    async def backfill_schedule(
-        self, schedule_id: str, *, start_at: datetime, end_at: datetime
-    ) -> dict[str, object]:
-        return await self._schedules.backfill(schedule_id, start_at=start_at, end_at=end_at)
-
-    async def delete_schedule(self, schedule_id: str) -> dict[str, object]:
-        return await self._schedules.delete(schedule_id)
-
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
         """Drain one pass of the durable secret-retirement/audit-logging outbox.
 
@@ -250,7 +247,10 @@ class AppService(
         if not acquired:
             return 0
         return await recover_pending_control_plane_effects(
-            self._control_plane(), limit=limit, erasure_handler=self._memory_admin.recover_erasure
+            self._control_plane(),
+            limit=limit,
+            erasure_handler=self._memory_admin.recover_erasure,
+            connection_busy=self._connection_service.connection_busy,
         )
 
     async def sync_ingestion_progress(self) -> int:
@@ -375,25 +375,9 @@ class AppService(
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
         return await self._durable.control_ingestion(run_id, action)
 
-    async def projection_inventory(self, tenant: str) -> dict[str, object]:
-        return (await self._resources.projection_administration().inspect(tenant)).as_dict()
-
-    async def delete_projections(
-        self,
-        tenant: str,
-        *,
-        confirmation: str,
-        stores: frozenset[str],
-    ) -> dict[str, object]:
-        result = await self._resources.projection_administration().delete(
-            tenant,
-            confirmation=confirmation,
-            stores=stores,
-        )
-        return result.as_dict()
-
     async def aclose(self) -> None:
         try:
+            await self._connection_service.aclose()
             await self.drain_memory_extraction()
         finally:
             try:

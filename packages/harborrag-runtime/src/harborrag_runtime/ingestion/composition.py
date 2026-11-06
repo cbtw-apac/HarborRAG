@@ -8,7 +8,6 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
 from harborrag_adapters.models.embed import HarborEmbedClient
@@ -17,10 +16,11 @@ from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BU
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
-from harborrag_runtime.config import ConnectorConfigurationError
+from harborrag_runtime.composition.connection_stores import ConnectionStores
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import RuntimeConnectionError
 
+from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
 from .maintenance.cleanup import ProjectionCleanupService
@@ -57,8 +57,7 @@ _START_HINTS = {
 class IngestionRuntime:
     """Own connected providers and production ingestion application services."""
 
-    connectors: Mapping[str, BaseConnector | HarborConnector]
-    connector_fingerprints: Mapping[str, str]
+    connector_pool: ConnectorPool
     processing: ProcessingProfile
     control: IngestionControlPlaneDatabase
     documents: DocumentReleaseService
@@ -74,7 +73,9 @@ class IngestionRuntime:
     embed_client: HarborEmbedClient
     connector_rate_limiter: ConnectorRateLimiter
     telemetry: IngestionTelemetry
-    connector_errors: Mapping[str, ConnectorConfigurationError] = field(default_factory=dict)
+    connection_health: ConnectionHealth = field(default_factory=lambda: ConnectionHealth(None))
+    connection_resolver: ConnectionResolver | None = None
+    connection_stores: ConnectionStores | None = None
     # None keeps hand-built runtimes (tests, embedders) free of the purge.
     retention: RetiredVersionPurgeService | None = None
     # Safe display strings per resource label; read only on the failure path.
@@ -84,16 +85,7 @@ class IngestionRuntime:
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:
-        """Connect shared infrastructure only.
-
-        Connectors are deliberately left untouched here: each provider verifies
-        its own credentials lazily, once, on its first real `discover`/`load`
-        call (see `BaseConnector._ensure_connected`). Eagerly connecting every
-        enabled connector at startup would mean one connector with bad
-        credentials (e.g. a stale Confluence token) aborts the whole runtime
-        and blocks ingestion for every other connector, including ones never
-        used in a given run.
-        """
+        """Connect shared infrastructure only; connectors are built per run on first use."""
         if self._started:
             logger.debug("Ingestion runtime start skipped reason=already_started")
             return
@@ -130,11 +122,7 @@ class IngestionRuntime:
             )
             raise
         self._started = True
-        logger.info(
-            "Ingestion runtime started resources=%d connectors=%d",
-            len(connected),
-            len(self.connectors),
-        )
+        logger.info("Ingestion runtime started resources=%d", len(connected))
 
     def _unreachable(self, label: str, error: Exception) -> RuntimeConnectionError:
         """Authored message only: the driver's text may carry credentials."""
@@ -155,14 +143,13 @@ class IngestionRuntime:
                 asyncio.to_thread(self.connector_rate_limiter.close),
                 self.embed_client.aclose(),
                 self.telemetry.close(),
+                self._close_connection_stores(),
             )
             logger.debug("Ingestion runtime closed from unstarted state")
             return
         outcomes = await asyncio.gather(
-            *(
-                asyncio.to_thread(connector.close)
-                for connector in reversed(tuple(self.connectors.values()))
-            ),
+            self.connector_pool.aclose(),
+            self._close_connection_stores(),
             self.graph_repository.close(),
             self.vector_repository.close(),
             self.object_store.close(),
@@ -184,28 +171,39 @@ class IngestionRuntime:
             # whose first close failed.
             raise BaseExceptionGroup("ingestion runtime shutdown failed", failures)
         self._started = False
-        logger.info("Ingestion runtime closed connectors=%d", len(self.connectors))
+        logger.info("Ingestion runtime closed")
 
-    def connector(
+    async def connector(
         self,
-        name: str,
         *,
-        configuration_fingerprint: str | None = None,
-    ) -> BaseConnector | HarborConnector:
-        if name in self.connector_errors:
-            raise self.connector_errors[name]
-        try:
-            connector = self.connectors[name]
-        except KeyError as error:
-            raise KeyError(f"ingestion connector is not configured: {name}") from error
-        if (
-            configuration_fingerprint is not None
-            and self.connector_fingerprints.get(name) != configuration_fingerprint
-        ):
-            raise ConnectorConfigurationError(
-                f"Connector {name!r} configuration differs between submission and worker"
-            )
-        return connector
+        tenant_id: str,
+        task_id: str,
+        configuration_fingerprint: str,
+    ) -> HarborConnector:
+        """Return the run's connector, built from the snapshot the run started with.
+
+        Args:
+            tenant_id: Tenant of the run.
+            task_id: The run; every activity of one run shares its connector.
+            configuration_fingerprint: Fingerprint of the run's connection snapshot.
+
+        Returns:
+            The connector facade.
+
+        Raises:
+            ConnectorConfigurationError: The snapshot is unknown or rejected.
+            SecretUnavailableError: A referenced secret cannot be read on this worker.
+        """
+        return await self.connector_pool.connector(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            configuration_fingerprint=configuration_fingerprint,
+        )
+
+    async def _close_connection_stores(self) -> None:
+        """Dispose the control-plane engine the connection stores use."""
+        if self.connection_stores is not None:
+            await self.connection_stores.aclose()
 
 
 def build_ingestion_runtime(

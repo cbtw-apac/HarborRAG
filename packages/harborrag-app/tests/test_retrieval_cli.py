@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 
 import pytest
 from app_test_fixtures import MockAppService
@@ -13,7 +12,6 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.retrieval.presentation import retrieval_response
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.domain.retrieval import RetrievalResult
-from harborrag_core.retrieval import GraphPathQuery, GraphSubgraphQuery, GraphTripletQuery
 from harborrag_runtime.sdk import RetrievalLane, RetrievalResponse
 
 # Every command below goes through the CLI's project gate; give each test its own
@@ -62,37 +60,9 @@ class FakeRetrievalFacade:
         )
 
 
-class FakeGraphFacade:
-    def __init__(self) -> None:
-        self.calls = []
-
-    async def search_triplets(self, request):
-        self.calls.append(("triplets", request))
-        return SimpleNamespace(
-            triplets=({"subject": "document:1"},),
-            diagnostics={"accepted_count": 1},
-        )
-
-    async def find_paths(self, request):
-        self.calls.append(("paths", request))
-        return SimpleNamespace(
-            paths=({"nodes": ["document:1", "section:1"]},),
-            diagnostics={"accepted_count": 1},
-        )
-
-    async def expand_subgraph(self, request):
-        self.calls.append(("subgraph", request))
-        return SimpleNamespace(
-            nodes=({"node_key": "document:1"},),
-            relations=({"relation_id": "relation:1"},),
-            diagnostics={"accepted_count": 1},
-        )
-
-
 class FakeRetrievalRuntime:
     def __init__(self) -> None:
         self.retrieval = FakeRetrievalFacade()
-        self.graph = FakeGraphFacade()
         self.closed = False
 
     async def aclose(self) -> None:
@@ -232,40 +202,6 @@ async def test_app_retrieval_forwards_lane_filters_graph_and_metadata() -> None:
     assert request.observe_graph is False
     assert response.data["lane"] == "sparse"
     assert response.data["results"][0]["metadata"]["retrieval_source"] == "qdrant"
-
-
-@pytest.mark.asyncio
-async def test_app_graph_retrieval_uses_shared_runtime_facade_and_access_context() -> None:
-    retrieval = FakeRetrievalRuntime()
-    service = AppService(
-        FakeComposition(),  # type: ignore[arg-type]
-        factories=AppServiceFactories(
-            retrieval_runtime=lambda settings: retrieval,  # type: ignore[arg-type]
-        ),
-    )
-
-    triplets = await service.retrieve_graph_triplets(
-        GraphTripletQuery(subject="document:1"),
-        tenant_id="tenant-1",
-        principal_id="reader-1",
-    )
-    paths = await service.retrieve_graph_paths(
-        GraphPathQuery(start_node="document:1", end_node="section:1"),
-        tenant_id="tenant-1",
-        principal_id="reader-1",
-    )
-    subgraph = await service.retrieve_graph_subgraph(
-        GraphSubgraphQuery(start_node="document:1"),
-        tenant_id="tenant-1",
-        principal_id="reader-1",
-    )
-
-    assert triplets.data["triplets"] == [{"subject": "document:1"}]
-    assert paths.data["paths"][0]["nodes"] == ["document:1", "section:1"]
-    assert subgraph.data["nodes"] == [{"node_key": "document:1"}]
-    for _operation, request in retrieval.graph.calls:
-        assert request.access.tenant_id == "tenant-1"
-        assert request.access.principal_id == "reader-1"
 
 
 def test_retrieval_cli_has_secret_safe_json_by_default(monkeypatch, capsys) -> None:

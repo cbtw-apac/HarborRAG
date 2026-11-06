@@ -49,7 +49,7 @@ def _sse_frames(body: str) -> list[tuple[str, dict[str, object]]]:
 
 
 def _session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant": tenant})
+    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
     assert response.status_code == 201
     return response.json()["session_id"]
 
@@ -77,7 +77,7 @@ def test_chat_stream_rejects_an_unknown_project_before_the_stream_opens(
     )
 
     assert response.status_code == 404
-    assert response.json()["error"]["code"] == "harbor_not_found_error"
+    assert response.json()["error"]["code"] == "not_found"
 
 
 def test_chat_completion_rejects_an_unknown_project(client: TestClient) -> None:
@@ -120,7 +120,7 @@ def test_chat_stream_error_frame_names_a_provider_failure(
     assert frames[1:] == [
         (
             "response.error",
-            {"code": "chat_stream_error", "message": "The chat provider stream failed"},
+            {"code": "llm_unavailable", "message": "The chat provider stream failed"},
         )
     ]
     assert "private endpoint" not in response.text
@@ -154,7 +154,7 @@ def test_chat_stream_error_frame_names_a_scope_failure(
         (
             "response.error",
             {
-                "code": "harbor_not_found_error",
+                "code": "not_found",
                 "message": "Conversation session or project was not found",
             },
         )
@@ -188,7 +188,7 @@ def test_chat_stream_error_frame_falls_back_for_an_unreviewed_failure(
     assert frames[1:] == [
         (
             "response.error",
-            {"code": "harbor_connection_error", "message": "Chat service is unavailable"},
+            {"code": "dependency_unavailable", "message": "Chat service is unavailable"},
         )
     ]
 
@@ -310,7 +310,7 @@ def test_chat_completion_reports_an_empty_index_as_409(
     )
 
     assert response.status_code == 409
-    assert response.json()["error"]["code"] == "harbor_no_indexed_content_error"
+    assert response.json()["error"]["code"] == "no_indexed_content"
 
 
 def test_chat_stream_names_an_empty_index_in_its_error_frame(

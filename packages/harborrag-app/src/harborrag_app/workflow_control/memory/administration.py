@@ -36,10 +36,9 @@ from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner, MemoryQuery, MemoryScope
 
-from .erasure import SESSION_ERASURE, MemoryErasureJournal
+from .erasure import SESSION_ERASURE, MemoryErasureJournal, stored_owner
 
 if TYPE_CHECKING:
-    from harborrag_core.ports.agent_runs import AgentRunRepository
     from harborrag_core.ports.conversation import ConversationHistoryRepository
     from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryRepository
 
@@ -52,9 +51,9 @@ _MAX_PASSES = 50
 _USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
 # Scopes a user's own rows can carry that no caller-visibility query can reach
-# for them: PROJECT keys on (tenant_id, project_id) and RUN needs a run_id the
-# eraser does not have. Matched on the row's stored user instead.
-_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.RUN, MemoryScope.TENANT)
+# for them: PROJECT and TENANT key on fields other than the user. Matched on the
+# row's stored user instead.
+_AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.TENANT)
 # Scopes whose rows are shared beyond their author: visible to anyone in the tenant (and
 # project) by design, but only the author -- or a caller granted the scope through
 # ``shared_scopes`` -- may delete one, and only the author sees its provenance.
@@ -79,7 +78,6 @@ class ErasureReport:
     index_points: int = 0
     sessions: int = 0
     conversation_messages_cleared: int = 0
-    agent_run_checkpoints: int = 0
 
     def as_dict(self) -> dict[str, int]:
         return {
@@ -87,7 +85,6 @@ class ErasureReport:
             "index_points": self.index_points,
             "sessions": self.sessions,
             "conversation_messages_cleared": self.conversation_messages_cleared,
-            "agent_run_checkpoints": self.agent_run_checkpoints,
         }
 
 
@@ -100,13 +97,11 @@ class MemoryAdministrationService:
         conversations: ConversationHistoryRepository,
         memories: MemoryRepository | None = None,
         index: MemoryIndex | None = None,
-        runs: AgentRunRepository | None = None,
         pending_effects: PendingEffectRepositoryPort | None = None,
     ) -> None:
         self._conversations = conversations
         self._memories = memories
         self._index = index
-        self._runs = runs
         self._erasure = MemoryErasureJournal(memories, index, pending_effects)
 
     def _store(self) -> MemoryRepository:
@@ -217,7 +212,7 @@ class MemoryAdministrationService:
             return True
         if effect.kind != SESSION_ERASURE:
             return False
-        owner = MemoryOwner(**effect.payload["owner"])
+        owner = stored_owner(effect.payload["owner"])
         if effect.payload.get("memories_required") and self._memories is None:
             raise HarborUnavailableError("session erasure memory store is not configured")
         if effect.payload.get("index_required") and self._index is None:
@@ -275,7 +270,6 @@ class MemoryAdministrationService:
             index_points=points,
             sessions=len(purged.conversations),
             conversation_messages_cleared=len(purged.conversations),
-            agent_run_checkpoints=await self._erase_checkpoints(user_owner),
         )
         _log_erasure("user", owner.tenant_id, actor, target, report)
         return report
@@ -334,26 +328,6 @@ class MemoryAdministrationService:
             ",".join(scope.value for scope in scopes),
         )
         return _Purged(deleted, unindexed, frozenset(conversations))
-
-    async def _erase_checkpoints(self, owner: MemoryOwner) -> int:
-        """Delete the user's agent-run checkpoints where the store supports it.
-
-        ``AgentRunRepository`` is create/save/get only, so a store without an
-        owner-scoped delete reports zero rather than pretending.
-        """
-
-        delete = getattr(self._runs, "delete_for_owner", None)
-        if delete is None:
-            return 0
-        try:
-            return int(await delete(owner))
-        except Exception:  # noqa: BLE001 - erasure must report, never fail
-            logger.warning(
-                "Agent-run checkpoint erasure failed for tenant=%s user=%s",
-                owner.tenant_id,
-                owner.user_id,
-            )
-            return 0
 
 
 def _authored_by(memory: Memory, caller: MemoryOwner) -> bool:

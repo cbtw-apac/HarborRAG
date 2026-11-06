@@ -166,7 +166,7 @@ class _AdapterLikeChat(_ChatFacade):
 async def test_chat_stream_emits_exactly_one_error_when_adapter_yields_error_then_raises() -> None:
     memory = InMemoryConversationMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = _chat_service(_Runtime(_AdapterLikeChat()), memory)
 
     events = [
@@ -197,9 +197,7 @@ async def test_chat_stream_emits_exactly_one_error_when_adapter_yields_error_the
 @pytest.mark.asyncio
 async def test_chat_stream_warns_instead_of_failing_when_memory_append_fails() -> None:
     memory = _BrokenAppendMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), kind="chat"
-    )
+    await memory.create(ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"))
     service = _chat_service(_Runtime(_ChatFacade()), memory)
 
     events = [
@@ -225,33 +223,6 @@ async def test_chat_stream_warns_instead_of_failing_when_memory_append_fails() -
 
 
 @pytest.mark.asyncio
-async def test_chat_stream_can_continue_an_agent_conversation() -> None:
-    memory = InMemoryConversationMemory()
-    await memory.create(
-        ConversationIdentity("ACME", "reader-1", "agent-session", "reader-1"), kind="agent"
-    )
-    service = _chat_service(_Runtime(_ChatFacade()), memory)
-
-    events = [
-        event
-        async for event in service.stream(
-            "Hello",
-            tenant_id="ACME",
-            principal_id="reader-1",
-            options=ChatExecutionOptions(session_id="agent-session", user_id="reader-1"),
-        )
-    ]
-
-    assert [event["kind"] for event in events] == [
-        "citations",
-        "chunk",
-        "chunk",
-        "cited_sources",
-        "result",
-    ]
-
-
-@pytest.mark.asyncio
 async def test_chat_stream_persists_the_partial_answer_once_when_abandoned_at_the_error() -> None:
     """The provider-error branch must not persist the same answer twice.
 
@@ -263,7 +234,7 @@ async def test_chat_stream_persists_the_partial_answer_once_when_abandoned_at_th
 
     memory = InMemoryConversationMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
-    await memory.create(identity, kind="chat")
+    await memory.create(identity)
     service = _chat_service(_Runtime(_AdapterLikeChat()), memory)
 
     stream = service.stream(

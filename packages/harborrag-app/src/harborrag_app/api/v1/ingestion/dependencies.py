@@ -7,19 +7,11 @@ from typing import Annotated, Protocol, cast
 
 from fastapi import Depends, Request
 
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_core.contracts.events import HarborEvent
 
 
 class IngestionService(Protocol):
     """Narrow application facade required by the ingestion transport."""
-
-    async def submit(
-        self,
-        command: IngestionCreateCommand,
-        *,
-        idempotency_key: str | None,
-    ) -> dict[str, object]: ...
 
     async def get_task(self, task_id: str) -> dict[str, object]: ...
 

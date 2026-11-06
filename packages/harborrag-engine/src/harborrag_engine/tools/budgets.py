@@ -1,14 +1,12 @@
 """Transport-neutral ceilings applied around one tool call.
 
-Both transports dispatch the same catalog, so the limits that keep a tool call
-safe -- validated arguments, a bounded argument payload, a bounded result --
-belong with the tools rather than with either transport. The MCP server layers
-its configured per-tenant policy and audit on top of this; the agent loop
-applies the same ceilings before a result is appended to model context, where an
-unbounded payload is spent budget rather than a rejected request.
+The limits that keep a tool call safe -- validated arguments, a bounded
+argument payload, a bounded result -- belong with the tools rather than with a
+transport. The MCP server layers its configured per-tenant policy and audit on
+top of this.
 
-``label`` only shapes the message text, so each transport keeps reporting
-failures in its own established vocabulary.
+``label`` only shapes the message text, so a transport keeps reporting failures
+in its own established vocabulary.
 """
 
 from __future__ import annotations
@@ -83,7 +81,9 @@ def _validation_detail(error: ValidationError) -> str:
         detail = best.message
     if len(detail) > _MAX_DETAIL_CHARS:
         detail = f"{detail[:_MAX_DETAIL_CHARS]}..."
-    return f"{best.json_path}: {detail}"
+    # jsonschema roots every path at "$"; the field name alone reads better.
+    path = best.json_path.removeprefix("$.")
+    return f"{path}: {detail}"
 
 
 def result_count(result: dict[str, object]) -> int:
@@ -119,7 +119,7 @@ class ToolBudget:
 
     label: str = "Tool"
     # Name the offending field and bound in the rejection. A model has to
-    # self-correct from the error text alone, so "$.top_k: 0 is less than the
+    # self-correct from the error text alone, so "top_k: 0 is less than the
     # minimum of 1" is worth far more to it than "arguments do not match".
     detail_in_errors: bool = False
     max_results: int = MAX_TOOL_RESULTS
@@ -176,8 +176,7 @@ class ToolBudget:
         """Validate a result against its declared output schema.
 
         A mismatch is our own bug rather than a caller's, hence ``RuntimeError``.
-        Only transports whose whole catalog declares output schemas can apply
-        this; the agent catalog includes memory tools that declare none.
+        Only transports whose whole catalog declares output schemas can apply this.
         """
 
         if schema is None:

@@ -23,25 +23,6 @@ from harborrag_core.ports.memory import (
     visible_to,
 )
 
-_TENANT_A_RUN = MemoryOwner(
-    tenant_id="tenant-a",
-    project_id="proj-1",
-    user_id="user-1",
-    principal_id="principal-1",
-    session_id="session-1",
-    run_id="run-1",
-)
-
-
-@pytest.mark.whitebox
-def test_run_scope_requires_every_field_through_run_id() -> None:
-    assert scope_owner_fields(MemoryScope.RUN) == (
-        "tenant_id",
-        "user_id",
-        "session_id",
-        "run_id",
-    )
-
 
 @pytest.mark.whitebox
 def test_user_and_session_scopes_key_on_user_id_not_principal() -> None:
@@ -61,24 +42,6 @@ def test_owner_rejects_blank_user_id() -> None:
 
 
 @pytest.mark.whitebox
-def test_run_scoped_memory_is_not_visible_to_a_different_run() -> None:
-    caller = MemoryOwner(
-        tenant_id="tenant-a",
-        project_id="proj-1",
-        user_id="user-1",
-        principal_id="principal-1",
-        session_id="session-1",
-        run_id="run-2",
-    )
-    assert not visible_to(MemoryScope.RUN, _TENANT_A_RUN, caller)
-
-
-@pytest.mark.whitebox
-def test_run_scoped_memory_is_visible_to_its_own_run() -> None:
-    assert visible_to(MemoryScope.RUN, _TENANT_A_RUN, _TENANT_A_RUN)
-
-
-@pytest.mark.whitebox
 def test_user_scoped_memory_does_not_cross_tenants() -> None:
     same_user_other_tenant = MemoryOwner(tenant_id="tenant-b", user_id="user-1")
     memory_owner = MemoryOwner(tenant_id="tenant-a", user_id="user-1")
@@ -95,7 +58,7 @@ def test_user_scoped_memory_does_not_cross_users_in_the_same_tenant() -> None:
 @pytest.mark.whitebox
 def test_tenant_scoped_memory_is_visible_to_any_principal_in_the_tenant() -> None:
     memory_owner = MemoryOwner(tenant_id="tenant-a")
-    other_principal = MemoryOwner(tenant_id="tenant-a", principal_id="user-9", run_id="run-9")
+    other_principal = MemoryOwner(tenant_id="tenant-a", principal_id="user-9")
     assert visible_to(MemoryScope.TENANT, memory_owner, other_principal)
 
 

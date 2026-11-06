@@ -33,7 +33,7 @@ UNRELATED = (
 
 async def _ask(*prompts: str) -> FakeChatFacade:
     memory = InMemoryConversationMemory()
-    await memory.create(IDENTITY, kind="chat")
+    await memory.create(IDENTITY)
     chat = FakeChatFacade()
     service = ChatApplicationService(
         lambda: FakeRuntime(chat, FakeRetrievalFacade(UNRELATED)),  # type: ignore[arg-type]

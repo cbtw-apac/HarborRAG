@@ -1,4 +1,4 @@
-"""One SSE contract for retrieval chat, agent runs, and completed replays."""
+"""One SSE contract for retrieval chat and completed replays."""
 
 from __future__ import annotations
 
@@ -15,36 +15,36 @@ from harborrag_app.api.sse import bounded_sse_frames, sse_frame
 
 from . import dispatch
 from .replay import CompletionAttempt
-from .schemas import ChatCompletionResponse, CompletionRequest
+from .schemas import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
 _ERRORS = {
     "ConversationTurnBusyError": (
-        "conversation_turn_busy",
+        "session_busy",
         "This conversation already has an active completion",
     ),
     "ConversationTurnLeaseLostError": (
-        "conversation_turn_lease_lost",
+        "session_busy",
         "The completion lost its conversation lease",
     ),
     "HarborNotFoundError": (
-        "harbor_not_found_error",
+        "not_found",
         "Conversation session or project was not found",
     ),
-    "HarborValidationError": ("harbor_validation_error", "The chat request was rejected"),
+    "HarborValidationError": ("validation_error", "The chat request was rejected"),
     "HarborNoIndexedContentError": (
         "no_indexed_content",
         "No content has been ingested yet, so there is nothing to search",
     ),
-    "ChatStreamError": ("chat_stream_error", "The chat provider stream failed"),
+    "ChatStreamError": ("llm_unavailable", "The chat provider stream failed"),
 }
 
 
 def error_payload(event: dict[str, object]) -> dict[str, str]:
     code, message = _ERRORS.get(
         str(event.get("error_type", "")),
-        ("harbor_connection_error", "Chat service is unavailable"),
+        ("dependency_unavailable", "Chat service is unavailable"),
     )
     return {"code": code, "message": message}
 
@@ -65,15 +65,13 @@ def progress_frame(event: dict[str, object]) -> bytes | None:
             # that may share an adapter chunk with the visible delta.
             return sse_frame("response.output_text.delta", {"content": chunk["content"]})
         return None
-    if kind == "event":
-        return sse_frame("response.agent.progress", event["event"])
     if kind == "warning":
         return sse_frame("response.warning", {"code": event["warning"]})
     return None
 
 
 def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
-    request: CompletionRequest,
+    request: ChatCompletionRequest,
     principal: Principal,
     *,
     settings: ApiSettings,
@@ -98,7 +96,7 @@ def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
                 terminal = sse_frame("response.completed", replay.model_dump(mode="json"))
             else:
                 result = None
-                stream = dispatch.stream(attempt.service, request, principal, settings)
+                stream = dispatch.stream(attempt.service, request, principal)
                 async with contextlib.aclosing(stream):
                     async for event in stream:
                         if event["kind"] == "result":

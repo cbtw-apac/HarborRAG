@@ -6,11 +6,13 @@ import asyncio
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from harborrag_core.ports.agent_runs import AgentRunRepository
 from harborrag_core.ports.control_plane import (
     ActivityRepositoryPort,
+    ConnectionRepositoryPort,
+    ConnectionRevisionRepositoryPort,
     GraphConflictRepositoryPort,
     JobRepositoryPort,
     LeaseRepositoryPort,
@@ -19,7 +21,6 @@ from harborrag_core.ports.control_plane import (
     ProjectRepositoryPort,
     ProviderRepositoryPort,
     SettingsRepositoryPort,
-    SourceRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
 from harborrag_core.ports.memory import MemoryRepository
@@ -47,14 +48,13 @@ class ControlPlaneRepositories:
     """Core-port view of the configured control-plane repositories."""
 
     projects: ProjectRepositoryPort
-    sources: SourceRepositoryPort
+    connections: ConnectionRepositoryPort
     jobs: JobRepositoryPort
     activity: ActivityRepositoryPort
     settings: SettingsRepositoryPort
     providers: ProviderRepositoryPort
     members: MemberRepositoryPort
     conversation_memory: ConversationHistoryRepository
-    agent_runs: AgentRunRepository
     secrets: SecretsPort
     pending_effects: PendingEffectRepositoryPort
     leases: LeaseRepositoryPort
@@ -64,6 +64,7 @@ class ControlPlaneRepositories:
     # Read side of a tenant's own chat models; None when this deployment does
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
+    connection_revisions: ConnectionRevisionRepositoryPort | None = None
 
 
 @dataclass(slots=True)
@@ -92,8 +93,9 @@ class CompositionRoot:
     ) -> CompositionRoot:
         """Migrate, probe, and assemble the configured control-plane database."""
 
-        from harborrag_adapters.repositories.database.control_plane.agent_runs import (
-            SqlAgentRunRepository,
+        from harborrag_adapters.repositories.database.control_plane.connections import (
+            SqlConnectionRepository,
+            SqlConnectionRevisionRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.conversation import (
             SqlConversationMemoryRepository,
@@ -126,7 +128,6 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.projects import (
             SqlProjectRepository,
-            SqlSourceRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
@@ -141,7 +142,7 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.errors import SchemaAheadOfBuildError
         from harborrag_core.contracts.errors import HarborConfigurationError
-        from harborrag_runtime.config.settings import RuntimeSettings, is_blank_secret
+        from harborrag_runtime.config.settings import RuntimeSettings
 
         settings = settings or RuntimeSettings()
         dsn = settings.control_db_url.get_secret_value()
@@ -156,16 +157,7 @@ class CompositionRoot:
                 "SQLite control databases are not supported when HARBORRAG_ENV is staging or prod; "
                 "set HARBORRAG_CONTROL_DB_URL to a production database"
             )
-        encryption_key = settings.secrets_encryption_key
-        if is_blank_secret(encryption_key) and not scheme.startswith("sqlite"):
-            # env=dev with a real control DB is a legal combination, and it would
-            # otherwise silently encrypt stored secrets with the publicly-known
-            # dev-default key. Checked before migrations so a misconfigured
-            # process never opens a connection.
-            raise HarborConfigurationError(
-                "HARBORRAG_SECRETS_ENCRYPTION_KEY must be set when HARBORRAG_CONTROL_DB_URL "
-                "is not SQLite; the dev-only default key is not safe for stored secrets"
-            )
+        secrets_key = secrets_encryption_key(settings)
 
         try:
             run_migrations(dsn)
@@ -200,28 +192,16 @@ class CompositionRoot:
             )
         engine = create_control_plane_engine(dsn)
         sessions = create_session_factory(engine)
-        if encryption_key is not None and not is_blank_secret(encryption_key):
-            secrets_key = encryption_key.get_secret_value()
-        else:
-            # Only a SQLite control DB reaches here with a blank key (see above).
-            # Fail closed to the known dev default rather than deriving a Fernet
-            # key from an empty string.
-            secrets_key = _DEV_DEFAULT_SECRETS_KEY
-            logger.warning(
-                "Using the dev-only default secrets encryption key against a SQLite "
-                "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
-                "this process at any persistent or shared database"
-            )
         repositories = ControlPlaneRepositories(
             projects=SqlProjectRepository(sessions),
-            sources=SqlSourceRepository(sessions),
+            connections=SqlConnectionRepository(sessions),
+            connection_revisions=SqlConnectionRevisionRepository(sessions),
             jobs=SqlJobRepository(sessions),
             activity=SqlActivityRepository(sessions),
             settings=SqlSettingsRepository(sessions),
             providers=SqlProviderRepository(sessions),
             members=SqlMemberRepository(sessions),
             conversation_memory=SqlConversationMemoryRepository(sessions),
-            agent_runs=SqlAgentRunRepository(sessions),
             secrets=SqlSecretsRepository(sessions, encryption_key=secrets_key),
             pending_effects=SqlPendingEffectRepository(sessions),
             leases=SqlLeaseRepository(sessions),
@@ -259,6 +239,65 @@ class CompositionRoot:
                 "max_concurrency": self.engine_policy.max_concurrency,
             },
         }
+
+
+def secrets_encryption_key(settings: RuntimeSettings) -> str:
+    """Return the key stored secrets are encrypted with.
+
+    Args:
+        settings: Runtime settings of this process.
+
+    ``HARBORRAG_SECRETS_ENCRYPTION_KEY`` wins; otherwise the first line of the file
+    ``HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`` names, such as a Docker or Kubernetes secret.
+
+    Returns:
+        The configured key, or the dev-only default for a SQLite control database.
+
+    Raises:
+        HarborConfigurationError: The key file is unreadable or empty, or no key is set
+            and the control database is not SQLite.
+    """
+    from harborrag_core.contracts.errors import HarborConfigurationError
+    from harborrag_runtime.config.settings import is_blank_secret
+
+    scheme = settings.control_db_url.get_secret_value().split(":", 1)[0]
+    encryption_key = settings.secrets_encryption_key
+    if encryption_key is not None and not is_blank_secret(encryption_key):
+        return encryption_key.get_secret_value()
+    if settings.secrets_encryption_key_file is not None:
+        return _read_key_file(settings.secrets_encryption_key_file)
+    if not scheme.startswith("sqlite"):
+        raise HarborConfigurationError(
+            "HARBORRAG_SECRETS_ENCRYPTION_KEY or HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE must be "
+            "set when HARBORRAG_CONTROL_DB_URL is not SQLite; the dev-only default key is not "
+            "safe for stored secrets"
+        )
+    logger.warning(
+        "Using the dev-only default secrets encryption key against a SQLite "
+        "control database; set HARBORRAG_SECRETS_ENCRYPTION_KEY before pointing "
+        "this process at any persistent or shared database"
+    )
+    return _DEV_DEFAULT_SECRETS_KEY
+
+
+def _read_key_file(path: Path) -> str:
+    """Return the first line of the key file.
+
+    Raises:
+        HarborConfigurationError: The file cannot be read or its first line is blank.
+    """
+    from harborrag_core.contracts.errors import HarborConfigurationError
+
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError as error:
+        raise HarborConfigurationError(
+            f"HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE cannot be read: {path}"
+        ) from error
+    key = lines[0].strip() if lines else ""
+    if not key:
+        raise HarborConfigurationError(f"HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE is empty: {path}")
+    return key
 
 
 def _failed_database_status(dsn: str, error: str) -> dict[str, Any]:

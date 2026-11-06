@@ -11,7 +11,9 @@ from harborrag_core.base import utc_now
 from .validation import require_id, require_tenant_id
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
-JobType = Literal["bulk_ingest", "incremental_pull", "dry_run"]
+JobType = Literal[
+    "bulk_ingest", "incremental_pull", "dry_run", "delete_connection", "delete_project"
+]
 
 
 @dataclass(slots=True)
