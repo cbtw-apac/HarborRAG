@@ -6,7 +6,7 @@ from datetime import datetime
 from enum import StrEnum
 from typing import Annotated, Literal
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import AwareDatetime, Field, field_validator, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut
@@ -31,7 +31,7 @@ class IngestionListQuery(ApiModel):
     project_id: str | None = None
     connection_ref: str | None = None
     status: Literal["queued", "running", "paused", "succeeded", "failed", "cancelled"] | None = None
-    created_after: datetime | None = None
+    created_after: AwareDatetime | None = None
     cursor: str | None = None
     limit: int = Field(default=20, ge=1, le=100)
 

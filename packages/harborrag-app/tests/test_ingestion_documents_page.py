@@ -10,6 +10,7 @@ from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _SECRET, _token
+from test_api_admin_ingestion_reads import without_offset
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
@@ -196,6 +197,15 @@ def test_cursor_walks_the_pages(client: TestClient) -> None:
     assert [item["document_id"] for item in first["items"]] == ["doc-a", "doc-b"]
     assert [item["document_id"] for item in second["items"]] == ["doc-c"]
     assert second["next_cursor"] is None
+
+
+def test_cursor_without_a_utc_offset_is_a_422_on_cursor(client: TestClient) -> None:
+    cursor = client.get(_URL, params={"limit": 2}).json()["next_cursor"]
+
+    response = client.get(_URL, params={"limit": 2, "cursor": without_offset(cursor)})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "cursor"
 
 
 def test_limit_is_between_1_and_100(client: TestClient) -> None:

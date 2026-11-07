@@ -12,6 +12,7 @@ from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
+from test_api_admin_ingestion_reads import without_offset
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
@@ -428,6 +429,15 @@ def test_cursor_is_bound_to_its_filters_and_garbage_is_a_422(
     assert other.status_code == 422
     assert other.json()["error"]["details"][0]["field"] == "cursor"
     assert garbage.status_code == 422
+
+
+def test_cursor_without_a_utc_offset_is_a_422_on_cursor(client: TestClient, seeded: _Runs) -> None:
+    cursor = client.get(_LIST, params={"limit": 2}).json()["next_cursor"]
+
+    response = client.get(_LIST, params={"limit": 2, "cursor": without_offset(cursor)})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "cursor"
 
 
 def test_reader_is_forbidden_on_both_routes(client: TestClient) -> None:

@@ -325,6 +325,8 @@ def _decode_cursor(cursor: str, fingerprint: str) -> tuple[datetime, str, str]:
         raw = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4))
         failed_at, task_id, document_id = json.loads(raw)
         position = (datetime.fromisoformat(failed_at), str(task_id), str(document_id))
+        if position[0].tzinfo is None:
+            raise ValueError
     except (ValueError, TypeError, binascii.Error) as error:
         raise IngestionCursorError(
             "Cursor is invalid or does not match the filters.", {"field": "cursor"}

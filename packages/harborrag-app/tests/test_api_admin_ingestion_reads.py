@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 
@@ -211,6 +212,34 @@ def test_garbage_cursor_is_a_422_on_cursor(client: TestClient) -> None:
 
     assert response.status_code == 422
     assert response.json()["error"]["details"][0]["field"] == "cursor"
+
+
+def without_offset(cursor: str) -> str:
+    """Return ``cursor`` with its timestamps re-encoded without a UTC offset."""
+    bound, separator, packed = cursor.rpartition(".")
+    payload = base64.urlsafe_b64decode(packed + "=" * (-len(packed) % 4)).decode()
+    naive = payload.replace("+00:00", "")
+    assert naive != payload
+    return f"{bound}{separator}{base64.urlsafe_b64encode(naive.encode()).decode().rstrip('=')}"
+
+
+def test_cursor_without_a_utc_offset_is_a_422_on_cursor(client: TestClient) -> None:
+    cursor = client.get(_LIST, params={"limit": 2}).json()["next_cursor"]
+
+    response = client.get(_LIST, params={"limit": 2, "cursor": without_offset(cursor)})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "cursor"
+
+
+@pytest.mark.parametrize("created_after", ["2026-11-01", "2026-11-01T09:00:00"])
+def test_created_after_without_a_utc_offset_is_a_422_on_created_after(
+    client: TestClient, created_after: str
+) -> None:
+    response = client.get(_LIST, params={"created_after": created_after})
+
+    assert response.status_code == 422
+    assert response.json()["error"]["details"][0]["field"] == "created_after"
 
 
 def test_limit_above_100_is_rejected(client: TestClient) -> None:

@@ -186,6 +186,8 @@ def _unpack(value: str) -> dict[str, object]:
 
 
 def _cursor_timestamp(payload: dict[str, object], key: str) -> str:
+    """Return the cursor's ``key`` timestamp; one without a UTC offset is invalid."""
     timestamp = str(payload[key])
-    datetime.fromisoformat(timestamp)
+    if datetime.fromisoformat(timestamp).tzinfo is None:
+        raise ValueError
     return timestamp
