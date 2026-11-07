@@ -110,3 +110,44 @@ async def test_recovery_restores_pinned_settings() -> None:
         ).run_settings
         is None
     )
+
+
+def test_recovery_runs_at_the_pinned_document_concurrency() -> None:
+    task = _stored_task(RunSettings("rev_4", None, None, 2))
+
+    assert source_from_task(task).document_concurrency == 2
+
+
+def test_recovery_without_a_pinned_concurrency_keeps_the_default() -> None:
+    task = _stored_task(RunSettings("rev_4", None, 256, None))
+
+    assert source_from_task(task).document_concurrency == 8
+
+
+def _stored_task(pinned: RunSettings) -> IngestionTask:
+    return IngestionTask(
+        task_id="run-1",
+        source_scope_id="scope",
+        status=IngestionTaskState.PENDING,
+        request={
+            "tenant_id": "tenant-1",
+            "connector_name": "docs",
+            "connector_type": "local",
+            "connection_id": "docs",
+            "source_scope_id": "scope",
+            "configuration_fingerprint": "fp",
+            "settings_revision": pinned.settings_revision,
+            "actor": "u_huy",
+            "actor_type": "user",
+            "run_settings": pinned.to_json(),
+            "processing": {
+                "parser_profile": "p",
+                "normalizer_version": "n",
+                "chunk_strategy": "c",
+                "dense_encoder_profile": "d",
+                "sparse_encoder_profile": "s",
+                "graph_projection_version": "g",
+            },
+            "query": {},
+        },
+    )
