@@ -45,10 +45,10 @@ settings through `HARBORRAG_*` variables.
 
 | Variable | Default |
 | --- | --- |
-| `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/connectors.yaml` |
-| `HARBORRAG_PARSER_CONFIG_PATH` | `config/parsers.yaml` |
-| `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/chunking.yaml`; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
-| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` |
+| `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/sources/connectors.yaml` |
+| `HARBORRAG_PARSER_CONFIG_PATH` | `config/ingestion/parsers.yaml` |
+| `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/ingestion/chunking.yaml`; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |
+| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models/models.yaml` |
 | `HARBORRAG_CONTROL_DB_URL` | Local SQLite development database |
 | `HARBORRAG_OBJECT_STORE_ENDPOINT_URL` | `http://localhost:9000` |
 | `HARBORRAG_OBJECT_STORE_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback object storage; ignored in production |
@@ -60,7 +60,7 @@ settings through `HARBORRAG_*` variables.
 | `HARBORRAG_GRAPH_RELATION_REPAIR_CONCURRENCY` | `8` |
 | `HARBORRAG_RETIRED_VERSION_RETENTION_DAYS` | `30`; days a retired document version keeps its object-store artifacts after projection cleanup (`0` purges at once, `off` keeps them) |
 | `HARBORRAG_RETIRED_VERSION_PURGE_INTERVAL_HOURS` | `24`; how often each ingestion worker sweeps every scope for expired retired versions (`0` disables the sweep; the purge after each source run still applies) |
-| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/schedules.yaml`; declarative schedules the API syncs at startup (the API image sets `/app/config/schedules.yaml`) |
+| `HARBORRAG_SCHEDULE_CONFIG_PATH` | `config/sources/schedules.yaml`; declarative schedules the API syncs at startup (the API image sets `/app/config/sources/schedules.yaml`) |
 | `HARBORRAG_SCHEDULE_METRICS_INTERVAL_SECONDS` | `30`; how often a worker exports schedule pause and overlap gauges (`0` disables; with several worker replicas enable it on one) |
 | `HARBORRAG_REDIS_URL` | Optional disposable cache/rate limiter |
 | `HARBORRAG_REDIS_ALLOW_INSECURE_REMOTE` | Development-only acknowledgement for plaintext non-loopback Redis; ignored in production |
@@ -80,16 +80,16 @@ the catalog is ambiguous or a non-default logical model is required.
 ## Chat model environment
 
 HTTP and CLI chat share `HARBORRAG_MODEL_CONFIG_PATH`. The checked-in
-`config/models.yaml` references these protected values:
+`config/models/models.yaml` references these protected values:
 
 | Variable | Meaning |
 | --- | --- |
-| `HARBOR_CHAT_PROVIDER` | Provider identifier allowed by the chat security policy |
-| `HARBOR_CHAT_MODEL` | Provider model identifier for the `primary` chat deployment |
-| `HARBOR_CHAT_API_KEY` | Chat provider credential |
-| `HARBOR_EMBED_PROVIDER` | Provider identifier allowed by the embedding security policy |
-| `HARBOR_EMBED_MODEL` | Provider model identifier for the embedding deployment |
-| `HARBOR_EMBED_API_KEY` | Embedding provider credential |
+| `HARBORRAG_CHAT_PROVIDER` | Provider identifier allowed by the chat security policy |
+| `HARBORRAG_CHAT_MODEL` | Provider model identifier for the `primary` chat deployment |
+| `HARBORRAG_CHAT_API_KEY` | Chat provider credential |
+| `HARBORRAG_EMBED_PROVIDER` | Provider identifier allowed by the embedding security policy |
+| `HARBORRAG_EMBED_MODEL` | Provider model identifier for the embedding deployment |
+| `HARBORRAG_EMBED_API_KEY` | Embedding provider credential |
 
 All six are required. References expand eagerly at load time, so a missing embedding
 variable fails exactly as hard as a missing chat one.
@@ -104,7 +104,7 @@ The MCP server keeps transport/tool policy separate from model policy:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp.yaml` | Versioned tool defaults, limits, enablement, and tenant overrides |
+| `HARBORRAG_MCP_CONFIG_PATH` | `config/mcp/server.yaml` | Versioned tool defaults, limits, enablement, and tenant overrides |
 | `HARBORRAG_MCP_AUDIT_PATH` | `.harborrag/mcp-audit.jsonl` | Owner-only audit output |
 | `HARBORRAG_MCP_BEARER_TOKEN` | None | Local HTTP owner token; at least 32 bytes |
 | `HARBORRAG_MCP_HOST` | `127.0.0.1` | Loopback HTTP bind address |
@@ -113,7 +113,7 @@ The MCP server keeps transport/tool policy separate from model policy:
 
 `scripts/deployment/dev.sh bootstrap` creates the ignored `env/.env.mcp` file,
 generates its bearer token, and restricts the file to its owner. Tool settings
-can be edited in `config/mcp.yaml` or through the authenticated local UI, but
+can be edited in `config/mcp/server.yaml` or through the authenticated local UI, but
 the UI intentionally cannot edit model credentials or provider endpoints.
 
 See [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).

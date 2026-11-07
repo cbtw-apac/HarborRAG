@@ -619,7 +619,7 @@ _REPO = {"owner": "acme", "repo": "handbook"}
 async def test_only_operator_writes_may_set_an_env_reference(world: ConnectionWorld) -> None:
     by_reference = ConnectionWrite(
         "jira",
-        {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:HARBOR_EMBED_API_KEY"}},
+        {**JIRA_WRITE.credentials, "api_token": {"secret_ref": "env:HARBORRAG_EMBED_API_KEY"}},
         {},
     )
 

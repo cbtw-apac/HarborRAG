@@ -21,8 +21,8 @@ harborrag init [DIR] [--provider openai|azure-openai|gemini|openai-compatible]
                [--ports-offset N] [--yes] [--force]
 ```
 
-Scaffolds a project directory: `harborrag.yaml`, `.env`, `config/connectors.yaml`,
-`config/models.yaml`, `config/parsers.yaml`, `config/temporal.yaml`, `docker-compose.yml`,
+Scaffolds a project directory: `harborrag.yaml`, `.env`, `config/sources/connectors.yaml`,
+`config/models/models.yaml`, `config/ingestion/parsers.yaml`, `config/temporal.yaml`, `docker-compose.yml`,
 `.gitignore`. Prompts for anything not given as a flag unless `--yes`. When the directory
 already holds scaffold files it asks whether to overwrite them (default no); `--force` skips
 the question and `--yes` refuses, since accepting defaults must never overwrite. `.env` is
@@ -31,7 +31,7 @@ never overwritten - a fresh copy goes to `.env.new`.
 `--connectors` picks the data sources to scaffold - `local` (a folder, connector name
 `workspace`), `github`, `confluence`, `jira` - as a comma-separated list; interactively
 `init` asks, then asks for each source's URL, identifiers and token (blank to fill in later).
-Each selected source becomes one block in `config/connectors.yaml` and one group of variables
+Each selected source becomes one block in `config/sources/connectors.yaml` and one group of variables
 in `.env`; `harborrag doctor` reports any that are still blank.
 Creates the source folder with a sample `README.md` when it is missing. Probes the ports
 the compose file publishes and, when any is taken, shifts them all by the first free offset
@@ -65,7 +65,7 @@ returned session ID on later calls to recall the two latest completed turns.
 harborrag chat "Explain HarborRAG in one paragraph." --json
 ```
 
-Provider settings and credentials come from `config/models.yaml` and the
+Provider settings and credentials come from `config/models/models.yaml` and the
 process environment; they cannot be supplied as command options. See the
 [Chat guide](../chat/README.md).
 
@@ -141,7 +141,7 @@ to `DEFAULT`.
 stored one whole, so start an update from `harborrag source show --json`. A secret left out
 of `credentials` keeps its stored value. `test` takes any part.
 A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret. The
-CLI and `config/connectors.yaml` are the only places an `env:` reference can be set; the
+CLI and `config/sources/connectors.yaml` are the only places an `env:` reference can be set; the
 HTTP API takes values. The worker reads `NAME` from its own environment.
 
 ```yaml

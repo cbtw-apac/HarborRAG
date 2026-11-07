@@ -1,7 +1,7 @@
 """Project a tenant's stored chat catalog onto a validated client configuration.
 
 The tenant owns its logical models and their deployments; the operator still
-owns everything else. So the shared ``config/models.yaml`` document is loaded
+owns everything else. So the shared ``config/models/models.yaml`` document is loaded
 and only its ``chat.default_model`` and ``chat.models`` are replaced. Timeouts,
 retry and routing policy, response caching, telemetry privacy, and -- most
 importantly -- ``chat.security`` stay exactly as the deployment set them, which

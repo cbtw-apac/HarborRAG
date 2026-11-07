@@ -27,14 +27,14 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - Cached settings provider that reloads on Postgres `LISTEN`/`NOTIFY` and a 5-second revision poll
 - The API seeds settings from `config/settings.yaml` on first start and logs `config_yaml_drift` afterwards
 - Ingestion pins the run's settings and `settings_revision` at start; workers parse and chunk with them
-- Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/chunking.yaml`
+- Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
 
 #### harborrag-app
 
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
-- `harborrag init` scaffolds `config/chunking.yaml` and `harborrag doctor` validates it
+- `harborrag init` scaffolds `config/ingestion/chunking.yaml` and `harborrag doctor` validates it
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 
 #### harborrag-mcp-server
@@ -53,6 +53,23 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
 - `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
+- `harborrag init` writes the new `config/` layout, and the CLI recognises a checkout by `config/sources/connectors.yaml`
+
+#### harborrag-runtime
+
+- **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
+- **Breaking:** `config/models/models.yaml` reads `HARBORRAG_CHAT_*`, `HARBORRAG_EMBED_*` and `HARBORRAG_MEMORY_*` instead of `HARBOR_CHAT_*`, `HARBOR_EMBED_*` and `HARBOR_MEMORY_*`
+- Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
+
+#### harborrag-mcp-server
+
+- The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
+
+#### Deployment
+
+- The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
+- `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
+- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed; `harborrag init` renders `harborrag.yaml`
 
 ### Fixed
 
@@ -71,7 +88,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### Deployment
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
-- The SharePoint entry of `config/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
+- The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
 
 ## [2.0.0a2] - 2026-10-26
 

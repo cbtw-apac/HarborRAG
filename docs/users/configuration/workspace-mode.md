@@ -15,7 +15,7 @@ profile, a deployment selector, or proof that a caller is authorized.
 | Explicit tenant scope in the CLI, SDK, HTTP API, and MCP tools | Implemented | Pass the same tenant ID at every entry point that participates in one workload. |
 | Principal and tenant operation context | Implemented | `AccessContext` carries the caller and tenant through runtime and repository operations. |
 | API roles and tenant grants | Implemented | Authenticated requests are checked against the tenant IDs granted to the principal. Development mode can run without authentication. |
-| Tenant-specific MCP tool policy | Implemented | `config/mcp.yaml` can override tool enablement, defaults, and limits by tenant. |
+| Tenant-specific MCP tool policy | Implemented | `config/mcp/server.yaml` can override tool enablement, defaults, and limits by tenant. |
 | Tenant-isolated vector and graph retrieval | Implemented | Qdrant and FalkorDB use different isolation mechanisms described below. |
 | Tenant-isolated object and workflow state storage | Implemented | Object keys, workflow state, checkpoints, and leases include a tenant namespace. |
 | Tenant-owned control-plane records | Implemented | Projects, sources, providers, members, activity, jobs, and settings carry tenant identity. |
@@ -121,16 +121,16 @@ execution_mode: temporal
 discover_plugins: false
 runtime:
   ingestion_tenant_id: tenant-1
-  connector_config_path: config/connectors.yaml
-  parser_config_path: config/parsers.yaml
-  model_config_path: config/models.yaml
+  connector_config_path: config/sources/connectors.yaml
+  parser_config_path: config/ingestion/parsers.yaml
+  model_config_path: config/models/models.yaml
   temporal_target: localhost:7233
 ```
 
 ```python
 from harborrag_runtime.sdk import HarborRAG
 
-harbor = HarborRAG.from_config("config/harborrag.example.yaml")
+harbor = HarborRAG.from_config("harborrag.yaml")
 ```
 
 This is explicit file loading, not workspace discovery. HarborRAG does not walk
@@ -354,7 +354,7 @@ Authenticated MCP transports require an owner token and verify the requested
 tenant against its `tenants` claim. As with CLI retrieval, `tenant_id` cannot be
 duplicated inside `filters`.
 
-Tenant entries in `config/mcp.yaml` change the effective tool catalog and
+Tenant entries in `config/mcp/server.yaml` change the effective tool catalog and
 policy; they do not create tenants or move data:
 
 ```yaml
@@ -374,7 +374,7 @@ for transport authentication and the tenant-effective tool catalog.
 MCP configuration resolves in this order for each tool call:
 
 1. compiled tool schema and safety ceilings;
-2. global `policy` and global tool settings from `config/mcp.yaml`;
+2. global `policy` and global tool settings from `config/mcp/server.yaml`;
 3. the matching `tenants.<tenant_id>.tools` override;
 4. environment overrides applied after the file;
 5. request arguments, checked against the resolved schema and limits.
@@ -591,7 +591,7 @@ A practical onboarding sequence is:
 3. Grant only the required principals and roles in the token issuer.
 4. Configure connector, parser, model, and backend settings for the process.
    These catalogs are not selected automatically per tenant.
-5. Add optional tenant-specific MCP policy to `config/mcp.yaml`.
+5. Add optional tenant-specific MCP policy to `config/mcp/server.yaml`.
 6. Submit an explicit tenant-scoped ingestion and retain its task/run ID.
 7. Verify the tenant's projection inventory and perform a tenant-scoped
    retrieval before allowing production traffic.

@@ -59,8 +59,8 @@ class _MutableProvider:
 @pytest.fixture
 def shipped_settings() -> RuntimeSettings:
     return RuntimeSettings(
-        parser_config_path=REPO_ROOT / "config/parsers.yaml",
-        chunking_config_path=REPO_ROOT / "config/chunking.yaml",
+        parser_config_path=REPO_ROOT / "config/ingestion/parsers.yaml",
+        chunking_config_path=REPO_ROOT / "config/ingestion/chunking.yaml",
         temporal_config_path=REPO_ROOT / "config/temporal.yaml",
     )
 

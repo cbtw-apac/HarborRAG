@@ -14,7 +14,7 @@ from harborrag_runtime.config.connectors.importing import ConnectionImportServic
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
-CONNECTORS = ROOT / "config/connectors.yaml"
+CONNECTORS = ROOT / "config/sources/connectors.yaml"
 
 
 def test_dev_api_uses_the_temporal_development_network() -> None:
@@ -131,16 +131,15 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
         )
         assert f"{variable}: /app/config/" in temporal
         assert f"${{{variable}:-" not in temporal
-    assert "../../config:/app/config:ro" not in temporal
 
 
-def test_api_mounts_config_while_worker_uses_its_baked_runtime_configuration() -> None:
+def test_api_and_worker_mount_the_same_config_directory() -> None:
     api = API_COMPOSE.read_text(encoding="utf-8")
     temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "deploy/docker/Dockerfile.temporal-worker").read_text(encoding="utf-8")
 
     assert "../../config:/app/config:ro" in api
-    assert "../../config:/app/config:ro" not in temporal
+    assert "../../config:/app/config:ro" in temporal
     assert "COPY config ./config" in dockerfile
 
 

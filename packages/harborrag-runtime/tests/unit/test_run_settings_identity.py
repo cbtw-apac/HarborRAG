@@ -25,8 +25,8 @@ GOLDEN_CHUNK_STRATEGY = (
 @pytest.fixture
 def shipped_settings() -> RuntimeSettings:
     return RuntimeSettings(
-        parser_config_path=REPO_ROOT / "config/parsers.yaml",
-        chunking_config_path=REPO_ROOT / "config/chunking.yaml",
+        parser_config_path=REPO_ROOT / "config/ingestion/parsers.yaml",
+        chunking_config_path=REPO_ROOT / "config/ingestion/chunking.yaml",
     )
 
 
@@ -106,7 +106,10 @@ def test_catalog_pdf_selection(tmp_path: Path) -> None:
     assert catalog.enabled_pdf_backend() == "liteparse"
     assert catalog.pdf_definition_for("docling") == "pdf-docling"
     assert (
-        load_parser_catalog(REPO_ROOT / "config/parsers.yaml").pdf_definition_for("docling") is None
+        load_parser_catalog(REPO_ROOT / "config/ingestion/parsers.yaml").pdf_definition_for(
+            "docling"
+        )
+        is None
     )
 
 

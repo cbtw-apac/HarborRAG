@@ -1,7 +1,7 @@
 # Scheduled Ingestion
 
 HarborRAG manages recurring source ingestion with Temporal Schedules. Define
-long-lived schedules in version-controlled YAML. Use the Temporal UI to inspect
+long-lived schedules in YAML. Use the Temporal UI to inspect
 executions and for emergency administration; avoid editing config-owned schedules there because
 the next config sync will overwrite those changes. Pause state is the exception:
 a sync only pauses or unpauses an existing schedule when its `paused` value in
@@ -10,13 +10,14 @@ until someone unpauses it.
 
 ## Configure a Schedule
 
-Copy `config/schedules.example.yaml` to `config/schedules.yaml`. API startup
+Copy `config/sources/schedules.example.yaml` to `config/sources/schedules.yaml`. The
+repository ignores that file, so keep it under your deployment's version control. API startup
 creates missing schedules and updates existing config-owned schedules. Each
 `connection_id` must identify an enabled connector in
-`config/connectors.yaml`. The API reads the file from
-`HARBORRAG_SCHEDULE_CONFIG_PATH` (default `config/schedules.yaml`, relative to
+`config/sources/connectors.yaml`. The API reads the file from
+`HARBORRAG_SCHEDULE_CONFIG_PATH` (default `config/sources/schedules.yaml`, relative to
 the working directory); the API image and Compose stack set it to
-`/app/config/schedules.yaml`.
+`/app/config/sources/schedules.yaml`.
 
 Leave `source_scope_id: null` so scheduled runs use the same source scope as a
 run started with `POST /v1/admin/ingestions`; a different scope is ingested
@@ -83,7 +84,7 @@ because of an incomplete deployment file.
 ## API-Owned Schedules
 
 The `/v1/schedules` routes are removed in 2.0.0 and return `404`. Declare
-schedules in `config/schedules.yaml`; the API reconciles them at start-up.
+schedules in `config/sources/schedules.yaml`; the API reconciles them at start-up.
 Schedules created through those routes in 1.x keep running, because a sync
 only deletes config-owned schedules; pause or delete them in the Temporal UI.
 
@@ -119,7 +120,7 @@ email or chat messages.
 Run outcomes are `started`, `completed`, `partial`, `skipped`, `cancelled` and
 `failed`. A run that is terminated or hits its execution timeout stops without
 recording an outcome; find those in the Temporal UI. A `paused` change in
-`config/schedules.yaml` records the pause as intended, so only pauses made
+`config/sources/schedules.yaml` records the pause as intended, so only pauses made
 elsewhere — `pause_on_failure`, or the Temporal UI — raise the
 unexpected-pause alert.
 

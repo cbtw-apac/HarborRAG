@@ -53,7 +53,7 @@ from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalReque
 async def main() -> None:
     access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
 
-    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+    async with HarborRAG.from_config("harborrag.yaml") as harbor:
         await harbor.ingestion.run(
             IngestionRequest(access=access, connector_name="harborrag-workspace")
         )
@@ -66,8 +66,8 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-`config/harborrag.example.yaml` ships in the repository checkout. Copy it next to your
-application and point `from_config` at your own path.
+`harborrag init` writes `harborrag.yaml` in the project root. Point `from_config` at it,
+or at your own copy next to your application.
 
 ## Chat
 
@@ -77,7 +77,7 @@ such as `local`, `server`, or `all`) and configure credentials first:
 ```python
 from harborrag import ChatPrompt, HarborChatMessage, HarborChatRequest, HarborRAG
 
-async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+async with HarborRAG.from_config("harborrag.yaml") as harbor:
     response = await harbor.chat.complete(
         HarborChatRequest(messages=(HarborChatMessage.user("Summarize the results"),)),
         prompt=ChatPrompt.CONCISE,

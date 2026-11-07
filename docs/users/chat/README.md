@@ -130,7 +130,7 @@ instructs the model to cite only sources it uses.
 Results without a relevance score are retained. Prompt budgets can exclude
 whole passages and older pairs from the three-exchange window.
 
-Chat uses the `chat` family in `config/models.yaml`. HTTP and CLI use
+Chat uses the `chat` family in `config/models/models.yaml`. HTTP and CLI use
 the server-owned `default` prompt; callers cannot supply prompt paths.
 See [Chat models](models.md) for catalogs and tenant model selection.
 

@@ -4,8 +4,8 @@
     python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector confluence-main --output txt
     python packages/harborrag-adapters/tests/connectors/smoke/run.py --connector harborrag-workspace --output md
 
-Connectors come from `config/connectors.yaml`, parsers (LiteParse for PDF,
-RapidOCR for images) come from `config/parsers.yaml`, and credentials come
+Connectors come from `config/sources/connectors.yaml`, parsers (LiteParse for PDF,
+RapidOCR for images) come from `config/ingestion/parsers.yaml`, and credentials come
 from `env/.env.connector` / `env/.env.parser`. See connectors/README.md.
 
 Each provider's discover/load/parse/save logic lives in its own module; this

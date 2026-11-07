@@ -1,6 +1,6 @@
 """Which ``fields.*`` evidence payload paths each tenant needs indexed.
 
-A source scope declares its filterable facts as facets in ``graph_build.yaml``
+A source scope declares its filterable facts as facets in ``config/graph/build.yaml``
 (a Jira custom field by display name, say *Skill Set*). Those are exactly the
 source fields a caller is expected to filter evidence by -- ``fields.skill_set``
 -- so they are the ones given a payload index; without one, each such filter

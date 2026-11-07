@@ -3,9 +3,9 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     UV_NO_CACHE=1 \
-    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models.yaml \
-    HARBORRAG_MCP_CONFIG_PATH=/app/config/mcp.yaml \
-    HARBORRAG_MCP_KEYS_PATH=/app/config/mcp_keys.yaml \
+    HARBORRAG_MODEL_CONFIG_PATH=/app/config/models/models.yaml \
+    HARBORRAG_MCP_CONFIG_PATH=/app/config/mcp/server.yaml \
+    HARBORRAG_MCP_KEYS_PATH=/app/config/mcp/keys.yaml \
     HARBORRAG_MCP_AUDIT_PATH=/var/lib/harborrag/.harborrag/mcp-audit.jsonl
 
 WORKDIR /app

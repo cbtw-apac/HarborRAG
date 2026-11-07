@@ -347,7 +347,7 @@ def test_migration_0041_field_layout_matches_the_registry() -> None:
 def test_example_yaml_entries_split_into_valid_parts(tmp_path: Path) -> None:
     source = tmp_path / "docs"
     source.mkdir()
-    catalog = load_connector_catalog(REPO_ROOT / "config" / "connectors.example.yaml")
+    catalog = load_connector_catalog(REPO_ROOT / "config" / "sources" / "connectors.example.yaml")
 
     for name in catalog.names():
         definition = catalog.get(name)

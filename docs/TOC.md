@@ -22,6 +22,8 @@
 - [Configuration](users/configuration/README.md)
   - [Connector Configuration](users/configuration/connector-config.md)
   - [Parser Configuration](users/configuration/parser-config.md)
+  - [Chunking Configuration](users/configuration/chunking-config.md)
+  - [Graph Build Configuration](users/configuration/graph-build-config.md)
   - [Model Configuration](users/configuration/model-config.md)
   - [Runtime Settings](users/configuration/runtime-settings.md)
   - [Engine Configuration](users/configuration/config-file-reference.md)

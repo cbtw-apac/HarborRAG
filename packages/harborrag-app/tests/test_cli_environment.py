@@ -89,9 +89,9 @@ def _clear_object_store(monkeypatch) -> None:
 
 
 def _mark_checkout(root: Path) -> None:
-    """A repository checkout is recognised by its config/connectors.yaml."""
+    """A repository checkout is recognised by its config/sources/connectors.yaml."""
 
-    _write(root, "config/connectors.yaml", "connectors: {}\n")
+    _write(root, "config/sources/connectors.yaml", "connectors: {}\n")
 
 
 def _activate_project(monkeypatch) -> None:

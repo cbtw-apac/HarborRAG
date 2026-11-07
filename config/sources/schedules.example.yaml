@@ -1,6 +1,3 @@
-# HarborRAG-owned Temporal schedules.
-# Copy to config/schedules.yaml and keep the active file under version control.
-# Temporal UI is for monitoring and emergency administration only.
 version: 1
 prune: false
 

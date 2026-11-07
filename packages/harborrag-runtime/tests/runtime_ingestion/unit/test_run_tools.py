@@ -37,7 +37,7 @@ def _run_tools(*, parsers: Any = None, build_chunker: Any = None) -> RunTools:
         parser=cast(Any, object()),
         chunker=build_default_chunker(config=chunking.config),
         chunking=chunking,
-        parsers=parsers or load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml"),
+        parsers=parsers or load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml"),
         build_chunker=build_chunker
         or (lambda config: build_default_chunker(config=config, refiner=chunking.refiner)),
     )

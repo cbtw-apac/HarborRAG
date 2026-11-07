@@ -118,7 +118,7 @@ def _providers(monkeypatch, *, graph_error: Exception | None = None):
 
 
 def _with_summarization(tmp_path: Path, *, enabled: bool) -> RuntimeSettings:
-    graph_build = tmp_path / "graph_build.yaml"
+    graph_build = tmp_path / "build.yaml"
     graph_build.write_text(f"summarization:\n  enabled: {str(enabled).lower()}\n", encoding="utf-8")
     return _settings().model_copy(update={"graph_build_config_path": graph_build})
 

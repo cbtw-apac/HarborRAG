@@ -11,7 +11,7 @@ def scaffold(root: Path) -> Path:
     root.mkdir(parents=True, exist_ok=True)
     (root / "harborrag.yaml").write_text(
         "execution_mode: direct\nruntime:\n  env: dev\n"
-        "  connector_config_path: config/connectors.yaml\n"
+        "  connector_config_path: config/sources/connectors.yaml\n"
         "  qdrant_prefer_grpc: false\n",
         encoding="utf-8",
     )

@@ -16,7 +16,7 @@ Temporal, stores, authentication) stays in the files and environment variables d
 | `parsing.pdf_parser` | `liteparse` or `docling` | tenant, project, connection | `next_ingestion` | `liteparse` |
 | `chunking.max_tokens` | integer 64-4096 | tenant, project, connection | `next_ingestion` | `1200` |
 | `ingestion.concurrency` | integer 1-64 | tenant, connection | `next_ingestion` | `8` |
-| `models.embedding` | `provider:model` | tenant, project | `reindex` | the first deployment of `embed.default_model` in `config/models.yaml` |
+| `models.embedding` | `provider:model` | tenant, project | `reindex` | the first deployment of `embed.default_model` in `config/models/models.yaml` |
 
 `GET /v1/admin/settings/schema` returns the same table as JSON, keyed by setting key.
 
@@ -28,8 +28,8 @@ Temporal, stores, authentication) stays in the files and environment variables d
 - `retrieval.top_k` caps the chat retrieval and the MCP `vector_search` default. MCP calls
   carry no project, so MCP reads the tenant level only; a project override applies to chat
   sessions in that project. The MCP limits `limits.top_k` and `policy.max_results` still clamp
-  the value. On a SQLite control database the MCP server keeps the `config/mcp.yaml` default.
-- `chunking.max_tokens` caps `maximum_tokens` of every profile in `config/chunking.yaml`;
+  the value. On a SQLite control database the MCP server keeps the `config/mcp/server.yaml` default.
+- `chunking.max_tokens` caps `maximum_tokens` of every profile in `config/ingestion/chunking.yaml`;
   a profile already at or below the cap is unchanged. Route chunks keep their 512-token cap.
 - `ingestion.concurrency` is the number of documents processed at once. An explicit value on
   the submission (`--document-concurrency`) wins over it.
@@ -49,9 +49,9 @@ level replaces the boot setting.
 
 | Key | Boot setting that stays in charge until overridden |
 | --- | --- |
-| `retrieval.top_k` | `tools.vector_search.defaults.top_k` in `config/mcp.yaml` (MCP); `HARBORRAG_CHAT_RETRIEVAL_TOP_K` (chat) |
-| `parsing.pdf_parser` | the enabled `parser: pdf` definition of `config/parsers.yaml` |
-| `chunking.max_tokens` | the `maximum_tokens` of each profile in `config/chunking.yaml` |
+| `retrieval.top_k` | `tools.vector_search.defaults.top_k` in `config/mcp/server.yaml` (MCP); `HARBORRAG_CHAT_RETRIEVAL_TOP_K` (chat) |
+| `parsing.pdf_parser` | the enabled `parser: pdf` definition of `config/ingestion/parsers.yaml` |
+| `chunking.max_tokens` | the `maximum_tokens` of each profile in `config/ingestion/chunking.yaml` |
 | `ingestion.concurrency` | `ingestion.document_concurrency` in `config/temporal.yaml` or `HARBORRAG_TEMPORAL_INGESTION_DOCUMENT_CONCURRENCY` |
 
 Because a key at its default reports the registry default, `GET` shows `5` for
@@ -66,18 +66,18 @@ reprocesses all of its documents. Removing the override reprocesses them once mo
 `ingestion.concurrency` and the `retrieval.*` keys do not change the identity.
 
 `parsing.pdf_parser: docling` also needs a `parser: pdf` definition with a single `docling`
-engine in `config/parsers.yaml`, added by the operator with `enabled: false`, and the docling
+engine in `config/ingestion/parsers.yaml`, added by the operator with `enabled: false`, and the docling
 extra installed in the worker image. Without them, documents fail with
 `document_release_parser_unavailable`, recorded as retryable: add the definition, then run
 `retry-failures`; the retry replays the parser the run was pinned to. The shipped
 `parsers.yaml` and `chunking.yaml` are not edited by HarborRAG, because their bytes are part
 of the identity too.
 
-Editing `config/parsers.yaml`, for example to add the docling definition, therefore changes
+Editing `config/ingestion/parsers.yaml`, for example to add the docling definition, therefore changes
 the identity of every connection: the next sync of each one reprocesses all of its documents,
 whether or not it has a `parsing.*` override. Put the same file in the API and in the worker
-before you set the override; the dev compose bakes `config/` into the worker image, so rebuild
-it. With different files, runs started from the API and scheduled runs prepared by the worker
+before you set the override; the dev compose mounts the same `config/` into both, so restart
+them. With different files, runs started from the API and scheduled runs prepared by the worker
 carry different identities and documents reprocess on alternate syncs. Documents published by a
 `retry-failures` run keep the identity of the run it retries, so the first sync after the edit
 reprocesses them once more. See [Upgrading](../upgrading.md#use-docling-for-pdfs).

@@ -12,7 +12,7 @@ server/http.py              loopback Streamable HTTP transport and status UI
 server/http_auth.py         owner-only bearer and tenant authorization
 server/static/status.html   status page and Tool Playground
 server/explorer/            HarborRAG Explorer MCP App served by harborrag-mcp-ui
-configuration/              config/mcp.yaml loading, validation, env overrides
+configuration/              config/mcp/server.yaml loading, validation, env overrides
 policy.py                   compiled safety ceilings
 audit.py                    JSONL audit writer
 defaults/mcp.yaml           packaged fallback configuration
@@ -164,7 +164,7 @@ for running it and for the MCP Inspector workflow.
 
 ## Tool configuration
 
-The versioned configuration lives at `config/mcp.yaml` by default. Set
+The versioned configuration lives at `config/mcp/server.yaml` by default. Set
 `HARBORRAG_MCP_CONFIG_PATH` or pass `--config` after `--http` to select another
 file. The configuration controls:
 

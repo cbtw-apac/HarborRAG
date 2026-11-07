@@ -149,17 +149,18 @@ settings:
 
 ```bash
 export HARBORRAG_TEMPORAL_CONFIG_PATH=config/temporal.yaml
-export HARBORRAG_CONNECTOR_CONFIG_PATH=config/connectors.yaml
-export HARBORRAG_PARSER_CONFIG_PATH=config/parsers.yaml
-export HARBORRAG_MODEL_CONFIG_PATH=config/models.yaml
+export HARBORRAG_CONNECTOR_CONFIG_PATH=config/sources/connectors.yaml
+export HARBORRAG_PARSER_CONFIG_PATH=config/ingestion/parsers.yaml
+export HARBORRAG_MODEL_CONFIG_PATH=config/models/models.yaml
 python -m harborrag_runtime.temporal.worker
 ```
 
 The Temporal YAML owns connection defaults, task queues, retry budgets, worker
 capacity, and timeouts. Environment values such as
 `HARBORRAG_TEMPORAL_TARGET` remain available for deployment-specific overrides.
-See `config/temporal.example.yaml` for every supported non-secret field; keep
-`HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret manager.
+See [Temporal configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/deploy/temporal/README.md) for every supported
+non-secret field; keep `HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret
+manager.
 
 The normal operator path is the app CLI:
 
@@ -191,7 +192,7 @@ from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import HarborRAG, IngestionRequest, RetrievalRequest
 
 access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
-async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+async with HarborRAG.from_config("harborrag.yaml") as harbor:
     await harbor.ingestion.run(IngestionRequest(access=access, connector_name="harborrag-workspace"))
     response = await harbor.retrieval.search(
         RetrievalRequest(access=access, query="deployment requirements")
@@ -251,8 +252,8 @@ For the PostgreSQL-backed local server and worker profile, see
 ```python
 from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
 
-connectors = load_connector_catalog("config/connectors.yaml").build_enabled()
-parsers = load_parser_catalog("config/parsers.yaml").build_harbor_parser()
+connectors = load_connector_catalog("config/sources/connectors.yaml").build_enabled()
+parsers = load_parser_catalog("config/ingestion/parsers.yaml").build_harbor_parser()
 ```
 
 ## Tests

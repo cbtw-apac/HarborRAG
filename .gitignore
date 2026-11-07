@@ -246,11 +246,13 @@ clients/typescript/node_modules/
 # Internal architecture working notes (kept out of the repo per team decision)
 docs/developers/architecture/http_backend/
 
-# Docling image output (config/parsers.yaml pdf-docling.image_output_dir)
+# Docling image output (config/ingestion/parsers.yaml pdf-docling.image_output_dir)
 /data/docling-images/
 
 # Local macOS-compatible copy of dev.sh (bash 3.2 / BSD sed tweaks)
 scripts/deployment/dev-mac.sh
 
-# Local runtime settings seed (config/settings.example.yaml ships instead)
+# Deployment config files; each ships as an .example.yaml beside it
 /config/settings.yaml
+/config/sources/schedules.yaml
+/config/mcp/keys.yaml

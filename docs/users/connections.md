@@ -9,7 +9,7 @@ next run on every worker, with no restart.
 A connection has four parts: `credentials` (how to sign in), `config` (what
 to sync), `advanced` (request rate, paging, timeouts and retries) and a `name`.
 
-`config/connectors.yaml` is read once, at the first start of a fresh install
+`config/sources/connectors.yaml` is read once, at the first start of a fresh install
 with no projects and no connections, and imported into the tenant
 `HARBORRAG_INGESTION_TENANT_ID` names. After that, change connections through the
 API. See [Upgrading](upgrading.md).
@@ -75,7 +75,7 @@ on a host whose `token_cache_path` the workers can also read. Without a
 `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass the
 connection's tenant to `--harborrag-tenant`. The API cannot
 show the sign-in prompt itself. `token_cache_path` is a path on the worker, so
-only `config/connectors.yaml` and the `harborrag source` CLI can set or change
+only `config/sources/connectors.yaml` and the `harborrag source` CLI can set or change
 it; through the API, leave it as read or leave it out when it was never set.
 
 **2. Test it.** Send the form values; nothing is saved:
@@ -181,7 +181,7 @@ A secret field accepts a value or a reference:
 | You send | What is stored |
 | --- | --- |
 | `"api_token": "ATATT3x..."` | The value, encrypted in the control database. Sending the value already stored keeps it, and clears a `needs_reauth` status. |
-| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/connectors.yaml` and the `harborrag source` CLI can set one; the API answers `422` and asks for the value. |
+| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/sources/connectors.yaml` and the `harborrag source` CLI can set one; the API answers `422` and asks for the value. |
 | The field left out, or its status sent back | The stored value or reference is kept. Re-saving a form without the key keeps it. |
 | `"api_token": null` | Refused with `422` and `required`; the stored value is kept. Every secret is required by its auth method, so switch `method` to drop it. |
 
@@ -317,7 +317,7 @@ connection says. The document is reported as failed and is not retried:
 | Spreadsheet (`xlsx`, `xls`, `csv`) | 50,000 rows or 200,000 cells per file |
 | Office and EPUB archives (`docx`, `pptx`, `xlsx`, `odt`, `epub`) | 256 MiB unzipped, 5,000 members, 100:1 compression per member |
 
-The PDF and image limits are set in `config/parsers.yaml`
+The PDF and image limits are set in `config/ingestion/parsers.yaml`
 ([Parser Configuration](configuration/parser-config.md)).
 
 ## Tenants
@@ -335,7 +335,7 @@ A `local_file` connection reads a path on the worker. When
 out of it is refused too. Set the same value on the API and the workers.
 Without either, the API refuses `local_file` connections with `422` on
 `config.source_path`, since any file the workers can read would otherwise be
-accepted; `config/connectors.yaml` and the `harborrag source` CLI can still add
+accepted; `config/sources/connectors.yaml` and the `harborrag source` CLI can still add
 them.
 
 ## Connection status

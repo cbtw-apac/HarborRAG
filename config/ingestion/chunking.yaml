@@ -1,0 +1,36 @@
+version: 1
+configuration_version: canonical-source-policies
+create_route_chunks: true
+
+refiner:
+  strategy: structure
+  require_code_grammars: true
+
+default_profile: canonical
+
+profiles:
+  canonical:
+    strategy: canonical
+    limits:
+      minimum_tokens: 120
+      target_tokens: 700
+      maximum_tokens: 1100
+      overlap_tokens: 0
+  jira:
+    strategy: jira
+    limits:
+      minimum_tokens: 80
+      target_tokens: 600
+      maximum_tokens: 1000
+      overlap_tokens: 40
+  confluence:
+    strategy: confluence
+    limits:
+      minimum_tokens: 120
+      target_tokens: 750
+      maximum_tokens: 1200
+      overlap_tokens: 0
+
+source_profiles:
+  confluence: confluence
+  jira: jira

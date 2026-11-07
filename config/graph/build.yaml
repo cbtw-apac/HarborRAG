@@ -9,11 +9,9 @@ summarization:
   task_queue: harborrag-summaries
   debounce_seconds: 5
   max_wait_seconds: 60
-  tenant_enabled: false         # lazy on-demand tenant summaries are opt-in
-  # model: summariser            # omit to use the deployment's default model
-  max_description_tokens: 512    # size of each generated summary
+  tenant_enabled: false
+  max_description_tokens: 512
   budget:
-    # max_usd_per_run: "5.00"    # stops the run once crossed (needs deployment pricing)
     max_calls_per_document: 256
   input:
     max_children_per_call: 8

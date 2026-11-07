@@ -284,27 +284,6 @@ async def test_telemetry_close_is_complete_in_raise_and_ignore_modes() -> None:
     assert events == ["first", "second"]
 
 
-def test_example_yaml_loads_all_model_families(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "anthropic-secret")
-    monkeypatch.setenv("COHERE_API_KEY", "cohere-secret")
-    path = Path(__file__).resolve().parents[5] / "config" / "models.example.yaml"
-
-    chat = HarborChatClientConfig.from_file(path)
-    embed = HarborEmbedClientConfig.from_file(path)
-    rerank = HarborRerankClientConfig.from_file(path)
-
-    assert chat.default_model == "primary"
-    assert embed.models["primary"].embedding_space == "harbor-production-v1"
-    assert rerank.default_model == "primary"
-    assert "openai-secret" not in repr(chat)
-    # The memory layer's own profile must load and be structured-output capable,
-    # since extraction and summarization depend on schema-constrained responses.
-    memory = chat.models["memory"]
-    assert memory.deployments[0].capabilities.structured_output is True
-    assert memory.deployments[0].capabilities.json_mode is True
-
-
 def test_advanced_example_yaml_loads_base_and_profiles(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -326,7 +305,9 @@ def test_advanced_example_yaml_loads_base_and_profiles(
     }
     for name, value in environment.items():
         monkeypatch.setenv(name, value)
-    path = Path(__file__).resolve().parents[5] / "config" / "models.advance.example.yaml"
+    path = (
+        Path(__file__).resolve().parents[5] / "config" / "models" / "models.production.example.yaml"
+    )
     source = path.read_text(encoding="utf-8")
     assert "api_key: ${AZURE_OPENAI_API_KEY}" in source
 

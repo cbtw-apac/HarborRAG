@@ -14,9 +14,9 @@ chat:
     primary:
       deployments:
         - name: openai-primary
-          provider: ${HARBOR_CHAT_PROVIDER}
-          model: ${HARBOR_CHAT_MODEL}
-          api_key: ${HARBOR_CHAT_API_KEY}
+          provider: ${HARBORRAG_CHAT_PROVIDER}
+          model: ${HARBORRAG_CHAT_MODEL}
+          api_key: ${HARBORRAG_CHAT_API_KEY}
           capabilities:
             streaming: true
             structured_output: true
@@ -24,21 +24,6 @@ chat:
             tools: true
             parallel_tools: true
             reasoning_effort: true
-    # Optional: a cheaper model for the conversation-memory layer (query
-    # rewriting, fact extraction, session summaries). Uncomment together with
-    # the HARBOR_MEMORY_* variables in env/.env.models. While this is absent,
-    # HARBORRAG_MEMORY_MODEL_PROFILE falls back to the default chat model.
-    # memory:
-    #   deployments:
-    #     - name: openai-memory
-    #       provider: ${HARBOR_MEMORY_PROVIDER}
-    #       model: ${HARBOR_MEMORY_MODEL}
-    #       api_key: ${HARBOR_MEMORY_API_KEY}
-    #       capabilities:
-    #         streaming: false
-    #         structured_output: true
-    #         json_mode: true
-    #         tools: false
 
 embed:
   default_model: primary
@@ -52,9 +37,9 @@ embed:
       embedding_space: harbor-production-v1
       deployments:
         - name: openai-embedding
-          provider: ${HARBOR_EMBED_PROVIDER}
-          model: ${HARBOR_EMBED_MODEL}
-          api_key: ${HARBOR_EMBED_API_KEY}
+          provider: ${HARBORRAG_EMBED_PROVIDER}
+          model: ${HARBORRAG_EMBED_MODEL}
+          api_key: ${HARBORRAG_EMBED_API_KEY}
           expected_dimensions: 1536
           capabilities:
             batch: true

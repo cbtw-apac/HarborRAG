@@ -103,4 +103,3 @@ connectors:
     secrets:
       tenant_id_env: MICROSOFT_TENANT_ID
       client_id_env: MICROSOFT_CLIENT_ID
-      # client_secret_env: MICROSOFT_CLIENT_SECRET

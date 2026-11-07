@@ -6,7 +6,7 @@ entries marked **Breaking** there are the ones these steps deal with.
 
 ## 2.0.0a2 to 2.0.0
 
-Connections move from `config/connectors.yaml` into the control database and
+Connections move from `config/sources/connectors.yaml` into the control database and
 are managed through the API ([Connections](connections.md)). Ingestion reads
 each connection at the start of every run.
 
@@ -31,13 +31,80 @@ each connection at the start of every run.
   cancellation of a retry run, so with an older worker a retry run cancelled
   through the API ends `failed`, or stays `running` until the API next
   settles it, for example at the next start of its connection.
-- Give the API the environment variables `config/connectors.yaml` names, for
+- Give the API the environment variables `config/sources/connectors.yaml` names, for
   example `JIRA_BASE_URL` or `LOCAL_SOURCE_PATH`. The one-time import reads
   non-secret values from the API's environment.
 
+### Move the configuration files
+
+`config/` now has one folder per domain. Move each file your deployment uses:
+
+| Old path | New path |
+| --- | --- |
+| `config/connectors.yaml` | `config/sources/connectors.yaml` |
+| `config/connectors.example.yaml` | `config/sources/connectors.example.yaml` |
+| `config/schedules.yaml` | `config/sources/schedules.yaml` |
+| `config/schedules.example.yaml` | `config/sources/schedules.example.yaml` |
+| `config/parsers.yaml` | `config/ingestion/parsers.yaml` |
+| `config/chunking.yaml` | `config/ingestion/chunking.yaml` |
+| `config/topology/graph_build.yaml` | `config/graph/build.yaml` |
+| `config/topology/ontologies/` | `config/graph/ontologies/` |
+| `config/models.yaml` | `config/models/models.yaml` |
+| `config/models.advance.example.yaml` | `config/models/models.production.example.yaml` |
+| `config/mcp.yaml` | `config/mcp/server.yaml` |
+| `config/mcp_keys.yaml` | `config/mcp/keys.yaml` |
+| `config/mcp_keys.example.yaml` | `config/mcp/keys.example.yaml` |
+
+`config/settings.yaml`, `config/settings.example.yaml` and `config/temporal.yaml` stay
+where they are. `config/temporal.example.yaml` and `config/models.example.yaml` are
+removed; [Temporal configuration](../../deploy/temporal/README.md) and
+[Model configuration](configuration/model-config.md) now explain the values.
+`config/harborrag.example.yaml` is removed too: `harborrag init` renders `harborrag.yaml`
+in the project root.
+
+- A deployment that sets the path of every file it uses keeps working without moving
+  anything: `HARBORRAG_CONNECTOR_CONFIG_PATH`, `HARBORRAG_SCHEDULE_CONFIG_PATH`,
+  `HARBORRAG_PARSER_CONFIG_PATH`, `HARBORRAG_CHUNKING_CONFIG_PATH`,
+  `HARBORRAG_GRAPH_BUILD_CONFIG_PATH`, `HARBORRAG_MODEL_CONFIG_PATH`,
+  `HARBORRAG_MCP_CONFIG_PATH` and `HARBORRAG_MCP_KEYS_PATH`. The images now set the new
+  paths, so a deployment that relied on their old values must move the files or set
+  the variables.
+- An environment file that names an old path, such as
+  `HARBORRAG_MCP_CONFIG_PATH=config/mcp.yaml`, now points at a missing file. Update it.
+- Some files are optional. While its path variable is unset, a missing `chunking.yaml`
+  or `graph/build.yaml` means the built-in defaults, and the graph-build defaults make
+  no LLM calls; a missing `mcp/server.yaml` means the packaged MCP defaults. A missing
+  `schedules.yaml` always means no declared schedules. A file left at its old path is
+  therefore ignored without a warning. Run `harborrag doctor` and
+  `harborrag topology config validate` after the move.
+- A relative `source_path` written directly in `connectors.yaml` resolves against the
+  file's folder, now `config/sources/`. Add a `../` or use an absolute path.
+  Environment-backed paths such as `LOCAL_SOURCE_PATH` are unaffected.
+- `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored, like
+  `config/settings.yaml`. Keep them in your deployment's own version control.
+- The development worker now mounts the whole `config/` read-only, like the API and the
+  MCP server. A configuration change needs a worker restart, not an image rebuild.
+
+**Breaking:** `config/models/models.yaml` reads renamed environment variables. Rename
+every variable with these prefixes in `env/.env.models` and any other environment file,
+including those only the model smoke tests read, such as `HARBOR_CHAT_BACKEND`:
+
+| Old prefix | New prefix |
+| --- | --- |
+| `HARBOR_CHAT_` | `HARBORRAG_CHAT_` |
+| `HARBOR_EMBED_` | `HARBORRAG_EMBED_` |
+| `HARBOR_MEMORY_` | `HARBORRAG_MEMORY_` |
+
+```bash
+sed -i -E 's/(^|[^A-Z_])HARBOR_(CHAT|EMBED|MEMORY)_/\1HARBORRAG_\2_/g' env/.env.models
+```
+
+`HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names. With the old names,
+loading the catalog fails with `environment variable HARBORRAG_CHAT_PROVIDER is not set`.
+
 ### What happens at the first start
 
-The API imports `config/connectors.yaml` once, when all of these hold:
+The API imports `config/sources/connectors.yaml` once, when all of these hold:
 
 - the file exists;
 - the install has no projects and no connections, in any tenant;
@@ -230,8 +297,8 @@ Six settings (`retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`,
 `chunking.max_tokens`, `ingestion.concurrency`, `models.embedding`) can now be
 changed through `/v1/admin/settings` ([Runtime settings](configuration/runtime-settings.md)).
 Nothing changes at upgrade: a setting with no override keeps using the knob
-that governs it today (`config/mcp.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
-`config/parsers.yaml`, `config/chunking.yaml`, `config/temporal.yaml`), and no
+that governs it today (`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
+`config/ingestion/parsers.yaml`, `config/ingestion/chunking.yaml`, `config/temporal.yaml`), and no
 document is reprocessed.
 
 `GET /v1/admin/settings` shows the registry default for a setting with no
@@ -255,9 +322,9 @@ connection, because both feed the processing identity.
 `parsing.pdf_parser: docling` needs two things HarborRAG does not ship:
 
 1. A `parser: pdf` definition with a single `docling` engine in
-   `config/parsers.yaml`, added with `enabled: false` so the shipped
+   `config/ingestion/parsers.yaml`, added with `enabled: false` so the shipped
    `pdf-liteparse` definition stays the boot default. Copy the whole
-   commented `pdf-docling:` block of `config/parsers.yaml`, from the
+   commented `pdf-docling:` block of `config/ingestion/parsers.yaml`, from the
    `pdf-docling:` line through its `engines` list and the last docling
    setting (`max_file_size`), into the active `parsers:` section
    uncommented, and change `enabled: true` to `enabled: false`. Keep its
@@ -271,19 +338,18 @@ retry replays the parser the run was pinned to.
 
 Adding the definition reprocesses every connection once, not only the one you
 switch to docling. The parser identity is the digest of the whole
-`config/parsers.yaml`, so any edit to the file changes it for every
+`config/ingestion/parsers.yaml`, so any edit to the file changes it for every
 connection, and the next sync of each connection reprocesses all of its
 documents. To keep that to one reprocess:
 
-1. Put the same `config/parsers.yaml` in the API and in the worker before you
+1. Put the same `config/ingestion/parsers.yaml` in the API and in the worker before you
    set `parsing.pdf_parser: docling`. The API reads the file when it starts a
    run and the worker when it prepares a scheduled run, so with two different
    files the identity flips between the two kinds of run and documents
    reprocess on alternate syncs; docling documents also fail with
    `document_release_parser_unavailable` on a worker without the definition.
-   The dev compose mounts `config/` into the API but bakes it into the worker
-   image, so rebuild the worker image (`dev.sh worker --build`) after editing
-   the file.
+   The dev compose mounts the same `config/` into the API and the worker, so
+   restart both after editing the file.
 2. Then set the override.
 
 A `retry-failures` run replays the processing identity of the run it retries.
@@ -323,7 +389,7 @@ migrated, so plan a reset and a full re-ingest.
    `HARBORRAG_STORAGE_NAMESPACE_PREFIX` instead (default `harborrag`), and give each
    deployment its own value when they share stores. See
    [One tenant namespace in every store](configuration/workspace-mode.md#one-tenant-namespace-in-every-store).
-2. **MCP limits.** Review `config/mcp.yaml`. Graph `max_depth` above 4 and `max_paths`
+2. **MCP limits.** Review `config/mcp/server.yaml`. Graph `max_depth` above 4 and `max_paths`
    above 5 are lowered with a warning.
 3. **Confluence.** Remove `max_child_pages` from Confluence connectors; it is ignored with a
    warning.
@@ -363,7 +429,7 @@ that use them.
 ### 6. Optional: keep entity summaries
 
 Summarization is now off by default. To keep entity summaries, set `summarization.enabled`
-to `true` in `config/topology/graph_build.yaml`, then run:
+to `true` in `config/graph/build.yaml`, then run:
 
 ```bash
 harborrag topology summaries backfill

@@ -2,10 +2,10 @@
 
 The model adapter provides separate chat, embedding, and reranking clients. Each family loads its own section from the same YAML or JSON file and returns an immutable Pydantic configuration object.
 
-Start with:
+The `config/models/` folder holds:
 
-- [`config/models.example.yaml`](../../../config/models.example.yaml) for a compact direct-provider example;
-- [`config/models.advance.example.yaml`](../../../config/models.advance.example.yaml) for more routing and provider controls.
+- [`config/models/models.yaml`](../../../config/models/models.yaml), the active chat and embedding catalog;
+- [`config/models/models.production.example.yaml`](../../../config/models/models.production.example.yaml), with routing, fallbacks, reranking and profiles.
 
 Install `harborrag-adapters[llm]` when it is not already present in the development environment.
 
@@ -39,7 +39,7 @@ Logical model names such as `primary` are stable application identifiers. A logi
 ```python
 from harborrag_adapters.models.chat import ChatClientFactory, HarborChatClientConfig
 
-config = HarborChatClientConfig.from_file("config/models.example.yaml")
+config = HarborChatClientConfig.from_file("config/models/models.yaml")
 with ChatClientFactory.create(config) as client:
     response = client.chat([{"role": "user", "content": "Summarize HarborRAG."}])
     print(response.text)
@@ -60,12 +60,38 @@ runtime's typed prompt catalog packages the `default` and `concise` Markdown
 templates; see [Chat](../chat/README.md) for transport behavior and prompt
 selection.
 
-The repository's runnable `config/models.yaml` uses
-`HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and `HARBOR_CHAT_API_KEY` for its `primary`
-chat deployment, **and** `HARBOR_EMBED_PROVIDER`, `HARBOR_EMBED_MODEL`, and
-`HARBOR_EMBED_API_KEY` for its embedding deployment. All six are required: references
-expand eagerly, so filling in only the chat three fails at load time. The more general
-example files above use provider variables such as `OPENAI_API_KEY` instead.
+The repository's runnable `config/models/models.yaml` uses
+`HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_MODEL`, and `HARBORRAG_CHAT_API_KEY` for its `primary`
+chat deployment, **and** `HARBORRAG_EMBED_PROVIDER`, `HARBORRAG_EMBED_MODEL`, and
+`HARBORRAG_EMBED_API_KEY` for its embedding deployment. All six are required: references
+expand eagerly, so filling in only the chat three fails at load time. The production
+example uses provider variables such as `AZURE_OPENAI_API_KEY` instead.
+
+### Optional memory model
+
+The conversation-memory layer (query rewriting, fact extraction and session summaries)
+can use a cheaper model than chat. Add a `memory` logical model under `chat.models` in
+`config/models/models.yaml` and set the three `HARBORRAG_MEMORY_*` variables in
+`env/.env.models`:
+
+```yaml
+    memory:
+      deployments:
+        - name: openai-memory
+          provider: ${HARBORRAG_MEMORY_PROVIDER}
+          model: ${HARBORRAG_MEMORY_MODEL}
+          api_key: ${HARBORRAG_MEMORY_API_KEY}
+          capabilities:
+            streaming: false
+            structured_output: true
+            json_mode: true
+            tools: false
+```
+
+Extraction and summarization need schema-constrained answers, so the deployment must
+declare `structured_output` and `json_mode`. `HARBORRAG_MEMORY_MODEL_PROFILE` names the
+logical model the layer uses (`memory` by default); while no such model exists, the layer
+falls back to the default chat model.
 
 ## Environment and secret references
 
@@ -90,15 +116,15 @@ Nested mappings merge recursively; lists and scalar values replace the lower-pre
 ## Validate and inspect
 
 ```bash
-OPENAI_API_KEY=placeholder \
-  uv run python -m harborrag_adapters.models validate config/models.example.yaml --family chat
+uv run --env-file env-example/.env.models.example \
+  python -m harborrag_adapters.models validate config/models/models.yaml --family chat
 
-OPENAI_API_KEY=placeholder \
-  uv run python -m harborrag_adapters.models explain config/models.example.yaml --family embed
+uv run --env-file env-example/.env.models.example \
+  python -m harborrag_adapters.models explain config/models/models.yaml --family embed
 
-COHERE_API_KEY=placeholder \
-  uv run python -m harborrag_adapters.models render config/models.example.yaml \
-    --family rerank --format yaml
+AWS_REGION=us-east-1 COHERE_API_KEY=placeholder \
+  uv run python -m harborrag_adapters.models render \
+    config/models/models.production.example.yaml --family rerank --format yaml
 ```
 
 `render` prints a sanitized representation and supports `--output`. These commands validate structure and resolution; they do not prove that placeholder credentials or model identifiers can reach a provider.

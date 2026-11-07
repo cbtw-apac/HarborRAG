@@ -92,7 +92,7 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
 
 
 async def _import_connectors_once(service: object) -> None:
-    """Carry an existing ``config/connectors.yaml`` into the database on the first start."""
+    """Carry an existing ``config/sources/connectors.yaml`` into the database on the first start."""
 
     importer = getattr(service, "import_connectors_once", None)
     if importer is None:
@@ -100,10 +100,12 @@ async def _import_connectors_once(service: object) -> None:
     try:
         imported = await importer()
     except Exception:
-        logger.exception("Importing config/connectors.yaml failed; add connections through the API")
+        logger.exception(
+            "Importing config/sources/connectors.yaml failed; add connections through the API"
+        )
         return
     if imported:
-        logger.info("Imported %d connections from config/connectors.yaml", imported)
+        logger.info("Imported %d connections from config/sources/connectors.yaml", imported)
 
 
 async def _seed_settings_once(service: object) -> None:

@@ -78,13 +78,13 @@ what a fresh checkout is configured to do:
 ```bash
 LOCAL_SOURCE_PATH=docs uv run python -c "
 from harborrag_runtime.config import load_connector_catalog
-c = load_connector_catalog('config/connectors.yaml')
+c = load_connector_catalog('config/sources/connectors.yaml')
 print('enabled connectors:', c.names(enabled_only=True))
 "
 
 uv run python -c "
 from harborrag_runtime.config import load_parser_catalog
-c = load_parser_catalog('config/parsers.yaml')
+c = load_parser_catalog('config/ingestion/parsers.yaml')
 print('enabled parsers:', c.names(enabled_only=True))
 "
 ```
@@ -123,13 +123,13 @@ POSTGRES_PASSWORD=<a strong password, replacing change-me>
 ```
 
 ```dotenv
-# env/.env.models - config/models.yaml requires all six
-HARBOR_CHAT_PROVIDER=openai
-HARBOR_CHAT_MODEL=gpt-4o-mini
-HARBOR_CHAT_API_KEY=<your key>
-HARBOR_EMBED_PROVIDER=openai
-HARBOR_EMBED_MODEL=text-embedding-3-small
-HARBOR_EMBED_API_KEY=<your key>
+# env/.env.models - config/models/models.yaml requires all six
+HARBORRAG_CHAT_PROVIDER=openai
+HARBORRAG_CHAT_MODEL=gpt-4o-mini
+HARBORRAG_CHAT_API_KEY=<your key>
+HARBORRAG_EMBED_PROVIDER=openai
+HARBORRAG_EMBED_MODEL=text-embedding-3-small
+HARBORRAG_EMBED_API_KEY=<your key>
 ```
 
 Everything else has a working local default. See
@@ -140,7 +140,7 @@ Check the model catalog resolves before starting anything:
 
 ```bash
 uv run --env-file env/.env.models \
-  python -m harborrag_adapters.models explain config/models.yaml --family chat
+  python -m harborrag_adapters.models explain config/models/models.yaml --family chat
 ```
 
 References expand eagerly, so this fails immediately on a missing or empty variable -
@@ -174,8 +174,8 @@ Prefer to bring things up one at a time?
 | `dev.sh up --no-worker` | everything except the worker |
 | `dev.sh down` | stop everything; `--volumes` also discards the data |
 
-Add `--build` to `up`, `worker`, or `api` after changing source, dependencies, or baked
-worker configuration.
+Add `--build` to `up`, `worker`, or `api` after changing source or dependencies.
+`config/` is mounted, so a configuration change needs only a restart.
 
 **If `up` fails with `required variable HARBORRAG_SECRETS_ENCRYPTION_KEY is missing a
 value`**, go back to step 5 - Compose treats an empty value as unset.
@@ -204,7 +204,7 @@ uv run harborrag ingest start \
   --wait
 ```
 
-`--connector-id` names a connection from `config/connectors.yaml`, **not** a source type -
+`--connector-id` names a connection from `config/sources/connectors.yaml`, **not** a source type -
 `--connector-id local` fails with the list of valid IDs. `--connector` is an accepted alias.
 `--wait` shows the same inline progress block as `ingest run`; `ingest watch RUN_ID`
 attaches it to a run started elsewhere.

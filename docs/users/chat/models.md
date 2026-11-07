@@ -14,9 +14,9 @@ chat:
     primary:
       deployments:
         - name: openai-primary
-          provider: ${HARBOR_CHAT_PROVIDER}
-          model: ${HARBOR_CHAT_MODEL}
-          api_key: ${HARBOR_CHAT_API_KEY}
+          provider: ${HARBORRAG_CHAT_PROVIDER}
+          model: ${HARBORRAG_CHAT_MODEL}
+          api_key: ${HARBORRAG_CHAT_API_KEY}
 ```
 
 Copy the environment template, replace its placeholders, and keep the
@@ -26,8 +26,8 @@ populated file out of version control:
 cp env-example/.env.models.example env/.env.models
 ```
 
-The relevant values are `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and
-`HARBOR_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
+The relevant values are `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_MODEL`, and
+`HARBORRAG_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
 catalog. Configuration loading expands environment references but does not
 load `.env` files itself; the deployment scripts and Compose services load
 `env/.env.models` for you.
@@ -39,7 +39,7 @@ Temperature and token limits come entirely from the catalog.
 
 ## Per-tenant models
 
-By default there is one catalog for the whole process: `config/models.yaml`,
+By default there is one catalog for the whole process: `config/models/models.yaml`,
 whose API keys expand from the process environment. Every tenant answers from
 it, so bringing a new model or rotating a key means a redeploy.
 
@@ -79,7 +79,7 @@ boundary resolves to nothing.
 
 What the tenant does **not** own is everything outside its models: timeouts,
 retry and failover policy, routing strategy, response caching, telemetry
-privacy, and `chat.security`. Those stay exactly as `config/models.yaml` set
+privacy, and `chat.security`. Those stay exactly as `config/models/models.yaml` set
 them, which is what keeps a stored row from naming a provider or an endpoint
 the operator has not allowed. `extra` keys that are not deployment fields are
 passed to the provider SDK as extension parameters and are still bounded by
@@ -122,7 +122,7 @@ built normally and the skipped row is logged with its id.
 
 Omitting it resolves the catalog's default, exactly as before. When the tenant
 has its own catalog the name must be one that catalog configured; otherwise it
-must exist in `config/models.yaml`. A name outside that bound is rejected
+must exist in `config/models/models.yaml`. A name outside that bound is rejected
 before the turn starts with `422` and
 `{"code":"validation_error","details":[{"field":"model","issue":"..."}]}` -- never a
 provider error, and never a silent fall back to the default. Streaming

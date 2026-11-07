@@ -18,7 +18,7 @@ def test_init_with_yes_writes_a_project_and_prints_next_steps(tmp_path: Path, ca
 
     assert code == 0
     assert (target / "harborrag.yaml").is_file()
-    assert (target / "config" / "models.yaml").is_file()
+    assert (target / "config" / "models" / "models.yaml").is_file()
     assert (target / ".harborrag").is_dir()
     out = capsys.readouterr().out
     assert "docker compose up -d" in out
@@ -151,7 +151,7 @@ def test_init_connectors_flag_scaffolds_the_selected_sources(tmp_path: Path, cap
     assert cli.main(["init", str(tmp_path), "--yes", "--connectors", "github, jira"]) == 0
 
     out = capsys.readouterr().out
-    connectors = (tmp_path / "config" / "connectors.yaml").read_text()
+    connectors = (tmp_path / "config" / "sources" / "connectors.yaml").read_text()
     assert "  github:" in connectors and "  jira:" in connectors and "workspace" not in connectors
     assert "harborrag ingest run github" in out and "harborrag ingest run jira" in out
     assert "GITHUB_TOKEN" in out  # blank credential called out in the next steps
@@ -183,13 +183,13 @@ def test_init_offers_to_overwrite_an_existing_project_interactively(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     assert cli.main(["init", str(tmp_path), "--yes", "--api-key", "first"]) == 0
-    (tmp_path / "config" / "models.yaml").write_text("stale: true\n")
+    (tmp_path / "config" / "models" / "models.yaml").write_text("stale: true\n")
     questions = _interactive(monkeypatch, confirm=True)
 
     assert cli.main(["init", str(tmp_path)]) == 0
 
     assert len(questions) == 1 and "verwrite" in questions[0]
-    assert "stale" not in (tmp_path / "config" / "models.yaml").read_text()
+    assert "stale" not in (tmp_path / "config" / "models" / "models.yaml").read_text()
     assert "first" in (tmp_path / ".env").read_text()  # .env is still never overwritten
     assert (tmp_path / ".env.new").exists()
 
@@ -198,12 +198,12 @@ def test_init_declining_the_overwrite_leaves_everything_untouched(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     assert cli.main(["init", str(tmp_path), "--yes"]) == 0
-    (tmp_path / "config" / "models.yaml").write_text("stale: true\n")
+    (tmp_path / "config" / "models" / "models.yaml").write_text("stale: true\n")
     _interactive(monkeypatch, confirm=False)
 
     assert cli.main(["init", str(tmp_path)]) == 1
 
-    assert (tmp_path / "config" / "models.yaml").read_text() == "stale: true\n"
+    assert (tmp_path / "config" / "models" / "models.yaml").read_text() == "stale: true\n"
     assert not (tmp_path / ".env.new").exists()
     assert "untouched" in capsys.readouterr().err
 
@@ -292,8 +292,8 @@ def test_init_writes_env_private_and_never_through_a_symbolic_link(
 
     assert cli.main(["init", str(root), "--yes"]) == 0
     mode = (root / ".env").stat().st_mode & 0o777
-    (root / "config" / "models.yaml").unlink()
-    (root / "config" / "models.yaml").symlink_to(outside)
+    (root / "config" / "models" / "models.yaml").unlink()
+    (root / "config" / "models" / "models.yaml").symlink_to(outside)
     capsys.readouterr()
 
     assert cli.main(["init", str(root), "--yes", "--force"]) == 1
@@ -314,7 +314,9 @@ def test_init_allowlists_exactly_the_api_base_host(tmp_path: Path, monkeypatch) 
         == 0
     )
 
-    models = yaml.safe_load((root / "config" / "models.yaml").read_text(encoding="utf-8"))
+    models = yaml.safe_load(
+        (root / "config" / "models" / "models.yaml").read_text(encoding="utf-8")
+    )
     assert _find_key(models, "allowed_base_url_hosts") == ["llm.example.com"]
 
 

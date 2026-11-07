@@ -77,19 +77,19 @@ usable authentication method.
 Chat with an explicit API key:
 
 ```dotenv
-HARBOR_CHAT_PROVIDER=openai
-HARBOR_CHAT_MODEL=openai/REPLACE_WITH_REAL_CHAT_MODEL
-HARBOR_CHAT_API_KEY=REPLACE_WITH_REAL_CHAT_API_KEY
+HARBORRAG_CHAT_PROVIDER=openai
+HARBORRAG_CHAT_MODEL=openai/REPLACE_WITH_REAL_CHAT_MODEL
+HARBORRAG_CHAT_API_KEY=REPLACE_WITH_REAL_CHAT_API_KEY
 ```
 
 Embeddings with an explicit API key:
 
 ```dotenv
-HARBOR_EMBED_PROVIDER=openai
-HARBOR_EMBED_MODEL=openai/REPLACE_WITH_REAL_EMBEDDING_MODEL
-HARBOR_EMBED_API_KEY=REPLACE_WITH_REAL_EMBEDDING_API_KEY
-HARBOR_EMBED_SPACE=smoke-embedding-space-v1
-# HARBOR_EMBED_EXPECTED_DIMENSIONS=1536
+HARBORRAG_EMBED_PROVIDER=openai
+HARBORRAG_EMBED_MODEL=openai/REPLACE_WITH_REAL_EMBEDDING_MODEL
+HARBORRAG_EMBED_API_KEY=REPLACE_WITH_REAL_EMBEDDING_API_KEY
+HARBORRAG_EMBED_SPACE=smoke-embedding-space-v1
+# HARBORRAG_EMBED_EXPECTED_DIMENSIONS=1536
 ```
 
 Reranking with an explicit API key:
@@ -108,7 +108,7 @@ For cloud providers that use ambient identity, omit the API key only when the
 provider supports it and opt in explicitly:
 
 ```dotenv
-HARBOR_CHAT_ALLOW_AMBIENT_CREDENTIALS=true
+HARBORRAG_CHAT_ALLOW_AMBIENT_CREDENTIALS=true
 ```
 
 Provider-specific fields are prefixed with the family name. Supported fields
@@ -123,7 +123,7 @@ the complete list and spelling.
 Chat defaults to the `direct_sdk` backend. Select a backend with:
 
 ```dotenv
-HARBOR_CHAT_BACKEND=direct_sdk
+HARBORRAG_CHAT_BACKEND=direct_sdk
 ```
 
 Supported values are:
@@ -135,9 +135,9 @@ Supported values are:
 Proxy mode additionally requires:
 
 ```dotenv
-HARBOR_CHAT_PROXY_API_BASE=https://proxy.example.com
-HARBOR_CHAT_PROXY_API_KEY=REPLACE_WITH_REAL_PROXY_KEY
-# HARBOR_CHAT_PROXY_HEADERS_JSON={}
+HARBORRAG_CHAT_PROXY_API_BASE=https://proxy.example.com
+HARBORRAG_CHAT_PROXY_API_KEY=REPLACE_WITH_REAL_PROXY_KEY
+# HARBORRAG_CHAT_PROXY_HEADERS_JSON={}
 ```
 
 The default request timeout is 90 seconds. Override it for all families with a
@@ -233,7 +233,7 @@ Provider request timeouts do not necessarily cap import-time network activity.
 
 ### Embedding dimensions fail validation
 
-Remove `HARBOR_EMBED_EXPECTED_DIMENSIONS` to discover the returned size,
+Remove `HARBORRAG_EMBED_EXPECTED_DIMENSIONS` to discover the returned size,
 or set it to the positive dimension guaranteed by the selected provider model.
 Do not reuse an embedding-space name across models that produce incompatible
 vector spaces.

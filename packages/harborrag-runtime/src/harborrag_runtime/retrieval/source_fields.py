@@ -133,7 +133,7 @@ class SourceFieldTrace:
         raise HarborValidationError(
             f"source field filter(s) {', '.join(missing)} have no payload index, so they "
             "would scan every point; declare the field as a facet of its source scope "
-            "in graph_build.yaml (indexed on the next ingestion run) or ask an operator "
+            "in config/graph/build.yaml (indexed on the next ingestion run) or ask an operator "
             "to create the index. Indexed source fields: "
             f"{', '.join(available) if available else 'none'}",
             details={"unindexed": missing, "indexed": available},

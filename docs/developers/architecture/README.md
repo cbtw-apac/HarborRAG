@@ -276,7 +276,7 @@ storage context.
 - Runtime chat prompts are packaged Markdown resources selected by a typed
   public name; credentials and provider routing never belong in prompt files.
 - MCP tool defaults, limits, enablement, and tenant overrides live in the
-  separate versioned `config/mcp.yaml` catalog.
+  separate versioned `config/mcp/server.yaml` catalog.
 - Engine config/policy are constructed in Python.
 - There is no unified, auto-discovered application/workspace configuration.
 

@@ -1,6 +1,6 @@
 """Versioned chunking policy: profiles, token limits, source mapping and refiner.
 
-``config/chunking.yaml`` is optional. Without it (and without an explicit
+``config/ingestion/chunking.yaml`` is optional. Without it (and without an explicit
 ``chunking_config_path``) the built-in defaults below apply, which are the same
 values the shipped file declares. API and worker processes both resolve the
 policy through :func:`chunking_settings_from`, so they compute the same

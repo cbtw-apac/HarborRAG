@@ -27,7 +27,7 @@ _YAML = """summarization:
 
 
 def _config(tmp_path, payload: str = _YAML) -> GraphBuildConfig:
-    path = tmp_path / "graph_build.yaml"
+    path = tmp_path / "build.yaml"
     path.write_text(payload, encoding="utf-8")
     return GraphBuildConfig.from_file(path)
 

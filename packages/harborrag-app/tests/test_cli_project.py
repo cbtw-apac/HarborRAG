@@ -26,7 +26,7 @@ def test_walks_up_from_a_nested_directory(tmp_path: Path) -> None:
 
     assert project is not None
     assert project.root == root.resolve()
-    assert project.runtime["connector_config_path"] == "config/connectors.yaml"
+    assert project.runtime["connector_config_path"] == "config/sources/connectors.yaml"
 
 
 def test_returns_none_without_a_marker(tmp_path: Path, monkeypatch) -> None:
@@ -71,7 +71,7 @@ def test_activation_applies_the_documented_precedence(tmp_path: Path, monkeypatc
     assert os.environ["OPENAI_API_KEY"] == "from-shell"  # shell beats .env
     assert os.environ["HARBORRAG_ENV"] == "prod"  # .env beats yaml
     assert os.environ["HARBORRAG_CONNECTOR_CONFIG_PATH"] == str(
-        (root / "config/connectors.yaml").resolve()
+        (root / "config/sources/connectors.yaml").resolve()
     )  # yaml paths made absolute
     assert os.environ["HARBORRAG_QDRANT_PREFER_GRPC"] == "false"  # booleans lower-cased
 

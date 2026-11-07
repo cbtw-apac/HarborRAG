@@ -1,4 +1,4 @@
-"""Provider presets used to render config/models.yaml and the .env credentials block."""
+"""Provider presets used to render config/models/models.yaml and the .env credentials block."""
 
 from __future__ import annotations
 
