@@ -20,7 +20,9 @@ from harborrag_app.workflow_control.control_plane.settings_import import (
     SettingsImporter,
     seed_settings_once,
 )
-from harborrag_core.config_store import SettingsLevel, SettingsRegistry
+from harborrag_core.config_store import SettingsLevel, SettingsRegistry, SettingsSnapshot
+from harborrag_core.config_store.documents import plan_import
+from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 
 pytestmark = pytest.mark.asyncio
@@ -137,6 +139,17 @@ async def test_shipped_example_seeds_cleanly(world: _World) -> None:
 
     assert await world.seed() == "seeded"
     assert await world.effective() == (1200, "tenant")
+
+
+async def test_shipped_example_skips_no_key_under_a_derived_embedding_default() -> None:
+    document = load_settings_document(Path(__file__).parents[3] / "config/settings.example.yaml")
+    registry = SettingsRegistry.default().with_defaults(
+        {"models.embedding": "openai:text-embedding-3-small"}
+    )
+
+    plan = plan_import(registry, SettingsSnapshot(_TENANT, 0, {}), document, prune=False)
+
+    assert plan.skipped == ()
 
 
 async def test_unknown_project_in_seed_file_names_level(

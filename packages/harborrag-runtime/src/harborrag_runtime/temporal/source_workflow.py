@@ -17,6 +17,7 @@ from temporalio.exceptions import (
 )
 from temporalio.workflow import ParentClosePolicy
 
+from harborrag_runtime.ingestion_contracts import RunKind
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult
@@ -111,7 +112,7 @@ class ScheduledSourceIngestionWorkflow:
             handle = await workflow.start_child_workflow(
                 "harborrag.source_ingestion",
                 preparation.source,
-                id=f"harborrag-source:{task_id}",
+                id=RunKind.SOURCE.workflow_id(task_id),
                 task_queue=preparation.source.workflow_options.task_queues.discovery,
                 result_type=SourceIngestionResult,
                 parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,

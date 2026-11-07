@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.json_schema import JsonDict
 
 from harborrag_app.api.schemas import ApiModel
@@ -149,8 +149,11 @@ class IngestionStartRequest(ApiModel):
     item_refs: list[str] = Field(
         default_factory=list, max_length=500, description="Limit the run to these items"
     )
-    updated_after: datetime | None = Field(
-        default=None, description="Re-read items changed since then, e.g. to backfill a window"
+    updated_after: AwareDatetime | None = Field(
+        default=None,
+        description=(
+            "Re-read items changed since then, e.g. to backfill a window; needs a UTC offset"
+        ),
     )
 
 

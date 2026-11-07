@@ -129,6 +129,8 @@ def test_an_unknown_reference_names_its_field(
         ({"project_id": "cpm"}, "connection_id"),
         ({**_TARGET, "mode": "full"}, "mode"),
         ({**_TARGET, "extra": True}, "extra"),
+        ({**_TARGET, "updated_after": "2026-11-01T09:00:00"}, "updated_after"),
+        ({**_TARGET, "updated_after": "2026-11-01"}, "updated_after"),
     ],
 )
 def test_a_bad_body_is_a_validation_error(

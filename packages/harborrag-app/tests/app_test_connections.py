@@ -16,7 +16,7 @@ from harborrag_app.workflow_control.ingestion.models import IngestionCreateComma
 from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskPage
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
@@ -74,6 +74,9 @@ class Runs:
 
     async def list_tasks(self, **_filters: Any) -> TaskPage:
         return TaskPage(tuple(self.tasks.values()), has_more=False)
+
+    async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
+        return TaskDocumentPage((), has_more=False)
 
 
 @dataclass

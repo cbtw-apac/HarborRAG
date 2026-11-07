@@ -21,6 +21,7 @@ from harborrag_runtime.ingestion_contracts import (
     IngestionExecutionStatus,
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunKind,
     SourceSubmission,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput
@@ -60,7 +61,7 @@ class FakeRuntimeClient:
             cancel_requested=False,
         )
 
-    async def execution_status(self, run_id: str) -> str:
+    async def execution_status(self, run_id: str, kind: RunKind = RunKind.SOURCE) -> str:
         self._record("execution_status", run_id)
         return "running"
 
@@ -74,7 +75,7 @@ class FakeRuntimeClient:
     async def resume(self, run_id: str) -> None:
         self._record("resume", run_id)
 
-    async def cancel(self, run_id: str) -> None:
+    async def cancel(self, run_id: str, kind: RunKind = RunKind.SOURCE) -> None:
         self._record("cancel", run_id)
 
 
@@ -221,16 +222,25 @@ async def source_input(
 
 
 class FakeTemporalClient:
+    """Gateway double with one workflow per run kind, as Temporal addresses them.
+
+    ``statuses`` describes source workflows and ``retry_statuses`` retry workflows; an
+    exception there is raised by describe and, for a retry run, by cancel.
+    """
+
     def __init__(self) -> None:
         self.started: list[PreparedSourceSubmission] = []
         self.paused: list[str] = []
         self.resumed: list[str] = []
         self.cancelled: list[str] = []
+        self.cancelled_retries: list[str] = []
         self.retries: list[IngestionRetryRequest] = []
         self.statuses: dict[str, str | Exception] = {}
+        self.retry_statuses: dict[str, str | Exception] = {}
 
-    async def execution_status(self, task_id: str) -> str:
-        status = self.statuses.get(task_id, "running")
+    async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
+        statuses = self.retry_statuses if kind is RunKind.RETRY else self.statuses
+        status = statuses.get(task_id, "running")
         if isinstance(status, Exception):
             raise status
         if status == "hang":
@@ -249,7 +259,13 @@ class FakeTemporalClient:
     async def resume(self, task_id: str) -> None:
         self.resumed.append(task_id)
 
-    async def cancel(self, task_id: str) -> None:
+    async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None:
+        if kind is RunKind.RETRY:
+            status = self.retry_statuses.get(task_id)
+            if isinstance(status, Exception):
+                raise status
+            self.cancelled_retries.append(task_id)
+            return
         self.cancelled.append(task_id)
 
     async def start_retry_failures(
@@ -320,6 +336,7 @@ async def service_resources(
             "00000000-0000-4000-8000-000000000002",
             "00000000-0000-4000-8000-000000000003",
             "00000000-0000-4000-8000-000000000004",
+            "00000000-0000-4000-8000-000000000005",
         )
     )
 

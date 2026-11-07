@@ -332,7 +332,8 @@ class IngestionOperations:
 
         Raises:
             IngestionNotFoundError: No such run in the tenant.
-            IngestionActionStateError: The run's status does not allow ``action``.
+            IngestionActionStateError: The run's status does not allow ``action``, or
+                ``action`` pauses or resumes a retry run, which can only be cancelled.
         """
         _require_allowed(action, await self.get(tenant_id=tenant_id, ingestion_id=ingestion_id))
         await getattr(self._actions, action)(ingestion_id, actor=actor)

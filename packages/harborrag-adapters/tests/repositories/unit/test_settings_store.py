@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Any, cast
 
 import pytest
 import pytest_asyncio
@@ -195,3 +197,49 @@ async def test_notify_only_on_postgres(store: SqlSettingsStore, engine: AsyncEng
 @pytest.mark.asyncio
 async def test_ping_succeeds_on_reachable_store(store: SqlSettingsStore) -> None:
     await store.ping()
+
+
+class _RecordingSession:
+    """Async session double that records, in order, the isolation request and each read."""
+
+    def __init__(self, dialect: str) -> None:
+        self.bind = SimpleNamespace(dialect=SimpleNamespace(name=dialect))
+        self.calls: list[str] = []
+
+    async def __aenter__(self) -> _RecordingSession:
+        return self
+
+    async def __aexit__(self, *_exc: object) -> None:
+        return None
+
+    async def connection(self, *, execution_options: dict[str, object]) -> None:
+        self.calls.append(f"isolation={execution_options.get('isolation_level')}")
+
+    async def scalar(self, _statement: object) -> int:
+        self.calls.append("revision")
+        return 3
+
+    async def scalars(self, _statement: object) -> SimpleNamespace:
+        self.calls.append("overrides")
+        return SimpleNamespace(all=list)
+
+
+@pytest.mark.asyncio
+async def test_load_reads_revision_and_overrides_in_one_snapshot_on_postgres() -> None:
+    session = _RecordingSession("postgresql")
+    store = SqlSettingsStore(cast(Any, lambda: session))
+
+    snapshot = await store.load("acme")
+
+    assert snapshot.revision == 3
+    assert session.calls == ["isolation=REPEATABLE READ", "revision", "overrides"]
+
+
+@pytest.mark.asyncio
+async def test_load_leaves_sqlite_isolation_alone() -> None:
+    session = _RecordingSession("sqlite")
+    store = SqlSettingsStore(cast(Any, lambda: session))
+
+    await store.load("acme")
+
+    assert session.calls == ["revision", "overrides"]

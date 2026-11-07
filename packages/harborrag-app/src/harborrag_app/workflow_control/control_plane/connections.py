@@ -69,6 +69,7 @@ from harborrag_runtime.ingestion.connections import (
 )
 
 from ..ingestion.models import IngestionCreateCommand
+from .active_runs import active_run
 from .connection_views import connection_view, ingestion_view, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
@@ -622,12 +623,10 @@ class ConnectionService:
             )
 
     async def _active_run(self, tenant_id: str, source_key: str) -> IngestionTask | None:
-        """The connection's pending, running or paused run; one whose workflow ended is settled."""
-        runs = await self._runs()
-        active = await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
-        if active is None or await self._ingestions.settle_if_ended(active.task_id):
-            return None
-        return active
+        """The connection's pending, running or paused run; ones whose workflow ended are settled."""
+        return await active_run(
+            await self._runs(), self._ingestions, tenant_id=tenant_id, source_key=source_key
+        )
 
     async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
         """True while an ingestion of the connection is pending, running or paused."""

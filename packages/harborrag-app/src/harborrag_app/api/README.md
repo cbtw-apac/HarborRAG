@@ -84,7 +84,7 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | Run events |
-| `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action |
+| `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action, and for `pause` or `resume` of a retry run |
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
 | `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |
 | `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run |

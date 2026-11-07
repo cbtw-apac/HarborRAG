@@ -25,6 +25,7 @@ from harborrag_runtime.errors import (
     WorkflowOperationError,
     WorkflowSubmissionError,
 )
+from harborrag_runtime.ingestion_contracts import RunKind
 
 from .connection import connect_temporal_client
 from .failure_handling import terminal_failure_code
@@ -118,7 +119,7 @@ class IngestionTemporalClient:
         request: RetryFailuresInput,
     ) -> RuntimeWorkflowRef:
         request = replace(request, workflow_options=self._config.workflow_options())
-        workflow_id = f"harborrag-retry:{request.retry_task_id}"
+        workflow_id = RunKind.RETRY.workflow_id(request.retry_task_id)
         try:
             handle = await self._client.start_workflow(
                 "harborrag.retry_failures",
@@ -174,10 +175,10 @@ class IngestionTemporalClient:
             ),
         )
 
-    async def execution_status(self, task_id: str) -> str:
+    async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
         description = await self._operation(
             f"describe ingestion task {task_id!r}",
-            self._source_handle(task_id).describe(),
+            self._client.get_workflow_handle(kind.workflow_id(task_id)).describe(),
         )
         return description.status.name.lower() if description.status is not None else "unknown"
 
@@ -201,7 +202,25 @@ class IngestionTemporalClient:
             best_effort=True,
         )
 
-    async def cancel(self, task_id: str) -> None:
+    async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None:
+        """Cancel a run: a source run at its next safe boundary, a retry run through Temporal.
+
+        A retry workflow has no graceful-cancel signal; Temporal cancellation makes it
+        record the run as cancelled before it closes.
+
+        Raises:
+            WorkflowNotRunningError: The run's workflow already closed.
+            WorkflowNotFoundError: The run has no workflow.
+            WorkflowOperationError: Temporal could not be reached.
+        """
+        if kind is RunKind.RETRY:
+            await self._control(
+                task_id,
+                f"cancel retry task {task_id!r}",
+                self._client.get_workflow_handle(kind.workflow_id(task_id)).cancel(),
+                kind,
+            )
+            return
         await self._control(
             task_id,
             f"request graceful cancellation for ingestion task {task_id!r}",
@@ -267,19 +286,21 @@ class IngestionTemporalClient:
         task_id: str,
         label: str,
         operation: Awaitable[object],
+        kind: RunKind = RunKind.SOURCE,
     ) -> None:
         try:
             await self._operation(label, operation)
         except WorkflowNotFoundError:
-            raise await self._closed_or_missing(task_id, label) from None
+            raise await self._closed_or_missing(task_id, label, kind) from None
 
     async def _closed_or_missing(
         self,
         task_id: str,
         label: str,
+        kind: RunKind = RunKind.SOURCE,
     ) -> WorkflowOperationError:
         try:
-            status = await self.execution_status(task_id)
+            status = await self.execution_status(task_id, kind)
         except WorkflowOperationError:
             return WorkflowNotFoundError(f"Could not {label}: task not found")
         return WorkflowNotRunningError(
@@ -394,7 +415,7 @@ class IngestionTemporalClient:
 
     @staticmethod
     def _workflow_id(task_id: str) -> str:
-        return f"harborrag-source:{task_id}"
+        return RunKind.SOURCE.workflow_id(task_id)
 
     @staticmethod
     async def _operation(

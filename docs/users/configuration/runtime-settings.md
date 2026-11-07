@@ -71,7 +71,16 @@ extra installed in the worker image. Without them, documents fail with
 `document_release_parser_unavailable`, recorded as retryable: add the definition, then run
 `retry-failures`; the retry replays the parser the run was pinned to. The shipped
 `parsers.yaml` and `chunking.yaml` are not edited by HarborRAG, because their bytes are part
-of the identity too. See [Upgrading](../upgrading.md#use-docling-for-pdfs).
+of the identity too.
+
+Editing `config/parsers.yaml`, for example to add the docling definition, therefore changes
+the identity of every connection: the next sync of each one reprocesses all of its documents,
+whether or not it has a `parsing.*` override. Put the same file in the API and in the worker
+before you set the override; the dev compose bakes `config/` into the worker image, so rebuild
+it. With different files, runs started from the API and scheduled runs prepared by the worker
+carry different identities and documents reprocess on alternate syncs. Documents published by a
+`retry-failures` run keep the identity of the run it retries, so the first sync after the edit
+reprocesses them once more. See [Upgrading](../upgrading.md#use-docling-for-pdfs).
 
 ## Run pinning
 
@@ -127,7 +136,7 @@ Nothing is saved when any key is refused.
 `config/settings.yaml` seeds the tenant named by `HARBORRAG_INGESTION_TENANT_ID` once, at the
 first API start when that tenant has no revisions. The path is `HARBORRAG_SETTINGS_SEED_PATH`
 (`/app/config/settings.yaml` in the API image). The file is git-ignored.
-`config/settings.example.yaml` lists every tenant-level key at its default; do not use it
+`config/settings.example.yaml` lists every tenant-level key you can set at its default; do not use it
 whole, because each key in the seed file becomes an override that replaces its boot setting.
 Keep only the keys you mean to override.
 
@@ -164,7 +173,8 @@ harborrag config export --level tenant --output settings.yaml
 `--prune` also removes every stored override the file lacks, at any level. An invalid file exits
 `1`, names the file and the key, and applies nothing; boot-only keys are reported and skipped.
 `export` writes registry keys only, in the shape above, and `import` reads the result back
-unchanged. Both take `--tenant` (default `DEFAULT`, or `HARBORRAG_INGESTION_TENANT_ID`); `export`
+unchanged. Overrides of a deleted project or connection stay in the store but are left out of
+the export, each named on stderr. Both take `--tenant` (default `DEFAULT`, or `HARBORRAG_INGESTION_TENANT_ID`); `export`
 takes `--level` (default: every level) and `import` takes `--json`. Imports are recorded in the
 revision log under the operator's `user@host`.
 

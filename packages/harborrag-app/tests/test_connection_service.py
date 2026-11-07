@@ -16,6 +16,7 @@ from app_test_connections import (
     running_task,
 )
 
+from harborrag_app.workflow_control.control_plane.active_runs import SETTLE_ROUNDS
 from harborrag_app.workflow_control.control_plane.connection_views import ANY_VERSION
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
@@ -243,6 +244,23 @@ async def test_a_run_whose_workflow_ended_unrecorded_no_longer_blocks(
     ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
 
     assert ingestion["ingestion_id"] == "ing_1"
+
+
+@pytest.mark.asyncio
+async def test_a_connection_whose_runs_keep_settling_stays_busy_after_the_bound(
+    world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    world.runs.active = running_task("ing_0", IngestionTaskState.RUNNING)
+    settles: list[str] = []
+
+    async def always_settles(task_id: str) -> bool:
+        settles.append(task_id)
+        return True
+
+    monkeypatch.setattr(world.submitter, "settle_if_ended", always_settles)
+
+    assert await world.service.connection_busy("acme", "cpm/cpm-tickets") is True
+    assert len(settles) == SETTLE_ROUNDS
 
 
 @pytest.mark.asyncio

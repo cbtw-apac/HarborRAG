@@ -227,3 +227,25 @@ async def test_missing_pdf_parser_failure_is_recorded_retryable() -> None:
     result = recorded.await_args.args[0].result
     assert result["safe_error_code"] == "document_release_parser_unavailable"
     assert result["retryable"] is True
+
+
+@pytest.mark.asyncio
+async def test_direct_mode_records_an_unavailable_parser_like_temporal_mode() -> None:
+    from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
+    from harborrag_runtime.ingestion.source.documents import SourceDocumentService
+    from runtime_ingestion.unit.source.test_plan import _planned
+
+    error = ParserUnavailableError("parsing.pdf_parser 'docling' has no definition")
+    error.harborrag_stage = "ParseAndNormalize"  # type: ignore[attr-defined]
+    recorded = AsyncMock()
+    control = SimpleNamespace(tasks=SimpleNamespace(record_document_result=recorded))
+    documents = SimpleNamespace(release=AsyncMock(side_effect=error))
+    service = SourceDocumentService(control=cast(Any, control), documents=cast(Any, documents))
+
+    await service.release_one("task-1", _planned(), cast(Any, object()))
+
+    result = recorded.await_args.args[0].result
+    failure = ingestion_failure_classifier().classify("ParseAndNormalize", error)
+    assert (failure.code, failure.retryable) == ("parser_unavailable", True)
+    assert result["safe_error_code"] == "document_release_parser_unavailable"
+    assert result["retryable"] is True

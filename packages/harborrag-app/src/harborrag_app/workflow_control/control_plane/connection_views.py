@@ -18,6 +18,7 @@ from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.security.secret_refs import credentials_view
+from harborrag_runtime.ingestion_contracts import RunKind
 
 _ETAG = re.compile(r'^(?:W/)?"rev-(\d+)"$')
 ANY_VERSION = -2
@@ -112,15 +113,15 @@ class IngestionLinks:
 
     def for_run(self, workflow_id: str, ingestion_id: str) -> dict[str, str]:
         """Return the spec's ``links`` object for one run."""
+        temporal_base = (self.temporal_ui_url or "").rstrip("/")
+        grafana_base = (self.grafana_url or "").rstrip("/")
         temporal = (
-            f"{self.temporal_ui_url}/namespaces/{self.temporal_namespace}/workflows/{workflow_id}"
-            if self.temporal_ui_url
+            f"{temporal_base}/namespaces/{self.temporal_namespace}/workflows/{workflow_id}"
+            if temporal_base
             else ""
         )
         grafana = (
-            f"{self.grafana_url}/d/harborrag-ingestion?var-run={ingestion_id}"
-            if self.grafana_url
-            else ""
+            f"{grafana_base}/d/harborrag-ingestion?var-run={ingestion_id}" if grafana_base else ""
         )
         return {"temporal": temporal, "grafana": grafana, "langfuse": ""}
 
@@ -158,8 +159,9 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
     else:
         tenant_id = str(request.get("tenant_id") or "")
         project_id, _, connection_id = str(request.get("connection_id") or "").rpartition("/")
-    retry = bool(request.get("retry_of"))
-    workflow_id = f"{'harborrag-retry' if retry else 'harborrag-source'}:{task.task_id}"
+    kind = RunKind.of(request)
+    retry = kind is RunKind.RETRY
+    workflow_id = kind.workflow_id(task.task_id)
     discovered = _count(summary, "discovered")
     document_ids = request.get("document_ids")
     if retry and not discovered and isinstance(document_ids, list):

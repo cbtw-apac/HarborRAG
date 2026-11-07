@@ -60,10 +60,13 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
+- Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
 
 #### harborrag-app
 
-- A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
+- A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`, retry runs included: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
+- Cancelling a retry run cancels its workflow and records the run as `cancelled`, instead of answering `503`; `pause` and `resume` on a retry run answer `409 invalid_state`
+- `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 
 #### Deployment
 

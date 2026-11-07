@@ -29,6 +29,7 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
+from harborrag_runtime.ingestion_contracts import RunKind
 from harborrag_runtime.scheduling.errors import ScheduleNotFoundError, ScheduleValidationError
 from harborrag_runtime.scheduling.models import (
     ScheduleDefinition,
@@ -616,6 +617,52 @@ async def test_client_operations_use_stable_workflow_id_for_source_controls() ->
         "harborrag-source:task-1",
         "harborrag-source:task-1",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_run_is_described_and_cancelled_through_its_own_workflow() -> None:
+    sdk = _SdkClient()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    status = await client.execution_status("retry-1", RunKind.RETRY)
+    await client.cancel("retry-1", RunKind.RETRY)
+
+    assert status == "completed"
+    assert [call.args[0] for call in sdk.get_workflow_handle.call_args_list] == [
+        "harborrag-retry:retry-1",
+        "harborrag-retry:retry-1",
+    ]
+    sdk.source_handle.cancel.assert_awaited_once()
+    sdk.source_handle.signal.assert_not_awaited()
+    sdk.workflow_service.unpause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "raised"),
+    [
+        (SimpleNamespace(name="COMPLETED"), WorkflowNotRunningError),
+        (RPCError("missing", RPCStatusCode.NOT_FOUND, b""), WorkflowNotFoundError),
+    ],
+    ids=["closed", "missing"],
+)
+async def test_cancelling_a_retry_run_that_is_gone_says_whether_it_closed(
+    status: object, raised: type[Exception]
+) -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.cancel.side_effect = RPCError("gone", RPCStatusCode.NOT_FOUND, b"")
+    if isinstance(status, Exception):
+        sdk.source_handle.describe.side_effect = status
+    else:
+        sdk.source_handle.describe.return_value = SimpleNamespace(status=status)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(raised):
+        await client.cancel("retry-1", RunKind.RETRY)
+
+    assert {call.args[0] for call in sdk.get_workflow_handle.call_args_list} == {
+        "harborrag-retry:retry-1"
+    }
 
 
 @pytest.mark.asyncio

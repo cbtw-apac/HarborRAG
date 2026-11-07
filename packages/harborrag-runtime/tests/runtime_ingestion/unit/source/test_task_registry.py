@@ -140,14 +140,17 @@ def _as_worker_receives(source: PreparedSourceSubmission) -> SourceIngestionInpu
 async def _worker_begins_discovery(
     control: IngestionControlPlaneDatabase, source: SourceIngestionInput
 ) -> None:
+    await _source_service(control).begin_discovery(to_source_request(source))
+
+
+def _source_service(control: IngestionControlPlaneDatabase) -> SourceIngestionService:
     resources = build_release_resources(control)
     dependencies = build_dependencies(resources)
-    service = SourceIngestionService(
+    return SourceIngestionService(
         control=control,
         documents=DocumentReleaseService(dependencies),
         relations=build_relation_repair_service(resources, dependencies),
     )
-    await service.begin_discovery(to_source_request(source))
 
 
 @pytest.mark.asyncio
@@ -187,6 +190,30 @@ async def test_retry_run_registered_again_without_its_actor_is_the_same_run(
 
         assert again.created is False
         assert again.task.request["actor"] == "dev"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("started", [False, True], ids=["queued", "running"])
+async def test_cancelling_a_retry_run_records_it_cancelled_and_keeps_its_summary(
+    tmp_path: Path, started: bool
+) -> None:
+    async with build_control_plane(tmp_path) as control:
+        registry = IngestionTaskRegistry(control)
+        original = (await registry.register(_api_submission())).task
+        await registry.register_retry(
+            retry_task_id="retry-1", original=original, document_ids=["doc-1"]
+        )
+        service = _source_service(control)
+        if started:
+            await service.begin_retry("retry-1", selected=1)
+
+        await service.cancel("retry-1")
+
+        task = await control.tasks.get("retry-1")
+        assert task is not None
+        assert task.status is IngestionTaskState.CANCELLED
+        assert task.summary["cancelled_at_safe_boundary"] is True
+        assert task.summary.get("discovered") == (1 if started else None)
 
 
 @pytest.mark.asyncio

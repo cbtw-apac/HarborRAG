@@ -53,6 +53,21 @@ def test_links_use_configured_bases() -> None:
     assert _view(_task(), links=unset)["links"] == {"temporal": "", "grafana": "", "langfuse": ""}
 
 
+def test_links_drop_a_trailing_slash_of_the_bases() -> None:
+    links = IngestionLinks(
+        temporal_ui_url="http://x:8080/",
+        temporal_namespace="harborrag",
+        grafana_url="http://g:3000/",
+    )
+
+    view = _view(_task(), links=links)
+
+    assert view["links"]["temporal"] == (
+        "http://x:8080/namespaces/harborrag/workflows/harborrag-source:run-1"
+    )
+    assert view["links"]["grafana"] == "http://g:3000/d/harborrag-ingestion?var-run=run-1"
+
+
 def test_retry_run_workflow_id() -> None:
     view = _view(_task({"retry_of": "run-0", "document_ids": ["a", "b", "c"]}))
 

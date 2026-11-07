@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Protocol
 
 from harborrag_runtime.ingestion.limits import (
@@ -13,6 +15,22 @@ from harborrag_runtime.ingestion.limits import (
     validate_source_orchestration_limits,
 )
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
+
+
+class RunKind(StrEnum):
+    """The workflow an ingestion run executes as, named by its workflow id prefix."""
+
+    SOURCE = "harborrag-source"
+    RETRY = "harborrag-retry"
+
+    @classmethod
+    def of(cls, request: Mapping[str, object]) -> RunKind:
+        """Return the kind of the run whose stored request is ``request``."""
+        return cls.RETRY if request.get("retry_of") else cls.SOURCE
+
+    def workflow_id(self, task_id: str) -> str:
+        """Return the workflow id of run ``task_id``."""
+        return f"{self.value}:{task_id}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -202,7 +220,7 @@ class IngestionGateway(Protocol):
 
     async def get_progress(self, task_id: str) -> dict[str, int]: ...
 
-    async def execution_status(self, task_id: str) -> str: ...
+    async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str: ...
 
     async def result(self, task_id: str) -> IngestionExecutionResult: ...
 
@@ -210,6 +228,6 @@ class IngestionGateway(Protocol):
 
     async def resume(self, task_id: str) -> None: ...
 
-    async def cancel(self, task_id: str) -> None: ...
+    async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None: ...
 
     async def health(self) -> bool: ...

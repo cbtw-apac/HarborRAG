@@ -67,8 +67,14 @@ class SqlSettingsStore:
     sessions: SessionFactory
 
     async def load(self, tenant_id: str) -> SettingsSnapshot:
-        """Return the tenant's current overrides; an empty log is revision 0."""
+        """Return the tenant's current overrides; an empty log is revision 0.
+
+        On Postgres the revision and the overrides come from one REPEATABLE READ
+        snapshot, so a concurrent write cannot pair revision N with N+1 values.
+        """
         async with self.sessions() as session:
+            if session.bind.dialect.name == "postgresql":
+                await session.connection(execution_options={"isolation_level": "REPEATABLE READ"})
             revision = await self._current_revision(session, tenant_id)
             rows = (
                 await session.scalars(

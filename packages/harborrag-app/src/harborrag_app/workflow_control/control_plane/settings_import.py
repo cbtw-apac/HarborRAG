@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
@@ -41,6 +42,19 @@ logger = logging.getLogger(__name__)
 
 SeedOutcome = Literal["seeded", "drift", "in_sync", "no_file", "invalid", "raced"]
 SEED_ACTOR = "system"
+
+
+@dataclass(frozen=True, slots=True)
+class SettingsExport:
+    """An exported settings document and the levels left out of it.
+
+    Args:
+        document: Stored overrides of the levels that still exist.
+        left_out: Project and connection levels whose project or connection is gone.
+    """
+
+    document: SettingsDocument
+    left_out: tuple[str, ...]
 
 
 class SettingsImporter:
@@ -120,17 +134,37 @@ class SettingsImporter:
             if config is not None:
                 config.invalidate(plan.tenant_id)
 
-    async def export(self, *, tenant_id: str, level: SettingsLevel | None) -> SettingsDocument:
+    async def export(self, *, tenant_id: str, level: SettingsLevel | None) -> SettingsExport:
         """Return the stored overrides of ``level``, or of every level when ``None``.
 
-        Only registry keys leave through an export; any other stored key is left out.
+        Only registry keys leave through an export; any other stored key is left out. So
+        is a level whose project or connection was deleted, since importing it would fail.
         """
         document = export_document(await self.snapshot(tenant_id=tenant_id), level)
         known = {
             label: {key: value for key, value in body.items() if key in self._registry.definitions}
             for label, body in document.levels.items()
         }
-        return SettingsDocument({label: body for label, body in known.items() if body})
+        kept: dict[str, dict[str, object]] = {}
+        left_out: list[str] = []
+        for label, body in known.items():
+            if not body:
+                continue
+            if await self._level_exists(tenant_id, label):
+                kept[label] = body
+            else:
+                left_out.append(label)
+        return SettingsExport(SettingsDocument(kept), tuple(left_out))
+
+    async def _level_exists(self, tenant_id: str, label: str) -> bool:
+        """Whether the project or connection of level ``label`` exists in the tenant."""
+        try:
+            await require_settings_level(
+                self._control_plane(), tenant_id, SettingsLevel.parse(label)
+            )
+        except SettingsLevelNotFoundError:
+            return False
+        return True
 
     def drift(self, snapshot: SettingsSnapshot, document: SettingsDocument) -> tuple[str, ...]:
         """Return the keys where ``document`` and the stored overrides differ."""

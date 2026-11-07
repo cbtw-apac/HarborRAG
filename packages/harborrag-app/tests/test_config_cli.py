@@ -227,3 +227,26 @@ def test_export_prints_one_level_to_stdout(
 
     assert code == 0
     assert out == f"{_KEY}: 512\n"
+
+
+def test_export_leaves_out_a_deleted_connection_and_imports_back(
+    world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.seed(f"{_KEY}: 512\n")
+    gone = "connection:cpm/gone"
+    change = SettingChange(gone, "ingestion.concurrency", None, 4, "next_ingestion")
+    asyncio.run(
+        world.store.write(
+            _TENANT, [change], expected_revision=world.revision(), source="api", created_by="test"
+        )
+    )
+    exported = world.directory / "export.yaml"
+
+    code, _, err = _run(capsys, "export", "--output", str(exported))
+    imported, out, _ = _run(capsys, "import", str(exported))
+
+    assert code == 0
+    assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\n"
+    assert gone in err
+    assert imported == 0
+    assert "no changes" in out

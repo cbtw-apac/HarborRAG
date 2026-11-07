@@ -173,7 +173,7 @@ class SourceIngestionService(SourceDocumentOperations):
         await self._control.tasks.transition(
             task_id,
             IngestionTaskState.CANCELLED,
-            summary={"cancelled_at_safe_boundary": True},
+            summary={**task.summary, "cancelled_at_safe_boundary": True},
         )
         logger.info("Source ingestion cancelled task_id=%s", task_id)
 

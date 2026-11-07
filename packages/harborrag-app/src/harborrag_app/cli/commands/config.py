@@ -112,7 +112,10 @@ def export_settings(
         Path | None, typer.Option("--output", metavar="PATH", help="Write here, not to stdout.")
     ] = None,
 ) -> None:
-    """Print the stored overrides as a settings file that ``import`` reads back unchanged."""
+    """Print the stored overrides as a settings file that ``import`` reads back unchanged.
+
+    Overrides of a deleted project or connection are left out, each named on stderr.
+    """
 
     if output is not None:
         refuse_checkout_write()
@@ -123,10 +126,12 @@ def export_settings(
             dump_settings_document,
         )
 
-        document = await importer.export(
+        exported = await importer.export(
             tenant_id=tenant, level=None if level is None else SettingsLevel.parse(level)
         )
-        text = dump_settings_document(document)
+        for label in exported.left_out:
+            typer.echo(f"harborrag: left out {label}: it no longer exists", err=True)
+        text = dump_settings_document(exported.document)
         if output is None:
             return {"yaml": text}
         output.expanduser().write_text(text, encoding="utf-8")

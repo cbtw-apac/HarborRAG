@@ -27,6 +27,10 @@ each connection at the start of every run.
   and usage `surface` columns. A downgrade brings the columns back, with
   `kind` and `surface` set to `chat` and the rest empty; the deleted rows do
   not come back.
+- Upgrade the workers together with the API. The worker records the
+  cancellation of a retry run, so with an older worker a retry run cancelled
+  through the API ends `failed`, or stays `running` until the API next
+  settles it, for example at the next start of its connection.
 - Give the API the environment variables `config/connectors.yaml` names, for
   example `JIRA_BASE_URL` or `LOCAL_SOURCE_PATH`. The one-time import reads
   non-secret values from the API's environment.
@@ -183,7 +187,9 @@ token is kept.
   `404`. The list filters are `project_id`, `connection_ref`, `status` and
   `created_after`.
 - **Pause, resume and cancel answer `200` with the run** after waiting for the
-  new status; an action the state does not allow is `409 invalid_state`.
+  new status; an action the state does not allow is `409 invalid_state`. A
+  retry run can be cancelled but not paused or resumed: `pause` and `resume`
+  on it are `409 invalid_state`.
   `retry-failures` answers `202` with the new run and its `Location`.
 - **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
   for the failure inbox; see
@@ -233,7 +239,7 @@ override, even when you changed its old knob. To carry a changed knob over,
 create `config/settings.yaml` before the first start of the new API, with
 only the keys whose old knob you changed and your value for each, for example
 `retrieval.top_k: 8`. Do not copy `config/settings.example.yaml` whole: it
-lists every key at its registry default, and every key in the seed file
+lists every key you can set at its registry default, and every key in the seed file
 becomes an override that replaces its old knob, so a copied default would pin
 the default over a value you changed. The API seeds the tenant `HARBORRAG_INGESTION_TENANT_ID`
 from that file once, when the tenant has no settings revisions. Set
@@ -262,6 +268,27 @@ connection, because both feed the processing identity.
 Without them, PDF documents fail with `document_release_parser_unavailable`,
 recorded as retryable. Add the definition, then run `retry-failures`; the
 retry replays the parser the run was pinned to.
+
+Adding the definition reprocesses every connection once, not only the one you
+switch to docling. The parser identity is the digest of the whole
+`config/parsers.yaml`, so any edit to the file changes it for every
+connection, and the next sync of each connection reprocesses all of its
+documents. To keep that to one reprocess:
+
+1. Put the same `config/parsers.yaml` in the API and in the worker before you
+   set `parsing.pdf_parser: docling`. The API reads the file when it starts a
+   run and the worker when it prepares a scheduled run, so with two different
+   files the identity flips between the two kinds of run and documents
+   reprocess on alternate syncs; docling documents also fail with
+   `document_release_parser_unavailable` on a worker without the definition.
+   The dev compose mounts `config/` into the API but bakes it into the worker
+   image, so rebuild the worker image (`dev.sh worker --build`) after editing
+   the file.
+2. Then set the override.
+
+A `retry-failures` run replays the processing identity of the run it retries.
+Documents it publishes after you add the definition keep the old identity, so
+the next sync reprocesses them once more.
 
 ### Not yet supported
 
