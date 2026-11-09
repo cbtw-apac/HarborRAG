@@ -6,6 +6,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 
 from harborrag_adapters.models.embed import HarborEmbedClient, HarborEmbedClientConfig
+from harborrag_adapters.models.rerank import HarborRerankClientConfig, HarborRerankingClient
 from harborrag_adapters.models.runtime import ResourceOwnership
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
@@ -24,6 +25,7 @@ from ..composition.resources import (
     embedding_dimensions,
 )
 from ..config.graph_build import GraphBuildConfig
+from ..config.models import has_rerank_model
 from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
@@ -59,6 +61,7 @@ async def connect_retrieval_service(
         ),
         telemetry_ownership=ResourceOwnership.OWNED,
     )
+    rerank_client = _rerank_client(settings)
     control = build_ingestion_control(settings)
     if settings.summary_processing_allowed:
         control.summaries.allow_shared_processing(
@@ -84,6 +87,7 @@ async def connect_retrieval_service(
         await asyncio.gather(
             *(close() for close in reversed(connected)),
             embed_client.aclose(),
+            *((rerank_client.aclose(),) if rerank_client is not None else ()),
             return_exceptions=True,
         )
         raise
@@ -115,6 +119,7 @@ async def connect_retrieval_service(
             ),
             document_snapshots=control.document_versions,
             source_catalog=getattr(control, "source_scans", None),
+            rerank_client=rerank_client,
         ),
         policy=RetrievalPolicy(
             embedding_model=model,
@@ -129,7 +134,20 @@ async def connect_retrieval_service(
             vector_repository.close,
             graph_repository.close,
             embed_client.aclose,
+            *((rerank_client.aclose,) if rerank_client is not None else ()),
             telemetry.close,
         ),
         telemetry=telemetry,
+    )
+
+
+def _rerank_client(settings: RuntimeSettings) -> HarborRerankingClient | None:
+    """Build the rerank client when the model catalog has a ``rerank`` section."""
+    if not has_rerank_model(settings.model_config_path):
+        return None
+    config = HarborRerankClientConfig.from_file(settings.model_config_path)
+    return HarborRerankingClient.from_config(
+        config,
+        telemetry=build_model_telemetry(config, langfuse_enabled=settings.langfuse_enabled),
+        telemetry_ownership=ResourceOwnership.OWNED,
     )

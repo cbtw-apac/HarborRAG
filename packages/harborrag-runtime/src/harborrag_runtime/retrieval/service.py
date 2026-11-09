@@ -19,7 +19,7 @@ from harborrag_core.contracts.reader import (
     SemanticPathRequest,
     SemanticPathResponse,
 )
-from harborrag_core.indexing import VectorFilter
+from harborrag_core.indexing import VectorFilter, VectorSearchResult
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.records import CanonicalMention
@@ -55,10 +55,14 @@ from .knowledge import KnowledgeRetrieval
 from .permissions import RetrievalPermissions
 from .reader_service import RuntimeReaderRetrievalMixin
 from .readers import ReaderResources, ReaderRetrieval
+from .reranking import PassageReranker
 from .result_loader import EvidenceResultLoader
 from .source_fields import SourceFieldTrace, split_field_filters
 from .topology import TopologyRetrieval
 from .validation import validate_retrieval_request
+
+RERANK_POOL_FACTOR = 4
+RERANK_POOL_LIMIT = 100
 
 _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
     candidate_count=0,
@@ -73,6 +77,9 @@ _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from harborrag_core.domain.retrieval import RetrievalResult
     from harborrag_core.ports.storage import VectorRepositoryPort
 
     from ..config.settings import RuntimeSettings
@@ -100,6 +107,11 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self._entities = resources.entity_summary_search
         self._policy = policy
         self._result_loader = EvidenceResultLoader(resources.embed_client, policy)
+        self._reranker = (
+            PassageReranker(resources.rerank_client)
+            if resources.rerank_client is not None
+            else None
+        )
         self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
         # Retained so the conversation-memory index can share this one connected
@@ -219,6 +231,8 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             tenant_id=tenant_id,
             access=access,
         )
+        reranker = self._requested_reranker(selected, request_id)
+        pool = rerank_pool(top_k) if reranker is not None else top_k
         sparse_vector = (
             self._sparse.encode_query(query).vector
             if selected.lane in {RetrievalLane.SPARSE, RetrievalLane.HYBRID}
@@ -254,7 +268,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 await self._readable_search(
                     AuthoritativeSearchRequest(
                         lane=selected.lane,
-                        top_k=top_k,
+                        top_k=pool,
                         dense_vector=dense_vector,
                         sparse_vector=sparse_vector,
                         filters=chunk_filter,
@@ -325,12 +339,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         distinct, late_duplicates = collapse_duplicates(
             [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
             lambda result: duplicate_identity(result.metadata),
-            limit=top_k,
+            limit=pool,
         )
         results = list(distinct)
+        direct = topology.flat
+        if reranker is not None:
+            results = await reranker.rerank(query, results)
+            direct = in_result_order(direct, results)
         if selected.mode != RetrievalMode.FLAT:
             results, tokens, excluded = select_evidence(
-                results, topology.flat, top_k=top_k, policy=self._policy.topology
+                results, direct, top_k=top_k, policy=self._policy.topology
             )
             topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
         results = results[:top_k]
@@ -380,6 +398,21 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 duplicates_collapsed=diagnostics.collapsed_count + late_duplicates,
             ),
         )
+
+    def _requested_reranker(
+        self, options: RetrievalOptions, request_id: str
+    ) -> PassageReranker | None:
+        """Return the reranker when ``options`` ask for one and the catalog has one.
+
+        A ``retrieval.rerank`` override can outlive the ``rerank`` section it was
+        set against; that request is served unranked and logged.
+        """
+        if options.rerank and self._reranker is None:
+            logger.warning(
+                "Rerank requested but no rerank model is configured",
+                extra={"request_id": request_id},
+            )
+        return self._reranker if options.rerank else None
 
     async def _traced_items(
         self, field_filter: VectorFilter, context: StorageOperationContext
@@ -514,3 +547,25 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             # failed resources another attempt; close operations must be idempotent.
             raise ExceptionGroup("retrieval resource close failed", errors)
         self._closed = True
+
+
+def rerank_pool(top_k: int) -> int:
+    """Return how many passages a rerank chooses ``top_k`` from.
+
+    ``RERANK_POOL_FACTOR`` times ``top_k`` lets the model promote passages the
+    vector ranking placed lower; ``RERANK_POOL_LIMIT`` keeps one request within
+    the 100 documents a rerank search unit covers.
+    """
+    return max(top_k, min(top_k * RERANK_POOL_FACTOR, RERANK_POOL_LIMIT))
+
+
+def in_result_order(
+    direct: tuple[VectorSearchResult, ...], results: Sequence[RetrievalResult]
+) -> tuple[VectorSearchResult, ...]:
+    """Order direct hits as ``results`` are, so reserved evidence slots follow the rerank."""
+    position = {result.id: index for index, result in enumerate(results)}
+    return tuple(
+        sorted(
+            direct, key=lambda hit: position.get(str(hit.payload.get("chunk_id")), len(position))
+        )
+    )

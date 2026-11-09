@@ -17,7 +17,10 @@ from harborrag_core.ingestion import (
     SparseEncoding,
 )
 from harborrag_core.ports.artifacts import ChunkArtifactReaderPort
-from harborrag_core.ports.model_clients import AsyncHarborEmbedClientProtocol
+from harborrag_core.ports.model_clients import (
+    AsyncHarborEmbedClientProtocol,
+    AsyncHarborRerankClientProtocol,
+)
 from harborrag_core.ports.storage import VectorRepositoryPort
 from harborrag_core.ports.summary_projection import SummaryReaderPort
 from harborrag_core.retrieval import (
@@ -181,6 +184,7 @@ class RetrievalResources:
     # Searches accepted source-entity cards and expands the hits back into the
     # ordinary evidence chunks behind them. Absent leaves plain chunk retrieval.
     entity_summary_search: EntitySummarySearch | None = None
+    rerank_client: AsyncHarborRerankClientProtocol | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -211,6 +215,7 @@ class RetrievalOptions:
     # Extra graph observation seeds; see ``RetrievalRequest.graph_seed_node_keys``.
     graph_seeds: tuple[str, ...] = ()
     mode: RetrievalMode = RetrievalMode.FLAT
+    rerank: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))

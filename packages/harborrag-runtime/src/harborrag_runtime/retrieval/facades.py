@@ -67,6 +67,7 @@ class RetrievalFacade:
                 observe_graph=request.observe_graph,
                 graph_seeds=request.graph_seed_node_keys,
                 mode=request.mode,
+                rerank=request.rerank,
             ),
         )
         return RetrievalResponse(
