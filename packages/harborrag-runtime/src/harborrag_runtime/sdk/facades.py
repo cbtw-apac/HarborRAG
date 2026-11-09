@@ -11,9 +11,13 @@ from harborrag_runtime.contracts import (
     IngestionTaskReference,
 )
 from harborrag_runtime.retrieval.facades import (
-    GraphFacade,
-    KnowledgeFacade,
-    RetrievalFacade,
+    GraphFacade as GraphFacade,
+)
+from harborrag_runtime.retrieval.facades import (
+    KnowledgeFacade as KnowledgeFacade,
+)
+from harborrag_runtime.retrieval.facades import (
+    RetrievalFacade as RetrievalFacade,
 )
 
 if TYPE_CHECKING:
@@ -41,6 +45,3 @@ class IngestionFacade:
 
     async def cancel(self, task_id: str) -> None:
         await self._owner._ingestion_control(task_id, "cancel")
-
-
-__all__ = ["GraphFacade", "IngestionFacade", "KnowledgeFacade", "RetrievalFacade"]

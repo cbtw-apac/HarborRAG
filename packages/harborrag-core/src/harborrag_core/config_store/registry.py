@@ -64,7 +64,7 @@ class RetrievalGroup(StrictModel):
     )
     rerank: bool = Field(
         False,
-        description="Rerank retrieved passages; refused until a rerank stage exists",
+        description="Rerank chat retrieval passages with the model catalog's rerank model",
         json_schema_extra=_extra(["tenant", "project"], "live"),
     )
 
@@ -200,9 +200,12 @@ class SettingsRegistry:
 
     Args:
         definitions: Definitions by key.
+        rerank_available: The model catalog has a rerank model, so
+            ``retrieval.rerank`` may be switched on.
     """
 
     definitions: Mapping[str, SettingDefinition]
+    rerank_available: bool = False
 
     @classmethod
     def default(cls) -> SettingsRegistry:
@@ -210,16 +213,26 @@ class SettingsRegistry:
         return cls(_definitions())
 
     def with_defaults(self, defaults: Mapping[str, object]) -> SettingsRegistry:
-        """Return a registry whose defaults are replaced by ``defaults`` (for keys it holds)."""
-        return SettingsRegistry(
-            {
+        """Return a registry whose defaults are replaced by ``defaults`` (for keys it holds).
+
+        ``rerank_available`` carries over unchanged.
+        """
+        return replace(
+            self,
+            definitions={
                 key: replace(definition, default=defaults[key]) if key in defaults else definition
                 for key, definition in self.definitions.items()
-            }
+            },
         )
 
     def definition(self, key: str) -> SettingDefinition:
         """Return the definition of ``key``.
+
+        Args:
+            key: Dotted setting key, ``<group>.<field>``.
+
+        Returns:
+            The registered definition.
 
         Raises:
             HarborValidationError: The key is unknown or boot-only (``field = key``).

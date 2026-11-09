@@ -25,7 +25,7 @@ from ..memory.identity import MemoryIdentity
 from .evidence import ChatEvidence
 from .options import ChatExecutionOptions
 from .prompting import build_chat_request, history_messages
-from .retrieval import chat_top_k, relevant_results, search_documents
+from .retrieval import chat_rerank, chat_top_k, relevant_results, search_documents
 
 # ``ChatEvidence`` budgets the rendered prompt in bytes; the policy states it in
 # tokens. Four is the usual conservative byte-per-token ratio for the mixed
@@ -57,6 +57,7 @@ class ChatTurnResources:
     config: ConfigProvider | None = None
 
     def runtime(self) -> HarborRAG:
+        """Return the runtime from ``runtime_provider``."""
         return self.runtime_provider()
 
 
@@ -81,10 +82,10 @@ async def prepare_turn(
 
     Context is loaded before the current question is persisted, so the prompt
     contains that question once; a one-off question has none. Retrieval stays in
-    the caller's tenant and within ``filters``, at the ``retrieval.top_k`` of the
-    identity's project; older conversation history does not enter the prompt.
+    the caller's tenant and within ``filters``, at the ``retrieval.top_k`` and
+    ``retrieval.rerank`` of the identity's project; older conversation history
+    does not enter the prompt.
     """
-
     context = (
         await recent_memory_context(resources.memory, identity, query)
         if identity.session_id is not None
@@ -103,6 +104,7 @@ async def prepare_turn(
         observe_graph=graph_enabled,
         top_k=await chat_top_k(resources.config, identity, resources.settings),
         filters=filters if filters is not None else options.filters,
+        rerank=await chat_rerank(resources.config, identity),
     )
     # Gated once, before the results become both the model's evidence and the
     # caller's citations, so an answer is never reported as grounded in a
@@ -134,6 +136,3 @@ async def prepare_turn(
         trace_id=options.trace_id,
     )
     return PreparedTurn(request, evidence.passages if evidence is not None else results, context)
-
-
-__all__ = ["ChatTurnResources", "PreparedTurn", "prepare_turn"]

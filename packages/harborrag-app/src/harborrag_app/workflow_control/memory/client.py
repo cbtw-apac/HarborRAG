@@ -122,6 +122,3 @@ class MemoryAdminClientMixin:
 
     async def delete_conversation(self, access: MemoryAccess) -> AppResponse:
         return AppResponse(True, await self._conversation_directory.delete(access))
-
-
-__all__ = ["MemoryAdminClientMixin"]

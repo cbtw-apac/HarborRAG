@@ -62,6 +62,3 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
         )
     except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
         return failure_response(logger, exc, "retrieve for tenant %r", selected_tenant)
-
-
-__all__ = ["retrieve"]

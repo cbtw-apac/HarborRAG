@@ -51,6 +51,3 @@ class ScheduleApplicationService:
             await self._backend_provider(),
             partial(self._source_input_builder, self._settings),
         )
-
-
-__all__ = ["ScheduleApplicationService", "ScheduleBackendProvider"]

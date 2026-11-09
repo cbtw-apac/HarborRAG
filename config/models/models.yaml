@@ -9,21 +9,21 @@ chat:
     max_deployment_failovers: 1
     max_model_fallbacks: 1
   security:
-    allowed_providers: [openai]
+    allowed_providers: [openai, openai_compatible]
   models:
     primary:
       deployments:
-        - name: openai-primary
-          provider: ${HARBORRAG_CHAT_PROVIDER}
+        - name: gateway-chat
+          provider: openai_compatible
           model: ${HARBORRAG_CHAT_MODEL}
-          api_key: ${HARBORRAG_CHAT_API_KEY}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
           capabilities:
             streaming: true
             structured_output: true
             json_mode: true
             tools: true
             parallel_tools: true
-            reasoning_effort: true
 
 embed:
   default_model: primary
@@ -31,15 +31,17 @@ embed:
     request_seconds: 60
   default_batch_size: 64
   security:
-    allowed_providers: [openai, ollama, huggingface]
+    allowed_providers: [cohere]
   models:
     primary:
-      embedding_space: harbor-production-v1
+      embedding_space: harbor-cohere-embed-v4
       deployments:
-        - name: openai-embedding
-          provider: ${HARBORRAG_EMBED_PROVIDER}
+        - name: gateway-embedding
+          provider: cohere
+          custom_llm_provider: litellm_proxy
           model: ${HARBORRAG_EMBED_MODEL}
-          api_key: ${HARBORRAG_EMBED_API_KEY}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
           expected_dimensions: 1536
           capabilities:
             batch: true
@@ -48,3 +50,16 @@ embed:
             encoding_format: true
             purpose: true
             supported_purposes: [query, document]
+
+rerank:
+  default_model: primary
+  security:
+    allowed_providers: [litellm_proxy]
+  models:
+    primary:
+      deployments:
+        - name: gateway-rerank
+          provider: litellm_proxy
+          model: ${HARBORRAG_RERANKER_MODEL}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}

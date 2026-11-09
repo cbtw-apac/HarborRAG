@@ -191,14 +191,3 @@ def _narrow(scopes: list[str], requested: object) -> list[str]:
             "source_scope_id falls outside the scope's connections", {"field": "filters"}
         )
     return narrowed
-
-
-__all__ = [
-    "SOURCE_SCOPE_FILTER",
-    "ConnectionCatalog",
-    "ConnectionIndex",
-    "ConnectionSources",
-    "ControlPlaneConnectionCatalog",
-    "RetrievalScope",
-    "resolve_scope",
-]

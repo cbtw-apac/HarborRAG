@@ -165,12 +165,3 @@ class SourceFieldTrace:
             ],
             must_not=list(remaining.must_not),
         )
-
-
-__all__ = [
-    "FIELD_FILTER_PREFIX",
-    "MAX_TRACED_ITEMS",
-    "PayloadIndexCatalog",
-    "SourceFieldTrace",
-    "split_field_filters",
-]

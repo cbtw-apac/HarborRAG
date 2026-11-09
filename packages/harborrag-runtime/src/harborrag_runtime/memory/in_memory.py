@@ -457,6 +457,3 @@ class InMemoryConversationMemory:
 
     async def clear(self, identity: ConversationIdentity) -> None:
         await self.clear_messages(identity)
-
-
-__all__ = ["InMemoryConversationMemory"]

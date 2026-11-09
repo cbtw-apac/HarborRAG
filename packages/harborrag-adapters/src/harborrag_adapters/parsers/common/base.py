@@ -137,5 +137,3 @@ class HarborParserEngine[ParserInput, ParserOutput](ABC):
 # Transitional import compatibility for downstream extensions. New engines
 # should derive from their family contract instead of this alias.
 BaseParser = HarborParserEngine
-
-__all__ = ["HarborParser", "HarborParserEngine"]

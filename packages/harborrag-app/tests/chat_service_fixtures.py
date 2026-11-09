@@ -354,18 +354,31 @@ class FakeRuntime:
 
 
 class FakeConfigProvider:
-    """Resolves ``retrieval.top_k`` from overrides keyed by level label, project before tenant."""
+    """Resolves ``retrieval.top_k`` and ``retrieval.rerank`` by level label, project before tenant."""
 
-    def __init__(self, overrides: dict[str, int] | None = None) -> None:
+    def __init__(
+        self, overrides: dict[str, int] | None = None, rerank: dict[str, bool] | None = None
+    ) -> None:
         self.overrides = overrides or {}
+        self.rerank = rerank or {}
         self.unavailable = False
 
     async def effective(self, tenant_id: str, level: SettingsLevel) -> EffectiveSettings:
         del tenant_id
         if self.unavailable:
             raise HarborUnavailableError("settings store is unavailable")
-        for candidate in reversed(level.chain()):
-            if str(candidate) in self.overrides:
-                value = EffectiveValue(self.overrides[str(candidate)], candidate.kind)
-                return EffectiveSettings(1, {"retrieval.top_k": value})
-        return EffectiveSettings(0, {"retrieval.top_k": EffectiveValue(5, "default")})
+        values = {
+            "retrieval.top_k": _resolved(self.overrides, level, default=5),
+            "retrieval.rerank": _resolved(self.rerank, level, default=False),
+        }
+        overridden = any(value.origin != "default" for value in values.values())
+        return EffectiveSettings(1 if overridden else 0, values)
+
+
+def _resolved(
+    overrides: dict[str, int] | dict[str, bool], level: SettingsLevel, *, default: object
+) -> EffectiveValue:
+    for candidate in reversed(level.chain()):
+        if str(candidate) in overrides:
+            return EffectiveValue(overrides[str(candidate)], candidate.kind)
+    return EffectiveValue(default, "default")

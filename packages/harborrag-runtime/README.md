@@ -1,134 +1,89 @@
 # harborrag-runtime
 
-Owns production composition, direct execution, and durable Temporal orchestration
-for HarborRAG ingestion. Framework-independent domain types and ports live in
-`harborrag-core`; adapters and the engine remain unaware of Temporal.
+Composes [HarborRAG](https://github.com/cbtw-apac/HarborRAG) for production: it builds the
+repositories, model clients and engine policies from settings, and runs ingestion either
+inline or durably on Temporal. It also hosts the SDK facade, retrieval, chat and memory
+composition, schedules and topology enrichment. Domain types and ports live in
+`harborrag-core`; adapters and the engine stay unaware of Temporal.
 
-## Package layout
+To use HarborRAG as a library, install the [`harborrag`](https://pypi.org/project/harborrag/)
+facade instead, which re-exports this package's SDK.
+
+## Install
+
+```bash
+pip install "harborrag-runtime[temporal]"
+```
+
+The `temporal` extra adds the Temporal client that durable ingestion needs. `reader` adds
+the clients retrieval needs, `production` the clients the ingestion worker needs, `chat`
+the model client and `memory` the `harborrag-memory` package.
+
+## Find your way around the package
 
 ```text
 src/harborrag_runtime/
-  __init__.py       # lazy public facade
-  contracts.py      # SDK compatibility exports and ingestion contracts
-  ingestion_contracts.py # provider-neutral durable ingestion gateway and DTOs
-  source_query.py   # provider-neutral source filtering contracts
-  document_stage_catalog.py # sandbox-safe document stage metadata
-  temporal_models.py        # replay-safe routing/retry payload models
-  errors.py         # runtime failures
-  plugins.py        # entry-point plugin discovery and registration
-  rate_limiting.py  # shared connector/provider rate limiting
-  serialization.py  # replay-safe payload serialization
-  tokenization.py   # token counting shared by chat and chunking
-  sdk/
-    __init__.py     # stable SDK facade
-    runtime.py      # SDK lifecycle and service orchestration
-    facades.py      # ingestion facade and reader facade compatibility exports
-    configuration.py
-  composition/
-    readers.py      # MCP reader-only service and tool composition
-    control_plane.py # production repository assembly
-    resources.py     # storage/control resource factories
-    storage_providers.py # registered storage factories selected by runtime settings
-  execution/
-    contracts.py    # execution strategy protocols
-    gateway.py      # default ingestion gateway composition
-    source_submission.py # provider-neutral source preparation and defaults
-    task_registry.py # authoritative task registration
-    submission.py   # shared request-to-source translation
-    direct.py       # inline execution strategy
-    temporal.py     # durable execution strategy
-  retrieval/
-    facades.py      # reader-port implementations without the SDK owner
-    contracts.py    # retrieval ports, policy, and reports
-    composition.py  # retrieval resource assembly and lifecycle ownership
-    service.py      # authoritative retrieval use case
-    validation.py   # public and projection-boundary validation
-  memory/
-    __init__.py     # stable memory facade
-    composition.py  # database resource assembly and migrations
-    service.py      # database-backed conversation memory
-  chat/
-    __init__.py     # retrieval-grounded chat service
-    prompts/        # packaged system prompt templates
-  observability/    # telemetry shared by reader and ingestion compositions
-  events/           # runtime event contracts and publication
-  config/
-    settings.py     # HARBORRAG_* process settings
-    temporal.py     # validated Temporal client/worker configuration
-    connectors/     # connector YAML loading and construction
-    parsers/        # parser YAML loading and construction
-  ingestion/
-    composition.py       # runtime lifecycle and stable composition entry point
-    runtime_builder.py   # production object-graph builder
-    observability.py     # shared ingestion telemetry
-    profiles.py          # processing-profile construction
-    document/
-      models.py          # document release contracts
-      service.py         # one-document release application service
-      pipeline.py        # ordered, independently retryable stages
-      capture.py         # admission and raw/canonical capture
-      materialization.py # canonical/chunk/representation materialization
-      projection.py      # vector/graph publication
-      lifecycle.py       # durable document-version transitions
-      normalization.py   # connector normalization strategies
-    source/
-      models.py          # source request, plan, summary, and outcome contracts
-      service.py         # source ingestion facade
-      discovery.py       # descriptor discovery and admission planning
-      documents.py       # document dispatch result recording
-      retry.py           # artifact-first retry service
-      finalization.py    # relation repair and removal reconciliation
-      plan.py            # immutable source-plan persistence
-    maintenance/
-      cleanup.py         # projection cleanup
-      projection_admin.py # tenant projection inspection/deletion
-      relation_repair.py # structural relation-repair service
-      reindex.py         # connector-free reindexing
-      reindex_plan.py    # stale-lane selection policy
-  temporal/
-    gateway.py      # neutral ingestion DTO translation to/from Temporal
-    client.py       # source/reindex submission and controls
-    schemas.py      # small workflow-history contracts
-    ingestion_activities.py   # twelve document-stage activity boundaries
-    activity_observability.py
-    source_workflow.py       # source orchestration workflow
-    source_batch_workflow.py # bounded child-batch workflow
-    document_workflow.py     # independently retryable document workflow
-    retry_workflow.py        # failed-document retry workflows
-    reindex_workflow.py      # projection reindex workflow
-    worker.py       # six-queue worker process
+  sdk/                      # stable SDK facade: HarborRAG, its configuration and service facades
+  execution/                # direct and durable execution strategies, source submission, task registry
+  temporal/                 # workflows, activities, client, gateway, schedule backend and the worker
+  ingestion/                # document release, source orchestration and maintenance services
+  retrieval/                # authoritative dense, sparse, hybrid and graph retrieval, and reranking
+  chat/                     # chat service, model-client composition and per-tenant chat clients
+  memory/                   # database-backed conversation memory and its composition
+  scheduling/               # schedule management on top of the execution engine
+  topology/                 # opt-in durable topology enrichment, independent of publication
+  composition/              # control-plane repositories, MCP reader composition, storage factories
+  config/                   # HARBORRAG_* settings, Temporal configuration, connector and parser catalogs
+  config_store/             # runtime access to settings stored in the control database
+  connections/              # connection services shared by the API and the workers
+  security/                 # operator-side security operations
+  observability/            # telemetry shared by reader and ingestion compositions
+  events/                   # runtime event contracts and publication
+  ingestion_contracts.py    # provider-neutral durable ingestion gateway and DTOs
+  contracts.py              # stable request and response contracts of the SDK
+  reader_contracts.py       # compatibility exports for reader contracts
+  source_query.py           # secret-free source query and processing inputs
+  document_stage_catalog.py # sandbox-safe catalog of document stages
+  temporal_models.py        # replay-safe routing and retry models
+  plugins.py                # entry-point plugin discovery and registration
+  rate_limiting.py          # connector rate-limit coordination
+  serialization.py          # deterministic JSON conversion of runtime values
+  tokenization.py           # provider-neutral token estimates
+  errors.py                 # runtime and Temporal boundary errors
 ```
 
-The public `harborrag_runtime.sdk` module is a stable facade. Its data
-contracts, configuration parsing, execution strategies, and retrieval service
-live in focused modules behind that facade. Direct and Temporal strategies use
-the same submission builder, so execution mode does not change request
-identity or filtering semantics.
+The ingestion services and their dependency rules are described in the
+[ingestion runtime notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/ingestion/README.md),
+and chat composition in the
+[runtime chat notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/chat/README.md).
 
-Applications submit durable ingestion through `ingestion_contracts.IngestionGateway`.
-Its submission, retry, status, and result DTOs contain no Temporal replay state or
-workflow options. `temporal.gateway.TemporalIngestionGateway` translates those
-contracts to Temporal payloads and back. Connector preparation and task registration
-live in `execution/source_submission.py` and `execution/task_registry.py`, so changing
-the execution provider does not require changing application ingestion services.
-The application composition accepts a gateway factory taking `RuntimeSettings` and
-a separate provider description for health reporting. The original Temporal import
-paths remain available for callers that use the Temporal client directly.
-The default composition translates Temporal YAML policy into `SourceSubmissionDefaults`;
-an alternative composition can call `prepare_source_submission` with its own defaults
-without loading Temporal configuration.
+The public `harborrag_runtime.sdk` module is a stable facade. Its data contracts,
+configuration parsing, execution strategies and retrieval service live in focused modules
+behind it. Direct and Temporal strategies use the same submission builder, so the
+execution mode does not change request identity or filtering semantics.
 
-`document_stage_catalog.py` and `temporal_models.py` intentionally remain
-lightweight top-level modules. Temporal imports them inside its restricted
-workflow sandbox, so placing them below provider-owning packages would execute
-adapter initialization during workflow registration.
+Applications submit durable ingestion through `ingestion_contracts.IngestionGateway`. Its
+submission, retry, status and result DTOs hold no Temporal replay state or workflow
+options; `temporal.gateway.TemporalIngestionGateway` translates them to Temporal payloads
+and back. Connector preparation and task registration live in
+`execution/source_submission.py` and `execution/task_registry.py`, so changing the
+execution provider does not change the application's ingestion services. The application
+composition takes a gateway factory that receives `RuntimeSettings`, plus a separate
+provider description for health reporting. The default composition turns the Temporal YAML
+policy into `SourceSubmissionDefaults`; another composition can call
+`prepare_source_submission` with its own defaults without loading Temporal configuration.
 
-Resource lifecycle and runtime observation stay with the runtime components that own them.
-There is no generic lifecycle port, local job queue, scheduler, or supervisor: durable
-orchestration is Temporal's job, and the core repository ports in `harborrag-core` are the
-authoritative persistence contracts.
+`document_stage_catalog.py` and `temporal_models.py` stay lightweight top-level modules on
+purpose. Temporal imports them inside its restricted workflow sandbox, so placing them
+below provider-owning packages would run adapter initialization during workflow
+registration.
 
-## Temporal ingestion
+Resource lifecycle and runtime observation stay with the components that own them. There
+is no generic lifecycle port, local job queue or supervisor: durable orchestration,
+including recurring schedules, runs on Temporal, and the core repository ports in
+`harborrag-core` are the authoritative persistence contracts.
+
+## Run ingestion durably on Temporal
 
 ```text
 SourceIngestionWorkflow
@@ -138,14 +93,14 @@ SourceIngestionWorkflow
                   -> vector + graph -> verify -> publish
 ```
 
-Workflow history contains document-version identifiers and MinIO references, not raw
-documents, chunk bodies, tables, embeddings, or graph batches. Activities use
-Postgres as the publication authority and treat Qdrant and FalkorDB as
-rebuildable projections.
+Workflow history holds document-version identifiers and object-store references, never
+raw documents, chunk bodies, tables, embeddings or graph batches. Activities treat
+Postgres as the publication authority and Qdrant and FalkorDB as rebuildable projections.
 
-The worker builds one production `IngestionRuntime` graph per process from
-the configured connector, parser, model, state, object, vector, and graph
-settings:
+The worker builds one production `IngestionRuntime` per process from the configured
+connector, parser, model, state, object, vector and graph settings, and polls the task
+queues named in `config/temporal.yaml`. Its configuration files default to the paths
+below; the variables override them:
 
 ```bash
 export HARBORRAG_TEMPORAL_CONFIG_PATH=config/temporal.yaml
@@ -155,99 +110,70 @@ export HARBORRAG_MODEL_CONFIG_PATH=config/models/models.yaml
 python -m harborrag_runtime.temporal.worker
 ```
 
-The Temporal YAML owns connection defaults, task queues, retry budgets, worker
-capacity, and timeouts. Environment values such as
-`HARBORRAG_TEMPORAL_TARGET` remain available for deployment-specific overrides.
-See [Temporal configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/deploy/temporal/README.md) for every supported
-non-secret field; keep `HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret
-manager.
+The worker images run the same module. In the local stack, `scripts/deployment/dev.sh`
+starts the worker in Docker; see the
+[deployment guide](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/deployment/README.md).
 
-The normal operator path is the app CLI:
+The Temporal YAML owns connection defaults, task queues, retry budgets, worker capacity and
+timeouts. Environment values such as `HARBORRAG_TEMPORAL_TARGET` override them per
+deployment. Every supported field is listed in
+[Temporal configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/deploy/temporal/README.md).
+Keep `HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret manager.
 
-```bash
-harborrag ingest start --tenant tenant-1 --connector-id harborrag-workspace --wait
-harborrag ingest start --tenant tenant-1 --connector-id jira-main --limit 3 --wait
-harborrag ingest status RUN_ID --json
-harborrag ingest pause RUN_ID
-harborrag ingest resume RUN_ID
-harborrag ingest cancel RUN_ID
-harborrag retrieve "deployment requirements" --tenant tenant-1 --top-k 5 --json
-```
+Operators drive the same runtime with the `harborrag ingest` commands of a repository
+checkout. Their options and how to name a connection are in the
+[CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-and-control-ingestion).
 
-`--limit` is a workflow-stable safety bound for operator and acceptance runs;
-omitting it retains the configured full-source behavior. Retrieval composes the
-same embedding model, active Qdrant collection, FalkorDB graph, and canonical
-chunk object store used by ingestion. Query embeddings are marked sensitive
+Applications that bypass the SDK can submit to Temporal with
+`temporal.client.IngestionTemporalClient`. `temporal.submission.build_source_input(settings,
+submission, connection=...)` needs the `ResolvedConnection` that
+`ingestion.connections.ConnectionResolver.resolve(tenant_id=..., source_key=...)` returns;
+resolving a connection also saves a connection revision to the control database. The
+client's `start_ingestion` returns a reference whose `run_id` is the task ID that
+`get_status` takes.
+
+## Use the SDK from Python
+
+`harborrag_runtime.sdk.HarborRAG`, re-exported by the `harborrag` package, is an async
+context manager. Direct execution is the lightweight default for local development, smoke
+tests and embedding HarborRAG as a library; Temporal execution adds durable `submit`,
+`status`, `pause`, `resume` and `cancel`. Both run the same engine policies and production
+repository graph. Examples and the settings the SDK reads are in the
+[Python SDK guide](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/python-sdk/README.md).
+
+Installed plugins are discovered only with `discover_plugins: true`. The entry-point
+groups are `harborrag.connectors`, `harborrag.parsers`, `harborrag.model_providers`,
+`harborrag.vector_repositories`, `harborrag.graph_repositories` and
+`harborrag.object_stores`. Every plugin declares its capabilities and an explicit
+`register()` operation; importing a module alone never registers it.
+
+## Retrieve and rerank
+
+Retrieval composes the same embedding model, active Qdrant collection, FalkorDB graph and
+canonical chunk object store that ingestion writes. Query embeddings are marked sensitive
 and non-cacheable.
 
-## Public execution facade
+`retrieval/reranking.py` holds the rerank stage. `PassageReranker` orders passages the
+caller may already read, using the client built from the `rerank` section of the model
+catalog. It puts the model's score in `metadata["rerank_score"]` and leaves `relevance`
+at the lane's similarity. Passage text is sent to the rerank provider as sensitive and
+non-cacheable.
 
-`HarborRAG` is an async context manager. Direct execution is the lightweight
-default for local development, smoke tests, and embedding HarborRAG as a library;
-Temporal execution adds durable submit/status/pause/resume/cancel operations.
-Both execute the same engine policies and production repository graph.
+## Monitor ingestion
 
-```python
-from harborrag_core.security import AccessContext
-from harborrag_runtime.sdk import HarborRAG, IngestionRequest, RetrievalRequest
+Every ingestion activity emits an OpenTelemetry span with a controlled stage name, plus
+low-cardinality Prometheus metrics. The Compose worker serves its process registry on port
+`9464`, and `deploy/prometheus/prometheus.yml` scrapes it as
+`harborrag-ingestion-worker`. The metrics cover stage outcomes and durations, document
+lifecycle counts, durable artifact bytes, route and evidence chunks, Temporal retries,
+projection verification failures, cleanup failures, stale retrieval candidates and
+connector rate-limit waits.
 
-access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
-async with HarborRAG.from_config("harborrag.yaml") as harbor:
-    await harbor.ingestion.run(IngestionRequest(access=access, connector_name="harborrag-workspace"))
-    response = await harbor.retrieval.search(
-        RetrievalRequest(access=access, query="deployment requirements")
-    )
-```
+Model telemetry uses the adapters' privacy sanitizer. OpenTelemetry is on for embedding
+calls; Langfuse is opt-in with `HARBORRAG_LANGFUSE_ENABLED=true` and is never attached to
+canonical documents, chunk payloads, Qdrant points or FalkorDB properties.
 
-Installed plugins are discovered only when `discover_plugins: true`. Supported
-entry-point groups are connectors, parsers, model providers, vector repositories,
-graph repositories, and object stores. Every plugin declares capabilities and an
-explicit `register()` operation; importing a module alone never registers it.
-
-## Observability
-
-Every ingestion activity emits an OpenTelemetry span with a controlled stage
-name and low-cardinality Prometheus metrics. The Compose worker serves its
-process registry on port `9464`; `deploy/prometheus/prometheus.yml` scrapes it
-as `harborrag-ingestion-worker`. Metrics cover stage outcomes and durations,
-document lifecycle counts, durable artifact bytes, route/evidence chunks,
-Temporal retries, projection verification failures, cleanup failures, stale
-retrieval candidates, and connector rate-limit waits.
-
-Model telemetry uses the adapters' privacy sanitizer. OpenTelemetry is enabled
-for embedding calls; Langfuse remains opt-in through
-`HARBORRAG_LANGFUSE_ENABLED=true` and is never attached to canonical
-documents, chunk payloads, Qdrant points, or FalkorDB properties.
-
-Applications can also use the framework-owned client directly:
-
-```python
-from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.temporal.client import IngestionTemporalClient
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
-
-settings = RuntimeSettings()
-source = build_source_input(
-    settings,
-    SourceSubmission(
-        task_id="sync-2026-07-31",
-        tenant_id="tenant-1",
-        connector_name="harborrag-workspace",
-    ),
-)
-client = await IngestionTemporalClient.connect(TemporalRuntimeConfig.from_settings(settings))
-reference = await client.start_ingestion(source)
-status = await client.get_status(reference.run_id)
-```
-
-For the PostgreSQL-backed local server and worker profile, see
-[deployment guide](../../docs/developers/deployment/README.md).
-
-## File configuration
+## Load the connector and parser catalogs
 
 ```python
 from harborrag_runtime.config import load_connector_catalog, load_parser_catalog
@@ -256,17 +182,25 @@ connectors = load_connector_catalog("config/sources/connectors.yaml").build_enab
 parsers = load_parser_catalog("config/ingestion/parsers.yaml").build_harbor_parser()
 ```
 
-## Tests
+`build_enabled()` raises `ConnectorConfigurationError` until every environment variable
+the enabled connectors reference is set, such as `LOCAL_SOURCE_PATH` or
+`CONFLUENCE_BASE_URL` from `env/.env.connector`.
+
+## Contributing
+
+See [CONTRIBUTING](https://github.com/cbtw-apac/HarborRAG/blob/main/CONTRIBUTING.md).
+Tests for this package live in `packages/harborrag-runtime/tests/`. Run them from the
+repository root:
 
 ```bash
-uv run pytest packages/harborrag-runtime/tests/unit -q
-uv run pytest packages/harborrag-runtime/tests/runtime_ingestion/unit -q
-uv run pytest packages/harborrag-runtime/tests/runtime_ingestion/workflows -q
+uv run pytest packages/harborrag-runtime/tests
 ```
 
-The deployed smoke test validates the real Temporal runtime and all projection
-stores:
+The deployed ingestion smoke test checks the real Temporal runtime and every projection
+store. It flushes the configured Redis database, so read its
+[README](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/tests/runtime_ingestion/smoke/README.md)
+before you run it.
 
-```bash
-python packages/harborrag-runtime/tests/runtime_ingestion/smoke/ingestion_flow.py
-```
+## License
+
+Apache License 2.0.

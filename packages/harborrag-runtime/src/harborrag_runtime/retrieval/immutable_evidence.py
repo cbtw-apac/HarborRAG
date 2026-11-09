@@ -179,6 +179,3 @@ def _matches_expectation(candidate: VectorSearchResult, selector: object) -> boo
         expected_version_id is None
         or expected_version_id == str(candidate.payload.get("document_version_id", ""))
     )
-
-
-__all__ = ["ImmutableEvidenceReader"]

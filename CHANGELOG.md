@@ -7,7 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Documents are re-chunked and re-embedded on their next ingestion. Follow the
+Documents are re-chunked and re-embedded on their next ingestion, and the shipped
+embedding model changes, so re-ingest every source with `--force-reprocess`. Follow the
 [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
 action.
 
@@ -24,12 +25,14 @@ action.
 
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
-- `harborrag init` scaffolds `config/ingestion/chunking.yaml` and `harborrag doctor` validates it
+- `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
+- HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag config import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
 
 #### harborrag-core
 
 - Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
+- `RetrievalRequest.rerank` asks retrieval to rerank its passages with the model catalog's `rerank` model
 
 #### harborrag-mcp-server
 
@@ -42,6 +45,7 @@ action.
 - Ingestion pins the run's settings and `settings_revision` at start; workers parse and chunk with them
 - Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
+- Retrieval can rerank with the model catalog's `rerank` model: it fetches four times `top_k` passages (at most 100), keeps the first `top_k` in rerank order, and adds `rerank_score` to each result's metadata while `relevance` keeps the lane's similarity; a rerank provider error fails the retrieval
 
 ### Changed
 
@@ -76,7 +80,7 @@ action.
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
 - `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
-- `harborrag init` writes the new `config/` layout, and the CLI recognises a checkout by `config/sources/connectors.yaml`
+- The CLI recognises a checkout by `config/sources/connectors.yaml`
 
 #### harborrag-engine
 
@@ -90,7 +94,9 @@ action.
 #### harborrag-runtime
 
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
-- **Breaking:** `config/models/models.yaml` reads `HARBORRAG_CHAT_*`, `HARBORRAG_EMBED_*` and `HARBORRAG_MEMORY_*` instead of `HARBOR_CHAT_*`, `HARBOR_EMBED_*` and `HARBOR_MEMORY_*`
+- **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
+- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source with `--force-reprocess`
+- **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 
 #### Deployment
@@ -98,7 +104,14 @@ action.
 - The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
-- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed; `harborrag init` renders `harborrag.yaml`
+- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
+- `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
+
+### Removed
+
+#### harborrag-app
+
+- **Breaking:** `harborrag init` and its scaffold templates are removed with no replacement; run the CLI from a repository checkout. Projects an earlier `init` created keep working through their `harborrag.yaml` or `--project DIR`
 
 ### Fixed
 

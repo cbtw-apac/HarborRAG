@@ -2,7 +2,8 @@
 
 This page lists the steps each release needs when you upgrade an existing deployment,
 newest release first. The [changelog](../../CHANGELOG.md) lists everything that changed;
-entries marked **Breaking** there are the ones these steps deal with.
+entries marked **Breaking** there are the ones these steps deal with. A first install
+needs none of these steps: start with the [Quick Start](../getting-started/quick-start.md).
 
 ## 2.0.0a2 to 2.0.0
 
@@ -17,7 +18,10 @@ each connection at the start of every run.
   `HARBORRAG_SECRETS_ENCRYPTION_KEY` as the API, or point both at the same
   file with `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`. A worker refuses to start
   without a key against a non-SQLite database. `scripts/deployment/dev.sh`
-  generates the key when `env/.env.database` leaves it blank; keep a backup.
+  generates a key only while no database volume exists. With a blank key and an
+  existing volume, which is the case on an upgrade, it stops with
+  `… already holds a database; restore the key it was written with.` Keep a backup
+  of the key.
 - The API applies migrations `0041`–`0047` at start-up. `0046` adds the
   runtime settings tables: the overrides and an append-only revision log
   ([Runtime settings](configuration/runtime-settings.md)). `0047` adds empty
@@ -61,8 +65,7 @@ each connection at the start of every run.
 where they are. `config/temporal.example.yaml` and `config/models.example.yaml` are
 removed; [Temporal configuration](../../deploy/temporal/README.md) and
 [Model configuration](configuration/model-config.md) now explain the values.
-`config/harborrag.example.yaml` is removed too: `harborrag init` renders `harborrag.yaml`
-in the project root.
+`config/harborrag.example.yaml` is removed too, with no replacement.
 
 - A deployment that sets the path of every file it uses keeps working without moving
   anything: `HARBORRAG_CONNECTOR_CONFIG_PATH`, `HARBORRAG_SCHEDULE_CONFIG_PATH`,
@@ -87,22 +90,82 @@ in the project root.
 - The development worker now mounts the whole `config/` read-only, like the API and the
   MCP server. A configuration change needs a worker restart, not an image rebuild.
 
-**Breaking:** `config/models/models.yaml` reads renamed environment variables. Rename
-every variable with these prefixes in `env/.env.models` and any other environment file,
-including those only the model smoke tests read, such as `HARBOR_CHAT_BACKEND`:
+### Send the models through one gateway
 
-| Old prefix | New prefix |
-| --- | --- |
-| `HARBOR_CHAT_` | `HARBORRAG_CHAT_` |
-| `HARBOR_EMBED_` | `HARBORRAG_EMBED_` |
-| `HARBOR_MEMORY_` | `HARBORRAG_MEMORY_` |
+**Breaking:** `config/models/models.yaml` now sends chat, embedding and reranking through
+one LiteLLM proxy gateway. It reads five variables in place of a provider, a model and an
+API key per family. Update `env/.env.models`, or the secret manager that injects it:
+
+1. Remove the variables the previous catalog read for chat and embedding:
+   `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, `HARBOR_CHAT_API_KEY`,
+   `HARBOR_EMBED_PROVIDER`, `HARBOR_EMBED_MODEL` and `HARBOR_EMBED_API_KEY`, or their
+   `HARBORRAG_` forms if you already renamed them. The shipped catalog no longer reads
+   `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_API_KEY`, `HARBORRAG_EMBED_PROVIDER` or
+   `HARBORRAG_EMBED_API_KEY`, and `HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL` now
+   hold gateway model names.
+
+2. Set the five gateway variables:
+
+    | Variable | Value |
+    | --- | --- |
+    | `HARBORRAG_URL` | The gateway's base URL, without `/v1`, for example `https://gateway.example.com` |
+    | `HARBORRAG_API_KEY` | The gateway's API key |
+    | `HARBORRAG_CHAT_MODEL` | The gateway's name for the chat model |
+    | `HARBORRAG_EMBED_MODEL` | The gateway's name for the embedding model |
+    | `HARBORRAG_RERANKER_MODEL` | The gateway's name for the rerank model |
+
+    The model values are the bare names `GET <HARBORRAG_URL>/v1/models` lists, with
+    no provider prefix.
+
+3. Rename every remaining variable with these prefixes, in `env/.env.models` and any
+   other environment file, including those the memory model and the model smoke tests
+   read, such as `HARBOR_CHAT_BACKEND`:
+
+    | Old prefix | New prefix |
+    | --- | --- |
+    | `HARBOR_CHAT_` | `HARBORRAG_CHAT_` |
+    | `HARBOR_EMBED_` | `HARBORRAG_EMBED_` |
+    | `HARBOR_MEMORY_` | `HARBORRAG_MEMORY_` |
+
+    ```bash
+    sed -i -E 's/(^|[^A-Z_])HARBOR_(CHAT|EMBED|MEMORY)_/\1HARBORRAG_\2_/g' env/.env.models
+    ```
+
+    `HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names.
+
+All five gateway variables are required: while one is missing, loading the catalog
+fails, for example with `environment variable HARBORRAG_URL is not set`.
+`HARBORRAG_EMBEDDING_MODEL` keeps its meaning: a logical model of the catalog, such as
+`primary`, not a gateway model name.
+
+To keep calling a provider directly, keep a catalog of your own, point
+`HARBORRAG_MODEL_CONFIG_PATH` at it, and keep the variables it reads, renamed as in
+step 3; see [Model configuration](configuration/model-config.md).
+`env-example/.env.models.example` keeps commented examples for that case.
+
+If you added a `memory` model to the shipped catalog, point its deployment at the
+gateway as `primary` is: `provider: openai_compatible`, `api_base: ${HARBORRAG_URL}`,
+`api_key: ${HARBORRAG_API_KEY}`, and the gateway's name for the model in
+`HARBORRAG_MEMORY_MODEL`. See
+[Optional memory model](configuration/model-config.md#optional-memory-model).
+
+#### Re-index after the embedding change
+
+The shipped embedding model is now the gateway's, in the embedding space
+`harbor-cohere-embed-v4`. Vectors written by the previous model have the same 1536
+dimensions, so nothing reports an error, but retrieval quality drops without warning
+until every document is embedded again. Re-ingest every source with
+`--force-reprocess`, so unchanged documents are embedded again too:
 
 ```bash
-sed -i -E 's/(^|[^A-Z_])HARBOR_(CHAT|EMBED|MEMORY)_/\1HARBORRAG_\2_/g' env/.env.models
+harborrag ingest run <connector> --force-reprocess
 ```
 
-`HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names. With the old names,
-loading the catalog fails with `environment variable HARBORRAG_CHAT_PROVIDER is not set`.
+`harborrag source sync <project>/<connection> --mode force` does the same through the
+workers, by project and connection ID.
+
+Until a source finishes, its documents are still searched with the old vectors. The
+same holds whenever you change `HARBORRAG_EMBED_MODEL` later.
 
 ### What happens at the first start
 
@@ -143,10 +206,9 @@ Each entry becomes a connection:
   without its email, so the `PUT` only adds the `email`.
 
 The plan is logged and the import is recorded in the workspace settings. The
-file is never read again: later changes go through the API. `harborrag init`
-and `harborrag doctor` keep working on the file, and a fresh install made with
-`harborrag init` is imported at its first start the same way. In direct mode,
-`harborrag ingest` runs the same import before its first run.
+file is never read again: later changes go through the API. `harborrag doctor`
+keeps checking the file. `harborrag ingest run` and `harborrag ingest start` run the
+same import before their first submission.
 
 ### Rows from `/api/v1/sources`
 
@@ -193,7 +255,8 @@ token is kept.
   `excluded_extensions`. A connection that does not set `allowed_extensions`
   stops reading other types, and its next full sync removes documents already
   read from them, such as source code in a GitHub repository. Set
-  `"allowed_extensions": []` to keep every type.
+  `"allowed_extensions": []` to keep every type, except on SharePoint, which needs
+  at least one; see [File type filters](connections.md#file-type-filters).
 - **Documents above 20 MiB are skipped by default.** A connection that sets
   `max_file_size_bytes` or `max_attachment_size_bytes` keeps its own value.
 - **Parsers refuse oversized documents**: PDFs above 200 pages, images above
@@ -214,6 +277,13 @@ token is kept.
 
 #### CLI, dependencies and Temporal
 
+- **`harborrag init` is removed**, with its scaffold templates and no replacement;
+  the CLI has eight commands. A project directory an earlier `init` created keeps
+  working through its `harborrag.yaml`, or with `--project DIR`. Set up a new
+  install from a repository checkout, as the
+  [Quick Start](../getting-started/quick-start.md) does. Outside a checkout or a
+  project directory, every command except `doctor` stops with
+  `harborrag: no project found. …`.
 - **`harborrag ingest pause|resume|cancel` use the HTTP rules.** An action the
   run's status does not allow exits 1 with the `invalid_state` message and sends
   nothing to Temporal: pausing a paused run, pausing or resuming a retry run,
@@ -303,8 +373,8 @@ token is kept.
 - **The ingestion event stream uses new event names, with no alias.**
   `task.<id>.progress` and `task.<id>.done` are gone. `run.status`
   (`{status, counters}`, lowercase status; sent when a pause or resume changes
-  the status, and covering `queued`, `running` and `paused`), `stage.progress` (`{stage, done, total}`),
-  `document.failed` (`{document_id, stage, error_category}`) and
+  the status, and covering `queued`, `running` and `paused`), `stage.progress`
+  (`{stage, done, total}`), `document.failed` (`{document_id, stage, error_category}`) and
   `run.completed` (`{counters, finish_reason}`, where `finish_reason` is the
   final status, so a cancel arrives here) replace them, and the stream ends
   after `run.completed`. Each frame's `id` is an integer that increases;
@@ -312,8 +382,8 @@ token is kept.
   the upgrade under the old names stay stored but are not streamed, and a run
   that ended before the upgrade gets only a `run.completed` the first time it
   is read, with no `document.failed` backfill. A reconnect to an ended run
-  with nothing left after its `Last-Event-ID` answers `204`. Clients that matched the
-  old names must switch to the new ones.
+  with nothing left after its `Last-Event-ID` answers `204`. Clients that matched
+  the old names must switch to the new ones.
 - **Ingestion runs answer the explorer `Ingestion` shape**, and the task shape
   (`progress`, `stage`, `source`, `submitted_at`, `message`) is retired with no
   alias. A run carries `ingestion_id`, `tenant_id`, `project_id`,
@@ -339,16 +409,16 @@ token is kept.
   connection that never ran; it was `null` after a cancelled run.
 - **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
   for the failure inbox; see
-  [Change, ingest and delete](connections.md#review-and-retry-failures).
+  [Review and retry failures](connections.md#review-and-retry-failures).
 - **New settings:** `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL`
   fill `links` of a run; add them to `env/.env.api`.
 
 #### Settings schema
 
-- **Settings schema:** `GET /v1/admin/settings/schema` answers
-  `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key;
-  each setting carries `key`, `type`, `default`, `levels`,
-  `applies`, `description`, `min` and `max` for a bounded key, and `enum` for an
+- `GET /v1/admin/settings/schema` answers
+  `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key.
+  Each setting carries `key`, `type`, `default`, `levels`, `applies` and
+  `description`, plus `min` and `max` for a bounded key and `enum` for an
   enumerated key.
 
 #### Chat
@@ -460,27 +530,35 @@ token is kept.
 
 Six settings (`retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`,
 `chunking.max_tokens`, `ingestion.concurrency`, `models.embedding`) can now be
-changed through `/v1/admin/settings` ([Runtime settings](configuration/runtime-settings.md)).
-Nothing changes at upgrade: a setting with no override keeps using the knob
-that governs it today (`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
-`config/ingestion/parsers.yaml`, `config/ingestion/chunking.yaml`, `config/temporal.yaml`), and no
-document is reprocessed.
+changed through `/v1/admin/settings`
+([Runtime settings](configuration/runtime-settings.md)). Nothing changes at
+upgrade: a setting with no override keeps using the knob that governs it today
+(`config/mcp/server.yaml`, `HARBORRAG_CHAT_RETRIEVAL_TOP_K`,
+`config/ingestion/parsers.yaml`, `config/ingestion/chunking.yaml`,
+`config/temporal.yaml`), and no document is reprocessed.
 
 `GET /v1/admin/settings` shows the registry default for a setting with no
 override, even when you changed its old knob. To carry a changed knob over,
 create `config/settings.yaml` before the first start of the new API, with
 only the keys whose old knob you changed and your value for each, for example
 `retrieval.top_k: 8`. Do not copy `config/settings.example.yaml` whole: it
-lists every key you can set at its registry default, and every key in the seed file
-becomes an override that replaces its old knob, so a copied default would pin
-the default over a value you changed. The API seeds the tenant `HARBORRAG_INGESTION_TENANT_ID`
-from that file once, when the tenant has no settings revisions. Set
+lists every key you can set at its registry default, and every key in the seed
+file becomes an override that replaces its old knob, so a copied default would
+pin the default over a value you changed. The API seeds the tenant
+`HARBORRAG_INGESTION_TENANT_ID` names from that file once, when the tenant has
+no settings revisions. Set
 `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another path. After the
 seed, edits to the file only log a `config_yaml_drift` warning; change
 settings with the API or `harborrag config import`.
 
 The first sync after any `parsing.*` or `chunking.*` override reprocesses that
 connection, because both feed the processing identity.
+
+`retrieval.rerank: true` is accepted when the model catalog has a `rerank` section, as
+the shipped catalog now does; without one it is still refused with `422`. Nothing
+reranks at upgrade, because the default stays `false`. Switch it on per project or for
+the tenant to rerank chat retrieval; see
+[Rerank chat retrieval](configuration/runtime-settings.md#rerank-chat-retrieval).
 
 #### Use docling for PDFs
 
@@ -535,13 +613,13 @@ migrated, so plan a reset and a full re-ingest.
 ### 1. Before you upgrade
 
 1. Stop schedules and API submissions. Let every running HarborRAG workflow finish, or
-   terminate them:
+   terminate them with the [Temporal CLI](https://docs.temporal.io/cli):
 
-   ```bash
-   temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'
-   ```
+    ```bash
+    temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'
+    ```
 
-   An alpha1 run resumed by an alpha2 worker cannot find its plans and artifacts.
+    An alpha1 run resumed by an alpha2 worker cannot find its plans and artifacts.
 
 2. Back up the PostgreSQL control database. Restoring that backup, together with the
    untouched alpha1 stores, is the only practical rollback: alpha1 cannot start against a

@@ -1,8 +1,8 @@
 """PaddleOCR output mapping helpers."""
 
 from harborrag_adapters.parsers.pdf.normalization import (
-    content_element,
-    content_from_any,
+    content_element as content_element,
 )
-
-__all__ = ["content_element", "content_from_any"]
+from harborrag_adapters.parsers.pdf.normalization import (
+    content_from_any as content_from_any,
+)

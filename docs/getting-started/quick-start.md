@@ -1,203 +1,273 @@
 # Quick Start
 
-This is the guide to read if you have never used HarborRAG before. In about ten minutes you
-will install it, point it at a folder of documents, and ask questions over them. Nothing
-here needs a copy of the source code.
+In this tutorial you clone HarborRAG, start its local stack, ingest the repository's own
+`docs/` folder, and ask a question about it. It takes about half an hour, most of it spent
+waiting for the first container build.
+
+HarborRAG reads documents from your sources, splits them into passages, and stores those
+passages so you can search them and chat over them. Everything in this tutorial runs on your
+machine, in Docker containers, except the language models, which you reach through a model
+gateway.
 
 ## Before you start
 
-You need three things:
+Install these tools first. Each link goes to the tool's own installation guide.
 
-| | What | How to check |
+| Tool | Why HarborRAG needs it | Check it with |
 | --- | --- | --- |
-| 1 | **Python 3.12 or newer** | `python3 --version` |
-| 2 | **Docker with Compose v2** - runs the three small services HarborRAG stores data in | `docker compose version` |
-| 3 | **An API key** for one model provider: OpenAI, Azure OpenAI, Google Gemini, or an OpenAI-compatible gateway | you will paste it once, into a local file |
+| [Git](https://git-scm.com/downloads) | Clones the repository | `git --version` |
+| [uv](https://docs.astral.sh/uv/getting-started/installation/) | Installs HarborRAG's Python packages. HarborRAG needs Python 3.12, and uv downloads it if your machine does not have it | `uv --version` |
+| [Docker Engine with Compose 2.24 or later](https://docs.docker.com/get-started/get-docker/) | Runs HarborRAG's services in containers | `docker compose version` |
+| OpenSSL | The setup script uses it to generate keys. macOS and most Linux distributions include it | `openssl version` |
+| curl | Checks that the stack is ready | `curl --version` |
 
-The key is used for two things: turning your documents into embeddings during ingestion,
-and answering with `harborrag chat`. A handful of documents costs cents.
+<details markdown="1"><summary>macOS</summary>
 
-## 1. Install
+Install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/),
+which includes Compose, and start it before you continue. The setup script runs with the
+Bash and sed that macOS ships.
+
+</details>
+
+<details markdown="1"><summary>Linux</summary>
+
+Install [Docker Engine](https://docs.docker.com/engine/install/) with its Compose plugin, then
+follow the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/)
+so that your user can run `docker` without `sudo`. The setup script calls `docker` directly.
+
+</details>
+
+<details markdown="1"><summary>Windows</summary>
+
+HarborRAG runs on Linux and macOS only, so use WSL 2:
+[install WSL](https://learn.microsoft.com/windows/wsl/install), turn on
+[Docker Desktop's WSL 2 backend](https://docs.docker.com/desktop/features/wsl/), and run every
+command in this tutorial inside your WSL distribution.
+
+</details>
+
+You also need a **model gateway**: a [LiteLLM proxy](https://docs.litellm.ai/docs/simple_proxy)
+that serves three models, which HarborRAG calls with one URL and one key:
+
+- a chat model, which writes answers;
+- a Cohere Embed v4 model, which turns each passage into the 1536-dimension vector
+  HarborRAG searches (the shipped configuration calls it as a Cohere model, so another
+  embedding model will not work without changing that configuration);
+- a reranking model, which reorders search results for chat.
+
+[The shipped gateway catalog](../users/configuration/model-config.md#the-shipped-gateway-catalog)
+explains how HarborRAG calls each one. If your team already runs a gateway, ask for its URL,
+a key, and the names of those three models. Every model call goes through the gateway, so
+ingesting documents and chatting both cost a little.
+
+Plan for about 1 GB of disk for the Python packages and several GB for the container images.
+
+## 1. Clone the repository and install the CLI
 
 ```bash
-pip install "harborrag[local]"
-harborrag --help
+git clone https://github.com/cbtw-apac/HarborRAG.git
+cd HarborRAG
+uv sync --all-packages --extra production
 ```
 
-`[local]` brings the `harborrag` command and the client libraries for the local stack. The
-primary flow uses `init`, `doctor`, `ingest`, `retrieve`, and `chat` in that order; the CLI
-also exposes `topology` for graph-build operations.
+`uv sync` creates a `.venv/` folder inside the checkout and installs every HarborRAG package
+into it. The `production` extra adds the clients that the `harborrag` command needs to reach
+the stack: Temporal, PostgreSQL, Qdrant, FalkorDB and MinIO. The environment takes about
+800 MB.
 
-## 2. Create a project
-
-A *project* is just a folder that holds HarborRAG's configuration. Create one:
+Run every command in this tutorial from the `HarborRAG` folder. Check that the command works:
 
 ```bash
-harborrag init my-harbor
+uv run harborrag --help
 ```
 
-`init` asks a few questions. Press Enter to accept a default.
+`uv run` runs a command inside `.venv/`. You should see eight commands, grouped by purpose:
+`doctor`, `auth` and `config` (Operations); `chat` (Chat); `retrieve` (Retrieval); and
+`ingest`, `topology` and `source` (Ingestion).
+
+## 2. Create the environment files
+
+HarborRAG keeps its settings and credentials in an `env/` folder that Git ignores. Create it:
+
+```bash
+scripts/deployment/dev.sh bootstrap
+```
+
+`bootstrap` copies seven templates from `env-example/` into `env/`, makes them readable only
+by you, and generates two secrets: `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database`,
+which encrypts the source credentials HarborRAG stores, and a bearer token for the MCP server
+in `env/.env.mcp`. You should see a `Created env/...` line for each file, and among them:
 
 ```text
-Model provider [azure-openai/gemini/openai/openai-compatible] (openai):
-Chat model (gpt-4o-mini):
-Embedding model (text-embedding-3-small):
-OPENAI_API_KEY (blank to fill in later):            ← paste your key; it is not echoed
-Data sources to ingest (comma-separated: local, github, confluence, jira) (local):
-Local folder to ingest (./docs):
+Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in env/.env.database; back it up: stored connection secrets cannot be read without it.
+Generated a protected MCP bearer token in env/.env.mcp.
 ```
 
-Choose `local` for now - a folder on your disk is the fastest way to see results. You can add
-GitHub, Confluence, or Jira later (see [Add more sources](#add-more-sources)).
+Copy the key from `env/.env.database` somewhere safe.
 
-When it finishes you get a numbered list of next steps. The folder now contains:
+Two settings have no safe default, so fill them in now.
 
-| File | What it is for | Will you edit it? |
-| --- | --- | --- |
-| `harborrag.yaml` | Marks the folder as a project; points at the files below | rarely |
-| `.env` | Your API key, plus generated passwords for the local services. Never committed. | when a key changes |
-| `config/sources/connectors.yaml` | *Where* documents come from - one entry per source | when adding sources |
-| `config/models/models.yaml` | *Which* chat and embedding models to use | when switching models |
-| `config/ingestion/parsers.yaml` | *How* PDFs, Office files and images are read | almost never |
-| `config/temporal.yaml` | Only for the durable, worker-based mode - ignore for now | no |
-| `docker-compose.yml` | The three local services | no |
-| `docs/README.md` | A sample document so your first run indexes something | replace with your files |
+**The model gateway.** Open `env/.env.models`. The five lines at the top ship as:
 
-> **Scripting it:** every question has a flag. `harborrag init my-harbor --yes --api-key
-> sk-… --source ./notes --connectors local,github` creates the same project without prompts.
+```dotenv
+HARBORRAG_URL=https://gateway.example.com
+HARBORRAG_API_KEY=REPLACE_WITH_GATEWAY_API_KEY
+HARBORRAG_CHAT_MODEL=REPLACE_WITH_GATEWAY_CHAT_MODEL
+HARBORRAG_EMBED_MODEL=REPLACE_WITH_GATEWAY_EMBEDDING_MODEL
+HARBORRAG_RERANKER_MODEL=REPLACE_WITH_GATEWAY_RERANK_MODEL
+```
 
-## 3. Start the local services
+Replace all five values. `HARBORRAG_URL` is the gateway's base URL without `/v1`, and the
+three model values are names the gateway serves. All five are required, even the reranker:
+`config/models/models.yaml` reads every one of them when it loads. Leave every other
+`REPLACE_WITH_...` placeholder further down the file as it is; this tutorial does not use them.
+
+Check the URL, the key and the model names before you go on, because a mistake here only
+shows up later, as failed documents in step 5:
 
 ```bash
-cd my-harbor
-docker compose up -d
+(set -a; . env/.env.models; curl -s -H "Authorization: Bearer $HARBORRAG_API_KEY" "$HARBORRAG_URL/v1/models")
 ```
 
-This starts Qdrant (vectors), FalkorDB (the knowledge graph), and MinIO (a copy of every
-source file). Data lives in Docker volumes, so it survives `docker compose down`.
+The parentheses read the file's values in a subshell, so they do not stay set in your shell.
+The response should list the three model names you entered.
 
-> **Ports already taken?** If something else on your machine already uses 6333, 6379 or
-> 9000, `init` noticed and moved the whole stack to free ports (it tells you: `Using port
-> offset 10000 …`). Nothing to do - `.env` and `docker-compose.yml` already agree.
+**The control database.** The *control database* is the PostgreSQL database where HarborRAG
+records its sources and ingestion runs. Open `env/.env.database` and remove the `#` in front
+of the `HARBORRAG_CONTROL_DB_URL` line, so that it reads:
+
+```dotenv
+HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
+```
+
+This line points the `harborrag` command on your machine at the stack's database. Without it,
+step 5 stops with
+`Refusing to ingest or change connections from a repo checkout in the local sqlite control DB`.
+
+The template passwords (`change-me`) are fine for this tutorial: the stack publishes its ports
+on `127.0.0.1` only, so nothing outside your machine can reach it.
+
+## 3. Start the local stack
+
+```bash
+scripts/deployment/dev.sh up
+```
+
+`up` starts, in order:
+
+1. the data services: PostgreSQL, Qdrant (passage vectors), FalkorDB (the knowledge graph),
+   Redis, and MinIO (a copy of every source file);
+2. Temporal, the workflow engine that runs each ingestion as a durable workflow, with its web
+   UI;
+3. the ingestion workers, which do the work Temporal schedules;
+4. the HarborRAG API.
+
+The stack publishes its services on these ports of `127.0.0.1`: 5432 (PostgreSQL), 6333 and
+6334 (Qdrant), 6379 and 3000 (FalkorDB), 6380 (Redis), 9000 and 9001 (MinIO), 7233 and 8080
+(Temporal and its UI), and 8000 and 9465 (the API). If another program already uses one of
+them, `up` fails; stop that program, or change the matching `*_PORT` value in `env/` before
+you start.
+
+The first run builds the worker and API images, which takes several minutes. When the API
+answers, `up` prints, among its last lines:
+
+```text
+HarborRAG API is healthy at http://127.0.0.1:8000/healthz
+```
+
+At its first start the API imports `config/sources/connectors.yaml`, whose entries describe
+*connections*: sources HarborRAG can ingest, together with their settings. This tutorial uses
+the `harborrag-workspace` entry, which reads this repository's `docs/` folder and needs no
+credentials.
 
 ## 4. Check everything is in place
 
-```bash
-harborrag doctor
-```
-
-Every line should be a ✓ except the last, which is skipped on purpose:
-
-```text
-╭───────────────────────────── ✓ Ready ──────────────────────────────╮
-│  ✓  project              /home/you/my-harbor                        │
-│  ✓  python packages      local stack clients importable            │
-│  ✓  connectors catalog   1 enabled: workspace                       │
-│  ✓  parsers catalog      …/config/ingestion/parsers.yaml                      │
-│  ✓  models catalog       chat=primary embed=primary                 │
-│  ✓  source path          LOCAL_SOURCE_PATH=./docs                   │
-│  ✓  qdrant               http://localhost:6333                      │
-│  ✓  falkordb             localhost:6379                             │
-│  ✓  object store         http://localhost:9000                      │
-│  ✓  control plane        ready                                      │
-│  –  temporal             client not installed; only needed for …    │
-╰────────────────────────────────────────────────────────────────────╯
-```
-
-If a line shows ✗, the fix is printed under the table. The common ones:
-
-| Line | Detail | What to do |
-| --- | --- | --- |
-| `models catalog` | `OPENAI_API_KEY is blank` | Open `.env`, paste the key after `OPENAI_API_KEY=`, run `doctor` again |
-| `qdrant` / `falkordb` / `object store` | `… unreachable` | Run `docker compose up -d` in the project folder and wait ~15 seconds |
-| `python packages` | `missing: qdrant-client, …` | `pip install "harborrag[local]"` |
-| `source path` | `LOCAL_SOURCE_PATH does not point to an existing directory` | Fix the path in `.env` or create the folder |
-| `connector credentials` | `blank: github: GITHUB_TOKEN` | Fill in the named variables in `.env` (only when you added a remote source) |
-| `project` | `no harborrag.yaml found` | You are outside the project - `cd my-harbor` or add `--project my-harbor` |
-
-## 5. Ingest your documents
-
-Put a few Markdown, text, PDF, Word, PowerPoint, CSV or Excel files into `docs/` (or keep the
-sample), then:
+Ask the API whether it can reach every service:
 
 ```bash
-harborrag ingest run workspace
+curl http://127.0.0.1:8000/readyz
 ```
 
-`workspace` is the name of the local-folder connector `init` created. You will see a live
-block that updates in place:
+You should see:
 
-```text
-⚓ workspace · ingest-3f2a9c… · RUNNING · 00:12
-✓ Discover  ↻ Preflight  ↻ Fetch  ↻ Parse  ↻ Chunk  ↻ Index  ↻ Validate  ↻ Finalize  ○ Reconcile
-████████████████████░░░░░░░░░░░░░░░░░░░░  4/8 documents
-succeeded 4 · unchanged 0 · skipped 0 · failed 0
+```json
+{"status":"ready","checks":{"postgres":"ok","redis":"ok","temporal":"ok","qdrant":"ok","graph":"ok"}}
 ```
 
-followed by a summary panel that ends with `Ingestion completed`. Running the same command
-again is fast and reports the files as `unchanged` - HarborRAG only re-processes what changed.
+If a check is not `ok`, its name tells you which service the API cannot reach. `docker ps`
+shows whether that service's container is running, and
+[Troubleshooting](../users/troubleshooting/README.md) lists common fixes. The Temporal UI at
+<http://localhost:8080> shows each ingestion run while it works.
 
-A document that fails is listed by name with the reason; the rest of the run continues.
+## 5. Ingest the documentation folder
+
+*Ingestion* reads a connection's documents, splits them into passages, and stores each passage
+as a vector in Qdrant and as nodes in the knowledge graph. Start it for `harborrag-workspace`
+and wait for it to finish:
+
+```bash
+uv run harborrag ingest start harborrag-workspace --wait
+```
+
+The command submits the run to the Temporal server on `localhost:7233`, and `--wait` keeps it
+attached until the run ends. Each passage is sent to your gateway's embedding model.
+
+While the run works you see a live block: the run ID and its status, the stages from
+`Discover` to `Reconcile`, a progress bar counting documents, and the number of documents
+`succeeded`, `unchanged`, `skipped` and `failed`. A summary follows when the run ends. A
+document that fails is listed by name; the rest of the run continues.
+
+Run the same command again and the documents are reported as `unchanged`: HarborRAG only
+processes what changed.
+
+If every document fails, check the gateway values from step 2. For other errors, see
+[Troubleshooting](../users/troubleshooting/README.md).
 
 ## 6. Ask a question
 
-Search returns the passages that match, with their scores and source:
+The `harborrag` command searches as its own user, `harborrag-cli`, which has no permissions on
+individual sources, so by default it finds nothing. Let it read everything ingested into the
+`DEFAULT` *tenant*, the isolated set of sources and data that this tutorial uses. The
+ingestion workers use the same setting from `env/.env.temporal`, which the command does not
+read:
 
 ```bash
-harborrag retrieve "what does this project do" --top-k 3 --include-content
+export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
 ```
 
-Chat answers in prose, grounded in those passages, using the chat model you chose:
+These exports last for the current shell. Search for the passages that match a question:
 
 ```bash
-harborrag chat "Summarise what these documents cover in three bullet points."
+uv run harborrag retrieve "How do I start the local stack?" --top-k 3 --include-content
 ```
 
-That is the whole loop: **edit files → `ingest run` → `retrieve` / `chat`.**
+You should see a `Result` tree whose `Results` branch lists three passages, each with its
+`rank` and `score`, and whose `Diagnostics` branch shows `Candidate Hits: 3`;
+`--include-content` adds each passage's text. `Candidate Hits: 0` with no results means the
+search found nothing: check that the two exports above ran in this shell.
 
-## Add more sources
+Ask the chat model for an answer grounded in those passages. It calls your gateway, so it can
+cost a little:
 
-Run `init` again in the project folder and pick additional sources; it asks whether to
-overwrite the configuration (your `.env` is never overwritten - a fresh copy goes to
-`.env.new` so you can merge the new variables). Or edit by hand:
+```bash
+uv run harborrag chat "Summarise what the HarborRAG documentation covers in three bullet points."
+```
 
-1. Add a block to `config/sources/connectors.yaml` - `init --connectors github` shows the shape, and
-   [Connector configuration](../users/configuration/connector-config.md) lists every option.
-2. Add the variables it references (URL, token, email) to `.env`.
-3. `harborrag doctor` confirms nothing is blank, then `harborrag ingest run github`.
+That is the whole loop: change documents, run `ingest start`, then `retrieve` or `chat`.
 
-Each source is ingested with its own name, so `retrieve` and `chat` see all of them together.
+## What you built
 
-## Everyday questions
+You ran HarborRAG's full local stack, ingested a folder through a durable Temporal workflow,
+and searched and chatted over it. Stop the stack with `scripts/deployment/dev.sh down`; add
+`--volumes` to discard the data as well.
 
-**Do I have to run commands from inside the project?** No. HarborRAG looks upward from your
-current folder for `harborrag.yaml`, so `cd my-harbor/docs && harborrag doctor` works. From
-somewhere else, pass `--project /path/to/my-harbor`. For safety it only trusts a project
-folder that *you* own and that other users cannot write to; `--project` is the explicit
-override.
+Next:
 
-**Where is my API key stored?** Only in `.env` in the project folder (permissions `0600`).
-`config/models/models.yaml` refers to it as `${OPENAI_API_KEY}` and never contains the value.
-
-**How do I switch models or providers?** Edit `config/models/models.yaml` (model name, provider) and
-the matching key in `.env`; `harborrag doctor` validates the result. Changing the *embedding*
-model means re-ingesting with `--force-reprocess`.
-
-**How do I start over?** `docker compose down -v` in the project folder deletes the indexed
-data; `rm -rf .harborrag` deletes the local bookkeeping database. Your files and `.env` are
-untouched.
-
-**What about the "durable" mode I see in the docs?** `ingest start`, `status`, `pause`,
-`resume`, `cancel` and `watch` run ingestion through Temporal workers for very large or
-long-running sources. They need the full stack from the repository checkout - see
-[Running HarborRAG from a checkout](../developers/checkout-quick-start.md#run-the-full-stack). For a folder,
-a repository, or a Confluence space, `ingest run` is all you need.
-
-## Where next
-
-- [CLI reference](../users/cli-reference/README.md) - every command and flag
-- [Configuration](../users/configuration/README.md) - connectors, models, parsers in depth
-- [Python SDK](../users/python-sdk/README.md) - the same project, used from your own code
-- [MCP tools](../users/detailed-guides/mcp-server/README.md) - expose retrieval to an IDE or agent
-- [Troubleshooting](../users/troubleshooting/README.md)
-- [Running HarborRAG from a checkout](../developers/checkout-quick-start.md) - for contributors, and for the durable Temporal mode
+- [Running HarborRAG from a checkout](../developers/checkout-quick-start.md) - restart and
+  rebuild single services, drive ingestion runs, and run the tests.
+- [Connections](../users/connections.md) - add Jira, Confluence, SharePoint or GitHub sources.
+- [MCP setup and integration](../users/detailed-guides/mcp-server/setup-and-integration.md) -
+  search HarborRAG from an IDE or an agent.
+- [CLI reference](../users/cli-reference/README.md) - every command and option.
+- [Troubleshooting](../users/troubleshooting/README.md) - fixes for common failures.

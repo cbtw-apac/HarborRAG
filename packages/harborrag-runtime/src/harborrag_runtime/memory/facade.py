@@ -162,6 +162,3 @@ class MemoryFacade:
             entities=await service.entity_resolver(),
         )
         return await extractor.extract(_owner(request), messages=messages)
-
-
-__all__ = ["MemoryFacade"]

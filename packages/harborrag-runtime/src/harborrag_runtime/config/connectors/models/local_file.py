@@ -21,7 +21,7 @@ def local_source_root(environ: Mapping[str, str] | None = None) -> Path | None:
     """The directory local connections must stay inside, when the install sets one.
 
     ``HARBORRAG_LOCAL_SOURCE_ROOT`` wins; otherwise the ``LOCAL_SOURCE_PATH``
-    directory the scaffold and compose files configure.
+    directory the compose files configure.
     """
     env = os.environ if environ is None else environ
     value = env.get(LOCAL_SOURCE_ROOT_VARIABLE) or env.get(LOCAL_SOURCE_PATH_VARIABLE)

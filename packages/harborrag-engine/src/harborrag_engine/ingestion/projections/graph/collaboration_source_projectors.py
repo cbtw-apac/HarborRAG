@@ -332,6 +332,3 @@ class JiraSourceProjector(BaseSourceProjector):
             self.edge(state, RelationType.CONTAINS, container, attachment)
         self.version(state, attachment, document_version)
         return attachment
-
-
-__all__ = ["ConfluenceSourceProjector", "JiraSourceProjector"]

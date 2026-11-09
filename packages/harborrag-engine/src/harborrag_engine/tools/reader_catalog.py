@@ -379,13 +379,3 @@ RESOLVE_GRAPH_NODES_SPEC = ToolSpec(
     ),
     behavior=ToolBehavior(read_only=True, idempotent=True),
 )
-
-__all__ = [
-    "CONTRACT_REVISION",
-    "EVIDENCE_ITEM_SCHEMA",
-    "FETCH_EVIDENCE_SPEC",
-    "GET_DOCUMENT_CONTEXT_SPEC",
-    "LIST_SOURCES_SPEC",
-    "RESOLVE_GRAPH_NODES_SPEC",
-    "reader_success_schema",
-]

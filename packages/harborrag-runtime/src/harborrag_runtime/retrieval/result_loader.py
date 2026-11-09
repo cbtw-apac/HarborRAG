@@ -119,6 +119,3 @@ class EvidenceResultLoader:
             relevance=candidate.relevance,
             metadata=metadata,
         )
-
-
-__all__ = ["EvidenceResultLoader"]

@@ -44,6 +44,3 @@ def tenant_model_sources(
         )
         return None
     return TenantModelSources(catalog=catalog, secrets=secrets)
-
-
-__all__ = ["tenant_model_sources"]

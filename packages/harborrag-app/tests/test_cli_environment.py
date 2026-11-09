@@ -165,8 +165,8 @@ def test_unreadable_database_env_file_is_skipped(tmp_path: Path, monkeypatch) ->
 
 
 def test_minio_credentials_map_only_in_a_repo_checkout(tmp_path: Path, monkeypatch) -> None:
-    # A plain directory or a `harborrag init` project with an env/.env.database of its
-    # own is not the dev stack; its MinIO pair must not become the CLI's credentials.
+    # A plain directory with an env/.env.database of its own is not the dev stack; its
+    # MinIO pair must not become the CLI's credentials.
     _write(tmp_path, "env/.env.database", "MINIO_ROOT_USER=u\nMINIO_ROOT_PASSWORD=p\n")
     _clear_object_store(monkeypatch)
 

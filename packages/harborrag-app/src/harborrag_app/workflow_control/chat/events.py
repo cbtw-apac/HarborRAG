@@ -61,6 +61,3 @@ def cited_event(
         "session_id": options.session_id,
         "project_id": identity.project_id,
     }
-
-
-__all__ = ["cited_event", "error_event"]

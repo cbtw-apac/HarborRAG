@@ -95,6 +95,3 @@ def recalled_entity_ids(context: MemoryContext) -> tuple[str, ...]:
     """
 
     return unique_ids([entity_id for memory in context.recalled for entity_id in memory.entity_ids])
-
-
-__all__ = ["anchored_fact", "recalled_entity_ids", "resolve_entity_ids", "unique_ids"]

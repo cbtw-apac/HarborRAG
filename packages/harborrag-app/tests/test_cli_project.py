@@ -167,7 +167,7 @@ def test_global_value_options_are_all_declared() -> None:
 def test_main_explains_how_to_start_when_no_project_exists(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """Outside a project (and outside a checkout) the CLI must point at `harborrag init`."""
+    """Outside a project and outside a checkout, the CLI points at a checkout or --project."""
 
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
@@ -175,7 +175,7 @@ def test_main_explains_how_to_start_when_no_project_exists(
 
     assert cli.main(["retrieve", "anything", "--json"]) == 1
     err = capsys.readouterr().err
-    assert "harborrag init" in err and "--project" in err
+    assert "repository checkout" in err and "--project" in err
 
 
 def test_walk_up_rejects_a_marker_in_a_directory_owned_by_someone_else(
@@ -279,16 +279,10 @@ def test_root_help_describes_auth_keys(capsys) -> None:
     assert "auth keys" in " ".join(capsys.readouterr().out.split())
 
 
-def test_init_help_shows_default_once(capsys) -> None:
+def test_init_is_no_longer_a_command(capsys) -> None:
     from harborrag_app.cli import main as cli
 
-    assert cli.main(["init", "--help"]) == 0
-
-    import re
-
-    text = " ".join(capsys.readouterr().out.split())
-    # `default: ./docs` (another option) is not the DIR default.
-    assert len(re.findall(r"default: \.(?![\w/])", text)) == 1
+    assert cli.main(["init", "--help"]) != 0
 
 
 @pytest.fixture

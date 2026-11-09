@@ -55,7 +55,7 @@ EOF
 require_control_plane_encryption_key() {
     require_file "${DATABASE_ENV_FILE}" "database environment"
     local configured
-    if [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]]; then
+    if [[ -n "${HARBORRAG_SECRETS_ENCRYPTION_KEY+set}" ]]; then
         configured="${HARBORRAG_SECRETS_ENCRYPTION_KEY}"
     else
         configured="$(
@@ -66,10 +66,16 @@ require_control_plane_encryption_key() {
     configured="${configured#"${configured%%[![:space:]]*}"}"
     configured="${configured%"${configured##*[![:space:]]}"}"
     if [[ -z "${configured}" || "${configured}" == '""' || "${configured}" == "''" ]]; then
-        [[ -v HARBORRAG_SECRETS_ENCRYPTION_KEY ]] &&
+        [[ -n "${HARBORRAG_SECRETS_ENCRYPTION_KEY+set}" ]] &&
             fail "HARBORRAG_SECRETS_ENCRYPTION_KEY is set but blank in this shell; unset it or give it a value."
         generate_encryption_key
     fi
+}
+
+# GNU, BSD and BusyBox sed all accept an attached backup suffix; plain `sed -i` is GNU-only.
+replace_env_line() {
+    sed -i.bak "$1" "$2"
+    rm -f "$2.bak"
 }
 
 # A blank key with no database volume means nothing was stored with one, so generating loses nothing.
@@ -85,7 +91,7 @@ generate_encryption_key() {
         fail "OpenSSL is required to generate HARBORRAG_SECRETS_ENCRYPTION_KEY."
     key="$(openssl rand -hex 32)"
     if grep -Eq '^HARBORRAG_SECRETS_ENCRYPTION_KEY=' "${target_path}"; then
-        sed -i "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
+        replace_env_line "s/^HARBORRAG_SECRETS_ENCRYPTION_KEY=.*/HARBORRAG_SECRETS_ENCRYPTION_KEY=${key}/" "${target_path}"
     else
         printf '\nHARBORRAG_SECRETS_ENCRYPTION_KEY=%s\n' "${key}" >>"${target_path}"
     fi
@@ -106,7 +112,7 @@ ensure_metrics_scrape_token() {
             fail "OpenSSL is required to generate HARBORRAG_METRICS_SCRAPE_TOKEN."
         token="$(openssl rand -hex 32)"
         if grep -Eq '^HARBORRAG_METRICS_SCRAPE_TOKEN=' "${target_path}"; then
-            sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/HARBORRAG_METRICS_SCRAPE_TOKEN=${token}/" "${target_path}"
+            replace_env_line "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/HARBORRAG_METRICS_SCRAPE_TOKEN=${token}/" "${target_path}"
         else
             printf '\nHARBORRAG_METRICS_SCRAPE_TOKEN=%s\n' "${token}" >>"${target_path}"
         fi
@@ -144,7 +150,7 @@ ensure_mcp_environment_file() {
     command -v openssl >/dev/null ||
         fail "OpenSSL is required to generate the local MCP bearer token."
     bearer_token="$(openssl rand -hex 32)"
-    sed -i "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
+    replace_env_line "s/^HARBORRAG_MCP_BEARER_TOKEN=.*/HARBORRAG_MCP_BEARER_TOKEN=${bearer_token}/" "${target_path}"
     chmod 600 "${target_path}"
     echo "Generated a protected MCP bearer token in ${target}."
 }
@@ -241,7 +247,7 @@ prepare_worker_mount() {
 
 worker_replicas() {
     local replicas
-    if [[ -v HARBORRAG_TEMPORAL_WORKER_REPLICAS ]]; then
+    if [[ -n "${HARBORRAG_TEMPORAL_WORKER_REPLICAS+set}" ]]; then
         replicas="${HARBORRAG_TEMPORAL_WORKER_REPLICAS}"
     else
         replicas="$(
@@ -309,7 +315,11 @@ start_api() {
     resolve_local_source_dir
 
     api_compose config --quiet
-    mapfile -t compose_services < <(api_compose config --services)
+    local -a compose_services=()
+    local service
+    while IFS= read -r service; do
+        compose_services+=("${service}")
+    done < <(api_compose config --services)
     if [[ "${#compose_services[@]}" -ne 1 || "${compose_services[0]:-}" != "api" ]]; then
         fail "API Compose configuration must contain only the api service."
     fi
@@ -494,7 +504,7 @@ case "${command}" in
             esac
             shift
         done
-        sharepoint_login "${login_args[@]}"
+        sharepoint_login ${login_args[@]+"${login_args[@]}"}
         ;;
     -h|--help|help)
         usage

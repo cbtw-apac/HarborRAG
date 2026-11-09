@@ -357,6 +357,3 @@ def _log_erasure(
         target,
         " ".join(f"{name}={value}" for name, value in report.as_dict().items()),
     )
-
-
-__all__ = ["ErasureReport", "MemoryAdministrationService"]

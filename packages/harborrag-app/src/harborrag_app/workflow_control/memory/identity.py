@@ -77,6 +77,3 @@ class MemoryIdentity:
             self.session_id,
             self.user_id,
         )
-
-
-__all__ = ["MemoryIdentity"]

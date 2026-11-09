@@ -48,6 +48,3 @@ def build_reader_tool_catalog(
         ListDocumentsTool(runtime=knowledge_runtime, knowledge=knowledge, references=references),
         FindEntitiesTool(runtime=retrieval_runtime, retrieval=retrieval, references=references),
     ]
-
-
-__all__ = ["build_reader_tool_catalog"]

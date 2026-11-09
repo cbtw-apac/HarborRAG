@@ -1,41 +1,45 @@
 # Canonical chunking
 
-This package turns one normalized `Document` into deterministic route and
-evidence chunks. It does not parse raw connector payloads or select Markdown,
-HTML, JSON, PDF, or Office parsers. Those decisions belong to capture and
-normalization before this boundary.
+Contributor notes for `harborrag_engine.ingestion.chunking`, which turns one normalized
+`Document` into deterministic route and evidence chunks. It does not parse raw connector
+payloads or pick Markdown, HTML, JSON, PDF or Office parsers: capture and normalization
+make those decisions before this boundary. The profile settings are described in
+[Chunking configuration](../../../../../../docs/users/configuration/chunking-config.md).
 
 ## Package map
 
 ```text
 chunking/
 ├── config.py           # stable profiles and source-to-profile mapping
-├── schemas.py          # stable input, intermediate, result, and manifest contracts
+├── schemas.py          # stable input, intermediate, result and manifest contracts
 ├── errors.py           # chunking domain errors
+├── anchors.py          # the one reading of a candidate's stable source anchors
 ├── identity/           # deterministic logical and revision identities
-├── transforms/         # segmentation, refinement, packing, and route planning
-├── records/            # record construction, validation, hierarchy, and rebinding
-├── sources/            # canonical, Confluence, Jira, and extension registry
-├── table/              # first-class TableArtifact classification/chunking
-└── pipeline/           # candidate orchestration, result assembly, and composition
+├── transforms/         # segmentation, refinement (incl. table row splits), packing, routing
+├── records/            # record construction, validation, hierarchy and rebinding
+├── sources/            # canonical, Confluence and Jira strategies and the registry
+├── table/              # CanonicalTableChunker for core TableArtifact values
+└── pipeline/           # candidate orchestration, result assembly and composition
 ```
 
-The internal dependency direction is:
+`config.py`, `schemas.py`, `errors.py` and `anchors.py` are the contracts the other
+folders share. Imports point one way:
 
 ```text
-pipeline
-  ├──> sources ───> transforms ───> contracts
-  ├──> records ───> identity ─────> contracts
-  ├──> table ─────> identity
-  └──> contracts (config, schemas, errors)
+pipeline ──> sources ──> transforms ──> contracts
+pipeline ──> records ──> identity ────> contracts
+pipeline ──> transforms, identity, contracts
+table ─────> identity, contracts
 ```
 
-Only `pipeline` composes the complete use case. Lower concerns must not import
-it or reach sideways into unrelated concerns. The root `chunking` package is
-the stable public facade; internal callers should prefer its exports over
-module-specific import paths.
+Only `pipeline` composes the complete use case; lower folders never import it or reach
+sideways into unrelated folders. `table/` is not part of that pipeline: an oversized table
+inside a document is split row by row in `transforms/`, and `CanonicalTableChunker` is
+exported for callers that chunk a `TableArtifact` directly (see
+[table/README.md](table/README.md)). The root `chunking` package is the stable public
+facade, so callers import from it rather than from module paths.
 
-The runtime flow remains one direction:
+## How a document becomes chunks
 
 ```text
 canonical document
@@ -48,21 +52,23 @@ canonical document
   -> validation and manifest
 ```
 
-Confluence and Jira are the maintained source strategies. `canonical` is the
-source-neutral fallback for attachments and community connectors whose
-normalizer already produces canonical elements. Source strategies may add
-stable semantics such as Jira field boundaries or Confluence page identity;
-they must not call connectors, parsers, models, or repositories.
+`ChunkingConfig.source_profiles` maps a normalized connector name to a profile, and the
+profile names the strategy. Confluence and Jira are the maintained source strategies.
+`canonical` is the source-neutral fallback for attachments and for connectors whose
+normalizer already produces canonical elements. A source strategy may add stable
+semantics, such as Jira field boundaries or Confluence page identity, but never calls
+connectors, parsers, models or repositories.
 
-## Adding an open-source source strategy
+## Add a source strategy
 
-Implement `ChunkStrategy`, add a matching `ChunkingProfile`, map the connector
-name through `ChunkingConfig.source_profiles`, and pass the strategy through
-`build_chunking_service(additional_strategies=...)`. No change to
-`ChunkingService` is required.
+1. Implement `ChunkStrategy`, keeping it deterministic and returning units in canonical
+   source order.
+2. Add a matching `ChunkingProfile`.
+3. Map the connector name to that profile in `ChunkingConfig.source_profiles`.
+4. Pass the strategy to `build_chunking_service(additional_strategies=...)`.
 
-Keep strategies deterministic and return units in canonical source order.
-Put reusable segmentation, refinement, packing, identity, and validation
-behavior in `transforms/`, `identity/`, or `records/` rather than copying it
-into a source strategy.
-Raw-format fallbacks belong in parser or normalizer adapters.
+`ChunkingService` needs no change. Put reusable segmentation, refinement, packing,
+identity and validation behaviour in `transforms/`, `identity/` or `records/` instead of
+copying it into a strategy. Raw-format fallbacks belong in parser or normalizer adapters.
+To wire the strategy into production ingestion, see
+[the ingestion runtime notes](../../../../../harborrag-runtime/src/harborrag_runtime/ingestion/README.md).

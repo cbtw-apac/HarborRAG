@@ -40,6 +40,3 @@ class ChatExecutionOptions:
     connections: tuple[str, ...] = ()
     filters: Mapping[str, object] = field(default_factory=dict)
     trace_id: str | None = None
-
-
-__all__ = ["ChatExecutionOptions"]

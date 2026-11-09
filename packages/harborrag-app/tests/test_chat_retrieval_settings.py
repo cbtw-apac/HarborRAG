@@ -1,4 +1,4 @@
-"""Chat reads ``retrieval.top_k`` of the session's project from the settings provider on every turn."""
+"""Chat reads ``retrieval.top_k`` and ``retrieval.rerank`` of the session's project on every turn."""
 
 from __future__ import annotations
 
@@ -76,6 +76,22 @@ async def test_chat_uses_tenant_top_k_without_a_project() -> None:
 @pytest.mark.asyncio
 async def test_chat_default_keeps_env_top_k() -> None:
     assert await _search_top_k(FakeConfigProvider(), project_id="cpm", env_top_k=9) == 9
+
+
+@pytest.mark.asyncio
+async def test_chat_reranks_when_the_project_turns_it_on() -> None:
+    provider = FakeConfigProvider(rerank={"project:cpm": True, "tenant": False})
+
+    _, retrieval = await _complete(provider, project_id="cpm")
+
+    assert retrieval.request.rerank is True  # type: ignore[union-attr]
+
+
+@pytest.mark.asyncio
+async def test_chat_does_not_rerank_by_default() -> None:
+    _, retrieval = await _complete(FakeConfigProvider(), project_id="cpm")
+
+    assert retrieval.request.rerank is False  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio

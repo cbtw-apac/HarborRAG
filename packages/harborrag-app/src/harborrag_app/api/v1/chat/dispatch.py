@@ -61,6 +61,3 @@ def chat_options(
         filters=narrowing.evidence,
         trace_id=trace_id,
     )
-
-
-__all__ = ["ModeUnavailableError", "chat_options"]

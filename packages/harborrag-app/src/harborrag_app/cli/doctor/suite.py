@@ -44,7 +44,7 @@ logger = logging.getLogger("harborrag.app.cli.doctor.suite")
 _QDRANT_HTTP_PORT = 6333
 _QDRANT_GRPC_PORT = 6334
 
-_INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
+_PROJECT_HINT = "Run harborrag inside a HarborRAG repository checkout, or pass --project DIR."
 _CONNECTORS_HINT = (
     "Fix or remove the connector named above in config/sources/connectors.yaml before the first "
     "start; after it, change connections through /v1/admin/projects/.../connections."
@@ -95,7 +95,7 @@ def _project_check() -> Check:
             "project",
             "warn",
             f"no {PROJECT_FILE} found; using the current directory",
-            hint=_INIT_HINT,
+            hint=_PROJECT_HINT,
             required=False,
         )
     return Check("project", "project", "ok", str(project.root))
@@ -143,12 +143,12 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
         else:
             checks.append(Check("connectors catalog", "config", "ok", detail))
     except Exception as exc:  # noqa: BLE001
-        checks.append(Check("connectors catalog", "config", "fail", str(exc), hint=_INIT_HINT))
+        checks.append(Check("connectors catalog", "config", "fail", str(exc), hint=_PROJECT_HINT))
     try:
         load_parser_catalog(settings.parser_config_path)
         checks.append(Check("parsers catalog", "config", "ok", str(settings.parser_config_path)))
     except Exception as exc:  # noqa: BLE001
-        checks.append(Check("parsers catalog", "config", "fail", str(exc), hint=_INIT_HINT))
+        checks.append(Check("parsers catalog", "config", "fail", str(exc), hint=_PROJECT_HINT))
     checks.append(_chunking_check(settings))
     checks.append(models_check(settings.model_config_path))
     if catalog is not None:
@@ -168,7 +168,7 @@ def _chunking_check(settings: RuntimeSettings) -> Check:
     try:
         chunking = chunking_settings_from(settings)
     except Exception as exc:  # noqa: BLE001 - reported as a check, never raised
-        return Check("chunking policy", "config", "fail", str(exc), hint=_INIT_HINT)
+        return Check("chunking policy", "config", "fail", str(exc), hint=_PROJECT_HINT)
     detail = str(chunking.source_path) if chunking.source_path else "built-in defaults"
     problems = code_grammar_problems(chunking.refiner)
     if not problems:
@@ -419,6 +419,3 @@ def _temporal_skipped() -> Check:
             "temporal", "durable", "skip", detail, hint=_TEMPORAL_CLIENT_HINT, required=False
         )
     return Check("temporal", "durable", "skip", "not checked; pass --temporal", required=False)
-
-
-__all__ = ["run_doctor", "settings_error_detail"]

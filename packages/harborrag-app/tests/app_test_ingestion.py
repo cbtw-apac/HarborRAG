@@ -279,6 +279,3 @@ class IngestionServiceFixture:
             True,
             {"run_id": run_id, "action": action},
         )
-
-
-__all__ = ["IngestionServiceFixture"]

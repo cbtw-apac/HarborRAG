@@ -94,6 +94,3 @@ async def build_memory_index(
             exc_info=True,
         )
         return None
-
-
-__all__ = ["MemoryIndexProvider", "MemoryIndexResources", "build_memory_index"]

@@ -261,6 +261,3 @@ def _entity_summaries(policy: object, execution: object) -> EntitySummaryState |
     if policy is None:
         return "disabled"
     return _SUMMARY_STATES.get(execution) if isinstance(execution, str) else None
-
-
-__all__ = ["SourceCatalogReader"]

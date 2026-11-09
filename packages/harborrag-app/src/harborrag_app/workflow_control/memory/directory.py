@@ -165,6 +165,3 @@ class ConversationDirectoryService:
             access.session_id,
             access.user_id,
         )
-
-
-__all__ = ["ConversationDirectoryService"]

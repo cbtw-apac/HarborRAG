@@ -175,6 +175,3 @@ class MemoryPolicy:
             recall_top_k=0,
             query_rewrite=False,
         )
-
-
-__all__ = ["DEFAULT_RECALL_SCOPES", "MemoryPolicy", "MemoryRetention"]

@@ -47,6 +47,3 @@ class MemoryAccess:
             principal_id=self.principal_id,
             user_id=user_id,
         )
-
-
-__all__ = ["MemoryAccess"]

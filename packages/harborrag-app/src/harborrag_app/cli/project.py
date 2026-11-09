@@ -307,25 +307,3 @@ def _env_value(value: Any) -> str:
     if isinstance(value, bool):
         return "true" if value else "false"
     return str(value)
-
-
-__all__ = [
-    "ENV_FILE",
-    "invocation_path",
-    "LEGACY_CONFIG_MARKER",
-    "PROJECT_ENV_VAR",
-    "PROJECT_FILE",
-    "Project",
-    "ProjectConfigurationError",
-    "ProjectError",
-    "ProjectNotFoundError",
-    "UnsafeProjectError",
-    "activate_from_argv",
-    "activate_legacy_checkout",
-    "active_project",
-    "activate_project",
-    "find_legacy_checkout",
-    "find_project",
-    "invocation_cwd",
-    "project_option_from_argv",
-]
