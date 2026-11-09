@@ -6,6 +6,7 @@ from typing import Protocol
 
 from .connections import ConnectionService
 from .projects import ProjectService
+from .settings import SettingsService
 
 
 class ConnectionAdministration(Protocol):
@@ -16,3 +17,6 @@ class ConnectionAdministration(Protocol):
 
     @property
     def project_service(self) -> ProjectService: ...
+
+    @property
+    def settings_service(self) -> SettingsService: ...

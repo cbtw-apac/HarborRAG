@@ -22,6 +22,7 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
+from ..control_plane.settings import SettingsService
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
@@ -157,6 +158,7 @@ class AppService(
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
+        self._settings_service = SettingsService(control_plane=self._control_plane)
 
     @property
     def connection_service(self) -> ConnectionService:
@@ -167,6 +169,11 @@ class AppService(
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
+
+    @property
+    def settings_service(self) -> SettingsService:
+        """Setting-override use cases behind the ``/v1/admin/settings`` routes."""
+        return self._settings_service
 
     async def import_connectors_once(self) -> int:
         """Import ``connectors.yaml`` on the first start of a fresh install."""
