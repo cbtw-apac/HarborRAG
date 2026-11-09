@@ -40,18 +40,30 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 #### harborrag-mcp-server
 
-- `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it too
+- `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
 
 ### Changed
 
 #### harborrag-engine
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
+- The `default` and `concise` chat prompts ask the model to cite sources by their `[n]` number
 
 #### harborrag-app
 
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed` with integer ids, a `: ping` every 15 s and resume from `Last-Event-ID`, a deadline from `api_stream_timeout_seconds` (`error` event `deadline_exceeded`, or `504` before the first event), replacing `task.<id>.progress`, `.done` and `.control`; a pause, resume or cancel appears as a `run.status` with the new status
 - **Breaking:** `POST /v1/chat/sessions` takes `title` and `project_id` (an unknown project is `422 reference_not_found`, `profile_id` is `422` until v2.1.0) and answers the explorer `Session`; `greeting` is gone. `GET /v1/chat/sessions` answers `items` of `Session` with `next_cursor` and searches titles with `q`. `GET /v1/chat/sessions/{session_id}/messages` answers `items` of `Message` newest first, pages with `cursor` and `limit` up to 100, and leaves out answers cut short by a dropped stream. The session routes take the tenant from `X-Tenant-Id` instead of `tenant_id`. New sessions get `ses_…` IDs and new messages `msg_…`; stored `session-…` sessions keep theirs
+- **Breaking:** `POST /v1/chat/completions` answers on the explorer contract, with no alias for the old request or response:
+  - the body takes `message`, `mode` (`classic` or `instant`; `advanced` and `auto` are `422 mode_unavailable`), `reasoning` (`off`), `project_ids` (one-off questions only), `connections`, `filters` and `stream`; the tenant comes from `X-Tenant-Id` and the key from the `Idempotency-Key` header only
+  - the answer is `completion_id`, `session_id`, `trace_id`, `mode`, `answer`, `citations` (`[n]` markers numbered by first use) and `usage` with `cost_usd`
+  - `prompt`, `tenant_id`, `idempotency_key`, `model`, `graph_search`, `project_id`, `outcome`, `refusal_reason`, `provider`, `provider_model`, `message`, `cost`, `latency_ms`, `retry_count`, `fallback_count` and `memory_persisted` are removed
+  - leaving out `session_id` asks a one-off question that creates no session and is not stored; in a session, retrieval reads only the session project's connections at its `retrieval.top_k`, and the answer is stored with the question under `completion_id`
+  - an empty project is `409 no_indexed_content` before any model call, a busy session `409 session_busy` at once, and a provider failure `503 llm_unavailable` with nothing stored
+  - `instant` skips the scope-check model call and graph observation, and an out-of-scope request is an ordinary answer without citations
+  - `stream: true` sends the finished answer as `response.started`, one `response.output_text.delta` and `response.completed`
+- **Breaking:** `harborrag chat` prints the new answer, creates its session in the `--project` project, and refuses `--project` with `--session`
+- **Breaking:** chat completions answer `503 dependency_unavailable` when the answer cannot be stored, `503 llm_unavailable` for an empty answer, and `422` for a whitespace-only `message`; `usage` adds up the scope check and the answer; an `Idempotency-Key` stays free after a failure before any model call, store and retrieval outages included
+- **Breaking:** SDK chat: `ChatExecutionOptions.session_id` is optional, `project_id` became `project_ids`, and `mode`, `connections`, `filters` and `trace_id` are new; `chat_completion()` returns the explorer body and raises the turn's errors; `chat_answer()` yields the turn's events; `validate_chat_model`, `validate_chat_project` and `validate_completion_scope` are removed
 - **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
@@ -94,6 +106,10 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
 - `harborrag ingest pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit 1 with the `invalid_state` message and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
 - `harborrag retrieve` reads on the shared basis for the shared tenant (`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`), as chat does, instead of returning no candidates
+
+#### harborrag-adapters
+
+- Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 
 #### Deployment
 

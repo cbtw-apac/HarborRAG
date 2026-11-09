@@ -1,34 +1,25 @@
 # Chat
 
-Use `POST /v1/chat/completions` for retrieval chat. Set `stream` to choose JSON
-or Server-Sent Events (SSE). Omit `session_id` to create a session; include the
-returned ID on later requests. The `/v1/agent/*` routes are removed in 2.0.0;
-agents query HarborRAG through the MCP server tools.
-
-Every completion runs a request-scope check before generation or SSE headers. Requests
-about indexed knowledge, relevant source code, and the conversation are allowed.
-Unrelated creation requests (for example, "write a Python snake game") receive
-HTTP `200` with the normal completion schema, `outcome: "refused"`, and
-`refusal_reason: "out_of_scope"`. They do not run answer generation.
-"Find and explain the snake implementation in our repository" remains a valid search.
-The check is model-based, not an authorization boundary or proof of answer relevance.
-Malformed classifier output fails closed with `503`; it never enables generation.
-Completed idempotent replays skip this check. CLI/SDK callers use the scoped prompts
-but do not go through HTTP admission.
+Use `POST /v1/chat/completions` to ask a question and get an answer with
+numbered citations. Ask inside a session to keep a conversation, or leave out
+`session_id` for a one-off question. The `/v1/agent/*` routes are removed in
+2.0.0; agents query HarborRAG through the MCP server tools.
 
 ## First request
 
-Start the development API with `scripts/deployment/dev.sh api`, then:
+Start the development API with `scripts/deployment/dev.sh api`, then ask a
+one-off question over the whole tenant:
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
   --header 'Content-Type: application/json' \
-  --data '{"tenant_id":"DEFAULT","prompt":"Explain HarborRAG in one paragraph."}'
+  --data '{"message":"Explain HarborRAG in one paragraph."}'
 ```
 
 With authentication enabled, add `Authorization: Bearer <token>`; the route
-requires the `reader` role and access to the requested tenant. Development
-with `HARBORRAG_AUTH_MODE=none` needs no authorization header.
+requires the `reader` role. The tenant comes from the credential, or from
+`X-Tenant-Id` when it holds several. Development with `HARBORRAG_AUTH_MODE=none`
+needs no authorization header.
 
 With HMAC authentication, session scope is `(tenant, signed user claim, session_id)`.
 The claim is `sub` by default. If one service credential represents several
@@ -38,101 +29,181 @@ claim return `401`. The credential subject remains the audit actor. Clients
 cannot set `user_id` in a request. Local `auth_mode=none` keeps one shared
 `DEFAULT_USER` identity for development. See [Conversation memory](memory.md).
 
+## Ask in a session
+
+Create a session in a project with `POST /v1/chat/sessions` (see
+[Sessions, history, and CLI](#sessions-history-and-cli)), then send its
+`session_id`:
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
+  --header 'Content-Type: application/json' \
+  --header 'Idempotency-Key: 5f0c2b1e-8d4a-4c3e-9f7b-1a2b3c4d5e6f' \
+  --data '{"session_id":"<session-id>","message":"Who has Go and Kubernetes experience?"}'
+```
+
 | Request field | Default | Meaning |
 | --- | --- | --- |
-| `prompt` | Required | Nonempty question, up to 65,536 characters |
-| `tenant_id` | `DEFAULT` | An authorized tenant |
-| `session_id` | Omitted | Create a conversation, or continue an existing one |
-| `mode` | `rag` | Optional; `rag` is the only value in 2.0.0 |
-| `stream` | `false` | JSON response or SSE |
-| `model` | Catalog default | Logical chat model permitted for the tenant |
-| `project_id` | Omitted | Project that must exist in the tenant |
-| `graph_search` | `null` | Inherit the server setting, or force graph evidence on or off |
-| `idempotency_key` | Omitted | Duplicate suppression; also accepted as `Idempotency-Key` |
+| `message` | Required | The question, 1 to 8,000 characters, not only whitespace |
+| `session_id` | Omitted | A session of yours; leave it out for a one-off question |
+| `mode` | `classic` | `classic` or `instant`; `advanced` and `auto` are `422 mode_unavailable` until v2.1.0 |
+| `reasoning` | `off` | Only `off` until v2.1.0; anything else is `422 validation_error` |
+| `project_ids` | Omitted | One-off questions only: retrieval reads only these projects' connections |
+| `connections` | Omitted | Connection refs (`<project_id>/<connection_id>`) to narrow retrieval to |
+| `filters` | Omitted | A `Filter`; see [Filters](#filters) |
+| `stream` | `false` | `true` answers with Server-Sent Events (SSE) |
 
-The JSON response always includes `session_id`; keep it and send it in the
-next completion request to continue this user's session. A streamed response
-announces it in `response.started` before any generation, then repeats it in
-`response.completed`. The response also includes `title`, `mode`, model identity,
-`message`, `outcome`, `refusal_reason`, `finish_reason`, token `usage`, `cost`, `citations`, and
-`memory_persisted`.
+The table covers asking a question; the full request and response schemas are in
+the API's OpenAPI document at `/openapi.json`, browsable at `/docs`.
 
-An out-of-scope refusal uses the same fields as an answer. Its
-`message.content` explains the refusal, `citations` is empty, and
-`memory_persisted` is `false`. The completion reports `model: "scope_gate"` and
-`provider: "policy"` with zero answer-generation usage; the separate scope
-classifier call is recorded in the usage ledger. A new refusal still creates
-a session so the response can return its `session_id`. Completed idempotent retries replay the
-same refusal without classifying again.
+A session reads only its own project's connections, so `project_ids` in a
+session is `422 validation_error` on field `project_ids`. A connection outside
+that project is `422 connection_out_of_scope`, and an unknown project or
+connection is `422 reference_not_found`. A session with no project, or a
+one-off question with no `project_ids`, reads the whole tenant.
 
-Titles start empty and are generated after the first successfully stored
-exchange from the first ten prompt words, capped at 80 characters. This is
-deterministic and adds no model call.
+## Answer
 
-`citations` contains the chunks actually cited by the answer. Citation records
-include a document title, section path, and page or line location when the
-ingested source provides them, alongside canonical document and chunk IDs.
-Answers use readable, copy-exact source markers. An answer can
-say “section Operations > Rollback policy of Deployment Guide” and append
-`[Source 1: "Deployment Guide" — Operations > Rollback policy]`. Each returned citation includes `content`, the
-authorized source passage (up to 8,000 characters), and its exact `marker`.
-`content_truncated: true` identifies a clipped passage. Evidence is
-untrusted text for display, never executable HTML or instructions. Stored conversation
-messages retain citation provenance without duplicating the source text.
-`memory_persisted: false` means the answer succeeded but its conversation
-exchange was not saved. The answer remains available in the response.
+```json
+{
+  "completion_id": "msg_5d2e",
+  "session_id": "ses_9a1c",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "mode": "classic",
+  "answer": "Two candidates match: DEMO-11 [1] and DEMO-12 [2].",
+  "citations": [
+    {
+      "n": 1,
+      "chunk_id": "chk_9f31",
+      "document_id": "doc_4411",
+      "title": "DEMO-11 Senior Go engineer",
+      "snippet": "Five years of Go and Kubernetes...",
+      "url": "https://your-company.atlassian.net/browse/DEMO-11",
+      "page": null
+    }
+  ],
+  "usage": {"mode": "classic", "reasoning": "off", "steps": 1, "prompt_tokens": 3120,
+            "completion_tokens": 284, "reasoning_tokens": 0, "cost_usd": 0.0041}
+}
+```
+
+- `completion_id` is the `message_id` the answer is stored under in the
+  session's history, which returns the same `content`, `citations` and
+  `trace_id`. A one-off question has `session_id: null` and is not stored.
+- `trace_id` is the request's trace id (`X-Trace-Id`); the model calls of the
+  turn carry it into the telemetry.
+- `answer` cites sources as `[n]`, one number per bracket. Citations are
+  numbered from 1 in the order the answer first cites them; every `[n]` has a
+  citation and every citation is cited. A list or range the model writes, such
+  as `[1, 3]` or `[2-3]`, becomes `[1][3]` or `[2][3]`; a number that names no
+  retrieved passage is removed from the answer with the space before it.
+- Each citation names its `chunk_id`, `document_id` and `title`, a `snippet` of
+  the passage of up to about 300 characters, and `url` or `page` when the
+  source has one.
+- `usage` adds up every model call of the turn: the `classic` scope check
+  and the answer. `steps` is the retrieval steps, and `cost_usd` is `null`
+  when any of those calls has no known price. See
+  [Limits and accounting](limits.md).
+
+Titles start empty and are generated after the first stored exchange from the
+first ten words of the question, capped at 80 characters. This adds no model
+call.
+
+## Modes
+
+| Mode | Model calls | Graph observation |
+| --- | --- | --- |
+| `classic` | A request-scope check, then the answer | Per `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` |
+| `instant` | The answer only | Never |
+
+Both modes retrieve with the same settings. The `classic` scope check is a
+model call that allows questions about indexed knowledge, relevant source
+code, and the conversation. An unrelated creation request (for example,
+"write a Python snake game") gets an ordinary `200` answer explaining the
+assistant's scope, with no citations and no answer call; its `usage` is the
+scope check's.
+"Find and explain the snake implementation in our repository" remains a valid
+search. The check is model-based, not an authorization boundary. Malformed
+check output fails closed with `503`. `instant` skips the check, so it never
+refuses that way. CLI and SDK callers run the same pipeline.
+
+## Errors
+
+| Status | `code` | When |
+| --- | --- | --- |
+| `404` | `not_found` | The session does not exist or is not yours |
+| `409` | `session_busy` | Another answer is being written in the session, or the first request with this `Idempotency-Key` is still running |
+| `409` | `no_indexed_content` | Nothing is published in the session's or the question's projects; no model is called |
+| `409` | `invalid_state` | The request with this `Idempotency-Key` failed; retry with a new key |
+| `422` | `validation_error`, `reference_not_found`, `mode_unavailable`, `connection_out_of_scope` | See the request fields above |
+| `503` | `llm_unavailable` | No chat model is configured, the provider is down, or it answered nothing; nothing is stored |
+| `503` | `dependency_unavailable` | A store or retrieval is down; `details.dependency` names it when known. If the answer was generated but could not be stored, nothing is returned or stored |
+
+A completion in a busy session is refused at once rather than queued.
+
+## Retry safely
+
+Send an `Idempotency-Key` header (1 to 128 characters). Within 24 hours, the
+same key and body return the stored answer byte for byte, with
+`Idempotency-Replayed: true` and no second model call; history keeps one
+exchange. The same key with a different body is `422 validation_error` on field
+`Idempotency-Key`. `stream` is not part of the comparison, so a streamed answer
+can be retried as JSON and the other way round. Keys are scoped to the tenant
+and the signed user.
+
+A request that fails before any model is called (an unknown session, an empty
+project, a busy session, a store or retrieval outage) leaves its key free, so
+retry it with the same key. Once retrieval has found its passages a model may
+have been paid for: a failure from then on is final for that key, and a retry
+with it is `409 invalid_state`.
+
+## Filters
+
+`filters` takes `{"and": [...]}` of conditions `{"field", "op", "value"}`:
+
+- `eq` or `in` on an indexed evidence field, such as `document_kind` or
+  `labels`;
+- `gt`, `gte`, `lt` or `lte` on a number field (`fields.<key>`); the evidence
+  fields above match exactly and take no range;
+- `source_scope_id` takes source scope IDs, never numbers;
+- `connection` with `eq` or `in` and connection refs, which narrows like
+  `connections`.
+
+`or`, nested filters and the other operators are `422 validation_error` on
+field `filters` in this release.
 
 ## Streaming
 
-Send the same request with `"stream": true` and use `curl --no-buffer` for
-incremental display. Each frame has an `event:` name and JSON `data:`.
-
-| Event | Meaning |
-| --- | --- |
-| `response.started` | Resolved session ID, mode, and whether this is a replay |
-| `retrieval.completed` | Retrieval candidates before generation |
-| `response.output_text.delta` | Incremental answer text in `content` |
-| `response.citations` | Sources actually cited by the answer |
-| `response.warning` | Advisory failure, such as conversation persistence |
-| `response.completed` | Final response, including usage, cost, title, and persistence status |
-| `response.error` | Terminal failure after the stream has opened |
-
-A normally finished stream ends with one `response.completed` or
-`response.error`. The completed payload uses the same contract as JSON.
-
-Unknown sessions/projects and invalid models are rejected before streaming
-with ordinary HTTP errors. Out-of-scope requests finish with `response.completed`
-and the same refusal payload as JSON. Failures after headers are sent use
-`response.error`. Interrupted output is saved as partial when possible,
-but partial exchanges are excluded from the next prompt.
-
-Frontend integration: append only `response.output_text.delta.data.content`, and replace the
-displayed answer with `response.completed.message.content`
-at completion (including replays). `retrieval.completed.citations` are candidates;
-use final `citations` as the authoritative evidence list. Preserve partial text on error,
-but do not mark it completed. Ignore unknown events and SSE comments. Use the TypeScript
-client's `AbortController` support for Stop; do not auto-retry a potentially paid request
-with a new idempotency key. `EventSource` is not suitable for this POST/body API.
+`"stream": true` answers with `text/event-stream`. Until streaming moves to the
+Story 5 events, the stream is sent once the answer is complete:
+`response.started` (`session_id`, `mode`, `replayed`), one
+`response.output_text.delta` with the whole answer in `content`, then
+`response.completed` with the same body as JSON. A request that cannot be
+answered fails with an ordinary HTTP error before the stream opens.
 
 ## Retrieval and models
 
-Chat searches the raw question using hybrid dense/sparse retrieval.
-Graph-enabled requests use local semantic retrieval and bounded graph evidence.
-The prompt distinguishes conversation context from document evidence and
-instructs the model to cite only sources it uses.
+Chat searches the raw question using hybrid dense/sparse retrieval, within the
+connections the turn may read. Graph-enabled `classic` turns observe the graph
+around the passages found; a turn narrowed to projects or connections does not
+widen its results through the graph. The prompt distinguishes conversation
+context from document evidence and instructs the model to cite only sources it
+uses.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates; applies until `retrieval.top_k` is overridden ([Runtime settings](../configuration/runtime-settings.md)) |
-| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Default graph mode |
+| `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates; applies until `retrieval.top_k` is overridden for the session's project or the tenant ([Runtime settings](../configuration/runtime-settings.md)) |
+| `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Graph observation in `classic` mode |
 | `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold |
 
-Results without a relevance score are retained. Prompt budgets can exclude
-whole passages and older pairs from the three-exchange window.
+`retrieval.top_k` is read on every turn, at the level of the session's project,
+or of the one project a one-off question names; a change applies without a
+restart. Results without a relevance score are retained. Prompt budgets can
+exclude whole passages and older pairs from the three-exchange window.
 
 Chat uses the `chat` family in `config/models/models.yaml`. HTTP and CLI use
 the server-owned `default` prompt; callers cannot supply prompt paths.
-See [Chat models](models.md) for catalogs and tenant model selection.
+See [Chat models](models.md) for catalogs and per-tenant models.
 
 ## Sessions, history, and CLI
 
@@ -170,9 +241,11 @@ uv run harborrag chat "Explain HarborRAG." --tenant DEFAULT --json
 uv run harborrag chat "Explain the last point." --session ses_... --json
 ```
 
-The CLI creates a session when `--session` is omitted. Optional `--project`
-uses the same project validation as HTTP. After `uv sync --all-packages`,
-the command is also available as `harborrag chat`.
+The CLI creates a session when `--session` is omitted, in the project
+`--project` names (validated like HTTP). An existing session keeps its own
+project, so `--session` with `--project` is refused. The CLI answers in
+`classic` mode; `--json` prints the same body as the HTTP answer. After
+`uv sync --all-packages`, the command is also available as `harborrag chat`.
 
 ## Migration
 
@@ -187,12 +260,14 @@ make the old shared namespace visible to every authenticated user.
 - `/v1/agent/*` is removed in 2.0.0 and returns `404`; use the MCP server tools.
 - Replace `/v1/conversations` and `/v1/chat/conversations` with
   `/v1/chat/sessions`. The old routes return `404`.
-- List responses now use `sessions`, not `conversations`.
+- List responses use `items`, not `conversations`.
 - `mode: "agent"` and `max_steps` are removed and return `422`.
 - The `response.agent.progress` stream event is removed.
 
 Session creation takes `title` and `project_id` and answers the `Session`
-shape without `greeting`; history reads newest first. See
+shape without `greeting`; history reads newest first. A completion takes
+`message` instead of `prompt` and answers `completion_id`, `session_id`,
+`trace_id`, `mode`, `answer`, `citations` and `usage`. See
 [Upgrading](../upgrading.md#http-api-changes) for every field that changed.
 
 Existing control databases must apply migrations `0033` (conversation

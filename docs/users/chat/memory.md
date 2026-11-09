@@ -27,7 +27,7 @@ oldest first, then appends the current question once. It excludes:
 - Unanswered user messages and orphan assistant messages.
 - Partial or empty answers.
 
-Only prior complete exchanges enter this window. In RAG mode, retrieval
+Only prior complete exchanges enter this window. In both modes, retrieval
 searches the raw question. Public completion requests do not run rolling
 summaries, query rewriting, long-term recall, or automatic extraction. The
 configurable lower-level SDK memory facilities remain available for explicit
@@ -39,20 +39,21 @@ content.
 
 ## Persistence and titles
 
-RAG chat stores the user prompt before the model call, then stores the answer
-and its actual citations. Interrupted output is marked `partial: true`.
-It remains visible in message history but is excluded from subsequent
-completion context.
+A completion in a session stores the question and its answer together, in one
+write, once the answer is complete. The answer is stored with its `mode`,
+`trace_id` and numbered citations under the `message_id` that the completion
+returns as `completion_id`. Nothing is stored when the turn fails: an
+unreachable model (`503 llm_unavailable`) or a refused request leaves the
+history as it was. If the store cannot keep an answer, the completion fails
+with `503` instead of returning an answer that history does not hold. A
+one-off question, asked without `session_id`, is never stored.
 
 Messages from 1.x agent runs read back as plain user and assistant
-messages; their tool-call steps were removed on upgrade.
-
-`memory_persisted` reports whether the exchange was saved. A persistence
-failure leaves a successful answer available and sets this field to
-`false`.
+messages; their tool-call steps were removed on upgrade, and their empty
+assistant steps are left out of history and of `message_count`.
 
 Conversations begin with no title. After the first persisted exchange, the
-server uses up to ten words of the prompt, capped at 80 characters. This
+server uses up to ten words of the question, capped at 80 characters. This
 requires no model call. An atomic assignment prevents competing workers from
 overwriting a title; a manual rename, including clearing it, always wins.
 

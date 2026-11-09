@@ -19,6 +19,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 
 from ..chat import ChatApplicationService, ChatClientMixin
+from ..chat.scope import ControlPlaneConnectionCatalog
 from ..control_plane.connection_views import IngestionLinks
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
@@ -160,6 +161,9 @@ class AppService(
             extraction=self._extraction,
             usage=usage,
             config=getattr(getattr(composition, "control_plane", None), "config", None),
+            catalog=ControlPlaneConnectionCatalog(
+                lambda: self._control_plane().connections, self._resources.task_registry
+            ),
         )
         self._durable = DurableIngestionOperations(
             self._settings,

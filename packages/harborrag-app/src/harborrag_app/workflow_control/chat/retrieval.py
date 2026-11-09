@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 from harborrag_core.config_store import SettingsLevel
@@ -72,12 +72,12 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
     *,
     identity: MemoryIdentity,
     settings: RuntimeSettings,
-    graph_search: bool | None,
+    observe_graph: bool,
     top_k: int,
+    filters: Mapping[str, object],
 ) -> RetrievalResponse:
-    """Search the current question with the selected retrieval mode."""
+    """Search the current question within ``filters``, observing the graph when asked."""
 
-    graph_enabled = settings.chat_retrieval_graph_search if graph_search is None else graph_search
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
@@ -87,9 +87,10 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
             ),
             query=context.standalone_query,
             top_k=top_k,
+            filters=dict(filters),
             lane=RetrievalLane.HYBRID,
-            observe_graph=graph_enabled,
-            mode=RetrievalMode.LOCAL_SEMANTIC if graph_enabled else RetrievalMode.FLAT,
+            observe_graph=observe_graph,
+            mode=RetrievalMode.LOCAL_SEMANTIC if observe_graph else RetrievalMode.FLAT,
         )
     )
 

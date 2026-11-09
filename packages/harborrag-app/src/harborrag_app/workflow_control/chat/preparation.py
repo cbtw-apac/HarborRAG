@@ -7,7 +7,7 @@ Split out of ``service.py`` so the service keeps only the turn's control flow
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
@@ -20,7 +20,7 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import MemoryContext
 from harborrag_runtime.sdk import HarborRAG
 
-from ..memory.context import recent_memory_context
+from ..memory.context import empty_memory_context, recent_memory_context
 from ..memory.identity import MemoryIdentity
 from .evidence import ChatEvidence
 from .options import ChatExecutionOptions
@@ -74,22 +74,35 @@ async def prepare_turn(
     query: str,
     identity: MemoryIdentity,
     options: ChatExecutionOptions,
+    *,
+    filters: Mapping[str, object] | None = None,
 ) -> PreparedTurn:
     """Load the last three exchanges, search the raw query, and build the request.
 
     Context is loaded before the current question is persisted, so the prompt
-    contains that question once. Retrieval remains scoped to the caller's
-    tenant and project; older conversation history does not enter the prompt.
+    contains that question once; a one-off question has none. Retrieval stays in
+    the caller's tenant and within ``filters``, at the ``retrieval.top_k`` of the
+    identity's project; older conversation history does not enter the prompt.
     """
 
-    context = await recent_memory_context(resources.memory, identity, query)
+    context = (
+        await recent_memory_context(resources.memory, identity, query)
+        if identity.session_id is not None
+        else empty_memory_context(query)
+    )
+    graph_enabled = options.mode == "classic" and (
+        resources.settings.chat_retrieval_graph_search
+        if options.graph_search is None
+        else options.graph_search
+    )
     response = await search_documents(
         resources.runtime(),
         context,
         identity=identity,
         settings=resources.settings,
-        graph_search=options.graph_search,
+        observe_graph=graph_enabled,
         top_k=await chat_top_k(resources.config, identity, resources.settings),
+        filters=filters if filters is not None else options.filters,
     )
     # Gated once, before the results become both the model's evidence and the
     # caller's citations, so an answer is never reported as grounded in a
@@ -97,11 +110,6 @@ async def prepare_turn(
     results = relevant_results(
         response.results,
         minimum=resources.settings.chat_retrieval_min_relevance,
-    )
-    graph_enabled = (
-        resources.settings.chat_retrieval_graph_search
-        if options.graph_search is None
-        else options.graph_search
     )
     evidence = (
         ChatEvidence.prepare(
@@ -123,6 +131,7 @@ async def prepare_turn(
         context=context,
         model=options.model,
         evidence=evidence,
+        trace_id=options.trace_id,
     )
     return PreparedTurn(request, evidence.passages if evidence is not None else results, context)
 

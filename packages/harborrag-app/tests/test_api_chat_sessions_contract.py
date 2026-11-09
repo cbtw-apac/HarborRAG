@@ -49,6 +49,7 @@ CITATION = CitationRecord(
 def service() -> MockAppService:
     double = MockAppService()
     double.tenant_projects = {"DEFAULT": {"cpm"}, "GLOBEX": {"globex-hr"}}
+    double.catalog.add("cpm", "cpm/cpm-tickets", ("scope-cpm-tickets",), documents=1)
     return double
 
 
@@ -361,7 +362,7 @@ def test_a_session_from_the_new_route_still_answers_completions(client: TestClie
 
     response = client.post(
         "/v1/chat/completions",
-        json={"session_id": session_id, "prompt": "Who knows Go?"},
+        json={"session_id": session_id, "message": "Who knows Go?"},
         headers=auth(),
     )
 

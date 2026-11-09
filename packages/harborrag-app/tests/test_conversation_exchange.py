@@ -101,3 +101,15 @@ async def test_a_store_failure_is_raised_and_nothing_is_kept() -> None:
         )
 
     assert await store.recent_messages(OWNER, limit=10) == ()
+
+
+@pytest.mark.parametrize("mode", ["rag", "advanced", ""])
+def test_an_exchange_refuses_a_mode_chat_does_not_answer_in(mode: str) -> None:
+    with pytest.raises(ValueError, match="mode"):
+        ExchangeRecord(question="Q", answer="A", mode=mode, trace_id="t")  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize("n", [0, -1])
+def test_a_citation_number_starts_at_one(n: int) -> None:
+    with pytest.raises(ValueError, match="n"):
+        CitationRecord(n=n, chunk_id="chk_1", document_id="doc_1", title="T", snippet="S")

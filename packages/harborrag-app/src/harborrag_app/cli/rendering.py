@@ -125,12 +125,15 @@ class CliRenderer:
         return by_command.get(command) or by_action.get(action or "")
 
     def _chat(self, data: Mapping[str, Any]) -> None:
-        message = mapping(data.get("message"))
-        content = text(message.get("content", ""))
-        model = text(data.get("model", "unknown"))
-        provider = text(data.get("provider", "unknown"))
-        title = Text.assemble(("HarborChat", "bold cyan"), " ", model, " ", provider)
+        content = text(data.get("answer", ""))
+        mode = text(data.get("mode", "unknown"))
+        title = Text.assemble(("HarborChat", "bold cyan"), " ", mode)
         self.console.print(Panel(content, title=title, border_style="cyan"))
+        for citation in sequence(data.get("citations")):
+            source = mapping(citation)
+            self.console.print(
+                Text.assemble((f"[{source.get('n')}] ", "cyan"), text(source.get("title")))
+            )
 
     def _doctor(self, data: Mapping[str, Any]) -> None:
         table = Table(box=box.SIMPLE, expand=True, show_header=True, pad_edge=False)

@@ -62,18 +62,32 @@ class SessionLocks:
         self._holders: Counter[ConversationIdentity] = Counter()
 
     @asynccontextmanager
-    async def hold(self, identity: ConversationIdentity) -> AsyncIterator[None]:
+    async def hold(
+        self, identity: ConversationIdentity, *, wait: bool = True
+    ) -> AsyncIterator[None]:
+        """Hold the session's turn for the body of the ``async with``.
+
+        Args:
+            identity: The session.
+            wait: Wait up to the acquire timeout for a busy session; ``False`` refuses
+                at once.
+
+        Raises:
+            ConversationTurnBusyError: Another turn holds the session.
+        """
         lock = self._locks.setdefault(identity, asyncio.Lock())
         self._holders[identity] += 1
         deadline = asyncio.get_running_loop().time() + self._acquire_timeout
         try:
             try:
+                if not wait and lock.locked():
+                    raise ConversationTurnBusyError("conversation has an active completion")
                 async with asyncio.timeout_at(deadline):
                     await lock.acquire()
             except TimeoutError as exc:
                 raise ConversationTurnBusyError("conversation has an active completion") from exc
             try:
-                async with self._hold_shared(identity, deadline=deadline):
+                async with self._hold_shared(identity, deadline=deadline, wait=wait):
                     yield
             finally:
                 lock.release()
@@ -85,7 +99,7 @@ class SessionLocks:
 
     @asynccontextmanager
     async def _hold_shared(
-        self, identity: ConversationIdentity, *, deadline: float
+        self, identity: ConversationIdentity, *, deadline: float, wait: bool
     ) -> AsyncIterator[None]:
         repository = self._repository
         if repository is None:
@@ -97,6 +111,8 @@ class SessionLocks:
                 while not await repository.acquire_turn_lease(
                     identity, token=token, lease_seconds=self._lease_seconds
                 ):
+                    if not wait:
+                        raise ConversationTurnBusyError("conversation has an active completion")
                     await asyncio.sleep(self._poll_interval)
         except TimeoutError as exc:
             raise ConversationTurnBusyError("conversation has an active completion") from exc

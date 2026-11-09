@@ -95,7 +95,7 @@ operation gives its lowest role.
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
 | `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a session scoped to one project for its life (`422 reference_not_found` for a project the tenant lacks); list the caller's own, newest first, `q` searches titles |
 | `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages, newest first, with citations and `trace_id`; `404` for another reader's session |
-| `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
+| `POST` | `/v1/chat/completions` | `reader` | Answer one question in mode `instant` or `classic`, in a session (stored in its history under `completion_id`) or as a one-off; the explorer completion body with `[n]` citations and `usage`, as JSON or SSE |
 
 Every `/v1/admin/ingestions*` and `/v1/admin/failures*` route needs role
 `editor` and takes the tenant from `X-Tenant-Id`; there is no `?tenant_id`
@@ -184,8 +184,9 @@ live in the capacity Redis when it is configured; when Redis is unreachable,
 calls go through. The probes and `/metrics` are never limited.
 
 A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
-`504 deadline_exceeded`. A streamed chat body has its own
-`HARBORRAG_API_STREAM_TIMEOUT_SECONDS` (600) and ends with an error frame.
+`504 deadline_exceeded`; a chat completion with `stream: true` is answered
+within it too, before its stream opens. A streamed ingestion event body has its
+own `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` (600) and ends with an error frame.
 
 ## Writes and paging
 
@@ -195,7 +196,7 @@ A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
 | `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
 | `If-Match: *` | Connection `PUT` updates only |
 | `If-None-Match: *` | Project and connection `PUT` create only |
-| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body within 24 h replays the stored result; the same key with another body is `422 validation_error`, and one still running is `409 already_running` |
+| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body (`stream` aside) within 24 h replays the stored body byte for byte without a model call; the same key with another body is `422 validation_error` on field `Idempotency-Key`, one still running is `409 session_busy`, one whose request failed before any model call stays free for a retry, and one that failed after is `409 invalid_state` |
 | Paging | `?limit=` 1–100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
 
 ## Metrics
@@ -235,7 +236,7 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and legacy ingestion calls per principal per minute |
 | `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and legacy ingestion calls per principal |
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
-| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed chat body |
+| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
 | `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Seed file for runtime settings, read once when the tenant has no revisions; later differences log `config_yaml_drift` |
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |

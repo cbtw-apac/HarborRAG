@@ -106,7 +106,7 @@ def test_missing_signed_user_claim_returns_401_before_session_creation(
     with TestClient(create_fastapi_app(settings)) as client:
         response = client.post(
             "/v1/chat/completions",
-            json={"prompt": "Explain the release"},
+            json={"message": "Explain the release"},
             headers={"Authorization": f"Bearer {_token()}"},
         )
         assert response.status_code == 401
@@ -123,36 +123,20 @@ def test_completion_session_history_and_replay_are_isolated_by_user(
     monkeypatch.setattr(api_app, "select_app_service", lambda: (service, "test"))
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")
     path = "/v1/chat"
+    key = {"Idempotency-Key": "request-1"}
 
     with TestClient(create_fastapi_app(settings)) as client:
-        first = client.post(
-            f"{path}/completions",
-            json={"prompt": "Explain the release", "idempotency_key": "request-1"},
-            headers=_headers("alice"),
-        )
+        session_id = client.post(f"{path}/sessions", json={}, headers=_headers("alice")).json()[
+            "session_id"
+        ]
+        body = {"session_id": session_id, "message": "Explain the release"}
+        first = client.post(f"{path}/completions", json=body, headers={**_headers("alice"), **key})
         assert first.status_code == 200
-        session_id = first.json()["session_id"]
-        assert session_id
         assert first.json()["session_id"] == session_id
-        assert (
-            "DEFAULT",
-            "shared-service",
-            "alice",
-            session_id,
-        ) in service.conversation_sessions
-        assert (
-            client.get(f"{path}/sessions", headers=_headers("alice")).json()["items"][0][
-                "session_id"
-            ]
-            == session_id
-        )
+        assert ("DEFAULT", "shared-service", "alice", session_id) in service.conversation_sessions
         assert client.get(f"{path}/sessions", headers=_headers("bob")).json()["items"] == []
 
-        foreign = client.post(
-            f"{path}/completions",
-            json={"session_id": session_id, "prompt": "Explain the release"},
-            headers=_headers("bob"),
-        )
+        foreign = client.post(f"{path}/completions", json=body, headers=_headers("bob"))
         assert foreign.status_code == 404
         assert (
             client.get(
@@ -167,37 +151,30 @@ def test_completion_session_history_and_replay_are_isolated_by_user(
             == 200
         )
 
-        replay = client.post(
-            f"{path}/completions",
-            json={"prompt": "Explain the release", "idempotency_key": "request-1"},
-            headers=_headers("alice"),
-        )
+        replay = client.post(f"{path}/completions", json=body, headers={**_headers("alice"), **key})
         assert replay.status_code == 200
         assert replay.headers["idempotency-replayed"] == "true"
-        assert replay.json()["session_id"] == session_id
+        assert replay.content == first.content
 
         other_credential = {"Authorization": f"Bearer {_token(sub='other-service', oid='alice')}"}
         same_user = client.post(
-            f"{path}/completions",
-            json={"prompt": "Explain the release", "idempotency_key": "request-1"},
-            headers=other_credential,
+            f"{path}/completions", json=body, headers={**other_credential, **key}
         )
         assert same_user.status_code == 200
         assert same_user.headers["idempotency-replayed"] == "true"
-        assert same_user.json()["session_id"] == session_id
 
         bob = client.post(
             f"{path}/completions",
-            json={"prompt": "Explain the release", "idempotency_key": "request-1"},
-            headers=_headers("bob"),
+            json={"message": "Explain the release"},
+            headers={**_headers("bob"), **key},
         )
         assert bob.status_code == 200
         assert bob.headers["idempotency-replayed"] == "false"
-        assert bob.json()["session_id"] != session_id
+        assert bob.json()["session_id"] is None
 
 
 @pytest.mark.blackbox
-def test_stream_announces_session_id_before_completion(
+def test_stream_names_the_session_before_the_completion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     service = MockAppService()
@@ -205,22 +182,20 @@ def test_stream_announces_session_id_before_completion(
     settings = ApiSettings(auth_mode="hmac", auth_secret=SECRET, auth_user_id_claim="oid")
 
     with TestClient(create_fastapi_app(settings)) as client:
+        session_id = client.post("/v1/chat/sessions", json={}, headers=_headers("alice")).json()[
+            "session_id"
+        ]
         response = client.post(
             "/v1/chat/completions",
-            json={"prompt": "Explain the release", "stream": True},
+            json={"session_id": session_id, "message": "Explain the release", "stream": True},
             headers=_headers("alice"),
         )
 
     assert response.status_code == 200
     frames = _sse_frames(response.text)
-    session_id = frames[0][1]["session_id"]
-    assert isinstance(session_id, str) and session_id
-    assert frames[0][0] == "response.started"
+    assert frames[0] == (
+        "response.started",
+        {"session_id": session_id, "mode": "classic", "replayed": False},
+    )
     assert frames[-1][0] == "response.completed"
     assert frames[-1][1]["session_id"] == session_id
-    assert (
-        "DEFAULT",
-        "shared-service",
-        "alice",
-        session_id,
-    ) in service.conversation_sessions

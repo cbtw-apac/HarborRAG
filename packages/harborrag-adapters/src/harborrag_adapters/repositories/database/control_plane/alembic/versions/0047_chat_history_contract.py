@@ -6,7 +6,8 @@ Revises: 0046
 Phase: expand
 Reversible: yes; the downgrade drops the four columns and the values stored in them
 Touches: conversation_sessions (project_id), conversation_messages (mode, trace_id, feedback); nullable, no backfill
-Locks: brief lock on conversation_sessions and conversation_messages to add nullable columns
+Locks: brief lock on conversation_sessions and conversation_messages to add or drop nullable
+       columns; lock_timeout 5s on Postgres in both directions
 Deploy: before the application release
 """
 
@@ -24,9 +25,13 @@ _SESSIONS = "conversation_sessions"
 _MESSAGES = "conversation_messages"
 
 
-def upgrade() -> None:
+def _bound_lock_wait() -> None:
     if op.get_bind().dialect.name == "postgresql":
         op.execute("SET LOCAL lock_timeout = '5s'")
+
+
+def upgrade() -> None:
+    _bound_lock_wait()
     op.add_column(_SESSIONS, sa.Column("project_id", sa.String(128), nullable=True))
     op.add_column(_MESSAGES, sa.Column("mode", sa.String(16), nullable=True))
     op.add_column(_MESSAGES, sa.Column("trace_id", sa.String(64), nullable=True))
@@ -34,6 +39,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _bound_lock_wait()
     with op.batch_alter_table(_MESSAGES) as batch:
         batch.drop_column("feedback")
         batch.drop_column("trace_id")

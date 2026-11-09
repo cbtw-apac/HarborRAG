@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 
 import pytest
+from app_test_chat import FakeConnectionCatalog
 from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_app.workflow_control.chat.errors import UnknownReferenceError
 from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.project import Project
@@ -53,13 +55,17 @@ def _service(
     projects: FakeProjects | None = None,
     results: tuple[RetrievalResult, ...] = (),
     answer: str = "Hello",
+    retrieval: FakeRetrievalFacade | None = None,
 ) -> ChatApplicationService:
-    runtime = FakeRuntime(FakeChatFacade(answer=answer), FakeRetrievalFacade(results))
+    runtime = FakeRuntime(FakeChatFacade(answer=answer), retrieval or FakeRetrievalFacade(results))
+    catalog = FakeConnectionCatalog()
+    catalog.add("proj-1", "proj-1/docs", ("scope-docs",), documents=3)
     return ChatApplicationService(
         lambda: runtime,  # type: ignore[arg-type]
         RuntimeSettings(),
         memory=memory,
         projects=projects,  # type: ignore[arg-type]
+        catalog=catalog,
     )
 
 
@@ -78,8 +84,6 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
     )
 
     assert response.ok is True
-    assert response.data["memory_persisted"] is True
-    assert response.data["project_id"] is None
     user, assistant = await memory.recent_messages(IDENTITY, limit=10)
     assert (user.role, user.content, user.token_count, user.citations_json) == (
         "user",
@@ -92,9 +96,22 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
         answer,
         1,
     )
-    assert json.loads(assistant.citations_json or "null") == [
-        {"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}
-    ]
+    assert (
+        json.loads(assistant.citations_json or "null")
+        == response.data["citations"]
+        == [
+            {
+                "n": 1,
+                "chunk_id": "chunk-1",
+                "document_id": "doc-1",
+                "title": "doc-1",
+                "snippet": "HarborRAG grounds answers.",
+                "url": None,
+                "page": None,
+            }
+        ]
+    )
+    assert assistant.message_id == response.data["completion_id"]
     assert user.message_id != assistant.message_id
     # The turn view (phase-1 history reads) stays derivable from the message log.
     (turn,) = await memory.recent(IDENTITY, limit=2)
@@ -132,24 +149,25 @@ async def test_chat_stream_writes_messages_with_completion_tokens() -> None:
 
 
 @pytest.mark.asyncio
-async def test_chat_completion_echoes_a_valid_project() -> None:
+async def test_a_one_off_question_reads_its_project_and_stores_nothing() -> None:
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY)
     projects = FakeProjects(_project("proj-1"))
-    service = _service(memory, projects=projects)
+    retrieval = FakeRetrievalFacade(RESULTS)
+    service = _service(memory, projects=projects, retrieval=retrieval)
 
     response = await service.complete(
         "Hello",
         tenant_id="ACME",
         principal_id="reader-1",
-        options=ChatExecutionOptions(
-            session_id="session-1", user_id="reader-1", project_id="proj-1"
-        ),
+        options=ChatExecutionOptions(user_id="reader-1", project_ids=("proj-1",)),
     )
 
     assert response.ok is True
-    assert response.data["project_id"] == "proj-1"
+    assert response.data["session_id"] is None
     assert projects.calls == [("proj-1", frozenset({"ACME"}))]
+    assert retrieval.request.filters == {"source_scope_id": ["scope-docs"]}  # type: ignore[union-attr]
+    assert await memory.recent_messages(IDENTITY, limit=10) == ()
 
 
 @pytest.mark.asyncio
@@ -159,16 +177,14 @@ async def test_chat_completion_rejects_unknown_or_foreign_project(project_id: st
     await memory.create(IDENTITY)
     service = _service(memory, projects=FakeProjects(_project("foreign", tenant_id="OTHER")))
 
-    with pytest.raises(HarborNotFoundError, match="Project was not found"):
+    with pytest.raises(UnknownReferenceError, match="Project was not found") as refused:
         await service.complete(
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(
-                session_id="session-1", user_id="reader-1", project_id=project_id
-            ),
+            options=ChatExecutionOptions(user_id="reader-1", project_ids=(project_id,)),
         )
-    assert await memory.recent_messages(IDENTITY, limit=10) == ()
+    assert refused.value.details == {"field": "project_ids"}
 
 
 @pytest.mark.asyncio
@@ -177,14 +193,12 @@ async def test_chat_completion_rejects_a_project_without_a_control_plane() -> No
     await memory.create(IDENTITY)
     service = _service(memory)
 
-    with pytest.raises(HarborNotFoundError, match="Project was not found"):
+    with pytest.raises(UnknownReferenceError, match="Project was not found"):
         await service.complete(
             "Hello",
             tenant_id="ACME",
             principal_id="reader-1",
-            options=ChatExecutionOptions(
-                session_id="session-1", user_id="reader-1", project_id="proj-1"
-            ),
+            options=ChatExecutionOptions(user_id="reader-1", project_ids=("proj-1",)),
         )
 
 
@@ -201,7 +215,7 @@ async def test_chat_stream_reports_unknown_project_as_terminal_error() -> None:
             tenant_id="ACME",
             principal_id="reader-1",
             options=ChatExecutionOptions(
-                session_id="session-1", user_id="reader-1", project_id="missing"
+                session_id="session-1", user_id="reader-1", project_ids=("missing",)
             ),
         )
     ]

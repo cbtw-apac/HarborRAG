@@ -26,6 +26,7 @@ from harborrag_core.ports.conversation import (
     complete_message_pairs,
     decode_conversation_cursor,
     encode_conversation_cursor,
+    is_complete_reply,
     new_message_id,
     normalize_conversation_title,
     turns_from_messages,
@@ -39,7 +40,7 @@ def _require_positive(limit: int) -> None:
 
 
 def _in_history(message: ConversationMessage) -> bool:
-    return message.role in ("user", "assistant") and not message.partial
+    return message.role == "user" or is_complete_reply(message)
 
 
 def _title_contains(title: str | None, query: str | None) -> bool:

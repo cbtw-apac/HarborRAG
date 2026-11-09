@@ -43,11 +43,22 @@ _NEWEST_ACTIVITY_FIRST = (
     ConversationSessionRow.session_id.desc(),
 )
 
+_BLANK = " \t\n\r\f\v"
+"""The whitespace ``trim`` removes, as ``str.strip`` does for ASCII; plain ``trim`` takes
+spaces only."""
+
 HISTORY_MESSAGE: tuple[ColumnElement[bool], ...] = (
-    ConversationMessageRow.role.in_(("user", "assistant")),
-    sa.not_(ConversationMessageRow.partial),
+    sa.or_(
+        ConversationMessageRow.role == "user",
+        sa.and_(
+            ConversationMessageRow.role == "assistant",
+            sa.not_(ConversationMessageRow.partial),
+            sa.func.trim(ConversationMessageRow.content, _BLANK) != "",
+        ),
+    ),
 )
-"""The messages a history page returns and ``message_count`` counts."""
+"""The messages a history page returns and ``message_count`` counts: every question and every
+complete, non-blank answer (the rule of ``is_complete_reply``)."""
 
 _MESSAGE_COUNT = (
     sa.select(sa.func.count())

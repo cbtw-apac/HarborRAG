@@ -20,6 +20,8 @@ from .extraction import (
 from .identity import MemoryIdentity
 from .locks import SessionLocks
 from .messages import (
+    CHAT_MODES,
+    ChatMode,
     CitationRecord,
     ExchangeRecord,
     answer_message,
@@ -32,6 +34,8 @@ from .sessions import ConversationSessionService
 from .usage import ModelCall, record_model_usage
 
 __all__ = [
+    "CHAT_MODES",
+    "ChatMode",
     "CitationRecord",
     "ConversationDirectoryService",
     "ConversationSessionService",

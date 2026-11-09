@@ -18,6 +18,7 @@ from harborrag_app.workflow_control.memory.extraction import (
     submit_exchange,
 )
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryQuery
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -264,7 +265,7 @@ async def test_a_persisted_chat_turn_does_not_trigger_automatic_extraction() -> 
     )
     await queue.drain(timeout=5.0)
 
-    assert response.data["memory_persisted"] is True
+    assert response.ok is True
     assert facade.extractions == []
     persisted = await history.recent_messages(
         ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), limit=2
@@ -282,13 +283,13 @@ async def test_an_unpersisted_chat_turn_is_never_submitted() -> None:
     await queue.start()
     service = _chat_service(runtime, history, queue)
 
-    response = await service.complete(
-        "Where is the runbook?",
-        tenant_id="ACME",
-        principal_id="reader-1",
-        options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
-    )
+    with pytest.raises(HarborConnectionError):
+        await service.complete(
+            "Where is the runbook?",
+            tenant_id="ACME",
+            principal_id="reader-1",
+            options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
+        )
     await queue.drain(timeout=5.0)
 
-    assert response.data["memory_persisted"] is False
     assert facade.extractions == []

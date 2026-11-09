@@ -129,6 +129,22 @@ class IngestionTaskRegistry:
             tenant_id=tenant_id, connection_id=connection_id
         )
 
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """The source scopes each connection has been ingested under, in one read."""
+        return await self._control.connection_records.source_scope_ids_by_connection(
+            tenant_id=tenant_id, connection_ids=connection_ids
+        )
+
+    async def published_connection_ids(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> set[str]:
+        """The connections with at least one published document, in one read."""
+        return await self._control.connection_records.published_connection_ids(
+            tenant_id=tenant_id, connection_ids=connection_ids
+        )
+
     async def get(self, task_id: str) -> IngestionTask | None:
         return await self._control.tasks.get(task_id)
 

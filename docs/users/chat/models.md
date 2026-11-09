@@ -32,7 +32,7 @@ catalog. Configuration loading expands environment references but does not
 load `.env` files itself; the deployment scripts and Compose services load
 `env/.env.models` for you.
 
-Callers may name one logical model (see [Per-tenant models](#per-tenant-models))
+SDK callers may name one logical model (see [Choosing a model per turn](#choosing-a-model-per-turn))
 and one system prompt. They do not accept provider credentials, base URLs,
 custom headers, tools, provider-specific parameters, or sampling overrides.
 Temperature and token limits come entirely from the catalog.
@@ -112,25 +112,15 @@ shared client is what actually serves the request.
 One malformed row is skipped on its own: the rest of the tenant's catalog is
 built normally and the skipped row is logged with its id.
 
-## Choosing a model per request
+## Choosing a model per turn
 
-`POST /v1/chat/completions` accepts an optional `model`:
-
-```json
-{"tenant_id": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
-```
-
-Omitting it resolves the catalog's default, exactly as before. When the tenant
-has its own catalog the name must be one that catalog configured; otherwise it
-must exist in `config/models/models.yaml`. A name outside that bound is rejected
-before the turn starts with `422` and
-`{"code":"validation_error","details":[{"field":"model","issue":"..."}]}` -- never a
-provider error, and never a silent fall back to the default. Streaming
-requests are checked the same way, before any frame is written, so a rejected
-name is one status code rather than an error mid-body.
-
-The response reports the model that actually answered in its existing `model`
-field.
+`POST /v1/chat/completions` takes no `model`: every HTTP and CLI turn answers
+from the tenant's default model (its own catalog's default, else the shared
+catalog's). SDK callers can still name one logical model in
+`ChatExecutionOptions.model`. When the tenant has its own catalog the name must
+be one that catalog configured; otherwise it must exist in
+`config/models/models.yaml`. A name outside that bound is a `validation_error`
+before any model call, never a silent fall back to the default.
 
 ## See also
 

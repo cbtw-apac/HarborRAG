@@ -338,8 +338,71 @@ token is kept.
     `title`, `snippet`, `url` and `page`; a citation stored before this
     release reads back numbered by position, with an empty `snippet`.
   - An answer cut short by a dropped stream is left out of history and out of
-    `message_count`, and system messages are not listed.
+    `message_count`, and system messages are not listed. So are the empty
+    assistant steps of 1.x agent turns.
   - Another reader's session, or an unknown one, is `404 not_found`.
+- **`POST /v1/chat/completions` answers the explorer completion, with no alias
+  for the old request or response.**
+  - The body is `message` (1 to 8,000 characters, was `prompt`), optional
+    `session_id`, `mode` (`classic` by default, or `instant`), `reasoning`
+    (`off` only), `project_ids`, `connections`, `filters` and `stream`.
+    `tenant_id`, `idempotency_key`, `model`, `graph_search` and `project_id`
+    are removed and answer `422`; `mode: "rag"` is `422`, and `advanced` or
+    `auto` is `422 mode_unavailable` until v2.1.0.
+  - The tenant comes from the credential, or from `X-Tenant-Id`. The
+    idempotency key is the `Idempotency-Key` header only, and `session_id` is
+    now part of the request it guards.
+  - Leaving out `session_id` asks a one-off question: `session_id: null` in the
+    answer, nothing stored, and no session created. Create sessions with
+    `POST /v1/chat/sessions`; their project is the turn's scope, and
+    `project_ids` in a session is `422 validation_error`. A connection outside
+    the scope is `422 connection_out_of_scope`.
+  - Retrieval reads only the connections of the session's project (or of the
+    one-off question's `project_ids`), at that project's `retrieval.top_k`. A
+    project with nothing published is `409 no_indexed_content` before any model
+    call.
+  - The answer is `completion_id` (the stored assistant `message_id`),
+    `session_id`, `trace_id`, `mode`, `answer`, `citations` (`n`, `chunk_id`,
+    `document_id`, `title`, `snippet`, `url`, `page`) and `usage` (`mode`,
+    `reasoning`, `steps`, `prompt_tokens`, `completion_tokens`,
+    `reasoning_tokens`, `cost_usd`). `created`, `model`, `provider`,
+    `provider_model`, `message`, `outcome`, `refusal_reason`, `finish_reason`,
+    `cost`, `latency_ms`, `retry_count`, `fallback_count`, `title`,
+    `project_id` and `memory_persisted` are gone.
+  - `usage` adds up every model call of the turn, the `classic` scope check
+    included, instead of only answer generation.
+  - Answers cite sources as `[n]`, numbered from 1 in order of first use,
+    instead of copying `[Source N: …]` labels.
+  - An out-of-scope request is an ordinary answer with no citations.
+  - A provider failure, or an empty answer, is `503 llm_unavailable`, and a
+    busy session is `409 session_busy` at once instead of after a 30 s wait;
+    neither stores anything. The question is stored with its answer, not before
+    the model call. An answer that could not be stored is not returned: the
+    completion is `503 dependency_unavailable` instead of `200` with
+    `memory_persisted: false`.
+  - A `message` of whitespace only is `422 validation_error` on `message`.
+  - An `Idempotency-Key` whose request failed before any model call (an
+    outage, a refusal, a busy session) stays free for a retry; one that failed
+    after is `409 invalid_state`.
+  - With `stream: true`, the stream sends `response.started`, one
+    `response.output_text.delta` with the whole answer, and
+    `response.completed` with the JSON body, once the answer is complete. The
+    `retrieval.completed`, `response.citations`, `response.warning` and
+    `response.error` events are no longer sent.
+- **`harborrag chat`** prints the new answer (`--json` prints the completion
+  body), creates its session in the `--project` project, and refuses
+  `--project` with `--session`.
+- **SDK callers of the chat service** (`harborrag_app.workflow_control`):
+  - `ChatExecutionOptions.session_id` is optional (`None` asks a one-off
+    question), `project_id` is replaced by `project_ids` (one-off questions
+    only), and `mode`, `connections`, `filters` and `trace_id` are new.
+  - `chat_completion()` answers the explorer completion body and raises the
+    turn's errors instead of returning a failed response for them; the new
+    `chat_answer()` yields the turn's events (`RetrievalFound`, `AnswerDelta`,
+    `TurnCompleted`).
+  - `validate_chat_model`, `validate_chat_project` and
+    `validate_completion_scope` are removed: the turn checks the model, the
+    projects and the request's scope itself.
 - **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
   for the failure inbox; see
   [Change, ingest and delete](connections.md#change-ingest-and-delete).
@@ -361,8 +424,7 @@ token is kept.
     test's `preview.sample[].ref` is `item_ref`.
   - `GET /v1/me` returns `principal.principal_type` and
     `principal.principal_id`.
-  - a chat completion returns `completion_id`, and its body sends
-    `tenant_id`.
+  - a chat completion returns `completion_id`.
   - a project delete refused with `409` names `details.connection_refs`, or
     `details.connection_ref` for a connection that is ingesting.
 - **Chat completions are retrieval chat only:** `max_steps` is removed and

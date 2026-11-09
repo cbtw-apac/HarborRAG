@@ -1,21 +1,21 @@
 # Limits and accounting
 
-Completion requests are bounded by server deadlines, capacity limits, and
-conversation coordination. Cost reporting uses LiteLLM's response pricing.
+What bounds a chat completion (deadlines, capacity, one answer at a time per
+session), how to retry one safely, and how its token usage and cost are
+reported.
 
 ## Deadlines and retrieval
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | JSON completion deadline; exceeding it returns `504` |
-| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | SSE lifetime; deadline failures use `response.error` |
+| `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Completion deadline; exceeding it returns `504`. It also bounds a `stream: true` completion, whose answer is complete before the stream opens |
+| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Lifetime of a streamed body |
 
 Request bodies cannot extend these server limits.
 
-Chat retrieval always uses dense/sparse hybrid search. Graph mode is
-optional; it adds graph evidence and work to retrieval. Use
-`graph_search: true` or `false` to override the server default.
-See [retrieval settings](README.md#retrieval-and-models).
+Chat retrieval always uses dense/sparse hybrid search. Graph observation is
+optional; it adds graph evidence and work to `classic` turns, never to
+`instant` ones. See [retrieval settings](README.md#retrieval-and-models).
 
 ## Capacity and concurrency
 
@@ -41,64 +41,55 @@ for one session serialize their context read, generation, and persistence.
 With the shared SQL repository, renewable leases coordinate API replicas.
 A worker that loses its lease is cancelled; storage fencing rejects writes
 from an expired holder. Message ordering uses an atomic sequence allocation.
-A busy session can return `409` when lease acquisition times out.
+A completion in a session that is already answering is refused at once with
+`409 session_busy`.
 The development in-memory fallback coordinates only one process.
 
 ## Duplicate suppression
 
-Supply `Idempotency-Key` or body `idempotency_key` on
-`POST /v1/chat/completions`. If both are present, they must match.
-Keys are scoped to tenant and logical user.
+Send an `Idempotency-Key` header on `POST /v1/chat/completions`; the body
+takes no key. Keys are scoped to tenant and signed user and kept for 24 hours.
 
-Repeat the same request and key to receive the stored completed response
-without another model call. Delivery format is excluded from the request
-fingerprint, so a retry may switch between JSON and SSE. For SSE replay,
-the server sends `response.started` followed by `response.completed`;
-it does not regenerate text deltas. `Idempotency-Replayed` indicates replay.
-
-A key reused for a different request, an in-progress or uncertain operation,
-or a failed operation returns `409`. Failed keys do not automatically
-restart paid work. A deliberate new attempt needs a new key. Without a key,
+Repeat the same request and key to receive the stored answer byte for byte,
+without another model call; `Idempotency-Replayed: true` marks the replay.
+`stream` is left out of the comparison, so a retry may switch between JSON and
+SSE. A key reused with another body is `422 validation_error` on field
+`Idempotency-Key`. While the first request with the key is still running, a
+retry is `409 session_busy`. A request that fails before any model call (an
+unknown session, an empty project, a busy session, a store or retrieval outage)
+leaves its key reusable. Once retrieval has found its passages a model may have
+been charged, so a failure from then on is `409 invalid_state` on retry and a
+deliberate new attempt needs a new key. Without a key,
 a repeated request is a new completion.
 
 ## Usage and cost
 
-The response includes token `usage` and a separate cost object:
+The answer's `usage` adds up every model call of the turn, the `classic` scope
+check and the answer:
 
 ```json
-{
-  "amount_usd": 0.003,
-  "currency": "USD",
-  "status": "estimated",
-  "complete": true,
-  "scope": "answer_generation",
-  "model_calls": 2,
-  "priced_model_calls": 2
-}
+{"mode": "classic", "reasoning": "off", "steps": 1, "prompt_tokens": 3120,
+ "completion_tokens": 284, "reasoning_tokens": 0, "cost_usd": 0.0041}
 ```
 
-The amount above is illustrative. The adapter uses LiteLLM's attached
+The amount above is illustrative. `cost_usd` uses LiteLLM's attached
 `response_cost`, or `litellm.completion_cost` with provider-reported usage
-when attached pricing is absent. Cached-token details are preserved.
+when attached pricing is absent; it is `null` when any call of the turn has no
+known price.
 HarborRAG does not maintain a separate handwritten pricing table here.
 See [LiteLLM cost accounting](https://docs.litellm.ai/docs/completion/token_usage)
 for the response fields and calculator contract.
 
-`amount_usd` is the known subtotal; `complete: false` signals unpriced
-calls. With no prices available, the amount is `null` and status is
-`unavailable`. An explicitly reported zero remains a valid estimate.
+Retrieval embeddings, reranking, infrastructure, and separately invoked memory
+operations are not included. A `classic` turn's scope check is a bounded model
+call, recorded in the usage ledger with `finish_reason=query_scope_gate`, even
+when it refuses the request; a refusal's `usage` is that call. Replays make no
+model call. Automatic conversation titles add no model call.
 
-The scope is **answer generation**. Retrieval embeddings, reranking,
-request-scope classification, infrastructure, and separately invoked memory operations
-are not included. HTTP admission uses one additional bounded model call per fresh
-request, recorded separately in the usage ledger with `finish_reason=query_scope_gate`,
-even when it rejects the request. Completed replays skip admission.
-Automatic conversation titles add no model call.
-
-The usage ledger records completed chat usage and reported usage from
-partial streams. A call with missing prices records a null scalar cost rather
-than claiming a complete bill. A ledger failure does not discard the answer.
-Totals retain tenant, verified user, principal, and session attribution.
+The usage ledger records each model call, including an answer the model left
+empty. A call with missing prices records a null scalar cost rather than
+claiming a complete bill. A ledger failure does not discard the answer. Totals
+retain tenant, verified user, principal, and session attribution.
 
 See [Chat migration](README.md#migration) before upgrading an existing
 control database, and [Conversation memory](memory.md) for persistence and

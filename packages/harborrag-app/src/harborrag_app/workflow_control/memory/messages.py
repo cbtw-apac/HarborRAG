@@ -18,6 +18,7 @@ import json
 import logging
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
+from typing import Literal, get_args
 
 from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import (
@@ -29,10 +30,18 @@ from harborrag_core.ports.conversation import (
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
 
+ChatMode = Literal["instant", "classic"]
+"""The answer modes chat runs in this release."""
+CHAT_MODES: tuple[ChatMode, ...] = get_args(ChatMode)
+
 
 @dataclass(frozen=True, slots=True)
 class CitationRecord:
-    """One numbered source of an assistant answer, stored as history returns it."""
+    """One numbered source of an assistant answer, stored as history returns it.
+
+    Raises:
+        ValueError: ``n`` is below 1.
+    """
 
     n: int
     chunk_id: str
@@ -42,6 +51,10 @@ class CitationRecord:
     url: str | None = None
     page: int | None = None
 
+    def __post_init__(self) -> None:
+        if self.n < 1:
+            raise ValueError("citation n starts at 1")
+
 
 @dataclass(frozen=True, slots=True)
 class ExchangeRecord:
@@ -50,16 +63,23 @@ class ExchangeRecord:
     ``answer_id`` is the assistant message id; a caller that must hand it out
     before the write (a completion's ``completion_id``) generates it with
     ``new_message_id`` and passes it here.
+
+    Raises:
+        ValueError: ``mode`` is not one of ``CHAT_MODES``.
     """
 
     question: str
     answer: str
-    mode: str
+    mode: ChatMode
     trace_id: str
     citations: tuple[CitationRecord, ...] = ()
     completion_tokens: int | None = None
     question_id: str = field(default_factory=new_message_id)
     answer_id: str = field(default_factory=new_message_id)
+
+    def __post_init__(self) -> None:
+        if self.mode not in CHAT_MODES:
+            raise ValueError(f"exchange mode must be one of {', '.join(CHAT_MODES)}")
 
 
 async def record_exchange(
@@ -78,7 +98,9 @@ async def record_exchange(
         The stored user message and assistant message, in that order.
 
     Raises:
-        ValueError: The session does not exist in an in-memory store.
+        ValueError: The session does not exist.
+        HarborConflictError: Another completion holds the session's turn lease, or the
+            caller's lease expired; a plain conflict, answered as ``invalid_state``.
     """
 
     created_at = utc_now()
@@ -184,6 +206,8 @@ async def append_message(
 
 
 __all__ = [
+    "CHAT_MODES",
+    "ChatMode",
     "CitationRecord",
     "ExchangeRecord",
     "answer_message",

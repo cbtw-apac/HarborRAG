@@ -167,6 +167,29 @@ async def test_history_pages_newest_first_without_partial_or_system_messages(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("blank_text", ["  ", "\n", "\t\r\n \f\v"])
+async def test_blank_assistant_rows_from_agent_turns_stay_out_of_history(
+    repo: SqlConversationMemoryRepository, blank_text: str
+) -> None:
+    owner = _identity("ses_1")
+    await repo.create(owner)
+    blank = ConversationMessage(
+        message_id="msg_2",
+        role="assistant",
+        content=blank_text,
+        created_at=datetime.now(UTC),
+    )
+    await repo.append_messages(owner, (_message("msg_1"), blank, _message("msg_3", "assistant")))
+
+    page = await repo.history_page(owner, before_message_id=None, limit=10)
+    summary = await repo.get_conversation(owner)
+
+    assert [message.message_id for message in page] == ["msg_3", "msg_1"]
+    assert summary is not None
+    assert summary.message_count == 2
+
+
+@pytest.mark.asyncio
 async def test_titles_are_searched_case_insensitively_and_literally(
     repo: SqlConversationMemoryRepository,
 ) -> None:
