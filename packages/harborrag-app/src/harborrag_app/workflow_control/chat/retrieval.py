@@ -57,13 +57,34 @@ async def chat_top_k(
     """
     if config is None:
         return settings.chat_retrieval_top_k
-    level = (
-        SettingsLevel("project", project_id=identity.project_id)
-        if identity.project_id
-        else SettingsLevel("tenant")
-    )
-    override = (await config.effective(identity.tenant_id, level)).override("retrieval.top_k")
+    effective = await config.effective(identity.tenant_id, _settings_level(identity))
+    override = effective.override("retrieval.top_k")
     return override if isinstance(override, int) else settings.chat_retrieval_top_k
+
+
+async def chat_rerank(config: ConfigProvider | None, identity: MemoryIdentity) -> bool:
+    """Return whether ``retrieval.rerank`` is on for the session's level.
+
+    A provider that cannot load a never-cached tenant raises ``HarborUnavailableError``.
+
+    Args:
+        config: Runtime settings provider; ``None`` never reranks.
+        identity: Session whose project, else tenant, is the settings level.
+
+    Returns:
+        Whether chat retrieval reranks its passages.
+    """
+    if config is None:
+        return False
+    effective = await config.effective(identity.tenant_id, _settings_level(identity))
+    return effective.override("retrieval.rerank") is True
+
+
+def _settings_level(identity: MemoryIdentity) -> SettingsLevel:
+    """Return the project level when the session has a project, else the tenant level."""
+    if identity.project_id:
+        return SettingsLevel("project", project_id=identity.project_id)
+    return SettingsLevel("tenant")
 
 
 async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrieval parameter
@@ -75,9 +96,9 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
     observe_graph: bool,
     top_k: int,
     filters: Mapping[str, object],
+    rerank: bool,
 ) -> RetrievalResponse:
-    """Search the current question within ``filters``, observing the graph when asked."""
-
+    """Search the current question within ``filters``, observing the graph or reranking as asked."""
     return await runtime.retrieval.search(
         RetrievalRequest(
             access=AccessContext(
@@ -91,5 +112,6 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
             lane=RetrievalLane.HYBRID,
             observe_graph=observe_graph,
             mode=RetrievalMode.LOCAL_SEMANTIC if observe_graph else RetrievalMode.FLAT,
+            rerank=rerank,
         )
     )
