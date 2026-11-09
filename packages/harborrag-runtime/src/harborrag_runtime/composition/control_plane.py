@@ -21,6 +21,7 @@ from harborrag_core.ports.control_plane import (
     ProjectRepositoryPort,
     ProviderRepositoryPort,
     SettingOverrideRepositoryPort,
+    SettingScopeRevisionRepositoryPort,
     SettingsRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -67,6 +68,7 @@ class ControlPlaneRepositories:
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
     setting_overrides: SettingOverrideRepositoryPort | None = None
+    setting_scope_revisions: SettingScopeRevisionRepositoryPort | None = None
 
 
 @dataclass(slots=True)
@@ -136,6 +138,9 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
             SqlSettingOverrideRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_scope_revisions import (
+            SqlSettingScopeRevisionRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.usage import (
             SqlModelUsageRepository,
@@ -215,6 +220,7 @@ class CompositionRoot:
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
             setting_overrides=SqlSettingOverrideRepository(sessions),
+            setting_scope_revisions=SqlSettingScopeRevisionRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

@@ -263,6 +263,28 @@ class SettingOverrideRepositoryPort(Protocol):
         """Total override rows across every tenant, for the empty-database seed guard."""
 
 
+class SettingScopeRevisionRepositoryPort(Protocol):
+    """One monotonic revision per scope; the ETag/If-Match for `PATCH /v1/admin/settings`."""
+
+    async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
+        """Current revision, or 0 when the scope has never been written."""
+
+    async def bump_if_match(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+    ) -> int:
+        """Advance the scope's revision by one and return it.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_revision`` does not match
+                the stored revision (0 when the scope has never been written).
+        """
+
+
 class ProviderRepositoryPort(Protocol):
     """Model provider registry (plan §5.5). See ``ProjectRepositoryPort`` for ``tenant_ids``."""
 

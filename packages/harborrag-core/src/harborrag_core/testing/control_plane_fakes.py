@@ -408,6 +408,33 @@ class FakeSettingOverrideRepository:
 
 
 @dataclass(slots=True)
+class FakeSettingScopeRevisionRepository:
+    """Dict-backed SettingScopeRevisionRepositoryPort, keyed by (tenant, level, scope_id)."""
+
+    revisions: dict[tuple[str, str, str], int] = field(default_factory=dict)
+
+    async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
+        """Current revision, or 0 when the scope has never been written."""
+        return self.revisions.get((tenant_id, scope_level, scope_id), 0)
+
+    async def bump_if_match(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+    ) -> int:
+        """Advance the scope's revision by one and return it."""
+        identity = (tenant_id, scope_level, scope_id)
+        current = self.revisions.get(identity, 0)
+        if expected_revision != current:
+            raise HarborPreconditionFailedError("setting scope revision does not match")
+        self.revisions[identity] = current + 1
+        return current + 1
+
+
+@dataclass(slots=True)
 class FakeProviderRepository:
     """Dict-backed ProviderRepositoryPort."""
 

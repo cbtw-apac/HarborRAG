@@ -82,6 +82,25 @@ class SettingOverrideRow(Base):
     )
 
 
+class SettingScopeRevisionRow(Base):
+    """setting_scope_revisions: one monotonic revision per scope, for ETag/If-Match."""
+
+    __tablename__ = "setting_scope_revisions"
+
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
+    scope_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    revision: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0", nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "scope_level IN ('tenant', 'project', 'connection')",
+            name="ck_setting_scope_revisions_scope_level",
+        ),
+    )
+
+
 class SourceRow(Base):
     """sources: one editable connection per row; credentials store secret refs only."""
 
