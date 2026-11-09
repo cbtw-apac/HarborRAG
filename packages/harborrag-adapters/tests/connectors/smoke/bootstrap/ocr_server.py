@@ -1,6 +1,6 @@
 """Retarget the configured PDF OCR server at a URL this machine can reach.
 
-`config/parsers.yaml` is written for the containerized ingestion worker: the
+`config/ingestion/parsers.yaml` is written for the containerized ingestion worker: the
 enabled `pdf-liteparse` definition points `ocr_server_url` at the
 `ppocr-server` Docker DNS alias, which only resolves inside
 `harborrag-data-network`. These smoke scripts run on the host, where that name
@@ -79,7 +79,7 @@ def apply_host_ocr_server_url(harbor_parser: HarborParserRegistry) -> None:
 
     Only engines that expose an `ocr_server_url` are touched, and a rewrite is
     announced so a smoke run never silently parses against a different OCR
-    service than `config/parsers.yaml` names. The setting lives on an
+    service than `config/ingestion/parsers.yaml` names. The setting lives on an
     `options` object for PDF backends but directly on the engine for the
     image family, so both shapes are checked.
     """

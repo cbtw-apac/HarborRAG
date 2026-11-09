@@ -8,55 +8,30 @@ from typing import Annotated, Protocol, cast
 from fastapi import Depends, Request
 
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.chat.query_scope import QueryScopeValidator
+from harborrag_app.workflow_control.chat.completion import TurnEvent
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_app.workflow_control.schemas import AppResponse
 
 
-class ChatService(QueryScopeValidator, Protocol):
-    async def create_chat_session(
+class ChatService(Protocol):
+    async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
         *,
         tenant_id: str,
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse: ...
 
-    async def chat_session_exists(
-        self,
-        session_id: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        user_id: str | None = None,
-    ) -> bool: ...
-
-    async def validate_chat_model(self, model: str | None, *, tenant_id: str) -> None: ...
-
-    async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None: ...
-
-    async def chat_completion(
+    def chat_answer(
         self,
         query: str,
         *,
         tenant_id: str,
         principal_id: str,
         options: ChatExecutionOptions,
-    ) -> AppResponse: ...
-
-    # ``AsyncGenerator`` and not ``AsyncIterator``: the transport closes this
-    # stream when the client goes away, and the service persists the text it
-    # already delivered while handling that close. ``aclose`` is part of the
-    # contract, not an implementation detail.
-    def chat_stream(
-        self,
-        query: str,
-        *,
-        tenant_id: str,
-        principal_id: str,
-        options: ChatExecutionOptions,
-    ) -> AsyncGenerator[dict[str, object], None]: ...
+    ) -> AsyncGenerator[TurnEvent, None]: ...
 
 
 class ConversationService(Protocol):
@@ -68,14 +43,15 @@ class ConversationService(Protocol):
         *,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> AppResponse: ...
 
     async def conversation_messages(
         self,
         access: MemoryAccess,
         *,
-        after: str | None = None,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> AppResponse: ...
 
 

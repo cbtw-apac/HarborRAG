@@ -14,6 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from harborrag_core.ports.config_store import SettingsStore
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ConnectionRevisionRepositoryPort,
@@ -22,6 +23,7 @@ from harborrag_core.ports.control_plane import (
 )
 from harborrag_core.ports.secrets import SecretsPort
 
+from .config_store import build_settings_store
 from .control_plane import secrets_encryption_key
 
 if TYPE_CHECKING:
@@ -39,6 +41,7 @@ class ConnectionStores:
     secrets: SecretsPort
     projects: ProjectRepositoryPort
     settings: SettingsRepositoryPort
+    config_store: SettingsStore
     engine: AsyncEngine
 
     async def aclose(self) -> None:
@@ -85,6 +88,7 @@ def build_connection_stores(settings: RuntimeSettings) -> ConnectionStores:
         secrets=SqlSecretsRepository(sessions, encryption_key=key),
         projects=SqlProjectRepository(sessions),
         settings=SqlSettingsRepository(sessions),
+        config_store=build_settings_store(engine),
         engine=engine,
     )
 

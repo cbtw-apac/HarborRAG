@@ -189,8 +189,9 @@ credentials. Run it from the checkout root and it reads `env/.env.database`
 `HARBORRAG_CONTROL_DB_URL` and `HARBORRAG_ENV` first. It warns when it would
 otherwise fall back to the local SQLite default, which no MCP server reads.
 The previous file-backed key list
-(`config/mcp_keys.yaml` with hashes in environment variables) still works with
-`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it. The server
+(`config/mcp/keys.yaml` with hashes in environment variables) still works with
+`HARBORRAG_MCP_KEY_STORE=file`, but new deployments should not use it. The repository
+ignores that file; copy `config/mcp/keys.example.yaml` to start one. The server
 validates that file strictly at startup and re-reads it whenever it changes. On a
 re-read, an entry it cannot use (for example, a new key whose hash variable this
 process was not started with) is skipped with a `WARNING` while the other keys keep
@@ -252,7 +253,7 @@ scope should carry. Each facet copies a structured field the connector already
 extracted, verbatim and with no model call:
 
 ```yaml
-# config/topology/graph_build.yaml
+# config/graph/build.yaml
 tenants:
   - tenant_id: DEFAULT
     sources:
@@ -393,7 +394,7 @@ tool.
 2. Enter the same value used for `HARBORRAG_MCP_BEARER_TOKEN`.
 3. Select **Load**.
 
-The editor exposes the validated JSON representation of `config/mcp.yaml`.
+The editor exposes the validated JSON representation of `config/mcp/server.yaml`.
 **Save** atomically writes it back as YAML; **Reload YAML** discards in-memory
 changes and reloads the file.
 
@@ -530,7 +531,7 @@ tools:
 ```
 
 These values control the public tool contract. Model provider, endpoint, and
-credential settings remain in `config/models.yaml` and the process environment;
+credential settings remain in `config/models/models.yaml` and the process environment;
 they cannot be configured through the MCP UI.
 
 ### Tenant overrides
@@ -550,6 +551,8 @@ tenants:
         enabled: false
 ```
 
+TODO: move the per-tenant `tenants:` block out of `config/mcp/server.yaml` into tenant settings.
+
 ### Environment variable overrides
 
 These four override values from the file. They are applied after the file is
@@ -566,7 +569,7 @@ HARBORRAG_MCP_DISABLED_TOOLS
 than overriding a value inside one. Resolution order:
 
 ```text
-HARBORRAG_MCP_CONFIG_PATH  →  config/mcp.yaml  →  packaged defaults/mcp.yaml
+HARBORRAG_MCP_CONFIG_PATH  →  config/mcp/server.yaml  →  packaged defaults/mcp.yaml
 ```
 
 ### When changes take effect
@@ -589,7 +592,7 @@ The configuration fails closed. It rejects:
 - stale revisions
 - limits above compiled safety ceilings
 
-One exception keeps an upgrade from stopping the server. When `config/mcp.yaml` is
+One exception keeps an upgrade from stopping the server. When `config/mcp/server.yaml` is
 read at startup or on reload, a numeric default or limit above a tool's compiled
 safety ceiling is lowered to that ceiling and logged as a `WARNING` that names the
 tool and field. For example, the graph tools now cap `max_depth` at 4 and
@@ -600,7 +603,7 @@ editor still rejects them.
 Change audits store only old/new revision hashes and the authenticated
 principal.
 
-> Effective defaults come from `config/mcp.yaml` and can differ from the
+> Effective defaults come from `config/mcp/server.yaml` and can differ from the
 > advertised schema defaults. Read `GET /api/tools?tenant_id=<tenant>` rather
 > than assuming - see [MCP Tools](README.md).
 
@@ -714,7 +717,7 @@ text, never injected as HTML.
 
 Open `http://127.0.0.1:8010/`, enter the same value used for
 `HARBORRAG_MCP_BEARER_TOKEN`, and select **Load**. The editor exposes the
-validated JSON representation of `config/mcp.yaml`; **Save** atomically writes
+validated JSON representation of `config/mcp/server.yaml`; **Save** atomically writes
 it back as YAML, while **Reload YAML** discards in-memory changes and reloads
 the file.
 
@@ -731,7 +734,7 @@ tools:
 ```
 
 These values control the public tool contract. Model provider, endpoint, and
-credential settings remain in `config/models.yaml` and the process
+credential settings remain in `config/models/models.yaml` and the process
 environment; they cannot be configured through the MCP UI.
 
 Tenant overrides merge over global values:
@@ -804,7 +807,7 @@ docker run --rm harborrag-mcp --check
 ```
 
 The image contains the runtime, model/retrieval adapter extras, packaged prompt
-templates, `config/models.yaml`, and `config/mcp.yaml`. It runs as the non-root
+templates, `config/models/models.yaml`, and `config/mcp/server.yaml`. It runs as the non-root
 `harborrag` user, stores the audit log under its writable home directory, and
 uses stdio by default.
 

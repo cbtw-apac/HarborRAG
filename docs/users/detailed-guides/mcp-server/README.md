@@ -52,7 +52,7 @@ Chat is **not** an MCP tool; it uses the HarborRAG REST API at
 Ingestion is controlled through the CLI or the authenticated API, never through MCP.
 
 > Defaults advertised in the schema can be overridden per deployment in
-> [`config/mcp.yaml`](../../../../config/mcp.yaml). The checked-in vector defaults set
+> [`config/mcp/server.yaml`](../../../../config/mcp/server.yaml). The checked-in vector defaults set
 > `top_k`; graph observation remains off. Confirm effective values with
 > `GET /api/tools?tenant_id=<tenant>`.
 

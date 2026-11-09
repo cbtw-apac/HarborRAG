@@ -73,13 +73,13 @@ def decode_conversation_cursor(cursor: str) -> str:
 def new_session_id() -> str:
     """Generate one API-safe opaque conversation session identifier."""
 
-    return f"session-{uuid4().hex}"
+    return f"ses_{uuid4().hex}"
 
 
 def new_message_id() -> str:
     """Generate one API-safe opaque conversation message identifier."""
 
-    return f"msg-{uuid4().hex}"
+    return f"msg_{uuid4().hex}"
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +142,12 @@ class ConversationMessage:
     but a reader must be able to tell it apart from a finished answer, so the
     flag is part of the canonical record and not a transport detail.
     """
+    mode: str | None = None
+    """The chat mode that wrote an assistant answer; ``None`` on user messages."""
+    trace_id: str | None = None
+    """The trace of the completion that wrote an assistant answer."""
+    feedback: str | None = None
+    """The reader's ``up`` or ``down`` on an assistant answer; ``None`` until given."""
 
     def __post_init__(self) -> None:
         if not self.message_id.strip():
@@ -264,13 +270,37 @@ class ConversationMessageStore(Protocol):
         """
         ...
 
+    async def history_page(
+        self,
+        identity: ConversationIdentity,
+        *,
+        before_message_id: str | None,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        """Return up to ``limit`` history messages older than ``before_message_id``, newest first.
+
+        History holds user messages and assistant answers that are not
+        ``partial``; system messages and cut-short answers are left out.
+        ``None`` pages from the newest message. A ``before_message_id`` that
+        is not a history message of ``identity`` raises ``ValueError``.
+        """
+        ...
+
     async def clear_messages(self, identity: ConversationIdentity) -> None: ...
 
 
 class ConversationSessions(Protocol):
     """Lifecycle contract for persisted conversation session resources."""
 
-    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None: ...
+    async def create(
+        self,
+        identity: ConversationIdentity,
+        *,
+        title: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        """Create the session; ``project_id`` scopes it for its whole life."""
+        ...
 
     async def exists(self, identity: ConversationIdentity) -> bool:
         """Report whether the session exists."""
@@ -288,13 +318,17 @@ class ConversationSessions(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ConversationSummaryRow:
-    """One row of a conversation listing, without any message content."""
+    """One row of a conversation listing, without any message content.
+
+    ``message_count`` counts the messages ``history_page`` returns.
+    """
 
     session_id: str
     title: str | None
     created_at: datetime
     updated_at: datetime
     message_count: int
+    project_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -308,20 +342,29 @@ class ConversationPage:
 class ConversationDirectory(Protocol):
     """Listing and renaming of the conversations one human owns."""
 
-    async def list_conversations(
+    async def list_conversations(  # noqa: PLR0913 - one listing filter per argument
         self,
         *,
         tenant_id: str,
         user_id: str,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> ConversationPage:
         """Return the user's conversations newest-activity first.
 
         ``limit`` is clamped to 1..``MAX_CONVERSATION_PAGE_LIMIT``. ``cursor``
         is opaque and only valid for this ordering; an unknown or malformed
         cursor raises ``ValueError`` rather than silently paging from the start.
+        ``title_query`` keeps titles that contain it, ignoring case, matched
+        literally.
         """
+        ...
+
+    async def get_conversation(
+        self, identity: ConversationIdentity
+    ) -> ConversationSummaryRow | None:
+        """Read one of the caller's conversations, or ``None`` when it is not theirs."""
         ...
 
     async def rename_conversation(

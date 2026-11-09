@@ -2,38 +2,24 @@
 
 from __future__ import annotations
 
-import secrets
-from collections.abc import Sequence
-
 from harborrag_app.workflow_control.schemas import AppResponse
+from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.completion_requests import CompletionClaim
 from harborrag_runtime.memory import (
+    ConversationHistoryRepository,
     ConversationIdentity,
-    ConversationRepository,
     new_session_id,
 )
 
-_GREETINGS: tuple[str, ...] = (
-    "Hello! How can I help you today?",
-    "Hi! What would you like to explore?",
-    "Welcome! Ask me anything about your indexed knowledge.",
-)
+from .presenters import conversation_summary_data
 
 
 class ConversationSessionService:
     """Create authenticated session resources before a completion is requested."""
 
-    def __init__(
-        self,
-        repository: ConversationRepository,
-        *,
-        greetings: Sequence[str] = _GREETINGS,
-    ) -> None:
-        if not greetings:
-            raise ValueError("conversation greetings must not be empty")
+    def __init__(self, repository: ConversationHistoryRepository) -> None:
         self._repository = repository
-        self._greetings = tuple(greetings)
 
     async def create(  # noqa: PLR0913 - one component of the new session per argument
         self,
@@ -42,26 +28,30 @@ class ConversationSessionService:
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse:
-        """``user_id`` owns the conversation; it defaults to the principal.
+        """Create a session and return it as the explorer ``Session``.
 
-        ``title`` names the conversation at creation so a client does not have
-        to create then immediately rename; blank leaves it unnamed, and an
-        over-long title is truncated by the port rather than rejected.
+        Args:
+            tenant_id: The tenant the session lives in.
+            principal_id: The credential that creates it.
+            user_id: The person who owns it; defaults to the shared default user.
+            title: Its name; blank leaves it untitled, an over-long one is truncated.
+            project_id: The validated project every turn is scoped to, fixed for its life.
+
+        Returns:
+            The new session.
+
+        Raises:
+            HarborConnectionError: The store did not return the session it just created.
         """
 
-        session_id = new_session_id()
-        await self._repository.create(
-            _identity(tenant_id, principal_id, session_id, user_id),
-            title=title,
-        )
-        return AppResponse(
-            True,
-            {
-                "session_id": session_id,
-                "greeting": secrets.choice(self._greetings),
-            },
-        )
+        identity = _identity(tenant_id, principal_id, new_session_id(), user_id)
+        await self._repository.create(identity, title=title, project_id=project_id)
+        created = await self._repository.get_conversation(identity)
+        if created is None:
+            raise HarborConnectionError("Conversation store did not keep the new session")
+        return AppResponse(True, conversation_summary_data(created))
 
     async def exists(
         self,

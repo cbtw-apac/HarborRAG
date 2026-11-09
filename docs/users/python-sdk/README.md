@@ -25,7 +25,7 @@ from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalReque
 async def main() -> None:
     access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
 
-    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+    async with HarborRAG.from_config("harborrag.yaml") as harbor:
         await harbor.ingestion.run(
             IngestionRequest(access=access, connector_name="harborrag-workspace")
         )
@@ -47,7 +47,7 @@ authorization are enforced - there is no ambient tenant.
 ## Ingestion
 
 Connectors are declared once in
-[`config/connectors.yaml`](../configuration/connector-config.md) and selected by
+[`config/sources/connectors.yaml`](../configuration/connector-config.md) and selected by
 name, so credentials stay as environment references rather than literals in
 code.
 
@@ -147,7 +147,7 @@ reply = await harbor.chat.complete(
 
 Prompts are `ChatPrompt.DEFAULT` and `ChatPrompt.CONCISE`. Chat needs a model
 client, so install `harborrag[chat]` (or `local`/`server`/`all`) and configure
-`config/models.yaml`. Chat makes a real provider request and may incur charges.
+`config/models/models.yaml`. Chat makes a real provider request and may incur charges.
 
 ## Building connectors in code
 

@@ -1,13 +1,21 @@
 # Connector Configuration
 
-> From 2.0.0, connections live in the control database and are managed
-> through the API ([Connections](../connections.md)). The service reads this
-> file once, at the first start of an install, and imports each entry
-> ([Upgrading](../upgrading.md)). Later edits to the file do not reach the
-> service. `harborrag init`, `harborrag doctor` and the Python loader below
-> still read it.
+Look up the format of `config/sources/connectors.yaml`: the named connector instances
+the runtime loader reads, their settings and secrets, and the options of each provider.
 
-The runtime loader reads versioned YAML containing named connector instances. Start from [`config/connectors.example.yaml`](../../../config/connectors.example.yaml).
+From 2.0.0, connections live in the control database and are managed through the API
+([Connections](../connections.md)). The service reads this file once, at the first start of
+an install, and imports each entry ([Upgrading](../upgrading.md)). Later edits to the file
+do not reach the service. `harborrag init`, `harborrag doctor` and the Python loader below
+still read it.
+
+The runtime loader reads versioned YAML containing named connector instances. The
+`config/sources/` folder holds
+[`connectors.yaml`](../../../config/sources/connectors.yaml), the connections the first
+start imports, and [`connectors.example.yaml`](../../../config/sources/connectors.example.yaml),
+a local-files starting point. The remote providers are opt-in; their entries are under
+[Remote providers](#remote-providers). Declared schedules live beside them in
+`config/sources/schedules.yaml`; see [Scheduled Ingestion](../scheduled-ingestion.md).
 
 ## Supported providers
 
@@ -54,12 +62,62 @@ configuration; see [Ingestion modes](../ingestion-modes.md).
 
 Unknown providers, fields, aliases, versions, and malformed mappings fail during loading. Provider-specific values are validated when a connector is built.
 
+### Remote providers
+
+URLs and source identifiers come from environment variables; credentials stay under
+`secrets`:
+
+```yaml
+connectors:
+  engineering-github:
+    provider: github
+    environment:
+      repository_url: GITHUB_REPOSITORY_URL
+    settings:
+      branch: main
+      root_path: docs
+      allowed_extensions: [md, txt, pdf]
+    secrets:
+      token_env: GITHUB_TOKEN
+
+  confluence-main:
+    provider: confluence
+    environment:
+      base_url: CONFLUENCE_BASE_URL
+      space_key: CONFLUENCE_SPACE_KEY
+    settings:
+      deployment_type: cloud
+      content_types: [page]
+      include_comments: false
+      include_attachments: false
+    secrets:
+      token_env: CONFLUENCE_TOKEN
+      email_env: CONFLUENCE_EMAIL
+
+  jira-main:
+    provider: jira
+    environment:
+      base_url: JIRA_BASE_URL
+    settings:
+      deployment_type: cloud
+      project_keys: [ENG]
+      include_comments: true
+      include_attachments: false
+    secrets:
+      token_env: JIRA_TOKEN
+      email_env: JIRA_EMAIL
+```
+
+The GitHub provider parses `repository_url` into owner and repository. Jira project
+keys are typed YAML values. SharePoint is covered below; its `graph_api_url` defaults
+to `https://graph.microsoft.com/v1.0` and differs for national clouds.
+
 ## Load and build
 
 ```python
 from harborrag_runtime.config import load_connector_catalog
 
-catalog = load_connector_catalog("config/connectors.example.yaml")
+catalog = load_connector_catalog("config/sources/connectors.example.yaml")
 print(catalog.names(enabled_only=True))
 
 local_docs = catalog.build(
@@ -284,7 +342,7 @@ also applies to delegated scopes.
 `auth_mode` is otherwise inferred: `access_token` when a token is set, else
 `client_credentials`. Delegated access is never inferred.
 
-## Secrets and dynamic values
+## Secrets and callbacks
 
 Keep credentials out of `settings`:
 
@@ -327,6 +385,7 @@ outside the code:
 - **Disk.** Every attachment is kept as an immutable artifact (up to
   `max_attachment_size_bytes` each). Size the object store from the rehearsal.
 - **Why did it stop?** `harborrag ingest status RUN_ID` and the run's event
-  trail record pause, resume and cancel requests with who asked
-  (`task.<id>.control` events). A run that ends with
-  `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.
+  log record pause, resume and cancel requests with who asked (`task.<id>.control`
+  events, stored but not sent on the HTTP event stream, where the new status
+  appears as `run.status`). A run that ends with `cancelled_at_safe_boundary` was
+  cancelled on request; it was not a timeout.

@@ -28,7 +28,7 @@ from harborrag_runtime.scheduling.validation import (
 
 
 def test_example_schedule_catalog_loads() -> None:
-    path = Path(__file__).resolve().parents[6] / "config" / "schedules.example.yaml"
+    path = Path(__file__).resolve().parents[6] / "config" / "sources" / "schedules.example.yaml"
     catalog = load_schedule_catalog(path)
 
     assert catalog.prune is False

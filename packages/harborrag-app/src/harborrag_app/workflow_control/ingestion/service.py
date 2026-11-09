@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Sequence
-from datetime import datetime
 
 from harborrag_core.contracts.errors import (
     HarborConflictError,
@@ -17,15 +16,22 @@ from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.errors import WorkflowOperationError, WorkflowSubmissionError
+from harborrag_runtime.errors import (
+    WorkflowNotFoundError,
+    WorkflowNotRunningError,
+    WorkflowOperationError,
+    WorkflowSubmissionError,
+)
 from harborrag_runtime.ingestion_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
+    RunKind,
     SourceSubmission,
 )
 from harborrag_runtime.source_query import SourceQuery
 
 from ..errors import (
+    IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionAlreadyPausedError,
     IngestionAlreadyRunningError,
@@ -33,7 +39,7 @@ from ..errors import (
     IngestionNotFoundError,
     IngestionRetryConflictError,
 )
-from .models import DocumentPageCursor, IngestionCreateCommand
+from .models import IngestionCreateCommand
 from .ports import (
     ClientProvider,
     PublicTaskStore,
@@ -43,18 +49,14 @@ from .ports import (
 )
 from .presenters import (
     STATUS_NAMES,
-    STORAGE_STATUSES,
     TERMINAL_STATES,
-    decode_cursor,
-    document_response,
-    encode_cursor,
     request_hash,
     task_id,
     task_response,
 )
+from .progress_bridge import CONTROL_AUDIT, event_prefix
 from .recovery import retry_from_task, source_from_task
 from .retry_selection import retryable_document_ids
-from .task_pages import TaskListingMixin
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 
@@ -68,6 +70,10 @@ _ENDED_WORKFLOW_STATES = {
     "timed_out": IngestionTaskState.FAILED,
     "completed": IngestionTaskState.FAILED,
 }
+_GONE_WORKFLOW_REASONS: dict[type[WorkflowOperationError], str] = {
+    WorkflowNotFoundError: "workflow_not_found",
+    WorkflowNotRunningError: "workflow_closed",
+}
 
 
 async def record_control_action(
@@ -77,21 +83,21 @@ async def record_control_action(
 
     ``cancelled_at_safe_boundary`` used to be the only trace a cancellation
     left, with nothing saying whether an operator, the API or a script asked
-    for it. The event sits next to the run's progress events, where anyone
-    asking "why did this stop" already looks.
+    for it. The event sits in the run's event log, where anyone asking "why
+    did this stop" already looks; the HTTP event stream does not carry it.
     """
 
     await store.append_task_event(
         task_id,
         HarborEvent(
-            name=f"task.{task_id}.control",
+            name=f"{event_prefix(task_id)}{CONTROL_AUDIT}",
             trace_id=task_id,
             payload={"action": action, "actor": actor or "unknown"},
         ),
     )
 
 
-class IngestionApplicationService(TaskListingMixin):
+class IngestionApplicationService:
     """Coordinate API persistence and workflow submission, never ingestion work."""
 
     def __init__(
@@ -123,6 +129,8 @@ class IngestionApplicationService(TaskListingMixin):
                 source,
                 idempotency_key=idempotency_key,
                 request_hash=hashed_request if idempotency_key is not None else None,
+                actor=command.actor,
+                actor_type=command.actor_type,
             )
         except HarborConflictError as error:
             raise IngestionIdempotencyConflictError(str(error)) from error
@@ -212,7 +220,7 @@ class IngestionApplicationService(TaskListingMixin):
             start_called = False
             try:
                 client = await self._client_provider()
-                if "retry_of" in task.request:
+                if RunKind.of(task.request) is RunKind.RETRY:
                     retry = retry_from_task(task)
                     start_called = True
                     await client.start_retry_failures(retry)
@@ -244,47 +252,10 @@ class IngestionApplicationService(TaskListingMixin):
         except Exception:  # noqa: BLE001 - the claim goes stale and is retried anyway
             logger.exception("Could not release the submission claim task_id=%s", task_id)
 
-    async def list_documents(
-        self,
-        *,
-        task_id: str,
-        status: str | None,
-        cursor: str | None,
-        limit: int,
-    ) -> dict[str, object]:
-        store = await self._task_store_provider()
-        await self._required_task(store, task_id)
-        position = decode_cursor(cursor, task_id=task_id) if cursor else None
-        page = await store.document_results_page(
-            task_id,
-            statuses=STORAGE_STATUSES[status] if status is not None else None,
-            after_updated_at=(
-                datetime.fromisoformat(position.updated_at) if position is not None else None
-            ),
-            after_document_id=(position.document_id if position is not None else None),
-            limit=limit,
-        )
-        active = await store.active_versions([str(item.document_id) for item in page.items])
-        items = [document_response(item, active) for item in page.items]
-        next_cursor = None
-        if page.has_more and page.items:
-            last = page.items[-1]
-            last_updated_at = require(
-                last.updated_at,
-                "paged document result is missing updated_at",
-            )
-            next_cursor = encode_cursor(
-                task_id=task_id,
-                position=DocumentPageCursor(
-                    updated_at=last_updated_at.isoformat(),
-                    document_id=str(last.document_id),
-                ),
-            )
-        return {"items": items, "next_cursor": next_cursor}
-
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
+        _refuse_retry_run(task, "paused")
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         if task.status is IngestionTaskState.PAUSED:
@@ -296,13 +267,14 @@ class IngestionApplicationService(TaskListingMixin):
         await record_control_action(store, task_id, action="pause", actor=actor)
         return {
             "task_id": task.task_id,
-            "status": STATUS_NAMES[IngestionTaskState.PENDING],
+            "status": STATUS_NAMES[task.status],
             "message": "Pause requested",
         }
 
     async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
+        _refuse_retry_run(task, "resumed")
         if task.status in TERMINAL_STATES:
             raise IngestionAlreadyCompletedError("The ingestion task is already complete.")
         if task.status is IngestionTaskState.RUNNING:
@@ -326,12 +298,7 @@ class IngestionApplicationService(TaskListingMixin):
         if await self.settle_if_ended(task_id):
             task = await self._required_task(store, task_id)
         else:
-            try:
-                await (await self._client_provider()).cancel(task_id)
-            except WorkflowOperationError as error:
-                raise HarborConnectionError(
-                    "Ingestion cancellation is temporarily unavailable."
-                ) from error
+            task = await self._cancel_workflow(store, task)
         await record_control_action(store, task_id, action="cancel", actor=actor)
         return {
             "task_id": task.task_id,
@@ -339,13 +306,39 @@ class IngestionApplicationService(TaskListingMixin):
             "message": "Cancellation requested",
         }
 
+    async def _cancel_workflow(self, store: PublicTaskStore, task: IngestionTask) -> IngestionTask:
+        """Ask the run's workflow to cancel and return the run as it now stands.
+
+        A run whose workflow is gone or closed, such as one whose history passed the
+        namespace retention, is recorded as cancelled here, since no workflow is left
+        to record it. A queued source run is left queued: its workflow may not be
+        submitted yet.
+
+        Raises:
+            HarborConnectionError: Temporal could not take the request.
+        """
+        kind = RunKind.of(task.request)
+        try:
+            await (await self._client_provider()).cancel(task.task_id, kind)
+        except WorkflowOperationError as error:
+            reason = _GONE_WORKFLOW_REASONS.get(type(error))
+            if reason is None or _may_await_submission(task, kind):
+                raise HarborConnectionError(
+                    "Ingestion cancellation is temporarily unavailable."
+                ) from error
+            await store.close_abandoned(task.task_id, IngestionTaskState.CANCELLED, reason=reason)
+            return await self._required_task(store, task.task_id)
+        return task
+
     async def settle_if_ended(self, task_id: str) -> bool:
         """Record the end of a run whose workflow ended without recording it.
 
         A workflow terminated in Temporal never runs the step that records its end,
-        so its run would stay active and block its connection. Only a workflow
-        Temporal reports as ended settles a run; any other answer, paused or not
-        found included, leaves it active, since a retry run has its own workflow id.
+        so its run would stay active and block its connection. The run's own workflow
+        is described: ``harborrag-retry:<id>`` for a retry run, ``harborrag-source:<id>``
+        otherwise. Only a workflow Temporal reports as ended settles a run; any other
+        answer, paused or not found included, leaves it active, since a queued run may
+        not be submitted yet.
 
         Args:
             task_id: The run to check.
@@ -359,7 +352,9 @@ class IngestionApplicationService(TaskListingMixin):
             return True
         try:
             async with asyncio.timeout(_WORKFLOW_LOOKUP_SECONDS):
-                status = await (await self._client_provider()).execution_status(task_id)
+                status = await (await self._client_provider()).execution_status(
+                    task_id, RunKind.of(task.request)
+                )
         except Exception:  # noqa: BLE001 - an unknown answer keeps the run active
             logger.debug("Could not read the workflow of ingestion %s", task_id, exc_info=True)
             return False
@@ -380,6 +375,8 @@ class IngestionApplicationService(TaskListingMixin):
         *,
         task_id: str,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> dict[str, object]:
         store = await self._task_store_provider()
         original = await self._required_task(store, task_id)
@@ -401,6 +398,8 @@ class IngestionApplicationService(TaskListingMixin):
             retry_task_id=retry_task_id,
             original=original,
             document_ids=selected,
+            actor=actor,
+            actor_type=actor_type,
         )
         try:
             tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
@@ -458,3 +457,18 @@ class IngestionApplicationService(TaskListingMixin):
         if task is None:
             raise IngestionNotFoundError("Ingestion task was not found.")
         return task
+
+
+def _refuse_retry_run(task: IngestionTask, past: str) -> None:
+    """Raise for a retry run: its workflow can be cancelled but not paused or resumed.
+
+    Raises:
+        IngestionActionStateError: ``task`` is a retry run.
+    """
+    if RunKind.of(task.request) is RunKind.RETRY:
+        raise IngestionActionStateError(f"retry runs cannot be {past}; cancel the run instead")
+
+
+def _may_await_submission(task: IngestionTask, kind: RunKind) -> bool:
+    """Whether ``task`` is a queued source run, whose workflow may not be submitted yet."""
+    return kind is RunKind.SOURCE and task.status is IngestionTaskState.PENDING

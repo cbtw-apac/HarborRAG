@@ -154,9 +154,6 @@ async def test_app_service_submits_queries_and_controls_temporal() -> None:
     assert health.ok and health.data["runtime"]["provider"] == "temporal"
     status = await service.ingestion_status("run-1")
     assert status.ok and status.data["progress"]["discovered"] == 2
-    paused = await service.control_ingestion("run-1", "pause")
-    assert paused.ok
-    assert temporal.signals[-1] == ("run-1", "pause", None)
 
 
 def test_ingest_cli_has_stable_json_envelope(monkeypatch, capsys) -> None:
@@ -349,8 +346,8 @@ def test_an_unreportable_health_check_does_not_block_the_command(monkeypatch, ca
 
 
 def _checkout(tmp_path, monkeypatch) -> None:
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    (tmp_path / "config" / "sources").mkdir(parents=True)
+    (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     # conftest's autouse fixture sets a per-test sqlite URL; the fallback means "unset".

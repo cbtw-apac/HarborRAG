@@ -106,7 +106,7 @@ async def test_database_memory_delegates_and_closes_its_engine() -> None:
     await memory.aclose()
 
     repository.recent.assert_awaited_once_with(identity, limit=5)
-    repository.create.assert_awaited_once_with(identity, title=None)
+    repository.create.assert_awaited_once_with(identity, title=None, project_id=None)
     repository.exists.assert_awaited_once_with(identity)
     repository.append.assert_awaited_once_with(identity, turn)
     repository.clear.assert_awaited_once_with(identity)
@@ -153,7 +153,7 @@ async def test_in_memory_messages_round_trip_and_derive_turns() -> None:
     stored = await memory.recent_messages(identity, limit=10)
     assert stored[:4] == messages
     assert [m.role for m in stored[4:]] == ["user", "assistant"]
-    assert stored[4].message_id.startswith("msg-")
+    assert stored[4].message_id.startswith("msg_")
     assert await memory.recent_messages(identity, limit=1) == stored[-1:]
     # The blank assistant stub stays in raw history but does not displace
     # the completed answer in the derived conversation-turn view.

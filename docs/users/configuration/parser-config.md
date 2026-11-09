@@ -1,7 +1,7 @@
 # Parser Configuration
 
 The runtime loader reads named parser definitions from versioned YAML. The
-checked-in [`config/parsers.yaml`](../../../config/parsers.yaml) activates
+checked-in [`config/ingestion/parsers.yaml`](../../../config/ingestion/parsers.yaml) activates
 LiteParse (with an external OCR server) for both PDFs and raster
 images. Alternative profiles and engines remain in the file as commented
 blocks.
@@ -188,7 +188,7 @@ their value, so they keep using the `secrets` block.
 ```python
 from harborrag_runtime.config import load_parser_catalog
 
-catalog = load_parser_catalog("config/parsers.yaml")
+catalog = load_parser_catalog("config/ingestion/parsers.yaml")
 print(catalog.names(enabled_only=True))
 
 pdf = catalog.build("pdf-liteparse")

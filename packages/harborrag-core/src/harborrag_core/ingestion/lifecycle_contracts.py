@@ -88,6 +88,9 @@ class ReindexJob(StrictModel):
         return self
 
 
+TASK_PROVENANCE_KEYS = ("actor", "actor_type")
+
+
 class IngestionTask(StrictModel):
     task_id: str = Field(min_length=1)
     source_scope_id: str = Field(min_length=1)

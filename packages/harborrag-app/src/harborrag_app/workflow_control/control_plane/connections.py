@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
@@ -69,7 +69,8 @@ from harborrag_runtime.ingestion.connections import (
 )
 
 from ..ingestion.models import IngestionCreateCommand
-from .connection_views import connection_view, ingestion_view, resolve_any_version
+from .active_runs import active_run
+from .connection_views import ingestion_view, read_connection_views, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
@@ -105,6 +106,8 @@ class ConnectionRuns(Protocol):
     async def get(self, task_id: str) -> IngestionTask | None: ...
 
     async def progress(self, task_id: str) -> dict[str, int]: ...
+
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
 
 
 class IngestionSubmitter(Protocol):
@@ -203,7 +206,8 @@ class ConnectionService:
             limit=limit,
             cursor=cursor,
         )
-        return [await self._view(connection) for connection in connections], next_cursor
+        views = await read_connection_views(await self._runs(), connections, batch=True)
+        return views, next_cursor
 
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
         """Connections of one project as reader filter chips.
@@ -440,24 +444,25 @@ class ConnectionService:
                 {k: v for k, v in effective.items() if isinstance(v, Mapping)},
                 tenant_id=key.tenant_id,
             )
-        except SecretUnavailableError:
+        except SecretUnavailableError as unavailable:
             report = ConnectionTestReport()
             report.passed("schema")
-            report.failed("auth", "auth_invalid", "a referenced secret cannot be read")
+            report.secret_unavailable(unavailable)
             return report.as_dict()
         report = await self._run_checks(spec, validated, effective, secret_values, key.tenant_id)
         return report.as_dict()
 
-    async def sync(
+    async def sync(  # noqa: PLR0913 - the caller, its type and the run options
         self,
         key: ConnectionKey,
         *,
         actor: str,
+        actor_type: str = "user",
         mode: str = "incremental",
         item_refs: tuple[str, ...] = (),
         updated_after: str | None = None,
     ) -> dict[str, Any]:
-        """Start an ingestion of the connection.
+        """Start an ingestion of the connection, recording ``actor`` and ``actor_type`` on the run.
 
         Returns:
             The spec's ``Ingestion`` object of the started run.
@@ -505,6 +510,8 @@ class ConnectionService:
                     "actor": actor,
                 },
                 updated_after=updated_after,
+                actor=actor,
+                actor_type=actor_type,
             ),
             idempotency_key=None,
         )
@@ -516,7 +523,6 @@ class ConnectionService:
             task,
             connection=connection,
             progress=await runs.progress(task.task_id),
-            triggered_by=actor,
             mode=mode,
         )
 
@@ -620,12 +626,10 @@ class ConnectionService:
             )
 
     async def _active_run(self, tenant_id: str, source_key: str) -> IngestionTask | None:
-        """The connection's pending, running or paused run; one whose workflow ended is settled."""
-        runs = await self._runs()
-        active = await runs.active_for_connection(tenant_id=tenant_id, connection_id=source_key)
-        if active is None or await self._ingestions.settle_if_ended(active.task_id):
-            return None
-        return active
+        """The connection's pending, running or paused run; ones whose workflow ended are settled."""
+        return await active_run(
+            await self._runs(), self._ingestions, tenant_id=tenant_id, source_key=source_key
+        )
 
     async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
         """True while an ingestion of the connection is pending, running or paused."""
@@ -705,14 +709,8 @@ class ConnectionService:
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
         """Return the API view with the latest run and document count."""
-        runs = await self._runs()
-        latest = await runs.latest_for_connection(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        documents = await runs.connection_document_count(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        return connection_view(connection, last_ingestion=latest, documents=documents)
+        views = await read_connection_views(await self._runs(), [connection], batch=False)
+        return views[0]
 
     async def _retire_replaced(self, connection: Connection, refs: list[str]) -> None:
         """Delete replaced stored secrets now, or once the running ingestion finishes."""

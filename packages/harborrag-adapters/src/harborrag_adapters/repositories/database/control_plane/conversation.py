@@ -46,6 +46,7 @@ from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationMessage,
     ConversationPage,
+    ConversationSummaryRow,
     ConversationTurn,
     is_complete_reply,
     new_message_id,
@@ -91,6 +92,9 @@ def _row_to_message(row: ConversationMessageRow) -> ConversationMessage:
         token_count=row.token_count,
         citations_json=row.citations_json,
         partial=row.partial,
+        mode=row.mode,
+        trace_id=row.trace_id,
+        feedback=row.feedback,
     )
 
 
@@ -108,6 +112,9 @@ def _message_row(
         token_count=message.token_count,
         citations_json=message.citations_json,
         partial=message.partial,
+        mode=message.mode,
+        trace_id=message.trace_id,
+        feedback=message.feedback,
         created_at=message.created_at,
         seq=seq,
     )
@@ -160,7 +167,13 @@ class SqlConversationMemoryRepository:
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
 
-    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
+    async def create(
+        self,
+        identity: ConversationIdentity,
+        *,
+        title: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
         now = utc_now()
         async with self.sessions.begin() as session:
             session.add(
@@ -171,6 +184,7 @@ class SqlConversationMemoryRepository:
                     session_id=identity.session_id,
                     title=normalize_conversation_title(title),
                     title_source="manual" if normalize_conversation_title(title) else None,
+                    project_id=project_id,
                     created_at=now,
                     updated_at=now,
                 )
@@ -220,22 +234,30 @@ class SqlConversationMemoryRepository:
 
     # -- conversation directory ----------------------------------------------
 
-    async def list_conversations(
+    async def list_conversations(  # noqa: PLR0913 - mirrors the directory port
         self,
         *,
         tenant_id: str,
         user_id: str,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> ConversationPage:
         request = ConversationListRequest(
             tenant_id=tenant_id,
             user_id=user_id,
             cursor=cursor,
             limit=limit,
+            title_query=title_query,
         )
         async with self.sessions() as session:
             return await conversation_directory.list_conversations(session, request)
+
+    async def get_conversation(
+        self, identity: ConversationIdentity
+    ) -> ConversationSummaryRow | None:
+        async with self.sessions() as session:
+            return await conversation_directory.get_conversation(session, identity)
 
     async def rename_conversation(
         self,
@@ -339,6 +361,29 @@ class SqlConversationMemoryRepository:
                     raise ValueError("unknown conversation message cursor")
                 statement = statement.where(ConversationMessageRow.seq > anchor)
             rows = await session.scalars(statement.order_by(*_OLDEST_FIRST).limit(limit))
+            return tuple(_row_to_message(row) for row in rows)
+
+    async def history_page(
+        self,
+        identity: ConversationIdentity,
+        *,
+        before_message_id: str | None,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        _require_positive(limit)
+        history = (*_identity_filter(identity), *conversation_directory.HISTORY_MESSAGE)
+        statement = sa.select(ConversationMessageRow).where(*history)
+        async with self.sessions() as session:
+            if before_message_id is not None:
+                anchor = await session.scalar(
+                    sa.select(ConversationMessageRow.seq).where(
+                        *history, ConversationMessageRow.message_id == before_message_id
+                    )
+                )
+                if anchor is None:
+                    raise ValueError("unknown conversation message cursor")
+                statement = statement.where(ConversationMessageRow.seq < anchor)
+            rows = await session.scalars(statement.order_by(*_NEWEST_FIRST).limit(limit))
             return tuple(_row_to_message(row) for row in rows)
 
     async def recent_complete_messages(

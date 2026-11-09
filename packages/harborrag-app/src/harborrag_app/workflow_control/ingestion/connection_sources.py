@@ -10,6 +10,7 @@ from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 
@@ -75,7 +76,15 @@ class ConnectionSourceInputBuilder:
         control_plane = self._control_plane()
         if control_plane.connection_revisions is None:
             raise HarborUnavailableError("connection revisions are not configured")
-        resolver = ConnectionResolver(control_plane.connections, control_plane.connection_revisions)
+        resolver = ConnectionResolver(
+            control_plane.connections,
+            control_plane.connection_revisions,
+            run_settings=(
+                RunSettingsResolver(control_plane.config)
+                if control_plane.config is not None
+                else None
+            ),
+        )
         return await resolver.resolve(
             tenant_id=submission.tenant_id,
             source_key=submission.connection_id or submission.connector_name,

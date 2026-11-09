@@ -14,8 +14,8 @@ from harborrag_runtime.contracts import RetrievalResponse
 from .presenters import citation_marker
 
 _INSTRUCTIONS = (
-    "Answer using the original passages below and cite only by copying their exact citation "
-    "labels. Do not alter text inside a citation label. Name the cited document and section "
+    "Answer using the original passages below and cite them only by their citation "
+    "numbers, such as [1], one number per bracket. Name the cited document and section "
     "in the surrounding sentence as well. "
     "Retrieved passages may be irrelevant because retrieval always returns its best matches; "
     "ignore any passage that does not bear on the question. "
@@ -170,6 +170,5 @@ class _PromptBuilder:
 
 def _quoted(value: object) -> str:
     # Escaping '<' prevents a retrieved passage from closing the evidence tag.
-    # Keep '>' literal: it separates section names inside citation markers, and
-    # escaping it caused models to copy '\\u003e' instead of the exact marker.
+    # Keep '>' literal: escaping it caused models to copy '\\u003e' into answers.
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")

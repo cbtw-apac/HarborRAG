@@ -11,10 +11,11 @@ A connection is identified here by ``(tenant_id, connection_id)``, where
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import Result, delete, func, select
+from sqlalchemy import Result, delete, exists, func, select
 from sqlalchemy.engine import CursorResult
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
@@ -68,6 +69,51 @@ class ConnectionRecordRepository:
         )
         async with self._client.sessions() as session:
             return int((await session.execute(statement)).scalar_one())
+
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """The source scopes of each connection, read in one query; ``[]`` for none."""
+        found: dict[str, list[str]] = {connection_id: [] for connection_id in connection_ids}
+        if not found:
+            return found
+        statement = (
+            select(SOURCE_SCOPES.c.connection_id, SOURCE_SCOPES.c.source_scope_id)
+            .where(
+                SOURCE_SCOPES.c.tenant_id == tenant_id,
+                SOURCE_SCOPES.c.connection_id.in_(list(found)),
+            )
+            .order_by(SOURCE_SCOPES.c.connection_id, SOURCE_SCOPES.c.source_scope_id)
+        )
+        async with self._client.sessions() as session:
+            for connection_id, source_scope_id in await session.execute(statement):
+                found[str(connection_id)].append(str(source_scope_id))
+        return found
+
+    async def published_connection_ids(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> set[str]:
+        """The connections with at least one published document, read in one query."""
+        asked = list(dict.fromkeys(connection_ids))
+        if not asked:
+            return set()
+        statement = select(
+            *(
+                exists()
+                .where(
+                    DOCUMENTS.c.tenant_id == tenant_id,
+                    DOCUMENTS.c.connection_id == connection_id,
+                    DOCUMENTS.c.active_document_version_id.is_not(None),
+                )
+                .label(f"published_{index}")
+                for index, connection_id in enumerate(asked)
+            )
+        )
+        async with self._client.sessions() as session:
+            row = (await session.execute(statement)).one()
+        return {
+            connection_id for connection_id, published in zip(asked, row, strict=True) if published
+        }
 
     async def source_scope_ids(self, *, tenant_id: str, connection_id: str) -> list[str]:
         """Every source scope the connection has been ingested under."""

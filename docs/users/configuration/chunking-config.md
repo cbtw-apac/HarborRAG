@@ -2,7 +2,7 @@
 
 The runtime reads chunk sizes, per-source profiles and the oversized-unit
 refiner from the versioned YAML file
-[`config/chunking.yaml`](../../../config/chunking.yaml)
+[`config/ingestion/chunking.yaml`](../../../config/ingestion/chunking.yaml)
 (`HARBORRAG_CHUNKING_CONFIG_PATH`). The file is optional. When it is missing
 and its path was not set explicitly, the built-in defaults apply. They are the
 same values that the checked-in file declares. An explicitly set path that does

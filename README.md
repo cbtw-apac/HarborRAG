@@ -73,8 +73,7 @@ canonical document.
 
 > Today this is driven programmatically through the runtime's Temporal client
 > (`start_reindex`). There is no `harborrag reindex` CLI command or REST route yet; the
-> admin API reports `reindex_required` and can drop a tenant's projections
-> (`/v1/admin/projections/{tenant}`).
+> admin API reports `reindex_required`.
 
 ### Graph, not just vectors
 
@@ -174,9 +173,9 @@ That is parsing on its own. Ingestion and retrieval need backing services, which
 
 ## Install
 
-New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md)
-- it shows the expected output of every step below. The short version, about ten minutes and
-no clone:
+New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md): it shows
+the expected output of every step below. The short version, about ten minutes and no
+clone:
 
 ```bash
 pip install "harborrag[local]"
@@ -237,7 +236,7 @@ from harborrag import AccessContext, HarborRAG, IngestionRequest, RetrievalReque
 async def main() -> None:
     access = AccessContext(principal_id="user-1", tenant_id="tenant-1")
 
-    async with HarborRAG.from_config("config/harborrag.example.yaml") as harbor:
+    async with HarborRAG.from_config("harborrag.yaml") as harbor:
         await harbor.ingestion.run(
             IngestionRequest(access=access, connector_name="harborrag-workspace")
         )
@@ -250,7 +249,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-Connectors are declared once in [`config/connectors.yaml`](config/connectors.yaml) and
+Connectors are declared once in [`config/sources/connectors.yaml`](config/sources/connectors.yaml) and
 selected by name, so credentials stay as environment references rather than arguments.
 
 Long runs can be driven durably instead of inline:
@@ -292,7 +291,7 @@ Then open the files it created and replace the placeholders:
 | `env/.env.connector` | Source credentials - Jira, Confluence, GitHub, SharePoint, local paths | worker |
 | `env/.env.parser` | Optional parser/OCR settings; the default profile needs none | worker |
 | `env/.env.models` | Chat, embedding, and reranking provider credentials | worker, API, MCP, CLI chat |
-| `env/.env.api` | API bind address, port, and JWT settings | API, MCP |
+| `env/.env.api` | API bind address, port, JWT settings, and the metrics scrape token | API, MCP |
 | `env/.env.mcp` | Local MCP bearer token and transport overrides | MCP HTTP transport |
 
 ### Three values you must fill in
@@ -314,13 +313,13 @@ POSTGRES_PASSWORD=<a strong password, replacing change-me>
 ```
 
 ```dotenv
-# env/.env.models - the active config/models.yaml needs all six.
-HARBOR_CHAT_PROVIDER=openai
-HARBOR_CHAT_MODEL=gpt-4o-mini
-HARBOR_CHAT_API_KEY=<your key>
-HARBOR_EMBED_PROVIDER=openai
-HARBOR_EMBED_MODEL=text-embedding-3-small
-HARBOR_EMBED_API_KEY=<your key>
+# env/.env.models - the active config/models/models.yaml needs all six.
+HARBORRAG_CHAT_PROVIDER=openai
+HARBORRAG_CHAT_MODEL=gpt-4o-mini
+HARBORRAG_CHAT_API_KEY=<your key>
+HARBORRAG_EMBED_PROVIDER=openai
+HARBORRAG_EMBED_MODEL=text-embedding-3-small
+HARBORRAG_EMBED_API_KEY=<your key>
 ```
 
 Model references are expanded eagerly at load time, so a missing *embedding* variable
@@ -367,7 +366,7 @@ chmod 600 env/.env.*
 openssl rand -hex 32
 ```
 
-**Connectors.** The checked-in [`config/connectors.yaml`](config/connectors.yaml) enables
+**Connectors.** The checked-in [`config/sources/connectors.yaml`](config/sources/connectors.yaml) enables
 three connections: `harborrag-workspace` (local files, no credentials), `confluence-main`,
 and `jira-main`. The two remote ones need credentials in `env/.env.connector` before they
 will build - until then the worker logs a warning at startup, they still appear in
@@ -389,18 +388,26 @@ Set `enabled: false` on the ones you are not using if you would rather not see t
 warning. `harborrag-workspace` alone is enough to complete the quick start.
 
 **Monitoring.** The optional Prometheus/Grafana/Loki stack under [`deploy/`](deploy/) is
-the eighth template, and `bootstrap` does **not** create it. It needs three things:
+the eighth template, and neither `bootstrap` nor any other `dev.sh` command creates it. Set
+it up after `dev.sh up` has started the API: that creates the shared
+`harborrag-data-network` and generates `HARBORRAG_METRICS_SCRAPE_TOKEN` in `env/.env.api`.
+A first `up` on a clean checkout only creates the `env/` files and stops, so it generates
+no token. Then create the monitoring file and copy the token into it:
 
 ```bash
 cp env-example/.env.monitoring.example env/.env.monitoring
 chmod 600 env/.env.monitoring
+sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/$(grep '^HARBORRAG_METRICS_SCRAPE_TOKEN=' env/.env.api)/" env/.env.monitoring
 # then set a non-empty GRAFANA_ADMIN_PASSWORD -- it ships empty and is guarded like
-# HARBORRAG_SECRETS_ENCRYPTION_KEY, and run `dev.sh data` first so the shared
-# harborrag-data-network exists.
+# HARBORRAG_SECRETS_ENCRYPTION_KEY.
 ```
 
-Note that Grafana and the FalkorDB browser both default to host port `3000`, so whichever
-starts second fails to bind. Change `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
+The token in `env/.env.monitoring` must equal the one in `env/.env.api`: Prometheus sends
+it to the API's `/metrics`, and a blank or different value leaves the `harborrag-api`
+target down. Grafana and the FalkorDB browser both default to host port `3000`, so
+whichever starts second fails to bind; change `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
+[Deployment](docs/developers/deployment/README.md#run-the-monitoring-stack) has the start
+command and the fixes for a failed scrape.
 
 See [Configuration](docs/users/configuration/README.md) for the full reference.
 
@@ -433,8 +440,9 @@ Start pieces individually when you only need part of the stack:
 | `dev.sh up --no-worker` | everything except the worker |
 | `dev.sh down` | stop everything (add `--volumes` to discard data) |
 
-Add `--build` to `up`, `worker`, or `api` after changing source, dependencies, or baked
-worker configuration. A missing image is built automatically on first start.
+Add `--build` to `up`, `worker`, or `api` after changing source or dependencies.
+`config/` is mounted, so a configuration change needs only a restart. A missing image is
+built automatically on first start.
 
 ### Verify it came up
 
@@ -509,7 +517,7 @@ uv run harborrag ingest start \
 ```
 
 `--connector-id` names a stored connection by its `source_key`. At the first start, the
-service imports [`config/connectors.yaml`](config/connectors.yaml) once, so the
+service imports [`config/sources/connectors.yaml`](config/sources/connectors.yaml) once, so the
 checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` become
 connections under those keys. It is not a source *type*, so `--connector-id local` fails.
 
@@ -530,7 +538,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 ```
 
 The token is stored encrypted in the control database and never read back. References
-such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/connectors.yaml`
+such as `{"secret_ref": "env:GITHUB_TOKEN"}` are accepted only from `config/sources/connectors.yaml`
 and the `harborrag source` CLI, never through the API.
 
 To fill the body in a browser, open <http://localhost:8000/docs>, go to
@@ -573,7 +581,7 @@ uv run harborrag chat "How do we deploy the worker?" \
 
 `retrieve` runs hybrid dense + sparse search with graph observation on by default
 (`--lane dense|sparse|hybrid`, `--no-graph` to disable). `chat` makes a real provider
-request against `config/models.yaml`, so it may incur provider charges; its JSON response
+request against `config/models/models.yaml`, so it may incur provider charges; its JSON response
 carries a session ID you can pass back with `--session` to keep conversation context.
 
 More: [CLI reference](docs/users/cli-reference/README.md) ·
@@ -585,7 +593,7 @@ More: [CLI reference](docs/users/cli-reference/README.md) ·
 HarborRAG exposes **eleven** audited reader tools over MCP, including
 `vector_search`, evidence and document reads, source discovery, and graph search.
 Tenant-scoped calls require an explicit tenant, pass JSON-schema and
-budget validation, and is recorded in an owner-only audit log that stores argument digests
+budget validation, and are recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 
 Chat is **not** an MCP tool - it is served through the REST API.
@@ -627,7 +635,7 @@ scripts/deployment/mcp.sh --http
 
 Open <http://127.0.0.1:8010/> and clients connect to `http://127.0.0.1:8010/mcp` with the
 bearer token from `env/.env.mcp`. The page includes an owner-only Tool Playground and an
-editor for [`config/mcp.yaml`](config/mcp.yaml): enter the token, load the effective tools
+editor for [`config/mcp/server.yaml`](config/mcp/server.yaml): enter the token, load the effective tools
 for a tenant, fill in the generated argument form, and run retrieval without a separate MCP
 client. Playground calls use the same schema, policy, tenant configuration, and audit path
 as MCP calls.
@@ -706,15 +714,19 @@ and ownership rules.
 
 | File | Purpose |
 | --- | --- |
-| [`config/connectors.yaml`](config/connectors.yaml) | Active named connector definitions and environment references |
-| [`config/parsers.yaml`](config/parsers.yaml) | Active parser definitions, with backend alternatives kept as commented blocks |
-| [`config/models.yaml`](config/models.yaml) | Active chat and embedding model configuration |
+| [`config/sources/connectors.yaml`](config/sources/connectors.yaml) | Active named connector definitions and environment references |
+| [`config/ingestion/parsers.yaml`](config/ingestion/parsers.yaml) | Active parser definitions, with backend alternatives kept as commented blocks |
+| [`config/ingestion/chunking.yaml`](config/ingestion/chunking.yaml) | Chunk sizes, per-source profiles and the oversized-unit refiner |
+| [`config/models/models.yaml`](config/models/models.yaml) | Active chat and embedding model configuration |
+| [`config/graph/build.yaml`](config/graph/build.yaml) | Graph build runtime, summarization and per-tenant graph policy |
 | [`config/temporal.yaml`](config/temporal.yaml) | Temporal connection, TLS, task queues, retries, worker capacity, health, workflow timeouts |
-| [`config/mcp.yaml`](config/mcp.yaml) | MCP tool enablement, defaults, limits, and tenant overrides |
+| [`config/mcp/server.yaml`](config/mcp/server.yaml) | MCP tool enablement, defaults, limits, and tenant overrides |
 
-Annotated references and richer examples live alongside them:
-`config/temporal.example.yaml`, `config/models.advance.example.yaml` and
-`config/harborrag.example.yaml`. Templates for every environment file live in
+Each folder keeps its examples beside the active file, for example
+`config/models/models.production.example.yaml`. Deployment files are git-ignored, each with
+an example beside it: `config/settings.yaml`, `config/sources/schedules.yaml` and
+`config/mcp/keys.yaml`. [Configuration](docs/users/configuration/README.md) maps every
+folder to its page. Templates for every environment file live in
 [`env-example/`](env-example/).
 
 Model configuration resolves `${VARIABLE}` references while loading, so a missing
@@ -723,7 +735,7 @@ before running anything real:
 
 ```bash
 uv run --env-file env/.env.models \
-  python -m harborrag_adapters.models explain config/models.yaml --family chat
+  python -m harborrag_adapters.models explain config/models/models.yaml --family chat
 ```
 
 The same CLI can `validate` and `render` the chat, embedding, and reranking sections. See

@@ -72,15 +72,15 @@ def test_main_reports_a_malformed_marker_without_a_traceback(
 def test_main_keeps_working_in_a_legacy_checkout_layout(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    """A checkout has config/connectors.yaml but no harborrag.yaml; that stays supported."""
+    """A checkout has config/sources/connectors.yaml but no harborrag.yaml; that stays supported."""
 
     from app_test_fixtures import MockAppService
 
     from harborrag_app.cli import main as cli
     from harborrag_app.cli import runner as cli_runner
 
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    (tmp_path / "config" / "sources").mkdir(parents=True)
+    (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
@@ -95,7 +95,7 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
 ) -> None:
     """Catalog paths are CWD-relative, so a checkout must be found *and* moved into.
 
-    Matching config/connectors.yaml against the raw CWD made the CLI work at a checkout's
+    Matching config/sources/connectors.yaml against the raw CWD made the CLI work at a checkout's
     root and fail one directory below it -- which is how CI runs the package's own tests.
     """
 
@@ -104,8 +104,8 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
     from harborrag_app.cli import main as cli
     from harborrag_app.cli import runner as cli_runner
 
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    (tmp_path / "config" / "sources").mkdir(parents=True)
+    (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     nested = tmp_path / "packages" / "harborrag-app"
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)
@@ -128,8 +128,8 @@ def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
 
     from harborrag_app.cli import main as cli
 
-    (tmp_path / "config").mkdir()
-    (tmp_path / "config" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
+    (tmp_path / "config" / "sources").mkdir(parents=True)
+    (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
     nested = tmp_path / "packages" / "harborrag-app"
     nested.mkdir(parents=True)
     monkeypatch.chdir(nested)

@@ -93,10 +93,9 @@ generate_encryption_key() {
     echo "Generated HARBORRAG_SECRETS_ENCRYPTION_KEY in ${DATABASE_ENV_FILE}; back it up: stored connection secrets cannot be read without it."
 }
 
-# Prometheus reads the copy in env/api-scrape-token; the API reads the variable.
+# The monitoring stack reads the same value from env/.env.monitoring.
 ensure_metrics_scrape_token() {
     local target_path="${ROOT_DIR}/${API_ENV_FILE}"
-    local token_path="${ROOT_DIR}/env/api-scrape-token"
     local token
 
     require_file "${API_ENV_FILE}" "API environment"
@@ -114,10 +113,6 @@ ensure_metrics_scrape_token() {
         chmod 600 "${target_path}"
         echo "Generated HARBORRAG_METRICS_SCRAPE_TOKEN in ${API_ENV_FILE}."
     fi
-    [[ -d "${token_path}" ]] &&
-        fail "env/api-scrape-token is a directory; remove it and run this command again."
-    printf '%s' "${token}" >"${token_path}"
-    chmod 644 "${token_path}"
 }
 
 ensure_environment_file() {
@@ -342,7 +337,7 @@ start_api() {
     api_port="${api_port:-8000}"
     echo "HarborRAG API is healthy at http://127.0.0.1:${api_port}/healthz"
     echo "Swagger UI: http://127.0.0.1:${api_port}/docs (when HARBORRAG_DOCS_ENABLED)"
-    echo "Prometheus metrics: http://127.0.0.1:9465/metrics with the bearer token in env/api-scrape-token"
+    echo "Prometheus metrics: http://127.0.0.1:9465/metrics with HARBORRAG_METRICS_SCRAPE_TOKEN from ${API_ENV_FILE} as the bearer token"
 }
 
 stop_stack() {

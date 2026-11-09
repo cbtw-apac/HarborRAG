@@ -22,5 +22,5 @@ To add a prompt:
    `PromptCatalog._FILENAMES`;
 3. add catalog and transport-contract tests.
 
-Model/provider selection remains in `config/models.yaml`; prompt files should
+Model/provider selection remains in `config/models/models.yaml`; prompt files should
 contain behavior instructions only.

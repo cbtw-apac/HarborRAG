@@ -26,6 +26,7 @@ from harborrag_core.ports.conversation import (
     complete_message_pairs,
     decode_conversation_cursor,
     encode_conversation_cursor,
+    is_complete_reply,
     new_message_id,
     normalize_conversation_title,
     turns_from_messages,
@@ -38,6 +39,14 @@ def _require_positive(limit: int) -> None:
         raise ValueError("conversation memory limit must be positive")
 
 
+def _in_history(message: ConversationMessage) -> bool:
+    return message.role == "user" or is_complete_reply(message)
+
+
+def _title_contains(title: str | None, query: str | None) -> bool:
+    return not query or (title is not None and query.casefold() in title.casefold())
+
+
 @dataclass(slots=True)
 class _SessionState:
     """Session metadata the message list itself cannot carry."""
@@ -46,6 +55,7 @@ class _SessionState:
     updated_at: datetime
     title: str | None = None
     title_source: str | None = None
+    project_id: str | None = None
     lease_token: str | None = None
     lease_expires_at: datetime | None = None
 
@@ -152,7 +162,13 @@ class InMemoryConversationMemory:
 
     # -- sessions ------------------------------------------------------------
 
-    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
+    async def create(
+        self,
+        identity: ConversationIdentity,
+        *,
+        title: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
         now = utc_now()
         async with self._lock:
             self._sessions.setdefault(identity, ())
@@ -163,6 +179,7 @@ class InMemoryConversationMemory:
                     updated_at=now,
                     title=normalize_conversation_title(title),
                     title_source="manual" if normalize_conversation_title(title) else None,
+                    project_id=project_id,
                 ),
             )
             self._sessions.move_to_end(identity)
@@ -195,28 +212,35 @@ class InMemoryConversationMemory:
 
     # -- conversation directory ----------------------------------------------
 
+    def _summary(
+        self, identity: ConversationIdentity, state: _SessionState
+    ) -> ConversationSummaryRow:
+        return ConversationSummaryRow(
+            session_id=identity.session_id,
+            title=state.title,
+            created_at=state.created_at,
+            updated_at=state.updated_at,
+            message_count=sum(map(_in_history, self._sessions.get(identity, ()))),
+            project_id=state.project_id,
+        )
+
     def _summaries(self, tenant_id: str, user_id: str) -> list[ConversationSummaryRow]:
         rows = [
-            ConversationSummaryRow(
-                session_id=identity.session_id,
-                title=state.title,
-                created_at=state.created_at,
-                updated_at=state.updated_at,
-                message_count=len(self._sessions.get(identity, ())),
-            )
+            self._summary(identity, state)
             for identity, state in self._state.items()
             if identity.tenant_id == tenant_id and identity.user_id == user_id
         ]
         rows.sort(key=lambda row: (row.updated_at, row.session_id), reverse=True)
         return rows
 
-    async def list_conversations(
+    async def list_conversations(  # noqa: PLR0913 - mirrors the directory port
         self,
         *,
         tenant_id: str,
         user_id: str,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> ConversationPage:
         size = max(1, min(limit, MAX_CONVERSATION_PAGE_LIMIT))
         async with self._lock:
@@ -227,10 +251,18 @@ class InMemoryConversationMemory:
             if not positions:
                 raise ValueError(CONVERSATION_CURSOR_ERROR)
             rows = rows[positions[0] + 1 :]
+        rows = [row for row in rows if _title_contains(row.title, title_query)]
         page = tuple(rows[:size])
         has_more = len(rows) > size and bool(page)
         next_cursor = encode_conversation_cursor(page[-1].session_id) if has_more else None
         return ConversationPage(conversations=page, next_cursor=next_cursor)
+
+    async def get_conversation(
+        self, identity: ConversationIdentity
+    ) -> ConversationSummaryRow | None:
+        async with self._lock:
+            state = self._state.get(identity)
+            return None if state is None else self._summary(identity, state)
 
     async def rename_conversation(
         self,
@@ -364,6 +396,23 @@ class InMemoryConversationMemory:
         for index, message in enumerate(messages):
             if message.message_id == after_message_id:
                 return messages[index + 1 : index + 1 + limit]
+        raise ValueError("unknown conversation message cursor")
+
+    async def history_page(
+        self,
+        identity: ConversationIdentity,
+        *,
+        before_message_id: str | None,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        _require_positive(limit)
+        async with self._lock:
+            history = tuple(reversed([m for m in self._touch(identity) if _in_history(m)]))
+        if before_message_id is None:
+            return history[:limit]
+        for index, message in enumerate(history):
+            if message.message_id == before_message_id:
+                return history[index + 1 : index + 1 + limit]
         raise ValueError("unknown conversation message cursor")
 
     async def clear_messages(self, identity: ConversationIdentity) -> None:

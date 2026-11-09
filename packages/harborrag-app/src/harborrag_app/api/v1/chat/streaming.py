@@ -1,146 +1,51 @@
-"""One SSE contract for retrieval chat and completed replays."""
+"""SSE delivery of a finished completion.
+
+TODO: stream the answer as it is generated, with the Story 5 event names (Task 7).
+"""
 
 from __future__ import annotations
 
-import contextlib
-import logging
+import json
 from collections.abc import AsyncGenerator
-from typing import cast
 
 from fastapi.responses import StreamingResponse
 
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.settings import ApiSettings
-from harborrag_app.api.sse import bounded_sse_frames, sse_frame
-
-from . import dispatch
-from .replay import CompletionAttempt
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
-
-logger = logging.getLogger("harborrag.app.api.chat")
-
-_ERRORS = {
-    "ConversationTurnBusyError": (
-        "session_busy",
-        "This conversation already has an active completion",
-    ),
-    "ConversationTurnLeaseLostError": (
-        "session_busy",
-        "The completion lost its conversation lease",
-    ),
-    "HarborNotFoundError": (
-        "not_found",
-        "Conversation session or project was not found",
-    ),
-    "HarborValidationError": ("validation_error", "The chat request was rejected"),
-    "HarborNoIndexedContentError": (
-        "no_indexed_content",
-        "No content has been ingested yet, so there is nothing to search",
-    ),
-    "ChatStreamError": ("llm_unavailable", "The chat provider stream failed"),
-}
+from harborrag_app.api.sse import sse_frame
 
 
-def error_payload(event: dict[str, object]) -> dict[str, str]:
-    code, message = _ERRORS.get(
-        str(event.get("error_type", "")),
-        ("dependency_unavailable", "Chat service is unavailable"),
-    )
-    return {"code": code, "message": message}
+def completion_stream(body: str, *, replayed: bool) -> StreamingResponse:
+    """Send a completion body as ``response.started``, one delta, then ``response.completed``.
 
+    Args:
+        body: The completion JSON, as returned and stored.
+        replayed: Whether ``body`` was replayed for an idempotent retry.
 
-def progress_frame(event: dict[str, object]) -> bytes | None:
-    """Project allowlisted service events; provider completion is not yet durable."""
+    Returns:
+        The ``text/event-stream`` response.
+    """
+    completion = json.loads(body)
 
-    kind = event["kind"]
-    if kind in {"citations", "cited_sources"}:
-        return sse_frame(
-            "retrieval.completed" if kind == "citations" else "response.citations",
-            {key: value for key, value in event.items() if key != "kind"},
+    async def frames() -> AsyncGenerator[bytes, None]:
+        yield sse_frame(
+            "response.started",
+            {
+                "session_id": completion["session_id"],
+                "mode": completion["mode"],
+                "replayed": replayed,
+            },
         )
-    if kind == "chunk":
-        chunk = cast("dict[str, object]", event["chunk"])
-        if chunk.get("event") == "text_delta":
-            # The UI needs display text, not provider metadata or reasoning
-            # that may share an adapter chunk with the visible delta.
-            return sse_frame("response.output_text.delta", {"content": chunk["content"]})
-        return None
-    if kind == "warning":
-        return sse_frame("response.warning", {"code": event["warning"]})
-    return None
-
-
-def stream_response(  # noqa: PLR0913 - shared stream lifecycle and replay state
-    request: ChatCompletionRequest,
-    principal: Principal,
-    *,
-    settings: ApiSettings,
-    attempt: CompletionAttempt,
-    replay: ChatCompletionResponse | None = None,
-    replayed: bool | None = None,
-) -> StreamingResponse:
-    was_replayed = replay is not None if replayed is None else replayed
-
-    async def events() -> AsyncGenerator[bytes, None]:
-        terminal = sse_frame("response.error", error_payload({"error_type": "ChatStreamError"}))
-        try:
-            yield sse_frame(
-                "response.started",
-                {
-                    "session_id": replay.session_id if replay else request.session_id,
-                    "mode": request.mode,
-                    "replayed": was_replayed,
-                },
-            )
-            if replay is not None:
-                terminal = sse_frame("response.completed", replay.model_dump(mode="json"))
-            else:
-                result = None
-                stream = dispatch.stream(attempt.service, request, principal)
-                async with contextlib.aclosing(stream):
-                    async for event in stream:
-                        if event["kind"] == "result":
-                            result = ChatCompletionResponse.model_validate(
-                                {
-                                    **cast("dict[str, object]", event["result"]),
-                                    "mode": request.mode,
-                                }
-                            )
-                            break
-                        if event["kind"] == "error":
-                            terminal = sse_frame("response.error", error_payload(event))
-                            break
-                        frame = progress_frame(event)
-                        if frame is not None:
-                            yield frame
-                # Close the service and release its lease before publishing a
-                # terminal outcome. Cleanup failures cannot follow a success.
-                if result is not None:
-                    await attempt.finish(result)
-                    terminal = sse_frame("response.completed", result.model_dump(mode="json"))
-        except TimeoutError:
-            raise
-        except Exception as exc:  # noqa: BLE001 - headers are sent; report a safe terminal frame
-            logger.exception("Completion stream failed")
-            terminal = sse_frame(
-                "response.error", error_payload({"error_type": type(exc).__name__})
-            )
-        finally:
-            await attempt.finish()
-        yield terminal
+        yield sse_frame("response.output_text.delta", {"content": completion["answer"]})
+        yield sse_frame("response.completed", completion)
 
     return StreamingResponse(
-        bounded_sse_frames(
-            events(),
-            timeout_seconds=settings.api_stream_timeout_seconds,
-            error_message="Chat stream exceeded its server deadline",
-            error_event="response.error",
-            terminal_events=("response.completed", "response.error"),
-        ),
+        frames(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-store",
             "X-Accel-Buffering": "no",
-            "Idempotency-Replayed": str(was_replayed).lower(),
+            "Idempotency-Replayed": str(replayed).lower(),
         },
     )
+
+
+__all__ = ["completion_stream"]

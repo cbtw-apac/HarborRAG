@@ -38,7 +38,7 @@ from harborrag_adapters.models.chat import (
     HarborChatClientConfig,
 )
 
-config = HarborChatClientConfig.from_file("config/models.example.yaml")
+config = HarborChatClientConfig.from_file("config/models/models.yaml")
 
 with ChatClientFactory.create(config) as client:
     response = client.chat([{"role": "user", "content": "Summarize HarborRAG."}])

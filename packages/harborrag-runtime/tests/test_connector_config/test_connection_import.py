@@ -138,7 +138,9 @@ async def test_applying_the_example_file_twice_writes_once(
 ) -> None:
     source = tmp_path / "docs"
     source.mkdir()
-    example = (REPO_ROOT / "config" / "connectors.example.yaml").read_text(encoding="utf-8")
+    example = (REPO_ROOT / "config" / "sources" / "connectors.example.yaml").read_text(
+        encoding="utf-8"
+    )
     projects, connections = stores
     service = ConnectionImportService(
         projects=projects, connections=connections, environ={"LOCAL_SOURCE_PATH": str(source)}

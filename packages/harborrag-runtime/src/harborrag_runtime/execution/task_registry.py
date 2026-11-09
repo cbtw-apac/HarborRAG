@@ -3,14 +3,18 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime
+from typing import Any
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
+    TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
+    FailurePage,
     IngestionTask,
     IngestionTaskState,
+    StoredFailure,
     TaskDocumentPage,
     TaskDocumentResult,
     TaskPage,
@@ -23,6 +27,8 @@ from harborrag_runtime.ingestion.source.tasks import pending_source_task, source
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
 
 from .source_conversion import to_source_request
+
+_PINNED_SETTINGS_KEYS = ("settings_revision", "run_settings")
 
 
 class IngestionTaskRegistry:
@@ -48,6 +54,8 @@ class IngestionTaskRegistry:
         *,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration:
         request = to_source_request(source)
         await self._control.source_scans.register_scope(
@@ -58,6 +66,9 @@ class IngestionTaskRegistry:
             configuration_fingerprint=request.configuration_fingerprint,
         )
         task = pending_source_task(request)
+        task = task.model_copy(
+            update={"request": _with_actor(task.request, actor=actor, actor_type=actor_type)}
+        )
         return await self._control.tasks.register(
             task,
             idempotency_key=idempotency_key,
@@ -70,6 +81,8 @@ class IngestionTaskRegistry:
         retry_task_id: str,
         original: IngestionTask,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration:
         request = original.request
         tenant_id = request.get("tenant_id")
@@ -83,13 +96,14 @@ class IngestionTaskRegistry:
             "connector_type": request["connector_type"],
             "connection_id": request["connection_id"],
             "source_scope_id": request["source_scope_id"],
+            **{key: request[key] for key in _PINNED_SETTINGS_KEYS if key in request},
         }
         return await self._control.tasks.register(
             IngestionTask(
                 task_id=retry_task_id,
                 source_scope_id=original.source_scope_id,
                 status=IngestionTaskState.PENDING,
-                request=retry_request,
+                request=_with_actor(retry_request, actor=actor, actor_type=actor_type),
             )
         )
 
@@ -115,6 +129,22 @@ class IngestionTaskRegistry:
             tenant_id=tenant_id, connection_id=connection_id
         )
 
+    async def source_scope_ids_by_connection(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> dict[str, list[str]]:
+        """The source scopes each connection has been ingested under, in one read."""
+        return await self._control.connection_records.source_scope_ids_by_connection(
+            tenant_id=tenant_id, connection_ids=connection_ids
+        )
+
+    async def published_connection_ids(
+        self, *, tenant_id: str, connection_ids: Sequence[str]
+    ) -> set[str]:
+        """The connections with at least one published document, in one read."""
+        return await self._control.connection_records.published_connection_ids(
+            tenant_id=tenant_id, connection_ids=connection_ids
+        )
+
     async def get(self, task_id: str) -> IngestionTask | None:
         return await self._control.tasks.get(task_id)
 
@@ -127,13 +157,15 @@ class IngestionTaskRegistry:
     async def release_submission_claim(self, task_id: str, token: str) -> bool:
         return await self._control.tasks.release_submission_claim(task_id, token)
 
-    async def list_tasks(
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
         self,
         *,
         tenant_ids: frozenset[str] | None = None,
         statuses: Sequence[str] | None = None,
         before_submitted_at: datetime | None = None,
         before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage:
         return await self._control.tasks.list_tasks(
@@ -141,6 +173,8 @@ class IngestionTaskRegistry:
             statuses=statuses,
             before_submitted_at=before_submitted_at,
             before_task_id=before_task_id,
+            scope_connection_ids=scope_connection_ids,
+            created_after=created_after,
             limit=limit,
         )
 
@@ -158,6 +192,11 @@ class IngestionTaskRegistry:
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
         seq = await self._control.task_events.append_event(task_id, event)
         return replace(event, seq=seq)
+
+    async def append_task_event_once(self, task_id: str, event: HarborEvent) -> HarborEvent | None:
+        """Append ``event`` unless the run already stored one of that name; ``None`` if it had."""
+        seq = await self._control.task_events.append_event_once(task_id, event)
+        return None if seq is None else replace(event, seq=seq)
 
     async def list_task_events(
         self,
@@ -237,6 +276,54 @@ class IngestionTaskRegistry:
             limit=limit,
         )
 
+    async def failure_page(  # noqa: PLR0913 - mirrors the repository
+        self,
+        *,
+        tenant_id: str,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        resolved: bool,
+        q: str | None,
+        before: tuple[datetime, str, str] | None,
+        limit: int,
+        include_total: bool,
+        known_stages: frozenset[str] | None = None,
+    ) -> FailurePage:
+        return await self._control.failures.page(
+            tenant_id=tenant_id,
+            source_keys=source_keys,
+            error_category=error_category,
+            internal_stages=internal_stages,
+            resolved=resolved,
+            q=q,
+            before=before,
+            limit=limit,
+            include_total=include_total,
+            known_stages=known_stages,
+        )
+
+    async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        keys: Sequence[tuple[str, str]] | None,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
+    ) -> tuple[StoredFailure, ...]:
+        return await self._control.failures.select(
+            tenant_id=tenant_id,
+            keys=keys,
+            source_keys=source_keys,
+            error_category=error_category,
+            internal_stages=internal_stages,
+            limit=limit,
+            known_stages=known_stages,
+        )
+
     async def document_results(self, task_id: str) -> tuple[TaskDocumentResult, ...]:
         return await self._control.tasks.document_results(task_id)
 
@@ -248,3 +335,13 @@ class IngestionTaskRegistry:
 
     async def close(self) -> None:
         await self._control.close()
+
+
+def _with_actor(
+    request: dict[str, Any], *, actor: str | None, actor_type: str | None
+) -> dict[str, Any]:
+    """Return ``request`` with who started the run; unchanged when nobody is named."""
+    if actor is None:
+        return request
+    actor_key, actor_type_key = TASK_PROVENANCE_KEYS
+    return {**request, actor_key: actor, actor_type_key: actor_type or "user"}

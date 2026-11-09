@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from pydantic_core import to_jsonable_python
 
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
@@ -30,7 +29,6 @@ from ..errors import failure_response
 from ..schemas import AppResponse
 from .ports import SourceInputBuilder
 from .presenters import TERMINAL_STATES, task_response
-from .service import record_control_action
 
 if TYPE_CHECKING:
     from ..composition.factories import TaskRegistry
@@ -39,15 +37,6 @@ type RuntimeClientProvider = Callable[[], Awaitable[IngestionGateway]]
 type TaskRegistryProvider = Callable[[], Awaitable["TaskRegistry"]]
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.durable")
-
-
-def _operator() -> str:
-    """The local operator, for the run's event trail; access control is the DB credential."""
-
-    import getpass
-    import socket
-
-    return f"{getpass.getuser()}@{socket.gethostname()}"
 
 
 class DurableIngestionOperations:
@@ -309,40 +298,6 @@ class DurableIngestionOperations:
             return AppResponse(True, {"result": to_jsonable_python(result)})
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             return failure_response(logger, exc, "await result for ingestion run %r", run_id)
-
-    async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
-        try:
-            client = await self._runtime_client()
-            if action == "pause":
-                await client.pause(run_id)
-            elif action == "resume":
-                await client.resume(run_id)
-            elif action == "cancel":
-                await client.cancel(run_id)
-            else:
-                raise ValueError(f"unsupported ingestion action: {action!r}")
-            try:
-                await record_control_action(
-                    await self._source_task_registry(), run_id, action=action, actor=_operator()
-                )
-            except HarborNotFoundError:
-                # The event trail is audit only; a run with no local control-plane
-                # row (another database, or a purged task) still took the action.
-                logger.warning(
-                    "Recorded no %r event for ingestion run %r: no local task row",
-                    action,
-                    run_id,
-                )
-            logger.info("Applied %r to ingestion run %r", action, run_id)
-            return AppResponse(True, {"run_id": run_id, "action": action})
-        except Exception as exc:  # noqa: BLE001 - stable error envelope
-            return failure_response(
-                logger,
-                exc,
-                "apply %r to ingestion run %r",
-                action,
-                run_id,
-            )
 
 
 def _run_failure(run_id: str, status: str, failure: AppResponse) -> AppResponse:

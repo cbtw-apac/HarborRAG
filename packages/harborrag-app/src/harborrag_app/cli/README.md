@@ -58,10 +58,19 @@ need their service environment variables and network connectivity.
 | `harborrag ingest pause` | Request a durable pause |
 | `harborrag ingest resume` | Resume a paused run |
 | `harborrag ingest cancel` | Cancel at a safe workflow boundary |
+| `harborrag config import` | Show or apply a settings file as one revision |
+| `harborrag config export` | Print stored runtime settings overrides as a settings file |
 | `harborrag retrieve` | Run tenant-scoped Qdrant and FalkorDB retrieval |
 
 Use `harborrag COMMAND --help` or
 `harborrag ingest ACTION --help` for the authoritative option list.
+
+## Runtime settings
+
+`harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]` is a dry run
+unless `--apply` is given. `harborrag config export [--level LEVEL] [--tenant TENANT_ID]
+[--output PATH]` writes registry keys only. See
+[Runtime settings](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/configuration/runtime-settings.md).
 
 ## Diagnostics
 
@@ -90,14 +99,14 @@ PostgreSQL-backed turns.
 ## Ingestion
 
 `--connector-id` takes a **configured connector name** - a key under `connectors:`
-in `config/connectors.yaml` - not a provider type. (`--connector` is an accepted alias for
+in `config/sources/connectors.yaml` - not a provider type. (`--connector` is an accepted alias for
 the same option; prefer `--connector-id`, which says what the value is.) The shipped
 configuration defines `harborrag-workspace` (provider `local`), `confluence-main`, and
 `jira-main`, so `--connector-id local` fails with
 `Unknown configured connector: 'local'`. List the configured names with:
 
 ```bash
-python -c "import yaml; print(*yaml.safe_load(open('config/connectors.yaml'))['connectors'])"
+python -c "import yaml; print(*yaml.safe_load(open('config/sources/connectors.yaml'))['connectors'])"
 ```
 
 Each connector resolves settings and credentials from the environment variables
@@ -328,7 +337,7 @@ Relevant `HARBORRAG_` variables include:
 | `HARBORRAG_TEMPORAL_NAMESPACE` | value from YAML | Optional workflow namespace override |
 | `HARBORRAG_TEMPORAL_TLS` | value from YAML | Optional TLS override for a managed Temporal endpoint |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
-| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models.yaml` | Chat and query embedding configuration |
+| `HARBORRAG_MODEL_CONFIG_PATH` | `config/models/models.yaml` | Chat and query embedding configuration |
 | `HARBORRAG_QDRANT_URL` | `http://localhost:6333` | Vector retrieval |
 | `HARBORRAG_FALKORDB_HOST` | `localhost` | Graph expansion |
 | `HARBORRAG_FALKORDB_PORT` | `6379` | Graph expansion |

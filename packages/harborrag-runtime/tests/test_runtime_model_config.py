@@ -14,11 +14,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 def test_repository_chat_config_supports_agent_tool_execution(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HARBOR_CHAT_PROVIDER", "openai")
-    monkeypatch.setenv("HARBOR_CHAT_MODEL", "openai/gpt-test")
-    monkeypatch.setenv("HARBOR_CHAT_API_KEY", "test-secret")
+    monkeypatch.setenv("HARBORRAG_CHAT_PROVIDER", "openai")
+    monkeypatch.setenv("HARBORRAG_CHAT_MODEL", "openai/gpt-test")
+    monkeypatch.setenv("HARBORRAG_CHAT_API_KEY", "test-secret")
 
-    config = HarborChatClientConfig.from_file(REPO_ROOT / "config" / "models.yaml")
+    config = HarborChatClientConfig.from_file(REPO_ROOT / "config" / "models" / "models.yaml")
     deployment = config.models[config.default_model].deployments[0]
 
     assert deployment.capabilities.tools is True
@@ -28,11 +28,11 @@ def test_repository_chat_config_supports_agent_tool_execution(
 def test_repository_embedding_config_supports_index_and_query_purposes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("HARBOR_EMBED_PROVIDER", "openai")
-    monkeypatch.setenv("HARBOR_EMBED_MODEL", "text-embedding-3-small")
-    monkeypatch.setenv("HARBOR_EMBED_API_KEY", "test-secret")
+    monkeypatch.setenv("HARBORRAG_EMBED_PROVIDER", "openai")
+    monkeypatch.setenv("HARBORRAG_EMBED_MODEL", "text-embedding-3-small")
+    monkeypatch.setenv("HARBORRAG_EMBED_API_KEY", "test-secret")
 
-    config = HarborEmbedClientConfig.from_file(REPO_ROOT / "config" / "models.yaml")
+    config = HarborEmbedClientConfig.from_file(REPO_ROOT / "config" / "models" / "models.yaml")
     deployment = config.models[config.default_model].deployments[0]
 
     assert deployment.capabilities.purpose is True

@@ -14,6 +14,8 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
@@ -27,6 +29,7 @@ class _App(MockAppService):
         super().__init__()
         self.world = world
         self.connection_service = world.service
+        self.ingestion_operations = world.operations
         self.project_service = ProjectService(
             control_plane=lambda: world.control_plane,
             runs=world.service._runs,
@@ -60,23 +63,29 @@ def test_starting_an_ingestion_answers_202_with_its_location(client: TestClient)
     assert response.headers["location"] == f"/v1/admin/ingestions/{body['ingestion_id']}"
 
 
-def test_the_location_header_reads_the_started_run(
-    client: TestClient, app_service: _App, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_a_start_by_an_api_key_records_it_as_the_trigger(client: TestClient) -> None:
+    key = Principal(
+        subject="key_1", role="editor", tenant_ids=frozenset({"acme"}), token_kind="api_key"
+    )
+    client.app.dependency_overrides[get_principal] = lambda: key  # type: ignore[attr-defined]
+
     started = client.post(_START, json=_TARGET)
-    read = app_service.get_task
 
-    async def in_acme(task_id: str) -> dict[str, object]:
-        return {**await read(task_id), "tenant": "acme"}
+    assert started.json()["triggered_by"] == {"principal_type": "api_key", "principal_id": "key_1"}
+    assert (
+        client.get(started.headers["location"]).json()["triggered_by"]
+        == started.json()["triggered_by"]
+    )
 
-    monkeypatch.setattr(app_service, "get_task", in_acme)
+
+def test_the_location_header_reads_the_started_run(client: TestClient) -> None:
+    started = client.post(_START, json=_TARGET)
 
     followed = client.get(started.headers["location"])
 
     assert followed.status_code == 200
-    assert followed.json()["ingestion_id"] == started.json()["ingestion_id"]
-    assert followed.json()["tenant_id"] == "acme"
-    assert followed.json()["source"] == {"type": "local", "source_key": "smoke-local"}
+    assert followed.json() == started.json()
+    assert set(started.json()["links"]) == {"temporal", "grafana", "langfuse"}
 
 
 def test_an_empty_mode_means_incremental(client: TestClient, app_service: _App) -> None:
@@ -120,6 +129,8 @@ def test_an_unknown_reference_names_its_field(
         ({"project_id": "cpm"}, "connection_id"),
         ({**_TARGET, "mode": "full"}, "mode"),
         ({**_TARGET, "extra": True}, "extra"),
+        ({**_TARGET, "updated_after": "2026-11-01T09:00:00"}, "updated_after"),
+        ({**_TARGET, "updated_after": "2026-11-01"}, "updated_after"),
     ],
 )
 def test_a_bad_body_is_a_validation_error(

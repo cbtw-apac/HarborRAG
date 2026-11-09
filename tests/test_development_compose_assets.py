@@ -14,7 +14,7 @@ from harborrag_runtime.config.connectors.importing import ConnectionImportServic
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
 DEV_SCRIPT = ROOT / "scripts/deployment/dev.sh"
-CONNECTORS = ROOT / "config/connectors.yaml"
+CONNECTORS = ROOT / "config/sources/connectors.yaml"
 
 
 def test_dev_api_uses_the_temporal_development_network() -> None:
@@ -90,6 +90,27 @@ def test_monitoring_is_private_authenticated_and_version_pinned() -> None:
     assert "grafana_data:/var/lib/grafana" not in monitoring
 
 
+def test_prometheus_reads_the_scrape_token_from_the_monitoring_environment() -> None:
+    monitoring = yaml.safe_load(
+        (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
+    )
+    prometheus_config = yaml.safe_load(
+        (ROOT / "deploy/prometheus/prometheus.yml").read_text(encoding="utf-8")
+    )
+    api_job = next(
+        job for job in prometheus_config["scrape_configs"] if job["job_name"] == "harborrag-api"
+    )
+    example = (ROOT / "env-example/.env.monitoring.example").read_text(encoding="utf-8")
+
+    assert monitoring["secrets"]["api-scrape-token"] == {
+        "environment": "HARBORRAG_METRICS_SCRAPE_TOKEN"
+    }
+    assert monitoring["services"]["prometheus"]["secrets"] == ["api-scrape-token"]
+    assert api_job["authorization"]["credentials_file"] == "/run/secrets/api-scrape-token"
+    assert "HARBORRAG_METRICS_SCRAPE_TOKEN=\n" in example
+    assert "api-scrape-token" not in DEV_SCRIPT.read_text(encoding="utf-8")
+
+
 def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:
     database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
     falkordb_service = database.split("  falkordb:", 1)[1].split("  redis:", 1)[0]
@@ -131,16 +152,15 @@ def test_worker_config_paths_are_absolute_container_paths() -> None:
         )
         assert f"{variable}: /app/config/" in temporal
         assert f"${{{variable}:-" not in temporal
-    assert "../../config:/app/config:ro" not in temporal
 
 
-def test_api_mounts_config_while_worker_uses_its_baked_runtime_configuration() -> None:
+def test_api_and_worker_mount_the_same_config_directory() -> None:
     api = API_COMPOSE.read_text(encoding="utf-8")
     temporal = (ROOT / "deploy/compose/docker-compose.temporal.yml").read_text(encoding="utf-8")
     dockerfile = (ROOT / "deploy/docker/Dockerfile.temporal-worker").read_text(encoding="utf-8")
 
     assert "../../config:/app/config:ro" in api
-    assert "../../config:/app/config:ro" not in temporal
+    assert "../../config:/app/config:ro" in temporal
     assert "COPY config ./config" in dockerfile
 
 

@@ -267,5 +267,5 @@ class ScheduleService:
         if existing.owner is ScheduleOwner.CONFIG and owner is not ScheduleOwner.CONFIG:
             raise ScheduleOwnershipError(
                 f"schedule {existing.schedule_id!r} is managed by version-controlled "
-                "configuration; change config/schedules.yaml instead"
+                "configuration; change config/sources/schedules.yaml instead"
             )

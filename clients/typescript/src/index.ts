@@ -14,13 +14,13 @@ import type { HarborClientOptions } from "./options.js";
 export { HarborApiRequestError, HarborChatStreamError } from "./errors.js";
 export type { HarborApiError } from "./errors.js";
 export type { HarborClientOptions, HarborRequestOptions } from "./options.js";
-export type { SessionSurface, SessionListOptions, SessionHistoryOptions } from "./sessions.js";
+export type { SessionCreateRequest, SessionListOptions, SessionHistoryOptions } from "./sessions.js";
 export type { paths, components, operations } from "./schema.js";
 export type {
   ChatCompletionRequest,
   ChatCompletionResponse,
-  ChatCost,
   ChatCitation,
+  ChatRequestOptions,
   ChatUsage,
   ChatStreamEvent,
 } from "./chat.js";

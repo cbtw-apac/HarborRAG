@@ -1,9 +1,12 @@
 # Control Plane API
 
+Run HarborRAG's HTTP API, call its routes, and look up its errors,
+authentication, limits and settings.
+
 The `harborrag_app.api` package is HarborRAG's FastAPI boundary. It validates
 HTTP input, authenticates callers, delegates workflow operations to the
 transport-neutral application service, and maps results onto stable HTTP
-responses. Connector execution, parsing, chunking, indexing, and Temporal
+responses. Connector execution, parsing, chunking, indexing and Temporal
 workflow rules remain outside this package.
 
 The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at
@@ -36,16 +39,17 @@ For the supported local Docker topology, use:
 ```bash
 scripts/deployment/dev.sh up
 curl --fail http://127.0.0.1:8000/healthz
-curl --fail -H "Authorization: Bearer $(cat env/api-scrape-token)" \
+curl --fail -H "Authorization: Bearer $(sed -n 's/^HARBORRAG_METRICS_SCRAPE_TOKEN=//p' env/.env.api)" \
   http://127.0.0.1:9465/metrics
 ```
 
-The development helper starts the data services, Temporal, an ingestion
-worker, and the API, then waits for its health check. If those dependencies are
-already running, `scripts/deployment/dev.sh api` starts only the API. API process
-and authentication values belong in the ignored `env/.env.api`; embedding
-credentials come from `env/.env.models`. Connector credentials remain isolated
-in the worker. See the repository
+The development helper starts the data services, Temporal, an ingestion worker
+and the API, then waits for its health check. If those dependencies are already
+running, `scripts/deployment/dev.sh api` starts only the API. API process and
+authentication values belong in the ignored `env/.env.api`, where `dev.sh api`
+and `dev.sh up` also generate the metrics scrape token when it is blank.
+Embedding credentials come from `env/.env.models`. Connector credentials remain
+isolated in the worker. See the repository
 [deployment guide](../../../../../docs/developers/deployment/README.md) for
 environment preparation and shutdown.
 
@@ -66,7 +70,7 @@ shutdown.
 | A control-database URL is set | Migrated runtime control-plane repositories plus the real Temporal client |
 | `HARBORRAG_ENV=prod` | Requires an explicit control-database URL and authenticated API mode |
 
-## HTTP routes
+## Routes
 
 The live schema at `/openapi.json` is authoritative; `x-min-role` on each
 operation gives its lowest role.
@@ -80,17 +84,38 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/connections` | `editor` | Connections in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}/connections/{connection_id}` | `editor` | Read, create or update, delete a connection |
 | `POST` | `/v1/admin/projects/{project_id}/connections/{connection_id}/test` | `editor` | Test a connection |
-| `POST` `GET` | `/v1/admin/ingestions` | `editor`, `reader` | Start an ingestion of the connection named in the body; list runs |
-| `GET` `POST` | `/v1/admin/ingestions/{ingestion_id}[/documents\|/events\|/pause\|/resume\|/cancel\|/retry-failures]` | `reader`, `editor` | Read and control one run |
+| `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `created_after`, `limit`, `cursor`) |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | SSE: `run.status`, `stage.progress`, `document.failed`, `run.completed`; integer `id`, `Last-Event-ID` resume, `: ping` every 15 s, opens at once, ends after `api_stream_timeout_seconds` (600 s by default) with an `error` event (`deadline_exceeded`); `204` when an ended run has nothing after `Last-Event-ID` |
+| `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action, and for `pause` or `resume` of a retry run |
+| `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
+| `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |
+| `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
+| `GET` `PATCH` | `/v1/admin/settings` | `admin`; `editor` reads `connection:` levels | Read overrides or effective values at a `level`; change them with `If-Match` |
+| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by group: type, range, levels, when a change applies, description |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
-| `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a chat session, list the caller's sessions |
-| `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages |
-| `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
+| `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a session scoped to one project for its life (`422 reference_not_found` for a project the tenant lacks); list the caller's own, newest first, `q` searches titles |
+| `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages, newest first, with citations and `trace_id`; `404` for another reader's session |
+| `POST` | `/v1/chat/completions` | `reader` | Answer one question in mode `instant` or `classic`, in a session (stored in its history under `completion_id`) or as a one-off; the explorer completion body with `[n]` citations and `usage`, as JSON or SSE |
 
-The ingestion read and control routes keep the task shape they had under
-`/v1/ingestions`. Every other route that predates v2.0.0, including `/api/v1/*`,
+Every `/v1/admin/ingestions*` and `/v1/admin/failures*` route needs role
+`editor` and takes the tenant from `X-Tenant-Id`; there is no `?tenant_id`
+parameter, and a run in another tenant is `404 not_found`. A failure's `stage`
+is one of `capture`, `interpret`, `commit`, `derive` and `publish`, mapped from
+the workflow activity that failed: `FetchAndCaptureRaw` is `capture`;
+`ParseAndNormalize` and `ChunkAndValidate` are `interpret`; `PersistCanonical`
+and `SyncContentUnits` are `commit`; `EncodeChunks`, `BuildProjections`,
+`WriteVectorProjection`, `WriteGraphProjection` and `BuildRelations` are
+`derive`; `VerifyProjections` and `PublishVersion` are `publish`; an unmapped
+activity is `capture`. The `links` of a run point at the Temporal and Grafana
+UIs named by the two settings below, and are empty strings when those are unset.
+`links.langfuse` and `trace_id` are empty, and `run_id` is the run's
+`ingestion_id`.
+
+Every other route that predates v2.0.0, including `/api/v1/*`,
 `/v1/connections`, `/v1/ingestions*`, `/v1/agent/*`, `/v1/retrieval/*`,
 `/v1/graph/*`, `/v1/memory/*` and `/v1/schedules/*`, answers `404 not_found`
 with no deprecated alias.
@@ -163,8 +188,9 @@ live in the capacity Redis when it is configured; when Redis is unreachable,
 calls go through. The probes and `/metrics` are never limited.
 
 A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
-`504 deadline_exceeded`. A streamed chat body has its own
-`HARBORRAG_API_STREAM_TIMEOUT_SECONDS` (600) and ends with an error frame.
+`504 deadline_exceeded`; a chat completion with `stream: true` is answered
+within it too, before its stream opens. A streamed ingestion event body has its
+own `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` (600) and ends with an error frame.
 
 ## Writes and paging
 
@@ -174,7 +200,7 @@ A handler that runs past `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` (120) is
 | `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
 | `If-Match: *` | Connection `PUT` updates only |
 | `If-None-Match: *` | Project and connection `PUT` create only |
-| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body within 24 h replays the stored result; the same key with another body is `422 validation_error`, and one still running is `409 already_running` |
+| `Idempotency-Key` | `POST /v1/chat/completions`: the same key and body (`stream` aside) within 24 h replays the stored body byte for byte without a model call; the same key with another body is `422 validation_error` on field `Idempotency-Key`, one still running is `409 session_busy`, one whose request failed before any model call stays free for a retry, and one that failed after is `409 invalid_state` |
 | Paging | `?limit=` 1–100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
 
 ## Metrics
@@ -187,7 +213,13 @@ Prometheus `text/plain; version=0.0.4` format: HTTP request counters and
 durations by route template, build information and process metrics. Ingestion
 counters come from the worker's own metrics port.
 
-## Configuration
+The monitoring stack's Prometheus sends the same metrics scrape token, read from
+`env/.env.monitoring` as the `api-scrape-token` Compose secret at
+`/run/secrets/api-scrape-token`. Copy it there from `env/.env.api` by hand, as
+the [deployment guide](../../../../../docs/developers/deployment/README.md#run-the-monitoring-stack)
+shows; a different value fails the scrape with `401`.
+
+## Settings
 
 API process settings use the `HARBORRAG_` prefix.
 
@@ -211,14 +243,17 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_HTTP_RATE_CHAT` | `2` | Chat completions per second per principal |
 | `HARBORRAG_API_CAPACITY_REDIS_URL` | unset in dev; required in prod | Redis for the rate windows and the chat capacity leases |
 | `HARBORRAG_API_CAPACITY_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for remote plaintext Redis |
-| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and legacy ingestion calls per principal per minute |
-| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and legacy ingestion calls per principal |
+| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and ingestion calls per principal per minute |
+| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and ingestion calls per principal |
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
-| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed chat body |
+| `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
+| `HARBORRAG_SETTINGS_SEED_PATH` | `config/settings.yaml` | Seed file for runtime settings, read once when the tenant has no revisions; later differences log `config_yaml_drift` |
 | `HARBORRAG_TEMPORAL_CONFIG_PATH` | `config/temporal.yaml` | Temporal connection, queues, retries, worker and workflow configuration |
 | `HARBORRAG_TEMPORAL_TARGET` | value from YAML | Optional Temporal frontend override |
 | `HARBORRAG_TEMPORAL_API_KEY` | unset | Secret API credential; keep it outside tracked YAML |
+| `HARBORRAG_TEMPORAL_UI_URL` | unset | Base URL of the Temporal UI, used for `links.temporal` of a run; empty when unset |
+| `HARBORRAG_GRAFANA_URL` | unset | Base URL of Grafana, used for `links.grafana` of a run; empty when unset |
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 
 Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json`
@@ -251,9 +286,9 @@ api/
 ├── rate_limit.py, deadline.py, capacity*.py
 ├── pagination.py, openapi.py
 └── v1/                   # the public /v1 routes
-    ├── admin/            # source types, connections and projects
+    ├── admin/            # source types, connections, projects and settings
     ├── chat/             # chat sessions and completions
-    ├── ingestion/        # legacy ingestion routes
+    ├── ingestion/        # ingestion runs and the failure inbox
     └── me.py
 ```
 

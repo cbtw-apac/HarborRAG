@@ -28,7 +28,7 @@ replays from the earliest reusable immutable artifact.
 
 ## Scheduled ingestion
 
-Schedules run in Temporal and are declared in `config/schedules.yaml`, which the
+Schedules run in Temporal and are declared in `config/sources/schedules.yaml`, which the
 API reconciles at start-up. See the [Scheduled Ingestion runbook](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md) for
 configuration, incident pause/resume, and monitoring.
 

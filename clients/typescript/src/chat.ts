@@ -1,89 +1,30 @@
 import { apiRequestError, HarborChatStreamError } from "./errors.js";
 import type { HarborClientOptions, HarborRequestOptions } from "./options.js";
+import type { components } from "./schema.js";
 import { parseSse } from "./sse.js";
 
-export interface ChatCompletionRequest {
-  prompt: string;
-  tenant?: string;
-  session_id?: string;
-  mode?: "rag";
-  model?: string;
-  project_id?: string;
-  graph_search?: boolean;
-  idempotency_key?: string;
-}
+type Schemas = components["schemas"];
+type CompletionBody = Schemas["ChatCompletionRequest"];
 
-export interface ChatUsage {
-  prompt_tokens: number;
-  completion_tokens: number;
-  total_tokens: number;
-  cache_read_input_tokens?: number | null;
-  cache_creation_input_tokens?: number | null;
-  reasoning_tokens?: number | null;
-}
+/** The completion body without ``stream``; ``mode`` and ``reasoning`` fall back to the server defaults. */
+export type ChatCompletionRequest =
+  Omit<CompletionBody, "stream" | "mode" | "reasoning"> &
+  Partial<Pick<CompletionBody, "mode" | "reasoning">>;
+export type ChatCompletionResponse = Schemas["ChatCompletionResponse"];
+export type ChatCitation = Schemas["Citation"];
+export type ChatUsage = Schemas["Usage"];
 
-export interface ChatCost {
-  amount_usd: number | null;
-  currency: "USD";
-  status: "estimated" | "unavailable";
-  complete: boolean;
-  scope: "answer_generation";
-  model_calls: number;
-  priced_model_calls: number;
-}
-
-export interface ChatCitation {
-  document_id: string;
-  chunk_id: string;
-  score: number | null;
-  document_title?: string | null;
-  section_path?: string[];
-  location?: string | null;
-  marker?: string | null;
-  content?: string | null;
-  content_truncated?: boolean;
-}
-
-export interface ChatCompletionResponse {
-  id: string;
-  created: number | null;
-  model: string;
-  provider: string;
-  provider_model: string;
-  message: { role: "assistant"; content: string };
-  outcome: "answered" | "refused";
-  refusal_reason: "out_of_scope" | null;
-  finish_reason: string;
-  usage: ChatUsage;
-  cost: ChatCost;
-  latency_ms: number | null;
-  retry_count: number;
-  fallback_count: number;
-  citations: ChatCitation[];
-  session_id: string;
-  title: string | null;
-  mode: "rag";
-  project_id: string | null;
-  memory_persisted: boolean;
+export interface ChatRequestOptions extends HarborRequestOptions {
+  /** Sent as Idempotency-Key: a retry with the same key and body within 24 h returns the stored result. */
+  idempotencyKey?: string;
 }
 
 export type ChatStreamEvent =
-  | { event: "response.started"; data: { session_id: string; mode: "rag"; replayed: boolean } }
-  | { event: "response.output_text.delta"; data: { content: string; [key: string]: unknown } }
-  | { event: "response.completed"; data: ChatCompletionResponse }
-  | {
-      event: "retrieval.completed" | "response.citations";
-      data: { citations: ChatCitation[]; session_id: string; project_id: string | null };
-    }
-  | { event: "response.warning"; data: Record<string, unknown> };
+  | { event: "response.started"; data: { session_id: string | null; mode: string; replayed: boolean } }
+  | { event: "response.output_text.delta"; data: { content: string } }
+  | { event: "response.completed"; data: ChatCompletionResponse };
 
-const PROGRESS_EVENTS = new Set([
-  "response.started",
-  "response.output_text.delta",
-  "retrieval.completed",
-  "response.citations",
-  "response.warning",
-]);
+const PROGRESS_EVENTS = new Set(["response.started", "response.output_text.delta"]);
 
 /** Per-request chat methods; readers, buffers and cancellation are never shared between calls. */
 export function createChatMethods(options: HarborClientOptions) {
@@ -93,12 +34,14 @@ export function createChatMethods(options: HarborClientOptions) {
     path: string,
     body: ChatCompletionRequest & { stream: boolean },
     stream: boolean,
-    requestOptions: HarborRequestOptions,
+    requestOptions: ChatRequestOptions,
   ): Promise<Response> {
     requestOptions.signal?.throwIfAborted();
     const headers = new Headers(requestOptions.headers);
     headers.set("Accept", stream ? "text/event-stream" : "application/json");
     headers.set("Content-Type", "application/json");
+    if (requestOptions.tenant) headers.set("X-Tenant-Id", requestOptions.tenant);
+    if (requestOptions.idempotencyKey) headers.set("Idempotency-Key", requestOptions.idempotencyKey);
     const token = await options.getToken?.();
     requestOptions.signal?.throwIfAborted();
     if (token) headers.set("Authorization", `Bearer ${token}`);
@@ -114,7 +57,7 @@ export function createChatMethods(options: HarborClientOptions) {
 
   async function completeChat(
     request: ChatCompletionRequest,
-    requestOptions: HarborRequestOptions = {},
+    requestOptions: ChatRequestOptions = {},
   ): Promise<ChatCompletionResponse> {
     return (await (await fetchCompletion(
       "/v1/chat/completions", { ...request, stream: false }, false, requestOptions,
@@ -124,7 +67,7 @@ export function createChatMethods(options: HarborClientOptions) {
   async function* streamCompletion(
     path: string,
     request: ChatCompletionRequest,
-    requestOptions: HarborRequestOptions = {},
+    requestOptions: ChatRequestOptions = {},
   ): AsyncGenerator<ChatStreamEvent, void, undefined> {
     const response = await fetchCompletion(
       path, { ...request, stream: true }, true, requestOptions,
@@ -137,8 +80,7 @@ export function createChatMethods(options: HarborClientOptions) {
       throw new HarborChatStreamError("missing_body", "The response has no event stream");
     }
     for await (const frame of parseSse(response.body, requestOptions.signal)) {
-      if (!PROGRESS_EVENTS.has(frame.event) &&
-          frame.event !== "response.completed" && frame.event !== "response.error") continue;
+      if (!PROGRESS_EVENTS.has(frame.event) && frame.event !== "response.completed") continue;
       let data: Record<string, unknown>;
       try {
         const parsed: unknown = JSON.parse(frame.data);
@@ -147,17 +89,9 @@ export function createChatMethods(options: HarborClientOptions) {
       } catch {
         throw new HarborChatStreamError("invalid_event", "The server returned an invalid JSON event");
       }
-      if (frame.event === "response.error") {
-        throw new HarborChatStreamError(
-          typeof data.code === "string" ? data.code : "stream_error",
-          typeof data.message === "string" ? data.message : "The chat stream failed",
-        );
-      }
       if (frame.event === "response.completed") {
-        const message = data.message;
-        if (typeof data.session_id !== "string" || message === null || typeof message !== "object" ||
-            !("content" in message) || typeof message.content !== "string") {
-          throw new HarborChatStreamError("invalid_event", "The completion event is missing its answer or session");
+        if (typeof data.completion_id !== "string" || typeof data.answer !== "string") {
+          throw new HarborChatStreamError("invalid_event", "The completion event is missing its answer");
         }
         yield { event: frame.event, data: data as unknown as ChatCompletionResponse };
         return;
@@ -169,7 +103,7 @@ export function createChatMethods(options: HarborClientOptions) {
     throw new HarborChatStreamError("stream_incomplete", "The stream ended before response.completed");
   }
 
-  function streamChat(request: ChatCompletionRequest, requestOptions: HarborRequestOptions = {}) {
+  function streamChat(request: ChatCompletionRequest, requestOptions: ChatRequestOptions = {}) {
     return streamCompletion("/v1/chat/completions", request, requestOptions);
   }
 
