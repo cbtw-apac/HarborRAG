@@ -203,12 +203,16 @@ uses.
 | --- | --- | --- |
 | `HARBORRAG_CHAT_RETRIEVAL_TOP_K` | `5` | Requested retrieval candidates; applies until `retrieval.top_k` is overridden for the session's project or the tenant ([Runtime settings](../configuration/runtime-settings.md)) |
 | `HARBORRAG_CHAT_RETRIEVAL_GRAPH_SEARCH` | `false` | Graph observation in `classic` mode |
-| `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold |
+| `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` | `0.0` | Optional evidence relevance threshold, compared with the retrieval similarity, never the rerank score |
 
-`retrieval.top_k` is read on every turn, at the level of the session's project,
-or of the one project a one-off question names; a change applies without a
-restart. Results without a relevance score are retained. Prompt budgets can
-exclude whole passages and older pairs from the three-exchange window.
+`retrieval.top_k` and `retrieval.rerank` are read on every turn, at the level of
+the session's project, or of the one project a one-off question names, else the
+tenant; a change applies without a restart. With `retrieval.rerank` on, chat
+retrieves a larger pool of passages, reorders it with the catalog's rerank model
+and keeps the first `top_k`; see
+[Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval).
+Results without a relevance score are retained. Prompt budgets can exclude whole
+passages and older pairs from the three-exchange window.
 
 Chat uses the `chat` family in `config/models/models.yaml`. HTTP and CLI use
 the server-owned `default` prompt; callers cannot supply prompt paths.

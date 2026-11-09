@@ -87,22 +87,79 @@ in the project root.
 - The development worker now mounts the whole `config/` read-only, like the API and the
   MCP server. A configuration change needs a worker restart, not an image rebuild.
 
-**Breaking:** `config/models/models.yaml` reads renamed environment variables. Rename
-every variable with these prefixes in `env/.env.models` and any other environment file,
-including those only the model smoke tests read, such as `HARBOR_CHAT_BACKEND`:
+### Send the models through one gateway
 
-| Old prefix | New prefix |
-| --- | --- |
-| `HARBOR_CHAT_` | `HARBORRAG_CHAT_` |
-| `HARBOR_EMBED_` | `HARBORRAG_EMBED_` |
-| `HARBOR_MEMORY_` | `HARBORRAG_MEMORY_` |
+**Breaking:** `config/models/models.yaml` now sends chat, embedding and reranking through
+one LiteLLM proxy gateway. It reads five variables in place of a provider, a model and an
+API key per family. Update `env/.env.models`, or the secret manager that injects it:
+
+1. Remove the variables the previous catalog read for chat and embedding:
+   `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, `HARBOR_CHAT_API_KEY`,
+   `HARBOR_EMBED_PROVIDER`, `HARBOR_EMBED_MODEL` and `HARBOR_EMBED_API_KEY`, or their
+   `HARBORRAG_` forms if you already renamed them. The shipped catalog no longer reads
+   `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_API_KEY`, `HARBORRAG_EMBED_PROVIDER` or
+   `HARBORRAG_EMBED_API_KEY`, and `HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL` now
+   hold gateway model names.
+
+2. Set the five gateway variables:
+
+    | Variable | Value |
+    | --- | --- |
+    | `HARBORRAG_URL` | The gateway's base URL, without `/v1`, for example `https://gateway.example.com` |
+    | `HARBORRAG_API_KEY` | The gateway's API key |
+    | `HARBORRAG_CHAT_MODEL` | The gateway's name for the chat model |
+    | `HARBORRAG_EMBED_MODEL` | The gateway's name for the embedding model |
+    | `HARBORRAG_RERANKER_MODEL` | The gateway's name for the rerank model |
+
+    The model values are the bare names `GET <HARBORRAG_URL>/v1/models` lists, with
+    no provider prefix.
+
+3. Rename every remaining variable with these prefixes, in `env/.env.models` and any
+   other environment file, including those the memory model and the model smoke tests
+   read, such as `HARBOR_CHAT_BACKEND`:
+
+    | Old prefix | New prefix |
+    | --- | --- |
+    | `HARBOR_CHAT_` | `HARBORRAG_CHAT_` |
+    | `HARBOR_EMBED_` | `HARBORRAG_EMBED_` |
+    | `HARBOR_MEMORY_` | `HARBORRAG_MEMORY_` |
+
+    ```bash
+    sed -i -E 's/(^|[^A-Z_])HARBOR_(CHAT|EMBED|MEMORY)_/\1HARBORRAG_\2_/g' env/.env.models
+    ```
+
+    `HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names.
+
+All five gateway variables are required: while one is missing, loading the catalog
+fails, for example with `environment variable HARBORRAG_URL is not set`.
+`HARBORRAG_EMBEDDING_MODEL` keeps its meaning: a logical model of the catalog, such as
+`primary`, not a gateway model name.
+
+To keep calling a provider directly, keep a catalog of your own, point
+`HARBORRAG_MODEL_CONFIG_PATH` at it, and keep the variables it reads, renamed as in
+step 3; see [Model configuration](configuration/model-config.md).
+`env-example/.env.models.example` keeps commented examples for that case.
+
+If you added a `memory` model to the shipped catalog, point its deployment at the
+gateway as `primary` is: `provider: openai_compatible`, `api_base: ${HARBORRAG_URL}`,
+`api_key: ${HARBORRAG_API_KEY}`, and the gateway's name for the model in
+`HARBORRAG_MEMORY_MODEL`. See
+[Optional memory model](configuration/model-config.md#optional-memory-model).
+
+#### Re-index after the embedding change
+
+The shipped embedding model is now the gateway's, in the embedding space
+`harbor-cohere-embed-v4`. Vectors written by the previous model have the same 1536
+dimensions, so nothing reports an error, but retrieval quality drops without warning
+until every document is embedded again. Re-ingest every source with
+`--force-reprocess`, so unchanged documents are embedded again too:
 
 ```bash
-sed -i -E 's/(^|[^A-Z_])HARBOR_(CHAT|EMBED|MEMORY)_/\1HARBORRAG_\2_/g' env/.env.models
+harborrag ingest run <connector> --force-reprocess
 ```
 
-`HARBOR_SMOKE_*` and `HARBOR_GATEWAY_TENANT` keep their names. With the old names,
-loading the catalog fails with `environment variable HARBORRAG_CHAT_PROVIDER is not set`.
+Until a source finishes, its documents are still searched with the old vectors. The
+same holds whenever you change `HARBORRAG_EMBED_MODEL` later.
 
 ### What happens at the first start
 
@@ -482,6 +539,12 @@ settings with the API or `harborrag config import`.
 The first sync after any `parsing.*` or `chunking.*` override reprocesses that
 connection, because both feed the processing identity.
 
+`retrieval.rerank: true` is accepted when the model catalog has a `rerank` section, as
+the shipped catalog now does; without one it is still refused with `422`. Nothing
+reranks at upgrade, because the default stays `false`. Switch it on per project or for
+the tenant to rerank chat retrieval; see
+[Rerank chat retrieval](configuration/runtime-settings.md#rerank-chat-retrieval).
+
 #### Use docling for PDFs
 
 `parsing.pdf_parser: docling` needs two things HarborRAG does not ship:
@@ -537,11 +600,11 @@ migrated, so plan a reset and a full re-ingest.
 1. Stop schedules and API submissions. Let every running HarborRAG workflow finish, or
    terminate them:
 
-   ```bash
-   temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'
-   ```
+    ```bash
+    temporal workflow terminate --query 'WorkflowType STARTS_WITH "harborrag"'
+    ```
 
-   An alpha1 run resumed by an alpha2 worker cannot find its plans and artifacts.
+    An alpha1 run resumed by an alpha2 worker cannot find its plans and artifacts.
 
 2. Back up the PostgreSQL control database. Restoring that backup, together with the
    untouched alpha1 stores, is the only practical rollback: alpha1 cannot start against a

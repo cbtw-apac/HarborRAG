@@ -1,8 +1,8 @@
 # Python SDK
 
-HarborRAG is a library first. `HarborRAG` is an async context manager that
-exposes four service facades - `ingestion`, `retrieval`, `graph`, and `chat` -
-over one configured runtime.
+Ingest sources, retrieve passages, walk the graph and chat from Python code. `HarborRAG`
+is an async context manager that exposes four service facades - `ingestion`,
+`retrieval`, `graph`, and `chat` - over one configured runtime.
 
 ## Install
 
@@ -88,8 +88,7 @@ on cancellation at the same safe boundary.
 [Ingestion modes](../ingestion-modes.md).
 
 To follow progress, poll `status(task_id)`. It returns a small `IngestionStatus` value
-object - `task_id`, `status`, `paused`, `cancel_requested`, `pause_applied` - and nothing
-more. `pause_applied` confirms that the pause relay has reached the active batch. There is no
+object - `task_id`, `status`, `paused`, `cancel_requested` - and nothing more. There is no
 stage sequence and no `progress` mapping on this surface.
 
 The CLI's `harborrag ingest watch` shows a richer view because it goes through the
@@ -121,6 +120,13 @@ print(response.diagnostics)
 Lanes are `DENSE`, `SPARSE`, and `HYBRID`. Results resolve against the
 authoritative active document version, so a superseded version is never
 returned even while a reindex is in flight.
+
+`rerank=True` reorders the passages with the `rerank` model of
+`config/models/models.yaml`: retrieval fetches a larger pool, keeps the first `top_k` in
+rerank order, and puts each score in `metadata["rerank_score"]`. It applies to that request
+only; the `retrieval.rerank` runtime setting is read by chat, not by the SDK. Without a
+`rerank` section the request is served in retrieval order and a warning is logged. See
+[Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval).
 
 ## Graph
 

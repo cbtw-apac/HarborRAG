@@ -29,7 +29,8 @@ and `max`, and an enumerated key has `enum`; a key without them leaves those fie
 - `next_ingestion`: the next ingestion run uses it; a run already started keeps its values.
 - `reindex`: changing it needs a re-index, which a settings change cannot start. `PATCH`
   answers `409 reindex_required`, and the value is never stored in this release.
-- `retrieval.rerank: true` is refused with `422`: no rerank stage exists yet.
+- `retrieval.rerank: true` needs a `rerank` section in the model catalog; without one it
+  is refused with `422`. See [Rerank chat retrieval](#rerank-chat-retrieval).
 - `retrieval.top_k` caps the chat retrieval and the MCP `vector_search` default. MCP calls
   carry no project, so MCP reads the tenant level only; a project override applies to chat
   sessions in that project. The MCP limits `limits.top_k` and `policy.max_results` still clamp
@@ -59,9 +60,32 @@ level replaces the boot setting.
 | `chunking.max_tokens` | the `maximum_tokens` of each profile in `config/ingestion/chunking.yaml` |
 | `ingestion.concurrency` | `ingestion.document_concurrency` in `config/temporal.yaml` or `HARBORRAG_TEMPORAL_INGESTION_DOCUMENT_CONCURRENCY` |
 
+`retrieval.rerank` has no boot setting: chat does not rerank until the key is overridden.
+
 Because a key at its default reports the registry default, `GET` shows `5` for
 `retrieval.top_k` even if you changed `HARBORRAG_CHAT_RETRIEVAL_TOP_K` to `8`.
 To carry such a change over, see [Upgrading](../upgrading.md).
+
+## Rerank chat retrieval
+
+`retrieval.rerank: true` makes chat reorder its passages with the rerank model of
+`config/models/models.yaml` ([The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog)).
+
+- Only chat reads it, over HTTP and with `harborrag chat`, at the same level as
+  `retrieval.top_k`: the session's project, or the one project a one-off question names,
+  else the tenant. The MCP `vector_search` tool and `harborrag retrieve` do not rerank.
+- Retrieval fetches a pool of four times `top_k` passages, at most 100 and never fewer
+  than `top_k`. The rerank model orders the pool, and chat keeps the first `top_k`.
+- Each reranked result carries the model's score in its `metadata` as `rerank_score`;
+  chat citations do not carry it. Its `relevance` stays the lane's similarity, which
+  `HARBORRAG_CHAT_RETRIEVAL_MIN_RELEVANCE` and the MCP `score_threshold` compare against.
+- A rerank provider error fails the retrieval, the same as an embedding error.
+- `PATCH` and `harborrag config import` accept `true` only when the catalog has a
+  `rerank` section; otherwise they answer `422 validation_error` with
+  `field = "retrieval.rerank"`.
+- The API reads the catalog's `rerank` section when it starts, so restart it after you
+  add or remove the section. An override still on after the section is gone is served
+  in retrieval order, and each such turn logs a warning.
 
 ## What reprocesses on the next sync
 
@@ -125,7 +149,7 @@ override. `dry_run=true` saves nothing and answers with the current revision.
 | `403 forbidden` | the role is too low (below) |
 | `409 reindex_required` | the key applies as `reindex` |
 | `412 precondition_failed` | `If-Match` is stale, so someone else changed settings first |
-| `422 validation_error` | no `If-Match` (`field = "If-Match"`); unknown key; wrong type or range; key not allowed at the level; boot-only key; `retrieval.rerank: true`; `?reindex=true`; malformed `level` |
+| `422 validation_error` | no `If-Match` (`field = "If-Match"`); unknown key; wrong type or range; key not allowed at the level; boot-only key; `retrieval.rerank: true` while the model catalog has no `rerank` section; `?reindex=true`; malformed `level` |
 | `422 reference_not_found` | the project or connection in `level` does not exist (`field = "level"`) |
 
 Nothing is saved when any key is refused.
