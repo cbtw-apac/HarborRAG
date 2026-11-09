@@ -125,8 +125,24 @@ async def test_invalid_seed_file_writes_nothing(
     assert _KEY in errors[0].getMessage()
 
 
-async def test_seed_race_writes_one_revision(world: _World) -> None:
+async def test_seed_race_writes_one_revision(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both seeds read revision 0 before either writes, so one of them must lose the race.
+
+    Without the barrier the event loop may finish one seed before the other reads its
+    snapshot; that seed then reports ``in_sync``, which the sequential test covers.
+    """
     world.write_file(f"{_KEY}: 512\n")
+    both_read = asyncio.Barrier(2)
+    read_snapshot = world.importer.snapshot
+
+    async def snapshot_then_wait(*, tenant_id: str) -> SettingsSnapshot:
+        snapshot = await read_snapshot(tenant_id=tenant_id)
+        await both_read.wait()
+        return snapshot
+
+    monkeypatch.setattr(world.importer, "snapshot", snapshot_then_wait)
 
     outcomes = await asyncio.gather(world.seed(), world.seed())
 
