@@ -368,7 +368,7 @@ def test_checkout_refuses_ingestion_on_the_sqlite_fallback(tmp_path, monkeypatch
 
     err = capsys.readouterr().err
     assert code == 1
-    assert "HARBORRAG_CONTROL_DB_URL" in err and "harborrag init" in err
+    assert "HARBORRAG_CONTROL_DB_URL" in err and "dev.sh up --build" in err
     assert built == []
 
 
