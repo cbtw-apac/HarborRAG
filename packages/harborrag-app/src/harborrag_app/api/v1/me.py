@@ -52,6 +52,3 @@ async def me(
         tenants=sorted(principal.tenant_ids),
         role=principal.role,
     )
-
-
-__all__ = ["router"]

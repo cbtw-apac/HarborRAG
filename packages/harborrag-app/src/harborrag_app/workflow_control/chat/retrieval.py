@@ -93,6 +93,3 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
             mode=RetrievalMode.LOCAL_SEMANTIC if observe_graph else RetrievalMode.FLAT,
         )
     )
-
-
-__all__ = ["chat_top_k", "relevant_results", "search_documents"]

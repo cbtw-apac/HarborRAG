@@ -20,7 +20,7 @@ from harborrag_core.ports.conversation import (
     ConversationTurn,
 )
 
-from .in_memory import InMemoryConversationMemory
+from .in_memory import InMemoryConversationMemory as InMemoryConversationMemory
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
@@ -212,6 +212,3 @@ class DatabaseConversationMemory:
 
     async def release_turn_lease(self, identity: ConversationIdentity, *, token: str) -> None:
         await self.repository.release_turn_lease(identity, token=token)
-
-
-__all__ = ["DatabaseConversationMemory", "InMemoryConversationMemory"]

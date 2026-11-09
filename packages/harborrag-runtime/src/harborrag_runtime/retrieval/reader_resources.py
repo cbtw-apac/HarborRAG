@@ -25,6 +25,3 @@ class ReaderResources:
     sources: SourceCatalogReader | None
     graph: KnowledgeGraphReader | None
     summaries: SummaryReaderPort | None = None
-
-
-__all__ = ["ReaderResources"]

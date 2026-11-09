@@ -100,6 +100,3 @@ def minimum_role(route: Any) -> Role | None:
 def scopes_tenant(route: Any) -> bool:
     """Whether ``route`` acts in one tenant picked from the credential."""
     return any(getattr(guard, _SCOPES_TENANT) for guard in _guards(route.dependant))
-
-
-__all__ = ["api_routes", "minimum_role", "require_role", "scopes_tenant"]

@@ -79,6 +79,3 @@ class GraphProjectionBuilder:
             relations=tuple(state.relations.values()),
             unresolved_relations=unresolved,
         )
-
-
-__all__ = ["GraphProjectionBuilder", "SourceRelationProjector"]

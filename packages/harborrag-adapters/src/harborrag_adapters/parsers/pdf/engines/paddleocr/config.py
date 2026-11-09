@@ -35,5 +35,3 @@ class PaddleOCRPDFConfig:
 
 
 PaddleOcrBackendOptions = PaddleOCRPDFConfig
-
-__all__ = ["PaddleOCRPDFConfig", "PaddleOcrBackendOptions"]

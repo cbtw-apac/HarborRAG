@@ -419,6 +419,3 @@ def _temporal_skipped() -> Check:
             "temporal", "durable", "skip", detail, hint=_TEMPORAL_CLIENT_HINT, required=False
         )
     return Check("temporal", "durable", "skip", "not checked; pass --temporal", required=False)
-
-
-__all__ = ["run_doctor", "settings_error_detail"]

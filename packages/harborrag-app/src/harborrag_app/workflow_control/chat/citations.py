@@ -102,6 +102,3 @@ def snippet(text: str) -> str:
     if len(collapsed) <= SNIPPET_LIMIT:
         return collapsed
     return collapsed[: SNIPPET_LIMIT - len(_ELLIPSIS)].rstrip() + _ELLIPSIS
-
-
-__all__ = ["SNIPPET_LIMIT", "CitationNumbering", "citation_record", "snippet"]

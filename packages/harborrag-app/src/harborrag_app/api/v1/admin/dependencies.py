@@ -32,6 +32,3 @@ Admin = Annotated[Principal, Depends(require_role("admin"))]
 def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:
     """OpenAPI entries for error responses on the shared ``Error`` schema."""
     return {code: {"model": Error} for code in codes}
-
-
-__all__ = ["Admin", "Administration", "Editor", "SettingsDependency", "error_responses"]

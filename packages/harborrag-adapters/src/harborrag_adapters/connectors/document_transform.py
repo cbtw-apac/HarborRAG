@@ -24,9 +24,3 @@ class ConnectorDocumentTransform(Protocol):
 
 ConnectorDocumentTransformFactory = Callable[[], ConnectorDocumentTransform]
 """Construct an isolated connector document transform."""
-
-
-__all__ = [
-    "ConnectorDocumentTransform",
-    "ConnectorDocumentTransformFactory",
-]

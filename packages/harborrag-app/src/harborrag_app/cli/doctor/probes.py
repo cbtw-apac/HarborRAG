@@ -125,15 +125,3 @@ def s3_credentials(
 def host_port(url: str, *, default_port: int) -> tuple[str, int]:
     parsed = urlparse(url)
     return parsed.hostname or "localhost", parsed.port or default_port
-
-
-__all__ = [
-    "DEFAULT_TIMEOUT",
-    "UNVERIFIED",
-    "host_port",
-    "http_ok",
-    "redis_ping",
-    "s3_credentials",
-    "safe_url",
-    "tcp_reachable",
-]

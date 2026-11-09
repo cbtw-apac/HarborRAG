@@ -74,6 +74,3 @@ class HarborChatMessageHistory(BaseChatMessageHistory):
         """Delete every message of the session."""
 
         await self._store.clear_messages(self._identity)
-
-
-__all__ = ["HarborChatMessageHistory"]

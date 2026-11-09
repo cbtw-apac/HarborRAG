@@ -38,6 +38,3 @@ def _deployment_names(models: Mapping[str, Any]) -> tuple[str, ...]:
         for definition in models.values()
         for deployment in definition.deployments
     )
-
-
-__all__ = ["ModelCatalogSummary", "describe_model_catalog"]

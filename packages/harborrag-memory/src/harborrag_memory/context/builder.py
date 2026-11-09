@@ -413,6 +413,3 @@ class MemoryContextBuilder:
         if condensed is None:
             return unchanged
         return condensed.query, condensed.query != question, condensed.wanted_types
-
-
-__all__ = ["MemoryContextBuilder"]

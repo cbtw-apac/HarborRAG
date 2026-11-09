@@ -231,11 +231,3 @@ def _is_external_stub(record: GraphNodeRecord | GraphEdgeRecord) -> bool:
         record.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX)
         or record.attributes.get("external") is True
     )
-
-
-__all__ = [
-    "GraphVisibilityAuthorizer",
-    "apply_graph_permissions",
-    "graph_access_scope",
-    "reachable_subgraph",
-]

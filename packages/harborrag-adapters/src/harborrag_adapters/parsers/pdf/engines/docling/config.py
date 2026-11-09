@@ -37,5 +37,3 @@ class DoclingPDFConfig:
 
 
 DoclingBackendOptions = DoclingPDFConfig
-
-__all__ = ["DoclingBackendOptions", "DoclingPDFConfig"]

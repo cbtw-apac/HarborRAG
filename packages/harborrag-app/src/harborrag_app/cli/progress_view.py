@@ -188,6 +188,3 @@ class LiveProgress:
         if force or snapshot.terminal or (changed and due):
             self._last_plain_at = elapsed
             self._console.print(render_snapshot(snapshot, label=self._label, elapsed=elapsed))
-
-
-__all__ = ["LiveProgress", "render_snapshot"]

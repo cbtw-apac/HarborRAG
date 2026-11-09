@@ -18,15 +18,6 @@ from harborrag_engine.ingestion.chunking import (
 )
 
 # Everything sibling test modules import from here, including the two re-exported fakes.
-__all__ = [
-    "CharacterCounter",
-    "CharacterRefiner",
-    "make_config",
-    "make_document",
-    "make_profile",
-    "make_request",
-    "make_service",
-]
 
 
 def make_document(

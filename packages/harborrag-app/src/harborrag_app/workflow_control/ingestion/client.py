@@ -54,6 +54,3 @@ class PublicIngestionClientMixin:
 
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         return await self._public_ingestions.recover_pending_submissions(limit=limit)
-
-
-__all__ = ["PublicIngestionClientMixin"]

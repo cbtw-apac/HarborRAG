@@ -189,10 +189,3 @@ def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborCha
         elif message.role == "assistant":
             replayed.append(HarborChatMessage.assistant(message.content))
     return tuple(replayed)
-
-
-__all__ = [
-    "build_chat_request",
-    "history_messages",
-    "prompt_text",
-]

@@ -190,6 +190,3 @@ def report(
     body = "\n".join(f"[bold]{index}.[/] {step}" for index, step in enumerate(steps, 1))
     prefix = "" if root == Path.cwd().resolve() else f"[dim]cd {root}[/]\n"
     console.print(Panel(prefix + body, title="Next steps", border_style="cyan"))
-
-
-__all__ = ["recorded_ports_offset", "report", "seed_source_folder", "select_ports_offset"]

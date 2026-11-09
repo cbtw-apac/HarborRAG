@@ -109,6 +109,3 @@ def _identity(
     user_id: str | None,
 ) -> ConversationIdentity:
     return ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
-
-
-__all__ = ["ConversationSessionService"]

@@ -85,13 +85,3 @@ def completion(
     if diagnostics.get("projection_truncated") and "edge_limit" not in reasons:
         reasons.append("candidate_limit")
     return {"complete": not reasons, "reasons": reasons}
-
-
-__all__ = [
-    "COMPLETION_SCHEMA",
-    "backend_failure",
-    "completion",
-    "direction",
-    "node_selector",
-    "relations",
-]

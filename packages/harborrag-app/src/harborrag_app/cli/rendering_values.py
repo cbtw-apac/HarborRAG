@@ -66,16 +66,3 @@ def boolean(value: Any) -> Text:
 
 def status_text(value: str) -> Text:
     return Text(value.upper(), style=f"bold {STATUS_STYLES.get(value, 'white')}")
-
-
-__all__ = [
-    "STATUS_STYLES",
-    "boolean",
-    "details_table",
-    "integer",
-    "mapping",
-    "optional_integer",
-    "sequence",
-    "status_text",
-    "text",
-]

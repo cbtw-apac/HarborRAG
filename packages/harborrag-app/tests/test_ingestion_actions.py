@@ -13,7 +13,9 @@ from workflow_control_fixtures import (
     FakeTemporalClient,
     public_ingestion_command,
     public_ingestion_source_input,
-    service_resources,
+)
+from workflow_control_fixtures import (
+    service_resources as service_resources,
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
@@ -42,8 +44,6 @@ from harborrag_runtime.errors import (
     WorkflowOperationError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-
-__all__ = ["service_resources"]
 
 _TENANT = "ACME"
 _Resources = tuple[IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient]

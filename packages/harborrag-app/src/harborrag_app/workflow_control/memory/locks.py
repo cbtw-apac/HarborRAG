@@ -155,6 +155,3 @@ class SessionLocks:
         """Whether a completion currently holds or awaits this session's lock."""
 
         return self._holders[identity] > 0
-
-
-__all__ = ["ConversationTurnBusyError", "ConversationTurnLeaseLostError", "SessionLocks"]

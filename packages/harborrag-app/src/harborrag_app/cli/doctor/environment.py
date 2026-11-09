@@ -228,14 +228,3 @@ def source_path_checks(catalog: ConnectorCatalog) -> list[Check]:
             detail = f"{variable} points to an existing directory"
             checks.append(Check("source path", "environment", "ok", detail))
     return checks
-
-
-__all__ = [
-    "check_error_detail",
-    "env_hint",
-    "credentials_check",
-    "models_check",
-    "packages_check",
-    "settings_error_detail",
-    "source_path_checks",
-]

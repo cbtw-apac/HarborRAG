@@ -149,6 +149,3 @@ class ChatClientMixin:
             principal_id=principal_id,
             options=options,
         )
-
-
-__all__ = ["ChatClientMixin"]

@@ -318,19 +318,3 @@ def _indented(lines: list[str]) -> str:
 
 def _read(name: str) -> str:
     return _TEMPLATES.joinpath(name).read_text(encoding="utf-8")
-
-
-__all__ = [
-    "COMPOSE_FALLBACK",
-    "COMPOSE_FILE",
-    "ENV_FALLBACK",
-    "ENV_FILE",
-    "FORCE_HINT",
-    "SERVICE_PORTS",
-    "STATE_DIRECTORY",
-    "InitOptions",
-    "ScaffoldExistsError",
-    "build_scaffold",
-    "existing_scaffold_files",
-    "write_scaffold",
-]

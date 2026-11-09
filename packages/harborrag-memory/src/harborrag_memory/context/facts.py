@@ -174,19 +174,3 @@ def extracted_facts(payload: Any, *, min_importance: float) -> tuple[ExtractedFa
     proposals = as_proposals(payload)
     facts = (to_fact(proposed) for proposed in proposals.facts)
     return tuple(fact for fact in facts if fact is not None and fact.importance >= min_importance)
-
-
-__all__ = [
-    "DEFAULT_SCOPE",
-    "DEFAULT_TYPE",
-    "EXTRACTION_SCOPES",
-    "EXTRACTION_TYPES",
-    "ExtractedFact",
-    "ProposedFact",
-    "ProposedFacts",
-    "as_proposals",
-    "clamp_importance",
-    "extracted_facts",
-    "facts_from_text",
-    "to_fact",
-]

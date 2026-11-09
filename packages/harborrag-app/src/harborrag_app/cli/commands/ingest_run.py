@@ -161,6 +161,3 @@ def parse_filters(value: str) -> dict[str, object]:
     if not isinstance(parsed, dict):
         raise ValueError("--filters-json must encode a JSON object")
     return {str(key): item for key, item in parsed.items()}
-
-
-__all__ = ["JsonOption", "parse_filters", "register_run", "run"]

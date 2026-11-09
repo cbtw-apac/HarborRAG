@@ -29,5 +29,3 @@ class PDFParseResult:
 
 
 PdfParseResult = PDFParseResult
-
-__all__ = ["PDFParseResult"]

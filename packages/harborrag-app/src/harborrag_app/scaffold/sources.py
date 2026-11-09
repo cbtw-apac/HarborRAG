@@ -196,6 +196,3 @@ def parse_sources(value: str) -> tuple[str, ...]:
     if not keys:
         raise ValueError(f"choose at least one data source from {', '.join(SOURCES)}")
     return tuple(keys)
-
-
-__all__ = ["DEFAULT_SOURCE", "SOURCES", "SourcePreset", "SourceVariable", "parse_sources"]

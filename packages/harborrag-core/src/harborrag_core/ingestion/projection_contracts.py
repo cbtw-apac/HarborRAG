@@ -7,32 +7,33 @@ from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
 from .artifact_contracts import ArtifactReference
 from .projection_graph import (
-    GRAPH_SCHEMA_VERSION,
-    ONTOLOGY_SCHEMA_VERSION,
-    SEMANTIC_SCHEMA_VERSION,
+    GRAPH_SCHEMA_VERSION as GRAPH_SCHEMA_VERSION,
+)
+from .projection_graph import (
+    ONTOLOGY_SCHEMA_VERSION as ONTOLOGY_SCHEMA_VERSION,
+)
+from .projection_graph import (
+    SEMANTIC_SCHEMA_VERSION as SEMANTIC_SCHEMA_VERSION,
+)
+from .projection_graph import (
     GraphEdgeRecord,
     GraphNodeRecord,
-    GraphProjectionManifest,
+)
+from .projection_graph import (
+    GraphProjectionManifest as GraphProjectionManifest,
 )
 from .projection_vector import (
-    VectorEvidenceRecord,
-    VectorPayload,
-    VectorProjectionBatch,
-    VectorProjectionManifest,
+    VectorEvidenceRecord as VectorEvidenceRecord,
 )
-
-__all__ = [
-    "GRAPH_SCHEMA_VERSION",
-    "ONTOLOGY_SCHEMA_VERSION",
-    "SEMANTIC_SCHEMA_VERSION",
-    "GraphEdgeRecord",
-    "GraphNodeRecord",
-    "GraphProjectionManifest",
-    "VectorEvidenceRecord",
-    "VectorPayload",
-    "VectorProjectionBatch",
-    "VectorProjectionManifest",
-]
+from .projection_vector import (
+    VectorPayload as VectorPayload,
+)
+from .projection_vector import (
+    VectorProjectionBatch as VectorProjectionBatch,
+)
+from .projection_vector import (
+    VectorProjectionManifest as VectorProjectionManifest,
+)
 
 
 class ProjectionManifest(StrictModel):

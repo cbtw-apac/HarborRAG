@@ -77,5 +77,3 @@ PRESETS: dict[str, ProviderPreset] = {
 }
 
 DEFAULT_PROVIDER = "openai"
-
-__all__ = ["DEFAULT_PROVIDER", "PRESETS", "ProviderPreset"]

@@ -46,6 +46,3 @@ def completion_stream(body: str, *, replayed: bool) -> StreamingResponse:
             "Idempotency-Replayed": str(replayed).lower(),
         },
     )
-
-
-__all__ = ["completion_stream"]

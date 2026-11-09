@@ -40,6 +40,3 @@ def browser_security_headers(nonce: str) -> dict[str, str]:
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
     }
-
-
-__all__ = ["browser_security_headers", "configuration_response", "error_response"]

@@ -120,6 +120,3 @@ class ChatServiceFixture:
     def retrieval(self) -> FakeRetrievalFacade:
         """The fake retrieval facade and the requests it received."""
         return self.chat_runtime.retrieval
-
-
-__all__ = ["ANSWER", "PASSAGES", "ChatServiceFixture", "FakeConnectionCatalog", "ProjectSets"]
