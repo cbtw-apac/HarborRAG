@@ -1,3 +1,5 @@
+# HarborRAG
+
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="website/assets/logos/HarborRAG-logo-dark.png">
@@ -275,8 +277,9 @@ HarborRAG keeps every credential out of the repository. Configuration lives in t
 [`config/*.yaml`](config/) files that reference `${VARIABLE}` placeholders; the values live
 in an ignored `env/` folder that you create once.
 
-One command creates every file from its template, generates a random MCP bearer token, and
-locks the folder down to mode `0600`:
+One command creates every file from its template, generates a random MCP bearer token and
+the control database's `HARBORRAG_SECRETS_ENCRYPTION_KEY`, and locks the folder down to mode
+`0600`:
 
 ```bash
 scripts/deployment/dev.sh bootstrap
@@ -290,40 +293,38 @@ Then open the files it created and replace the placeholders:
 | `env/.env.temporal` | Temporal ports, namespace, and worker replica count | Temporal stack, worker |
 | `env/.env.connector` | Source credentials - Jira, Confluence, GitHub, SharePoint, local paths | worker |
 | `env/.env.parser` | Optional parser/OCR settings; the default profile needs none | worker |
-| `env/.env.models` | Chat, embedding, and reranking provider credentials | worker, API, MCP, CLI chat |
+| `env/.env.models` | Model gateway URL, key and model names for chat, embedding, and reranking | worker, API, MCP, CLI chat |
 | `env/.env.api` | API bind address, port, JWT settings, and the metrics scrape token | API, MCP |
 | `env/.env.mcp` | Local MCP bearer token and transport overrides | MCP HTTP transport |
 
-### Three values you must fill in
+### Values you must fill in
 
-`bootstrap` leaves working local defaults everywhere except these. The first one is
-mandatory for the API and worker; their launchers refuse to start without it:
+`bootstrap` leaves working local defaults everywhere except these.
 
-```bash
-# 1. env/.env.database - ships EMPTY and blocks API/worker startup.
-#    Encrypts stored connector credentials in the control database. The API and the
-#    worker must share the same value, and it cannot change once secrets are stored.
-openssl rand -hex 32
-```
+`HARBORRAG_SECRETS_ENCRYPTION_KEY` encrypts stored connector credentials in the control
+database. The API and the worker must share it, and it cannot change once secrets are
+stored, so back it up. `dev.sh` generates it only while no database volume exists.
 
 ```dotenv
 # env/.env.database
-HARBORRAG_SECRETS_ENCRYPTION_KEY=<paste the value above>
 POSTGRES_PASSWORD=<a strong password, replacing change-me>
 ```
 
 ```dotenv
-# env/.env.models - the active config/models/models.yaml needs all six.
-HARBORRAG_CHAT_PROVIDER=openai
-HARBORRAG_CHAT_MODEL=gpt-4o-mini
-HARBORRAG_CHAT_API_KEY=<your key>
-HARBORRAG_EMBED_PROVIDER=openai
-HARBORRAG_EMBED_MODEL=text-embedding-3-small
-HARBORRAG_EMBED_API_KEY=<your key>
+# env/.env.models - the active config/models/models.yaml needs all five.
+HARBORRAG_URL=https://gateway.example.com
+HARBORRAG_API_KEY=<your gateway key>
+HARBORRAG_CHAT_MODEL=chat-model-name
+HARBORRAG_EMBED_MODEL=embedding-model-name
+HARBORRAG_RERANKER_MODEL=rerank-model-name
 ```
 
-Model references are expanded eagerly at load time, so a missing *embedding* variable
-fails just as hard as a missing chat one.
+The active catalog sends chat, embedding, and reranking through one LiteLLM proxy
+gateway. `HARBORRAG_URL` is the gateway's base URL without `/v1`, and the three model
+values are the gateway's model names, as `GET <HARBORRAG_URL>/v1/models` lists them.
+Model references are expanded eagerly at load time, so a missing *reranker* variable
+fails just as hard as a missing chat one. Changing the embedding model later needs a
+re-index; see [Model configuration](docs/users/configuration/model-config.md#the-shipped-gateway-catalog).
 
 > **If `dev.sh up` dies with**
 > `HARBORRAG_SECRETS_ENCRYPTION_KEY is required for the API and worker` - that is this
@@ -448,10 +449,10 @@ built automatically on first start.
 
 ```bash
 HARBORRAG_TEMPORAL_TARGET=localhost:7233 \
-  uv run harborrag doctor --json
+  uv run harborrag doctor --temporal --json
 ```
 
-`harborrag doctor` talks to a live Temporal frontend, so run it only after
+`--temporal` adds a check of the live Temporal frontend, so run it only after
 `dev.sh temporal` succeeds. The Temporal UI is at <http://localhost:8080>, and the API
 health endpoint is printed by `dev.sh api`.
 
@@ -507,19 +508,83 @@ queues, retry budgets, TLS, and timeouts live in
 
 ### Run an ingestion
 
-```bash
-export HARBORRAG_TEMPORAL_TARGET=localhost:7233
+The host CLI records runs and connections in the stack's PostgreSQL. In
+`env/.env.database`, uncomment this line:
 
-uv run harborrag ingest start \
-  --connector-id harborrag-workspace \
-  --tenant tenant-1 \
-  --wait
+```dotenv
+HARBORRAG_CONTROL_DB_URL="postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${POSTGRES_PORT:-5432}/${POSTGRES_DB}"
 ```
 
-`--connector-id` names a stored connection by its `source_key`. At the first start, the
-service imports [`config/sources/connectors.yaml`](config/sources/connectors.yaml) once, so the
-checked-in catalog's `harborrag-workspace`, `confluence-main`, and `jira-main` become
-connections under those keys. It is not a source *type*, so `--connector-id local` fails.
+Without it, `harborrag ingest` and every `harborrag source` command that writes refuse
+with `Refusing to ingest or change connections from a repo checkout in the local sqlite
+control DB...`. With it, the CLI also reads `HARBORRAG_SECRETS_ENCRYPTION_KEY` from the
+same file and migrates that database on every command, so start the stack from current
+images (`scripts/deployment/dev.sh up --build`).
+
+Then ingest the checked-in workspace connection:
+
+```bash
+export HARBORRAG_TEMPORAL_TARGET=localhost:7233
+uv run harborrag ingest start harborrag-workspace --wait
+```
+
+The argument names a stored connection by its `source_key`. At the first start, the
+service imports [`config/sources/connectors.yaml`](config/sources/connectors.yaml) once
+into tenant `DEFAULT`, project `default`, and each connection keeps its key:
+`harborrag-workspace`, `confluence-main`, and `jira-main`. `DEFAULT` is the CLI's default
+tenant, so no `--tenant` is needed. A source *type* is not a key: `local` fails with
+`ConnectionNotFoundError`.
+
+A connection created through the API or `harborrag source add` has the key
+`PROJECT/CONNECTION`, and so does one that existed before migration 0041. On an upgraded
+stack, start `default/harborrag-workspace`.
+
+`harborrag source sync` addresses any connection by project and connection, whatever its
+key, and does what `POST /v1/admin/ingestions` does. It refuses while the connection has a
+run in progress, and prints the `harborrag ingest watch RUN_ID` command that follows the
+new run. Add `--mode force` to re-read and re-process everything.
+
+```bash
+uv run harborrag source sync default/harborrag-workspace
+```
+
+### Follow and control a run
+
+Save the returned run ID - add `--json` for machine-readable output - and drive it with the
+operator commands:
+
+```bash
+uv run harborrag ingest status RUN_ID --json
+uv run harborrag ingest wait RUN_ID --json
+uv run harborrag ingest watch RUN_ID      # inline progress until the run settles
+uv run harborrag ingest pause RUN_ID
+uv run harborrag ingest resume RUN_ID
+uv run harborrag ingest cancel RUN_ID
+```
+
+Cancellation is applied at a safe source-batch boundary. A later run may report documents
+as `unchanged` - that is the expected admission fast path, and it skips parsing, chunking,
+and encoding entirely.
+
+### Query what you ingested
+
+From a checkout, `retrieve` and `chat` need the shared-corpus settings that the worker
+reads from `env/.env.temporal`. The CLI does not read that file, so export them first;
+without them `retrieve` returns no results:
+
+```bash
+export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
+export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
+uv run harborrag retrieve "deployment requirements" --top-k 5 --include-content
+uv run harborrag chat "How do we deploy the worker?" --json
+```
+
+`retrieve` runs hybrid dense + sparse search with graph observation on by default
+(`--lane dense|sparse|hybrid`, `--no-graph` to disable). `chat` makes a real provider
+request against `config/models/models.yaml`, so it may incur provider charges; its JSON response
+carries a session ID you can pass back with `--session` to keep conversation context.
+
+### Add a connection through the API
 
 After that first start, add and change connections through the API: list the source
 types, test the form values, save the connection, then start an ingestion. For example,
@@ -550,40 +615,6 @@ From a terminal, save the same body to a file and run
 See [Connections](docs/users/connections.md) for the full flow and
 [Upgrading](docs/users/upgrading.md) for what changes from 2.0.0a2.
 
-Save the returned run ID - add `--json` for machine-readable output - and drive it with the
-operator commands:
-
-```bash
-uv run harborrag ingest status RUN_ID --json
-uv run harborrag ingest wait RUN_ID --json
-uv run harborrag ingest watch RUN_ID      # inline progress until the run settles
-uv run harborrag ingest pause RUN_ID
-uv run harborrag ingest resume RUN_ID
-uv run harborrag ingest cancel RUN_ID
-```
-
-Cancellation is applied at a safe source-batch boundary. A later run may report documents
-as `unchanged` - that is the expected admission fast path, and it skips parsing, chunking,
-and encoding entirely.
-
-### Query it
-
-```bash
-uv run harborrag retrieve "deployment requirements" \
-  --tenant tenant-1 \
-  --top-k 5 \
-  --include-content
-
-uv run harborrag chat "How do we deploy the worker?" \
-  --tenant tenant-1 \
-  --json
-```
-
-`retrieve` runs hybrid dense + sparse search with graph observation on by default
-(`--lane dense|sparse|hybrid`, `--no-graph` to disable). `chat` makes a real provider
-request against `config/models/models.yaml`, so it may incur provider charges; its JSON response
-carries a session ID you can pass back with `--session` to keep conversation context.
-
 More: [CLI reference](docs/users/cli-reference/README.md) ·
 [Ingestion modes](docs/users/ingestion-modes.md) ·
 [Deployment guide](docs/developers/deployment/README.md)
@@ -599,7 +630,7 @@ rather than raw query text.
 Chat is **not** an MCP tool - it is served through the REST API.
 Ingestion is controlled through the CLI or the authenticated API.
 
-### Before running MCP on Docker Desktop (Windows)
+### Enable host networking on Docker Desktop (Windows)
 
 The MCP container reaches the data services on the host through `127.0.0.1`,
 which only works when Docker Desktop host networking is enabled. This is a
@@ -717,7 +748,7 @@ and ownership rules.
 | [`config/sources/connectors.yaml`](config/sources/connectors.yaml) | Active named connector definitions and environment references |
 | [`config/ingestion/parsers.yaml`](config/ingestion/parsers.yaml) | Active parser definitions, with backend alternatives kept as commented blocks |
 | [`config/ingestion/chunking.yaml`](config/ingestion/chunking.yaml) | Chunk sizes, per-source profiles and the oversized-unit refiner |
-| [`config/models/models.yaml`](config/models/models.yaml) | Active chat and embedding model configuration |
+| [`config/models/models.yaml`](config/models/models.yaml) | Active chat, embedding, and reranking model catalog, served by one model gateway |
 | [`config/graph/build.yaml`](config/graph/build.yaml) | Graph build runtime, summarization and per-tenant graph policy |
 | [`config/temporal.yaml`](config/temporal.yaml) | Temporal connection, TLS, task queues, retries, worker capacity, health, workflow timeouts |
 | [`config/mcp/server.yaml`](config/mcp/server.yaml) | MCP tool enablement, defaults, limits, and tenant overrides |

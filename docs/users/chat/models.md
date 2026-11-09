@@ -6,18 +6,24 @@ catalog with its own models. For the request and response contract see
 
 ## Configure the shared model
 
-The checked-in runtime catalog uses one logical model named `primary`:
+The checked-in runtime catalog uses one logical model named `primary`, served
+by a LiteLLM proxy gateway:
 
 ```yaml
 chat:
   default_model: primary
+  backend:
+    type: direct_sdk
+  security:
+    allowed_providers: [openai, openai_compatible]
   models:
     primary:
       deployments:
-        - name: openai-primary
-          provider: ${HARBORRAG_CHAT_PROVIDER}
+        - name: gateway-chat
+          provider: openai_compatible
           model: ${HARBORRAG_CHAT_MODEL}
-          api_key: ${HARBORRAG_CHAT_API_KEY}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
 ```
 
 Copy the environment template, replace its placeholders, and keep the
@@ -27,11 +33,13 @@ populated file out of version control:
 cp env-example/.env.models.example env/.env.models
 ```
 
-The relevant values are `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_MODEL`, and
-`HARBORRAG_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
-catalog. Configuration loading expands environment references but does not
-load `.env` files itself; the deployment scripts and Compose services load
-`env/.env.models` for you.
+For chat, the relevant values are `HARBORRAG_URL` (the gateway's base URL,
+without `/v1`), `HARBORRAG_API_KEY` and `HARBORRAG_CHAT_MODEL`, the gateway's
+name for the chat model. The same catalog also needs the embedding and reranker
+values; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog).
+`HARBORRAG_MODEL_CONFIG_PATH` selects a different model catalog. Configuration
+loading expands environment references but does not load `.env` files itself;
+the deployment scripts and Compose services load `env/.env.models` for you.
 
 SDK callers may name one logical model (see [Choosing a model per turn](#choosing-a-model-per-turn))
 and one system prompt. They do not accept provider credentials, base URLs,
@@ -69,6 +77,9 @@ one deployment. Its `config_json` accepts exactly these keys:
 ```
 
 `provider`, `logical_model`, and `model` are required; the rest are optional.
+With the shipped catalog a row must name `"provider": "openai"` or
+`"provider": "openai_compatible"`, the providers its `chat.security` allows; a row
+naming any other provider is refused, as described below.
 Several rows sharing one `logical_model` become several deployments behind
 that one name, and their `deployment` values must differ. `default` marks the
 tenant's default model. An unknown key is an error naming the offending row.

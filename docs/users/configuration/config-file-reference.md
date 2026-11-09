@@ -1,6 +1,9 @@
 # Engine and ingestion runtime configuration
 
-Connector, parser, and model settings have file loaders. The engine itself currently uses two small frozen dataclasses constructed in Python.
+Look up the engine's two Python settings objects and the `HARBORRAG_*` environment
+variables the ingestion worker, the API, chat and the MCP server read. Connector, parser
+and model settings have their own file loaders; the engine itself uses two small frozen
+dataclasses constructed in Python.
 
 ## `EngineConfig`
 
@@ -34,14 +37,13 @@ engine settings alongside the control-plane repositories.
 
 ## Ingestion runtime environment
 
-The built-in worker composition loads the three catalogs and repository
-settings through `HARBORRAG_*` variables.
+The built-in worker composition loads the connector, parser and model catalogs and
+the repository settings through `HARBORRAG_*` variables.
 
-> Four rows below - `HARBORRAG_API_CAPACITY_REDIS_URL`,
-> `HARBORRAG_API_REQUESTS_PER_MINUTE`, `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL`, and
-> `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` - are API-process settings (`ApiSettings`), not
-> worker settings. They are read only by the API.
-
+The last four rows of the table below, `HARBORRAG_API_CAPACITY_REDIS_URL`,
+`HARBORRAG_API_REQUESTS_PER_MINUTE`, `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` and
+`HARBORRAG_API_REQUEST_TIMEOUT_SECONDS`, are API-process settings (`ApiSettings`), not
+worker settings. Only the API reads them.
 
 | Variable | Default |
 | --- | --- |
@@ -73,26 +75,32 @@ Database URLs, API keys, object-store credentials, and FalkorDB passwords are
 secret settings. They are masked by `RuntimeSettings` and must be supplied
 through the protected deployment environment rather than checked-in files.
 
-Embedding model and dimensions are derived from the selected model catalog.
-Set `HARBORRAG_EMBEDDING_MODEL` or `HARBORRAG_EMBEDDING_DIMENSIONS` only when
-the catalog is ambiguous or a non-default logical model is required.
+The embedding model and its dimensions come from the selected model catalog. Set
+`HARBORRAG_EMBEDDING_MODEL` or `HARBORRAG_EMBEDDING_DIMENSIONS` only when the catalog
+is ambiguous or a non-default model is required. `HARBORRAG_EMBEDDING_MODEL` names a
+logical model of the catalog's `embed` section, such as `primary`; it is not the
+gateway's model name, which `HARBORRAG_EMBED_MODEL` sets below.
 
-## Chat model environment
+## Model gateway environment
 
-HTTP and CLI chat share `HARBORRAG_MODEL_CONFIG_PATH`. The checked-in
-`config/models/models.yaml` references these protected values:
+HTTP and CLI chat, ingestion and retrieval share `HARBORRAG_MODEL_CONFIG_PATH`. The
+checked-in `config/models/models.yaml` sends chat, embedding and reranking through one
+LiteLLM proxy gateway and references these protected values:
 
 | Variable | Meaning |
 | --- | --- |
-| `HARBORRAG_CHAT_PROVIDER` | Provider identifier allowed by the chat security policy |
-| `HARBORRAG_CHAT_MODEL` | Provider model identifier for the `primary` chat deployment |
-| `HARBORRAG_CHAT_API_KEY` | Chat provider credential |
-| `HARBORRAG_EMBED_PROVIDER` | Provider identifier allowed by the embedding security policy |
-| `HARBORRAG_EMBED_MODEL` | Provider model identifier for the embedding deployment |
-| `HARBORRAG_EMBED_API_KEY` | Embedding provider credential |
+| `HARBORRAG_URL` | Base URL of the gateway, without `/v1`, for example `https://gateway.example.com` |
+| `HARBORRAG_API_KEY` | Gateway API key, used for chat, embedding and reranking; not an API-process setting despite its name |
+| `HARBORRAG_CHAT_MODEL` | Gateway model name for the `primary` chat model |
+| `HARBORRAG_EMBED_MODEL` | Gateway model name for the `primary` embedding model |
+| `HARBORRAG_RERANKER_MODEL` | Gateway model name for the `primary` rerank model |
 
-All six are required. References expand eagerly at load time, so a missing embedding
-variable fails exactly as hard as a missing chat one.
+The three model values are the gateway's own model names, as
+`GET <HARBORRAG_URL>/v1/models` lists them, without a provider prefix.
+
+All five are required. References expand eagerly at load time, so a missing reranker
+variable fails exactly as hard as a missing chat one. Changing `HARBORRAG_EMBED_MODEL`
+needs a re-index; see [Model configuration](model-config.md#the-shipped-gateway-catalog).
 
 Store populated values in the ignored `env/.env.models` file or an external
 secret manager. HarborRAG's configuration loader does not search `.env` files;

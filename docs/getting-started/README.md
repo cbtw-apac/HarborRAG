@@ -1,5 +1,8 @@
 # Getting Started
 
+Start here to install HarborRAG and get a first answer from your own documents, or to
+pick the guide that fits what you want to do.
+
 HarborRAG is a modular, provider-agnostic RAG framework for engineering knowledge. It
 ingests from the systems your team already uses and resolves retrieval against the
 authoritative *current* document version, so a superseded version cannot be cited even
@@ -20,37 +23,45 @@ and CLI surfaces, and retrieval behind the MCP surface.
 | Use it as a Python library | [Python SDK](../users/python-sdk/README.md) |
 | Connect an IDE or agent | [MCP Tools](../users/detailed-guides/mcp-server/README.md) |
 
-## What a first run looks like
+## See what a first run looks like
 
 ```bash
 pip install "harborrag[local]"
-harborrag init my-harbor && cd my-harbor    # answer a few questions
-docker compose up -d                        # three small local services
-harborrag doctor                            # all ✓
-harborrag ingest run workspace              # index the docs/ folder
+harborrag init my-harbor && cd my-harbor
+docker compose up -d
+harborrag doctor
+harborrag ingest run workspace
 harborrag chat "What do these documents cover?"
 ```
+
+`init` asks a few questions and writes the project; `docker compose up -d` starts three
+small local services; `doctor` checks the setup; `ingest run workspace` indexes the
+`docs/` folder through the local-folder connection `init` created.
 
 `init` generates the encryption key and service passwords; the only value you supply is
 your model provider's API key. If anything is missing, `harborrag doctor` names the exact
 variable and the fix. The [Quick Start](quick-start.md) shows the expected output
 of every step.
 
-### In a repository checkout
+### Set up a repository checkout
 
 Contributors work from the `env/` folder created by `scripts/deployment/dev.sh bootstrap`.
-Two values there have no safe default:
+`bootstrap` also generates `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database`; back
+it up, because stored connector secrets cannot be read without it. These values have no
+safe default:
 
-- `HARBORRAG_SECRETS_ENCRYPTION_KEY` in `env/.env.database` - ships **empty**, and the API
-  and worker refuse to start until you set it (`openssl rand -hex 32`). Server-only data
-  and Temporal commands do not consume stored connector secrets and may start without it.
-- The six `HARBORRAG_CHAT_*` and `HARBORRAG_EMBED_*` values in `env/.env.models` - the active
-  model catalog expands references eagerly, so a missing embedding variable fails exactly
-  as hard as a missing chat one.
+- The five model gateway values in `env/.env.models`: `HARBORRAG_URL`,
+  `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and
+  `HARBORRAG_RERANKER_MODEL`. The active model catalog expands references eagerly, so a
+  missing reranker variable fails exactly as hard as a missing chat one.
+- The `HARBORRAG_CONTROL_DB_URL` line in `env/.env.database`, which ships commented out.
+  Uncomment it so the host `harborrag` command uses the stack's Postgres; without it,
+  `harborrag ingest` and `harborrag source` refuse to write from a checkout.
 
-[Running from a checkout, step 5](../developers/checkout-quick-start.md#5-create-the-env-folder) walks through both.
+[Running from a checkout, step 5](../developers/checkout-quick-start.md#5-create-the-env-folder)
+walks through them.
 
-## Then
+## Read next
 
 - [Configuration](../users/configuration/README.md) - point HarborRAG at your own
   connectors, parsers, and models

@@ -1,15 +1,22 @@
 # Model Configuration
 
-The model adapter provides separate chat, embedding, and reranking clients. Each family loads its own section from the same YAML or JSON file and returns an immutable Pydantic configuration object.
+Configure the chat, embedding and reranking models HarborRAG calls, and check that a
+model catalog resolves before anything calls a provider. The model adapter provides a
+separate client for each of the three families. Each family loads its own section from
+the same YAML or JSON file and returns an immutable Pydantic configuration object.
 
 The `config/models/` folder holds:
 
-- [`config/models/models.yaml`](../../../config/models/models.yaml), the active chat and embedding catalog;
-- [`config/models/models.production.example.yaml`](../../../config/models/models.production.example.yaml), with routing, fallbacks, reranking and profiles.
+- [`config/models/models.yaml`](../../../config/models/models.yaml), the active catalog,
+  which sends chat, embedding and reranking through one LiteLLM proxy gateway;
+- [`config/models/models.production.example.yaml`](../../../config/models/models.production.example.yaml),
+  a catalog that calls providers directly, with routing, fallbacks, reranking and profiles.
 
 Install `harborrag-adapters[llm]` when it is not already present in the development environment.
 
 ## Minimal structure
+
+A catalog that calls one provider directly needs no more than this:
 
 ```yaml
 chat:
@@ -60,33 +67,72 @@ runtime's typed prompt catalog packages the `default` and `concise` Markdown
 templates; see [Chat](../chat/README.md) for transport behavior and prompt
 selection.
 
-The repository's runnable `config/models/models.yaml` uses
-`HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_MODEL`, and `HARBORRAG_CHAT_API_KEY` for its `primary`
-chat deployment, **and** `HARBORRAG_EMBED_PROVIDER`, `HARBORRAG_EMBED_MODEL`, and
-`HARBORRAG_EMBED_API_KEY` for its embedding deployment. All six are required: references
-expand eagerly, so filling in only the chat three fails at load time. The production
-example uses provider variables such as `AZURE_OPENAI_API_KEY` instead.
+## The shipped gateway catalog
+
+The repository's runnable `config/models/models.yaml` defines one logical model named
+`primary` in each family, and every one of them calls the same LiteLLM proxy gateway:
+
+- **Chat** uses the `direct_sdk` backend with one `provider: openai_compatible`
+  deployment at the gateway's URL and key, so the LiteLLM SDK calls the gateway as an
+  OpenAI-compatible endpoint. Topology extraction accepts only the `direct_sdk`
+  backend, which is why chat does not use the `litellm_proxy` backend.
+  `chat.security.allowed_providers` is `[openai, openai_compatible]`. The deployment
+  does not declare `reasoning_effort`: given a reasoning effort, a Claude model behind
+  the gateway answers in prose instead of the requested JSON schema, and topology
+  extraction and graph summaries need schema-constrained answers.
+- **Embedding** names `provider: cohere` with `custom_llm_provider: litellm_proxy` and
+  the gateway's URL and key. `provider: cohere` is what makes HarborRAG send Cohere's
+  `input_type`, `search_query` for questions and `search_document` for chunks, and the
+  gateway passes it on. The model writes 1536-dimension vectors in the embedding space
+  `harbor-cohere-embed-v4`.
+- **Reranking** names `provider: litellm_proxy` with the gateway's URL and key. Chat
+  retrieval uses it when `retrieval.rerank` is on; see
+  [Runtime settings](runtime-settings.md#rerank-chat-retrieval).
+
+The catalog reads five variables from `env/.env.models`: `HARBORRAG_URL`,
+`HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and
+`HARBORRAG_RERANKER_MODEL`. [Model gateway environment](config-file-reference.md#model-gateway-environment)
+describes each one. All five are required: references expand eagerly, so leaving out
+the reranker model fails at load time even if you never switch reranking on.
+
+Do not confuse `HARBORRAG_EMBED_MODEL` with `HARBORRAG_EMBEDDING_MODEL`. The first is
+the gateway's name for the embedding model. The second, which you rarely need, selects
+a logical model of the catalog's `embed` section, such as `primary`.
+
+Changing the embedding model needs a re-index. Vectors written by the previous model
+have the same 1536 dimensions, so nothing reports an error: retrieval quality drops
+without warning until every source is re-ingested with `--force-reprocess`.
+
+The production example uses provider variables such as `AZURE_OPENAI_API_KEY` instead.
+`env-example/.env.models.example` keeps commented examples for a catalog that calls a
+provider or another proxy directly; they stay commented because they set
+`HARBORRAG_CHAT_MODEL` and `HARBORRAG_EMBED_MODEL` too.
 
 ### Optional memory model
 
 The conversation-memory layer (query rewriting, fact extraction and session summaries)
 can use a cheaper model than chat. Add a `memory` logical model under `chat.models` in
-`config/models/models.yaml` and set the three `HARBORRAG_MEMORY_*` variables in
-`env/.env.models`:
+`config/models/models.yaml` and set `HARBORRAG_MEMORY_MODEL` in `env/.env.models` to
+the gateway's name for that model:
 
 ```yaml
     memory:
       deployments:
-        - name: openai-memory
-          provider: ${HARBORRAG_MEMORY_PROVIDER}
+        - name: gateway-memory
+          provider: openai_compatible
           model: ${HARBORRAG_MEMORY_MODEL}
-          api_key: ${HARBORRAG_MEMORY_API_KEY}
+          api_base: ${HARBORRAG_URL}
+          api_key: ${HARBORRAG_API_KEY}
           capabilities:
             streaming: false
             structured_output: true
             json_mode: true
             tools: false
 ```
+
+The memory model calls the same gateway as `primary`, with the same URL and key.
+`HARBORRAG_MEMORY_PROVIDER` and `HARBORRAG_MEMORY_API_KEY` belong to a catalog that
+calls a provider directly.
 
 Extraction and summarization need schema-constrained answers, so the deployment must
 declare `structured_output` and `json_mode`. `HARBORRAG_MEMORY_MODEL_PROFILE` names the
@@ -118,6 +164,9 @@ Nested mappings merge recursively; lists and scalar values replace the lower-pre
 ```bash
 uv run --env-file env-example/.env.models.example \
   python -m harborrag_adapters.models validate config/models/models.yaml --family chat
+
+uv run --env-file env-example/.env.models.example \
+  python -m harborrag_adapters.models validate config/models/models.yaml --family rerank
 
 uv run --env-file env-example/.env.models.example \
   python -m harborrag_adapters.models explain config/models/models.yaml --family embed

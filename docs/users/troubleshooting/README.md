@@ -25,6 +25,7 @@ source folder, blank connector credentials, running outside the project).
 | Connector example fails to load | Documentation path was copied without the `.example` suffix | Load or copy `config/sources/connectors.example.yaml` |
 | Local connector build reports `LOCAL_SOURCE_PATH` missing | Example maps `source_path` to that variable | Export it, or pass a build override |
 | Model `validate` reports a missing environment variable | Model references are expanded eagerly | Export every `${VARIABLE}` used by the selected family/profile |
+| `PATCH /v1/admin/settings` refuses `retrieval.rerank: true` with `422 validation_error` | The model catalog has no `rerank` section, or the API started before it was added | Add the `rerank` section, set `HARBORRAG_RERANKER_MODEL`, and restart the API; see [Rerank chat retrieval](../configuration/runtime-settings.md#rerank-chat-retrieval) |
 | Parser reports two enabled definitions for one type | More than one enabled profile replaces the same parser | Enable only one definition per stable parser name |
 | Unknown fields are rejected | Configuration models use strict validation | Fix the spelling or move Python-only callbacks into code overrides |
 
@@ -97,7 +98,8 @@ Chat is HTTP/CLI-only; MCP exposes only retrieval tools.
 
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
-| Chat validation reports a missing `HARBORRAG_CHAT_*` value | `config/models/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
+| Chat fails with `environment variable HARBORRAG_URL is not set`, or names another gateway value | `config/models/models.yaml` expands the gateway URL, key and model names before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
+| Answers got worse after a change of `HARBORRAG_EMBED_MODEL`, with no error | The stored vectors come from the previous embedding model; both models write 1536 dimensions, so nothing fails | Re-ingest every source with `--force-reprocess`; see [Model configuration](../configuration/model-config.md#the-shipped-gateway-catalog) |
 | HTTP chat returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
 | MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
 | The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
