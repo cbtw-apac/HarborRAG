@@ -232,6 +232,7 @@ class RetrievalRequest:
     # ``observe_graph`` is on, since it is the graph walk it widens.
     graph_seed_node_keys: tuple[str, ...] = ()
     mode: RetrievalMode = RetrievalMode.FLAT
+    rerank: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", RetrievalMode(self.mode))

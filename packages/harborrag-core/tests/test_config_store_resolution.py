@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
 from harborrag_core.config_store.levels import SettingsLevel
@@ -111,6 +113,16 @@ def test_rerank_false_is_accepted() -> None:
     (change,) = plan("tenant", {"retrieval.rerank": False})
 
     assert change.to_value is False
+
+
+def test_rerank_true_is_accepted_with_a_rerank_model() -> None:
+    registry = replace(REGISTRY, rerank_available=True)
+
+    (change,) = plan_changes(
+        registry, SNAPSHOT, SettingsLevel("tenant"), {"retrieval.rerank": True}
+    )
+
+    assert change.to_value is True
 
 
 def test_first_failure_in_sorted_key_order_wins() -> None:

@@ -154,8 +154,9 @@ def plan_changes(
     """Plan the override changes a PATCH body makes at ``level``.
 
     Keys are checked in sorted order: known and not boot-only, allowed at the
-    level, not a reindex key, ``retrieval.rerank`` not ``True``, value valid.
-    A ``None`` value removes the override. Unchanged overrides are left out.
+    level, not a reindex key, ``retrieval.rerank: true`` only with a rerank model,
+    and a valid value. A ``None`` value removes the override. Unchanged overrides
+    are left out.
 
     Args:
         registry: Registry the keys must belong to.
@@ -168,7 +169,8 @@ def plan_changes(
 
     Raises:
         HarborValidationError: First key that is unknown, boot-only, not allowed at
-            the level, ``retrieval.rerank: true``, or invalid (``field = key``).
+            the level, ``retrieval.rerank: true`` without a rerank model, or invalid
+            (``field = key``).
         SettingsReindexRequiredError: A key whose change needs a reindex.
     """
     effective = resolve_effective(registry, snapshot, level)
@@ -183,9 +185,9 @@ def plan_changes(
                 f"{key} needs a reindex, which cannot be started here"
             )
         value = body[key]
-        if key == "retrieval.rerank" and value is True:
+        if key == "retrieval.rerank" and value is True and not registry.rerank_available:
             raise HarborValidationError(
-                "retrieval.rerank cannot be enabled: no retrieval path reranks",
+                "retrieval.rerank cannot be enabled: the model catalog has no rerank model",
                 details={"field": key},
             )
         new = None if value is None else definition.validate(value)
