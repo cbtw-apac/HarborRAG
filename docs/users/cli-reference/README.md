@@ -87,6 +87,9 @@ Retrieval defaults to tenant `DEFAULT`, 10 hybrid results, and graph-context
 observation. Content and metadata are excluded unless explicitly requested.
 `--filters-json` must be a JSON object and cannot contain `tenant_id`; tenant
 scope is always supplied through `--tenant`.
+With `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, a retrieval for
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` reads the shared corpus; any other tenant is
+scoped to its source permissions.
 
 ## Diagnostics
 
@@ -236,6 +239,13 @@ effect before the next batch. Resume restarts batch dispatch; cancellation
 releases a paused run and takes effect at the same safe boundary. A new run for
 the same source scope replays reusable durable
 artifacts after a terminal failure.
+
+`pause`, `resume` and `cancel` apply the same rules as the HTTP API. A pause of a paused
+run, a pause or resume of a retry run (cancel it instead), and any action on a finished
+run exit 1 with `cannot <action> an ingestion that is <status>` and change nothing. They
+wait for the run to reach the target status (10 seconds for pause and resume, 30 for
+cancel) and then report it as it stands. The command records the operator as the actor on
+the run's event trail.
 
 ### Following a run
 

@@ -85,6 +85,8 @@ class SettingsLevelNotFoundError(HarborValidationError):
 
 
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
+    IngestionActionStateError,
+    IngestionNotFoundError,
     RuntimeConfigurationError,
     RuntimeConnectionError,
     WorkerStartupError,

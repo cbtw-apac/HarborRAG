@@ -208,6 +208,19 @@ token is kept.
   the CLI and `connectors.yaml` still accept them.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
 
+- **`harborrag ingest pause|resume|cancel` use the HTTP rules.** An action the
+  run's status does not allow exits 1 with the `invalid_state` message and sends
+  nothing to Temporal: pausing a paused run, pausing or resuming a retry run,
+  and any action on a finished run. The command needs a reachable control
+  database, and a run it does not hold is reported as not found; stop such a
+  run in the Temporal UI.
+- **`harborrag retrieve` honours the shared tenant.** With
+  `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, retrieval for
+  `HARBORRAG_CORPUS_SHARED_TENANT_ID` reads the shared corpus, as chat does;
+  every other tenant stays ACL-scoped.
+- **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra
+  that pinned an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
+
 ### HTTP API changes
 
 - **Removed routes answer `404`, with no deprecated alias:** every `/api/v1/*`

@@ -12,6 +12,7 @@ from harborrag_runtime.sdk import HarborRAG, RetrievalLane, RetrievalMode, Retri
 
 from ..errors import failure_response
 from ..schemas import AppResponse
+from .access import corpus_mode_for
 from .presentation import retrieval_response
 
 logger = logging.getLogger("harborrag.app.workflow_control.retrieval")
@@ -42,6 +43,7 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
                 access=AccessContext(
                     principal_id=principal_id,
                     tenant_id=TenantId(selected_tenant),
+                    corpus_mode=corpus_mode_for(settings, selected_tenant),
                 ),
                 query=query,
                 top_k=top_k,

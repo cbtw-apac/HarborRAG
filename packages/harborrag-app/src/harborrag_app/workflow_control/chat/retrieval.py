@@ -11,6 +11,8 @@ from harborrag_core.schemas.ids import TenantId
 from harborrag_core.security import AccessContext
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode, RetrievalRequest
 
+from ..retrieval.access import corpus_mode_for
+
 if TYPE_CHECKING:
     from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_runtime.config.settings import RuntimeSettings
@@ -81,13 +83,7 @@ async def search_documents(  # noqa: PLR0913 - one keyword-only input per retrie
             access=AccessContext(
                 principal_id=identity.principal_id,
                 tenant_id=TenantId(identity.tenant_id),
-                # Only the configured shared tenant reads on the shared basis;
-                # every other tenant stays ACL-scoped.
-                corpus_mode=(
-                    settings.corpus_access_mode
-                    if identity.tenant_id == settings.corpus_shared_tenant_id
-                    else "source_acl"
-                ),
+                corpus_mode=corpus_mode_for(settings, identity.tenant_id),
             ),
             query=context.standalone_query,
             top_k=top_k,

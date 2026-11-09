@@ -154,9 +154,6 @@ async def test_app_service_submits_queries_and_controls_temporal() -> None:
     assert health.ok and health.data["runtime"]["provider"] == "temporal"
     status = await service.ingestion_status("run-1")
     assert status.ok and status.data["progress"]["discovered"] == 2
-    paused = await service.control_ingestion("run-1", "pause")
-    assert paused.ok
-    assert temporal.signals[-1] == ("run-1", "pause", None)
 
 
 def test_ingest_cli_has_stable_json_envelope(monkeypatch, capsys) -> None:

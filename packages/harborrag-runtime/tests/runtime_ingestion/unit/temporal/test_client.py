@@ -486,6 +486,45 @@ async def test_client_reads_results_progress_and_execution_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_natively_paused_workflow_reads_as_paused() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("8 is not a valid WorkflowExecutionStatus")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock(
+        return_value=SimpleNamespace(workflow_execution_info=SimpleNamespace(status=8))
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    assert await client.execution_status("task-1") == "paused"
+    request = sdk.workflow_service.describe_workflow_execution.await_args.args[0]
+    assert request.execution.workflow_id == "harborrag-source:task-1"
+
+
+@pytest.mark.asyncio
+async def test_an_unrecognised_native_status_is_an_error() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("99 is not a valid WorkflowExecutionStatus")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock(
+        return_value=SimpleNamespace(workflow_execution_info=SimpleNamespace(status=99))
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError, match="unrecognised execution status 99"):
+        await client.execution_status("task-1")
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_value_error_from_describe_propagates() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("bad payload")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(ValueError, match="bad payload"):
+        await client.execution_status("task-1")
+    sdk.workflow_service.describe_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_client_health_and_controls_target_source_workflow() -> None:
     sdk = _SdkClient()
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())

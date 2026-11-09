@@ -8,11 +8,18 @@ from datetime import timedelta
 from typing import TypeVar, cast
 from uuid import uuid4
 
+from temporalio.api.common.v1 import WorkflowExecution
 from temporalio.api.workflowservice.v1 import (
+    DescribeWorkflowExecutionRequest,
     PauseWorkflowExecutionRequest,
     UnpauseWorkflowExecutionRequest,
 )
-from temporalio.client import Client, WorkflowFailureError, WorkflowHandle
+from temporalio.client import (
+    Client,
+    WorkflowExecutionStatus,
+    WorkflowFailureError,
+    WorkflowHandle,
+)
 from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
@@ -45,6 +52,9 @@ from .schemas import (
 ResultT = TypeVar("ResultT")
 
 logger = logging.getLogger("harborrag.runtime.temporal.client")
+
+# TODO: drop once temporalio's WorkflowExecutionStatus knows PAUSED (absent through 1.35.0).
+_NATIVE_EXECUTION_STATUSES = {8: "paused"}
 
 
 def _failure_message(label: str, code: str) -> str:
@@ -176,11 +186,40 @@ class IngestionTemporalClient:
         )
 
     async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
-        description = await self._operation(
-            f"describe ingestion task {task_id!r}",
-            self._client.get_workflow_handle(kind.workflow_id(task_id)).describe(),
-        )
+        workflow_id = kind.workflow_id(task_id)
+        label = f"describe ingestion task {task_id!r}"
+        try:
+            description = await self._operation(
+                label, self._client.get_workflow_handle(workflow_id).describe()
+            )
+        except ValueError as error:
+            # The SDK enum lacks statuses newer than itself, e.g. PAUSED (8), and raises.
+            if "WorkflowExecutionStatus" not in str(error):
+                raise
+            return await self._raw_execution_status(label, workflow_id)
         return description.status.name.lower() if description.status is not None else "unknown"
+
+    async def _raw_execution_status(self, label: str, workflow_id: str) -> str:
+        """Read the execution status from the raw describe, naming statuses the SDK lacks."""
+        raw = await self._operation(
+            label,
+            self._client.workflow_service.describe_workflow_execution(
+                DescribeWorkflowExecutionRequest(
+                    namespace=self._config.connection.namespace,
+                    execution=WorkflowExecution(workflow_id=workflow_id),
+                )
+            ),
+        )
+        code = raw.workflow_execution_info.status
+        try:
+            return WorkflowExecutionStatus(code).name.lower()
+        except ValueError:
+            native = _NATIVE_EXECUTION_STATUSES.get(code)
+            if native is None:
+                raise WorkflowOperationError(
+                    f"Could not {label}: unrecognised execution status {code}"
+                ) from None
+            return native
 
     async def pause(self, task_id: str) -> None:
         await self._signal(task_id, "pause")

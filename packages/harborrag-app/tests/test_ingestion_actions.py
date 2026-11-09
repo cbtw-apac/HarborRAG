@@ -9,12 +9,16 @@ from typing import Any
 import pytest
 from app_test_connections import FakeSecrets, fake_control_plane
 from workflow_control_fixtures import (
+    FakeComposition,
     FakeTemporalClient,
     public_ingestion_command,
+    public_ingestion_source_input,
     service_resources,
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+from harborrag_app.workflow_control.composition.factories import AppServiceFactories
+from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
@@ -31,7 +35,8 @@ from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
-from harborrag_runtime.errors import WorkflowNotFoundError
+from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.errors import WorkflowNotFoundError, WorkflowOperationError
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 
 __all__ = ["service_resources"]
@@ -487,3 +492,195 @@ async def _connection_service(
         removal=lambda: None,  # type: ignore[arg-type,return-value]
         instance_id="test",
     )
+
+
+def _cli_service(resources: _Resources, monkeypatch: pytest.MonkeyPatch) -> AppService:
+    """The application service the CLI drives, over the run store and Temporal double."""
+    _, control, temporal = resources
+    for action in ACTION_WAIT_SECONDS:
+        monkeypatch.setitem(ACTION_WAIT_SECONDS, action, 0)
+
+    async def client(_settings: RuntimeSettings) -> FakeTemporalClient:
+        return temporal
+
+    async def registry(_settings: RuntimeSettings) -> IngestionTaskRegistry:
+        return IngestionTaskRegistry(control)
+
+    composition = FakeComposition({"runtime": {"ready": True}})
+    composition.control_plane = fake_control_plane([], FakeSecrets())  # type: ignore[misc]
+    return AppService(
+        composition,  # type: ignore[arg-type]
+        settings=RuntimeSettings(ingestion_tenant_id="default"),
+        factories=AppServiceFactories(
+            client=client,  # type: ignore[arg-type]
+            task_registry=registry,  # type: ignore[arg-type]
+            source_input_builder=public_ingestion_source_input,
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_cli_pause_of_a_paused_run_is_refused_without_a_signal(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources, IngestionTaskState.PAUSED)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "pause"
+    )
+
+    assert response.ok is False
+    assert response.error == "cannot pause an ingestion that is paused"
+    assert response.data["error_type"] == "IngestionActionStateError"
+    assert temporal.paused == []
+
+
+@pytest.mark.asyncio
+async def test_cli_pause_of_a_running_run_signals_it(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "pause"
+    )
+
+    assert response.ok is True
+    assert response.data["run_id"] == task_id
+    assert response.data["action"] == "pause"
+    assert temporal.paused == [task_id]
+
+
+@pytest.mark.asyncio
+async def test_cli_cancel_of_a_retry_run_addresses_the_retry_workflow(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    retry_id = await _retry_run(service_resources)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        retry_id, "cancel"
+    )
+
+    assert response.ok is True
+    assert temporal.cancelled_retries == [retry_id]
+    assert temporal.cancelled == []
+
+
+@pytest.mark.asyncio
+async def test_cli_pause_of_a_retry_run_is_refused_without_a_signal(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    retry_id = await _retry_run(service_resources)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        retry_id, "pause"
+    )
+
+    assert response.ok is False
+    assert "retry runs cannot be paused" in str(response.error)
+    assert temporal.paused == []
+
+
+@pytest.mark.asyncio
+async def test_cli_control_of_an_unknown_run_is_not_found(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        "ghost", "cancel"
+    )
+
+    assert response.ok is False
+    assert response.data["error_type"] == "IngestionNotFoundError"
+
+
+@pytest.mark.asyncio
+async def test_cli_control_records_the_operator_as_actor(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, control, _ = service_resources
+    task_id = await _start(service_resources)
+
+    await _cli_service(service_resources, monkeypatch).control_ingestion(task_id, "pause")
+
+    events = await IngestionTaskRegistry(control).list_task_events(task_id, after_seq=0)
+    control_events = [event for event in events if event.name.endswith(".control")]
+    assert [event.payload["action"] for event in control_events] == ["pause"]
+    assert "@" in control_events[0].payload["actor"]
+
+
+@pytest.mark.asyncio
+async def test_cli_resume_of_a_paused_run_signals_it(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources, IngestionTaskState.PAUSED)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "resume"
+    )
+
+    assert response.ok is True
+    assert response.data == {"run_id": task_id, "action": "resume"}
+    assert temporal.resumed == [task_id]
+
+
+@pytest.mark.asyncio
+async def test_cli_cancel_of_a_source_run_cancels_the_source_workflow(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "cancel"
+    )
+
+    assert response.ok is True
+    assert temporal.cancelled == [task_id]
+    assert temporal.cancelled_retries == []
+
+
+@pytest.mark.asyncio
+async def test_cli_control_during_a_temporal_outage_is_a_failure_envelope(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources)
+
+    async def unavailable(_task_id: str) -> None:
+        raise WorkflowOperationError("Could not signal ingestion task")
+
+    monkeypatch.setattr(temporal, "pause", unavailable)
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "pause"
+    )
+
+    assert response.ok is False
+    assert response.data["error_type"] == "HarborConnectionError"
+    assert response.data.get("action") is None
+
+
+@pytest.mark.asyncio
+async def test_cli_control_of_a_run_without_a_tenant_is_not_found(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, control, _ = service_resources
+    task_id = await _start(service_resources)
+    task = await control.tasks.get(task_id)
+    assert task is not None
+    stripped = task.model_copy(update={"request": {}})
+
+    async def tenantless(_registry: IngestionTaskRegistry, _task_id: str):
+        return stripped
+
+    monkeypatch.setattr(IngestionTaskRegistry, "get", tenantless)
+    service = _cli_service(service_resources, monkeypatch)
+    response = await service.control_ingestion(task_id, "cancel")
+
+    assert response.ok is False
+    assert response.data["error_type"] == "IngestionNotFoundError"
