@@ -44,18 +44,42 @@ def memory_data(memory: Memory) -> dict[str, object]:
 
 
 def conversation_summary_data(row: ConversationSummaryRow) -> dict[str, object]:
-    """One row of a conversation listing as the API returns it."""
+    """One conversation as the explorer ``Session``; an untitled one has title ``""``."""
 
     return {
         "session_id": row.session_id,
-        "title": row.title,
+        "title": row.title or "",
+        "project_id": row.project_id,
+        "profile_id": None,
+        "message_count": row.message_count,
         "created_at": row.created_at.isoformat(),
         "updated_at": row.updated_at.isoformat(),
-        "message_count": row.message_count,
     }
 
 
-def _citations(raw: str | None) -> list[object]:
+def _citation(position: int, item: dict[str, object]) -> dict[str, object]:
+    """One stored citation as the explorer ``Citation``.
+
+    Answers written before the explorer contract stored ``document_title`` and
+    no ``n``, ``snippet``, ``url`` or ``page``; they read back numbered by
+    position with an empty snippet.
+    """
+
+    n = item.get("n")
+    url = item.get("url")
+    page = item.get("page")
+    return {
+        "n": n if isinstance(n, int) and not isinstance(n, bool) and n >= 1 else position,
+        "chunk_id": str(item.get("chunk_id", "")),
+        "document_id": str(item.get("document_id", "")),
+        "title": str(item.get("title") or item.get("document_title") or ""),
+        "snippet": str(item.get("snippet") or ""),
+        "url": url if isinstance(url, str) else None,
+        "page": page if isinstance(page, int) and not isinstance(page, bool) else None,
+    }
+
+
+def _citations(raw: str | None) -> list[dict[str, object]]:
     """Decode a stored citation payload, tolerating anything unparseable.
 
     The column is opaque text written by an earlier turn, so a row that
@@ -69,24 +93,32 @@ def _citations(raw: str | None) -> list[object]:
         parsed = json.loads(raw)
     except ValueError:
         return []
-    return list(parsed) if isinstance(parsed, list) else []
+    if not isinstance(parsed, list):
+        return []
+    items = [item for item in parsed if isinstance(item, dict)]
+    return [_citation(position, item) for position, item in enumerate(items, start=1)]
 
 
-def conversation_message_data(message: ConversationMessage) -> dict[str, object]:
-    """One stored conversation message as the API returns it.
+def conversation_message_data(
+    message: ConversationMessage, *, session_id: str
+) -> dict[str, object]:
+    """One stored message as the explorer ``Message``.
 
-    ``partial`` is projected because a reader must be able to tell a streamed
-    answer that was cut short from a finished one.
+    Only an assistant answer carries ``mode``, ``citations``, ``trace_id`` and
+    ``feedback``; a user message reads ``None``, ``[]``, ``None`` and ``None``.
     """
 
+    answer = message.role == "assistant"
     return {
         "message_id": message.message_id,
+        "session_id": session_id,
         "role": message.role,
         "content": message.content,
+        "mode": message.mode if answer else None,
+        "citations": _citations(message.citations_json) if answer else [],
+        "trace_id": message.trace_id if answer else None,
+        "feedback": message.feedback if answer else None,
         "created_at": message.created_at.isoformat(),
-        "token_count": message.token_count,
-        "citations": _citations(message.citations_json),
-        "partial": message.partial,
     }
 
 

@@ -81,9 +81,9 @@ connector = HarborConnector(
 ## File Configuration
 
 Applications can define multiple named connector instances in
-`config/connectors.yaml` and load them through `harborrag_runtime.config`. The
-runtime loader resolves environment secret references (`token_env` and the other
-`<field>_env` keys) and then constructs the same validated provider config
+`config/sources/connectors.yaml` and load them through `harborrag_runtime.config`. The
+runtime loader resolves environment
+secret references and then constructs the same validated provider config
 dataclasses shown below; adapters do not parse configuration files directly.
 Provider configs never read the process environment themselves: a source
 configured without a credential gets none, never the worker's own.

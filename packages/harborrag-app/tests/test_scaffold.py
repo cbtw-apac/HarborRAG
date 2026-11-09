@@ -23,10 +23,10 @@ EXPECTED_FILES = {
     ".env",
     ".gitignore",
     "docker-compose.yml",
-    "config/connectors.yaml",
-    "config/models.yaml",
-    "config/parsers.yaml",
-    "config/chunking.yaml",
+    "config/sources/connectors.yaml",
+    "config/models/models.yaml",
+    "config/ingestion/parsers.yaml",
+    "config/ingestion/chunking.yaml",
     "config/temporal.yaml",
 }
 
@@ -63,13 +63,13 @@ def test_rendered_catalogs_load_through_the_runtime(
             monkeypatch.setenv(key, value)
     monkeypatch.chdir(tmp_path)
 
-    catalog = load_connector_catalog(tmp_path / "config/connectors.yaml")
+    catalog = load_connector_catalog(tmp_path / "config/sources/connectors.yaml")
     assert tuple(catalog.names(enabled_only=True)) == ("workspace",)
-    load_parser_catalog(tmp_path / "config/parsers.yaml")
-    load_chunking_settings(tmp_path / "config/chunking.yaml")
+    load_parser_catalog(tmp_path / "config/ingestion/parsers.yaml")
+    load_chunking_settings(tmp_path / "config/ingestion/chunking.yaml")
     load_temporal_config(tmp_path / "config/temporal.yaml")
-    chat = HarborChatClientConfig.from_file(tmp_path / "config/models.yaml")
-    embed = HarborEmbedClientConfig.from_file(tmp_path / "config/models.yaml")
+    chat = HarborChatClientConfig.from_file(tmp_path / "config/models/models.yaml")
+    embed = HarborEmbedClientConfig.from_file(tmp_path / "config/models/models.yaml")
     assert chat.default_model == "primary"
     assert embed.default_model == "primary"
     compose = yaml.safe_load((tmp_path / "docker-compose.yml").read_text())
@@ -160,7 +160,7 @@ def test_selected_sources_render_loadable_connector_blocks(
     write_scaffold(tmp_path, files, force=False)
     monkeypatch.chdir(tmp_path)
 
-    catalog = load_connector_catalog(tmp_path / "config/connectors.yaml")
+    catalog = load_connector_catalog(tmp_path / "config/sources/connectors.yaml")
 
     assert catalog.names(enabled_only=True) == expected_names
     env = files[".env"]
@@ -182,7 +182,7 @@ def test_source_values_land_in_dotenv_and_jira_project_keys_in_yaml() -> None:
     )
     assert "GITHUB_REPOSITORY_URL=https://github.com/acme/docs" in files[".env"]
     assert "GITHUB_TOKEN=ghp_x" in files[".env"]
-    assert "project_keys: [ENG, OPS]" in files["config/connectors.yaml"]
+    assert "project_keys: [ENG, OPS]" in files["config/sources/connectors.yaml"]
     assert "JIRA_PROJECT_KEYS" not in files[".env"]
 
 

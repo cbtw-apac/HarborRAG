@@ -144,7 +144,7 @@ def run_jira(
 
     if not definition.settings.get("include_attachments", False):
         print(
-            "\n[jira] include_attachments is false in config/connectors.yaml; "
+            "\n[jira] include_attachments is false in config/sources/connectors.yaml; "
             "skipping the attachment pass"
         )
         return 0

@@ -37,6 +37,7 @@ from .identity import (
     reject_runtime_fields,
 )
 from .lifecycle_contracts import (
+    TASK_PROVENANCE_KEYS,
     ActiveDocumentVersion,
     DocumentFailure,
     DocumentRetirementResult,
@@ -102,6 +103,8 @@ from .states import (
     is_retryable_failure_code,
 )
 from .task_query_contracts import (
+    FailurePage,
+    StoredFailure,
     StoredTaskDocumentResult,
     TaskDocumentPage,
     TaskPage,
@@ -126,6 +129,7 @@ __all__ = [
     "CleanupJobState",
     "DiscoveredSourceItem",
     "DocumentFailure",
+    "FailurePage",
     "DocumentRetirementResult",
     "DocumentIdentityBuilder",
     "DocumentIngestionOutcome",
@@ -187,9 +191,11 @@ __all__ = [
     "SourceRelationDescriptor",
     "SourceScanState",
     "StoredSourceItem",
+    "StoredFailure",
     "StoredTaskDocumentResult",
     "SparseEncoderProfile",
     "SparseEncoding",
+    "TASK_PROVENANCE_KEYS",
     "TaskDocumentResult",
     "TaskDocumentPage",
     "TaskPage",

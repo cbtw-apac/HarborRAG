@@ -1,7 +1,7 @@
 # CLI reference
 
-The installed command is `harborrag`. Run
-`uv run harborrag ...` from a source checkout or
+Look up the options and behaviour of every `harborrag` command. The installed
+command is `harborrag`: run `uv run harborrag ...` from a source checkout or
 `harborrag ...` from an installed package.
 
 Typer provides grouped Rich help pages, validation, typo-friendly errors, and
@@ -12,7 +12,7 @@ While artifacts are processed concurrently, their preflight-through-finalize
 stages are marked `in flight` instead of presenting one misleading global
 current stage. Disable one-shot output color with `harborrag --no-color ...`.
 
-## Setup
+## Set up a project
 
 ```bash
 harborrag init [DIR] [--provider openai|azure-openai|gemini|openai-compatible]
@@ -21,8 +21,8 @@ harborrag init [DIR] [--provider openai|azure-openai|gemini|openai-compatible]
                [--ports-offset N] [--yes] [--force]
 ```
 
-Scaffolds a project directory: `harborrag.yaml`, `.env`, `config/connectors.yaml`,
-`config/models.yaml`, `config/parsers.yaml`, `config/temporal.yaml`, `docker-compose.yml`,
+Scaffolds a project directory: `harborrag.yaml`, `.env`, `config/sources/connectors.yaml`,
+`config/models/models.yaml`, `config/ingestion/parsers.yaml`, `config/temporal.yaml`, `docker-compose.yml`,
 `.gitignore`. Prompts for anything not given as a flag unless `--yes`. When the directory
 already holds scaffold files it asks whether to overwrite them (default no); `--force` skips
 the question and `--yes` refuses, since accepting defaults must never overwrite. `.env` is
@@ -31,12 +31,14 @@ never overwritten - a fresh copy goes to `.env.new`.
 `--connectors` picks the data sources to scaffold - `local` (a folder, connector name
 `workspace`), `github`, `confluence`, `jira` - as a comma-separated list; interactively
 `init` asks, then asks for each source's URL, identifiers and token (blank to fill in later).
-Each selected source becomes one block in `config/connectors.yaml` and one group of variables
+Each selected source becomes one block in `config/sources/connectors.yaml` and one group of variables
 in `.env`; `harborrag doctor` reports any that are still blank.
 Creates the source folder with a sample `README.md` when it is missing. Probes the ports
 the compose file publishes and, when any is taken, shifts them all by the first free offset
 (10000, 20000, 30000), rewriting `.env` to match and switching Qdrant to REST (the client
 cannot derive a gRPC port from the URL); `--ports-offset N` forces a value.
+
+### Choose the project directory
 
 Every command accepts the global `--project DIR` (or `HARBORRAG_PROJECT`); without it the CLI
 walks up from the current directory to the nearest `harborrag.yaml` and runs from there,
@@ -53,23 +55,27 @@ Precedence for settings: shell environment, then the project `.env`, then `runti
 harborrag chat MESSAGE \
   [--tenant TENANT_ID] \
   [--session SESSION_ID] \
+  [--project PROJECT_ID] \
   [--json]
 ```
 
 `chat` makes one non-streaming, retrieval-grounded call using the server-owned
 default system prompt. It defaults to tenant `DEFAULT`. Omit `--session` on
-the first turn to generate one; pass the
-returned session ID on later calls to recall the two latest completed turns.
+the first turn to create one, in the project `--project` names; pass the
+returned session ID on later calls to recall the three latest completed
+exchanges. An existing session keeps its own project, so `--session` with
+`--project` is refused. Do not confuse `--project PROJECT_ID` of `chat` with
+the global `--project DIR`.
 
 ```bash
 harborrag chat "Explain HarborRAG in one paragraph." --json
 ```
 
-Provider settings and credentials come from `config/models.yaml` and the
+Provider settings and credentials come from `config/models/models.yaml` and the
 process environment; they cannot be supplied as command options. See the
 [Chat guide](../chat/README.md).
 
-## Retrieval
+## Retrieve evidence
 
 ```bash
 harborrag retrieve QUERY \
@@ -87,8 +93,11 @@ Retrieval defaults to tenant `DEFAULT`, 10 hybrid results, and graph-context
 observation. Content and metadata are excluded unless explicitly requested.
 `--filters-json` must be a JSON object and cannot contain `tenant_id`; tenant
 scope is always supplied through `--tenant`.
+With `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, a retrieval for
+`HARBORRAG_CORPUS_SHARED_TENANT_ID` reads the shared corpus; any other tenant is
+scoped to its source permissions.
 
-## Diagnostics
+## Check the setup
 
 ```bash
 harborrag doctor [--temporal] [--json]
@@ -102,7 +111,21 @@ database, and - only with `--temporal` - the Temporal workflow service. Exit 1 w
 required check fails. `--json` returns `{"ok", "data": {"checks": [...], "summary": {...},
 "diagnostics": {...}}, "error"}`.
 
-## Connections
+## Import and export runtime settings
+
+```bash
+harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]
+harborrag config export [--level LEVEL] [--tenant TENANT_ID] [--output PATH]
+```
+
+`import` prints what `FILE` would change and writes it as one revision only with `--apply`.
+`--prune` also removes stored overrides the file lacks, at any level. An invalid file exits 1
+naming the file and the key, and applies nothing. `export` writes registry keys only, in the shape `import`
+reads, and leaves out overrides of a deleted project or connection, naming each on stderr. `--level` is `tenant`, `project:ID` or `connection:PROJECT/CONNECTION`; without it
+`export` writes every level. The file shape and the keys are in
+[Runtime settings](../configuration/runtime-settings.md).
+
+## Manage connections
 
 ```bash
 harborrag source list [--project-id ID] [--type TYPE] [--status STATUS] [--limit N]
@@ -118,7 +141,7 @@ harborrag source remove PROJECT/CONNECTION [--purge] [--yes] [--json]
 `source` manages the same stored connections as
 `/v1/admin/projects/{project_id}/connections/{connection_id}`, through the same service, so
 validation, secrets, change records and statuses match the API. Name a connection as
-`PROJECT/CONNECTION`, using the project's id, such as `default/jira-cpm`. `--tenant` defaults
+`PROJECT/CONNECTION`, using the project's id, such as `default/jira-demo`. `--tenant` defaults
 to `DEFAULT`.
 
 `BODY` is a YAML or JSON file in the shape of the `PUT` body: `source_type`, `name`,
@@ -127,19 +150,19 @@ to `DEFAULT`.
 stored one whole, so start an update from `harborrag source show --json`. A secret left out
 of `credentials` keeps its stored value. `test` takes any part.
 A secret is a value or `{secret_ref: env:NAME}` in the file; no flag takes a secret. The
-CLI and `config/connectors.yaml` are the only places an `env:` reference can be set; the
+CLI and `config/sources/connectors.yaml` are the only places an `env:` reference can be set; the
 HTTP API takes values. The worker reads `NAME` from its own environment.
 
 ```yaml
 source_type: jira
-name: CPM tickets
+name: Demo tickets
 credentials:
   method: api_token
   base_url: https://acme.atlassian.net
   email: bot@acme.com
   api_token: {secret_ref: env:JIRA_TOKEN}
 config:
-  jql: project = CPM
+  jql: project = DEMO
 advanced:
   page_size: 50
 ```
@@ -162,7 +185,7 @@ A failed call exits 1 and, for a validation error, names each field, such as
 `config.space_key: required`. From a repository checkout, writes refuse the local SQLite
 control database; set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres.
 
-## Ingestion
+## Run and control ingestion
 
 ```bash
 harborrag ingest run CONNECTOR [--tenant TENANT_ID] [--run-id RUN_ID]
@@ -205,7 +228,7 @@ harborrag ingest cancel RUN_ID [--json]
 The connector is the only required input: give it positionally (`harborrag ingest start workspace`)
 or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
 is an error.
-The value is a stored connection's `source_key`, such as `default/jira-cpm`, or the key a
+The value is a stored connection's `source_key`, such as `default/jira-demo`, or the key a
 connection imported from `connectors.yaml` keeps, such as `workspace`. It is not a source
 type, so `--connector-id local` fails. `--tenant` defaults to `DEFAULT`.
 
@@ -223,6 +246,13 @@ releases a paused run and takes effect at the same safe boundary. A new run for
 the same source scope replays reusable durable
 artifacts after a terminal failure.
 
+`pause`, `resume` and `cancel` apply the same rules as the HTTP API. A pause of a paused
+run, a pause or resume of a retry run (cancel it instead), and any action on a finished
+run exit 1 with `cannot <action> an ingestion that is <status>` and change nothing. They
+wait for the run to reach the target status (10 seconds for pause and resume, 30 for
+cancel) and then report it as it stands. The command records the operator as the actor on
+the run's event trail.
+
 ### Following a run
 
 `ingest start --wait` and `ingest watch RUN_ID` show the same inline progress block as
@@ -233,6 +263,8 @@ submission, and with `--json` it prints
 `{"ok":true,"data":{"run":{"run_id":"…","status":"running"},"timed_out":true},"error":null}`.
 Ctrl-C (also on `wait`) leaves the run untouched and names it (exit 130); use
 `ingest pause|resume|cancel` to control it. `--events` (on `watch`) streams NDJSON instead.
+
+### JSON output and exit codes
 
 JSON output uses a stable envelope:
 

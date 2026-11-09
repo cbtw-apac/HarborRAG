@@ -133,6 +133,7 @@ module = [
     "google.cloud",
     "google.cloud.*",
     "langchain_text_splitters",
+    "asyncpg",
     "azure.identity",
     "azure.keyvault.secrets",
     "falkordb.asyncio",
@@ -375,7 +376,7 @@ dev = [
     "pytest-asyncio>=1.4.0",
     "pytest-timeout>=2.4.0",
     # The connector smoke scripts parse real documents through the shipped
-    # config/parsers.yaml, so its engines have to exist in the default
+    # config/ingestion/parsers.yaml, so its engines have to exist in the default
     # `uv run` environment or every attachment fails as "unavailable".
     # Narrowing the sync to one package instead drops harborrag-runtime's
     # own dependencies, which those scripts import from source.

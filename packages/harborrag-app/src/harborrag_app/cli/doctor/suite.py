@@ -46,7 +46,7 @@ _QDRANT_GRPC_PORT = 6334
 
 _INIT_HINT = "Run `harborrag init` to scaffold a project, or cd into one."
 _CONNECTORS_HINT = (
-    "Fix or remove the connector named above in config/connectors.yaml before the first "
+    "Fix or remove the connector named above in config/sources/connectors.yaml before the first "
     "start; after it, change connections through /v1/admin/projects/.../connections."
 )
 _TEMPORAL_HINT = (

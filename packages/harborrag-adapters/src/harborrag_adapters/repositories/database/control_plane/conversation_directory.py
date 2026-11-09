@@ -43,6 +43,23 @@ _NEWEST_ACTIVITY_FIRST = (
     ConversationSessionRow.session_id.desc(),
 )
 
+_BLANK = " \t\n\r\f\v"
+"""The whitespace ``trim`` removes, as ``str.strip`` does for ASCII; plain ``trim`` takes
+spaces only."""
+
+HISTORY_MESSAGE: tuple[ColumnElement[bool], ...] = (
+    sa.or_(
+        ConversationMessageRow.role == "user",
+        sa.and_(
+            ConversationMessageRow.role == "assistant",
+            sa.not_(ConversationMessageRow.partial),
+            sa.func.trim(ConversationMessageRow.content, _BLANK) != "",
+        ),
+    ),
+)
+"""The messages a history page returns and ``message_count`` counts: every question and every
+complete, non-blank answer (the rule of ``is_complete_reply``)."""
+
 _MESSAGE_COUNT = (
     sa.select(sa.func.count())
     .select_from(ConversationMessageRow)
@@ -50,6 +67,7 @@ _MESSAGE_COUNT = (
         ConversationMessageRow.tenant_id == ConversationSessionRow.tenant_id,
         ConversationMessageRow.user_id == ConversationSessionRow.user_id,
         ConversationMessageRow.session_id == ConversationSessionRow.session_id,
+        *HISTORY_MESSAGE,
     )
     .scalar_subquery()
 )
@@ -63,6 +81,7 @@ class ConversationListRequest:
     user_id: str
     cursor: str | None = None
     limit: int = 20
+    title_query: str | None = None
 
     @property
     def page_size(self) -> int:
@@ -78,6 +97,13 @@ def owner_filter(tenant_id: str, user_id: str) -> tuple[ColumnElement[bool], ...
         ConversationSessionRow.tenant_id == tenant_id,
         ConversationSessionRow.user_id == user_id,
     )
+
+
+def _title_contains(query: str) -> ColumnElement[bool]:
+    """Case-insensitive literal substring match on the title."""
+
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return ConversationSessionRow.title.ilike(f"%{escaped}%", escape="\\")
 
 
 async def _anchor(
@@ -112,6 +138,7 @@ def _summary(row: sa.Row[tuple[ConversationSessionRow, int]]) -> ConversationSum
         created_at=stored.created_at,
         updated_at=stored.updated_at,
         message_count=int(message_count),
+        project_id=stored.project_id,
     )
 
 
@@ -122,6 +149,8 @@ async def list_conversations(
     """Return one keyset page of the user's conversations, newest activity first."""
 
     conditions: list[ColumnElement[bool]] = list(owner_filter(request.tenant_id, request.user_id))
+    if request.title_query:
+        conditions.append(_title_contains(request.title_query))
     if request.cursor is not None:
         anchor_id = decode_conversation_cursor(request.cursor)
         conditions.append(await _anchor(session, request, anchor_id))
@@ -137,6 +166,22 @@ async def list_conversations(
     has_more = len(rows) > size and bool(page)
     next_cursor = encode_conversation_cursor(page[-1].session_id) if has_more else None
     return ConversationPage(conversations=page, next_cursor=next_cursor)
+
+
+async def get_conversation(
+    session: AsyncSession, identity: ConversationIdentity
+) -> ConversationSummaryRow | None:
+    """Read one of the caller's conversations, or ``None`` when it is not theirs."""
+
+    row = (
+        await session.execute(
+            sa.select(ConversationSessionRow, _MESSAGE_COUNT).where(
+                *owner_filter(identity.tenant_id, identity.user_id),
+                ConversationSessionRow.session_id == identity.session_id,
+            )
+        )
+    ).first()
+    return None if row is None else _summary(row)
 
 
 async def rename_conversation(
@@ -185,7 +230,9 @@ async def set_generated_title(
 
 
 __all__ = [
+    "HISTORY_MESSAGE",
     "ConversationListRequest",
+    "get_conversation",
     "list_conversations",
     "owner_filter",
     "rename_conversation",

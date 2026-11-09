@@ -55,11 +55,14 @@ def prepare_source_submission(
         query=query,
         excluded_filters=config_filter_keys,
     )
-    processing = build_processing_profile(settings)
+    run_settings = connection.run_settings
+    processing = build_processing_profile(settings, run_settings=run_settings)
     batch_size = submission.batch_size if submission.batch_size is not None else defaults.batch_size
     document_concurrency = (
         submission.document_concurrency
         if submission.document_concurrency is not None
+        else run_settings.document_concurrency
+        if run_settings is not None and run_settings.document_concurrency is not None
         else defaults.document_concurrency
     )
     return PreparedSourceSubmission(
@@ -87,6 +90,7 @@ def prepare_source_submission(
         missing_threshold=submission.missing_threshold,
         batch_size=batch_size,
         continue_after_batches=submission.continue_after_batches,
+        run_settings=run_settings,
     )
 
 

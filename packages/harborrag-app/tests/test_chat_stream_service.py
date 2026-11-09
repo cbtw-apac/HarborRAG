@@ -16,7 +16,6 @@ from workflow_control_fixtures import FakeComposition
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatStreamChunk
 from harborrag_core.models.chat.enums import StreamEventType
@@ -66,7 +65,7 @@ async def test_chat_stream_emits_citations_then_chunks() -> None:
             "document_id": "doc-1",
             "chunk_id": "chunk-1",
             "score": 0.9,
-            "marker": '[Source 1: "doc-1" — source passage]',
+            "marker": "[1]",
             "content": "HarborRAG is a retrieval-augmented generation platform.",
         },
     )
@@ -252,19 +251,3 @@ async def test_chat_stream_persists_the_partial_answer_once_when_abandoned_at_th
         ("user", "Hello"),
         ("assistant", "Hel"),
     ]
-
-
-@pytest.mark.asyncio
-async def test_app_service_forwards_the_project_check_to_the_chat_service() -> None:
-    """The transport calls this before opening a stream; it must not be a no-op.
-
-    This composition wires no control plane, so no project can be confirmed
-    and every ``project_id`` is unknown -- which is exactly what proves the
-    call reaches ``require_project`` rather than returning quietly.
-    """
-
-    service = _service(_Runtime(_ChatFacade()))
-
-    await service.validate_chat_project(None, tenant_id="ACME")
-    with pytest.raises(HarborNotFoundError, match="Project was not found"):
-        await service.validate_chat_project("proj-1", tenant_id="ACME")

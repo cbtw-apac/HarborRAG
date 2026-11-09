@@ -1,8 +1,10 @@
 # Conversation memory
 
-Public chat requests use the latest **three completed
-user/assistant exchanges** from their conversation. Older messages remain
-stored for browsing; dropping them from a prompt does not erase history.
+Look up what a chat turn remembers, who can read a session, how history is
+stored and browsed, and how long memories live. Public chat requests use the
+latest **three completed user/assistant exchanges** from their conversation.
+Older messages remain stored for browsing; dropping them from a prompt does not
+erase history.
 
 ## Identity and scope
 
@@ -27,7 +29,7 @@ oldest first, then appends the current question once. It excludes:
 - Unanswered user messages and orphan assistant messages.
 - Partial or empty answers.
 
-Only prior complete exchanges enter this window. In RAG mode, retrieval
+Only prior complete exchanges enter this window. In both modes, retrieval
 searches the raw question. Public completion requests do not run rolling
 summaries, query rewriting, long-term recall, or automatic extraction. The
 configurable lower-level SDK memory facilities remain available for explicit
@@ -39,20 +41,21 @@ content.
 
 ## Persistence and titles
 
-RAG chat stores the user prompt before the model call, then stores the answer
-and its actual citations. Interrupted output is marked `partial: true`.
-It remains visible in message history but is excluded from subsequent
-completion context.
+A completion in a session stores the question and its answer together, in one
+write, once the answer is complete. The answer is stored with its `mode`,
+`trace_id` and numbered citations under the `message_id` that the completion
+returns as `completion_id`. Nothing is stored when the turn fails: an
+unreachable model (`503 llm_unavailable`) or a refused request leaves the
+history as it was. If the store cannot keep an answer, the completion fails
+with `503` instead of returning an answer that history does not hold. A
+one-off question, asked without `session_id`, is never stored.
 
 Messages from 1.x agent runs read back as plain user and assistant
-messages; their tool-call steps were removed on upgrade.
-
-`memory_persisted` reports whether the exchange was saved. A persistence
-failure leaves a successful answer available and sets this field to
-`false`.
+messages; their tool-call steps were removed on upgrade, and their empty
+assistant steps are left out of history and of `message_count`.
 
 Conversations begin with no title. After the first persisted exchange, the
-server uses up to ten words of the prompt, capped at 80 characters. This
+server uses up to ten words of the question, capped at 80 characters. This
 requires no model call. An atomic assignment prevents competing workers from
 overwriting a title; a manual rename, including clearing it, always wins.
 
@@ -60,24 +63,31 @@ Configure durable storage with `HARBORRAG_CONTROL_DB_URL`; deployed instances
 should share a PostgreSQL control database. The development in-memory
 fallback is bounded and does not survive restart or coordinate replicas.
 
-## Browse sessions
+## Browse sessions and history
 
-All endpoints below require tenant access and the `reader` role when
-authentication is enabled.
+Both calls require tenant access and the `reader` role when authentication is
+enabled.
 
 ```bash
-curl "http://localhost:8000/v1/chat/sessions?tenant_id=DEFAULT&limit=20" \
+curl "http://localhost:8000/v1/chat/sessions?limit=20&q=hanoi" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant_id=DEFAULT&limit=50" \
+curl "http://localhost:8000/v1/chat/sessions/<session-id>/messages?limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Session lists return a `sessions` array, newest-activity first, default to 20 rows,
-and accept `limit=1..100` and opaque `cursor`.
-Message lists are oldest first, default to 50 rows, and accept
-`limit=1..200`; pass the returned `next_cursor` as `after`.
-Messages include citations, timestamps, run IDs, and partial status.
+A credential that holds several tenants adds `-H "X-Tenant-Id: <tenant>"`.
+
+Both lists return `{"items": [...], "next_cursor": null}`, default to 20 rows,
+accept `limit=1..100`, and page with the opaque `cursor` from the previous
+`next_cursor`. Sessions come newest activity first; `q` keeps titles that
+contain it, ignoring case.
+
+Messages come newest first. Each carries `message_id`, `session_id`, `role`,
+`content`, `mode`, `citations`, `trace_id`, `feedback` and `created_at`; a
+user message has `mode: null`, `citations: []` and `trace_id: null`. An answer
+cut short by a dropped stream is left out, and `message_count` counts the
+messages the history returns.
 
 Renaming and deleting a session over HTTP, and the `/v1/memory/*` routes, are
 removed in 2.0.0 and return `404`; they come back with the v2.1 session and
@@ -86,8 +96,7 @@ memory endpoints.
 ## SDK memory settings
 
 These variables configure the SDK memory facade (`HarborRAG.memory.*`). They
-do not change the public
-three-exchange policy above.
+do not change the public three-exchange policy above.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -104,5 +113,8 @@ recalled, searched, or returned, but no background job deletes them: the
 rows stay in the control database until they are erased. Changing a
 retention value affects only memories written afterwards.
 
-See [Chat](README.md#migration) for the `0033`/`0034` database migration
-requirement and endpoint replacements.
+## See also
+
+- [Chat](README.md#migration): the database migration requirement and the
+  endpoint replacements.
+- [Limits and accounting](limits.md): deadlines, capacity and usage.

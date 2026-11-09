@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
+from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionService,
     ConnectionWrite,
 )
 from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
+from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
 from harborrag_core.testing.control_plane_fakes import (
     FakeActivityRepository,
     FakeConnectionRepository,
@@ -50,6 +53,9 @@ class Runs:
 
     active: IngestionTask | None = None
     tasks: dict[str, IngestionTask] = field(default_factory=dict)
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    progress_calls: list[str] = field(default_factory=list)
+    batch_calls: list[tuple[str, ...]] = field(default_factory=list)
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
         return self.active
@@ -64,7 +70,18 @@ class Runs:
         return self.tasks.get(task_id)
 
     async def progress(self, task_id: str) -> dict[str, int]:
-        return {"published": 1}
+        self.progress_calls.append(task_id)
+        return self.counts.get(task_id, {"published": 1})
+
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        self.batch_calls.append(tuple(task_ids))
+        return {task_id: self.counts.get(task_id, {"published": 1}) for task_id in task_ids}
+
+    async def list_tasks(self, **_filters: Any) -> TaskPage:
+        return TaskPage(tuple(self.tasks.values()), has_more=False)
+
+    async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
+        return TaskDocumentPage((), has_more=False)
 
 
 @dataclass
@@ -73,14 +90,28 @@ class Submitter:
 
     runs: Runs
     commands: list[IngestionCreateCommand] = field(default_factory=list)
+    ended: set[str] = field(default_factory=set)
 
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
     ) -> dict[str, object]:
         self.commands.append(command)
         task_id = f"ing_{len(self.commands)}"
-        self.runs.tasks[task_id] = running_task(task_id)
+        self.runs.tasks[task_id] = running_task(
+            task_id,
+            force=command.force_reprocess,
+            actor=command.actor,
+            actor_type=command.actor_type,
+        )
         return {"task_id": task_id, "status": "PENDING"}
+
+    async def settle_if_ended(self, task_id: str) -> bool:
+        """End a run listed in ``ended``, as one whose workflow closed unrecorded."""
+        if task_id not in self.ended:
+            return False
+        if self.runs.active is not None and self.runs.active.task_id == task_id:
+            self.runs.active = None
+        return True
 
 
 @dataclass
@@ -98,13 +129,23 @@ class Removal:
 
 
 def running_task(
-    task_id: str, status: IngestionTaskState = IngestionTaskState.PENDING
+    task_id: str,
+    status: IngestionTaskState = IngestionTaskState.PENDING,
+    *,
+    force: bool = False,
+    actor: str | None = None,
+    actor_type: str | None = None,
 ) -> IngestionTask:
     return IngestionTask(
         task_id=task_id,
         source_scope_id="scope-1",
         status=status,
-        request={"tenant_id": "acme", "connection_id": "cpm/cpm-tickets"},
+        request={
+            "tenant_id": "acme",
+            "connection_id": "cpm/cpm-tickets",
+            "force_reprocess": force,
+            **({"actor": actor, "actor_type": actor_type or "user"} if actor else {}),
+        },
     )
 
 
@@ -116,6 +157,20 @@ class ConnectionWorld:
     runs: Runs
     submitter: Submitter
     removal: Removal
+
+    @property
+    def operations(self) -> IngestionOperations:
+        """Run reads over the world's connections and runs."""
+
+        async def provide_runs() -> Runs:
+            return self.runs
+
+        return IngestionOperations(
+            connections=lambda: self.control_plane.connections,
+            runs=provide_runs,
+            links=IngestionLinks(None, "default", None),
+            actions=self.submitter,  # type: ignore[arg-type]
+        )
 
 
 def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> ControlPlaneRepositories:

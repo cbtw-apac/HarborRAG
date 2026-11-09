@@ -79,7 +79,7 @@ Without `chunking-code`, `build_text_refiner` raises `GrammarSetMismatch`
 unless it gets `require_grammars=False`, in which case it splits code at
 separators. `RecursiveTextRefiner` (LangChain, `[chunking]` extra) and
 `MarkdownChunker` (whole-file, section-first chunking) are also exported. The
-runtime picks the refiner from `config/chunking.yaml`.
+runtime picks the refiner from `config/ingestion/chunking.yaml`.
 
 Install advanced PDF backends separately when needed. This extra also includes
 RapidOCR with its default ONNX Runtime CPU engine:

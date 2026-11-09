@@ -8,7 +8,7 @@ from typing import Any, Self
 from ...errors import ConnectorConfigurationError
 from ..providers import ConnectorConfigFactory, coerce_config_values
 from .registry import SourceTypeRegistry, source_types
-from .spec import FieldIssue, SourceTypeSpec, ValidatedConnection
+from .spec import ConnectionValidationError, FieldIssue, SourceTypeSpec, ValidatedConnection
 
 _PLACEHOLDER_SECRET = "placeholder"
 
@@ -123,6 +123,36 @@ def to_connector_config(  # noqa: PLR0913 - the parts of one stored connection
         .tenant(tenant_id)
         .build()
     )
+
+
+def validate_connection(
+    spec: SourceTypeSpec,
+    credentials: Mapping[str, Any],
+    config: Mapping[str, Any],
+    tuning: Mapping[str, Any],
+    *,
+    tenant_id: str,
+) -> ValidatedConnection:
+    """Check a connection against its source type's schemas, then against its connector.
+
+    Args:
+        spec: The connection's source type.
+        credentials: Credentials; secrets as values or references.
+        config: What to sync.
+        tuning: Request settings.
+        tenant_id: Tenant that owns the connection.
+
+    Returns:
+        The validated credentials, config and tuning.
+
+    Raises:
+        ConnectionValidationError: A schema or the connector rejects the values.
+    """
+    validated = spec.validate(credentials, config, tuning)
+    issues = connector_config_issues(spec, validated, tenant_id=tenant_id)
+    if issues:
+        raise ConnectionValidationError(issues)
+    return validated
 
 
 def connector_config_issues(

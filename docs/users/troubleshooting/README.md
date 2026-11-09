@@ -1,5 +1,6 @@
 # Troubleshooting
 
+Find the symptom you see, its likely cause, and the fix.
 
 ## Projects created with `harborrag init`
 
@@ -21,7 +22,7 @@ source folder, blank connector credentials, running outside the project).
 
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
-| Connector example fails to load | Documentation path was copied without the `.example` suffix | Load or copy `config/connectors.example.yaml` |
+| Connector example fails to load | Documentation path was copied without the `.example` suffix | Load or copy `config/sources/connectors.example.yaml` |
 | Local connector build reports `LOCAL_SOURCE_PATH` missing | Example maps `source_path` to that variable | Export it, or pass a build override |
 | Model `validate` reports a missing environment variable | Model references are expanded eagerly | Export every `${VARIABLE}` used by the selected family/profile |
 | Parser reports two enabled definitions for one type | More than one enabled profile replaces the same parser | Enable only one definition per stable parser name |
@@ -45,7 +46,7 @@ Example files are not loaded automatically. HarborRAG reads the process environm
 
 ### An accepted ingestion appears to do nothing
 
-Read the task resource first. A `202 Accepted` response means the workflow was
+Read the ingestion first. A `202 Accepted` response means the workflow was
 submitted; processing continues asynchronously:
 
 ```bash
@@ -71,9 +72,24 @@ exclude connector credentials, raw document content, prompts, and model output.
 If the worker reports that previous chunk or representation artifacts are
 missing during a metadata-only update, current releases fall back to fresh
 encoding. This reuse path is an optimization and must not fail the ingestion.
-For a task created by an older worker, allow it to finish, deploy the corrected
+For a run created by an older worker, allow it to finish, deploy the corrected
 worker, and use `POST /v1/admin/ingestions/{ingestion_id}/retry-failures` for its retryable
 document failures.
+
+### A stopped ingestion still answers `409 already_running`
+
+Stop an ingestion with `POST /v1/admin/ingestions/{ingestion_id}/cancel`, not
+with Terminate in the Temporal UI. A terminated workflow never records its end,
+so the run stays `RUNNING`. HarborRAG checks Temporal before it refuses a start:
+a run whose workflow ended is recorded as `CANCELLED` (terminated or cancelled)
+or `FAILED` (failed, timed out, or completed unrecorded), and the start goes
+ahead. Removing the connection or cancelling the run does the same; until one of
+these happens, the run still reads `RUNNING`. A run Temporal reports as running
+or paused, or cannot describe, still blocks its connection.
+
+A run whose workflow Temporal no longer has, for example after its history passed
+the namespace retention, stays `RUNNING` until you cancel it. Cancelling a running
+or paused run records it as `CANCELLED` with `error_category` `workflow_not_found`.
 
 ## Chat and MCP
 
@@ -81,7 +97,7 @@ Chat is HTTP/CLI-only; MCP exposes only retrieval tools.
 
 | Symptom | Likely cause | Resolution |
 | --- | --- | --- |
-| Chat validation reports a missing `HARBOR_CHAT_*` value | `config/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
+| Chat validation reports a missing `HARBORRAG_CHAT_*` value | `config/models/models.yaml` expands provider settings before the first call | Populate and load `env/.env.models`, or inject the same values through the deployment secret manager |
 | HTTP chat returns `503` | Model configuration, credentials, provider reachability, or a provider limit failed behind the normalized API boundary | Inspect server logs and validate the `chat` family; provider details are intentionally not returned to callers |
 | MCP appears to do nothing when started in a terminal | Stdio MCP waits for a client protocol over pipes and has no port or interactive prompt | Run `scripts/deployment/mcp.sh --check`, or use `--http` and open `http://127.0.0.1:8010/` |
 | The browser cannot load or run tools | Missing/wrong owner token or the HTTP server is not running | Load `HARBORRAG_MCP_BEARER_TOKEN` from the ignored `env/.env.mcp`; never paste model API keys into the UI |
@@ -89,7 +105,7 @@ Chat is HTTP/CLI-only; MCP exposes only retrieval tools.
 | A tool change is saved but clients still list the old schema | FastMCP snapshots globally advertised schemas at startup | Restart when the UI reports `restart_required=true` |
 
 The MCP configuration UI controls enablement, defaults, numeric limits, and
-tenant overrides in `config/mcp.yaml`. It intentionally cannot change provider
+tenant overrides in `config/mcp/server.yaml`. It intentionally cannot change provider
 credentials, provider endpoints, or stored prompt files. See
 [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
 

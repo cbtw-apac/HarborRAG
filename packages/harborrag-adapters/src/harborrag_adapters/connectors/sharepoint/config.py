@@ -40,7 +40,7 @@ class SharePointAuthMode(StrEnum):
 
 
 # Fallbacks for fields a connection omits. Deployments set these per connection
-# under `settings` in config/connectors.yaml; see config/connectors.example.yaml.
+# under `settings` in config/sources/connectors.yaml; see config/sources/connectors.example.yaml.
 DEFAULT_GRAPH_API_URL = "https://graph.microsoft.com/v1.0"
 DEFAULT_MAX_FILE_SIZE_BYTES = DEFAULT_MAX_DOCUMENT_BYTES
 DEFAULT_ALLOWED_EXTENSIONS = frozenset(SHARED_ALLOWED_EXTENSIONS)

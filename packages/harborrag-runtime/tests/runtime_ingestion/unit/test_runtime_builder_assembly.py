@@ -21,8 +21,8 @@ from harborrag_runtime.ingestion.runtime_builder import (
 # `config/...` defaults would not resolve there: read the repository's own files.
 _REPO_ROOT = Path(__file__).resolve().parents[5]
 _REPOSITORY_CONFIGS = {
-    "parser_config_path": _REPO_ROOT / "config" / "parsers.yaml",
-    "graph_build_config_path": _REPO_ROOT / "config" / "topology" / "graph_build.yaml",
+    "parser_config_path": _REPO_ROOT / "config" / "ingestion" / "parsers.yaml",
+    "graph_build_config_path": _REPO_ROOT / "config" / "graph" / "build.yaml",
 }
 
 

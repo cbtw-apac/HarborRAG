@@ -25,6 +25,15 @@ def _bootstrap() -> dict[str, object]:
     return vars(ocr_parser)
 
 
+def test_attachment_custom_parsers_diverts_no_type_from_the_catalog() -> None:
+    # Images used to be pulled out to RapidOCR here. The parser catalog now
+    # configures the image family, so any override would silently parse
+    # attachments with an engine `config/ingestion/parsers.yaml` does not name.
+    scope = _bootstrap()
+
+    assert scope["attachment_custom_parsers"]() == {}
+
+
 def test_smoke_rapidocr_converts_cmyk_to_rgb_before_ocr() -> None:
     import io
 

@@ -5,8 +5,8 @@ set of citations -- including "Your name is Huy.", which used none of them. A
 client rendering that list shows five unrelated documents as the evidence for
 an answer that never touched them.
 
-The model is already told to cite what it uses as ``[Source N]``, and it does:
-a corpus question marks four sources, a conversational one marks none.
+The model is told to cite what it uses as ``[N]``, and it does: a corpus
+question marks four sources, a conversational one marks none.
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from harborrag_app.workflow_control.chat.presenters import (
     cited_evidence,
     cited_results,
     evidence_data,
+    source_heading,
 )
 from harborrag_core.domain.retrieval import RetrievalResult
 
@@ -131,9 +132,8 @@ def test_citation_data_includes_readable_document_section_and_location() -> None
         "section_path": ("Operations", "Rollback policy"),
         "location": "lines 40–46",
     }
-    assert citation_marker(1, result) == (
-        '[Source 1: "Deployment Guide" — Operations > Rollback policy]'
-    )
+    assert citation_marker(1, result) == "[1]"
+    assert source_heading(result) == '"Deployment Guide" — Operations > Rollback policy'
 
 
 def test_citation_uses_source_page_when_heading_and_range_are_missing() -> None:
@@ -149,7 +149,7 @@ def test_citation_uses_source_page_when_heading_and_range_are_missing() -> None:
     )
 
     assert citation_data(result)["location"] == "https://example.com/wiki/pages/123"
-    assert citation_marker(1, result) == '[Source 1: "Project Charter" — source page]'
+    assert source_heading(result) == '"Project Charter"'
     result.metadata["citation_locator"] = {"uri": "javascript:alert(1)"}
     assert "location" not in citation_data(result)
 
@@ -187,23 +187,13 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
 
-    class _CitingChat(FakeChatFacade):
-        async def complete(self, request, *, prompt=None):
-            response = await super().complete(request, prompt=prompt)
-            results = _results(3)
-            return response.model_copy(
-                update={
-                    "message": response.message.model_copy(
-                        update={"content": f"Grounded in {citation_marker(2, results[1])}."}
-                    )
-                }
-            )
-
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     memory = InMemoryConversationMemory()
     await memory.create(identity)
     service = ChatApplicationService(
-        lambda: FakeRuntime(_CitingChat(), FakeRetrievalFacade(_results(3))),  # type: ignore[arg-type]
+        lambda: FakeRuntime(  # type: ignore[arg-type]
+            FakeChatFacade(answer="Grounded in [2]."), FakeRetrievalFacade(_results(3))
+        ),
         RuntimeSettings(),
         memory=memory,
     )
@@ -215,11 +205,11 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
         options=ChatExecutionOptions(session_id="session-1", user_id="reader-1"),
     )
 
-    assert [c["chunk_id"] for c in response.data["citations"]] == ["chunk-2"]
+    assert response.data["answer"] == "Grounded in [1]."
+    assert [(c["n"], c["chunk_id"]) for c in response.data["citations"]] == [(1, "chunk-2")]
+    assert response.data["citations"][0]["snippet"] == "body 2"
     messages = await memory.recent_messages(identity, limit=2)
-    # History retains provenance without copying complete source passages into every turn.
-    assert json.loads(messages[-1].citations_json) == [citation_data(_results(3)[1])]
-    assert response.data["citations"][0]["content"] == "body 2"
+    assert json.loads(messages[-1].citations_json) == response.data["citations"]
 
 
 @pytest.mark.asyncio

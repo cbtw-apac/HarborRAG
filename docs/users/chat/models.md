@@ -1,9 +1,10 @@
 # Chat models
 
-Which model answers a chat turn, and how a tenant overrides the shared
-catalog. For the request and response contract see [Chat](README.md).
+Choose which model answers a chat turn, and let a tenant override the shared
+catalog with its own models. For the request and response contract see
+[Chat](README.md).
 
-## Configure the model
+## Configure the shared model
 
 The checked-in runtime catalog uses one logical model named `primary`:
 
@@ -14,9 +15,9 @@ chat:
     primary:
       deployments:
         - name: openai-primary
-          provider: ${HARBOR_CHAT_PROVIDER}
-          model: ${HARBOR_CHAT_MODEL}
-          api_key: ${HARBOR_CHAT_API_KEY}
+          provider: ${HARBORRAG_CHAT_PROVIDER}
+          model: ${HARBORRAG_CHAT_MODEL}
+          api_key: ${HARBORRAG_CHAT_API_KEY}
 ```
 
 Copy the environment template, replace its placeholders, and keep the
@@ -26,20 +27,20 @@ populated file out of version control:
 cp env-example/.env.models.example env/.env.models
 ```
 
-The relevant values are `HARBOR_CHAT_PROVIDER`, `HARBOR_CHAT_MODEL`, and
-`HARBOR_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
+The relevant values are `HARBORRAG_CHAT_PROVIDER`, `HARBORRAG_CHAT_MODEL`, and
+`HARBORRAG_CHAT_API_KEY`. `HARBORRAG_MODEL_CONFIG_PATH` selects a different model
 catalog. Configuration loading expands environment references but does not
 load `.env` files itself; the deployment scripts and Compose services load
 `env/.env.models` for you.
 
-Callers may name one logical model (see [Per-tenant models](#per-tenant-models))
+SDK callers may name one logical model (see [Choosing a model per turn](#choosing-a-model-per-turn))
 and one system prompt. They do not accept provider credentials, base URLs,
 custom headers, tools, provider-specific parameters, or sampling overrides.
 Temperature and token limits come entirely from the catalog.
 
 ## Per-tenant models
 
-By default there is one catalog for the whole process: `config/models.yaml`,
+By default there is one catalog for the whole process: `config/models/models.yaml`,
 whose API keys expand from the process environment. Every tenant answers from
 it, so bringing a new model or rotating a key means a redeploy.
 
@@ -79,13 +80,13 @@ boundary resolves to nothing.
 
 What the tenant does **not** own is everything outside its models: timeouts,
 retry and failover policy, routing strategy, response caching, telemetry
-privacy, and `chat.security`. Those stay exactly as `config/models.yaml` set
+privacy, and `chat.security`. Those stay exactly as `config/models/models.yaml` set
 them, which is what keeps a stored row from naming a provider or an endpoint
 the operator has not allowed. `extra` keys that are not deployment fields are
 passed to the provider SDK as extension parameters and are still bounded by
 the operator's `chat.security.allowed_extra_litellm_params`.
 
-## How a change takes effect
+## How a tenant change takes effect
 
 There is no restart and no cross-replica invalidation channel. Every request
 asks the control plane for a cheap fingerprint over the tenant's rows and
@@ -101,9 +102,9 @@ is disposed when the bound is reached and rebuilt if that tenant returns.
 ## When a tenant's configuration is broken
 
 Chat never fails because a tenant misconfigured itself. If the rows cannot be
-projected onto a valid client -- an unlisted provider, an endpoint outside the
+projected onto a valid client (an unlisted provider, an endpoint outside the
 allowlist, a capability the provider does not support, a `secret_ref` that no
-longer resolves -- or if the control plane is unreachable, the turn is answered
+longer resolves) or if the control plane is unreachable, the turn is answered
 from the shared catalog and the failure is logged at ERROR naming the tenant
 and the reason. The tenant loses its own models for that turn, not its ability
 to chat. Its model names are then bounded by the shared catalog, since the
@@ -112,29 +113,19 @@ shared client is what actually serves the request.
 One malformed row is skipped on its own: the rest of the tenant's catalog is
 built normally and the skipped row is logged with its id.
 
-## Choosing a model per request
+## Choosing a model per turn
 
-`POST /v1/chat/completions` accepts an optional `model`:
-
-```json
-{"tenant_id": "acme", "session_id": "session-...", "prompt": "...", "model": "fast"}
-```
-
-Omitting it resolves the catalog's default, exactly as before. When the tenant
-has its own catalog the name must be one that catalog configured; otherwise it
-must exist in `config/models.yaml`. A name outside that bound is rejected
-before the turn starts with `422` and
-`{"code":"validation_error","details":[{"field":"model","issue":"..."}]}` -- never a
-provider error, and never a silent fall back to the default. Streaming
-requests are checked the same way, before any frame is written, so a rejected
-name is one status code rather than an error mid-body.
-
-The response reports the model that actually answered in its existing `model`
-field.
+`POST /v1/chat/completions` takes no `model`: every HTTP and CLI turn answers
+from the tenant's default model (its own catalog's default, else the shared
+catalog's). SDK callers can still name one logical model in
+`ChatExecutionOptions.model`. When the tenant has its own catalog the name must
+be one that catalog configured; otherwise it must exist in
+`config/models/models.yaml`. A name outside that bound is a `validation_error`
+before any model call, never a silent fall back to the default.
 
 ## See also
 
-- [Chat](README.md) - the HTTP and CLI surfaces
-- [Chat models](models.md) - the model catalog and per-tenant overrides
-- [Conversation memory](memory.md) - what a turn remembers and for how long
-- [Limits and accounting](limits.md) - deadlines, admission control, usage
+- [Chat](README.md): the HTTP and CLI surfaces
+- [Conversation memory](memory.md): what a turn remembers and for how long
+- [Limits and accounting](limits.md): deadlines, admission control, usage
+- [Model configuration](../configuration/model-config.md): the shared catalog

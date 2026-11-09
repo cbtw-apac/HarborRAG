@@ -93,8 +93,10 @@ def test_representative_provider_configs(provider: str, extra: dict[str, str]) -
 
 
 def test_environment_expansion(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("HARBOR_EMBED_KEY", "env-secret")
-    config = HarborEmbedClientConfig.from_dict(_document("openai", api_key="${HARBOR_EMBED_KEY}"))
+    monkeypatch.setenv("HARBORRAG_EMBED_KEY", "env-secret")
+    config = HarborEmbedClientConfig.from_dict(
+        _document("openai", api_key="${HARBORRAG_EMBED_KEY}")
+    )
     assert config.models["primary"].deployments[0].api_key.get_secret_value() == "env-secret"
 
 

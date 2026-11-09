@@ -77,13 +77,13 @@ def test_doctor_ignores_variables_in_commented_out_model_config(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    models = tmp_path / "config" / "models.yaml"
+    models = tmp_path / "config" / "models" / "models.yaml"
     models.write_text(
         models.read_text(encoding="utf-8")
-        + "# memory:\n#   deployments:\n#     - api_key: ${HARBOR_MEMORY_API_KEY}\n",
+        + "# memory:\n#   deployments:\n#     - api_key: ${HARBORRAG_MEMORY_API_KEY}\n",
         encoding="utf-8",
     )
-    monkeypatch.delenv("HARBOR_MEMORY_API_KEY", raising=False)
+    monkeypatch.delenv("HARBORRAG_MEMORY_API_KEY", raising=False)
     unreachable(monkeypatch)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
@@ -98,7 +98,7 @@ def test_doctor_scans_model_config_the_way_the_model_loader_reads_it(
 ) -> None:
     # The model loader uses yaml.safe_load, which accepts a repeated key (last wins).
     project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    models = tmp_path / "config" / "models.yaml"
+    models = tmp_path / "config" / "models" / "models.yaml"
     models.write_text(
         models.read_text(encoding="utf-8") + "notes: first\nnotes: second\n",
         encoding="utf-8",
@@ -116,7 +116,7 @@ def test_doctor_fails_the_connector_catalog_when_one_definition_is_invalid(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     project(tmp_path, monkeypatch, capsys, api_key="sk-test")
-    connectors = tmp_path / "config" / "connectors.yaml"
+    connectors = tmp_path / "config" / "sources" / "connectors.yaml"
     connectors.write_text(
         connectors.read_text(encoding="utf-8")
         + "  broken:\n    provider: jira\n    settings:\n      not_a_field: 1\n",

@@ -1,6 +1,6 @@
 """The authenticated caller's own memory isolation key.
 
-``MemoryIdentity`` covers a *turn* (a session always exists). Administration
+``MemoryIdentity`` covers a *turn* (in a session, or a one-off question). Administration
 is broader: listing and user erasure have no session, so this is the same
 identity with ``session_id`` optional. Both are built from the authenticated
 principal, never from request fields, which is what makes "the caller's own

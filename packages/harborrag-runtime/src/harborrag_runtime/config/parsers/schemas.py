@@ -194,24 +194,48 @@ class ParserCatalog:
             if definition.enabled
         }
 
+    def enabled_pdf_backend(self) -> str | None:
+        """Return the backend of the enabled single-engine ``pdf`` definition."""
+        for definition in self.parsers.values():
+            if definition.enabled and _is_single_engine_pdf(definition):
+                return definition.pdf_backends[0].backend
+        return None
+
+    def pdf_definition_for(self, backend: str) -> str | None:
+        """Return the name of a single-engine ``pdf`` definition of ``backend``, enabled or not."""
+        for name, definition in self.parsers.items():
+            if _is_single_engine_pdf(definition) and definition.pdf_backends[0].backend == backend:
+                return name
+        return None
+
     def build_registry(
         self,
         *,
         environment: Mapping[str, str] | None = None,
-        chat_client: HarborChatClientProtocol | None = None,
+        pdf_definition: str | None = None,
     ) -> HarborParserRegistry:
         """Merge enabled configured families into the default registry.
 
-        Exactly one enabled definition may exist for a parser family. A configured
-        family replaces the default engines for the formats it reads and keeps the
-        rest: configuring ``docx`` still parses ``.doc``, ``.odt`` and ``.epub``.
-        Families not configured remain on the default factory-built registry.
-        ``chat_client`` serves the backends ``chat_models`` names.
+        Exactly one enabled definition may exist for a parser family. Families
+        not configured remain on the default factory-built registry.
+
+        Args:
+            environment: Source of referenced environment variables.
+            pdf_definition: Definition that stands in for the enabled ``pdf`` one.
+
+        Returns:
+            The registry of default and configured families.
         """
+        definitions = {name: item for name, item in self.parsers.items() if item.enabled}
+        if pdf_definition is not None:
+            selected = self.get(pdf_definition)
+            definitions = {
+                name: item for name, item in definitions.items() if item.parser != selected.parser
+            }
+            definitions[pdf_definition] = selected
         configured: dict[str, tuple[str, HarborParser]] = {}
-        for config_name, parser in self.build_enabled(
-            environment=environment, chat_client=chat_client
-        ).items():
+        for config_name, definition in definitions.items():
+            parser = definition.build(environment=environment)
             existing = configured.get(parser.parser_name)
             if existing is not None:
                 raise ParserConfigurationError(
@@ -260,6 +284,10 @@ def _merge_family(default: HarborParser, configured: HarborParser) -> HarborPars
     if not kept:
         return configured
     return type(configured)((*configured.engines, *kept))
+
+
+def _is_single_engine_pdf(definition: ParserDefinition) -> bool:
+    return definition.parser == "pdf" and len(definition.pdf_backends) == 1
 
 
 def _required_environment_value(

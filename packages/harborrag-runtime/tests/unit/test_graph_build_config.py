@@ -10,7 +10,7 @@ from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology.configuration import GraphBuildConfigSynchronizer
 
-_REPOSITORY_GRAPH_BUILD = Path(__file__).parents[4] / "config/topology/graph_build.yaml"
+_REPOSITORY_GRAPH_BUILD = Path(__file__).parents[4] / "config/graph/build.yaml"
 
 
 def test_repository_graph_build_policy_is_executable() -> None:
@@ -61,7 +61,7 @@ def test_yaml_is_the_single_authority_for_graph_runtime_values(
     ),
 )
 def test_graph_build_loader_rejects_ambiguous_or_coerced_policy(tmp_path, payload) -> None:
-    path = tmp_path / "graph_build.yaml"
+    path = tmp_path / "build.yaml"
     path.write_text(payload, encoding="utf-8")
 
     with pytest.raises(GraphBuildConfigurationError):
@@ -112,7 +112,7 @@ def _profile() -> ExtractionProfile:
 
 @pytest.mark.asyncio
 async def test_deterministic_mode_hard_disables_llm_without_loading_a_model(tmp_path) -> None:
-    path = tmp_path / "graph_build.yaml"
+    path = tmp_path / "build.yaml"
     path.write_text(
         """tenants:
   - tenant_id: tenant-a
@@ -143,7 +143,7 @@ async def test_deterministic_mode_hard_disables_llm_without_loading_a_model(tmp_
 
 @pytest.mark.asyncio
 async def test_llm_mode_maps_budget_and_source_policy(tmp_path) -> None:
-    path = tmp_path / "graph_build.yaml"
+    path = tmp_path / "build.yaml"
     path.write_text(
         """tenants:
   - tenant_id: tenant-a

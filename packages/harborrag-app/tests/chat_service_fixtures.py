@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import replace
 from types import SimpleNamespace
 
-from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.config_store import SettingsLevel
+from harborrag_core.config_store.resolution import EffectiveSettings, EffectiveValue
+from harborrag_core.contracts.errors import HarborUnavailableError, HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import (
     HarborChatMessage,
@@ -18,6 +22,7 @@ from harborrag_core.models.chat import (
 from harborrag_core.models.chat.enums import StreamEventType
 from harborrag_core.ports.memory import MemoryOwner
 from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageTotals
+from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.memory import (
     MemoryContext,
@@ -63,13 +68,23 @@ class FakeUsageRepository:
 
 
 class FakeChatFacade:
-    def __init__(
+    """A chat model that answers scope-gate calls with ``scope`` and every other call with ``answer``.
+
+    Gate calls are recorded in ``gate_requests`` and answer calls in ``requests``, so a
+    test can tell which of a turn's model calls happened. ``failure`` fails both.
+    ``hold`` keeps every answer call waiting until it is set; ``answering`` is set as
+    soon as one is waiting.
+    """
+
+    def __init__(  # noqa: PLR0913 - one behaviour of the fake per argument
         self,
         failure: Exception | None = None,
         *,
         stream_failure: Exception | None = None,
         cost: float | None = None,
         answer: str = "Hello",
+        scope: str = "knowledge",
+        hold: asyncio.Event | None = None,
     ) -> None:
         # Citations are reported only for the sources an answer cites, so a
         # test that needs them must have the model actually cite.
@@ -77,8 +92,13 @@ class FakeChatFacade:
         self.failure = failure
         self.stream_failure = stream_failure
         self.cost = cost
+        self.scope = scope
+        self.hold = hold
+        self.answering = asyncio.Event()
         self.request: HarborChatRequest | None = None
         self.requests: list[HarborChatRequest] = []
+        self.prompts: list[object] = []
+        self.gate_requests: list[HarborChatRequest] = []
         # (model, tenant_id) for every validation the app asked the runtime
         # for, plus the names this fake accepts.
         self.validated: list[tuple[str | None, str]] = []
@@ -95,18 +115,26 @@ class FakeChatFacade:
         *,
         prompt: object | None = None,
     ) -> HarborChatResponse:
-        del prompt
         if self.failure is not None:
             raise self.failure
-        self.request = request
-        self.requests.append(request)
+        if prompt is ChatPrompt.QUERY_GATE:
+            self.gate_requests.append(request)
+            text = json.dumps({"scope": self.scope})
+        else:
+            self.request = request
+            self.requests.append(request)
+            self.prompts.append(prompt)
+            self.answering.set()
+            if self.hold is not None:
+                await self.hold.wait()
+            text = self.answer
         return HarborChatResponse(
             id="chat-1",
             logical_model="primary",
             provider="mock",
             provider_model="mock-chat",
             deployment="internal-deployment",
-            message=HarborChatMessage.assistant(self.answer),
+            message=HarborChatMessage.assistant(text),
             finish_reason="stop",
             usage=HarborChatUsage(
                 prompt_tokens=2,
@@ -323,3 +351,21 @@ class FakeRuntime:
 
     async def aclose(self) -> None:
         return None
+
+
+class FakeConfigProvider:
+    """Resolves ``retrieval.top_k`` from overrides keyed by level label, project before tenant."""
+
+    def __init__(self, overrides: dict[str, int] | None = None) -> None:
+        self.overrides = overrides or {}
+        self.unavailable = False
+
+    async def effective(self, tenant_id: str, level: SettingsLevel) -> EffectiveSettings:
+        del tenant_id
+        if self.unavailable:
+            raise HarborUnavailableError("settings store is unavailable")
+        for candidate in reversed(level.chain()):
+            if str(candidate) in self.overrides:
+                value = EffectiveValue(self.overrides[str(candidate)], candidate.kind)
+                return EffectiveSettings(1, {"retrieval.top_k": value})
+        return EffectiveSettings(0, {"retrieval.top_k": EffectiveValue(5, "default")})

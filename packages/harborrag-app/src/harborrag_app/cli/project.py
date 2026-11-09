@@ -34,7 +34,7 @@ _INVOCATION: tuple[Path, Path] | None = None
 
 PROJECT_FILE = "harborrag.yaml"
 # A repository checkout carries no harborrag.yaml but does ship catalogs under config/.
-LEGACY_CONFIG_MARKER = Path("config") / "connectors.yaml"
+LEGACY_CONFIG_MARKER = Path("config") / "sources" / "connectors.yaml"
 PROJECT_ENV_VAR = "HARBORRAG_PROJECT"
 ENV_FILE = ".env"
 _SETTINGS_PREFIX = "HARBORRAG_"
@@ -160,7 +160,7 @@ def find_legacy_checkout(start: Path | None = None) -> Path | None:
     """Return the enclosing repository checkout whose ``config/`` supplies catalogs.
 
     Resolved by the same upward walk as :data:`PROJECT_FILE`, and subject to the same
-    ownership rule. Checking ``config/connectors.yaml`` against the raw CWD instead would
+    ownership rule. Checking ``config/sources/connectors.yaml`` against the raw CWD instead would
     make the CLI work at a checkout's root and fail one directory below it.
     """
 

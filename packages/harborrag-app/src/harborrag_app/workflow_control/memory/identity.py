@@ -16,6 +16,7 @@ class MemoryIdentity:
     ``principal_id`` is the authenticated subject that owns the session;
     ``user_id`` is the identity user-scoped memory is keyed by; ``project_id``
     is the validated project the turn happened in, when the caller supplied one.
+    ``session_id`` is ``None`` for a one-off question, which has no conversation.
 
     On the authenticated API path ``user_id`` comes from a verified token claim.
     """
@@ -23,7 +24,7 @@ class MemoryIdentity:
     tenant_id: str
     principal_id: str
     user_id: str
-    session_id: str
+    session_id: str | None
     project_id: str | None = None
 
     @classmethod
@@ -32,7 +33,7 @@ class MemoryIdentity:
         *,
         tenant_id: str,
         principal_id: str,
-        session_id: str,
+        session_id: str | None,
         user_id: str | None = None,
         project_id: str | None = None,
     ) -> MemoryIdentity:
@@ -63,8 +64,13 @@ class MemoryIdentity:
         ``user_id`` is what owns the conversation: one service principal
         fronting several people must not make ``session_id`` the only thing
         keeping their histories apart.
+
+        Raises:
+            ValueError: The turn is a one-off question with no session.
         """
 
+        if self.session_id is None:
+            raise ValueError("a one-off question has no conversation")
         return ConversationIdentity(
             self.tenant_id,
             self.principal_id,

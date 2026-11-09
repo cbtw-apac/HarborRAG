@@ -29,6 +29,7 @@ from harborrag_runtime.errors import (
     WorkflowNotRunningError,
     WorkflowOperationError,
 )
+from harborrag_runtime.ingestion_contracts import RunKind
 from harborrag_runtime.scheduling.errors import ScheduleNotFoundError, ScheduleValidationError
 from harborrag_runtime.scheduling.models import (
     ScheduleDefinition,
@@ -485,6 +486,45 @@ async def test_client_reads_results_progress_and_execution_status() -> None:
 
 
 @pytest.mark.asyncio
+async def test_a_natively_paused_workflow_reads_as_paused() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("8 is not a valid WorkflowExecutionStatus")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock(
+        return_value=SimpleNamespace(workflow_execution_info=SimpleNamespace(status=8))
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    assert await client.execution_status("task-1") == "paused"
+    request = sdk.workflow_service.describe_workflow_execution.await_args.args[0]
+    assert request.execution.workflow_id == "harborrag-source:task-1"
+
+
+@pytest.mark.asyncio
+async def test_an_unrecognised_native_status_is_an_error() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("99 is not a valid WorkflowExecutionStatus")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock(
+        return_value=SimpleNamespace(workflow_execution_info=SimpleNamespace(status=99))
+    )
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(WorkflowOperationError, match="unrecognised execution status 99"):
+        await client.execution_status("task-1")
+
+
+@pytest.mark.asyncio
+async def test_an_unrelated_value_error_from_describe_propagates() -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.describe.side_effect = ValueError("bad payload")
+    sdk.workflow_service.describe_workflow_execution = AsyncMock()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(ValueError, match="bad payload"):
+        await client.execution_status("task-1")
+    sdk.workflow_service.describe_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_client_health_and_controls_target_source_workflow() -> None:
     sdk = _SdkClient()
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
@@ -500,18 +540,36 @@ async def test_client_health_and_controls_target_source_workflow() -> None:
         "request_graceful_cancel",
     ]
     sdk.source_handle.cancel.assert_not_awaited()
-    pause_request = sdk.workflow_service.pause_workflow_execution.await_args.args[0]
-    assert pause_request.workflow_id == "harborrag-source:task-1"
-    assert pause_request.namespace == "harborrag"
-    assert pause_request.request_id
+    unpause_request = sdk.workflow_service.unpause_workflow_execution.await_args.args[0]
+    assert unpause_request.workflow_id == "harborrag-source:task-1"
+    assert unpause_request.namespace == "harborrag"
+    assert unpause_request.request_id
 
 
 @pytest.mark.asyncio
-async def test_controls_keep_signaling_when_native_pause_is_unavailable() -> None:
+async def test_pause_resume_cycles_never_natively_pause_the_source_workflow() -> None:
     sdk = _SdkClient()
-    unavailable = RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
-    sdk.workflow_service.pause_workflow_execution.side_effect = unavailable
-    sdk.workflow_service.unpause_workflow_execution.side_effect = unavailable
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    for _ in range(10):
+        await client.pause("task-1")
+        await client.resume("task-1")
+    await client.cancel("task-1")
+
+    sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+    unpaused = [
+        call.args[0].workflow_id
+        for call in sdk.workflow_service.unpause_workflow_execution.await_args_list
+    ]
+    assert unpaused == ["harborrag-source:task-1"] * 11
+
+
+@pytest.mark.asyncio
+async def test_controls_keep_signaling_when_native_unpause_is_unavailable() -> None:
+    sdk = _SdkClient()
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "not implemented", RPCStatusCode.UNIMPLEMENTED, b""
+    )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     await client.pause("task-1")
@@ -562,20 +620,20 @@ async def test_pause_relay_times_out_without_acknowledgement(
         (RPCStatusCode.INTERNAL, WorkflowOperationError),
     ],
 )
-async def test_native_pause_control_maps_rpc_errors(
+async def test_native_unpause_control_maps_rpc_errors(
     status: RPCStatusCode,
     expected: type[Exception],
 ) -> None:
     sdk = _SdkClient()
-    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
-        "native pause failed",
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "native unpause failed",
         status,
         b"",
     )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(expected):
-        await client._pause_execution(
+        await client._unpause_execution(
             "harborrag-source:task-1",
             reason="test",
             best_effort=False,
@@ -583,16 +641,16 @@ async def test_native_pause_control_maps_rpc_errors(
 
 
 @pytest.mark.asyncio
-async def test_native_pause_control_ignores_failed_precondition() -> None:
+async def test_native_unpause_control_ignores_failed_precondition() -> None:
     sdk = _SdkClient()
-    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
-        "workflow is already paused",
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "workflow is not paused",
         RPCStatusCode.FAILED_PRECONDITION,
         b"",
     )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
-    await client._pause_execution(
+    await client._unpause_execution(
         "harborrag-source:task-1",
         reason="test",
         best_effort=False,
@@ -616,6 +674,52 @@ async def test_client_operations_use_stable_workflow_id_for_source_controls() ->
         "harborrag-source:task-1",
         "harborrag-source:task-1",
     ]
+
+
+@pytest.mark.asyncio
+async def test_a_retry_run_is_described_and_cancelled_through_its_own_workflow() -> None:
+    sdk = _SdkClient()
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    status = await client.execution_status("retry-1", RunKind.RETRY)
+    await client.cancel("retry-1", RunKind.RETRY)
+
+    assert status == "completed"
+    assert [call.args[0] for call in sdk.get_workflow_handle.call_args_list] == [
+        "harborrag-retry:retry-1",
+        "harborrag-retry:retry-1",
+    ]
+    sdk.source_handle.cancel.assert_awaited_once()
+    sdk.source_handle.signal.assert_not_awaited()
+    sdk.workflow_service.unpause_workflow_execution.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "raised"),
+    [
+        (SimpleNamespace(name="COMPLETED"), WorkflowNotRunningError),
+        (RPCError("missing", RPCStatusCode.NOT_FOUND, b""), WorkflowNotFoundError),
+    ],
+    ids=["closed", "missing"],
+)
+async def test_cancelling_a_retry_run_that_is_gone_says_whether_it_closed(
+    status: object, raised: type[Exception]
+) -> None:
+    sdk = _SdkClient()
+    sdk.source_handle.cancel.side_effect = RPCError("gone", RPCStatusCode.NOT_FOUND, b"")
+    if isinstance(status, Exception):
+        sdk.source_handle.describe.side_effect = status
+    else:
+        sdk.source_handle.describe.return_value = SimpleNamespace(status=status)
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    with pytest.raises(raised):
+        await client.cancel("retry-1", RunKind.RETRY)
+
+    assert {call.args[0] for call in sdk.get_workflow_handle.call_args_list} == {
+        "harborrag-retry:retry-1"
+    }
 
 
 @pytest.mark.asyncio

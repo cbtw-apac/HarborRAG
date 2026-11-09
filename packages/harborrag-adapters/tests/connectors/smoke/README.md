@@ -2,7 +2,7 @@
 
 These scripts perform real connector discovery and load operations through
 `HarborConnector`, using the same declarative sources as the application:
-`config/connectors.yaml` for connector settings and `config/parsers.yaml` for
+`config/sources/connectors.yaml` for connector settings and `config/ingestion/parsers.yaml` for
 attachment/document parsing. They verify authentication, source scoping,
 API/filesystem access, mapping into `SourceRecord`, and real content parsing.
 Confluence and JIRA also repeat the load with attachment processing enabled;
@@ -23,7 +23,7 @@ credentials or content.
 
 One workspace sync installs the connector clients, the parser dependencies,
 and the OCR engines the parser catalog enables. The shipped
-`config/parsers.yaml` parses PDFs and raster images through the same LiteParse
+`config/ingestion/parsers.yaml` parses PDFs and raster images through the same LiteParse
 OCR server, and the root `dev` dependency group pulls
 `harborrag-adapters[parsers,pdf-liteparse]`, so `uv run` already has them:
 
@@ -36,8 +36,8 @@ Do not narrow this to `uv sync --package harborrag-adapters`: that drops
 source, and the run then fails on `No module named 'yaml'`.
 
 Add `--extra image-rapidocr` (local ONNX image OCR) or `--extra pdf` (every
-PDF engine: Docling, LiteParse, PyMuPDF) only when exercising one of
-the commented-out alternatives in `config/parsers.yaml`.
+PDF engine: Docling, MinerU, PaddleOCR, PyMuPDF) only when exercising one of
+the commented-out alternatives in `config/ingestion/parsers.yaml`.
 
 LiteParse OCRs scanned pages through the OCR server named by
 `pdf-liteparse.engines[].settings.ocr_server_url`, so that server must be
@@ -47,13 +47,13 @@ host.
 
 ## Configuration
 
-Connector settings live in `config/connectors.yaml`; credentials live in
+Connector settings live in `config/sources/connectors.yaml`; credentials live in
 `env/.env.connector`. Both fall back to their `.example` counterparts
-(`config/connectors.example.yaml`, `env-example/.env.connector.example`) when
+(`config/sources/connectors.example.yaml`, `env-example/.env.connector.example`) when
 the real file doesn't exist yet, so copy the example and fill in your values:
 
 ```bash
-cp config/connectors.example.yaml config/connectors.yaml
+cp config/sources/connectors.example.yaml config/sources/connectors.yaml
 cp env-example/.env.connector.example env/.env.connector
 ```
 
@@ -72,7 +72,7 @@ multiple connections can be configured for the same provider.
 
 Everything else - content type filters, attachment limits, pagination, JIRA
 `project_keys` scoping, and so on - is a literal setting in
-`config/connectors.yaml`. Edit that file directly instead of adding more
+`config/sources/connectors.yaml`. Edit that file directly instead of adding more
 environment variables. Relative `LOCAL_SOURCE_PATH` values are resolved from
 the repository root.
 
@@ -138,7 +138,7 @@ heading; the JIRA renderer deliberately saves the issue body only, so use
 - Figures embedded *inside* a locally parsed PDF are copied into the same
   `<output-file-stem>.assets/` convention and listed under a `## Figures`
   heading. This is Docling-only: it requires `pdf-docling.image_output_dir` to
-  be set in `config/parsers.yaml` (see
+  be set in `config/ingestion/parsers.yaml` (see
   [Parser selection](#parser-selection)), and full-page renders and table
   crops Docling can also produce are intentionally skipped to keep output
   focused on actual figures. The shipped LiteParse parser reports no image
@@ -163,7 +163,7 @@ discovered and processed - each gets its own output file (default: 3).
 | SharePoint | 3 | At least one drive item and a successful first-file download |
 
 The attachment pass only runs when the connector's `include_attachments`
-setting in `config/connectors.yaml` is `true`; when it's `false`, the check
+setting in `config/sources/connectors.yaml` is `true`; when it's `false`, the check
 prints a skip message and passes without touching attachments. When the pass
 does run, Confluence and JIRA fail if an attempted attachment ends in
 `failed` or `unsupported`. A source with no attachments can still pass.
@@ -175,12 +175,12 @@ tolerance of blank page/issue bodies.
 
 ## Parser selection
 
-PDF and image parsing come from `config/parsers.yaml` (falling back to
-`config/parsers.example.yaml`), the same catalog the application uses. The
+PDF and image parsing come from `config/ingestion/parsers.yaml`, the same catalog the
+application uses. The
 shipped default enables `pdf-liteparse`, which parses PDFs with LiteParse and
 OCRs scanned pages through an external OCR server. There is no environment
 override for the engine: change the enabled definition in
-`config/parsers.yaml` and the smoke scripts follow it. Every run prints the
+`config/ingestion/parsers.yaml` and the smoke scripts follow it. Every run prints the
 engines it resolved, for example:
 
 ```text
@@ -213,7 +213,7 @@ reachable from this host; using 'http://localhost:8888/ocr'
 That assumes the OCR server publishes its port on the host, which the
 `ppocr-server` container normally does (`-p 8888:8888`), and that the port in
 `ocr_server_url` is the published one. `HARBORRAG_OCR_SERVER_URL` (read by
-`config/parsers.yaml` itself) changes what the catalog configures for every
+`config/ingestion/parsers.yaml` itself) changes what the catalog configures for every
 process, including the worker. Point only the smoke run at a different OCR
 server (when one is configured) with:
 
@@ -232,7 +232,7 @@ attachment status/count information. Full provider content is not printed
 unless `HARBOR_SMOKE_VERBOSE=1` is set (bounded, redacted previews; disabled
 in CI).
 
-- Exit `2`: check `config/connectors.yaml` and `env/.env.connector` - the
+- Exit `2`: check `config/sources/connectors.yaml` and `env/.env.connector` - the
   printed message names the missing/undefined connector or variable.
 - No records: confirm the configured source contains readable documents and
   that repository/space/project/drive scoping is correct.
@@ -240,7 +240,7 @@ in CI).
   tenant/client credentials, VPN, proxy, and provider URL.
 - Attachment/parse failures: install parser extras (`--extra parsers --extra
   pdf-liteparse`), verify the attachment type and size,
-  and check `config/parsers.yaml`.
+  and check `config/ingestion/parsers.yaml`.
 - `OCR failed: ... error sending request`: the OCR server LiteParse is
   configured to call is unreachable. Start it, or set
   `HARBOR_SMOKE_OCR_SERVER_URL` (see

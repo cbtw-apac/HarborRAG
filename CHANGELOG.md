@@ -7,27 +7,77 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Documents are re-chunked and re-embedded on their next ingestion; see the
-[upgrade guide](docs/users/upgrading.md).
+Documents are re-chunked and re-embedded on their next ingestion. Follow the
+[upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
+action.
 
 ### Added
 
 #### harborrag-adapters
 
+- Migration `0046` stores runtime settings overrides and an append-only revision log
+- Migration `0047` stores a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback`
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
 - PDFs can be read page by page by a vision-capable chat model from `models.yaml`, as an opt-in parser engine
 
+#### harborrag-app
+
+- `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
+- `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
+- `harborrag init` scaffolds `config/ingestion/chunking.yaml` and `harborrag doctor` validates it
+- `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
+
+#### harborrag-core
+
+- Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
+
+#### harborrag-mcp-server
+
+- `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
+
 #### harborrag-runtime
 
-- Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/chunking.yaml`
+- Cached settings provider that reloads on Postgres `LISTEN`/`NOTIFY` and a 5-second revision poll
+- The API seeds settings from `config/settings.yaml` on first start and logs `config_yaml_drift` afterwards
+- Ingestion pins the run's settings and `settings_revision` at start; workers parse and chunk with them
+- Chunk sizes, per-source profiles and the splitting strategy are configurable in `config/ingestion/chunking.yaml`
 - **Breaking:** ingestion requires the code grammars; the worker images and the `local` and `production` installs include them
+
+### Changed
 
 #### harborrag-app
 
-- `harborrag init` scaffolds `config/chunking.yaml` and `harborrag doctor` validates it
-
-### Changed
+- **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed`, replacing `task.<id>.progress`, `.done` and `.control`:
+  - frames carry integer ids, a `: ping` arrives every 15 s, and `Last-Event-ID` resumes the stream
+  - the response opens at once, and the deadline from `api_stream_timeout_seconds` ends the stream with an `error` event `deadline_exceeded`
+  - a pause or resume appears as a `run.status` with the new status (`queued`, `running`, `paused`); the final status, including a cancel, arrives in `run.completed.finish_reason`
+  - reconnecting to an ended run with nothing after `Last-Event-ID` answers `204`
+- **Breaking:** the chat session routes answer the explorer `Session` and `Message` shapes:
+  - `POST /v1/chat/sessions` takes `title` and `project_id` (an unknown project is `422 reference_not_found`, `profile_id` is `422` until v2.1.0) and answers the `Session`; `greeting` is gone
+  - `GET /v1/chat/sessions` answers `items` of `Session` with `next_cursor` and searches titles with `q`
+  - `GET /v1/chat/sessions/{session_id}/messages` answers `items` of `Message` newest first, pages with `cursor` and `limit` up to 100, and leaves out answers cut short by a dropped stream
+  - the routes take the tenant from `X-Tenant-Id` instead of `tenant_id`
+  - new sessions get `ses_…` IDs and new messages `msg_…`; stored `session-…` sessions keep theirs
+- **Breaking:** `POST /v1/chat/completions` answers on the explorer contract, with no alias for the old request or response:
+  - the body takes `message`, `mode` (`classic` or `instant`; `advanced` and `auto` are `422 mode_unavailable`), `reasoning` (`off`), `project_ids` (one-off questions only), `connections`, `filters` and `stream`; the tenant comes from `X-Tenant-Id` and the key from the `Idempotency-Key` header only
+  - the answer is `completion_id`, `session_id`, `trace_id`, `mode`, `answer`, `citations` (`[n]` markers numbered by first use) and `usage` with `cost_usd`
+  - `prompt`, `tenant_id`, `idempotency_key`, `model`, `graph_search`, `project_id`, `outcome`, `refusal_reason`, `provider`, `provider_model`, `message`, `cost`, `latency_ms`, `retry_count`, `fallback_count` and `memory_persisted` are removed
+  - leaving out `session_id` asks a one-off question that creates no session and is not stored; in a session, retrieval reads only the session project's connections at its `retrieval.top_k`, and the answer is stored with the question under `completion_id`
+  - an empty project is `409 no_indexed_content` before any model call, a busy session `409 session_busy` at once, and a provider failure `503 llm_unavailable` with nothing stored
+  - `instant` skips the scope-check model call and graph observation, and an out-of-scope request is an ordinary answer without citations
+  - `stream: true` sends the finished answer as `response.started`, one `response.output_text.delta` and `response.completed`
+- **Breaking:** `harborrag chat` prints the new answer, creates its session in the `--project` project, and refuses `--project` with `--session`
+- **Breaking:** chat completion failures and accounting change:
+  - `503 dependency_unavailable` when the answer cannot be stored, `503 llm_unavailable` for an empty answer, and `422` for a whitespace-only `message`
+  - `usage` adds up the scope check and the answer
+  - an `Idempotency-Key` stays free after a failure before any model call, store and retrieval outages included
+- **Breaking:** SDK chat: `ChatExecutionOptions.session_id` is optional, `project_id` became `project_ids`, and `mode`, `connections`, `filters` and `trace_id` are new; `chat_completion()` returns the explorer body and raises the turn's errors; `chat_answer()` yields the turn's events; `validate_chat_model`, `validate_chat_project` and `validate_completion_scope` are removed
+- **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
+- Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
+- `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
+- `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
+- `harborrag init` writes the new `config/` layout, and the CLI recognises a checkout by `config/sources/connectors.yaml`
 
 #### harborrag-adapters
 
@@ -47,6 +97,24 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### harborrag-engine
 
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
+- The `default` and `concise` chat prompts ask the model to cite sources by their `[n]` number
+
+#### harborrag-mcp-server
+
+- The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
+
+#### harborrag-runtime
+
+- **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
+- **Breaking:** `config/models/models.yaml` reads `HARBORRAG_CHAT_*`, `HARBORRAG_EMBED_*` and `HARBORRAG_MEMORY_*` instead of `HARBOR_CHAT_*`, `HARBOR_EMBED_*` and `HARBOR_MEMORY_*`
+- Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
+
+#### Deployment
+
+- The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
+- `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
+- The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
+- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed; `harborrag init` renders `harborrag.yaml`
 
 ### Removed
 
@@ -59,11 +127,18 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 #### harborrag-adapters
 
-- **Breaking:** connectors use only the credentials configured for their source, never the worker's own
-- A Jira or Confluence attachment with a malformed size no longer fails every attachment of its issue or page
-- A per-request cost limit that cannot be enforced stops the model client at startup instead of rejecting every request
-- Repointing an embedding or rerank model no longer serves the previous model's cached results
-- Synchronous LangChain chat calls work more than once on the same client
+- Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
+
+#### harborrag-app
+
+- **Breaking:** `GET /v1/admin/settings/schema` answers `{"groups": [...]}` with a description per setting, `POST /v1/admin/failures/retry` answers `409 invalid_state` when no failure matches instead of `202` with a null `ingestion_id`, and `GET /v1/admin/failures` omits `total` unless `include_total=true`
+- A connection's `stats.errors` counts the failed documents of its latest run, also after a cancel, and is `0` before any run
+- A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`, retry runs included: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
+- Cancelling a retry run cancels its workflow and records the run as `cancelled`, instead of answering `503`; `pause` and `resume` on a retry run answer `409 invalid_state`
+- Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingest cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
+- `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
+- `harborrag ingest pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit 1 with the `invalid_state` message and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
+- `harborrag retrieve` reads on the shared basis for the shared tenant (`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`), as chat does, instead of returning no candidates
 
 #### harborrag-runtime
 
@@ -71,6 +146,15 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - Configuring one parser engine no longer leaves the other formats of its family unparseable
 - In development, ingestion migrates the control database instead of creating tables later upgrades cannot migrate
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
+- The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
+- Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
+- `harborrag ingest status` of a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
+- Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
+
+#### Deployment
+
+- The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
+- The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files
 
 ## [2.0.0a2] - 2026-10-26
 
@@ -399,5 +483,6 @@ operator-facing alias.
 
 - Database, MinIO and Grafana passwords must be supplied by the operator [#31]
 
+[Unreleased]: https://github.com/cbtw-apac/HarborRAG/compare/harborrag-v2.0.0a2...HEAD
 [2.0.0a2]: https://github.com/cbtw-apac/HarborRAG/compare/harborrag-v2.0.0a1...harborrag-v2.0.0a2
 [2.0.0a1]: https://github.com/cbtw-apac/HarborRAG/releases/tag/harborrag-v2.0.0a1

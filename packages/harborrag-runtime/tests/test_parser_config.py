@@ -35,7 +35,7 @@ def _write_config(tmp_path: Path, content: str) -> Path:
 def test_repository_config_builds_enabled_parser_overrides(caplog, monkeypatch) -> None:
     monkeypatch.delenv("HARBORRAG_OCR_SERVER_URL", raising=False)
     with caplog.at_level(logging.INFO, logger="harborrag.runtime.config.parsers"):
-        catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+        catalog = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml")
 
     assert catalog.names(enabled_only=True) == ["image-liteparse", "pdf-liteparse"]
 
@@ -62,7 +62,7 @@ def test_repository_config_builds_enabled_parser_overrides(caplog, monkeypatch) 
 
 
 def test_repository_config_keeps_inactive_alternatives_commented() -> None:
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml")
 
     assert catalog.names() == ["image-liteparse", "pdf-liteparse"]
 
@@ -70,7 +70,7 @@ def test_repository_config_keeps_inactive_alternatives_commented() -> None:
 def test_ocr_server_url_follows_the_environment_over_the_catalog_default(monkeypatch) -> None:
     monkeypatch.setenv("HARBORRAG_OCR_SERVER_URL", "http://localhost:8888/ocr")
 
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml")
 
     assert catalog.build("pdf-liteparse").backends[0].options.ocr_server_url == (
         "http://localhost:8888/ocr"
@@ -83,7 +83,7 @@ def test_ocr_server_url_follows_the_environment_over_the_catalog_default(monkeyp
 def test_an_empty_ocr_server_url_means_no_ocr_server(monkeypatch) -> None:
     monkeypatch.setenv("HARBORRAG_OCR_SERVER_URL", "  ")
 
-    catalog = load_parser_catalog(REPO_ROOT / "config" / "parsers.yaml")
+    catalog = load_parser_catalog(REPO_ROOT / "config" / "ingestion" / "parsers.yaml")
 
     liteparse = catalog.build("pdf-liteparse").backends[0]
     assert liteparse.options.ocr_server_url is None

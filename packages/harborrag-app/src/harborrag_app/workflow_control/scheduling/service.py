@@ -17,7 +17,7 @@ type ScheduleBackendProvider = Callable[[], Awaitable[ScheduleBackend]]
 
 
 class ScheduleApplicationService:
-    """Apply ``config/schedules.yaml`` to the schedule engine at startup."""
+    """Apply ``config/sources/schedules.yaml`` to the schedule engine at startup."""
 
     def __init__(
         self,
@@ -31,7 +31,7 @@ class ScheduleApplicationService:
         self._source_input_builder = source_input_builder
 
     async def sync_declared(self) -> dict[str, int] | None:
-        """Reconcile config/schedules.yaml into the engine; None when no file is deployed."""
+        """Reconcile config/sources/schedules.yaml into the engine; None without the file."""
 
         path = self._settings.schedule_config_path
         if not path.is_file():

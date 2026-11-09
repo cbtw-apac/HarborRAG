@@ -66,12 +66,17 @@ class ConnectionValidationError(HarborValidationError):
 
 @dataclass(frozen=True, slots=True)
 class AuthMethodSpec:
-    """One way to authenticate, with the dataclass keywords it implies."""
+    """One way to authenticate, with the dataclass keywords it implies.
+
+    ``derived`` keywords pick the method and are not stored; ``implied_by`` picks it
+    from keywords that are, such as a Cloud ``deployment_type``.
+    """
 
     id: AuthMethodId
     title: str
     model: type[StrictModel]
     derived: Mapping[str, Any] = field(default_factory=dict)
+    implied_by: Callable[[Mapping[str, Any]], bool] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -445,12 +450,15 @@ class SourceTypeSpec:
         return credentials, config, tuning
 
     def _infer_method(self, flat: Mapping[str, Any], credentials: Mapping[str, Any]) -> str:
-        """Pick the auth method a flat entry implies: derived keys first, then required fields."""
+        """Pick the auth method a flat entry implies: derived keys, implied_by, required fields."""
         for method in self.auth_methods:
             if method.derived and all(
                 str(flat.get(key, "")).strip().lower() == value
                 for key, value in method.derived.items()
             ):
+                return method.id
+        for method in self.auth_methods:
+            if method.implied_by is not None and method.implied_by(flat):
                 return method.id
         for method in self.auth_methods:
             required = {n for n, info in method.model.model_fields.items() if info.is_required()}

@@ -38,8 +38,6 @@ async def test_a_pause_pending_until_the_next_batch_boundary_is_accepted(
     await client.pause("task-1")
 
     assert [call.args[0] for call in sdk.source_handle.signal.await_args_list] == ["pause"]
-    # Natively pausing the run now would keep it from reaching the boundary that
-    # persists PAUSED, so only the signal is sent.
     sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
 
 

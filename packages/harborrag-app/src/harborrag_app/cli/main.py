@@ -12,7 +12,17 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.cli.banner import print_banner
-from harborrag_app.cli.commands import auth, chat, doctor, ingest, init, retrieve, source, topology
+from harborrag_app.cli.commands import (
+    auth,
+    chat,
+    config,
+    doctor,
+    ingest,
+    init,
+    retrieve,
+    source,
+    topology,
+)
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
 from harborrag_app.cli.runner import CliState
@@ -103,6 +113,12 @@ app.add_typer(
     auth.app,
     name="auth",
     help="Manage MCP reader keys (auth keys create|list|revoke).",
+    rich_help_panel="Operations",
+)
+app.add_typer(
+    config.app,
+    name="config",
+    help="Import and export runtime settings (config import|export).",
     rich_help_panel="Operations",
 )
 app.command(

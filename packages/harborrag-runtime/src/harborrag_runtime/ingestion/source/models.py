@@ -14,6 +14,7 @@ from harborrag_core.ingestion import (
     ProcessingProfile,
 )
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_runtime.ingestion_contracts import RunSettings
 
 from ..document.models import DocumentReleaseRequest
 from ..limits import (
@@ -39,6 +40,7 @@ class SourceIngestionRequest:
     discovery_concurrency: int = 4
     document_concurrency: int = 8
     missing_threshold: int = 2
+    run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
         text_values = (

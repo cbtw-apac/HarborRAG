@@ -9,7 +9,10 @@ from typing import Protocol
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    FailurePage,
     IngestionTask,
+    IngestionTaskState,
+    StoredFailure,
     TaskDocumentPage,
     TaskPage,
     TaskRegistration,
@@ -36,6 +39,8 @@ class PublicTaskStore(Protocol):
         *,
         idempotency_key: str | None = None,
         request_hash: str | None = None,
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration: ...
 
     async def register_retry(
@@ -44,9 +49,15 @@ class PublicTaskStore(Protocol):
         retry_task_id: str,
         original: IngestionTask,
         document_ids: Sequence[str],
+        actor: str | None = None,
+        actor_type: str | None = None,
     ) -> TaskRegistration: ...
 
     async def get(self, task_id: str) -> IngestionTask | None: ...
+
+    async def close_abandoned(
+        self, task_id: str, state: IngestionTaskState, *, reason: str
+    ) -> None: ...
 
     async def pending_submissions(self, *, limit: int = 100) -> tuple[IngestionTask, ...]: ...
 
@@ -54,13 +65,15 @@ class PublicTaskStore(Protocol):
 
     async def release_submission_claim(self, task_id: str, token: str) -> bool: ...
 
-    async def list_tasks(
+    async def list_tasks(  # noqa: PLR0913 - the listing's filters plus keyset position
         self,
         *,
         tenant_ids: frozenset[str] | None = None,
         statuses: Sequence[str] | None = None,
         before_submitted_at: datetime | None = None,
         before_task_id: str | None = None,
+        scope_connection_ids: frozenset[str] | None = None,
+        created_after: datetime | None = None,
         limit: int = 50,
     ) -> TaskPage: ...
 
@@ -73,6 +86,10 @@ class PublicTaskStore(Protocol):
     ) -> tuple[IngestionTask, ...]: ...
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent: ...
+
+    async def append_task_event_once(
+        self, task_id: str, event: HarborEvent
+    ) -> HarborEvent | None: ...
 
     async def list_task_events(
         self,
@@ -104,6 +121,33 @@ class PublicTaskStore(Protocol):
         after_document_id: str | None = None,
         limit: int = 50,
     ) -> TaskDocumentPage: ...
+
+    async def failure_page(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        resolved: bool,
+        q: str | None,
+        before: tuple[datetime, str, str] | None,
+        limit: int,
+        include_total: bool,
+        known_stages: frozenset[str] | None = None,
+    ) -> FailurePage: ...
+
+    async def failures_for_retry(  # noqa: PLR0913 - query filters are keyword-only
+        self,
+        *,
+        tenant_id: str,
+        keys: Sequence[tuple[str, str]] | None,
+        source_keys: frozenset[str] | None,
+        error_category: str | None,
+        internal_stages: frozenset[str] | None,
+        limit: int = 1000,
+        known_stages: frozenset[str] | None = None,
+    ) -> tuple[StoredFailure, ...]: ...
 
     async def active_versions(
         self,

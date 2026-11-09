@@ -51,7 +51,7 @@ def env_hint(kind: Literal["models", "connector", "database", "services", "setti
 def _models_hint() -> str:
     return (
         f"Set the provider key in {env_hint('models')} "
-        "(it is referenced as ${VAR} in config/models.yaml)."
+        "(it is referenced as ${VAR} in config/models/models.yaml)."
     )
 
 
@@ -105,7 +105,7 @@ def settings_error_detail(exc: Exception) -> str:
 def check_error_detail(exc: Exception) -> str:
     """Describe a failed check without echoing expanded configuration values.
 
-    ``config/models.yaml`` interpolates ``${VAR}`` eagerly, so a pydantic error's
+    ``config/models/models.yaml`` interpolates ``${VAR}`` eagerly, so a pydantic error's
     ``input_value={...}`` dump can carry the provider key, and a composition failure can
     carry HARBORRAG_CONTROL_DB_URL with its password. Neither may be forwarded.
 

@@ -68,4 +68,37 @@ async def bounded_sse_frames(
         await frames.aclose()
 
 
-__all__ = ["STREAM_DEADLINE_ERROR_CODE", "bounded_sse_frames", "sse_frame"]
+async def with_heartbeat(
+    frames: AsyncIterator[bytes], *, interval_seconds: float
+) -> AsyncIterator[bytes]:
+    """Relay ``frames``, adding a ``: ping`` comment whenever none arrived for ``interval_seconds``.
+
+    One pending ``anext`` is kept across timeouts, because cancelling it would finalize the
+    source generator.
+    """
+
+    pending: asyncio.Future[bytes] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(anext(frames))
+            done, _ = await asyncio.wait({pending}, timeout=interval_seconds)
+            if not done:
+                yield b": ping\n\n"
+                continue
+            future, pending = pending, None
+            try:
+                frame = future.result()
+            except StopAsyncIteration:
+                return
+            yield frame
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        aclose = getattr(frames, "aclose", None)
+        if aclose is not None:
+            await aclose()
+
+
+__all__ = ["STREAM_DEADLINE_ERROR_CODE", "bounded_sse_frames", "sse_frame", "with_heartbeat"]

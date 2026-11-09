@@ -37,10 +37,10 @@ _FILES: tuple[tuple[str, str], ...] = (
     (ENV_FILE, "dotenv.tmpl"),
     (GITIGNORE_FILE, "gitignore.tmpl"),
     (COMPOSE_FILE, "compose.yml.tmpl"),
-    ("config/connectors.yaml", "connectors.yaml.tmpl"),
-    ("config/models.yaml", "models.yaml.tmpl"),
-    ("config/parsers.yaml", "parsers.yaml.tmpl"),
-    ("config/chunking.yaml", "chunking.yaml.tmpl"),
+    ("config/sources/connectors.yaml", "connectors.yaml.tmpl"),
+    ("config/models/models.yaml", "models.yaml.tmpl"),
+    ("config/ingestion/parsers.yaml", "parsers.yaml.tmpl"),
+    ("config/ingestion/chunking.yaml", "chunking.yaml.tmpl"),
     ("config/temporal.yaml", "temporal.yaml.tmpl"),
 )
 _PRIVATE_MODE = 0o600

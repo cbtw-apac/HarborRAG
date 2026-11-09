@@ -56,9 +56,9 @@ When it finishes you get a numbered list of next steps. The folder now contains:
 | --- | --- | --- |
 | `harborrag.yaml` | Marks the folder as a project; points at the files below | rarely |
 | `.env` | Your API key, plus generated passwords for the local services. Never committed. | when a key changes |
-| `config/connectors.yaml` | *Where* documents come from - one entry per source | when adding sources |
-| `config/models.yaml` | *Which* chat and embedding models to use | when switching models |
-| `config/parsers.yaml` | *How* PDFs, Office files and images are read | almost never |
+| `config/sources/connectors.yaml` | *Where* documents come from - one entry per source | when adding sources |
+| `config/models/models.yaml` | *Which* chat and embedding models to use | when switching models |
+| `config/ingestion/parsers.yaml` | *How* PDFs, Office files and images are read | almost never |
 | `config/temporal.yaml` | Only for the durable, worker-based mode - ignore for now | no |
 | `docker-compose.yml` | The three local services | no |
 | `docs/README.md` | A sample document so your first run indexes something | replace with your files |
@@ -93,7 +93,7 @@ Every line should be a ✓ except the last, which is skipped on purpose:
 │  ✓  project              /home/you/my-harbor                        │
 │  ✓  python packages      local stack clients importable            │
 │  ✓  connectors catalog   1 enabled: workspace                       │
-│  ✓  parsers catalog      …/config/parsers.yaml                      │
+│  ✓  parsers catalog      …/config/ingestion/parsers.yaml                      │
 │  ✓  models catalog       chat=primary embed=primary                 │
 │  ✓  source path          LOCAL_SOURCE_PATH=./docs                   │
 │  ✓  qdrant               http://localhost:6333                      │
@@ -161,7 +161,7 @@ Run `init` again in the project folder and pick additional sources; it asks whet
 overwrite the configuration (your `.env` is never overwritten - a fresh copy goes to
 `.env.new` so you can merge the new variables). Or edit by hand:
 
-1. Add a block to `config/connectors.yaml` - `init --connectors github` shows the shape, and
+1. Add a block to `config/sources/connectors.yaml` - `init --connectors github` shows the shape, and
    [Connector configuration](../users/configuration/connector-config.md) lists every option.
 2. Add the variables it references (URL, token, email) to `.env`.
 3. `harborrag doctor` confirms nothing is blank, then `harborrag ingest run github`.
@@ -177,9 +177,9 @@ folder that *you* own and that other users cannot write to; `--project` is the e
 override.
 
 **Where is my API key stored?** Only in `.env` in the project folder (permissions `0600`).
-`config/models.yaml` refers to it as `${OPENAI_API_KEY}` and never contains the value.
+`config/models/models.yaml` refers to it as `${OPENAI_API_KEY}` and never contains the value.
 
-**How do I switch models or providers?** Edit `config/models.yaml` (model name, provider) and
+**How do I switch models or providers?** Edit `config/models/models.yaml` (model name, provider) and
 the matching key in `.env`; `harborrag doctor` validates the result. Changing the *embedding*
 model means re-ingesting with `--force-reprocess`.
 

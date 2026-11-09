@@ -58,7 +58,7 @@ class SummaryRuntimeFactory:
     def _scope_settings(
         self, tenant_id: str | None, source_scope_id: str | None
     ) -> tuple[tuple[SummaryFacet, ...], int]:
-        """The scope's facets and the tenant's card concurrency, from graph_build.yaml."""
+        """The scope's facets and the tenant's card concurrency, from config/graph/build.yaml."""
 
         concurrency = int(SummaryPolicy.model_fields["max_concurrency"].default)
         if tenant_id is None:

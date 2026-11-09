@@ -56,7 +56,7 @@ workflow with a fresh task ID. A firing is skipped, not failed, while another
 ingestion holds the same source scope. Overlap is limited to `skip` (default),
 `buffer_one` and `buffer_all`.
 
-The application syncs version-controlled `config/schedules.yaml` at startup,
+The application syncs the declared `config/sources/schedules.yaml` at startup,
 creating missing config-owned schedules and updating existing ones without
 resetting an operator's pause state or note; a changed `paused` value in the
 file is applied. API-owned schedules can be managed independently. The

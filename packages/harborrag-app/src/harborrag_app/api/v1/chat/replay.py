@@ -1,28 +1,38 @@
-"""Durable duplicate suppression for paid completion requests."""
+"""Durable duplicate suppression for paid completion requests.
+
+A retry with the same ``Idempotency-Key`` and the same body within 24 hours gets the
+stored completion back byte for byte, without a second model call. The key is scoped
+to the caller's tenant and end user.
+"""
 
 from __future__ import annotations
 
 import hashlib
-import json
 import logging
 from dataclasses import dataclass
 
-from harborrag_app.api.auth.principal import Principal
-from harborrag_core.contracts.errors import (
-    HarborAlreadyRunningError,
-    HarborConflictError,
-    HarborValidationError,
-)
+from pydantic import ValidationError
 
-from .completion_dependency import CompletionService
-from .schemas import ChatCitation, ChatCompletionRequest, ChatCompletionResponse
+from harborrag_app.api.auth.principal import Principal
+from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
+from harborrag_core.ports.completion_requests import CompletionRequestStore
+
+from .schemas import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 
 
+class CompletionInProgressError(HarborConflictError):
+    """The first request with this key is still being answered."""
+
+    error_code = "session_busy"
+
+
 @dataclass(slots=True)
 class CompletionAttempt:
-    service: CompletionService
+    """One request's claim on its idempotency key, from claim to finish or release."""
+
+    store: CompletionRequestStore
     tenant_id: str
     user_id: str
     key: str | None
@@ -31,64 +41,74 @@ class CompletionAttempt:
 
     @classmethod
     def for_request(
-        cls, service: CompletionService, request: ChatCompletionRequest, principal: Principal
+        cls,
+        store: CompletionRequestStore,
+        request: ChatCompletionRequest,
+        *,
+        tenant_id: str,
+        principal: Principal,
+        key: str | None,
     ) -> CompletionAttempt:
-        # Delivery format does not alter the paid operation. A retry may ask
-        # for JSON after its stream disconnected and receive the saved result.
-        #
-        # ``session_id`` is excluded because the server assigns it and hands it
-        # back in the first stream frame: a retry that echoes the session it was
-        # just told about describes the same paid operation as the attempt that
-        # omitted it, and must replay rather than read as a different request.
-        serialized = request.model_dump_json(exclude={"stream", "idempotency_key", "session_id"})
+        """The attempt of ``request``, hashed over its whole body but ``stream``.
+
+        ``stream`` is left out because delivery does not change the paid answer: a
+        streamed and a JSON retry of one question replay each other.
+        """
+        serialized = request.model_dump_json(exclude={"stream"})
         return cls(
-            service,
-            request.tenant_id,
+            store,
+            tenant_id,
             principal.user_id or principal.subject,
-            request.idempotency_key,
+            key,
             hashlib.sha256(serialized.encode()).hexdigest(),
         )
 
-    async def claim(self) -> ChatCompletionResponse | None:
+    async def claim(self) -> str | None:
+        """Claim the key; return the stored completion body when it already answered.
+
+        Raises:
+            HarborValidationError: The key was used with a different body (field
+                ``Idempotency-Key``).
+            CompletionInProgressError: The first request with the key is still running.
+            HarborConflictError: The first request failed, or its stored result predates
+                this API version; a new key is needed.
+        """
         if self.key is None:
             return None
-        claim = await self.service.claim_completion(
+        claim = await self.store.claim_completion(
             tenant_id=self.tenant_id,
             user_id=self.user_id,
             key=self.key,
             request_hash=self.request_hash,
         )
         if claim.status == "completed" and claim.result_json is not None:
-            return _stored_response(claim.result_json)
+            return _replayable(claim.result_json)
         if claim.status == "conflict":
             raise HarborValidationError(
-                "Idempotency key was already used with a different request",
+                "Idempotency-Key was already used with a different request",
                 {"field": "Idempotency-Key"},
             )
         if claim.status == "in_progress":
-            raise HarborAlreadyRunningError(
-                "This completion is already running or its outcome is uncertain"
+            raise CompletionInProgressError(
+                "The first request with this Idempotency-Key is still being answered"
             )
         if claim.status != "claimed":
-            messages = {"failed": "This completion failed; use a new idempotency key to retry"}
-            raise HarborConflictError(messages.get(claim.status, "Completion cannot be replayed"))
+            raise HarborConflictError(
+                "The request with this Idempotency-Key failed; use a new key to retry"
+            )
         self.claimed = True
         return None
 
     async def release(self) -> None:
-        """Give the key back after a failure that never reached answer generation.
+        """Give the key back after a refusal that came before any model call.
 
-        Marking such a claim ``failed`` would spend the caller's key on work
-        that produced no answer, and the only way past a failed claim is a
-        brand-new key. Releasing keeps the duplicate-suppression window while
-        the request was in flight and leaves the key reusable afterwards.
-        Scope admission may already have incurred its separately recorded cost.
+        Marking such a claim failed would spend the key on work that produced
+        nothing, and the only way past a failed claim is a new key.
         """
-
         if not self.claimed or self.key is None:
             return
         try:
-            await self.service.release_completion(
+            await self.store.release_completion(
                 tenant_id=self.tenant_id,
                 user_id=self.user_id,
                 key=self.key,
@@ -99,17 +119,18 @@ class CompletionAttempt:
         finally:
             self.claimed = False
 
-    async def finish(self, result: ChatCompletionResponse | None = None) -> None:
+    async def finish(self, body: str | None = None, *, session_id: str | None = None) -> None:
+        """Store the completion body, or record a failure when ``body`` is ``None``."""
         if not self.claimed or self.key is None:
             return
         try:
-            await self.service.finish_completion(
+            await self.store.finish_completion(
                 tenant_id=self.tenant_id,
                 user_id=self.user_id,
                 key=self.key,
                 request_hash=self.request_hash,
-                response_json=result.model_dump_json() if result is not None else None,
-                session_id=result.session_id if result is not None else None,
+                response_json=body,
+                session_id=session_id,
             )
         except Exception:  # noqa: BLE001 - never discard an already paid-for result
             # The outstanding claim continues to suppress duplicate spend.
@@ -118,20 +139,19 @@ class CompletionAttempt:
             self.claimed = False
 
 
-def _stored_response(text: str) -> ChatCompletionResponse:
-    """Load a stored completion, ignoring fields this release no longer returns.
+def _replayable(body: str) -> str:
+    """Return a stored completion body unchanged once it reads as this contract's.
 
-    A replay saved before an upgrade can carry fields removed since, which the
-    response model would otherwise refuse, and its ``id`` under the old name.
+    Raises:
+        HarborConflictError: The body was stored by a release with another contract.
     """
-    stored = json.loads(text)
-    if "id" in stored:
-        stored.setdefault("completion_id", stored.pop("id"))
-    data = {
-        key: value for key, value in stored.items() if key in ChatCompletionResponse.model_fields
-    }
-    data["citations"] = [
-        {key: value for key, value in citation.items() if key in ChatCitation.model_fields}
-        for citation in data.get("citations", [])
-    ]
-    return ChatCompletionResponse.model_validate(data)
+    try:
+        ChatCompletionResponse.model_validate_json(body)
+    except ValidationError:
+        raise HarborConflictError(
+            "The result stored for this Idempotency-Key predates this API version; use a new key"
+        ) from None
+    return body
+
+
+__all__ = ["CompletionAttempt", "CompletionInProgressError"]

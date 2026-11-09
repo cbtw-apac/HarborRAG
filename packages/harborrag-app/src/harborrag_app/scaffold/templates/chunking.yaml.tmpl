@@ -2,17 +2,10 @@ version: 1
 configuration_version: canonical-source-policies
 create_route_chunks: true
 
-# How a unit still above its profile's maximum_tokens is split.
 refiner:
-  # structure: code at syntax boundaries (tree-sitter), Markdown at headings,
-  #            fences and list items, prose at paragraph/sentence ends, tables
-  #            and logs at line breaks.
-  # recursive: LangChain recursive character splitter
-  #            (needs harborrag-adapters[chunking]).
   strategy: structure
   require_code_grammars: true
 
-# Profile used by every source not listed under source_profiles.
 default_profile: canonical
 
 profiles:
@@ -37,11 +30,7 @@ profiles:
       target_tokens: 750
       maximum_tokens: 1200
       overlap_tokens: 0
-    # merge_small_peers: true      # join small adjacent units of one section
-    # preserve_sections: true      # carry the heading path on every chunk
-    # repeat_table_headers: true   # repeat column headers on every table part
 
-# Connector type -> profile name.
 source_profiles:
   confluence: confluence
   jira: jira

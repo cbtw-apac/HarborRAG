@@ -187,7 +187,7 @@ def run_confluence(
 
     if not definition.settings.get("include_attachments", False):
         print(
-            "\n[confluence] include_attachments is false in config/connectors.yaml; "
+            "\n[confluence] include_attachments is false in config/sources/connectors.yaml; "
             "skipping the attachment pass"
         )
         return 0

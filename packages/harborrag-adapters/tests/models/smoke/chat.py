@@ -41,11 +41,11 @@ def main() -> int:
     load_env()
     set_env_overrides(
         {
-            "HARBOR_CHAT_PROVIDER": CHAT_PROVIDER,
-            "HARBOR_CHAT_MODEL": CHAT_MODEL,
-            "HARBOR_CHAT_API_KEY": CHAT_API_KEY,
-            "HARBOR_CHAT_API_BASE": CHAT_API_BASE,
-            "HARBOR_CHAT_BACKEND": CHAT_BACKEND,
+            "HARBORRAG_CHAT_PROVIDER": CHAT_PROVIDER,
+            "HARBORRAG_CHAT_MODEL": CHAT_MODEL,
+            "HARBORRAG_CHAT_API_KEY": CHAT_API_KEY,
+            "HARBORRAG_CHAT_API_BASE": CHAT_API_BASE,
+            "HARBORRAG_CHAT_BACKEND": CHAT_BACKEND,
         }
     )
     try:

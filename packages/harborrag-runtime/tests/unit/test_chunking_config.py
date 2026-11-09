@@ -25,7 +25,7 @@ from harborrag_runtime.ingestion.profiles import build_processing_profile
 from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
-SHIPPED = REPOSITORY_ROOT / "config" / "chunking.yaml"
+SHIPPED = REPOSITORY_ROOT / "config" / "ingestion" / "chunking.yaml"
 SCAFFOLD = (
     REPOSITORY_ROOT
     / "packages/harborrag-app/src/harborrag_app/scaffold/templates/chunking.yaml.tmpl"
