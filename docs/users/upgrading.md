@@ -302,12 +302,17 @@ token is kept.
   responses use the `Ingestion` shape described below.
 - **The ingestion event stream uses new event names, with no alias.**
   `task.<id>.progress` and `task.<id>.done` are gone. `run.status`
-  (`{status, counters}`, lowercase status; also sent when a pause, resume or
-  cancel changes the status), `stage.progress` (`{stage, done, total}`),
+  (`{status, counters}`, lowercase status; sent when a pause or resume changes
+  the status, and covering `queued`, `running` and `paused`), `stage.progress` (`{stage, done, total}`),
   `document.failed` (`{document_id, stage, error_category}`) and
-  `run.completed` (`{counters, finish_reason}`) replace them, and the stream
-  ends after `run.completed`. Each frame's `id` is an integer that increases;
-  `task.<id>.control` events are no longer streamed. Clients that matched the
+  `run.completed` (`{counters, finish_reason}`, where `finish_reason` is the
+  final status, so a cancel arrives here) replace them, and the stream ends
+  after `run.completed`. Each frame's `id` is an integer that increases;
+  `task.<id>.control` events are no longer streamed. Events a run stored before
+  the upgrade under the old names stay stored but are not streamed, and a run
+  that ended before the upgrade gets only a `run.completed` the first time it
+  is read, with no `document.failed` backfill. A reconnect to an ended run
+  with nothing left after its `Last-Event-ID` answers `204`. Clients that matched the
   old names must switch to the new ones.
 - **Ingestion runs answer the explorer `Ingestion` shape**, and the task shape
   (`progress`, `stage`, `source`, `submitted_at`, `message`) is retired with no
@@ -342,8 +347,9 @@ token is kept.
 
 - **Settings schema:** `GET /v1/admin/settings/schema` answers
   `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key;
-  each setting carries `key`, `type`, `default`, `min`, `max`, `levels`,
-  `applies`, `description` and, for an enumerated key, `enum`.
+  each setting carries `key`, `type`, `default`, `levels`,
+  `applies`, `description`, `min` and `max` for a bounded key, and `enum` for an
+  enumerated key.
 
 #### Chat
 

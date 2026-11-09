@@ -40,10 +40,10 @@ from ..ingestion.operations import ControlAction, IngestionOperations
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import (
-    CONTROL_AUDIT,
     LEASE_NAME,
     LEASE_TTL_SECONDS,
     RUN_COMPLETED,
+    STREAMED_EVENTS,
     event_prefix,
     sync_ingestion_progress,
     sync_run,
@@ -404,8 +404,9 @@ class AppService(
                     return
                 live_event = await tail.next(_END_CHECK_SECONDS)
                 check_ended = live_event is None
-                if live_event is not None and cursor.take(live_event):
-                    yield live_event
+                if live_event is not None:
+                    async for event in _deliver(store, cursor, live_event):
+                        yield event
         finally:
             if tail is not None:
                 await tail.close()
@@ -528,19 +529,43 @@ class _StreamCursor:
     def __init__(self, task_id: str, after_seq: int | None) -> None:
         self.last_seq = after_seq
         self.done = False
-        self._audit = f"{event_prefix(task_id)}{CONTROL_AUDIT}"
         self._completed = f"{event_prefix(task_id)}{RUN_COMPLETED}"
         self.task_id = task_id
 
     def take(self, event: HarborEvent) -> bool:
-        """Advance past ``event``; return whether it is new and should be sent."""
-        if event.seq is not None:
-            if self.last_seq is not None and event.seq <= self.last_seq:
-                return False
-            self.last_seq = event.seq
+        """Advance past ``event``; return whether it should be sent.
+
+        ``run.completed`` is always sent once, whatever its sequence, because a duplicate with
+        a higher sequence can overtake it. Only the four explorer events are sent.
+        """
         if event.name == self._completed:
+            first = not self.done
             self.done = True
-        return event.name != self._audit
+            self._advance(event)
+            return first
+        if event.seq is not None and self.last_seq is not None and event.seq <= self.last_seq:
+            return False
+        self._advance(event)
+        return event.name.removeprefix(event_prefix(self.task_id)) in STREAMED_EVENTS
+
+    def skipped_before(self, event: HarborEvent) -> bool:
+        """Whether stored events lie between the last one seen and ``event``."""
+        return event.seq is not None and event.seq > (self.last_seq or 0) + 1
+
+    def _advance(self, event: HarborEvent) -> None:
+        if event.seq is not None and (self.last_seq is None or event.seq > self.last_seq):
+            self.last_seq = event.seq
+
+
+async def _deliver(
+    store: PublicTaskStore, cursor: _StreamCursor, live_event: HarborEvent
+) -> AsyncGenerator[HarborEvent, None]:
+    """Yield ``live_event``, first reading back from the store any events the tail skipped."""
+    if cursor.skipped_before(live_event):
+        async for event in _backlog(store, cursor):
+            yield event
+    if cursor.take(live_event):
+        yield live_event
 
 
 async def _backlog(

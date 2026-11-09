@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
@@ -24,8 +24,11 @@ from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_re
 from harborrag_app.api.sse import bounded_sse_frames, with_heartbeat
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
 from harborrag_app.api.v1.admin.dependencies import Administration, Editor, error_responses
+from harborrag_app.workflow_control.control_plane.connection_views import ingestion_status
 from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
-from harborrag_core.contracts.errors import HarborDeadlineExceeded, HarborNotFoundError
+from harborrag_app.workflow_control.ingestion.presenters import TERMINAL_STATES
+from harborrag_app.workflow_control.ingestion.progress_bridge import event_prefix
+from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
 
 from .dependencies import IngestionServiceDependency
@@ -38,6 +41,7 @@ from .schemas import (
 )
 
 HEARTBEAT_SECONDS = 15.0
+_ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 router = APIRouter(
@@ -169,6 +173,7 @@ async def list_ingestion_documents(
 
 @router.get(
     "/{ingestion_id}/events",
+    response_model=None,
     responses=ERROR_RESPONSES,
 )
 async def stream_ingestion(
@@ -178,52 +183,41 @@ async def stream_ingestion(
     context: ResponseContextDependency,
     _principal: Editor,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
-) -> StreamingResponse:
-    """Backlog replay then a live tail of a task's progress events (SSE).
+) -> StreamingResponse | Response:
+    """Replay a run's stored events, then tail it live (SSE), until ``run.completed``.
 
-    Pumps the first event outside of StreamingResponse: a missing or other-tenant
-    run must raise here, in the plain route coroutine, so normal exception
-    handling turns it into the usual enveloped 404 -- once StreamingResponse
-    starts streaming, the HTTP status is already committed and an error can no
-    longer change it.
+    The response opens right after the tenant read, which decides the ``404``: headers and
+    ``: ping`` frames flow while the run is quiet, and the stream's own deadline
+    (``api_stream_timeout_seconds``) ends it with an in-band ``error`` event,
+    ``deadline_exceeded``. Nothing here waits on the first event, so the request-level
+    deadline never cuts a quiet stream.
 
-    A reconnecting browser EventSource resends the last frame's ``id:`` as
-    the ``Last-Event-ID`` header; that becomes ``after_seq`` so the backlog
-    replay resumes past what the client already has instead of repeating it.
+    A run that has ended is read first: its events come from the store alone, so that wait is
+    bounded, and a reconnect with nothing left after ``Last-Event-ID`` answers ``204``, which
+    tells a browser EventSource to stop reconnecting.
 
-    The wait for the first event runs under the same ``api_stream_timeout_seconds``
-    deadline as the body: before the first byte it answers ``504 deadline_exceeded``,
-    after it the stream ends with an ``error`` event.
-
-    Raises:
-        HarborDeadlineExceeded: No event arrived before the deadline.
+    A reconnecting browser EventSource resends the last frame's ``id:`` as the
+    ``Last-Event-ID`` header; that becomes ``after_seq``.
     """
     loop = asyncio.get_running_loop()
-    timeout_seconds = context.settings.api_stream_timeout_seconds
-    deadline = loop.time() + timeout_seconds
-    await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
+    deadline = loop.time() + context.settings.api_stream_timeout_seconds
+    run = await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
     events = service.stream_ingestion_events(
         ingestion_id, after_seq=_parse_after_seq(last_event_id)
     )
-    try:
-        async with asyncio.timeout(timeout_seconds):
-            first_event = await events.__anext__()
-    except TimeoutError as exc:
-        await events.aclose()
-        raise HarborDeadlineExceeded("Ingestion event stream exceeded its server deadline") from exc
-    except StopAsyncIteration:
-
-        async def _empty() -> AsyncIterator[bytes]:
-            return
-            yield  # pragma: no cover - unreachable, makes this an async generator
-
-        return StreamingResponse(_empty(), media_type="text/event-stream", headers=_SSE_HEADERS)
+    first_frame: bytes | None = None
+    if run["status"] in _ENDED_STATUSES:
+        try:
+            first_frame = _sse_frame(await events.__anext__(), ingestion_id)
+        except StopAsyncIteration:
+            return Response(status_code=204)
 
     async def _frames() -> AsyncGenerator[bytes, None]:
         try:
-            yield _sse_frame(first_event)
+            if first_frame is not None:
+                yield first_frame
             async for event in events:
-                yield _sse_frame(event)
+                yield _sse_frame(event, ingestion_id)
         finally:
             await events.aclose()
 
@@ -251,8 +245,8 @@ def _parse_after_seq(last_event_id: str | None) -> int | None:
         return None
 
 
-def _sse_frame(event: HarborEvent) -> bytes:
-    name = event.name.removeprefix(f"task.{event.trace_id}.").replace("\n", "").replace("\r", "")
+def _sse_frame(event: HarborEvent, ingestion_id: str) -> bytes:
+    name = event.name.removeprefix(event_prefix(ingestion_id)).replace("\n", "").replace("\r", "")
     id_line = f"id: {event.seq}\n" if event.seq is not None else ""
     return f"{id_line}event: {name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
 

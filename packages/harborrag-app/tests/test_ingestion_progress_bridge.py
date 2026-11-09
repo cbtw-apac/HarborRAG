@@ -348,3 +348,19 @@ async def test_run_completed_is_appended_once_however_often_the_run_is_synced() 
     await sync_run(store, bus, task)
 
     assert [name for name, _, _ in _wire(store)].count("run.completed") == 1
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_ended_before_the_upgrade_gets_only_run_completed() -> None:
+    legacy_snapshot = {"published": 1, "failed": 1}
+    task = _FakeTask(
+        "t1",
+        IngestionTaskState.PARTIAL,
+        summary={"discovered": 2, "_last_progress_snapshot": legacy_snapshot},
+    )
+    store = FakeTaskStore([task], {"t1": {"published": 1, "failed": 1}})
+    store.failed_documents["t1"] = [_failed_document("doc-a")]
+
+    await sync_run(store, InProcessEventBus(), task)
+
+    assert [name for name, _, _ in _wire(store)] == ["run.completed"]

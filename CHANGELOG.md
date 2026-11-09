@@ -15,14 +15,12 @@ action.
 
 #### harborrag-adapters
 
-
 - Migration `0046` stores runtime settings overrides and an append-only revision log
 - Migration `0047` stores a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback`
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
 
 #### harborrag-app
-
 
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
@@ -31,16 +29,13 @@ action.
 
 #### harborrag-core
 
-
 - Runtime settings registry: `retrieval.top_k`, `retrieval.rerank`, `parsing.pdf_parser`, `chunking.max_tokens`, `ingestion.concurrency` and `models.embedding`, with tenant, project and connection levels
 
 #### harborrag-mcp-server
 
-
 - `vector_search` reads `retrieval.top_k` at tenant level as its default `top_k`; chat reads it at the level of the session's project
 
 #### harborrag-runtime
-
 
 - Cached settings provider that reloads on Postgres `LISTEN`/`NOTIFY` and a 5-second revision poll
 - The API seeds settings from `config/settings.yaml` on first start and logs `config_yaml_drift` afterwards
@@ -52,11 +47,11 @@ action.
 
 #### harborrag-app
 
-
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed`, replacing `task.<id>.progress`, `.done` and `.control`:
   - frames carry integer ids, a `: ping` arrives every 15 s, and `Last-Event-ID` resumes the stream
-  - the deadline comes from `api_stream_timeout_seconds`: an `error` event `deadline_exceeded`, or `504` before the first event
-  - a pause, resume or cancel appears as a `run.status` with the new status
+  - the response opens at once, and the deadline from `api_stream_timeout_seconds` ends the stream with an `error` event `deadline_exceeded`
+  - a pause or resume appears as a `run.status` with the new status (`queued`, `running`, `paused`); the final status, including a cancel, arrives in `run.completed.finish_reason`
+  - reconnecting to an ended run with nothing after `Last-Event-ID` answers `204`
 - **Breaking:** the chat session routes answer the explorer `Session` and `Message` shapes:
   - `POST /v1/chat/sessions` takes `title` and `project_id` (an unknown project is `422 reference_not_found`, `profile_id` is `422` until v2.1.0) and answers the `Session`; `greeting` is gone
   - `GET /v1/chat/sessions` answers `items` of `Session` with `next_cursor` and searches titles with `q`
@@ -85,24 +80,20 @@ action.
 
 #### harborrag-engine
 
-
 - Long code chunks keep the names of the class and function they belong to, and are searchable by them
 - The `default` and `concise` chat prompts ask the model to cite sources by their `[n]` number
 
 #### harborrag-mcp-server
 
-
 - The MCP server reads `config/mcp/server.yaml` and, with the file key store, `config/mcp/keys.yaml`
 
 #### harborrag-runtime
-
 
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
 - **Breaking:** `config/models/models.yaml` reads `HARBORRAG_CHAT_*`, `HARBORRAG_EMBED_*` and `HARBORRAG_MEMORY_*` instead of `HARBOR_CHAT_*`, `HARBOR_EMBED_*` and `HARBOR_MEMORY_*`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 
 #### Deployment
-
 
 - The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
@@ -113,11 +104,9 @@ action.
 
 #### harborrag-adapters
 
-
 - Chat history and `message_count` leave out the empty or whitespace-only assistant steps of 1.x agent turns, and migration `0047`'s downgrade waits at most 5 s for its locks on Postgres, like its upgrade
 
 #### harborrag-app
-
 
 - **Breaking:** `GET /v1/admin/settings/schema` answers `{"groups": [...]}` with a description per setting, `POST /v1/admin/failures/retry` answers `409 invalid_state` when no failure matches instead of `202` with a null `ingestion_id`, and `GET /v1/admin/failures` omits `total` unless `include_total=true`
 - A connection's `stats.errors` counts the failed documents of its latest run, also after a cancel, and is `0` before any run
@@ -129,7 +118,6 @@ action.
 
 #### harborrag-runtime
 
-
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
@@ -137,7 +125,6 @@ action.
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
 
 #### Deployment
-
 
 - The development API receives `JIRA_EMAIL`, `CONFLUENCE_EMAIL`, `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID` and `GITHUB_REPOSITORY_URL` from `env/.env.connector`, so the first-start import no longer stores the Jira, Confluence and SharePoint connections without them and with status `error`
 - The SharePoint entry of `config/sources/connectors.yaml` crawls the drive with the shared file type list instead of a test folder of Markdown files

@@ -289,3 +289,63 @@ async def test_replay_pages_past_five_hundred_events_through_run_completed() -> 
 
     assert [e.seq for e in received] == list(range(1, 1202))
     assert received[-1].name == "task.t1.run.completed"
+
+
+@pytest.mark.asyncio
+async def test_run_completed_is_sent_even_when_a_later_duplicate_was_delivered_first() -> None:
+    """A higher-sequence event can overtake ``run.completed`` on the bus; it must not be lost."""
+    bus = InProcessEventBus()
+    task = _ended_task(IngestionTaskState.RUNNING)
+    store = _EventLogStore(task)
+    service = _service_over(store, bus)
+    stage = HarborEvent(name="task.t1.stage.progress", trace_id="t1", seq=5)
+    completed = HarborEvent(name="task.t1.run.completed", trace_id="t1", seq=4)
+    store.events.extend([replace(stage, seq=1), replace(completed, seq=2)])
+    store.events.clear()
+
+    events = service.stream_ingestion_events("t1", after_seq=4)
+    consume = asyncio.ensure_future(_collect(events))
+    await asyncio.sleep(0.01)
+    await bus.publish(stage)
+    await bus.publish(completed)
+    received = await asyncio.wait_for(consume, timeout=2)
+
+    assert [e.name for e in received] == ["task.t1.stage.progress", "task.t1.run.completed"]
+
+
+@pytest.mark.asyncio
+async def test_events_the_live_tail_skipped_are_read_back_from_the_store() -> None:
+    bus = InProcessEventBus()
+    store = _EventLogStore(_ended_task(IngestionTaskState.RUNNING))
+    service = _service_over(store, bus)
+    stored = [
+        HarborEvent(name="task.t1.document.failed", trace_id="t1", seq=1),
+        HarborEvent(name="task.t1.document.failed", trace_id="t1", seq=2),
+        HarborEvent(name="task.t1.document.failed", trace_id="t1", seq=3),
+        HarborEvent(name="task.t1.run.completed", trace_id="t1", seq=4),
+    ]
+
+    consume = asyncio.ensure_future(_collect(service.stream_ingestion_events("t1")))
+    await asyncio.sleep(0.01)
+    store.events.extend(stored)
+    await bus.publish(stored[2])  # events 1 and 2 never reached this subscriber
+    await bus.publish(stored[3])
+    received = await asyncio.wait_for(consume, timeout=2)
+
+    assert [e.seq for e in received] == [1, 2, 3, 4]
+
+
+@pytest.mark.asyncio
+async def test_events_stored_under_retired_names_are_not_streamed() -> None:
+    task = _ended_task(IngestionTaskState.COMPLETED)
+    events = [
+        HarborEvent(name="task.t1.progress", trace_id="t1", seq=1),
+        HarborEvent(name="task.t1.run.status", trace_id="t1", seq=2),
+        HarborEvent(name="task.t1.done", trace_id="t1", seq=3),
+        HarborEvent(name="task.t1.run.completed", trace_id="t1", seq=4),
+    ]
+    service = _service_over(_EventLogStore(task, events), InProcessEventBus())
+
+    received = await _collect(service.stream_ingestion_events("t1"))
+
+    assert [e.name for e in received] == ["task.t1.run.status", "task.t1.run.completed"]

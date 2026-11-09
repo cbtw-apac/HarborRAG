@@ -16,23 +16,16 @@ from datetime import datetime
 from typing import Any
 
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion import IngestionTask
 from harborrag_core.ports.events import EventBusPort
 
 from ..control_plane.connection_views import ingestion_counters, ingestion_status
 from .ports import PublicTaskStore
+from .presenters import TERMINAL_STATES
 from .stages import spec_stage
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.progress_bridge")
 
-_TERMINAL_STATES = frozenset(
-    {
-        IngestionTaskState.COMPLETED,
-        IngestionTaskState.PARTIAL,
-        IngestionTaskState.FAILED,
-        IngestionTaskState.CANCELLED,
-    }
-)
 _SNAPSHOT_KEY = "_last_progress_snapshot"
 _FAILURE_CURSOR_KEY = "_last_failure_cursor"
 _PUBLISH_STAGE = "publish"
@@ -43,6 +36,7 @@ STAGE_PROGRESS = "stage.progress"
 DOCUMENT_FAILED = "document.failed"
 RUN_COMPLETED = "run.completed"
 CONTROL_AUDIT = "control"
+STREAMED_EVENTS = frozenset({RUN_STATUS, STAGE_PROGRESS, DOCUMENT_FAILED, RUN_COMPLETED})
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 _LIST_ACTIVE_PAGE_LIMIT = 500
 
@@ -119,15 +113,45 @@ async def sync_run(store: PublicTaskStore, event_bus: EventBusPort, task: Ingest
     """Emit the events a run's current state owes: diffs, new failures and, once ended, ``run.completed``.
 
     ``run.completed`` is appended at most once per run, whichever caller gets there first.
+    A run that ended before the event names changed gets only ``run.completed``; the events it
+    stored stay as stored.
     """
     counts = await store.progress(task.task_id)
     refreshed = await store.get(task.task_id)
     current = refreshed if refreshed is not None else task
-    terminal = current.status in _TERMINAL_STATES
+    terminal = current.status in TERMINAL_STATES
     counters = ingestion_counters(current, counts)
     status = ingestion_status(current.status)
+    if not (terminal and _predates_explorer_events(current)):
+        await _emit_changes(store, event_bus, current, counters, status, terminal=terminal)
+    if terminal:
+        completed = HarborEvent(
+            name=f"{event_prefix(task.task_id)}{RUN_COMPLETED}",
+            trace_id=task.task_id,
+            payload={"counters": counters, "finish_reason": status},
+        )
+        stored = await store.append_task_event_once(task.task_id, completed)
+        if stored is not None:
+            await event_bus.publish(stored)
+
+
+def _predates_explorer_events(task: IngestionTask) -> bool:
+    """Whether the run's progress snapshot was written by the bridge before the event names changed."""
+    snapshot = task.summary.get(_SNAPSHOT_KEY)
+    return isinstance(snapshot, dict) and bool(snapshot) and "counters" not in snapshot
+
+
+async def _emit_changes(  # noqa: PLR0913 - the run and the state it is compared with
+    store: PublicTaskStore,
+    event_bus: EventBusPort,
+    task: IngestionTask,
+    counters: dict[str, int],
+    status: str,
+    *,
+    terminal: bool,
+) -> None:
     snapshot = {"status": status, "counters": counters}
-    previous = current.summary.get(_SNAPSHOT_KEY)
+    previous = task.summary.get(_SNAPSHOT_KEY)
     previous = previous if isinstance(previous, dict) else {}
     if snapshot != previous:
         if not terminal:
@@ -146,16 +170,7 @@ async def sync_run(store: PublicTaskStore, event_bus: EventBusPort, task: Ingest
             )
         await store.update_summary(task.task_id, {_SNAPSHOT_KEY: snapshot})
     if counters["failed"]:
-        await _emit_new_failures(store, event_bus, current)
-    if terminal:
-        completed = HarborEvent(
-            name=f"{event_prefix(task.task_id)}{RUN_COMPLETED}",
-            trace_id=task.task_id,
-            payload={"counters": counters, "finish_reason": status},
-        )
-        stored = await store.append_task_event_once(task.task_id, completed)
-        if stored is not None:
-            await event_bus.publish(stored)
+        await _emit_new_failures(store, event_bus, task)
 
 
 async def _emit_new_failures(

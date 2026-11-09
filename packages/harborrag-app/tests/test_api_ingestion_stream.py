@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 from collections.abc import AsyncIterator
 
@@ -17,7 +18,6 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import ResponseContext
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.api.v1.ingestion.routes import stream_ingestion
-from harborrag_core.contracts.errors import HarborDeadlineExceeded
 from harborrag_core.contracts.events import HarborEvent
 
 
@@ -335,39 +335,124 @@ def test_route_streams_the_whole_run_sequence_with_increasing_ids(
     assert ids == sorted(set(ids))
 
 
+class _Operations:
+    def __init__(self, status: str) -> None:
+        self._status = status
+
+    async def get(self, *, tenant_id: str, ingestion_id: str) -> dict[str, object]:
+        return {"ingestion_id": ingestion_id, "tenant_id": tenant_id, "status": self._status}
+
+
+class _QuietAppService(MockAppService):
+    """A run with nothing to send: the stream stays open until the caller leaves."""
+
+    def __init__(self, status: str = "paused") -> None:
+        super().__init__()
+        self.ingestion_operations = _Operations(status)
+
+    async def stream_ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncIterator[HarborEvent]:
+        del task_id, after_seq
+        await asyncio.Event().wait()
+        yield  # pragma: no cover
+
+
 @pytest.mark.asyncio
-async def test_a_stuck_run_with_no_events_answers_504_before_the_first_byte() -> None:
-    class _StuckAppService(MockAppService):
-        async def stream_ingestion_events(
-            self, task_id: str, *, after_seq: int | None = None
-        ) -> AsyncIterator[HarborEvent]:
-            del task_id, after_seq
-            await asyncio.Event().wait()
-            yield  # pragma: no cover
+async def test_a_quiet_run_opens_at_once_and_ends_with_a_deadline_error_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("harborrag_app.api.v1.ingestion.routes.HEARTBEAT_SECONDS", 0.01)
+    response = await stream_ingestion(
+        "t1",
+        service=_QuietAppService(),
+        tenant="DEFAULT",
+        context=_context(0.1),
+        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
+        last_event_id="7",
+    )
+    chunks = [chunk async for chunk in response.body_iterator]
 
-    with pytest.raises(HarborDeadlineExceeded):
-        await stream_ingestion(
-            "t1",
-            service=_StuckAppService(),
-            tenant="DEFAULT",
-            context=_context(0.05),
-            _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
-            last_event_id=None,
-        )
+    assert b": ping\n\n" in chunks
+    assert chunks[-1].startswith(b"event: error\n")
+    assert json.loads(chunks[-1].split(b"data: ")[1])["code"] == "deadline_exceeded"
 
 
-def test_a_stuck_run_is_a_json_504_deadline_exceeded(monkeypatch: pytest.MonkeyPatch) -> None:
-    class _StuckAppService(MockAppService):
-        async def stream_ingestion_events(
-            self, task_id: str, *, after_seq: int | None = None
-        ) -> AsyncIterator[HarborEvent]:
-            del task_id, after_seq
-            await asyncio.Event().wait()
-            yield  # pragma: no cover
+@pytest.mark.asyncio
+async def test_a_quiet_run_pings_and_outlives_the_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The stream deadline is longer than the request deadline: the stream must not be cut."""
+    monkeypatch.setattr("harborrag_app.api.v1.ingestion.routes.HEARTBEAT_SECONDS", 0.2)
+    monkeypatch.setattr(api_app, "select_app_service", lambda: (_QuietAppService(), "test"))
+    settings = ApiSettings(api_request_timeout_seconds=1.0, api_stream_timeout_seconds=5.0)
+    app = create_fastapi_app(settings)
+    sent: list[dict[str, object]] = []
+    closed = asyncio.Event()
 
-    monkeypatch.setattr(api_app, "select_app_service", lambda: (_StuckAppService(), "test"))
-    with TestClient(create_fastapi_app(ApiSettings(api_stream_timeout_seconds=1.0))) as client:
-        response = client.get("/v1/admin/ingestions/t1/events")
+    requested = False
 
-    assert response.status_code == 504
-    assert response.json()["error"]["code"] == "deadline_exceeded"
+    async def receive() -> dict[str, object]:
+        nonlocal requested
+        if not requested:
+            requested = True
+            return {"type": "http.request", "body": b"", "more_body": False}
+        await closed.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict[str, object]) -> None:
+        sent.append(message)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/v1/admin/ingestions/t1/events",
+        "raw_path": b"/v1/admin/ingestions/t1/events",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"last-event-id", b"7"), (b"host", b"test")],
+        "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+        "state": {},
+    }
+    async with app.router.lifespan_context(app):
+        call = asyncio.ensure_future(app(scope, receive, send))
+        await asyncio.sleep(1.6)
+        still_open = not call.done()
+        call.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await call
+
+    assert still_open
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    pings = [m for m in sent if m.get("body") == b": ping\n\n"]
+    assert start["status"] == 200
+    assert len(pings) >= 5
+
+
+def test_reconnecting_to_an_ended_run_with_nothing_after_the_id_answers_204(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = _StreamingAppService(events=[])
+    service.ingestion_operations = _Operations("succeeded")
+    with _client(service, monkeypatch) as client:
+        response = client.get("/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "9"})
+
+    assert response.status_code == 204
+    assert response.content == b""
+
+
+def test_an_ended_run_with_events_after_the_id_still_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events = [HarborEvent(name="task.t1.run.completed", trace_id="t1", payload={}, seq=9)]
+    service = _StreamingAppService(events=events)
+    service.ingestion_operations = _Operations("succeeded")
+    with _client(service, monkeypatch) as client:
+        response = client.get("/v1/admin/ingestions/t1/events", headers={"Last-Event-ID": "8"})
+
+    assert response.status_code == 200
+    assert [name for name, _ in _sse_frames(response.text)] == ["run.completed"]

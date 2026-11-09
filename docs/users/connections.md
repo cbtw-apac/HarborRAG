@@ -197,14 +197,14 @@ Starts a new run for the documents that failed in a `succeeded`, `failed` or `ca
 
 Server-Sent Events of one run: a replay of what is stored, then a live tail that ends after `run.completed`.
 
-- A `: ping` comment arrives every 15 s while nothing else does.
+- The response opens at once with `200`, and a `: ping` comment arrives every 15 s while nothing else does, even before the first event.
 - A stream still open after `api_stream_timeout_seconds` (600 s by default) ends with an `error` event whose `code` is `deadline_exceeded`.
-- A run that ended gets its `run.completed` when a watcher reads it, once, even if no event was sent live.
+- A run that ended gets its `run.completed` when a watcher reads it, once, even if no event was sent live. Reconnecting to an ended run with nothing stored after `Last-Event-ID` answers `204`, so a browser `EventSource` stops reconnecting.
 - Each frame has an integer `id` that only increases, and a reconnect with `Last-Event-ID` resumes after that id.
-- `run.status` is `{"status", "counters"}` (the `Ingestion` status and counters), sent when either changes, so a pause, resume or cancel shows as the new status.
+- `run.status` is `{"status", "counters"}` (the `Ingestion` status and counters), sent when either changes, so a pause or resume shows as the new status. It covers `queued`, `running` and `paused`; the terminal state arrives only in `run.completed`.
 - `stage.progress` is `{"stage", "done", "total"}` and counts the documents that left the pipeline (`processed` + `skipped` + `failed`) against `counters.discovered`, under stage `publish`.
 - `document.failed` is `{"document_id", "stage", "error_category"}` for each failed document, with the document's source reference when it has one and the `stage` and `error_category` of the documents page.
-- `run.completed` is `{"counters", "finish_reason"}` where `finish_reason` is the final status.
+- `run.completed` is `{"counters", "finish_reason"}` where `finish_reason` is the final status (`succeeded`, `failed` or `cancelled`), so a cancel arrives here.
 
 A run in another tenant is `404`.
 
