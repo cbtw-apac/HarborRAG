@@ -220,6 +220,23 @@ token is kept.
   every other tenant stays ACL-scoped.
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra
   that pinned an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
+- **A paused run shows as `Running` in the Temporal UI.** HarborRAG now
+  pauses a run by signal only; its own status still reads `paused`. Do not
+  pause a run from the Temporal UI or CLI on Temporal 1.31.x: that native
+  pause can strand the run. Native pause is safe only on Temporal 1.32 or
+  later together with `temporalio` 1.35 or later.
+- **Cancel runs that an earlier release paused mid-batch before you
+  upgrade.** A run started before the upgrade that was paused while a batch
+  was running keeps the old native pause on its later pauses, until it
+  continues as new (every 25 batches by default), so pausing it again can
+  still strand it. Cancel such runs before you upgrade, or clear them as
+  below if one hangs.
+- **Clear a run that hangs after a pause.** When resume and cancel change
+  nothing, terminate the run's `harborrag-source:<ingestion_id>` workflow
+  first, then its `harborrag-source-batch:<ingestion_id>:<n>` child, in the
+  Temporal UI. Terminating the child first fails the run, and cancelling it
+  then answers `409 invalid_state`. HarborRAG records the run as `cancelled`
+  when you next cancel it or start an ingestion of its connection.
 
 ### HTTP API changes
 

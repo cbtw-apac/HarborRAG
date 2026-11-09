@@ -49,6 +49,7 @@ _DISCOVER_FAILURE_STATUS_PATCH = "discover-failure-status"
 _RUN_FAILURE_STATUS_PATCH = "run-failure-status"
 _PAUSE_PERSISTENCE_PATCH = "harborrag-source-pause-persistence"
 _PAUSE_RELAY_TEARDOWN_PATCH = "harborrag-source-pause-relay-teardown"
+_SIGNAL_ONLY_BATCH_PAUSE_PATCH = "harborrag-source-signal-only-batch-pause"
 
 
 @workflow.defn(name="harborrag.scheduled_source_ingestion")
@@ -448,7 +449,9 @@ class SourceIngestionWorkflow:
         )
         if paused:
             await self._signal_batch(handle, "pause")
-            await self._control_batch(handle, request, "harborrag.pause_workflow_execution")
+            # TODO: pause natively again on Temporal server >= 1.32 with temporalio >= 1.35.
+            if not workflow.patched(_SIGNAL_ONLY_BATCH_PAUSE_PATCH):
+                await self._control_batch(handle, request, "harborrag.pause_workflow_execution")
             # A stopped relay leaves this to the batch boundary's own pause.
             if not self._relay_stopping:
                 self._pause_relay_applied = True

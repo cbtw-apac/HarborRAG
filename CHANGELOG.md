@@ -80,6 +80,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
 - `harborrag ingest status` of a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
+- Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
 
 #### harborrag-app
 

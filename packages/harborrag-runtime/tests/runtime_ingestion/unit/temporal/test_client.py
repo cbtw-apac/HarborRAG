@@ -540,18 +540,36 @@ async def test_client_health_and_controls_target_source_workflow() -> None:
         "request_graceful_cancel",
     ]
     sdk.source_handle.cancel.assert_not_awaited()
-    pause_request = sdk.workflow_service.pause_workflow_execution.await_args.args[0]
-    assert pause_request.workflow_id == "harborrag-source:task-1"
-    assert pause_request.namespace == "harborrag"
-    assert pause_request.request_id
+    unpause_request = sdk.workflow_service.unpause_workflow_execution.await_args.args[0]
+    assert unpause_request.workflow_id == "harborrag-source:task-1"
+    assert unpause_request.namespace == "harborrag"
+    assert unpause_request.request_id
 
 
 @pytest.mark.asyncio
-async def test_controls_keep_signaling_when_native_pause_is_unavailable() -> None:
+async def test_pause_resume_cycles_never_natively_pause_the_source_workflow() -> None:
     sdk = _SdkClient()
-    unavailable = RPCError("not implemented", RPCStatusCode.UNIMPLEMENTED, b"")
-    sdk.workflow_service.pause_workflow_execution.side_effect = unavailable
-    sdk.workflow_service.unpause_workflow_execution.side_effect = unavailable
+    client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
+
+    for _ in range(10):
+        await client.pause("task-1")
+        await client.resume("task-1")
+    await client.cancel("task-1")
+
+    sdk.workflow_service.pause_workflow_execution.assert_not_awaited()
+    unpaused = [
+        call.args[0].workflow_id
+        for call in sdk.workflow_service.unpause_workflow_execution.await_args_list
+    ]
+    assert unpaused == ["harborrag-source:task-1"] * 11
+
+
+@pytest.mark.asyncio
+async def test_controls_keep_signaling_when_native_unpause_is_unavailable() -> None:
+    sdk = _SdkClient()
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "not implemented", RPCStatusCode.UNIMPLEMENTED, b""
+    )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     await client.pause("task-1")
@@ -602,20 +620,20 @@ async def test_pause_relay_times_out_without_acknowledgement(
         (RPCStatusCode.INTERNAL, WorkflowOperationError),
     ],
 )
-async def test_native_pause_control_maps_rpc_errors(
+async def test_native_unpause_control_maps_rpc_errors(
     status: RPCStatusCode,
     expected: type[Exception],
 ) -> None:
     sdk = _SdkClient()
-    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
-        "native pause failed",
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "native unpause failed",
         status,
         b"",
     )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
     with pytest.raises(expected):
-        await client._pause_execution(
+        await client._unpause_execution(
             "harborrag-source:task-1",
             reason="test",
             best_effort=False,
@@ -623,16 +641,16 @@ async def test_native_pause_control_maps_rpc_errors(
 
 
 @pytest.mark.asyncio
-async def test_native_pause_control_ignores_failed_precondition() -> None:
+async def test_native_unpause_control_ignores_failed_precondition() -> None:
     sdk = _SdkClient()
-    sdk.workflow_service.pause_workflow_execution.side_effect = RPCError(
-        "workflow is already paused",
+    sdk.workflow_service.unpause_workflow_execution.side_effect = RPCError(
+        "workflow is not paused",
         RPCStatusCode.FAILED_PRECONDITION,
         b"",
     )
     client = IngestionTemporalClient(sdk, TemporalRuntimeConfig())
 
-    await client._pause_execution(
+    await client._unpause_execution(
         "harborrag-source:task-1",
         reason="test",
         best_effort=False,

@@ -106,9 +106,14 @@ contract:
   `connection_id`; it does not accept an arbitrary caller-provided `source_id`.
 - Pause and resume are available through the CLI, SDK, and
   `POST /v1/admin/ingestions/{ingestion_id}/pause|resume`. They take effect at safe batch
-  boundaries. Native `Paused`/`Running` execution status in Temporal UI also
-  requires `frontend.WorkflowPauseEnabled` on the Temporal server; cooperative
-  ingestion controls remain available when that optional native API is absent.
+  boundaries. HarborRAG pauses a run by signal only, so the Temporal UI shows a
+  paused run as `Running`: Temporal 1.31 never dispatches a workflow task that
+  was scheduled when a native pause landed, which would strand the run.
+  `frontend.WorkflowPauseEnabled` stays on so that resume and cancel can
+  natively unpause a run an earlier release paused. Do not pause a HarborRAG
+  run from the Temporal UI or CLI on 1.31.x: that native pause can strand it
+  the same way. Native pause is safe only on Temporal 1.32 or later together
+  with `temporalio` 1.35 or later.
 - Vector and graph projection writes are separate idempotent activities,
   followed by verification. A test requiring a single atomic `index_upsert`
   activity describes a different implementation contract.

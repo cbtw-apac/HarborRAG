@@ -11,7 +11,6 @@ from uuid import uuid4
 from temporalio.api.common.v1 import WorkflowExecution
 from temporalio.api.workflowservice.v1 import (
     DescribeWorkflowExecutionRequest,
-    PauseWorkflowExecutionRequest,
     UnpauseWorkflowExecutionRequest,
 )
 from temporalio.client import (
@@ -222,16 +221,21 @@ class IngestionTemporalClient:
             return native
 
     async def pause(self, task_id: str) -> None:
+        """Signal a source run to pause and wait for the run to take the pause.
+
+        Returns once the relay applies the pause, or after about 30 s with the pause
+        still pending at the next batch boundary, as during discovery or finalization.
+        The run is not natively paused: Temporal 1.31 never dispatches a workflow task
+        that was scheduled when a native pause landed, so the run would hang.
+
+        Raises:
+            WorkflowNotRunningError: The run's workflow already closed.
+            WorkflowNotFoundError: The run has no workflow.
+            WorkflowOperationError: Temporal could not be reached, or the pause did not settle.
+        """
+        # TODO: pause natively again on Temporal server >= 1.32 with temporalio >= 1.35.
         await self._signal(task_id, "pause")
-        if not await self._wait_for_pause_relay(task_id):
-            # Natively pausing now would stop the run before the boundary that
-            # persists PAUSED, leaving the task RUNNING and impossible to resume.
-            return
-        await self._pause_execution(
-            self._workflow_id(task_id),
-            reason="Source ingestion pause requested",
-            best_effort=True,
-        )
+        await self._wait_for_pause_relay(task_id)
 
     async def resume(self, task_id: str) -> None:
         await self._signal(task_id, "resume")
@@ -355,8 +359,8 @@ class IngestionTemporalClient:
             result_type=SourceIngestionResult,
         )
 
-    async def _wait_for_pause_relay(self, task_id: str) -> bool:
-        """Wait for the run to apply a delivered pause; False when it is still pending.
+    async def _wait_for_pause_relay(self, task_id: str) -> None:
+        """Wait for the run to apply a delivered pause, or accept one still pending.
 
         The workflow applies a pause at its next batch boundary, or through the
         relay while a batch runs. During discovery or finalization neither happens
@@ -368,7 +372,7 @@ class IngestionTemporalClient:
         for _ in range(300):
             status = await self.get_status(task_id)
             if status.pause_applied:
-                return True
+                return
             if status.status in {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}:
                 raise WorkflowNotRunningError(
                     f"Could not pause ingestion task {task_id!r}: "
@@ -380,32 +384,9 @@ class IngestionTemporalClient:
                 "Ingestion pause accepted; applies at the next batch boundary task_id=%s",
                 task_id,
             )
-            return False
+            return
         raise WorkflowOperationError(
             f"Could not pause ingestion task {task_id!r}: pause relay did not settle"
-        )
-
-    async def _pause_execution(
-        self,
-        workflow_id: str,
-        *,
-        reason: str,
-        request_id: str | None = None,
-        allow_missing: bool = False,
-        best_effort: bool = True,
-    ) -> None:
-        request = PauseWorkflowExecutionRequest(
-            namespace=self._config.connection.namespace,
-            workflow_id=workflow_id,
-            identity=self._config.connection.identity or "harborrag-runtime",
-            reason=reason,
-            request_id=request_id or uuid4().hex,
-        )
-        await self._native_pause_control(
-            f"pause workflow {workflow_id!r}",
-            self._client.workflow_service.pause_workflow_execution(request),
-            allow_missing=allow_missing,
-            best_effort=best_effort,
         )
 
     async def _unpause_execution(
