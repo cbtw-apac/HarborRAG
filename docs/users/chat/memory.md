@@ -66,18 +66,25 @@ All endpoints below require tenant access and the `reader` role when
 authentication is enabled.
 
 ```bash
-curl "http://localhost:8000/v1/chat/sessions?tenant_id=DEFAULT&limit=20" \
+curl "http://localhost:8000/v1/chat/sessions?limit=20&q=hanoi" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/chat/sessions/session-.../messages?tenant_id=DEFAULT&limit=50" \
+curl "http://localhost:8000/v1/chat/sessions/ses_.../messages?limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
-Session lists return a `sessions` array, newest-activity first, default to 20 rows,
-and accept `limit=1..100` and opaque `cursor`.
-Message lists are oldest first, default to 50 rows, and accept
-`limit=1..200`; pass the returned `next_cursor` as `after`.
-Messages include citations, timestamps, run IDs, and partial status.
+A credential that holds several tenants adds `-H "X-Tenant-Id: <tenant>"`.
+
+Both lists return `{"items": [...], "next_cursor": null}`, default to 20 rows,
+accept `limit=1..100`, and page with the opaque `cursor` from the previous
+`next_cursor`. Sessions come newest activity first; `q` keeps titles that
+contain it, ignoring case.
+
+Messages come newest first. Each carries `message_id`, `session_id`, `role`,
+`content`, `mode`, `citations`, `trace_id`, `feedback` and `created_at`; a
+user message has `mode: null`, `citations: []` and `trace_id: null`. An answer
+cut short by a dropped stream is left out, and `message_count` counts the
+messages the history returns.
 
 Renaming and deleting a session over HTTP, and the `/v1/memory/*` routes, are
 removed in 2.0.0 and return `404`; they come back with the v2.1 session and

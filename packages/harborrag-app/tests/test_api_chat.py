@@ -25,11 +25,10 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
 
 
 def _session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
+    response = client.post("/v1/chat/sessions", json={}, headers={"X-Tenant-Id": tenant})
     assert response.status_code == 201
     payload = response.json()
-    assert payload["greeting"]
-    assert payload["session_id"].startswith("session-")
+    assert payload["session_id"].startswith("ses_")
     return payload["session_id"]
 
 
@@ -95,7 +94,7 @@ def test_chat_completion_creates_session_and_requires_prompt(client: TestClient)
     )
 
     assert no_session.status_code == 200
-    assert no_session.json()["session_id"].startswith("session-")
+    assert no_session.json()["session_id"].startswith("ses_")
     assert no_prompt.status_code == 422
 
 

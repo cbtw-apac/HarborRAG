@@ -45,7 +45,7 @@ def test_the_model_is_validated_before_creating_or_streaming(client, service, mo
     assert response.headers["content-type"].startswith("application/json")
     assert calls == [(None, "DEFAULT")]
     assert not service.chat_calls
-    assert client.get("/v1/chat/sessions").json()["sessions"] == []
+    assert client.get("/v1/chat/sessions").json()["items"] == []
 
 
 def test_openapi_documents_the_idempotency_header(client):

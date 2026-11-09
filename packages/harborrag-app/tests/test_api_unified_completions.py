@@ -64,7 +64,7 @@ def test_retry_without_session_replays_without_new_session_or_model_call(client,
     assert frames[0][1]["replayed"] is True
     assert frames[-1] == ("response.completed", first.json())
     assert len(service.chat_calls) == 1
-    assert len(client.get(path.replace("/completions", "/sessions")).json()["sessions"]) == 1
+    assert len(client.get(path.replace("/completions", "/sessions")).json()["items"]) == 1
 
 
 def test_retry_echoing_the_disclosed_session_replays(client, service):
@@ -136,8 +136,8 @@ def test_failure_before_dispatch_leaves_the_key_reusable(client, service, monkey
     assert len(service.chat_calls) == 1
 
 
-def test_initial_title_and_client_user_identity_are_rejected(client):
-    assert client.post("/v1/chat/sessions", json={"title": "Initial"}).status_code == 422
+def test_client_user_identity_is_rejected(client):
+    assert client.post("/v1/chat/sessions", json={"user_id": "other"}).status_code == 422
     assert (
         client.post("/v1/chat/completions", json={"prompt": "Hi", "user_id": "other"}).status_code
         == 422

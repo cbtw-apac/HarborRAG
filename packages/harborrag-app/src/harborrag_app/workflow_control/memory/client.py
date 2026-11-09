@@ -93,6 +93,7 @@ class MemoryAdminClientMixin:
         *,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> AppResponse:
         return AppResponse(
             True,
@@ -100,6 +101,7 @@ class MemoryAdminClientMixin:
                 access,
                 cursor=cursor,
                 limit=limit,
+                title_query=title_query,
             ),
         )
 
@@ -107,12 +109,12 @@ class MemoryAdminClientMixin:
         self,
         access: MemoryAccess,
         *,
-        after: str | None = None,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> AppResponse:
         return AppResponse(
             True,
-            await self._conversation_directory.messages(access, after=after, limit=limit),
+            await self._conversation_directory.messages(access, cursor=cursor, limit=limit),
         )
 
     async def rename_conversation(self, access: MemoryAccess, *, title: str) -> AppResponse:

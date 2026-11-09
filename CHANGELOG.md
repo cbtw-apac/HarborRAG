@@ -19,6 +19,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### harborrag-adapters
 
 - Migration `0046` stores runtime settings overrides and an append-only revision log
+- Migration `0047` stores a chat session's `project_id` and an answer's `mode`, `trace_id` and `feedback`
 - Structure-aware splitting of oversized text: code at syntax boundaries, Markdown at headings and fences, prose at sentence ends
 - Markdown code blocks record their language, and source code files keep their indentation and are chunked as code
 
@@ -50,6 +51,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 #### harborrag-app
 
 - **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed` with integer ids, a `: ping` every 15 s and resume from `Last-Event-ID`, a deadline from `api_stream_timeout_seconds` (`error` event `deadline_exceeded`, or `504` before the first event), replacing `task.<id>.progress`, `.done` and `.control`; a pause, resume or cancel appears as a `run.status` with the new status
+- **Breaking:** `POST /v1/chat/sessions` takes `title` and `project_id` (an unknown project is `422 reference_not_found`, `profile_id` is `422` until v2.1.0) and answers the explorer `Session`; `greeting` is gone. `GET /v1/chat/sessions` answers `items` of `Session` with `next_cursor` and searches titles with `q`. `GET /v1/chat/sessions/{session_id}/messages` answers `items` of `Message` newest first, pages with `cursor` and `limit` up to 100, and leaves out answers cut short by a dropped stream. The session routes take the tenant from `X-Tenant-Id` instead of `tenant_id`. New sessions get `ses_…` IDs and new messages `msg_…`; stored `session-…` sessions keep theirs
 - **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run

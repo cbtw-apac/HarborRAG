@@ -16,6 +16,7 @@ from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationMessage,
     ConversationPage,
+    ConversationSummaryRow,
     ConversationTurn,
 )
 
@@ -53,8 +54,14 @@ class DatabaseConversationMemory:
     ) -> tuple[ConversationTurn, ...]:
         return await self.repository.recent(identity, limit=limit)
 
-    async def create(self, identity: ConversationIdentity, *, title: str | None = None) -> None:
-        await self.repository.create(identity, title=title)
+    async def create(
+        self,
+        identity: ConversationIdentity,
+        *,
+        title: str | None = None,
+        project_id: str | None = None,
+    ) -> None:
+        await self.repository.create(identity, title=title, project_id=project_id)
 
     async def exists(self, identity: ConversationIdentity) -> bool:
         return await self.repository.exists(identity)
@@ -98,6 +105,17 @@ class DatabaseConversationMemory:
             identity, after_message_id=after_message_id, limit=limit
         )
 
+    async def history_page(
+        self,
+        identity: ConversationIdentity,
+        *,
+        before_message_id: str | None,
+        limit: int,
+    ) -> tuple[ConversationMessage, ...]:
+        return await self.repository.history_page(
+            identity, before_message_id=before_message_id, limit=limit
+        )
+
     async def clear_messages(self, identity: ConversationIdentity) -> None:
         await self.repository.clear_messages(identity)
 
@@ -106,20 +124,27 @@ class DatabaseConversationMemory:
     ) -> tuple[ConversationMessage, ...]:
         return await self.repository.recent_complete_messages(identity, limit=limit)
 
-    async def list_conversations(
+    async def list_conversations(  # noqa: PLR0913 - mirrors the directory port
         self,
         *,
         tenant_id: str,
         user_id: str,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> ConversationPage:
         return await self.repository.list_conversations(
             tenant_id=tenant_id,
             user_id=user_id,
             cursor=cursor,
             limit=limit,
+            title_query=title_query,
         )
+
+    async def get_conversation(
+        self, identity: ConversationIdentity
+    ) -> ConversationSummaryRow | None:
+        return await self.repository.get_conversation(identity)
 
     async def rename_conversation(
         self,

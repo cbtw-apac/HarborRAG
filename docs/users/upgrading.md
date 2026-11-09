@@ -18,10 +18,12 @@ each connection at the start of every run.
   file with `HARBORRAG_SECRETS_ENCRYPTION_KEY_FILE`. A worker refuses to start
   without a key against a non-SQLite database. `scripts/deployment/dev.sh`
   generates the key when `env/.env.database` leaves it blank; keep a backup.
-- The API applies migrations `0041`–`0046` at start-up. `0046` adds the
+- The API applies migrations `0041`–`0047` at start-up. `0046` adds the
   runtime settings tables: the overrides and an append-only revision log
-  ([Runtime settings](configuration/runtime-settings.md)). Start the API before
-  the workers. `0044` drops the `agent_runs` table and `0045` the rest of the
+  ([Runtime settings](configuration/runtime-settings.md)). `0047` adds empty
+  columns for a chat session's `project_id` and an answer's `mode`,
+  `trace_id` and `feedback`; stored sessions and messages keep their IDs and
+  read back with these as `null`. Start the API before the workers. `0044` drops the `agent_runs` table and `0045` the rest of the
   1.x agent traces: tool-call messages, replay records of agent sessions,
   run-scoped and working memories, and the session `kind`, message `run_id`
   and usage `surface` columns. A downgrade brings the columns back, with
@@ -308,6 +310,36 @@ token is kept.
   `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key;
   each setting carries `key`, `type`, `default`, `min`, `max`, `levels`,
   `applies`, `description` and, for an enumerated key, `enum`.
+- **Chat sessions and history answer the explorer `Session` and `Message`
+  shapes, with no alias for the old ones.**
+  - `POST /v1/chat/sessions` takes an optional `title` and `project_id`;
+    `project_id` is fixed for the session's life. A project the tenant does
+    not have is `422 reference_not_found`, and `profile_id` is
+    `422 validation_error` until v2.1.0. The response is `201` with
+    `session_id`, `title`, `project_id`, `profile_id`, `message_count`,
+    `created_at` and `updated_at`; `greeting` is gone. An untitled session
+    reads `title: ""`.
+  - New sessions get `ses_…` IDs and new messages `msg_…` IDs. Stored
+    `session-…` sessions keep their IDs and stay readable.
+  - All three session routes take the tenant from the credential, or from
+    `X-Tenant-Id` when it holds several; the `tenant_id` body field and
+    `?tenant_id` query are removed.
+  - `GET /v1/chat/sessions` answers `{"items": [...], "next_cursor": null}`
+    instead of `{"sessions": [...]}`, adds `q` to search titles, and always
+    sends `next_cursor`, `null` on the last page.
+  - `GET /v1/chat/sessions/{session_id}/messages` answers
+    `{"items": [...], "next_cursor": null}` **newest first**, instead of
+    `{"messages": [...]}` oldest first. Page with `cursor` (was `after`) and
+    `limit` 1–100 (default 20, was 50 of at most 200). Each message carries
+    `message_id`, `session_id`, `role`, `content`, `mode`, `citations`,
+    `trace_id`, `feedback` and `created_at`; `token_count` and `partial` are
+    gone. A user message reads `mode: null`, `citations: []` and
+    `trace_id: null`. Each citation carries `n`, `chunk_id`, `document_id`,
+    `title`, `snippet`, `url` and `page`; a citation stored before this
+    release reads back numbered by position, with an empty `snippet`.
+  - An answer cut short by a dropped stream is left out of history and out of
+    `message_count`, and system messages are not listed.
+  - Another reader's session, or an unknown one, is `404 not_found`.
 - **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
   for the failure inbox; see
   [Change, ingest and delete](connections.md#change-ingest-and-delete).
@@ -329,8 +361,8 @@ token is kept.
     test's `preview.sample[].ref` is `item_ref`.
   - `GET /v1/me` returns `principal.principal_type` and
     `principal.principal_id`.
-  - a chat completion returns `completion_id`; chat bodies send `tenant_id`
-    and the session listings take `?tenant_id`.
+  - a chat completion returns `completion_id`, and its body sends
+    `tenant_id`.
   - a project delete refused with `409` names `details.connection_refs`, or
     `details.connection_ref` for a connection that is ingesting.
 - **Chat completions are retrieval chat only:** `max_steps` is removed and

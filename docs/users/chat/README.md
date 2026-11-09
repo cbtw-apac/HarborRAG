@@ -138,20 +138,36 @@ See [Chat models](models.md) for catalogs and tenant model selection.
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| POST | `/v1/chat/sessions` | Explicitly create an unnamed session |
-| GET | `/v1/chat/sessions` | List the caller's chat sessions |
-| GET | `/v1/chat/sessions/{session_id}/messages` | Read paginated session history |
+| POST | `/v1/chat/sessions` | Create a session, optionally titled and scoped to one project |
+| GET | `/v1/chat/sessions` | List the caller's chat sessions, newest first; `q` searches titles |
+| GET | `/v1/chat/sessions/{session_id}/messages` | Read a session's history, newest first |
 
-Lists return `{"sessions": [...], "next_cursor": "..."}`; `next_cursor` is
-omitted on the last page. Sessions created by the 1.x agent surface are
-listed with the rest. History responses use `Cache-Control: no-store`. Renaming and deleting
-a session come back in v2.1.
+The session routes take the tenant from the credential, or from `X-Tenant-Id`
+when the credential holds several.
+
+```bash
+curl --fail-with-body http://127.0.0.1:8000/v1/chat/sessions \
+  --header 'Content-Type: application/json' \
+  --data '{"title": "Go candidates in Hanoi", "project_id": "<project-id>"}'
+```
+
+The `201` response is a `Session`: `session_id` (`ses_…`), `title` (`""` when
+untitled), `project_id`, `profile_id` (`null` until v2.1.0), `message_count`,
+`created_at` and `updated_at`. `project_id` is fixed for the session's life;
+one the tenant does not have is `422 reference_not_found`, and `profile_id` is
+refused with `422 validation_error`.
+
+Lists return `{"items": [...], "next_cursor": null}`; pass a non-null
+`next_cursor` back as `cursor` for the next page. Sessions created by the 1.x
+agent surface are listed with the rest. Session routes use
+`Cache-Control: no-store`. Another reader's session is `404`, the same as an
+unknown one. Renaming and deleting a session come back in v2.1.
 
 See [Conversation memory](memory.md) for paging.
 
 ```bash
 uv run harborrag chat "Explain HarborRAG." --tenant DEFAULT --json
-uv run harborrag chat "Explain the last point." --session session-... --json
+uv run harborrag chat "Explain the last point." --session ses_... --json
 ```
 
 The CLI creates a session when `--session` is omitted. Optional `--project`
@@ -175,7 +191,9 @@ make the old shared namespace visible to every authenticated user.
 - `mode: "agent"` and `max_steps` are removed and return `422`.
 - The `response.agent.progress` stream event is removed.
 
-Remove `title` from session-creation bodies.
+Session creation takes `title` and `project_id` and answers the `Session`
+shape without `greeting`; history reads newest first. See
+[Upgrading](../upgrading.md#http-api-changes) for every field that changed.
 
 Existing control databases must apply migrations `0033` (conversation
 sequencing, title state, and turn leases) and `0034` (completion replay

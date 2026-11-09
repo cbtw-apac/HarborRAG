@@ -28,10 +28,12 @@ class ChatServiceFixture:
     chat_calls: list[dict[str, object]]
     allowed_models: set[str]
     tenant_models: dict[str, set[str]]
-    # The projects this double's control plane knows about. A ``project_id``
-    # outside it is a 404 on the JSON and the streaming path alike, exactly as
+    # The projects this double's control plane knows about: ``known_projects``
+    # in every tenant, ``tenant_projects`` in one. A ``project_id`` outside them
+    # is a 404 on the JSON and the streaming path alike, exactly as
     # ``require_project`` makes it in production.
     known_projects: set[str]
+    tenant_projects: dict[str, set[str]]
 
     async def validate_completion_scope(self, query, access, *, model):
         # Gate classification is covered with a real gate and controlled model
@@ -41,8 +43,9 @@ class ChatServiceFixture:
         self.scope_calls.append((query, access, model))
 
     async def validate_chat_project(self, project_id: str | None, *, tenant_id: str) -> None:
-        del tenant_id
-        if project_id is not None and project_id not in self.known_projects:
+        if project_id is None or project_id in self.known_projects:
+            return
+        if project_id not in self.tenant_projects.get(tenant_id, set()):
             raise HarborNotFoundError("Project was not found")
 
     async def validate_chat_model(self, model: str | None, *, tenant_id: str) -> None:

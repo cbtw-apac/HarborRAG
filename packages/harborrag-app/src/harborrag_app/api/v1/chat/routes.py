@@ -25,14 +25,11 @@ from harborrag_core.contracts.errors import (
 
 from . import dispatch
 from .completion_dependency import CompletionService, CompletionServiceDependency
-from .dependencies import ChatServiceDependency
 from .replay import CompletionAttempt
 from .schemas import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatMessageResponse,
-    ChatSessionCreateRequest,
-    ChatSessionResponse,
     ChatUsageResponse,
 )
 from .streaming import stream_response
@@ -62,28 +59,6 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
         }
     },
 }
-
-
-@router.post(
-    "/sessions",
-    response_model=ChatSessionResponse,
-    status_code=201,
-    responses=ERROR_RESPONSES,
-)
-async def create_chat_session(
-    request: ChatSessionCreateRequest,
-    service: ChatServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", tenant=False))],
-) -> ChatSessionResponse:
-    authorize_tenant(principal, request.tenant_id)
-    result = await service.create_chat_session(
-        tenant_id=request.tenant_id,
-        principal_id=principal.subject,
-        user_id=principal.user_id,
-    )
-    if not result.ok:
-        raise HarborConnectionError("Chat service is unavailable")
-    return ChatSessionResponse.model_validate(result.data)
 
 
 @router.post(
@@ -201,8 +176,7 @@ async def _complete_chat(
             )
             if not created.ok:
                 raise HarborConnectionError("Chat service is unavailable")
-            session = ChatSessionResponse.model_validate(created.data)
-            request = request.model_copy(update={"session_id": session.session_id})
+            request = request.model_copy(update={"session_id": str(created.data["session_id"])})
         if refusal_message is not None:
             return await _completed_refusal(request, principal, attempt, settings, refusal_message)
         if request.stream:

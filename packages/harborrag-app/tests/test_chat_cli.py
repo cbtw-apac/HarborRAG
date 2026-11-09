@@ -37,7 +37,7 @@ def test_chat_cli_creates_session_and_uses_default_prompt(monkeypatch, capsys) -
     assert call["tenant_id"] == "ACME"
     assert call["principal_id"] == "harborrag-cli"
     assert call["system"] is ChatPrompt.DEFAULT
-    assert str(call["session_id"]).startswith("session-")
+    assert str(call["session_id"]).startswith("ses_")
     assert call["query"] == "Explain HarborRAG"
 
 

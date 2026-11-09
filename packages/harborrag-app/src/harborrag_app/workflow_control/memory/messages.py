@@ -6,6 +6,10 @@ turn starts, while the answer only exists once the provider has delivered
 text. A streamed turn that dies mid-flight therefore still leaves both the
 question and whatever answer reached the caller, the latter marked
 ``partial``.
+
+``record_exchange`` writes a completed exchange in one write instead, with the
+answer's mode, trace and numbered citations, so the assistant message id can
+serve as the completion's ``completion_id``.
 """
 
 from __future__ import annotations
@@ -13,22 +17,89 @@ from __future__ import annotations
 import json
 import logging
 from collections.abc import Sequence
-from uuid import uuid4
+from dataclasses import asdict, dataclass, field
 
 from harborrag_core.base import utc_now
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
     ConversationMessage,
     ConversationMessageStore,
+    new_message_id,
 )
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
 
 
-def new_message_id() -> str:
-    """Generate one opaque conversation-message identifier."""
+@dataclass(frozen=True, slots=True)
+class CitationRecord:
+    """One numbered source of an assistant answer, stored as history returns it."""
 
-    return f"msg-{uuid4().hex}"
+    n: int
+    chunk_id: str
+    document_id: str
+    title: str
+    snippet: str
+    url: str | None = None
+    page: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ExchangeRecord:
+    """One completed question and its answer, with what the answer was built from.
+
+    ``answer_id`` is the assistant message id; a caller that must hand it out
+    before the write (a completion's ``completion_id``) generates it with
+    ``new_message_id`` and passes it here.
+    """
+
+    question: str
+    answer: str
+    mode: str
+    trace_id: str
+    citations: tuple[CitationRecord, ...] = ()
+    completion_tokens: int | None = None
+    question_id: str = field(default_factory=new_message_id)
+    answer_id: str = field(default_factory=new_message_id)
+
+
+async def record_exchange(
+    store: ConversationMessageStore,
+    identity: ConversationIdentity,
+    exchange: ExchangeRecord,
+) -> tuple[ConversationMessage, ConversationMessage]:
+    """Persist a user message and its assistant answer in one write.
+
+    Args:
+        store: The conversation message store.
+        identity: The owner and session the exchange belongs to.
+        exchange: The question, the answer and the answer's metadata.
+
+    Returns:
+        The stored user message and assistant message, in that order.
+
+    Raises:
+        ValueError: The session does not exist in an in-memory store.
+    """
+
+    created_at = utc_now()
+    question = ConversationMessage(
+        message_id=exchange.question_id,
+        role="user",
+        content=exchange.question,
+        created_at=created_at,
+    )
+    answer = ConversationMessage(
+        message_id=exchange.answer_id,
+        role="assistant",
+        content=exchange.answer,
+        created_at=created_at,
+        token_count=exchange.completion_tokens,
+        citations_json=json.dumps([asdict(citation) for citation in exchange.citations]),
+        mode=exchange.mode,
+        trace_id=exchange.trace_id,
+    )
+    await store.append_messages(identity, (question, answer))
+    return question, answer
 
 
 def question_message(content: str) -> ConversationMessage:
@@ -113,9 +184,12 @@ async def append_message(
 
 
 __all__ = [
+    "CitationRecord",
+    "ExchangeRecord",
     "answer_message",
     "append_exchange",
     "append_message",
     "new_message_id",
     "question_message",
+    "record_exchange",
 ]

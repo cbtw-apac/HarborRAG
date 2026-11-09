@@ -141,12 +141,12 @@ def test_completion_session_history_and_replay_are_isolated_by_user(
             session_id,
         ) in service.conversation_sessions
         assert (
-            client.get(f"{path}/sessions", headers=_headers("alice")).json()["sessions"][0][
+            client.get(f"{path}/sessions", headers=_headers("alice")).json()["items"][0][
                 "session_id"
             ]
             == session_id
         )
-        assert client.get(f"{path}/sessions", headers=_headers("bob")).json()["sessions"] == []
+        assert client.get(f"{path}/sessions", headers=_headers("bob")).json()["items"] == []
 
         foreign = client.post(
             f"{path}/completions",

@@ -14,13 +14,14 @@ from harborrag_app.workflow_control.schemas import AppResponse
 
 
 class ChatService(QueryScopeValidator, Protocol):
-    async def create_chat_session(
+    async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
         *,
         tenant_id: str,
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse: ...
 
     async def chat_session_exists(
@@ -68,14 +69,15 @@ class ConversationService(Protocol):
         *,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> AppResponse: ...
 
     async def conversation_messages(
         self,
         access: MemoryAccess,
         *,
-        after: str | None = None,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> AppResponse: ...
 
 

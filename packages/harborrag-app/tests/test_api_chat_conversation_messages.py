@@ -17,6 +17,8 @@ from app_test_conversations import (
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
+from harborrag_core.ports.conversation import encode_conversation_cursor
+
 
 @pytest.fixture
 def service() -> MockAppService:
@@ -34,13 +36,13 @@ def _path(session_id: str = "session-1") -> str:
 
 
 def _ids(payload: dict[str, object]) -> list[str]:
-    rows = payload["messages"]
+    rows = payload["items"]
     assert isinstance(rows, list)
     return [str(row["message_id"]) for row in rows]
 
 
 @pytest.mark.asyncio
-async def test_messages_come_back_oldest_first(
+async def test_messages_come_back_newest_first(
     client: TestClient,
     service: MockAppService,
 ) -> None:
@@ -57,32 +59,35 @@ async def test_messages_come_back_oldest_first(
 
     assert response.status_code == 200
     payload = response.json()
-    assert _ids(payload) == ["msg-1", "msg-2"]
-    assert payload["messages"][1] == {
+    assert _ids(payload) == ["msg-2", "msg-1"]
+    assert payload["items"][0] == {
         "message_id": "msg-2",
+        "session_id": "session-1",
         "role": "assistant",
         "content": "in the wiki",
-        "created_at": payload["messages"][1]["created_at"],
-        "token_count": 3,
+        "mode": None,
         "citations": [],
-        "partial": False,
+        "trace_id": None,
+        "feedback": None,
+        "created_at": payload["items"][0]["created_at"],
     }
-    assert "next_cursor" not in payload
+    assert payload["next_cursor"] is None
 
 
 @pytest.mark.asyncio
-async def test_a_partial_answer_is_marked_and_keeps_its_citations(
+async def test_a_partial_answer_is_left_out_of_history(
     client: TestClient,
     service: MockAppService,
 ) -> None:
-    """A stream that died mid-answer must be readable as incomplete."""
+    """A stream that died mid-answer must never read as a finished answer."""
 
     await seed(
         service,
         "session-1",
         messages=(
+            message("msg-1", "user", "where is the runbook?"),
             message(
-                "msg-1",
+                "msg-2",
                 "assistant",
                 "the runbook is",
                 citations_json='[{"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}]',
@@ -93,9 +98,8 @@ async def test_a_partial_answer_is_marked_and_keeps_its_citations(
 
     response = client.get(_path(), headers=auth())
 
-    row = response.json()["messages"][0]
-    assert row["partial"] is True
-    assert row["citations"] == [{"document_id": "doc-1", "chunk_id": "chunk-1", "score": 0.9}]
+    assert _ids(response.json()) == ["msg-1"]
+    assert client.get(CONVERSATIONS, headers=auth()).json()["items"][0]["message_count"] == 1
 
 
 @pytest.mark.asyncio
@@ -114,7 +118,7 @@ async def test_unparseable_stored_citations_read_back_as_none(
     response = client.get(_path(), headers=auth())
 
     assert response.status_code == 200
-    assert response.json()["messages"][0]["citations"] == []
+    assert response.json()["items"][0]["citations"] == []
 
 
 @pytest.mark.asyncio
@@ -131,14 +135,14 @@ async def test_paging_walks_the_history_exactly_once(
     first = client.get(_path(), params={"limit": 2}, headers=auth()).json()
     second = client.get(
         _path(),
-        params={"limit": 2, "after": first["next_cursor"]},
+        params={"limit": 2, "cursor": first["next_cursor"]},
         headers=auth(),
     ).json()
 
-    assert _ids(first) == ["msg-0", "msg-1"]
-    assert first["next_cursor"] == "msg-1"
-    assert _ids(second) == ["msg-2"]
-    assert "next_cursor" not in second
+    assert _ids(first) == ["msg-2", "msg-1"]
+    assert first["next_cursor"]
+    assert _ids(second) == ["msg-0"]
+    assert second["next_cursor"] is None
 
 
 @pytest.mark.asyncio
@@ -150,21 +154,24 @@ async def test_a_full_last_page_does_not_advertise_an_empty_next_page(
 
     payload = client.get(_path(), params={"limit": 2}, headers=auth()).json()
 
-    assert _ids(payload) == ["msg-1", "msg-2"]
-    assert "next_cursor" not in payload
+    assert _ids(payload) == ["msg-2", "msg-1"]
+    assert payload["next_cursor"] is None
 
 
 @pytest.mark.asyncio
-async def test_an_unknown_message_cursor_is_a_client_error(
+@pytest.mark.parametrize("cursor", [encode_conversation_cursor("msg-absent"), "!!!!"])
+async def test_an_unknown_or_malformed_cursor_is_a_client_error(
     client: TestClient,
     service: MockAppService,
+    cursor: str,
 ) -> None:
     await seed(service, "session-1", messages=(message("msg-1"),))
 
-    response = client.get(_path(), params={"after": "msg-absent"}, headers=auth())
+    response = client.get(_path(), params={"cursor": cursor}, headers=auth())
 
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "validation_error"
+    assert response.json()["error"]["details"][0]["field"] == "cursor"
 
 
 def test_an_unknown_conversation_is_the_not_found_envelope(client: TestClient) -> None:
@@ -206,12 +213,12 @@ async def test_a_foreign_tenant_is_refused(
 ) -> None:
     await seed(service, "session-1", messages=(message("msg-1"),))
 
-    response = client.get(_path(), params={"tenant_id": "OTHER"}, headers=auth())
+    response = client.get(_path(), headers={**auth(), "X-Tenant-Id": "OTHER"})
 
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize("limit", [0, 201])
+@pytest.mark.parametrize("limit", [0, 101])
 def test_the_message_page_limit_is_bounded(client: TestClient, limit: int) -> None:
     response = client.get(_path(), params={"limit": limit}, headers=auth())
 

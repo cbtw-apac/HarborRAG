@@ -93,8 +93,8 @@ operation gives its lowest role.
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |
-| `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a chat session, list the caller's sessions |
-| `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages |
+| `POST` `GET` | `/v1/chat/sessions` | `reader` | Create a session scoped to one project for its life (`422 reference_not_found` for a project the tenant lacks); list the caller's own, newest first, `q` searches titles |
+| `GET` | `/v1/chat/sessions/{session_id}/messages` | `reader` | A session's messages, newest first, with citations and `trace_id`; `404` for another reader's session |
 | `POST` | `/v1/chat/completions` | `reader` | Retrieval-grounded JSON or SSE chat completion |
 
 Every `/v1/admin/ingestions*` and `/v1/admin/failures*` route needs role

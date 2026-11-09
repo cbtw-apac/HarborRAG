@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, JsonValue, StringConstraints, model_validator
+from pydantic import ConfigDict, Field, StringConstraints, field_validator, model_validator
 
 from harborrag_app.api.schemas import ApiModel
 from harborrag_core.models.cost import ModelCost
@@ -26,16 +27,57 @@ class ChatTenantRequest(ApiModel):
     )
 
 
-class ChatSessionCreateRequest(ChatTenantRequest):
-    """Create an unnamed conversation; its first successful turn supplies a title."""
+class ChatSessionCreateRequest(ApiModel):
+    """``POST /v1/chat/sessions`` body; every field is optional."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"tenant_id": "DEFAULT"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [{"title": "Go candidates in Hanoi"}]})
+
+    title: str | None = Field(
+        default=None,
+        max_length=MAX_TITLE_INPUT,
+        description="Blank leaves the session untitled until its first answer names it",
+    )
+    project_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=128,
+        description="Scope for every turn; fixed. Retrieval reads only this project's connections",
+    )
+    profile_id: str | None = Field(
+        default=None,
+        description="Assistant profile; refused until v2.1.0",
+    )
+
+    @field_validator("profile_id")
+    @classmethod
+    def refuse_profile(cls, value: str | None) -> str | None:
+        """Refuse a profile until profiles ship in v2.1.0."""
+        if value is not None:
+            raise ValueError("profile_id is not available until v2.1.0")
+        return value
 
 
-class ChatSessionResponse(ApiModel):
+class Session(ApiModel):
+    """One chat session of the caller's own."""
+
     session_id: str
-    greeting: str
-    title: str | None = None
+    title: str = Field(description="Empty until the session is named")
+    project_id: str | None = Field(
+        description="Fixed for the life of the session; retrieval reads only its connections"
+    )
+    profile_id: str | None = Field(description="null until v2.1.0")
+    message_count: int = Field(ge=0)
+    created_at: datetime
+    updated_at: datetime
+
+
+class SessionList(ApiModel):
+    """One page of the caller's sessions, newest first."""
+
+    items: list[Session]
+    next_cursor: str | None = Field(
+        description="Pass as cursor to get the next page; null on the last page"
+    )
 
 
 class ChatCompletionRequest(ChatTenantRequest):
@@ -168,41 +210,36 @@ class ChatCompletionResponse(ApiModel):
         return self
 
 
-class ConversationSummary(ApiModel):
-    """One conversation of the caller's own, without any message content."""
+class Citation(ApiModel):
+    """One numbered source of an answer."""
 
-    session_id: str
-    title: str | None = None
-    created_at: str
-    updated_at: str
-    message_count: int = Field(ge=0)
-
-
-class SessionListResponse(ApiModel):
-    """One page of sessions; ``next_cursor`` is absent on the last page."""
-
-    sessions: list[ConversationSummary] = Field(default_factory=list)
-    next_cursor: str | None = None
+    n: int = Field(ge=1, description="The [n] marker in the answer")
+    chunk_id: str
+    document_id: str
+    title: str
+    snippet: VerbatimText = Field(description="The cited passage, up to about 300 characters")
+    url: str | None = Field(description="Link to the original item")
+    page: int | None = Field(description="Page in an attachment")
 
 
-class ConversationMessageRecord(ApiModel):
-    """One stored message of a conversation, as it was persisted."""
+class Message(ApiModel):
+    """One message of a session's history."""
 
     message_id: str
-    role: Literal["user", "assistant", "system"]
+    session_id: str
+    role: Literal["user", "assistant"]
     content: VerbatimText
-    created_at: str
-    token_count: int | None = Field(default=None, ge=0)
-    # Whatever the turn returned to the caller; shape follows the turn that
-    # wrote it, so this is deliberately not narrowed to one citation model.
-    citations: list[JsonValue] = Field(default_factory=list)
-    # True when a stream ended before the answer was complete: the text that
-    # reached the user is kept, and marked so a reader can tell.
-    partial: bool = False
+    mode: str | None = Field(description="Assistant messages only")
+    citations: list[Citation]
+    trace_id: str | None
+    feedback: Literal["up", "down"] | None
+    created_at: datetime
 
 
-class ConversationMessageListResponse(ApiModel):
-    """One page of messages, oldest first; ``next_cursor`` absent at the end."""
+class MessageList(ApiModel):
+    """One page of a session's messages, newest first."""
 
-    messages: list[ConversationMessageRecord] = Field(default_factory=list)
-    next_cursor: str | None = None
+    items: list[Message]
+    next_cursor: str | None = Field(
+        description="Pass as cursor to get the next page; null on the last page"
+    )

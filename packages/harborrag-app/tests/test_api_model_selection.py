@@ -30,7 +30,7 @@ def client(monkeypatch, service: MockAppService) -> TestClient:
 
 
 def _chat_session(client: TestClient, tenant: str = "DEFAULT") -> str:
-    response = client.post("/v1/chat/sessions", json={"tenant_id": tenant})
+    response = client.post("/v1/chat/sessions", json={}, headers={"X-Tenant-Id": tenant})
     assert response.status_code == 201
     return str(response.json()["session_id"])
 

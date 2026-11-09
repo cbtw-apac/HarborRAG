@@ -60,13 +60,14 @@ class ChatClientMixin:
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
 
-    async def create_chat_session(
+    async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
         *,
         tenant_id: str,
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse:
         """``user_id`` owns the new conversation and defaults to the principal.
 
@@ -74,13 +75,18 @@ class ChatClientMixin:
         ``ChatExecutionOptions``: the session is keyed by it, so creating as
         the credential and completing as the human would make every turn look
         like an unknown session.
+
+        Raises:
+            HarborNotFoundError: ``project_id`` does not exist in ``tenant_id``.
         """
 
+        await self._chat.validate_project(project_id, tenant_id=tenant_id)
         return await self._sessions.create(
             tenant_id=tenant_id,
             principal_id=principal_id,
             user_id=user_id,
             title=title,
+            project_id=project_id,
         )
 
     async def chat_session_exists(

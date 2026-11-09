@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING
 from harborrag_core.contracts.errors import HarborNotFoundError, HarborValidationError
 from harborrag_core.ports.conversation import (
     ConversationIdentity,
+    decode_conversation_cursor,
+    encode_conversation_cursor,
     normalize_conversation_title,
 )
 
@@ -51,8 +53,22 @@ class ConversationDirectoryService:
         *,
         cursor: str | None = None,
         limit: int = 20,
+        title_query: str | None = None,
     ) -> dict[str, object]:
-        """One page of the caller's conversations, newest activity first."""
+        """One page of the caller's sessions, newest activity first.
+
+        Args:
+            access: The caller's own conversation key.
+            cursor: ``next_cursor`` of the previous page.
+            limit: Page size.
+            title_query: Keep titles that contain this text, ignoring case.
+
+        Returns:
+            ``items`` of sessions and ``next_cursor``, ``None`` on the last page.
+
+        Raises:
+            HarborValidationError: The cursor is malformed or not the caller's.
+        """
 
         try:
             page = await self._repository.list_conversations(
@@ -60,11 +76,12 @@ class ConversationDirectoryService:
                 user_id=access.user_id,
                 cursor=cursor,
                 limit=limit,
+                title_query=(title_query or "").strip() or None,
             )
         except ValueError as exc:
             raise HarborValidationError(str(exc), {"field": "cursor"}) from exc
         return {
-            "conversations": [conversation_summary_data(row) for row in page.conversations],
+            "items": [conversation_summary_data(row) for row in page.conversations],
             "next_cursor": page.next_cursor,
         }
 
@@ -72,30 +89,45 @@ class ConversationDirectoryService:
         self,
         access: MemoryAccess,
         *,
-        after: str | None = None,
-        limit: int = 50,
+        cursor: str | None = None,
+        limit: int = 20,
     ) -> dict[str, object]:
-        """One page of a conversation's messages, oldest first.
+        """One page of a session's history, newest first.
 
         One extra message is read so the last page never advertises a cursor
         that would only lead to an empty page.
+
+        Args:
+            access: The caller's own conversation key, with its session.
+            cursor: ``next_cursor`` of the previous page.
+            limit: Page size.
+
+        Returns:
+            ``items`` of messages and ``next_cursor``, ``None`` on the last page.
+
+        Raises:
+            HarborNotFoundError: The session does not exist or is not the caller's.
+            HarborValidationError: The cursor is malformed or not from this session.
         """
 
         identity = self._identity(access)
         if not await self._repository.exists(identity):
             raise HarborNotFoundError(_NOT_FOUND)
         try:
-            found = await self._repository.messages_after(
-                identity,
-                after_message_id=after,
-                limit=limit + 1,
+            before = None if cursor is None else decode_conversation_cursor(cursor)
+            found = await self._repository.history_page(
+                identity, before_message_id=before, limit=limit + 1
             )
         except ValueError as exc:
-            raise HarborValidationError(str(exc), {"field": "after"}) from exc
+            raise HarborValidationError(str(exc), {"field": "cursor"}) from exc
         page = found[:limit]
+        has_more = len(found) > limit
         return {
-            "messages": [conversation_message_data(message) for message in page],
-            "next_cursor": page[-1].message_id if len(found) > limit else None,
+            "items": [
+                conversation_message_data(message, session_id=identity.session_id)
+                for message in page
+            ],
+            "next_cursor": encode_conversation_cursor(page[-1].message_id) if has_more else None,
         }
 
     async def rename(self, access: MemoryAccess, *, title: str) -> dict[str, object]:

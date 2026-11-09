@@ -15,6 +15,7 @@ from harborrag_app.workflow_control.memory import (
     ConversationDirectoryService,
     MemoryAdminClientMixin,
     MemoryAdministrationService,
+    conversation_summary_data,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.completion_requests import CompletionClaim
@@ -45,6 +46,7 @@ class MockAppService(
         self.allowed_models: set[str] = {"primary"}
         self.tenant_models: dict[str, set[str]] = {}
         self.known_projects: set[str] = {"proj-1"}
+        self.tenant_projects: dict[str, set[str]] = {}
         # (tenant, principal, user, session_id): a conversation belongs to the end user.
         self.conversation_sessions: set[tuple[str, str, str, str]] = set()
         # Long-term memory administration runs against the real service over
@@ -64,15 +66,17 @@ class MockAppService(
             self.conversations, self._memory_admin
         )
 
-    async def create_chat_session(
+    async def create_chat_session(  # noqa: PLR0913 - mirrors the application facade
         self,
         *,
         tenant_id: str,
         principal_id: str,
         user_id: str | None = None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse:
-        return await self._create_session(tenant_id, principal_id, user_id, title)
+        await self.validate_chat_project(project_id, tenant_id=tenant_id)
+        return await self._create_session(tenant_id, principal_id, user_id, title, project_id)
 
     async def chat_session_exists(
         self,
@@ -86,12 +90,13 @@ class MockAppService(
             ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
         )
 
-    async def _create_session(
+    async def _create_session(  # noqa: PLR0913 - one component of the new session per argument
         self,
         tenant_id: str,
         principal_id: str,
         user_id: str | None,
         title: str | None = None,
+        project_id: str | None = None,
     ) -> AppResponse:
         """Write through to the conversation store the directory routes read.
 
@@ -104,14 +109,11 @@ class MockAppService(
         self.conversation_sessions.add(
             (tenant_id, principal_id, user_id or DEFAULT_USER, session_id)
         )
-        await self.conversations.create(
-            ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER),
-            title=title,
-        )
-        return AppResponse(
-            True,
-            {"session_id": session_id, "greeting": "Hello! How can I help you today?"},
-        )
+        owner = ConversationIdentity(tenant_id, principal_id, session_id, user_id or DEFAULT_USER)
+        await self.conversations.create(owner, title=title, project_id=project_id)
+        created = await self.conversations.get_conversation(owner)
+        assert created is not None
+        return AppResponse(True, conversation_summary_data(created))
 
     async def claim_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
