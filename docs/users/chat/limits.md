@@ -1,8 +1,8 @@
 # Limits and accounting
 
-What bounds a chat completion (deadlines, capacity, one answer at a time per
-session), how to retry one safely, and how its token usage and cost are
-reported.
+Look up what bounds a chat completion (deadlines, capacity, one answer at a time
+per session), how to retry one safely, and how its token usage and cost are
+reported. For the request and response contract, see [Chat](README.md).
 
 ## Deadlines and retrieval
 
@@ -42,10 +42,10 @@ With the shared SQL repository, renewable leases coordinate API replicas.
 A worker that loses its lease is cancelled; storage fencing rejects writes
 from an expired holder. Message ordering uses an atomic sequence allocation.
 A completion in a session that is already answering is refused at once with
-`409 session_busy`.
-The development in-memory fallback coordinates only one process.
+`409 session_busy`. The development in-memory fallback coordinates only one
+process.
 
-## Duplicate suppression
+## Retry without duplicates
 
 Send an `Idempotency-Key` header on `POST /v1/chat/completions`; the body
 takes no key. Keys are scoped to tenant and signed user and kept for 24 hours.
@@ -59,8 +59,8 @@ retry is `409 session_busy`. A request that fails before any model call (an
 unknown session, an empty project, a busy session, a store or retrieval outage)
 leaves its key reusable. Once retrieval has found its passages a model may have
 been charged, so a failure from then on is `409 invalid_state` on retry and a
-deliberate new attempt needs a new key. Without a key,
-a repeated request is a new completion.
+deliberate new attempt needs a new key. Without a key, a repeated request is a
+new completion.
 
 ## Usage and cost
 
@@ -91,6 +91,8 @@ empty. A call with missing prices records a null scalar cost rather than
 claiming a complete bill. A ledger failure does not discard the answer. Totals
 retain tenant, verified user, principal, and session attribution.
 
-See [Chat migration](README.md#migration) before upgrading an existing
-control database, and [Conversation memory](memory.md) for persistence and
-history behavior.
+## See also
+
+- [Chat migration](README.md#migration): read it before upgrading an existing
+  control database.
+- [Conversation memory](memory.md): persistence and history behavior.

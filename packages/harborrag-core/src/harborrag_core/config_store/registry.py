@@ -270,12 +270,14 @@ def _setting_entry(definition: SettingDefinition) -> dict[str, Any]:
         "key": definition.key,
         "type": kind,
         "default": definition.default,
-        "min": schema.get("minimum"),
-        "max": schema.get("maximum"),
         "levels": list(definition.levels),
         "applies": definition.applies,
         "description": definition.description,
     }
+    if "minimum" in schema:
+        entry["min"] = schema["minimum"]
+    if "maximum" in schema:
+        entry["max"] = schema["maximum"]
     if "enum" in schema:
         entry["enum"] = list(schema["enum"])  # type: ignore[call-overload]  # enum is a list in the fragment
     return entry

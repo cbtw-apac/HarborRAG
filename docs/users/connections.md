@@ -14,13 +14,13 @@ with no projects and no connections, and imported into the tenant
 `HARBORRAG_INGESTION_TENANT_ID` names. After that, change connections through the
 API. See [Upgrading](upgrading.md).
 
-## Add a connection in three calls
+## Add a connection
 
-The form an operator fills in maps to three calls. All of them need the
-`editor` role. To fill the body in a browser instead, see
+Adding a connection takes four steps: pick the data source, test it, save it,
+and start its first ingestion. All of them need the `editor` role. To fill the body in a browser instead, see
 [Swagger UI templates](#swagger-ui-templates). From a terminal, `harborrag source`
 does the same through the same service; see the
-[CLI reference](cli-reference/README.md#connections).
+[CLI reference](cli-reference/README.md#manage-connections).
 
 **1. Pick the data source.** List the source types and their fields:
 
@@ -82,11 +82,11 @@ it; through the API, leave it as read or leave it out when it was never set.
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  https://harborrag.example.com/v1/admin/projects/cpm/connections/cpm-tickets/test \
+  https://harborrag.example.com/v1/admin/projects/demo/connections/demo-tickets/test \
   -d '{"source_type": "jira",
        "credentials": {"base_url": "https://acme.atlassian.net",
                        "email": "bot@acme.com", "api_token": "ATATT3x..."},
-       "config": {"jql": "project = CPM"}}'
+       "config": {"jql": "project = DEMO"}}'
 ```
 
 The answer is always `200` for valid input. `ok` is `false` when a check fails,
@@ -99,19 +99,11 @@ gives up after 15 seconds. Without a body, the call tests the saved connection.
 
 ```bash
 curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  https://harborrag.example.com/v1/admin/projects/cpm/connections/cpm-tickets \
-  -d '{"source_type": "jira", "name": "CPM tickets",
+  https://harborrag.example.com/v1/admin/projects/demo/connections/demo-tickets \
+  -d '{"source_type": "jira", "name": "Demo tickets",
        "credentials": {"base_url": "https://acme.atlassian.net",
                        "email": "bot@acme.com", "api_token": "ATATT3x..."},
-       "config": {"jql": "project = CPM"}}'
-```
-
-**4. Start the first ingestion.** Saving a connection never starts one:
-
-```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  https://harborrag.example.com/v1/admin/ingestions \
-  -d '{"project_id": "cpm", "connection_id": "cpm-tickets"}'
+       "config": {"jql": "project = DEMO"}}'
 ```
 
 `201` means it was created, `200` that it was overwritten. There is no
@@ -120,6 +112,14 @@ must exist: an admin creates it with `PUT /v1/admin/projects/{project_id}`.
 Use the project's id, such as `default`, not its display name; a write that
 names a project by its display name answers
 `404 project 'Default' not found; did you mean 'default'?`.
+
+**4. Start the first ingestion.** Saving a connection never starts one:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  https://harborrag.example.com/v1/admin/ingestions \
+  -d '{"project_id": "demo", "connection_id": "demo-tickets"}'
+```
 
 ## Swagger UI templates
 
@@ -153,27 +153,74 @@ and `name`. The other fields of the response, such as `status` and
 `created_at`, are rejected in a request. A secret reads back as its status;
 leave it out, or paste the status back, to keep the stored value.
 
-## Change, ingest and delete
+## Read, change and delete connections
+
+These routes need the `editor` role, except the reader list.
 
 | Call | What it does |
 | --- | --- |
 | `GET /v1/admin/connections` | Every connection in the tenant, needing attention (`needs_reauth`, `error`) first. Filter with `project_id`, `source_type`, `status`; page with `limit` and `cursor`. |
-| `GET …/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
-| `PUT …/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
-| `POST /v1/admin/ingestions` | Starts an `incremental` or `force` ingestion of the connection named by `project_id` and `connection_id` in the body, and answers `202` with the ingestion and its `Location`. A second start while one runs answers `409 already_running` with the running ingestion's id; an unknown project or connection is `422 reference_not_found`; a connection whose stored values fail its source type's schema is `422 validation_error` with each failing field, and nothing starts. |
-| `GET /v1/admin/ingestions` | Runs in the tenant, newest first. Filter with `project_id`, `connection_ref` (`project_id/connection_id`), `status` (`queued`, `running`, `paused`, `succeeded`, `failed`, `cancelled`) and `created_after` (a date-time with a UTC offset, such as `2026-11-01T00:00:00Z`; without one it is `422`); page with `limit` (default 20, 1 to 100) and `cursor`, which is bound to the filter it came from. Needs role `editor` and `X-Tenant-Id`; a run in another tenant is `404`. |
-| `GET /v1/admin/ingestions/{ingestion_id}` | One run: `ingestion_id`, `tenant_id`, `project_id`, `connection_id`, `mode`, `status`, `counters` (`discovered`, `processed`, `skipped`, `failed`), `stages` (empty), `error_category`, `triggered_by`, `settings_revision`, `workflow_id`, `run_id`, `trace_id`, `links` (`temporal`, `grafana`, `langfuse`), `created_at`, `finished_at`. |
-| `POST …/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | Answer `200` with the run after waiting for the new status: up to 10 s for pause and resume, 30 s for cancel. If the wait ends first, the answer is the run as it stands. `pause` is allowed from `queued` or `running`, `resume` from `paused`, `cancel` from `queued`, `running` or `paused`; any other state is `409 invalid_state` and the run is unchanged. A retry run, started by `retry-failures` or `POST /v1/admin/failures/retry`, can be cancelled but not paused or resumed: `pause` and `resume` on it are `409 invalid_state`. Cancelling a run whose Temporal workflow was already terminated records it as `cancelled`, and so does cancelling a retry run whose workflow is gone. |
-| `POST …/ingestions/{ingestion_id}/retry-failures` | Starts a new run for the documents that failed in a `succeeded`, `failed` or `cancelled` run with `counters.failed` above 0 (otherwise `409 invalid_state`). Answers `202` with the new run and its `Location`. |
-| `GET …/ingestions/{ingestion_id}/events` | Server-Sent Events of one run: a replay of what is stored, then a live tail that ends after `run.completed`; a `: ping` comment arrives every 15 s while nothing else does, and a stream still open after `api_stream_timeout_seconds` (600 s by default) ends with an `error` event whose `code` is `deadline_exceeded`. A run that ended gets its `run.completed` when a watcher reads it, once, even if no event was sent live. Each frame has an integer `id` that only increases, and a reconnect with `Last-Event-ID` resumes after that id. `run.status` is `{"status", "counters"}` (the `Ingestion` status and counters), sent when either changes, so a pause, resume or cancel shows as the new status; `stage.progress` is `{"stage", "done", "total"}` and counts the documents that left the pipeline (`processed` + `skipped` + `failed`) against `counters.discovered`, under stage `publish`; `document.failed` is `{"document_id", "stage", "error_category"}` for each failed document, with the document's source reference when it has one and the `stage` and `error_category` of the documents page; `run.completed` is `{"counters", "finish_reason"}` where `finish_reason` is the final status. A run in another tenant is `404`. |
-| `GET …/ingestions/{ingestion_id}/documents` | One item per document: `document_ref`, `document_id`, `status` (`succeeded`, `skipped` or `failed`), `stage` (`capture`, `interpret`, `commit`, `derive` or `publish`), `error_category` and `duration_ms` (`null` for now). Filter with `status=all` (default), `succeeded`, `skipped` or `failed`; page with `limit` (default 20, 1 to 100) and `cursor`. |
-| `GET /v1/admin/failures` | The failure inbox: each document's latest failed result in the tenant. Filter with `project_id`, `connection_ref`, `error_category` (`unknown` matches failures without a code), `stage` (`capture` also matches stages with no mapping), `q` and `resolved` (default `false`; a document is resolved once a later result for it succeeded, was unchanged, skipped or removed). The response carries `counts` per `error_category` over the whole filter; `total` is present only with `include_total=true`. Page with `limit` and `cursor`. |
-| `POST /v1/admin/failures/retry` | Retries unresolved failures: the body has exactly one of `ids` (failure ids) or `filter` (`connection_ref`, `error_category`, `stage`), else `422 validation_error`. It starts one retry run per original run and answers `202` with `{"ingestion_id", "ingestion_ids", "queued"}`: the first new run, every new run, and the number of documents queued. Runs that cannot be retried are skipped and only started runs are reported. When no unresolved, retryable failure matches, no run starts and the answer is `409 invalid_state`, so a `202` always means at least one run started. |
-| `DELETE …/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
+| `GET /v1/admin/projects/{project_id}/connections/{connection_id}` | One connection. Secrets come back as their status, never the value. The `ETag` header is the version. |
+| `PUT /v1/admin/projects/{project_id}/connections/{connection_id}` | Creates or overwrites the connection. `config` is replaced whole, and so is `advanced` unless it is left out. Send `If-Match` with the `ETag` you read to fail with `412` if someone changed it since, `If-Match: *` to update only, or `If-None-Match: *` to create only. `source_type` cannot change (`409 immutable_field`, `details` `{"field": "source_type"}`). A `PUT` that changes nothing stores nothing: the `ETag` and `updated_at` stay the same. Saving never starts an ingestion. |
+| `DELETE /v1/admin/projects/{project_id}/connections/{connection_id}` | Answers `202` with a `job_id`. In the background, the connection's documents leave Qdrant and the graph, then its stored secrets are deleted, then the row. `purge=true` also drops its Postgres history. |
 | `GET /v1/projects/{project_id}/connections` | Readers: the project's connections for filter chips. |
 
+## Start and control ingestions
+
 A running ingestion keeps the values it started with: a change applies from
-the next run.
+the next run. The ingestion routes need role `editor` and `X-Tenant-Id`.
+
+A connection imported from `connectors.yaml` sits in project `default`, with its
+YAML key as `connection_id`.
+
+### `POST /v1/admin/ingestions`
+
+Starts an `incremental` or `force` ingestion of the connection named by `project_id` and `connection_id` in the body, and answers `202` with the ingestion and its `Location`. A second start while one runs answers `409 already_running` with the running ingestion's id; an unknown project or connection is `422 reference_not_found`; a connection whose stored values fail its source type's schema is `422 validation_error` with each failing field, and nothing starts.
+
+### `GET /v1/admin/ingestions`
+
+Runs in the tenant, newest first. Filter with `project_id`, `connection_ref` (`project_id/connection_id`), `status` (`queued`, `running`, `paused`, `succeeded`, `failed`, `cancelled`) and `created_after` (a date-time with a UTC offset, such as `2026-11-01T00:00:00Z`; without one it is `422`); page with `limit` (default 20, 1 to 100) and `cursor`, which is bound to the filter it came from. Needs role `editor` and `X-Tenant-Id`; a run in another tenant is `404`.
+
+### `GET /v1/admin/ingestions/{ingestion_id}`
+
+One run: `ingestion_id`, `tenant_id`, `project_id`, `connection_id`, `mode`, `status`, `counters` (`discovered`, `processed`, `skipped`, `failed`), `stages` (empty), `error_category`, `triggered_by`, `settings_revision`, `workflow_id`, `run_id`, `trace_id`, `links` (`temporal`, `grafana`, `langfuse`), `created_at`, `finished_at`.
+
+### `POST /v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel`
+
+Answer `200` with the run after waiting for the new status: up to 10 s for pause and resume, 30 s for cancel. If the wait ends first, the answer is the run as it stands. `pause` is allowed from `queued` or `running`, `resume` from `paused`, `cancel` from `queued`, `running` or `paused`; any other state is `409 invalid_state` and the run is unchanged. A retry run, started by `retry-failures` or `POST /v1/admin/failures/retry`, can be cancelled but not paused or resumed: `pause` and `resume` on it are `409 invalid_state`. Cancelling a run whose Temporal workflow was already terminated records it as `cancelled`, and so does cancelling a retry run whose workflow is gone.
+
+### `POST /v1/admin/ingestions/{ingestion_id}/retry-failures`
+
+Starts a new run for the documents that failed in a `succeeded`, `failed` or `cancelled` run with `counters.failed` above 0 (otherwise `409 invalid_state`). Answers `202` with the new run and its `Location`.
+
+### `GET /v1/admin/ingestions/{ingestion_id}/events`
+
+Server-Sent Events of one run: a replay of what is stored, then a live tail that ends after `run.completed`.
+
+- A `: ping` comment arrives every 15 s while nothing else does.
+- A stream still open after `api_stream_timeout_seconds` (600 s by default) ends with an `error` event whose `code` is `deadline_exceeded`.
+- A run that ended gets its `run.completed` when a watcher reads it, once, even if no event was sent live.
+- Each frame has an integer `id` that only increases, and a reconnect with `Last-Event-ID` resumes after that id.
+- `run.status` is `{"status", "counters"}` (the `Ingestion` status and counters), sent when either changes, so a pause, resume or cancel shows as the new status.
+- `stage.progress` is `{"stage", "done", "total"}` and counts the documents that left the pipeline (`processed` + `skipped` + `failed`) against `counters.discovered`, under stage `publish`.
+- `document.failed` is `{"document_id", "stage", "error_category"}` for each failed document, with the document's source reference when it has one and the `stage` and `error_category` of the documents page.
+- `run.completed` is `{"counters", "finish_reason"}` where `finish_reason` is the final status.
+
+A run in another tenant is `404`.
+
+### `GET /v1/admin/ingestions/{ingestion_id}/documents`
+
+One item per document: `document_ref`, `document_id`, `status` (`succeeded`, `skipped` or `failed`), `stage` (`capture`, `interpret`, `commit`, `derive` or `publish`), `error_category` and `duration_ms` (`null` for now). Filter with `status=all` (default), `succeeded`, `skipped` or `failed`; page with `limit` (default 20, 1 to 100) and `cursor`.
+
+## Review and retry failures
+
+### `GET /v1/admin/failures`
+
+The failure inbox: each document's latest failed result in the tenant. Filter with `project_id`, `connection_ref`, `error_category` (`unknown` matches failures without a code), `stage` (`capture` also matches stages with no mapping), `q` and `resolved` (default `false`; a document is resolved once a later result for it succeeded, was unchanged, skipped or removed). The response carries `counts` per `error_category` over the whole filter; `total` is present only with `include_total=true`. Page with `limit` and `cursor`.
+
+### `POST /v1/admin/failures/retry`
+
+Retries unresolved failures: the body has exactly one of `ids` (failure ids) or `filter` (`connection_ref`, `error_category`, `stage`), else `422 validation_error`. It starts one retry run per original run and answers `202` with `{"ingestion_id", "ingestion_ids", "queued"}`: the first new run, every new run, and the number of documents queued. Runs that cannot be retried are skipped and only started runs are reported. When no unresolved, retryable failure matches, no run starts and the answer is `409 invalid_state`, so a `202` always means at least one run started.
 
 ## Secrets
 
@@ -286,7 +333,7 @@ from its media type when the name has none, so `allowed_extensions: [pdf]`
 keeps a PDF called `report`. An attachment the filter drops is not downloaded.
 
 ```json
-"config": {"project_keys": ["CPM"], "include_attachments": true,
+"config": {"project_keys": ["DEMO"], "include_attachments": true,
            "allowed_extensions": ["pdf", "docx"], "excluded_extensions": ["exe"]}
 ```
 
@@ -365,7 +412,3 @@ These are gone in 2.0.0 and answer `404`, with no deprecated alias:
 | `/api/v1/sources*` | `/v1/admin/projects/{project_id}/connections/{connection_id}` |
 | `POST /v1/ingestions` | `POST /v1/admin/ingestions` |
 | `/v1/ingestions/{task_id}*` | `/v1/admin/ingestions/{ingestion_id}*` (`/stream` is `/events`; its `task.<id>.progress`, `.done` and `.control` events are now `run.status`, `stage.progress`, `document.failed` and `run.completed`) |
-
-`POST /v1/admin/ingestions` starts a run of the connection its `project_id` and
-`connection_id` name. A connection imported from `connectors.yaml` sits in project
-`default`, with its YAML key as `connection_id`.

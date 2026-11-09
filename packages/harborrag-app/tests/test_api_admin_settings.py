@@ -320,7 +320,7 @@ def test_schema_lists_registry_by_group(env: _Env) -> None:
     }
     assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
     assert entries["parsing.pdf_parser"]["type"] == "enum"
-    assert (entries["retrieval.rerank"]["min"], entries["retrieval.rerank"]["max"]) == (None, None)
+    assert not {"min", "max"} & set(entries["retrieval.rerank"])
     assert entries["models.embedding"]["type"] == "model_ref"
     assert all(entry["description"] for entry in entries.values())
     assert "enum" not in entries["chunking.max_tokens"]

@@ -1,11 +1,15 @@
 # Chat
 
-Use `POST /v1/chat/completions` to ask a question and get an answer with
-numbered citations. Ask inside a session to keep a conversation, or leave out
-`session_id` for a one-off question. The `/v1/agent/*` routes are removed in
+Ask a question over HTTP or the CLI and get an answer with numbered citations
+from your indexed content. Ask inside a session to keep a conversation, or leave
+out `session_id` for a one-off question. The `/v1/agent/*` routes are removed in
 2.0.0; agents query HarborRAG through the MCP server tools.
 
-## First request
+This page is the reference for the chat routes and their behaviour. For the
+other chat pages, see [Chat models](models.md), [Conversation memory](memory.md)
+and [Limits and accounting](limits.md).
+
+## Ask a one-off question
 
 Start the development API with `scripts/deployment/dev.sh api`, then ask a
 one-off question over the whole tenant:
@@ -21,6 +25,8 @@ requires the `reader` role. The tenant comes from the credential, or from
 `X-Tenant-Id` when it holds several. Development with `HARBORRAG_AUTH_MODE=none`
 needs no authorization header.
 
+## Who owns a session
+
 With HMAC authentication, session scope is `(tenant, signed user claim, session_id)`.
 The claim is `sub` by default. If one service credential represents several
 people, set `HARBORRAG_AUTH_USER_ID_CLAIM` to a stable signed claim, such as
@@ -33,7 +39,8 @@ cannot set `user_id` in a request. Local `auth_mode=none` keeps one shared
 
 Create a session in a project with `POST /v1/chat/sessions` (see
 [Sessions, history, and CLI](#sessions-history-and-cli)), then send its
-`session_id`:
+`session_id`. The `Idempotency-Key` header makes the request safe to retry
+([Retry safely](#retry-safely)):
 
 ```bash
 curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
@@ -50,11 +57,11 @@ curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
 | `reasoning` | `off` | Only `off` until v2.1.0; anything else is `422 validation_error` |
 | `project_ids` | Omitted | One-off questions only: retrieval reads only these projects' connections |
 | `connections` | Omitted | Connection refs (`<project_id>/<connection_id>`) to narrow retrieval to |
-| `filters` | Omitted | A `Filter`; see [Filters](#filters) |
+| `filters` | Omitted | A `Filter`; see [Filter retrieval](#filter-retrieval) |
 | `stream` | `false` | `true` answers with Server-Sent Events (SSE) |
 
-The table covers asking a question; the full request and response schemas are in
-the API's OpenAPI document at `/openapi.json`, browsable at `/docs`.
+The full request and response schemas are in the API's OpenAPI document at
+`/openapi.json`, browsable at `/docs`.
 
 A session reads only its own project's connections, so `project_ids` in a
 session is `422 validation_error` on field `project_ids`. A connection outside
@@ -62,7 +69,7 @@ that project is `422 connection_out_of_scope`, and an unknown project or
 connection is `422 reference_not_found`. A session with no project, or a
 one-off question with no `project_ids`, reads the whole tenant.
 
-## Answer
+## Read the answer
 
 ```json
 {
@@ -109,7 +116,7 @@ Titles start empty and are generated after the first stored exchange from the
 first ten words of the question, capped at 80 characters. This adds no model
 call.
 
-## Modes
+## Choose a mode
 
 | Mode | Model calls | Graph observation |
 | --- | --- | --- |
@@ -127,7 +134,7 @@ search. The check is model-based, not an authorization boundary. Malformed
 check output fails closed with `503`. `instant` skips the check, so it never
 refuses that way. CLI and SDK callers run the same pipeline.
 
-## Errors
+## Handle errors
 
 | Status | `code` | When |
 | --- | --- | --- |
@@ -157,7 +164,7 @@ retry it with the same key. Once retrieval has found its passages a model may
 have been paid for: a failure from then on is final for that key, and a retry
 with it is `409 invalid_state`.
 
-## Filters
+## Filter retrieval
 
 `filters` takes `{"and": [...]}` of conditions `{"field", "op", "value"}`:
 
@@ -172,14 +179,16 @@ with it is `409 invalid_state`.
 `or`, nested filters and the other operators are `422 validation_error` on
 field `filters` in this release.
 
-## Streaming
+## Stream the answer
 
-`"stream": true` answers with `text/event-stream`. Until streaming moves to the
-Story 5 events, the stream is sent once the answer is complete:
-`response.started` (`session_id`, `mode`, `replayed`), one
+`"stream": true` answers with `text/event-stream`. The stream is sent once the
+answer is complete: `response.started` (`session_id`, `mode`, `replayed`), one
 `response.output_text.delta` with the whole answer in `content`, then
 `response.completed` with the same body as JSON. A request that cannot be
 answered fails with an ordinary HTTP error before the stream opens.
+
+The `response.*` event names are the 2.0 names and will change when streaming
+moves to its new event contract; do not build on them beyond this release.
 
 ## Retrieval and models
 
@@ -236,6 +245,8 @@ unknown one. Renaming and deleting a session come back in v2.1.
 
 See [Conversation memory](memory.md) for paging.
 
+Ask from the CLI:
+
 ```bash
 uv run harborrag chat "Explain HarborRAG." --tenant DEFAULT --json
 uv run harborrag chat "Explain the last point." --session ses_... --json
@@ -250,12 +261,16 @@ project, so `--session` with `--project` is refused. The CLI answers in
 ## Migration
 
 This is a breaking HTTP migration; stored sessions and history are preserved.
+The tables below list what to change in clients. [Upgrading](../upgrading.md#http-api-changes)
+lists every field that changed.
 
 Authenticated ownership also changes from the shared `DEFAULT_USER` to the
 configured signed user claim. Existing authenticated sessions stored under
 `DEFAULT_USER` cannot be assigned to individual people automatically; deployers
 must map them using trusted ownership records or start fresh sessions. Do not
 make the old shared namespace visible to every authenticated user.
+
+Replace these in clients:
 
 - `/v1/agent/*` is removed in 2.0.0 and returns `404`; use the MCP server tools.
 - Replace `/v1/conversations` and `/v1/chat/conversations` with
@@ -267,12 +282,12 @@ make the old shared namespace visible to every authenticated user.
 Session creation takes `title` and `project_id` and answers the `Session`
 shape without `greeting`; history reads newest first. A completion takes
 `message` instead of `prompt` and answers `completion_id`, `session_id`,
-`trace_id`, `mode`, `answer`, `citations` and `usage`. See
-[Upgrading](../upgrading.md#http-api-changes) for every field that changed.
+`trace_id`, `mode`, `answer`, `citations` and `usage`.
 
 Existing control databases must apply migrations `0033` (conversation
-sequencing, title state, and turn leases) and `0034` (completion replay
-claims) before serving these requests. The configured control-plane startup
+sequencing, title state, and turn leases), `0034` (completion replay claims)
+and `0047` (a session's `project_id`, an answer's `mode`, `trace_id` and
+`feedback`) before serving these requests. The configured control-plane startup
 runs migrations; verify it reaches the current schema during deployment.
 
 See [Limits and accounting](limits.md) for execution budgets, duplicate

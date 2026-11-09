@@ -1,4 +1,9 @@
-# Temporal test configuration
+# Temporal configuration
+
+Configure how HarborRAG connects to Temporal and how its ingestion workflows and workers
+behave, then run the local Temporal stack and diagnose connection problems.
+
+## Edit the configuration
 
 HarborRAG loads runtime Temporal settings from `config/temporal.yaml`. The API,
 CLI, and worker images set `HARBORRAG_TEMPORAL_CONFIG_PATH` to
@@ -68,7 +73,7 @@ Compose. Keep `HARBORRAG_TEMPORAL_API_KEY` and other secrets in the ignored
   `document_concurrency` divided by throughput.
 - `workflow.execution_timeout_seconds` is 2592000, 30 days.
 
-## Settings useful to the ingestion test plan
+## Tune settings for ingestion tests
 
 - `worker` controls per-process activity/workflow concurrency and polling. Set
   low concurrency when a restart, pause, or cancellation test needs a reliably
@@ -94,14 +99,16 @@ Transient failures, partial index writes, permanent connector errors, and
 corrupt parser inputs should be introduced by test doubles or dedicated test
 fixtures so production deployments cannot enable them accidentally.
 
-Before automating the proposed test plan, align it with the current public
-contract:
+### Public contract for test plans
+
+Align an ingestion test plan with the current public contract:
 
 - REST ingestion routes are under `/v1/admin/ingestions`; cancellation is
   `POST /v1/admin/ingestions/{ingestion_id}/cancel` and failed-only retry is
   `POST /v1/admin/ingestions/{ingestion_id}/retry-failures`.
-- Public API success values are `SUCCESS`, and partial success is `PARTIAL`;
-  `Completed`, `Succeeded`, and `CompletedWithErrors` are not public values.
+- A run's public `status` is one of `queued`, `running`, `paused`, `succeeded`,
+  `failed` and `cancelled`; `SUCCESS`, `PARTIAL`, `Completed` and
+  `CompletedWithErrors` are not public values.
 - A start request names a stored connection by `project_id` and
   `connection_id`; it does not accept an arbitrary caller-provided `source_id`.
 - Pause and resume are available through the CLI, SDK, and
@@ -118,7 +125,7 @@ contract:
   followed by verification. A test requiring a single atomic `index_upsert`
   activity describes a different implementation contract.
 
-## Local stack
+## Run the local stack
 
 Create the ignored environment files, then start the data services, Temporal,
 worker, and API:
@@ -135,7 +142,7 @@ The Temporal frontend is published on `localhost:7233` and the UI on
 <http://localhost:8080> by default. The Local connector reads the directory set
 by `LOCAL_SOURCE_PATH` in `env/.env.connector`.
 
-## Connection troubleshooting
+## Troubleshoot the connection
 
 `InvalidMessage(InvalidContentType)` means the SDK did not complete a Temporal
 gRPC handshake. Confirm that `HARBORRAG_TEMPORAL_TARGET` is a plain `host:port`

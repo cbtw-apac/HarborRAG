@@ -23,12 +23,12 @@ each connection at the start of every run.
   ([Runtime settings](configuration/runtime-settings.md)). `0047` adds empty
   columns for a chat session's `project_id` and an answer's `mode`,
   `trace_id` and `feedback`; stored sessions and messages keep their IDs and
-  read back with these as `null`. Start the API before the workers. `0044` drops the `agent_runs` table and `0045` the rest of the
-  1.x agent traces: tool-call messages, replay records of agent sessions,
-  run-scoped and working memories, and the session `kind`, message `run_id`
-  and usage `surface` columns. A downgrade brings the columns back, with
-  `kind` and `surface` set to `chat` and the rest empty; the deleted rows do
-  not come back.
+  read back with these as `null`. `0044` drops the `agent_runs` table and
+  `0045` the rest of the 1.x agent traces: tool-call messages, replay records
+  of agent sessions, run-scoped and working memories, and the session `kind`,
+  message `run_id` and usage `surface` columns. A downgrade brings the columns
+  back, with `kind` and `surface` set to `chat` and the rest empty; the
+  deleted rows do not come back. Start the API before the workers.
 - Upgrade the workers together with the API. The worker records the
   cancellation of a retry run, so with an older worker a retry run cancelled
   through the API ends `failed`, or stays `running` until the API next
@@ -162,6 +162,8 @@ token is kept.
 
 ### Behaviour that changes
 
+#### Connections
+
 - **SharePoint delegated sign-ins move under the HarborRAG tenant.** Without a
   `token_cache_path`, the refresh token now lives in
   `~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`
@@ -210,6 +212,8 @@ token is kept.
   the CLI and `connectors.yaml` still accept them.
 - **Removed:** `GET /v1/connections` and `/api/v1/sources*` answer `404`.
 
+#### CLI, dependencies and Temporal
+
 - **`harborrag ingest pause|resume|cancel` use the HTTP rules.** An action the
   run's status does not allow exits 1 with the `invalid_state` message and sends
   nothing to Temporal: pausing a paused run, pausing or resuming a retry run,
@@ -242,6 +246,8 @@ token is kept.
 
 ### HTTP API changes
 
+#### Routes, errors and limits
+
 - **Removed routes answer `404`, with no deprecated alias:** every `/api/v1/*`
   route, including `/api/v1/health`, `/api/v1/readyz` and `/api/v1/metrics`,
   and `/v1/connections`, `/v1/agent/*`, `/v1/retrieval/*`, `/v1/graph/*`,
@@ -265,8 +271,28 @@ token is kept.
 - **A credential with several tenants sends `X-Tenant-Id`** on admin routes,
   else `400 tenant_required`; a tenant it does not hold is
   `403 tenant_forbidden`.
-- **An `Idempotency-Key` reused with another body is `422`**, not `409`; a key
-  is kept for 24 hours.
+- **Identifiers are named after what they identify**, never a bare `id`, and
+  the old names are not accepted:
+  - a project's `id` is `project_id`, and its `name` and `description` are
+    `project_name` and `project_description` in the responses and the `PUT`
+    body.
+  - a connection's `ref` is `connection_ref` and its `last_ingestion.id` is
+    `last_ingestion.ingestion_id`; the reader filter chips return
+    `connection_ref`.
+  - the started ingestion returns `ingestion_id`, its `connection` ref is
+    split into `tenant_id`, `project_id` and `connection_id`, and
+    `triggered_by` is `{principal_type, principal_id}`. `workflow_id` and
+    `run_id` keep their names.
+  - a source type's `auth_methods[].id` is `auth_method_id`, and a connection
+    test's `preview.sample[].ref` is `item_ref`.
+  - `GET /v1/me` returns `principal.principal_type` and
+    `principal.principal_id`.
+  - a chat completion returns `completion_id`.
+  - a project delete refused with `409` names `details.connection_refs`, or
+    `details.connection_ref` for a connection that is ingesting.
+
+#### Ingestions and failures
+
 - **Ingestions start at `POST /v1/admin/ingestions`** with `project_id` and
   `connection_id` in the body. `POST …/connections/{connection_id}/sync`,
   `POST /v1/ingestions` and the `sync_now` field of connection `PUT` are
@@ -306,10 +332,21 @@ token is kept.
 - **Connection `stats.errors`** is the failed-document count of the latest
   run, the same number as `counters.failed` of that run, and `0` for a
   connection that never ran; it was `null` after a cancelled run.
+- **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
+  for the failure inbox; see
+  [Change, ingest and delete](connections.md#review-and-retry-failures).
+- **New settings:** `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL`
+  fill `links` of a run; add them to `env/.env.api`.
+
+#### Settings schema
+
 - **Settings schema:** `GET /v1/admin/settings/schema` answers
   `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key;
   each setting carries `key`, `type`, `default`, `min`, `max`, `levels`,
   `applies`, `description` and, for an enumerated key, `enum`.
+
+#### Chat
+
 - **Chat sessions and history answer the explorer `Session` and `Message`
   shapes, with no alias for the old ones.**
   - `POST /v1/chat/sessions` takes an optional `title` and `project_id`;
@@ -389,6 +426,15 @@ token is kept.
     `response.completed` with the JSON body, once the answer is complete. The
     `retrieval.completed`, `response.citations`, `response.warning` and
     `response.error` events are no longer sent.
+- **An `Idempotency-Key` reused with another body is `422`**, not `409`; a key
+  is kept for 24 hours.
+- **Chat completions are retrieval chat only:** `max_steps` is removed and
+  answers `422`, the `response.agent.progress` stream event is gone, and
+  `HARBORRAG_API_AGENT_TOKEN_BUDGET` and `HARBORRAG_MEMORY_AGENT_TOOLS` are
+  ignored. Sessions created by the 1.x agent surface stay stored and are now
+  listed by `GET /v1/chat/sessions` like any chat session. Session listings
+  no longer carry `kind`, stored messages no longer carry `run_id`, and the
+  `tool` message role is gone.
 - **`harborrag chat`** prints the new answer (`--json` prints the completion
   body), creates its session in the `--project` project, and refuses
   `--project` with `--session`.
@@ -403,37 +449,6 @@ token is kept.
   - `validate_chat_model`, `validate_chat_project` and
     `validate_completion_scope` are removed: the turn checks the model, the
     projects and the request's scope itself.
-- **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
-  for the failure inbox; see
-  [Change, ingest and delete](connections.md#change-ingest-and-delete).
-- **New settings:** `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL`
-  fill `links` of a run; add them to `env/.env.api`.
-- **Identifiers are named after what they identify**, never a bare `id`, and
-  the old names are not accepted:
-  - a project's `id` is `project_id`, and its `name` and `description` are
-    `project_name` and `project_description` in the responses and the `PUT`
-    body.
-  - a connection's `ref` is `connection_ref` and its `last_ingestion.id` is
-    `last_ingestion.ingestion_id`; the reader filter chips return
-    `connection_ref`.
-  - the started ingestion returns `ingestion_id`, its `connection` ref is
-    split into `tenant_id`, `project_id` and `connection_id`, and
-    `triggered_by` is `{principal_type, principal_id}`. `workflow_id` and
-    `run_id` keep their names.
-  - a source type's `auth_methods[].id` is `auth_method_id`, and a connection
-    test's `preview.sample[].ref` is `item_ref`.
-  - `GET /v1/me` returns `principal.principal_type` and
-    `principal.principal_id`.
-  - a chat completion returns `completion_id`.
-  - a project delete refused with `409` names `details.connection_refs`, or
-    `details.connection_ref` for a connection that is ingesting.
-- **Chat completions are retrieval chat only:** `max_steps` is removed and
-  answers `422`, the `response.agent.progress` stream event is gone, and
-  `HARBORRAG_API_AGENT_TOKEN_BUDGET` and `HARBORRAG_MEMORY_AGENT_TOOLS` are
-  ignored. Sessions created by the 1.x agent surface stay stored and are now
-  listed by `GET /v1/chat/sessions` like any chat session. Session listings
-  no longer carry `kind`, stored messages no longer carry `run_id`, and the
-  `tool` message role is gone.
 
 ### Runtime settings
 

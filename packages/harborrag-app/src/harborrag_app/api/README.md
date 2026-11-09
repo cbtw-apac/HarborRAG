@@ -1,6 +1,7 @@
 # Control Plane API
 
-The `harborrag_app.api` package is HarborRAG's FastAPI boundary. It validates
+Run HarborRAG's HTTP API, call its routes, and look up its errors, authentication,
+limits and settings. The `harborrag_app.api` package is HarborRAG's FastAPI boundary. It validates
 HTTP input, authenticates callers, delegates workflow operations to the
 transport-neutral application service, and maps results onto stable HTTP
 responses. Connector execution, parsing, chunking, indexing, and Temporal
@@ -66,7 +67,7 @@ shutdown.
 | A control-database URL is set | Migrated runtime control-plane repositories plus the real Temporal client |
 | `HARBORRAG_ENV=prod` | Requires an explicit control-database URL and authenticated API mode |
 
-## HTTP routes
+## Routes
 
 The live schema at `/openapi.json` is authoritative; `x-min-role` on each
 operation gives its lowest role.
@@ -209,7 +210,7 @@ Prometheus `text/plain; version=0.0.4` format: HTTP request counters and
 durations by route template, build information and process metrics. Ingestion
 counters come from the worker's own metrics port.
 
-## Configuration
+## Settings
 
 API process settings use the `HARBORRAG_` prefix.
 
@@ -233,8 +234,8 @@ API process settings use the `HARBORRAG_` prefix.
 | `HARBORRAG_HTTP_RATE_CHAT` | `2` | Chat completions per second per principal |
 | `HARBORRAG_API_CAPACITY_REDIS_URL` | unset in dev; required in prod | Redis for the rate windows and the chat capacity leases |
 | `HARBORRAG_API_CAPACITY_ALLOW_INSECURE_REMOTE` | `false` | Development-only acknowledgement for remote plaintext Redis |
-| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and legacy ingestion calls per principal per minute |
-| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and legacy ingestion calls per principal |
+| `HARBORRAG_API_REQUESTS_PER_MINUTE` | `60` | Chat completions and ingestion calls per principal per minute |
+| `HARBORRAG_API_MAX_INFLIGHT_PER_PRINCIPAL` | `4` | Concurrent chat completions and ingestion calls per principal |
 | `HARBORRAG_API_REQUEST_TIMEOUT_SECONDS` | `120` | Deadline of every `/v1` handler |
 | `HARBORRAG_API_STREAM_TIMEOUT_SECONDS` | `600` | Deadline of one streamed body |
 | `HARBORRAG_CONTROL_DB_URL` | local SQLite runtime default | Control-plane SQLAlchemy URL |
@@ -276,9 +277,9 @@ api/
 ├── rate_limit.py, deadline.py, capacity*.py
 ├── pagination.py, openapi.py
 └── v1/                   # the public /v1 routes
-    ├── admin/            # source types, connections and projects
+    ├── admin/            # source types, connections, projects and settings
     ├── chat/             # chat sessions and completions
-    ├── ingestion/        # legacy ingestion routes
+    ├── ingestion/        # ingestion runs and the failure inbox
     └── me.py
 ```
 

@@ -1,8 +1,10 @@
 # Conversation memory
 
-Public chat requests use the latest **three completed
-user/assistant exchanges** from their conversation. Older messages remain
-stored for browsing; dropping them from a prompt does not erase history.
+Look up what a chat turn remembers, who can read a session, how history is
+stored and browsed, and how long memories live. Public chat requests use the
+latest **three completed user/assistant exchanges** from their conversation.
+Older messages remain stored for browsing; dropping them from a prompt does not
+erase history.
 
 ## Identity and scope
 
@@ -61,16 +63,16 @@ Configure durable storage with `HARBORRAG_CONTROL_DB_URL`; deployed instances
 should share a PostgreSQL control database. The development in-memory
 fallback is bounded and does not survive restart or coordinate replicas.
 
-## Browse sessions
+## Browse sessions and history
 
-All endpoints below require tenant access and the `reader` role when
-authentication is enabled.
+Both calls require tenant access and the `reader` role when authentication is
+enabled.
 
 ```bash
 curl "http://localhost:8000/v1/chat/sessions?limit=20&q=hanoi" \
   -H "Authorization: Bearer $TOKEN"
 
-curl "http://localhost:8000/v1/chat/sessions/ses_.../messages?limit=20" \
+curl "http://localhost:8000/v1/chat/sessions/<session-id>/messages?limit=20" \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -94,8 +96,7 @@ memory endpoints.
 ## SDK memory settings
 
 These variables configure the SDK memory facade (`HarborRAG.memory.*`). They
-do not change the public
-three-exchange policy above.
+do not change the public three-exchange policy above.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -112,5 +113,8 @@ recalled, searched, or returned, but no background job deletes them: the
 rows stay in the control database until they are erased. Changing a
 retention value affects only memories written afterwards.
 
-See [Chat](README.md#migration) for the `0033`/`0034` database migration
-requirement and endpoint replacements.
+## See also
+
+- [Chat](README.md#migration): the database migration requirement and the
+  endpoint replacements.
+- [Limits and accounting](limits.md): deadlines, capacity and usage.

@@ -68,7 +68,9 @@ def test_json_schema_groups_hold_every_key_once() -> None:
     assert entries["parsing.pdf_parser"]["type"] == "enum"
     assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
     assert entries["retrieval.rerank"]["type"] == "boolean"
-    assert entries["retrieval.rerank"]["min"] is None
+    assert "min" not in entries["retrieval.rerank"]
+    assert "max" not in entries["retrieval.rerank"]
+    assert "min" not in entries["parsing.pdf_parser"]
     assert entries["models.embedding"]["type"] == "model_ref"
     assert all(entry["description"] for entry in entries.values())
 

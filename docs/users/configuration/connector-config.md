@@ -1,11 +1,13 @@
 # Connector Configuration
 
-> From 2.0.0, connections live in the control database and are managed
-> through the API ([Connections](../connections.md)). The service reads this
-> file once, at the first start of an install, and imports each entry
-> ([Upgrading](../upgrading.md)). Later edits to the file do not reach the
-> service. `harborrag init`, `harborrag doctor` and the Python loader below
-> still read it.
+Look up the format of `config/sources/connectors.yaml`: the named connector instances
+the runtime loader reads, their settings and secrets, and the options of each provider.
+
+From 2.0.0, connections live in the control database and are managed through the API
+([Connections](../connections.md)). The service reads this file once, at the first start of
+an install, and imports each entry ([Upgrading](../upgrading.md)). Later edits to the file
+do not reach the service. `harborrag init`, `harborrag doctor` and the Python loader below
+still read it.
 
 The runtime loader reads versioned YAML containing named connector instances. The
 `config/sources/` folder holds
@@ -340,7 +342,7 @@ also applies to delegated scopes.
 `auth_mode` is otherwise inferred: `access_token` when a token is set, else
 `client_credentials`. Delegated access is never inferred.
 
-## Secrets and dynamic values
+## Secrets and callbacks
 
 Keep credentials out of `settings`:
 
@@ -385,5 +387,5 @@ outside the code:
 - **Why did it stop?** `harborrag ingest status RUN_ID` and the run's event
   log record pause, resume and cancel requests with who asked (`task.<id>.control`
   events, stored but not sent on the HTTP event stream, where the new status
-  appears as `run.status`). A run that ends with
-  `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.
+  appears as `run.status`). A run that ends with `cancelled_at_safe_boundary` was
+  cancelled on request; it was not a timeout.

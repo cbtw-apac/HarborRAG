@@ -1,13 +1,14 @@
 # Runtime settings
 
 Look up the six settings an administrator can change at runtime without restarting a service,
-the levels they apply at, and how to change them over HTTP or from a file.
+the levels they apply at, and how to change them over HTTP or from a file. To change them
+from the command line, see [Import and export from the CLI](#import-and-export-from-the-cli).
 
 Settings overrides live in the control database. Everything else (connectors, models,
 Temporal, stores, authentication) stays in the files and environment variables described in
 [Configuration](README.md).
 
-## The settings
+## Settings and their levels
 
 | Key | Type | Levels | Applies | Default |
 | --- | --- | --- | --- | --- |
@@ -21,8 +22,8 @@ Temporal, stores, authentication) stays in the files and environment variables d
 `GET /v1/admin/settings/schema` returns the same table as JSON, grouped as
 `{"groups": [{"name", "title", "settings"}]}` in the order `retrieval`, `parsing`, `chunking`,
 `ingestion`, `models`. Each setting has `key`, `type` (`integer`, `boolean`, `enum` or
-`model_ref`), `default`, `min` and `max` (`null` when the key has none), `levels`, `applies`,
-`description` and, for an enumerated key, `enum`.
+`model_ref`), `default`, `levels`, `applies` and `description`. A bounded key also has `min`
+and `max`, and an enumerated key has `enum`; a key without them leaves those fields out.
 
 - `live`: running processes pick the change up within 10 seconds.
 - `next_ingestion`: the next ingestion run uses it; a run already started keeps its values.
@@ -47,7 +48,7 @@ A request without a level means `tenant`. The effective value resolves
 default, then tenant, then project, then connection; the most specific override wins. An
 override is accepted only at the levels its key lists.
 
-Rule D: a key with no override leaves today's boot setting in charge. The registry default
+A key with no override leaves today's boot setting in charge. The registry default
 equals the shipped value of that setting, so upgrading changes nothing. An override at any
 level replaces the boot setting.
 
@@ -190,6 +191,6 @@ every process within 10 seconds.
 
 Each process caches settings. The first load of a tenant must succeed; if Postgres is down
 then, the call fails with an unavailable error instead of serving defaults. If a later reload
-fails, the process keeps serving the last snapshot and logs `settings_cache_stale
-tenant_id=<id>`. `/readyz` reports `postgres: fail` while the database is down, and the cache
+fails, the process keeps serving the last snapshot and logs
+`settings_cache_stale tenant_id=<id>`. `/readyz` reports `postgres: fail` while the database is down, and the cache
 reloads after it returns.

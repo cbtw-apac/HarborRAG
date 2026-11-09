@@ -1,7 +1,7 @@
 # CLI reference
 
-The installed command is `harborrag`. Run
-`uv run harborrag ...` from a source checkout or
+Look up the options and behaviour of every `harborrag` command. The installed
+command is `harborrag`: run `uv run harborrag ...` from a source checkout or
 `harborrag ...` from an installed package.
 
 Typer provides grouped Rich help pages, validation, typo-friendly errors, and
@@ -12,7 +12,7 @@ While artifacts are processed concurrently, their preflight-through-finalize
 stages are marked `in flight` instead of presenting one misleading global
 current stage. Disable one-shot output color with `harborrag --no-color ...`.
 
-## Setup
+## Set up a project
 
 ```bash
 harborrag init [DIR] [--provider openai|azure-openai|gemini|openai-compatible]
@@ -38,6 +38,8 @@ the compose file publishes and, when any is taken, shifts them all by the first 
 (10000, 20000, 30000), rewriting `.env` to match and switching Qdrant to REST (the client
 cannot derive a gRPC port from the URL); `--ports-offset N` forces a value.
 
+### Choose the project directory
+
 Every command accepts the global `--project DIR` (or `HARBORRAG_PROJECT`); without it the CLI
 walks up from the current directory to the nearest `harborrag.yaml` and runs from there,
 printing `harborrag: using project DIR` on stderr whenever that is not the current directory.
@@ -53,13 +55,17 @@ Precedence for settings: shell environment, then the project `.env`, then `runti
 harborrag chat MESSAGE \
   [--tenant TENANT_ID] \
   [--session SESSION_ID] \
+  [--project PROJECT_ID] \
   [--json]
 ```
 
 `chat` makes one non-streaming, retrieval-grounded call using the server-owned
 default system prompt. It defaults to tenant `DEFAULT`. Omit `--session` on
-the first turn to generate one; pass the
-returned session ID on later calls to recall the two latest completed turns.
+the first turn to create one, in the project `--project` names; pass the
+returned session ID on later calls to recall the three latest completed
+exchanges. An existing session keeps its own project, so `--session` with
+`--project` is refused. Do not confuse `--project PROJECT_ID` of `chat` with
+the global `--project DIR`.
 
 ```bash
 harborrag chat "Explain HarborRAG in one paragraph." --json
@@ -69,7 +75,7 @@ Provider settings and credentials come from `config/models/models.yaml` and the
 process environment; they cannot be supplied as command options. See the
 [Chat guide](../chat/README.md).
 
-## Retrieval
+## Retrieve evidence
 
 ```bash
 harborrag retrieve QUERY \
@@ -91,7 +97,7 @@ With `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, a retrieval for
 `HARBORRAG_CORPUS_SHARED_TENANT_ID` reads the shared corpus; any other tenant is
 scoped to its source permissions.
 
-## Diagnostics
+## Check the setup
 
 ```bash
 harborrag doctor [--temporal] [--json]
@@ -105,7 +111,7 @@ database, and - only with `--temporal` - the Temporal workflow service. Exit 1 w
 required check fails. `--json` returns `{"ok", "data": {"checks": [...], "summary": {...},
 "diagnostics": {...}}, "error"}`.
 
-## Runtime settings
+## Import and export runtime settings
 
 ```bash
 harborrag config import FILE [--apply] [--prune] [--tenant TENANT_ID] [--json]
@@ -119,7 +125,7 @@ reads, and leaves out overrides of a deleted project or connection, naming each 
 `export` writes every level. The file shape and the keys are in
 [Runtime settings](../configuration/runtime-settings.md).
 
-## Connections
+## Manage connections
 
 ```bash
 harborrag source list [--project-id ID] [--type TYPE] [--status STATUS] [--limit N]
@@ -135,7 +141,7 @@ harborrag source remove PROJECT/CONNECTION [--purge] [--yes] [--json]
 `source` manages the same stored connections as
 `/v1/admin/projects/{project_id}/connections/{connection_id}`, through the same service, so
 validation, secrets, change records and statuses match the API. Name a connection as
-`PROJECT/CONNECTION`, using the project's id, such as `default/jira-cpm`. `--tenant` defaults
+`PROJECT/CONNECTION`, using the project's id, such as `default/jira-demo`. `--tenant` defaults
 to `DEFAULT`.
 
 `BODY` is a YAML or JSON file in the shape of the `PUT` body: `source_type`, `name`,
@@ -149,14 +155,14 @@ HTTP API takes values. The worker reads `NAME` from its own environment.
 
 ```yaml
 source_type: jira
-name: CPM tickets
+name: Demo tickets
 credentials:
   method: api_token
   base_url: https://acme.atlassian.net
   email: bot@acme.com
   api_token: {secret_ref: env:JIRA_TOKEN}
 config:
-  jql: project = CPM
+  jql: project = DEMO
 advanced:
   page_size: 50
 ```
@@ -179,7 +185,7 @@ A failed call exits 1 and, for a validation error, names each field, such as
 `config.space_key: required`. From a repository checkout, writes refuse the local SQLite
 control database; set `HARBORRAG_CONTROL_DB_URL` to the stack's Postgres.
 
-## Ingestion
+## Run and control ingestion
 
 ```bash
 harborrag ingest run CONNECTOR [--tenant TENANT_ID] [--run-id RUN_ID]
@@ -222,7 +228,7 @@ harborrag ingest cancel RUN_ID [--json]
 The connector is the only required input: give it positionally (`harborrag ingest start workspace`)
 or with `--connector-id` (`--connector` is an accepted alias). Giving both with different values
 is an error.
-The value is a stored connection's `source_key`, such as `default/jira-cpm`, or the key a
+The value is a stored connection's `source_key`, such as `default/jira-demo`, or the key a
 connection imported from `connectors.yaml` keeps, such as `workspace`. It is not a source
 type, so `--connector-id local` fails. `--tenant` defaults to `DEFAULT`.
 
@@ -257,6 +263,8 @@ submission, and with `--json` it prints
 `{"ok":true,"data":{"run":{"run_id":"…","status":"running"},"timed_out":true},"error":null}`.
 Ctrl-C (also on `wait`) leaves the run untouched and names it (exit 130); use
 `ingest pause|resume|cancel` to control it. `--events` (on `watch`) streams NDJSON instead.
+
+### JSON output and exit codes
 
 JSON output uses a stable envelope:
 

@@ -1,9 +1,10 @@
 # Chat models
 
-Which model answers a chat turn, and how a tenant overrides the shared
-catalog. For the request and response contract see [Chat](README.md).
+Choose which model answers a chat turn, and let a tenant override the shared
+catalog with its own models. For the request and response contract see
+[Chat](README.md).
 
-## Configure the model
+## Configure the shared model
 
 The checked-in runtime catalog uses one logical model named `primary`:
 
@@ -85,7 +86,7 @@ the operator has not allowed. `extra` keys that are not deployment fields are
 passed to the provider SDK as extension parameters and are still bounded by
 the operator's `chat.security.allowed_extra_litellm_params`.
 
-## How a change takes effect
+## How a tenant change takes effect
 
 There is no restart and no cross-replica invalidation channel. Every request
 asks the control plane for a cheap fingerprint over the tenant's rows and
@@ -101,9 +102,9 @@ is disposed when the bound is reached and rebuilt if that tenant returns.
 ## When a tenant's configuration is broken
 
 Chat never fails because a tenant misconfigured itself. If the rows cannot be
-projected onto a valid client -- an unlisted provider, an endpoint outside the
+projected onto a valid client (an unlisted provider, an endpoint outside the
 allowlist, a capability the provider does not support, a `secret_ref` that no
-longer resolves -- or if the control plane is unreachable, the turn is answered
+longer resolves) or if the control plane is unreachable, the turn is answered
 from the shared catalog and the failure is logged at ERROR naming the tenant
 and the reason. The tenant loses its own models for that turn, not its ability
 to chat. Its model names are then bounded by the shared catalog, since the
@@ -124,7 +125,7 @@ before any model call, never a silent fall back to the default.
 
 ## See also
 
-- [Chat](README.md) - the HTTP and CLI surfaces
-- [Chat models](models.md) - the model catalog and per-tenant overrides
-- [Conversation memory](memory.md) - what a turn remembers and for how long
-- [Limits and accounting](limits.md) - deadlines, admission control, usage
+- [Chat](README.md): the HTTP and CLI surfaces
+- [Conversation memory](memory.md): what a turn remembers and for how long
+- [Limits and accounting](limits.md): deadlines, admission control, usage
+- [Model configuration](../configuration/model-config.md): the shared catalog
