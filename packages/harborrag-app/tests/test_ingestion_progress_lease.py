@@ -47,6 +47,7 @@ class _FakeTask:
     task_id: str
     status: IngestionTaskState
     summary: dict[str, object] = field(default_factory=dict)
+    request: dict[str, object] = field(default_factory=dict)
 
 
 class _FakeTaskStore:

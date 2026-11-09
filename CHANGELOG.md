@@ -49,6 +49,7 @@ Documents are re-chunked and re-embedded on their next ingestion; see the
 
 #### harborrag-app
 
+- **Breaking:** `GET /v1/admin/ingestions/{ingestion_id}/events` sends `run.status`, `stage.progress`, `document.failed` and `run.completed` with integer ids, a `: ping` every 15 s and resume from `Last-Event-ID`, a deadline from `api_stream_timeout_seconds` (`error` event `deadline_exceeded`, or `504` before the first event), replacing `task.<id>.progress`, `.done` and `.control`; a pause, resume or cancel appears as a `run.status` with the new status
 - **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run

@@ -9,12 +9,16 @@ receives the resulting events live (not just after reconnecting).
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.progress_bridge import sync_ingestion_progress
+from harborrag_app.workflow_control.ingestion.progress_bridge import (
+    sync_ingestion_progress,
+    sync_run,
+)
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import IngestionTaskState, StoredTaskDocumentResult, TaskDocumentPage
 from harborrag_runtime.events.in_process import InProcessEventBus
 
 
@@ -23,6 +27,7 @@ class _FakeTask:
     task_id: str
     status: IngestionTaskState
     summary: dict[str, object] = field(default_factory=dict)
+    request: dict[str, object] = field(default_factory=dict)
     submitted_at: object = None
 
 
@@ -43,6 +48,7 @@ class FakeTaskStore:
         # exactly the race sync_ingestion_progress's re-fetch is there to catch.
         self._finish_on_progress = dict(finish_on_progress or {})
         self.appended: list[tuple[str, HarborEvent]] = []
+        self.failed_documents: dict[str, list[StoredTaskDocumentResult]] = {}
         self._next_seq: dict[str, int] = {}
 
     async def list_active(
@@ -56,7 +62,12 @@ class FakeTaskStore:
         return tuple(
             task
             for task in self._tasks.values()
-            if task.status in (IngestionTaskState.PENDING, IngestionTaskState.RUNNING)
+            if task.status
+            in (
+                IngestionTaskState.PENDING,
+                IngestionTaskState.RUNNING,
+                IngestionTaskState.PAUSED,
+            )
         )
 
     async def get(self, task_id: str) -> _FakeTask | None:
@@ -70,6 +81,32 @@ class FakeTaskStore:
     async def update_summary(self, task_id: str, values: dict[str, object]) -> None:
         self._tasks[task_id].summary.update(values)
 
+    async def document_results_page(
+        self,
+        task_id: str,
+        *,
+        statuses: object = None,
+        after_updated_at: datetime | None = None,
+        after_document_id: str | None = None,
+        limit: int = 50,
+    ) -> TaskDocumentPage:
+        del statuses
+        rows = sorted(
+            self.failed_documents.get(task_id, []), key=lambda r: (r.updated_at, r.document_id)
+        )
+        if after_updated_at is not None:
+            rows = [
+                r
+                for r in rows
+                if (r.updated_at, r.document_id) > (after_updated_at, after_document_id)
+            ]
+        return TaskDocumentPage(tuple(rows[:limit]), has_more=len(rows) > limit)
+
+    async def append_task_event_once(self, task_id: str, event: HarborEvent) -> HarborEvent | None:
+        if any(owner == task_id and stored.name == event.name for owner, stored in self.appended):
+            return None
+        return await self.append_task_event(task_id, event)
+
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent:
         seq = self._next_seq.get(task_id, 0) + 1
         self._next_seq[task_id] = seq
@@ -78,11 +115,31 @@ class FakeTaskStore:
         return stamped
 
 
+def _wire(store: FakeTaskStore, task_id: str = "t1") -> list[tuple[str, int | None, dict]]:
+    prefix = f"task.{task_id}."
+    return [
+        (event.name.removeprefix(prefix), event.seq, event.payload)
+        for owner, event in store.appended
+        if owner == task_id
+    ]
+
+
+def _failed_document(document_id: str, **result: object) -> StoredTaskDocumentResult:
+    return StoredTaskDocumentResult(
+        task_id="t1",
+        document_id=document_id,
+        document_version_id=None,
+        status="failed",
+        result=dict(result),
+        updated_at=datetime(2026, 11, 7, tzinfo=UTC),
+    )
+
+
 @pytest.mark.asyncio
-async def test_progress_change_is_published_and_appended_to_the_task_event_log() -> None:
+async def test_progress_change_emits_run_status_and_stage_progress_with_explorer_payloads() -> None:
     store = FakeTaskStore(
-        [_FakeTask("t1", IngestionTaskState.RUNNING)],
-        {"t1": {"succeeded": 1}},
+        [_FakeTask("t1", IngestionTaskState.RUNNING, summary={"discovered": 4})],
+        {"t1": {"published": 1, "unchanged": 1}},
     )
     bus = InProcessEventBus()
     subscriber = bus.subscribe("task.t1.")
@@ -90,10 +147,19 @@ async def test_progress_change_is_published_and_appended_to_the_task_event_log()
     examined = await sync_ingestion_progress(store, bus)
 
     assert examined == 1
-    event = await subscriber.__anext__()
-    assert event.name == "task.t1.progress"
-    assert event.payload["counts"] == {"succeeded": 1}
-    assert store.appended == [("t1", event)]
+    live = [await subscriber.__anext__(), await subscriber.__anext__()]
+    assert live == [event for _, event in store.appended]
+    assert _wire(store) == [
+        (
+            "run.status",
+            1,
+            {
+                "status": "running",
+                "counters": {"discovered": 4, "processed": 1, "skipped": 1, "failed": 0},
+            },
+        ),
+        ("stage.progress", 2, {"stage": "publish", "done": 2, "total": 4}),
+    ]
 
 
 @pytest.mark.asyncio
@@ -184,14 +250,11 @@ async def test_losing_the_lease_mid_tick_stops_further_pages(
 
 
 @pytest.mark.asyncio
-async def test_reaching_a_terminal_state_publishes_a_done_event_live() -> None:
-    task = _FakeTask("t1", IngestionTaskState.RUNNING)
-    # The task is RUNNING (so list_active() picks it up this tick) but finishes
-    # by the time progress() is queried -- the race the re-fetch-after-progress
-    # in sync_ingestion_progress exists to catch within the same tick.
+async def test_reaching_a_terminal_state_publishes_run_completed_live() -> None:
+    task = _FakeTask("t1", IngestionTaskState.RUNNING, summary={"discovered": 2})
     store = FakeTaskStore(
         [task],
-        {"t1": {"succeeded": 2}},
+        {"t1": {"published": 2}},
         finish_on_progress={"t1": IngestionTaskState.COMPLETED},
     )
     bus = InProcessEventBus()
@@ -199,8 +262,89 @@ async def test_reaching_a_terminal_state_publishes_a_done_event_live() -> None:
 
     await sync_ingestion_progress(store, bus)
 
-    progress_event = await subscriber.__anext__()
-    assert progress_event.name == "task.t1.progress"
-    done_event = await subscriber.__anext__()
-    assert done_event.name == "task.t1.done"
-    assert done_event.payload["status"] == "COMPLETED"
+    names = [(await subscriber.__anext__()).name for _ in range(2)]
+    assert names == ["task.t1.stage.progress", "task.t1.run.completed"]
+    assert _wire(store)[-1][2] == {
+        "counters": {"discovered": 2, "processed": 2, "skipped": 0, "failed": 0},
+        "finish_reason": "succeeded",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_run_that_progresses_fails_a_document_pauses_and_completes() -> None:
+    task = _FakeTask("t1", IngestionTaskState.RUNNING, summary={"discovered": 3})
+    store = FakeTaskStore([task], {"t1": {}})
+    bus = InProcessEventBus()
+
+    await sync_ingestion_progress(store, bus)
+    store._counts["t1"] = {"published": 1, "failed": 1}
+    store.failed_documents["t1"] = [
+        _failed_document("doc-9", failure_stage="ParseAndNormalize", safe_error_code="parse_failed")
+    ]
+    await sync_ingestion_progress(store, bus)
+    task.status = IngestionTaskState.PAUSED
+    await sync_ingestion_progress(store, bus)
+    await sync_ingestion_progress(store, bus)
+    task.status = IngestionTaskState.RUNNING
+    store._counts["t1"] = {"published": 2, "failed": 1}
+    await sync_ingestion_progress(store, bus)
+    task.status = IngestionTaskState.PARTIAL
+    await sync_run(store, bus, task)
+
+    wire = _wire(store)
+    assert [name for name, _, _ in wire] == [
+        "run.status",
+        "stage.progress",
+        "run.status",
+        "stage.progress",
+        "document.failed",
+        "run.status",
+        "run.status",
+        "stage.progress",
+        "run.completed",
+    ]
+    ids = [seq for _, seq, _ in wire]
+    assert ids == sorted(set(ids))
+    payloads = {name: payload for name, _, payload in wire}
+    assert wire[4][2] == {
+        "document_id": "doc-9",
+        "stage": "interpret",
+        "error_category": "parse_failed",
+    }
+    assert wire[5][2]["status"] == "paused"
+    assert wire[6][2]["status"] == "running"
+    assert payloads["run.completed"] == {
+        "counters": {"discovered": 3, "processed": 2, "skipped": 0, "failed": 1},
+        "finish_reason": "succeeded",
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_failed_document_is_emitted_once_across_ticks() -> None:
+    task = _FakeTask("t1", IngestionTaskState.RUNNING, summary={"discovered": 3})
+    store = FakeTaskStore([task], {"t1": {"failed": 1}})
+    store.failed_documents["t1"] = [_failed_document("doc-a")]
+    bus = InProcessEventBus()
+
+    await sync_ingestion_progress(store, bus)
+    store._counts["t1"] = {"failed": 2}
+    store.failed_documents["t1"].append(_failed_document("doc-b"))
+    await sync_ingestion_progress(store, bus)
+
+    failed = [payload for name, _, payload in _wire(store) if name == "document.failed"]
+    assert failed == [
+        {"document_id": "doc-a", "stage": "capture", "error_category": "unknown"},
+        {"document_id": "doc-b", "stage": "capture", "error_category": "unknown"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_run_completed_is_appended_once_however_often_the_run_is_synced() -> None:
+    task = _FakeTask("t1", IngestionTaskState.COMPLETED, summary={"discovered": 1})
+    store = FakeTaskStore([task], {"t1": {"published": 1}})
+    bus = InProcessEventBus()
+
+    await sync_run(store, bus, task)
+    await sync_run(store, bus, task)
+
+    assert [name for name, _, _ in _wire(store)].count("run.completed") == 1

@@ -177,6 +177,11 @@ class IngestionTaskRegistry:
         seq = await self._control.task_events.append_event(task_id, event)
         return replace(event, seq=seq)
 
+    async def append_task_event_once(self, task_id: str, event: HarborEvent) -> HarborEvent | None:
+        """Append ``event`` unless the run already stored one of that name; ``None`` if it had."""
+        seq = await self._control.task_events.append_event_once(task_id, event)
+        return None if seq is None else replace(event, seq=seq)
+
     async def list_task_events(
         self,
         task_id: str,

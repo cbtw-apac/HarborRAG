@@ -1,23 +1,27 @@
-"""Poll active ingestion tasks and fan progress out via the event bus (ML2).
+"""Poll active ingestion runs and fan their events out via the event bus.
 
-The new task model (IngestionApplicationService/PublicTaskStore) has no
-push mechanism -- progress() is a point-in-time snapshot recomputed on each
-call. This bridge is the diff loop that turns those snapshots into an
-ordered, replayable event stream: mirrors the job-domain's
-sync_job_progress/run_job_progress_bridge design one-for-one, retargeted at
-tasks instead of jobs.
+``progress()`` is a point-in-time snapshot, so this bridge is the diff loop that turns
+snapshots into the ordered, replayable stream behind ``GET /v1/admin/ingestions/{id}/events``:
+``run.status``, ``stage.progress``, ``document.failed`` and ``run.completed``.
+Stored and bus event names carry a ``task.<id>.`` routing prefix that the route strips.
+The ``control`` audit events (who asked for pause, resume or cancel) are stored but never
+streamed; the status change they cause reaches the stream as ``run.status``.
 """
 
 from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
+from datetime import datetime
+from typing import Any
 
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ports.events import EventBusPort
 
+from ..control_plane.connection_views import ingestion_counters, ingestion_status
 from .ports import PublicTaskStore
+from .stages import spec_stage
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.progress_bridge")
 
@@ -30,6 +34,15 @@ _TERMINAL_STATES = frozenset(
     }
 )
 _SNAPSHOT_KEY = "_last_progress_snapshot"
+_FAILURE_CURSOR_KEY = "_last_failure_cursor"
+_PUBLISH_STAGE = "publish"
+_UNKNOWN_CATEGORY = "unknown"
+_FAILED_PAGE_LIMIT = 200
+RUN_STATUS = "run.status"
+STAGE_PROGRESS = "stage.progress"
+DOCUMENT_FAILED = "document.failed"
+RUN_COMPLETED = "run.completed"
+CONTROL_AUDIT = "control"
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 _LIST_ACTIVE_PAGE_LIMIT = 500
 
@@ -45,41 +58,34 @@ LEASE_NAME = "ingestion_progress_bridge"
 LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
 
 
+def event_prefix(task_id: str) -> str:
+    """Return the routing prefix of a run's stored and bus event names."""
+    return f"task.{task_id}."
+
+
 async def sync_ingestion_progress(
     store: PublicTaskStore,
     event_bus: EventBusPort,
     *,
     still_leader: Callable[[], Awaitable[bool]] | None = None,
 ) -> int:
-    """One poll tick: diff every active task's progress snapshot.
+    """One poll tick: diff every active run's status, counters and failed documents.
 
-    For each task whose counts changed since the last tick, append + publish
-    a "task.<id>.progress" event. For a task that reached a terminal status
-    since the last tick, append + publish a final "task.<id>.done" event
-    too -- the stream route's stop signal. Returns the number of active
-    tasks examined.
+    A run whose status or counters changed gets ``run.status``; changed counters also get
+    ``stage.progress``; each newly failed document gets ``document.failed``. A run that
+    reached a terminal status gets a final ``run.completed``, the stream's stop signal.
 
-    list_active() is a bounded, keyset-paginated read, not a single snapshot
-    of every active task -- with more active tasks than fit in one page,
-    stopping after the first page would silently starve later tasks of
-    progress/done events. So this walks every page each tick, following the
-    (submitted_at, task_id) cursor from the last row of each page until a
-    short page signals the end.
+    ``list_active()`` is keyset-paginated, so this walks every page each tick. A run that
+    ends between two ticks drops out of ``list_active()`` unseen; the event stream then
+    completes it through ``sync_run`` when a watcher reads it.
 
-    ``still_leader``, when given, is re-checked before every page (an
-    AppService caller passes its lease's try_acquire, which re-confirms
-    ownership and renews the lease's ttl in one call). A single ownership
-    check up front, before this pagination existed, was enough because one
-    tick's work was small and fast; now that a tick can span an unbounded
-    number of pages, a large enough backlog of active tasks could make one
-    tick outlive the lease's ttl, letting another process take over the
-    same lease and start its own overlapping drain while this one is still
-    running. If ownership is no longer confirmed, this stops early and
-    returns however many tasks were examined so far -- safe, because the
-    next tick (by whichever process now holds the lease) restarts the
-    pagination from the beginning and re-diffs every active task's
-    snapshot, so nothing already published needs redoing and nothing
-    skipped here is lost.
+    Args:
+        store: The run registry.
+        event_bus: Where each appended event is published for live tails.
+        still_leader: Re-checked before every page; a lost lease stops the tick early.
+
+    Returns:
+        The number of active runs examined.
     """
     examined = 0
     after_submitted_at = None
@@ -100,28 +106,105 @@ async def sync_ingestion_progress(
         if not page:
             break
         for task in page:
-            counts = await store.progress(task.task_id)
-            if counts != task.summary.get(_SNAPSHOT_KEY):
-                event = HarborEvent(
-                    name=f"task.{task.task_id}.progress",
-                    trace_id=task.task_id,
-                    payload={"status": task.status.value, "counts": counts},
-                )
-                event = await store.append_task_event(task.task_id, event)
-                await event_bus.publish(event)
-                await store.update_summary(task.task_id, {_SNAPSHOT_KEY: counts})
-            refreshed = await store.get(task.task_id)
-            if refreshed is not None and refreshed.status in _TERMINAL_STATES:
-                done_event = HarborEvent(
-                    name=f"task.{task.task_id}.done",
-                    trace_id=task.task_id,
-                    payload={"status": refreshed.status.value, "counts": counts},
-                )
-                done_event = await store.append_task_event(task.task_id, done_event)
-                await event_bus.publish(done_event)
+            await sync_run(store, event_bus, task)
         examined += len(page)
         if len(page) < _LIST_ACTIVE_PAGE_LIMIT:
             break
         after_submitted_at = page[-1].submitted_at
         after_task_id = page[-1].task_id
     return examined
+
+
+async def sync_run(store: PublicTaskStore, event_bus: EventBusPort, task: IngestionTask) -> None:
+    """Emit the events a run's current state owes: diffs, new failures and, once ended, ``run.completed``.
+
+    ``run.completed`` is appended at most once per run, whichever caller gets there first.
+    """
+    counts = await store.progress(task.task_id)
+    refreshed = await store.get(task.task_id)
+    current = refreshed if refreshed is not None else task
+    terminal = current.status in _TERMINAL_STATES
+    counters = ingestion_counters(current, counts)
+    status = ingestion_status(current.status)
+    snapshot = {"status": status, "counters": counters}
+    previous = current.summary.get(_SNAPSHOT_KEY)
+    previous = previous if isinstance(previous, dict) else {}
+    if snapshot != previous:
+        if not terminal:
+            await _emit(store, event_bus, task.task_id, RUN_STATUS, snapshot)
+        if counters != previous.get("counters"):
+            await _emit(
+                store,
+                event_bus,
+                task.task_id,
+                STAGE_PROGRESS,
+                {
+                    "stage": _PUBLISH_STAGE,
+                    "done": counters["processed"] + counters["skipped"] + counters["failed"],
+                    "total": counters["discovered"],
+                },
+            )
+        await store.update_summary(task.task_id, {_SNAPSHOT_KEY: snapshot})
+    if counters["failed"]:
+        await _emit_new_failures(store, event_bus, current)
+    if terminal:
+        completed = HarborEvent(
+            name=f"{event_prefix(task.task_id)}{RUN_COMPLETED}",
+            trace_id=task.task_id,
+            payload={"counters": counters, "finish_reason": status},
+        )
+        stored = await store.append_task_event_once(task.task_id, completed)
+        if stored is not None:
+            await event_bus.publish(stored)
+
+
+async def _emit_new_failures(
+    store: PublicTaskStore, event_bus: EventBusPort, task: IngestionTask
+) -> None:
+    cursor = task.summary.get(_FAILURE_CURSOR_KEY)
+    after_updated_at: datetime | None = None
+    after_document_id: str | None = None
+    if isinstance(cursor, list) and len(cursor) == 2:  # noqa: PLR2004 - [updated_at, document_id]
+        after_updated_at, after_document_id = datetime.fromisoformat(cursor[0]), cursor[1]
+    while True:
+        page = await store.document_results_page(
+            task.task_id,
+            statuses=("failed",),
+            after_updated_at=after_updated_at,
+            after_document_id=after_document_id,
+            limit=_FAILED_PAGE_LIMIT,
+        )
+        for item in page.items:
+            await _emit(store, event_bus, task.task_id, DOCUMENT_FAILED, _failure_payload(item))
+        if not page.items:
+            return
+        last = page.items[-1]
+        after_updated_at, after_document_id = last.updated_at, str(last.document_id)
+        await store.update_summary(
+            task.task_id,
+            {_FAILURE_CURSOR_KEY: [after_updated_at.isoformat(), after_document_id]},
+        )
+        if not page.has_more:
+            return
+
+
+def _failure_payload(item: Any) -> dict[str, str]:
+    result = item.result
+    stage = result.get("failure_stage")
+    code = result.get("safe_error_code")
+    return {
+        "document_id": str(result.get("source_item_id") or item.document_id),
+        "stage": spec_stage(stage if isinstance(stage, str) else None),
+        "error_category": code if isinstance(code, str) and code else _UNKNOWN_CATEGORY,
+    }
+
+
+async def _emit(
+    store: PublicTaskStore,
+    event_bus: EventBusPort,
+    task_id: str,
+    name: str,
+    payload: dict[str, Any],
+) -> None:
+    event = HarborEvent(name=f"{event_prefix(task_id)}{name}", trace_id=task_id, payload=payload)
+    await event_bus.publish(await store.append_task_event(task_id, event))

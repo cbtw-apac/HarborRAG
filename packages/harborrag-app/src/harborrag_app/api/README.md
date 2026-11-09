@@ -83,7 +83,7 @@ operation gives its lowest role.
 | `POST` `GET` | `/v1/admin/ingestions` | `editor` | Start an ingestion of the connection named in the body; list runs (`project_id`, `connection_ref`, `status`, `created_after`, `limit`, `cursor`) |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}` | `editor` | One run in the explorer `Ingestion` shape |
 | `GET` | `/v1/admin/ingestions/{ingestion_id}/documents` | `editor` | Per-document results, `?status=all\|succeeded\|skipped\|failed` |
-| `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | Run events |
+| `GET` | `/v1/admin/ingestions/{ingestion_id}/events` | `editor` | SSE: `run.status`, `stage.progress`, `document.failed`, `run.completed`; integer `id`, `Last-Event-ID` resume, `: ping` every 15 s, ends after `api_stream_timeout_seconds` (600 s by default) with an `error` event (`deadline_exceeded`; `504` if no event came first) |
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action, and for `pause` or `resume` of a retry run |
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
 | `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |

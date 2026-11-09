@@ -383,6 +383,7 @@ outside the code:
 - **Disk.** Every attachment is kept as an immutable artifact (up to
   `max_attachment_size_bytes` each). Size the object store from the rehearsal.
 - **Why did it stop?** `harborrag ingest status RUN_ID` and the run's event
-  trail record pause, resume and cancel requests with who asked
-  (`task.<id>.control` events). A run that ends with
+  log record pause, resume and cancel requests with who asked (`task.<id>.control`
+  events, stored but not sent on the HTTP event stream, where the new status
+  appears as `run.status`). A run that ends with
   `cancelled_at_safe_boundary` was cancelled on request; it was not a timeout.

@@ -9,8 +9,9 @@ Handles:
 
 from __future__ import annotations
 
+import asyncio
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
@@ -18,11 +19,13 @@ from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
+from harborrag_app.api.dependencies import ResponseContextDependency
 from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
+from harborrag_app.api.sse import bounded_sse_frames, with_heartbeat
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
 from harborrag_app.api.v1.admin.dependencies import Administration, Editor, error_responses
 from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
-from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborDeadlineExceeded, HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
 
 from .dependencies import IngestionServiceDependency
@@ -34,6 +37,7 @@ from .schemas import (
     RetryFailuresRequest,
 )
 
+HEARTBEAT_SECONDS = 15.0
 _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 
 router = APIRouter(
@@ -171,6 +175,7 @@ async def stream_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
+    context: ResponseContextDependency,
     _principal: Editor,
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse:
@@ -185,13 +190,27 @@ async def stream_ingestion(
     A reconnecting browser EventSource resends the last frame's ``id:`` as
     the ``Last-Event-ID`` header; that becomes ``after_seq`` so the backlog
     replay resumes past what the client already has instead of repeating it.
+
+    The wait for the first event runs under the same ``api_stream_timeout_seconds``
+    deadline as the body: before the first byte it answers ``504 deadline_exceeded``,
+    after it the stream ends with an ``error`` event.
+
+    Raises:
+        HarborDeadlineExceeded: No event arrived before the deadline.
     """
+    loop = asyncio.get_running_loop()
+    timeout_seconds = context.settings.api_stream_timeout_seconds
+    deadline = loop.time() + timeout_seconds
     await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
     events = service.stream_ingestion_events(
         ingestion_id, after_seq=_parse_after_seq(last_event_id)
     )
     try:
-        first_event = await events.__anext__()
+        async with asyncio.timeout(timeout_seconds):
+            first_event = await events.__anext__()
+    except TimeoutError as exc:
+        await events.aclose()
+        raise HarborDeadlineExceeded("Ingestion event stream exceeded its server deadline") from exc
     except StopAsyncIteration:
 
         async def _empty() -> AsyncIterator[bytes]:
@@ -200,7 +219,7 @@ async def stream_ingestion(
 
         return StreamingResponse(_empty(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
-    async def _frames() -> AsyncIterator[bytes]:
+    async def _frames() -> AsyncGenerator[bytes, None]:
         try:
             yield _sse_frame(first_event)
             async for event in events:
@@ -208,7 +227,18 @@ async def stream_ingestion(
         finally:
             await events.aclose()
 
-    return StreamingResponse(_frames(), media_type="text/event-stream", headers=_SSE_HEADERS)
+    return StreamingResponse(
+        with_heartbeat(
+            bounded_sse_frames(
+                _frames(),
+                timeout_seconds=max(deadline - loop.time(), 0.001),
+                error_message="Ingestion event stream exceeded its server deadline",
+            ),
+            interval_seconds=HEARTBEAT_SECONDS,
+        ),
+        media_type="text/event-stream",
+        headers=_SSE_HEADERS,
+    )
 
 
 def _parse_after_seq(last_event_id: str | None) -> int | None:
@@ -222,7 +252,7 @@ def _parse_after_seq(last_event_id: str | None) -> int | None:
 
 
 def _sse_frame(event: HarborEvent) -> bytes:
-    name = event.name.replace("\n", "").replace("\r", "")
+    name = event.name.removeprefix(f"task.{event.trace_id}.").replace("\n", "").replace("\r", "")
     id_line = f"id: {event.seq}\n" if event.seq is not None else ""
     return f"{id_line}event: {name}\ndata: {json.dumps(event.payload, default=str)}\n\n".encode()
 

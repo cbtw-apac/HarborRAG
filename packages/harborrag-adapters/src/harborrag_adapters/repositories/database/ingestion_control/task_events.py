@@ -3,12 +3,17 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClient
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
 
 from .schema import INGESTION_TASKS, TASK_EVENTS
+
+
+class _AlreadyAppendedError(Exception):
+    """Raised inside the transaction to roll back a duplicate append."""
 
 
 @dataclass(slots=True)
@@ -29,26 +34,55 @@ class TaskEventRepository:
         event before publishing it live (the SSE replay cursor).
         """
         async with self.client.sessions.begin() as session:
-            result = await session.execute(
-                sa.update(INGESTION_TASKS)
-                .where(INGESTION_TASKS.c.task_id == task_id)
-                .values(event_sequence=INGESTION_TASKS.c.event_sequence + 1)
-                .returning(INGESTION_TASKS.c.event_sequence)
+            return await self._insert(session, task_id, event)
+
+    async def append_event_once(self, task_id: str, event: HarborEvent) -> int | None:
+        """Append the event unless the task already has an event of the same name.
+
+        The sequence update takes the task row's write lock before the existence
+        check, so concurrent callers cannot both append.
+
+        Returns:
+            The assigned sequence, or ``None`` when the name was already stored.
+        """
+        try:
+            async with self.client.sessions.begin() as session:
+                return await self._insert(session, task_id, event, only_if_new=True)
+        except _AlreadyAppendedError:
+            return None
+
+    @staticmethod
+    async def _insert(
+        session: AsyncSession, task_id: str, event: HarborEvent, *, only_if_new: bool = False
+    ) -> int:
+        result = await session.execute(
+            sa.update(INGESTION_TASKS)
+            .where(INGESTION_TASKS.c.task_id == task_id)
+            .values(event_sequence=INGESTION_TASKS.c.event_sequence + 1)
+            .returning(INGESTION_TASKS.c.event_sequence)
+        )
+        next_seq = result.scalar_one_or_none()
+        if next_seq is None:
+            raise HarborNotFoundError(f"ingestion task does not exist: {task_id}")
+        if only_if_new:
+            existing = await session.execute(
+                sa.select(TASK_EVENTS.c.seq)
+                .where(TASK_EVENTS.c.task_id == task_id, TASK_EVENTS.c.name == event.name)
+                .limit(1)
             )
-            next_seq = result.scalar_one_or_none()
-            if next_seq is None:
-                raise HarborNotFoundError(f"ingestion task does not exist: {task_id}")
-            await session.execute(
-                sa.insert(TASK_EVENTS).values(
-                    task_id=task_id,
-                    seq=next_seq,
-                    name=event.name,
-                    trace_id=event.trace_id,
-                    payload_json=dict(event.payload),
-                    created_at=event.created_at,
-                )
+            if existing.first() is not None:
+                raise _AlreadyAppendedError
+        await session.execute(
+            sa.insert(TASK_EVENTS).values(
+                task_id=task_id,
+                seq=next_seq,
+                name=event.name,
+                trace_id=event.trace_id,
+                payload_json=dict(event.payload),
+                created_at=event.created_at,
             )
-            return int(next_seq)
+        )
+        return int(next_seq)
 
     async def list_events(
         self,

@@ -54,6 +54,7 @@ from .presenters import (
     task_id,
     task_response,
 )
+from .progress_bridge import CONTROL_AUDIT, event_prefix
 from .recovery import retry_from_task, source_from_task
 from .retry_selection import retryable_document_ids
 
@@ -82,14 +83,14 @@ async def record_control_action(
 
     ``cancelled_at_safe_boundary`` used to be the only trace a cancellation
     left, with nothing saying whether an operator, the API or a script asked
-    for it. The event sits next to the run's progress events, where anyone
-    asking "why did this stop" already looks.
+    for it. The event sits in the run's event log, where anyone asking "why
+    did this stop" already looks; the HTTP event stream does not carry it.
     """
 
     await store.append_task_event(
         task_id,
         HarborEvent(
-            name=f"task.{task_id}.control",
+            name=f"{event_prefix(task_id)}{CONTROL_AUDIT}",
             trace_id=task_id,
             payload={"action": action, "actor": actor or "unknown"},
         ),

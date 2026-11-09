@@ -272,6 +272,15 @@ token is kept.
 - **Ingestion runs moved to `/v1/admin/ingestions`:** `/v1/ingestions*` answers
   `404`; `{task_id}` is now `{ingestion_id}` and `/stream` is `/events`. The
   responses use the `Ingestion` shape described below.
+- **The ingestion event stream uses new event names, with no alias.**
+  `task.<id>.progress` and `task.<id>.done` are gone. `run.status`
+  (`{status, counters}`, lowercase status; also sent when a pause, resume or
+  cancel changes the status), `stage.progress` (`{stage, done, total}`),
+  `document.failed` (`{document_id, stage, error_category}`) and
+  `run.completed` (`{counters, finish_reason}`) replace them, and the stream
+  ends after `run.completed`. Each frame's `id` is an integer that increases;
+  `task.<id>.control` events are no longer streamed. Clients that matched the
+  old names must switch to the new ones.
 - **Ingestion runs answer the explorer `Ingestion` shape**, and the task shape
   (`progress`, `stage`, `source`, `submitted_at`, `message`) is retired with no
   alias. A run carries `ingestion_id`, `tenant_id`, `project_id`,

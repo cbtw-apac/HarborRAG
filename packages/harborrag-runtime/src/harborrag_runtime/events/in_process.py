@@ -22,7 +22,7 @@ _Subscription = tuple[str, "asyncio.Queue[HarborEvent]"]
 # A subscriber that never reads (a stalled/leaked consumer) must not retain
 # every event forever. Progress snapshots are safe to coalesce -- a later one
 # supersedes an earlier one -- so a full queue drops its oldest entry rather
-# than blocking publish() or growing unbounded. A terminal ".done" event is
+# than blocking publish() or growing unbounded. A terminal "run.completed" event is
 # never dropped: by construction it's always the last event published for a
 # given subscription, so it only ever evicts an older progress entry, never
 # itself.

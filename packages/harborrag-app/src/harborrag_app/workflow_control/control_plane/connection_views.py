@@ -169,29 +169,15 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
         tenant_id = str(request.get("tenant_id") or "")
         project_id, _, connection_id = str(request.get("connection_id") or "").rpartition("/")
     kind = RunKind.of(request)
-    retry = kind is RunKind.RETRY
     workflow_id = kind.workflow_id(task.task_id)
-    discovered = _count(summary, "discovered")
-    document_ids = request.get("document_ids")
-    if retry and not discovered and isinstance(document_ids, list):
-        discovered = len(document_ids)
-    processed = counts.get("published", 0)
-    skipped = counts.get("unchanged", 0) + counts.get("skipped", 0)
-    failed = counts.get("failed", 0)
-    discovered = max(discovered, processed + skipped + failed)
     return {
         "ingestion_id": task.task_id,
         "tenant_id": tenant_id,
         "project_id": project_id,
         "connection_id": connection_id,
         "mode": mode or ("force" if request.get("force_reprocess") else "incremental"),
-        "status": _INGESTION_STATUS.get(task.status, "queued"),
-        "counters": {
-            "discovered": discovered,
-            "processed": processed,
-            "skipped": skipped,
-            "failed": failed,
-        },
+        "status": ingestion_status(task.status),
+        "counters": ingestion_counters(task, counts),
         "stages": [],
         "error_category": summary.get("error_code") if isinstance(summary, Mapping) else None,
         "triggered_by": {
@@ -219,6 +205,35 @@ def _last_ingestion(task: IngestionTask | None) -> dict[str, Any] | None:
         "ingestion_id": task.task_id,
         "status": _INGESTION_STATUS.get(task.status, "queued"),
         "finished_at": finished,
+    }
+
+
+def ingestion_status(state: IngestionTaskState) -> str:
+    """Return the spec's lowercase ``Ingestion`` status of a durable task state."""
+    return _INGESTION_STATUS.get(state, "queued")
+
+
+def ingestion_counters(task: IngestionTask, progress: Mapping[str, int]) -> dict[str, int]:
+    """Return the spec's ``Ingestion`` counters of a durable task from its result counts.
+
+    Args:
+        task: The durable run.
+        progress: Result counts by status from the run registry.
+    """
+    summary = task.summary
+    request = task.request
+    discovered = _count(summary, "discovered")
+    document_ids = request.get("document_ids")
+    if RunKind.of(request) is RunKind.RETRY and not discovered and isinstance(document_ids, list):
+        discovered = len(document_ids)
+    processed = progress.get("published", 0)
+    skipped = progress.get("unchanged", 0) + progress.get("skipped", 0)
+    failed = progress.get("failed", 0)
+    return {
+        "discovered": max(discovered, processed + skipped + failed),
+        "processed": processed,
+        "skipped": skipped,
+        "failed": failed,
     }
 
 

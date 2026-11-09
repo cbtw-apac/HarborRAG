@@ -87,6 +87,10 @@ class PublicTaskStore(Protocol):
 
     async def append_task_event(self, task_id: str, event: HarborEvent) -> HarborEvent: ...
 
+    async def append_task_event_once(
+        self, task_id: str, event: HarborEvent
+    ) -> HarborEvent | None: ...
+
     async def list_task_events(
         self,
         task_id: str,
