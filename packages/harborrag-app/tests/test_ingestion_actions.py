@@ -30,13 +30,17 @@ from harborrag_app.workflow_control.ingestion.operations import (
     IngestionOperations,
 )
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-from harborrag_core.contracts.errors import HarborAlreadyRunningError
+from harborrag_core.contracts.errors import HarborAlreadyRunningError, HarborConnectionError
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.errors import WorkflowNotFoundError, WorkflowOperationError
+from harborrag_runtime.errors import (
+    WorkflowNotFoundError,
+    WorkflowNotRunningError,
+    WorkflowOperationError,
+)
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 
 __all__ = ["service_resources"]
@@ -211,6 +215,52 @@ async def test_cancelling_a_run_whose_workflow_was_terminated_records_the_cancel
 
     assert view["status"] == "cancelled"
     assert view["finished_at"] is not None
+
+
+@pytest.mark.parametrize("state", [IngestionTaskState.RUNNING, IngestionTaskState.PAUSED])
+@pytest.mark.parametrize(
+    ("error", "category"),
+    [
+        (WorkflowNotFoundError("task not found"), "workflow_not_found"),
+        (WorkflowNotRunningError("the task already finished"), "workflow_closed"),
+    ],
+    ids=["gone", "closed"],
+)
+@pytest.mark.asyncio
+async def test_cancelling_a_started_run_whose_workflow_is_gone_records_the_cancellation(
+    service_resources: _Resources,
+    state: IngestionTaskState,
+    error: WorkflowOperationError,
+    category: str,
+) -> None:
+    _, _, temporal = service_resources
+    task_id = await _start(service_resources, state)
+    temporal.statuses[task_id] = error
+
+    view = await _operations(service_resources, _Clock()).act(
+        tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_huy"
+    )
+
+    assert view["status"] == "cancelled"
+    assert view["finished_at"] is not None
+    assert view["error_category"] == category
+
+
+@pytest.mark.asyncio
+async def test_cancelling_a_queued_run_without_a_workflow_leaves_it_queued(
+    service_resources: _Resources,
+) -> None:
+    _, control, temporal = service_resources
+    task_id = await _start(service_resources, IngestionTaskState.PENDING)
+    temporal.statuses[task_id] = WorkflowNotFoundError("task not found")
+
+    with pytest.raises(HarborConnectionError):
+        await _operations(service_resources, _Clock()).act(
+            tenant_id=_TENANT, ingestion_id=task_id, action="cancel", actor="u_huy"
+        )
+
+    stored = await control.tasks.get(task_id)
+    assert stored is not None and stored.status is IngestionTaskState.PENDING
 
 
 @pytest.mark.asyncio
@@ -642,6 +692,23 @@ async def test_cli_cancel_of_a_source_run_cancels_the_source_workflow(
     assert response.ok is True
     assert temporal.cancelled == [task_id]
     assert temporal.cancelled_retries == []
+
+
+@pytest.mark.asyncio
+async def test_cli_cancel_of_a_run_whose_workflow_is_gone_records_the_cancellation(
+    service_resources: _Resources, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, control, temporal = service_resources
+    task_id = await _start(service_resources)
+    temporal.statuses[task_id] = WorkflowNotFoundError("task not found")
+
+    response = await _cli_service(service_resources, monkeypatch).control_ingestion(
+        task_id, "cancel"
+    )
+
+    assert response.ok is True
+    stored = await control.tasks.get(task_id)
+    assert stored is not None and stored.status is IngestionTaskState.CANCELLED
 
 
 @pytest.mark.asyncio

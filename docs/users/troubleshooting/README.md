@@ -1,5 +1,6 @@
 # Troubleshooting
 
+Find the symptom you see, its likely cause, and the fix.
 
 ## Projects created with `harborrag init`
 
@@ -45,7 +46,7 @@ Example files are not loaded automatically. HarborRAG reads the process environm
 
 ### An accepted ingestion appears to do nothing
 
-Read the task resource first. A `202 Accepted` response means the workflow was
+Read the ingestion first. A `202 Accepted` response means the workflow was
 submitted; processing continues asynchronously:
 
 ```bash
@@ -71,7 +72,7 @@ exclude connector credentials, raw document content, prompts, and model output.
 If the worker reports that previous chunk or representation artifacts are
 missing during a metadata-only update, current releases fall back to fresh
 encoding. This reuse path is an optimization and must not fail the ingestion.
-For a task created by an older worker, allow it to finish, deploy the corrected
+For a run created by an older worker, allow it to finish, deploy the corrected
 worker, and use `POST /v1/admin/ingestions/{ingestion_id}/retry-failures` for its retryable
 document failures.
 
@@ -84,8 +85,11 @@ a run whose workflow ended is recorded as `CANCELLED` (terminated or cancelled)
 or `FAILED` (failed, timed out, or completed unrecorded), and the start goes
 ahead. Removing the connection or cancelling the run does the same; until one of
 these happens, the run still reads `RUNNING`. A run Temporal reports as running
-or paused, or cannot describe, such as a terminated retry run, still blocks its
-connection.
+or paused, or cannot describe, still blocks its connection.
+
+A run whose workflow Temporal no longer has, for example after its history passed
+the namespace retention, stays `RUNNING` until you cancel it. Cancelling a running
+or paused run records it as `CANCELLED` with `error_category` `workflow_not_found`.
 
 ## Chat and MCP
 

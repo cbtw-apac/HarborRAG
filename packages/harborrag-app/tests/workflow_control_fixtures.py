@@ -225,7 +225,7 @@ class FakeTemporalClient:
     """Gateway double with one workflow per run kind, as Temporal addresses them.
 
     ``statuses`` describes source workflows and ``retry_statuses`` retry workflows; an
-    exception there is raised by describe and, for a retry run, by cancel.
+    exception there is raised by describe and by cancel.
     """
 
     def __init__(self) -> None:
@@ -260,10 +260,11 @@ class FakeTemporalClient:
         self.resumed.append(task_id)
 
     async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None:
+        statuses = self.retry_statuses if kind is RunKind.RETRY else self.statuses
+        status = statuses.get(task_id)
+        if isinstance(status, Exception):
+            raise status
         if kind is RunKind.RETRY:
-            status = self.retry_statuses.get(task_id)
-            if isinstance(status, Exception):
-                raise status
             self.cancelled_retries.append(task_id)
             return
         self.cancelled.append(task_id)

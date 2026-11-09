@@ -309,8 +309,10 @@ class IngestionApplicationService:
     async def _cancel_workflow(self, store: PublicTaskStore, task: IngestionTask) -> IngestionTask:
         """Ask the run's workflow to cancel and return the run as it now stands.
 
-        A retry run whose workflow is gone or closed is recorded as cancelled here,
-        since no workflow is left to record it.
+        A run whose workflow is gone or closed, such as one whose history passed the
+        namespace retention, is recorded as cancelled here, since no workflow is left
+        to record it. A queued source run is left queued: its workflow may not be
+        submitted yet.
 
         Raises:
             HarborConnectionError: Temporal could not take the request.
@@ -320,7 +322,7 @@ class IngestionApplicationService:
             await (await self._client_provider()).cancel(task.task_id, kind)
         except WorkflowOperationError as error:
             reason = _GONE_WORKFLOW_REASONS.get(type(error))
-            if kind is not RunKind.RETRY or reason is None:
+            if reason is None or _may_await_submission(task, kind):
                 raise HarborConnectionError(
                     "Ingestion cancellation is temporarily unavailable."
                 ) from error
@@ -465,3 +467,8 @@ def _refuse_retry_run(task: IngestionTask, past: str) -> None:
     """
     if RunKind.of(task.request) is RunKind.RETRY:
         raise IngestionActionStateError(f"retry runs cannot be {past}; cancel the run instead")
+
+
+def _may_await_submission(task: IngestionTask, kind: RunKind) -> bool:
+    """Whether ``task`` is a queued source run, whose workflow may not be submitted yet."""
+    return kind is RunKind.SOURCE and task.status is IngestionTaskState.PENDING
