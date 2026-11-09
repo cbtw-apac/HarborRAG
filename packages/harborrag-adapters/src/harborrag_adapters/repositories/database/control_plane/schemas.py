@@ -57,6 +57,31 @@ class ProjectRow(Base):
     version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
 
 
+class SettingOverrideRow(Base):
+    """setting_overrides: one key's value at one scope, resolved default -> tenant -> project -> connection."""
+
+    __tablename__ = "setting_overrides"
+
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
+    scope_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    key: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONVariant, nullable=False)
+    version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
+    created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "scope_level IN ('tenant', 'project', 'connection')",
+            name="ck_setting_overrides_scope_level",
+        ),
+        sa.Index("ix_setting_overrides_tenant_key", "tenant_id", "key"),
+    )
+
+
 class SourceRow(Base):
     """sources: one editable connection per row; credentials store secret refs only."""
 

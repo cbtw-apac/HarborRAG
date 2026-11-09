@@ -20,6 +20,7 @@ from harborrag_core.ports.control_plane import (
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    SettingOverrideRepositoryPort,
     SettingsRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -65,6 +66,7 @@ class ControlPlaneRepositories:
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
+    setting_overrides: SettingOverrideRepositoryPort | None = None
 
 
 @dataclass(slots=True)
@@ -131,6 +133,9 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
+            SqlSettingOverrideRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.usage import (
             SqlModelUsageRepository,
@@ -209,6 +214,7 @@ class CompositionRoot:
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
+            setting_overrides=SqlSettingOverrideRepository(sessions),
         )
         composition = cls(
             control_plane=repositories,

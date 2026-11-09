@@ -12,6 +12,7 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.config.settings_seed import seed_setting_overrides_once
 
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..control_plane.connections import ConnectionService
@@ -178,6 +179,19 @@ class AppService(
             settings=control_plane.settings,
         )
         return len(plan.writes) if plan is not None else 0
+
+    async def seed_setting_overrides_once(self) -> int:
+        """Seed `setting_overrides` from `config/settings.yaml` on the first start of a fresh install."""
+        control_plane = self._control_plane()
+        if control_plane.setting_overrides is None:
+            return 0
+        planned = await seed_setting_overrides_once(
+            self._settings.settings_seed_config_path,
+            overrides=control_plane.setting_overrides,
+            workspace=control_plane.settings,
+            default_tenant_id=self._settings.ingestion_tenant_id,
+        )
+        return len(planned) if planned is not None else 0
 
     async def resume_connection_removals(self) -> int:
         """Finish removals a previous process left running; one API process at a time."""

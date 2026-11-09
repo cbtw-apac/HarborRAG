@@ -106,6 +106,21 @@ async def _import_connectors_once(service: object) -> None:
         logger.info("Imported %d connections from config/connectors.yaml", imported)
 
 
+async def _seed_setting_overrides_once(service: object) -> None:
+    """Seed `setting_overrides` from `config/settings.yaml` on the first start."""
+
+    seeder = getattr(service, "seed_setting_overrides_once", None)
+    if seeder is None:
+        return
+    try:
+        seeded = await seeder()
+    except Exception:
+        logger.exception("Seeding config/settings.yaml failed; set overrides through the API")
+        return
+    if seeded:
+        logger.info("Seeded %d setting overrides from config/settings.yaml", seeded)
+
+
 async def _resume_connection_removals(app: FastAPI) -> None:
     """Finish connection and project removals a crash or failure left unfinished."""
 
@@ -164,6 +179,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     if owns_memory_extraction:
         await service.start_memory_extraction()
     await _import_connectors_once(service)
+    await _seed_setting_overrides_once(service)
     recovery_task = asyncio.create_task(_recover_pending_submissions(app))
     progress_task = asyncio.create_task(_sync_ingestion_progress(app))
     control_plane_effect_recovery_task = asyncio.create_task(
