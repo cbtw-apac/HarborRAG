@@ -10,4 +10,6 @@ export interface HarborRequestOptions {
   headers?: HeadersInit;
   /** Use a separate AbortController for each request that can be cancelled independently. */
   signal?: AbortSignal;
+  /** Sent as X-Tenant-Id; required when the token holds several tenants. */
+  tenant?: string;
 }
