@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Final, Literal, Protocol
@@ -70,7 +70,7 @@ from harborrag_runtime.ingestion.connections import (
 
 from ..ingestion.models import IngestionCreateCommand
 from .active_runs import active_run
-from .connection_views import connection_view, ingestion_view, resolve_any_version
+from .connection_views import ingestion_view, read_connection_views, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
@@ -106,6 +106,8 @@ class ConnectionRuns(Protocol):
     async def get(self, task_id: str) -> IngestionTask | None: ...
 
     async def progress(self, task_id: str) -> dict[str, int]: ...
+
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
 
 
 class IngestionSubmitter(Protocol):
@@ -204,7 +206,8 @@ class ConnectionService:
             limit=limit,
             cursor=cursor,
         )
-        return [await self._view(connection) for connection in connections], next_cursor
+        views = await read_connection_views(await self._runs(), connections, batch=True)
+        return views, next_cursor
 
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
         """Connections of one project as reader filter chips.
@@ -706,14 +709,8 @@ class ConnectionService:
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
         """Return the API view with the latest run and document count."""
-        runs = await self._runs()
-        latest = await runs.latest_for_connection(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        documents = await runs.connection_document_count(
-            tenant_id=connection.tenant_id, connection_id=connection.source_key
-        )
-        return connection_view(connection, last_ingestion=latest, documents=documents)
+        views = await read_connection_views(await self._runs(), [connection], batch=False)
+        return views[0]
 
     async def _retire_replaced(self, connection: Connection, refs: list[str]) -> None:
         """Delete replaced stored secrets now, or once the running ingestion finishes."""

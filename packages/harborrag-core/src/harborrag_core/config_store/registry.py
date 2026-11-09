@@ -32,6 +32,14 @@ BOOT_ONLY_PREFIXES: tuple[str, ...] = (
     "secrets.",
 )
 
+GROUP_TITLES: Mapping[str, str] = {
+    "retrieval": "Retrieval",
+    "parsing": "Parsing",
+    "chunking": "Chunking",
+    "ingestion": "Ingestion",
+    "models": "Models",
+}
+
 _SCHEMA_KEYS = ("type", "minimum", "maximum", "enum", "pattern")
 
 
@@ -47,8 +55,18 @@ def _extra(levels: list[LevelKind], applies: Applies) -> dict[str, Any]:
 class RetrievalGroup(StrictModel):
     """Retrieval settings."""
 
-    top_k: int = Field(5, ge=1, le=100, json_schema_extra=_extra(["tenant", "project"], "live"))
-    rerank: bool = Field(False, json_schema_extra=_extra(["tenant", "project"], "live"))
+    top_k: int = Field(
+        5,
+        ge=1,
+        le=100,
+        description="Passages the chat retrieval and the MCP vector_search return by default",
+        json_schema_extra=_extra(["tenant", "project"], "live"),
+    )
+    rerank: bool = Field(
+        False,
+        description="Rerank retrieved passages; refused until a rerank stage exists",
+        json_schema_extra=_extra(["tenant", "project"], "live"),
+    )
 
 
 class ParsingGroup(StrictModel):
@@ -56,6 +74,7 @@ class ParsingGroup(StrictModel):
 
     pdf_parser: Literal["liteparse", "docling"] = Field(
         "liteparse",
+        description="Engine that parses PDF documents",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
 
@@ -67,6 +86,7 @@ class ChunkingGroup(StrictModel):
         1200,
         ge=64,
         le=4096,
+        description="Largest chunk size in tokens; caps every chunking profile",
         json_schema_extra=_extra(["tenant", "project", "connection"], "next_ingestion"),
     )
 
@@ -75,7 +95,11 @@ class IngestionGroup(StrictModel):
     """Ingestion settings."""
 
     concurrency: int = Field(
-        8, ge=1, le=64, json_schema_extra=_extra(["tenant", "connection"], "next_ingestion")
+        8,
+        ge=1,
+        le=64,
+        description="Documents processed at once by one ingestion run",
+        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
     )
 
 
@@ -85,6 +109,7 @@ class ModelsGroup(StrictModel):
     embedding: str | None = Field(
         None,
         pattern=r"^[A-Za-z0-9_.-]+:\S+$",
+        description="Embedding model as provider:model; changing it needs a re-index",
         json_schema_extra=_extra(["tenant", "project"], "reindex"),
     )
 
@@ -108,6 +133,7 @@ class SettingDefinition:
         applies: When a change takes effect.
         default: Value used when no level overrides the key.
         schema: JSON-schema fragment of the value: type, bounds, enum or pattern.
+        description: One-line summary of what the key controls.
     """
 
     key: str
@@ -115,6 +141,7 @@ class SettingDefinition:
     applies: Applies
     default: object
     schema: Mapping[str, object] = field(compare=False)
+    description: str = field(default="", compare=False)
 
     def validate(self, value: object) -> object:
         """Validate ``value`` strictly against the group field, so ``True`` is not an int.
@@ -162,6 +189,7 @@ def _definitions() -> dict[str, SettingDefinition]:
                 applies=extra["applies"],  # type: ignore[arg-type]  # extra values are Applies literals
                 default=info.default,
                 schema=_flat_schema(properties[field_name]),
+                description=info.description or "",
             )
     return definitions
 
@@ -212,13 +240,42 @@ class SettingsRegistry:
         return tuple(sorted(self.definitions))
 
     def json_schema(self) -> dict[str, Any]:
-        """Return a flat map of key to ``{type, bounds, default, levels, applies}``."""
+        """Return the settings grouped for the explorer: ``{"groups": [{name, title, settings}]}``."""
         return {
-            key: {
-                **self.definitions[key].schema,
-                "default": self.definitions[key].default,
-                "levels": list(self.definitions[key].levels),
-                "applies": self.definitions[key].applies,
-            }
-            for key in self.keys()
+            "groups": [
+                {
+                    "name": group,
+                    "title": GROUP_TITLES[group],
+                    "settings": [
+                        _setting_entry(definition)
+                        for key, definition in self.definitions.items()
+                        if key.startswith(f"{group}.")
+                    ],
+                }
+                for group in SETTINGS_GROUPS
+            ]
         }
+
+
+def _setting_entry(definition: SettingDefinition) -> dict[str, Any]:
+    schema = definition.schema
+    kind: object
+    if "enum" in schema:
+        kind = "enum"
+    elif "pattern" in schema:
+        kind = "model_ref"
+    else:
+        kind = schema.get("type", "string")
+    entry: dict[str, Any] = {
+        "key": definition.key,
+        "type": kind,
+        "default": definition.default,
+        "min": schema.get("minimum"),
+        "max": schema.get("maximum"),
+        "levels": list(definition.levels),
+        "applies": definition.applies,
+        "description": definition.description,
+    }
+    if "enum" in schema:
+        entry["enum"] = list(schema["enum"])  # type: ignore[call-overload]  # enum is a list in the fragment
+    return entry

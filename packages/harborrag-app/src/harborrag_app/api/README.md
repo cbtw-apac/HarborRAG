@@ -87,9 +87,9 @@ operation gives its lowest role.
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/pause`, `/resume`, `/cancel` | `editor` | `200` with the run after waiting (10 s, 10 s, 30 s); `409 invalid_state` from a state that cannot take the action, and for `pause` or `resume` of a retry run |
 | `POST` | `/v1/admin/ingestions/{ingestion_id}/retry-failures` | `editor` | `202` with the new run and `Location` |
 | `GET` | `/v1/admin/failures` | `editor` | Failure inbox with `counts` and optional `total` |
-| `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run |
+| `POST` | `/v1/admin/failures/retry` | `editor` | Retry failures by `ids` or `filter`; one run per original run; `409` when none match |
 | `GET` `PATCH` | `/v1/admin/settings` | `admin`; `editor` reads `connection:` levels | Read overrides or effective values at a `level`; change them with `If-Match` |
-| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by key: type, range, levels, when a change applies |
+| `GET` | `/v1/admin/settings/schema` | `editor` | The six runtime settings by group: type, range, levels, when a change applies, description |
 | `GET` | `/v1/admin/projects` | `admin` | Projects in the tenant, cursor-paged |
 | `GET` `PUT` `DELETE` | `/v1/admin/projects/{project_id}` | `admin` | Read, create or update, delete a project |
 | `GET` | `/v1/projects/{project_id}/connections` | `reader` | Connections a reader can search in a project |

@@ -357,7 +357,7 @@ def test_total_is_absent_unless_requested_and_cursor_walks_all_pages(
     while True:
         params: dict[str, Any] = {"limit": 5, **({"cursor": cursor} if cursor else {})}
         body = client.get(_LIST, params=params).json()
-        assert body["total"] is None
+        assert "total" not in body
         seen.extend(item["failure_id"] for item in body["items"])
         cursor = body["next_cursor"]
         if cursor is None:
@@ -485,8 +485,8 @@ def test_retry_skips_resolved_and_not_retryable_failures(
         _RETRY, json={"ids": [_failure_id("run-1", "doc-fatal"), _failure_id("run-1", "doc-done")]}
     )
 
-    assert response.status_code == 202
-    assert response.json() == {"ingestion_id": None, "ingestion_ids": [], "queued": 0}
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "invalid_state"
     assert actions.calls == []
 
 
@@ -495,8 +495,9 @@ def test_retry_with_nothing_selected_starts_no_run(
 ) -> None:
     response = client.post(_RETRY, json={"filter": {"error_category": "no_such_category"}})
 
-    assert response.status_code == 202
-    assert response.json() == {"ingestion_id": None, "ingestion_ids": [], "queued": 0}
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "invalid_state"
+    assert "no retryable failures match" in response.json()["error"]["message"]
     assert actions.calls == []
     assert set(seeded.tasks) == {"run-1", "run-wiki"}
 

@@ -112,7 +112,7 @@ class FailureRetryRequest(ApiModel):
 
 
 class FailureRetryAccepted(ApiModel):
-    ingestion_id: str | None
+    ingestion_id: str
     ingestion_ids: list[str]
     queued: int
 

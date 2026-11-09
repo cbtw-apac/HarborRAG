@@ -41,28 +41,48 @@ def test_levels_and_applies() -> None:
     assert registry.definition("models.embedding").applies == "reindex"
 
 
-def test_json_schema_entry() -> None:
-    schema = SettingsRegistry.default().json_schema()
+def test_json_schema_groups_hold_every_key_once() -> None:
+    groups = SettingsRegistry.default().json_schema()["groups"]
 
-    assert set(schema) == set(SIX_KEYS)
-    assert schema["chunking.max_tokens"] == {
+    assert [(group["name"], group["title"]) for group in groups] == [
+        ("retrieval", "Retrieval"),
+        ("parsing", "Parsing"),
+        ("chunking", "Chunking"),
+        ("ingestion", "Ingestion"),
+        ("models", "Models"),
+    ]
+    entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
+    assert sorted(entry["key"] for group in groups for entry in group["settings"]) == sorted(
+        SIX_KEYS
+    )
+    assert entries["chunking.max_tokens"] == {
+        "key": "chunking.max_tokens",
         "type": "integer",
-        "minimum": 64,
-        "maximum": 4096,
         "default": 1200,
+        "min": 64,
+        "max": 4096,
         "levels": ["tenant", "project", "connection"],
         "applies": "next_ingestion",
+        "description": entries["chunking.max_tokens"]["description"],
     }
-    assert schema["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
-    assert schema["models.embedding"]["type"] == "string"
-    assert "pattern" in schema["models.embedding"]
+    assert entries["parsing.pdf_parser"]["type"] == "enum"
+    assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
+    assert entries["retrieval.rerank"]["type"] == "boolean"
+    assert entries["retrieval.rerank"]["min"] is None
+    assert entries["models.embedding"]["type"] == "model_ref"
+    assert all(entry["description"] for entry in entries.values())
+
+
+def _entry(registry: SettingsRegistry, key: str) -> dict[str, object]:
+    groups = registry.json_schema()["groups"]
+    return next(entry for group in groups for entry in group["settings"] if entry["key"] == key)
 
 
 def test_with_defaults_sets_embedding() -> None:
     registry = SettingsRegistry.default().with_defaults({"models.embedding": "openai:te3"})
 
     assert registry.definition("models.embedding").default == "openai:te3"
-    assert registry.json_schema()["models.embedding"]["default"] == "openai:te3"
+    assert _entry(registry, "models.embedding")["default"] == "openai:te3"
     assert SettingsRegistry.default().definition("models.embedding").default is None
 
 

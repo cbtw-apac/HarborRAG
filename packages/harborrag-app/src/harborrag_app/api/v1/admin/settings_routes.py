@@ -119,5 +119,5 @@ async def patch_settings(  # noqa: PLR0913 - body, level, flags, precondition an
     responses=error_responses(403),
 )
 async def settings_schema(service: SettingsDependency, _principal: Editor) -> dict[str, Any]:
-    """The registry's schema by key: type, range, levels and when a change applies."""
+    """The registry's settings by group: type, range, levels, when a change applies, description."""
     return service.schema()

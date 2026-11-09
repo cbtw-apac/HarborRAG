@@ -53,6 +53,9 @@ class Runs:
 
     active: IngestionTask | None = None
     tasks: dict[str, IngestionTask] = field(default_factory=dict)
+    counts: dict[str, dict[str, int]] = field(default_factory=dict)
+    progress_calls: list[str] = field(default_factory=list)
+    batch_calls: list[tuple[str, ...]] = field(default_factory=list)
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
         return self.active
@@ -67,10 +70,12 @@ class Runs:
         return self.tasks.get(task_id)
 
     async def progress(self, task_id: str) -> dict[str, int]:
-        return {"published": 1}
+        self.progress_calls.append(task_id)
+        return self.counts.get(task_id, {"published": 1})
 
     async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
-        return {task_id: {"published": 1} for task_id in task_ids}
+        self.batch_calls.append(tuple(task_ids))
+        return {task_id: self.counts.get(task_id, {"published": 1}) for task_id in task_ids}
 
     async def list_tasks(self, **_filters: Any) -> TaskPage:
         return TaskPage(tuple(self.tasks.values()), has_more=False)

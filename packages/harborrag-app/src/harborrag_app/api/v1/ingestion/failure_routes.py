@@ -27,13 +27,16 @@ router = APIRouter(
 
 _ERROR_RESPONSES = documented_error_responses(
     {
+        409: "No retryable failure matches the retry request",
         422: "Invalid failure query, cursor or retry request",
         503: "Ingestion service unavailable",
     }
 )
 
 
-@router.get("", response_model=FailurePage, responses=_ERROR_RESPONSES)
+@router.get(
+    "", response_model=FailurePage, response_model_exclude_unset=True, responses=_ERROR_RESPONSES
+)
 async def list_failures(
     service: IngestionServiceDependency,
     tenant: TenantDependency,
@@ -67,7 +70,7 @@ async def retry_failures(
     principal: Editor,
     body: FailureRetryRequest,
 ) -> dict[str, Any]:
-    """Retry unresolved, retryable failures; answers the new runs, none when nothing matches."""
+    """Retry unresolved, retryable failures; answers the new runs, 409 when nothing matches."""
     return await service.failure_inbox.retry(
         tenant_id=tenant,
         ids=body.ids,

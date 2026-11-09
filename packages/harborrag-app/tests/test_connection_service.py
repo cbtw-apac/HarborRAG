@@ -17,7 +17,10 @@ from app_test_connections import (
 )
 
 from harborrag_app.workflow_control.control_plane.active_runs import SETTLE_ROUNDS
-from harborrag_app.workflow_control.control_plane.connection_views import ANY_VERSION
+from harborrag_app.workflow_control.control_plane.connection_views import (
+    ANY_VERSION,
+    ingestion_view,
+)
 from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionKey,
     ConnectionWrite,
@@ -828,3 +831,45 @@ async def test_a_save_that_keeps_losing_the_race_answers_conflict_and_leaks_no_s
 
     assert not isinstance(caught.value, HarborPreconditionFailedError)
     assert world.secrets.values == stored_before
+
+
+@pytest.mark.asyncio
+async def test_stats_errors_count_failed_documents_of_a_cancelled_latest_run(
+    world: ConnectionWorld,
+) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    cancelled = running_task("ing_9", IngestionTaskState.CANCELLED)
+    world.runs.active = cancelled
+    world.runs.counts["ing_9"] = {"published": 3, "failed": 2}
+
+    view, _version = await world.service.get(CONNECTION_KEY)
+    ingestion = ingestion_view(cancelled, connection=None, progress=world.runs.counts["ing_9"])
+
+    assert view["stats"]["errors"] == 2 == ingestion["counters"]["failed"]
+    assert cancelled.summary.get("failed") is None
+
+
+@pytest.mark.asyncio
+async def test_stats_errors_is_zero_for_a_connection_that_never_ran(
+    world: ConnectionWorld,
+) -> None:
+    result = await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+
+    assert result.connection["stats"]["errors"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_batches_the_progress_of_every_latest_run(world: ConnectionWorld) -> None:
+    for name in ("one", "two", "three"):
+        key = replace(CONNECTION_KEY, connection_id=f"cpm-{name}")
+        await world.service.put(key, JIRA_WRITE, actor="u_huy")
+    world.runs.active = running_task("ing_7", IngestionTaskState.FAILED)
+    world.runs.counts["ing_7"] = {"failed": 4}
+    world.runs.progress_calls.clear()
+
+    items, _cursor = await world.service.list_page(tenant_id="acme")
+
+    assert len(items) == 3
+    assert [item["stats"]["errors"] for item in items] == [4, 4, 4]
+    assert world.runs.progress_calls == []
+    assert len(world.runs.batch_calls) == 1

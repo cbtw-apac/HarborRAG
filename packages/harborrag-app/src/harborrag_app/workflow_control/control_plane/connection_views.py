@@ -9,7 +9,7 @@ Handles:
 from __future__ import annotations
 
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -65,9 +65,14 @@ def connection_view(
     connection: Connection,
     *,
     last_ingestion: IngestionTask | None = None,
+    progress: Mapping[str, int] | None = None,
     documents: int | None = None,
 ) -> dict[str, Any]:
-    """Return the spec's ``Connection`` object; secrets never leave as values."""
+    """Return the spec's ``Connection`` object; secrets never leave as values.
+
+    ``stats.errors`` is the failed-document count of ``last_ingestion`` in ``progress``, the
+    source of ``Ingestion.counters.failed``; 0 without a run.
+    """
     return {
         "tenant_id": connection.tenant_id,
         "project_id": connection.project_id,
@@ -80,8 +85,12 @@ def connection_view(
         "advanced": dict(connection.tuning),
         "status": connection.status,
         "last_ingestion": _last_ingestion(last_ingestion),
-        "stats": {"documents": documents, "chunks": None, "entities": None, "errors": None}
-        | _errors(last_ingestion),
+        "stats": {
+            "documents": documents,
+            "chunks": None,
+            "entities": None,
+            "errors": (progress or {}).get("failed", 0),
+        },
         "created_by": connection.created_by,
         "updated_by": connection.updated_by,
         "created_at": connection.created_at,
@@ -213,15 +222,40 @@ def _last_ingestion(task: IngestionTask | None) -> dict[str, Any] | None:
     }
 
 
-def _errors(task: IngestionTask | None) -> dict[str, int | None]:
-    """Failed item count of the latest run, when it recorded one; 0 before any run."""
-    if task is None:
-        return {"errors": 0}
-    failed = task.summary.get("failed")
-    return {"errors": failed} if isinstance(failed, int) and not isinstance(failed, bool) else {}
-
-
 def _count(summary: Mapping[str, Any], key: str) -> int:
     """Read an integer counter from a task summary."""
     value = summary.get(key, 0)
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
+
+
+async def read_connection_views(
+    runs: Any, connections: Sequence[Connection], *, batch: bool
+) -> list[dict[str, Any]]:
+    """Return the ``Connection`` view of each connection with its latest run and counts.
+
+    Args:
+        runs: Run registry with ``latest_for_connection``, ``progress``, ``progress_for_tasks``
+            and ``connection_document_count``.
+        connections: Connections to view.
+        batch: Read the result counts of all latest runs in one query.
+    """
+    latest = [
+        await runs.latest_for_connection(
+            tenant_id=connection.tenant_id, connection_id=connection.source_key
+        )
+        for connection in connections
+    ]
+    ids = [task.task_id for task in latest if task is not None]
+    batched = await runs.progress_for_tasks(ids) if batch and ids else {}
+    views = []
+    for connection, task in zip(connections, latest, strict=True):
+        progress = None
+        if task is not None:
+            progress = batched.get(task.task_id) if batch else await runs.progress(task.task_id)
+        documents = await runs.connection_document_count(
+            tenant_id=connection.tenant_id, connection_id=connection.source_key
+        )
+        views.append(
+            connection_view(connection, last_ingestion=task, progress=progress, documents=documents)
+        )
+    return views

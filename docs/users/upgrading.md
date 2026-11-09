@@ -258,6 +258,17 @@ token is kept.
   retry run can be cancelled but not paused or resumed: `pause` and `resume`
   on it are `409 invalid_state`.
   `retry-failures` answers `202` with the new run and its `Location`.
+- **Failure inbox contract:** `GET /v1/admin/failures` leaves out `total`
+  unless you send `include_total=true`, instead of answering `null`.
+  `POST /v1/admin/failures/retry` answers `409 invalid_state` when no
+  failure matches, instead of `202` with `ingestion_id: null`.
+- **Connection `stats.errors`** is the failed-document count of the latest
+  run, the same number as `counters.failed` of that run, and `0` for a
+  connection that never ran; it was `null` after a cancelled run.
+- **Settings schema:** `GET /v1/admin/settings/schema` answers
+  `{"groups": [{"name", "title", "settings": [...]}]}` instead of a map by key;
+  each setting carries `key`, `type`, `default`, `min`, `max`, `levels`,
+  `applies`, `description` and, for an enumerated key, `enum`.
 - **New routes:** `GET /v1/admin/failures` and `POST /v1/admin/failures/retry`
   for the failure inbox; see
   [Change, ingest and delete](connections.md#change-ingest-and-delete).

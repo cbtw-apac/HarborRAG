@@ -18,7 +18,11 @@ Temporal, stores, authentication) stays in the files and environment variables d
 | `ingestion.concurrency` | integer 1-64 | tenant, connection | `next_ingestion` | `8` |
 | `models.embedding` | `provider:model` | tenant, project | `reindex` | the first deployment of `embed.default_model` in `config/models/models.yaml` |
 
-`GET /v1/admin/settings/schema` returns the same table as JSON, keyed by setting key.
+`GET /v1/admin/settings/schema` returns the same table as JSON, grouped as
+`{"groups": [{"name", "title", "settings"}]}` in the order `retrieval`, `parsing`, `chunking`,
+`ingestion`, `models`. Each setting has `key`, `type` (`integer`, `boolean`, `enum` or
+`model_ref`), `default`, `min` and `max` (`null` when the key has none), `levels`, `applies`,
+`description` and, for an enumerated key, `enum`.
 
 - `live`: running processes pick the change up within 10 seconds.
 - `next_ingestion`: the next ingestion run uses it; a run already started keeps its values.

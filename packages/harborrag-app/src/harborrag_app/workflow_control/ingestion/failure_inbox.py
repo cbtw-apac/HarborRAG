@@ -16,7 +16,7 @@ from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import FailurePage, IngestionTask, StoredFailure
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 
-from ..errors import IngestionCursorError, IngestionFailureIdError
+from ..errors import IngestionCursorError, IngestionFailureIdError, IngestionRetryConflictError
 from .operations import IngestionActions, connection_index, source_keys_for
 from .stages import SPEC_STAGES, internal_stages, spec_stage
 
@@ -129,8 +129,8 @@ class FailureInboxService:
             include_total: Also count every matching failure.
 
         Returns:
-            ``{"items", "next_cursor", "counts", "total"}``; ``counts`` covers all
-            matches per error category.
+            ``{"items", "next_cursor", "counts"}`` plus ``total`` when ``include_total``;
+            ``counts`` covers all matches per error category.
 
         Raises:
             IngestionCursorError: ``cursor`` is malformed or belongs to other filters.
@@ -161,12 +161,14 @@ class FailureInboxService:
             next_cursor = _encode_cursor(
                 (last.failed_at, last.task_id, last.document_id), fingerprint
             )
-        return {
+        page: dict[str, Any] = {
             "items": [_failure_item(item, index) for item in stored.items],
             "next_cursor": next_cursor,
             "counts": stored.counts,
-            "total": stored.total,
         }
+        if include_total:
+            page["total"] = stored.total
+        return page
 
     async def retry(
         self,
@@ -187,12 +189,12 @@ class FailureInboxService:
             actor_type: ``user`` or ``api_key``.
 
         Returns:
-            ``{"ingestion_id": first new run or None, "ingestion_ids": [...], "queued":
-            documents}``; nothing selected starts no run.
+            ``{"ingestion_id": first new run, "ingestion_ids": [...], "queued": documents}``.
 
         Raises:
             IngestionFailureIdError: An entry of ``ids`` is malformed.
-        HarborError: Every root run failed to start; the first error is re-raised. A root
+            IngestionRetryConflictError: No unresolved, retryable failure matches; no run starts.
+            HarborError: Every root run failed to start; the first error is re-raised. A root
             that fails while others start is logged and left out of the answer.
         """
         runs = await self._runs()
@@ -222,6 +224,8 @@ class FailureInboxService:
                 **_stage_filter(criteria.get("stage")),
             )
         by_root = await _group_by_root(runs, selected)
+        if not by_root:
+            raise IngestionRetryConflictError("no retryable failures match")
         started: list[str] = []
         queued = 0
         first_error: HarborError | None = None
@@ -245,7 +249,7 @@ class FailureInboxService:
         if first_error is not None and not started:
             raise first_error
         return {
-            "ingestion_id": started[0] if started else None,
+            "ingestion_id": started[0],
             "ingestion_ids": started,
             "queued": queued,
         }

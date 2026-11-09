@@ -292,13 +292,37 @@ def test_patch_invalidates_cache(env: _Env) -> None:
     assert portal.call(lambda: config.effective("acme", level)).value("chunking.max_tokens") == 300
 
 
-def test_schema_lists_registry(env: _Env) -> None:
+def test_schema_lists_registry_by_group(env: _Env) -> None:
     response = env.client.get(f"{_URL}/schema", headers=env.headers("editor"))
     denied = env.client.get(f"{_URL}/schema", headers=env.headers("reader"))
 
     assert response.status_code == 200
-    registry = SettingsRegistry.default()
-    assert set(response.json()) == set(registry.keys())
-    assert response.json()["chunking.max_tokens"] == registry.json_schema()["chunking.max_tokens"]
+    groups = response.json()["groups"]
+    assert [(group["name"], group["title"]) for group in groups] == [
+        ("retrieval", "Retrieval"),
+        ("parsing", "Parsing"),
+        ("chunking", "Chunking"),
+        ("ingestion", "Ingestion"),
+        ("models", "Models"),
+    ]
+    entries = {entry["key"]: entry for group in groups for entry in group["settings"]}
+    listed = [entry["key"] for group in groups for entry in group["settings"]]
+    assert sorted(listed) == sorted(SettingsRegistry.default().keys())
+    assert entries["chunking.max_tokens"] == {
+        "key": "chunking.max_tokens",
+        "type": "integer",
+        "default": 1200,
+        "min": 64,
+        "max": 4096,
+        "levels": ["tenant", "project", "connection"],
+        "applies": "next_ingestion",
+        "description": entries["chunking.max_tokens"]["description"],
+    }
+    assert entries["parsing.pdf_parser"]["enum"] == ["liteparse", "docling"]
+    assert entries["parsing.pdf_parser"]["type"] == "enum"
+    assert (entries["retrieval.rerank"]["min"], entries["retrieval.rerank"]["max"]) == (None, None)
+    assert entries["models.embedding"]["type"] == "model_ref"
+    assert all(entry["description"] for entry in entries.values())
+    assert "enum" not in entries["chunking.max_tokens"]
     assert denied.status_code == 403
     assert _SECRET_VALUE not in response.text + denied.text
