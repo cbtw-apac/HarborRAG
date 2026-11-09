@@ -12,8 +12,9 @@ from doctor_test_support import project, unreachable
 
 from harborrag_app.cli import main as cli
 from harborrag_app.cli import runner as cli_runner
-from harborrag_app.cli.doctor import probes
+from harborrag_app.cli.doctor import environment, probes
 from harborrag_app.cli.doctor.checks import Check, DoctorReport
+from harborrag_app.cli.project import activate_from_argv
 
 
 def test_report_is_ok_only_when_required_checks_pass() -> None:
@@ -575,6 +576,25 @@ def test_s3_rejected_credentials_report_the_code(monkeypatch) -> None:
     monkeypatch.setattr(botocore.session, "get_session", lambda: Session())
 
     assert probes.s3_credentials("http://x:9000", None, "k", "s", None) == "SignatureDoesNotMatch"
+
+
+@pytest.mark.unit
+def test_env_hint_outside_project_and_checkout_names_checkout_files(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    assert environment.env_hint("models") == "env/.env.models"
+    assert environment.env_hint("services") == "scripts/deployment/dev.sh data"
+
+
+@pytest.mark.unit
+def test_env_hint_in_a_project_names_its_env_file(tmp_path: Path, monkeypatch) -> None:
+    project(tmp_path, monkeypatch, api_key="sk-test")
+    activate_from_argv([])
+
+    assert environment.env_hint("models") == ".env"
+    assert environment.env_hint("services") == "docker compose up -d"
 
 
 def test_doctor_control_plane_hint_says_shell_in_checkout_mode(

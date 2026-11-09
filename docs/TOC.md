@@ -65,4 +65,4 @@
 - [Changelog](../CHANGELOG.md)
 - [License](../LICENSE)
 
-Last reviewed: 2026-08-27
+Last reviewed: 2026-11-09

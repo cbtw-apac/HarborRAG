@@ -1,99 +1,82 @@
 # Parser smoke checks
 
-`parse_file.py` parses one real local document through Harbor's public parser
-interfaces. It verifies file access, automatic registry routing or an explicit
-PDF selection, and non-empty extracted content without pytest or test doubles.
+`parse_file.py` parses one real local document through Harbor's public parser interfaces, without
+pytest or test doubles. A pass shows that the file can be read, the chosen parser runs, and the
+extracted text is not empty.
 
-Read the shared [smoke-test safety and exit-code
-guidance](../../README.md#real-system-smoke-tests) before using sensitive
-documents or engines that download models.
+Read the shared [safety rules and exit codes](../../README.md#real-system-smoke-tests) before you
+use sensitive documents or engines that download models.
 
-## Prerequisites
+## Before you start
 
-- Run commands from the repository root with Python 3.12.
-- Use representative, non-sensitive files from the target environment.
-- Install the standard parser dependencies:
+- Run every command from the repository root.
+- Use the workspace environment from [CONTRIBUTING](../../../../../CONTRIBUTING.md#development-setup).
+  The root `dev` dependency group adds `harborrag-adapters[parsers,pdf-liteparse]`, which covers
+  the built-in formats and the PyMuPDF and LiteParse PDF backends. Do not narrow the sync to one
+  package, because `uv sync` then removes the rest of the workspace from the environment.
+- For the Docling, MinerU and PaddleOCR backends, add the adapters `pdf` extra:
 
-```bash
-uv sync --package harborrag-adapters --extra parsers
-```
+  ```bash
+  uv sync --all-packages --extra dev --extra production --extra pdf
+  ```
 
-For optional PDF profiles and exact backends, install the PDF engines as well:
+  Some engines also need model downloads, native libraries, or enough CPU, GPU and memory, so an
+  installed backend can still fail to run on a given machine.
+- `parse_file.py` loads no dotenv file. If a backend needs credentials, model-cache settings or OCR
+  settings, export the variables first; `env-example/.env.parser.example` lists them.
+- Use representative, non-sensitive files. Keep a small corpus with at least one DOCX, PPTX, XLSX,
+  CSV, HTML, EPUB, image, Markdown or text file, JSON file, text PDF and scanned PDF.
 
-```bash
-uv sync --package harborrag-adapters --extra parsers --extra pdf
-```
+## Parse a PDF with one backend
 
-Some PDF engines require model downloads, native libraries, or suitable
-CPU/GPU resources. Installation alone does not guarantee that every backend is
-runnable on the current machine.
-
-`parse_file.py` does not load dotenv files. If a backend needs credentials,
-model-cache controls, or OCR settings, use
-`env-example/.env.parser.example` as a reference
-and export the selected variables in the process environment before running the
-command.
-
-## Run automatic routing
-
-Pass a real document path and let `HarborParser` select the parser:
+`--pdf-backend` runs exactly one PDF backend: `docling`, `liteparse`, `mineru`, `paddleocr` or
+`pymupdf`.
 
 ```bash
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.docx
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/data.xlsx
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py samples/report.pdf
+uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
+  path/to/report.pdf --pdf-backend pymupdf
 ```
 
-Maintain a representative corpus with at least one DOCX, PPTX, XLSX, CSV,
-HTML, EPUB, image, Markdown/text, JSON, text PDF, and scanned PDF.
+A pass prints one line, for example:
 
-## Select PDF processing
+```text
+[parsers] passed parser='pdf' chars=68 elements=1 warnings=0
+```
 
-For PDFs, choose either a Harbor profile or one exact backend. The options are
-mutually exclusive.
+## Automatic routing and PDF profiles
+
+Without a PDF option, the script lets the parser registry pick a parser from the file type.
+`--pdf-profile` instead runs a built-in PDF profile: `liteparse`, `fast`, `balanced`, `ocr`,
+`ocr_first`, `quality` or `scientific`. `--pdf-profile` and `--pdf-backend` cannot be combined, and
+either one with a file that is not a PDF exits `1`.
 
 ```bash
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
-  samples/report.pdf --pdf-profile fast
-
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
-  samples/scan.pdf --pdf-profile ocr
-
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
-  samples/report.pdf --pdf-backend pymupdf
-
-python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
-  samples/report.pdf --pdf-backend docling
+uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py path/to/notes.md
+uv run python packages/harborrag-adapters/tests/parsers/smoke/parse_file.py \
+  path/to/report.pdf --pdf-profile fast
 ```
 
-Supported profiles come from `PdfParserProfile`. Exact backend choices are
-`docling`, `liteparse`, `mineru`, `paddleocr`, and `pymupdf`. PDF options used
-with a non-PDF input return exit code `1`.
+Automatic routing uses the same registry as ingestion, and a profile builds its PDF parser the way
+ingestion does, through `HarborParserFactory`. A profile whose engines are not installed fails with
+the engine's import error.
 
-## Success criteria and output
+## What the output shows
 
-The check passes only when parsing completes and extracted content is non-empty.
-It prints only:
-
-- selected parser name;
-- extracted character count;
-- element count; and
-- warning count.
-
-It does not print or persist extracted content.
-
-## Exit codes and troubleshooting
+The script passes only when parsing finishes and the extracted text is not empty. It prints the
+parser name and the character, element and warning counts. It never prints or saves the extracted
+text.
 
 | Code | Meaning |
 | --- | --- |
-| `0` | Parsing succeeded with non-empty content |
-| `1` | Selection was invalid, the parser failed, or content was empty |
-| `2` | The requested real input file does not exist |
+| `0` | Parsing succeeded and returned text |
+| `1` | The selection was invalid, the parser failed, or it returned no text |
+| `2` | The input file does not exist |
 
-- Routing failure: confirm the file suffix/content type is supported and the
-  `parsers` extra is installed.
-- Backend import/model failure: install the `pdf` extra and check native,
-  model-cache, memory, CPU/GPU, and network requirements for that backend.
-- Empty scanned PDF: retry with an OCR-capable profile or exact OCR backend.
-- Different result in deployment: run from the same Python environment and
-  record the selected parser/backend and installed dependency versions.
+## Troubleshooting
+
+- No parser matches the file: check that its suffix or content type is a supported format.
+- A backend fails to import or load its model: install the `pdf` extra, then check that backend's
+  native libraries, model cache, memory, CPU or GPU, and network access.
+- A scanned PDF returns no text: retry with an OCR backend such as `liteparse` or `paddleocr`.
+- The result differs from a deployment: run with the same Python environment, and record the
+  parser, backend and installed dependency versions.

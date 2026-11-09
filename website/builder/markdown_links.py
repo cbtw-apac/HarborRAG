@@ -231,7 +231,7 @@ class MarkdownLinksMixin:
             return link
 
         link, anchor = self._split_link_anchor(link)
-        root_document_url = self._root_document_url(link)
+        root_document_url = self._root_document_url(link, source_file)
         if root_document_url:
             return root_document_url + anchor
 
@@ -252,14 +252,30 @@ class MarkdownLinksMixin:
         anchor = f"#{fragment}" if separator else ""
         return path, anchor
 
-    def _root_document_url(self, link: str) -> str:
-        """Return the published URL for a repository-level document."""
+    def _root_document_url(self, link: str, source_file: str = "") -> str:
+        """Return the published URL for a repository-level document.
+
+        With a ``source_file``, a relative link counts only when it resolves to the
+        repository root: a nested page's ``README.md`` is that folder's README.
+        """
         root_file = re.sub(r"^(?:(?:\.\./)+|\./|/+)", "", link)
         if root_file not in self._ROOT_DOCUMENTS:
             return ""
+        if source_file and not link.startswith("/"):
+            if not self._links_to_repository_root(link, source_file):
+                return ""
 
         output_name = "LICENSE" if root_file.startswith("LICENSE") else Path(root_file).stem
         return f"/docs/{output_name}.html"
+
+    @staticmethod
+    def _links_to_repository_root(link: str, source_file: str) -> bool:
+        """Whether ``link``, read from ``source_file``, names a file at the repository root."""
+        repository_root = Path.cwd().resolve()
+        source_path = Path(source_file)
+        if not source_path.is_absolute():
+            source_path = repository_root / source_path
+        return (source_path.parent / link).resolve().parent == repository_root
 
     @staticmethod
     def _normalize_docs_link(link: str, source_file: str) -> str:

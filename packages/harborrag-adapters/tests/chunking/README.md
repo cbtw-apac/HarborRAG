@@ -1,22 +1,20 @@
 # Chunking tests
 
-This module covers structure-aware splitters, recursive refinement, chunker
-registration, metadata preservation, and deterministic chunk boundaries.
+These tests cover the structure-aware splitters, recursive refinement, the chunker routing table
+and default factory, metadata preservation and deterministic chunk boundaries. All of them are in
+`unit/`.
 
-```text
-chunking/
-  unit/       splitter, refiner, and registry checks
-  README.md
-```
-
-Run the module from the repository root:
+Run them from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/chunking
+uv run pytest packages/harborrag-adapters/tests/chunking
 ```
 
-Unit tests use injected splitter factories and parser loaders and do not
-require the package's `chunking` optional dependency. Syntax-tier code tests
-need `tree-sitter` and `tree-sitter-python` (in the `test` extra) and skip
-without them; the tiktoken test skips when its encoding cannot be loaded. They must not download models or call external
-services.
+The tests inject splitter factories and parser loaders, so they do not need the package's
+`chunking` extra. Two kinds of test skip instead of failing when a library is missing:
+
+- The syntax-tier code tests need `tree-sitter` and `tree-sitter-python`, which the package's
+  `test` extra installs.
+- The token-counter test needs `tiktoken` and its encoding.
+
+None of these tests may download a model or call an external service.

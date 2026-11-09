@@ -1,21 +1,21 @@
 # Parser tests
 
-This module owns built-in document formats, parser routing, and PDF engines.
+These tests cover the built-in document formats, parser routing and the PDF engines.
 
-| Type | Scope |
+| Folder | What it covers |
 | --- | --- |
-| `unit/` | Format extraction, routing, metadata, shared utilities, and PDF backend behavior |
-| `failure/` | Corrupt, unsupported, and malformed input normalization |
-| `security/` | Archive bombs, safe paths, input coercion, and hardened XML parsing |
-| `performance/` | Input limits, concurrent parsing, bulk scale, and expensive backend reuse |
-| `smoke/` | Real local documents and explicitly selected PDF engines/profiles |
+| `unit/` | Format extraction, routing, metadata, shared utilities and PDF backend behaviour |
+| `failure/` | Corrupt, unsupported and malformed input, normalized into parser errors |
+| `security/` | Archive bombs, PowerPoint amplification, safe input paths and hardened XML parsing |
+| `performance/` | Input size limits, concurrent parsing, bulk scale and reuse of expensive backends; all marked `slow` |
+| `smoke/` | A standalone script that parses one real local document |
 
-Run deterministic parser coverage with:
+Run the collected tests from the repository root:
 
 ```bash
-python -m pytest packages/harborrag-adapters/tests/parsers
+uv run pytest packages/harborrag-adapters/tests/parsers
 ```
 
-Real documents and optional PDF/OCR engines may need native libraries, model
-downloads, network access, and substantial CPU/GPU resources. Follow the
-complete [parser smoke setup](smoke/README.md) before running them.
+Real documents and the optional PDF and OCR engines can need native libraries, model downloads,
+network access and a lot of CPU or GPU. Set them up with [Parser smoke checks](smoke/README.md)
+before you run the smoke script.

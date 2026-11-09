@@ -1,29 +1,59 @@
 # PDF parser family
 
-The PDF family owns the full parsing workflow:
+The PDF family turns a PDF into text and elements by trying one or more PDF engines,
+such as LiteParse, PyMuPDF or Docling, until one produces output good enough to keep.
+This page is for contributors working in this folder: the parsing workflow, the engine
+contract, profiles and how to add an engine. How users choose PDF engines in
+`config/ingestion/parsers.yaml` is described in
+[Parser configuration: PDFs](../../../../../../docs/users/configuration/parser-config.md#pdfs).
+
+## The parsing workflow
+
+`HarborPDFParser.parse` in `parser.py` runs these steps:
 
 ```text
-validate and materialize input
-    -> resolve profile or explicit engine
-    -> run provider
-    -> evaluate PDF quality
-    -> continue on unavailable, failed, or low-quality output
-    -> normalize the accepted output
+empty input (0 bytes)          -> empty result, no engine runs
+size and page-count guards     -> reject before any engine reads the file
+resolve the profile, or the request's explicit engine
+for each engine in order:
+    run the engine
+    evaluate PDF quality
+    continue when the engine is unavailable, fails, or its output scores too low
+normalize the first accepted output
 ```
 
-The responsibilities are split across:
+An engine that raises `ImportError` because its optional dependency is missing is
+recorded as unavailable. A page-limit, size-limit or no-extractable-text error is
+recorded as a failure of that engine, because another engine, such as an OCR engine,
+may still succeed. An encrypted PDF stops the chain at once, because no other engine can
+read it either. Every attempt is recorded in the result's `attempts`. When no engine
+succeeds, `raise_pdf_failure` in `parser_failures.py` re-raises the shared error if
+every engine failed the same typed way, such as the page limit, and otherwise raises
+`PDFParsingFailedError` carrying the attempts.
 
-- `base.py`: `HarborPDFEngine`, the provider contract.
-- `config.py`: named parsing profiles and router configuration.
-- `parser.py`: orchestration, fallback, attempt tracking, and logging.
-- `router.py`: `PDFEngineRegistry` and `PDFEngineRouter`.
-- `quality.py`: PDF-specific acceptance policy.
-- `normalization.py`: provider output to common `ParseResult`.
-- `engines/<provider>/`: one independent external integration.
+The limits themselves, such as 200 pages per PDF, are listed in
+[Parser configuration: document limits](../../../../../../docs/users/configuration/parser-config.md#document-limits).
+
+## Files
+
+| File | What it holds |
+| --- | --- |
+| `base.py` | `HarborPDFEngine`, the engine contract |
+| `config.py` | `PDFParserConfig`, `PDFRouterConfig` and the named profiles |
+| `parser.py` | `HarborPDFParser`: orchestration, fallback, attempt tracking and logging |
+| `parser_support.py` | Empty-input handling and the size and page-count guards |
+| `page_limit.py` | Page counting for the page-count guard |
+| `parser_failures.py` | Classification of engine failures and the final failure |
+| `router.py` | `PDFEngineRegistry` and `PDFEngineRouter` |
+| `quality.py` | The PDF quality policy that accepts or rejects an engine's output |
+| `normalization.py` | Conversion of the accepted output into the common `ParseResult` |
+| `models.py` | `PDFParseResult`, the result every engine returns |
+| `resources.py` | `materialized_pdf_path()`, which gives a path-based engine a file on disk |
+| `engines/<engine>/` | One external integration each |
 
 ## Engine contract
 
-Every provider supplies a stable name and returns `PDFParseResult`.
+Every engine has a stable name and returns a `PDFParseResult`:
 
 ```python
 class ExamplePDFEngine(HarborPDFEngine):
@@ -34,20 +64,18 @@ class ExamplePDFEngine(HarborPDFEngine):
     def parse_input(self, input: ParseInput) -> PDFParseResult: ...
 ```
 
-Capability properties such as `supports_ocr`, `supports_tables`, and
-`supports_layout` describe the provider without leaking those concepts into
-the global parser contract.
+The `supports_ocr`, `supports_tables` and `supports_layout` properties describe the
+engine without adding those ideas to the global parser contract.
 
-Provider modules raise `ImportError` when an optional dependency is absent and
-`ParseError` when an installed provider cannot parse the input. The family
-parser records the attempt and continues to the next configured engine.
-Encrypted PDFs fail distinctly because the remaining engines cannot extract
-their content either.
+An engine raises `ImportError` when its optional dependency is absent and `ParseError`
+when it is installed but cannot parse the input.
 
 ## Profiles
 
-Built-in profiles cover `liteparse` (the default: LiteParse, then PyMuPDF),
-`fast`, `balanced`, `ocr`, `ocr_first`, `quality`, and `scientific`. A `PDFRouterConfig` may define application-specific profiles:
+A profile is a named engine order with a minimum quality score. The built-in profiles,
+with `liteparse` (LiteParse, then PyMuPDF) as the default, are listed in
+[Parser configuration: other PDF engines](../../../../../../docs/users/configuration/parser-config.md#other-pdf-engines).
+`PDFRouterConfig` can define an application's own profiles:
 
 ```python
 from harborrag_adapters.parsers.pdf.config import (
@@ -71,34 +99,40 @@ config = PDFParserConfig(
 )
 ```
 
-An explicit `ParseRequest.engine` bypasses the profile order and selects that
-registered provider.
+Passing `profiles` replaces the built-in set, so `default_profile` must name one of the
+profiles you pass. `PDFParserConfig` also sets `min_content_chars` (default `20`) and
+`max_pages` (default `200`).
 
-## Providers
+A request whose `ParseRequest.engine` names a registered engine skips the profile order
+and uses that engine.
 
-| Provider | Primary use | Optional extra |
-| --- | --- | --- |
-| PyMuPDF | Fast embedded-text extraction | `pdf-pymupdf` |
-| Docling | Layout, tables, structured export, and OCR | `pdf-docling` |
-| LiteParse | Local parsing with page-oriented output | `pdf-liteparse` |
-| MinerU | CLI pipelines and generated Markdown/JSON | `pdf-mineru` |
-| PaddleOCR | OCR-heavy document analysis | `pdf-ocr` |
+## Engines
 
-Each provider keeps configuration in its own `config.py`. Optional imports and
-model initialization remain inside the provider so importing the PDF family
-does not require every dependency.
+| Engine | Folder | Best for | Extra |
+| --- | --- | --- | --- |
+| LiteParse | `engines/liteparse/` | Local parsing with page-oriented output | `pdf-liteparse` |
+| PyMuPDF | `engines/pymupdf/` | Fast extraction of embedded text | `pdf-pymupdf` |
+| Docling | `engines/docling/` | Layout, tables, structured export and OCR | `pdf-docling` |
+| MinerU | `engines/mineru/` | CLI pipelines with generated Markdown and JSON | `pdf-mineru` |
+| PaddleOCR | `engines/paddleocr/` | OCR-heavy documents | `pdf-ocr` |
 
-## Adding a provider
+Each engine keeps its settings in its own `config.py`. Optional imports and model
+loading stay inside the engine, so importing the PDF family needs none of these
+dependencies.
 
-1. Add `engines/<provider>/config.py`, `engine.py`, and mapping helpers when
-   required.
-2. Implement `HarborPDFEngine` without importing another provider.
-3. Normalize the provider response into `PDFParseResult`.
-4. Inject the provider into `PDFEngineRegistry` or add it to the default
-   construction policy.
-5. Add lightweight fake-provider tests for routing and fallback before tests
-   that require the external dependency.
+## Add an engine
 
-CLI engines pass arguments as a list without shell interpolation. Engines that
-require a path use `materialized_pdf_path()`, and raw provider output is
-returned only behind an explicit option.
+1. Add `engines/<engine>/config.py` and `engine.py`, plus `mapping.py` when the
+   engine's output needs converting.
+2. Implement `HarborPDFEngine` without importing another engine.
+3. Convert the engine's output into a `PDFParseResult`.
+4. Inject the engine into `PDFEngineRegistry`, or add it to the default construction
+   policy.
+5. Test routing and fallback with a lightweight fake engine before adding tests that
+   need the real dependency.
+
+An engine that runs a CLI, as MinerU does, passes its arguments as a list, never
+through a shell. An engine that needs a file path gets one from
+`materialized_pdf_path()`. Raw engine output is returned only when an option asks for
+it, such as LiteParse's `include_raw` or Docling's `include_raw_document`, both off by
+default.

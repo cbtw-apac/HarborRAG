@@ -25,7 +25,7 @@ action.
 
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
-- `harborrag init` scaffolds `config/ingestion/chunking.yaml` and `harborrag doctor` validates it
+- `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
 - HTTP chat and `harborrag chat` rerank their passages when `retrieval.rerank` is on for the session's project, or else the tenant; `PATCH /v1/admin/settings` and `harborrag config import` accept `retrieval.rerank: true` when the model catalog has a `rerank` section, and refuse it with `422 validation_error` otherwise
 
@@ -80,7 +80,7 @@ action.
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
 - `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
-- `harborrag init` writes the new `config/` layout, and the CLI recognises a checkout by `config/sources/connectors.yaml`
+- The CLI recognises a checkout by `config/sources/connectors.yaml`
 
 #### harborrag-engine
 
@@ -104,8 +104,14 @@ action.
 - The development worker mounts `config/` read-only like the API and the MCP server, so a configuration change needs a restart, not an image rebuild
 - `config/sources/schedules.yaml` and `config/mcp/keys.yaml` are git-ignored; each ships as an `.example.yaml` beside it
 - The `qdrant` extra of `harborrag-adapters` requires `qdrant-client>=1.17,<1.20` (was `>=1.10,<2`); the lock stays on 1.18.0
-- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed; `harborrag init` renders `harborrag.yaml`
+- `config/temporal.example.yaml`, `config/models.example.yaml` and `config/harborrag.example.yaml` are removed
 - `env-example/.env.models.example` sets the five model gateway variables and keeps the direct-provider and other-proxy examples commented out
+
+### Removed
+
+#### harborrag-app
+
+- **Breaking:** `harborrag init` and its scaffold templates are removed with no replacement; run the CLI from a repository checkout. Projects an earlier `init` created keep working through their `harborrag.yaml` or `--project DIR`
 
 ### Fixed
 

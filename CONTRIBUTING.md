@@ -1,137 +1,100 @@
 # Contributing to HarborRAG
 
-Thank you for contributing. HarborRAG is a multi-package Python workspace, so a good change preserves package boundaries, includes tests at the owning layer, and updates the relevant documentation and configuration examples.
+Set up a development checkout, find where a change belongs, run the checks CI runs, and open
+a pull request. HarborRAG is a multi-package Python workspace, so a good change stays inside
+the package that owns the behaviour, adds tests in that package, and updates the
+documentation and configuration examples it affects.
 
 ## Development setup
 
-Requirements:
-
-- Python 3.12 or newer
-- `uv` (recommended) or `pip`
-
-Set up the workspace with `uv`:
+Get a checkout and its local stack running with the
+[Quick Start](docs/getting-started/quick-start.md), then add the lint, type-check and test
+tools as in
+[Running HarborRAG from a checkout](docs/developers/checkout-quick-start.md#1-install-the-development-tools):
 
 ```bash
-uv sync --all-packages --extra dev
-uv run harborrag doctor --json
-uv run pytest
+uv sync --all-packages --extra dev --extra production
 ```
 
-Then install the git hooks:
+Install the git hooks:
 
 ```bash
 uv run pre-commit install -t pre-commit -t pre-push
 ```
 
-`make hooks` runs the same command where `make` is available. See
-[Git hooks](#git-hooks) for what each stage runs.
+`make hooks` runs the same command where `make` is available. [Git hooks](#git-hooks) lists
+what each stage runs.
 
-For a `pip` editable installation:
-
-```bash
-make bootstrap
-```
-
-`make bootstrap` installs the eight active workspace packages in dependency order - with
-the `[control-plane]`, `[production]`, and `[api]` extras they need - and then installs the
-root `dev` extra. Installing the packages bare, without those extras, produces a checkout
-that imports fine and then fails at the first control-plane, provider, or API call.
+Without uv, install the packages with pip and `make bootstrap` as in
+[Installation, Option B](docs/getting-started/installation.md#option-b-editable-pip-install).
 
 Publishing a release is a separate, maintainer-only flow:
 [Release process](docs/developers/release-process.md).
 
 ## Before changing code
 
-1. Read the root [README](README.md) and the relevant package README.
-2. Check [Architecture](docs/developers/architecture/README.md) for ownership and import direction.
-3. Check `git status` and preserve unrelated local changes.
-4. Find the closest existing implementation and tests before adding a new pattern.
+1. Read the relevant package README and [Architecture](docs/developers/architecture/README.md)
+   for package ownership and import direction.
+2. Check `git status` and keep unrelated local changes intact.
+3. Find the closest existing implementation and its tests before adding a new pattern.
 
-Keep changes focused. Do not combine generated files, broad formatting, or unrelated refactors with a feature or fix.
+Keep changes focused. Do not combine generated files, broad formatting or unrelated
+refactors with a feature or fix.
 
 ## Package ownership
 
-| Package | Owns |
-| --- | --- |
-| `harborrag-core` | Provider-neutral domain objects, shared schemas, model contracts, errors, and security helpers |
-| `harborrag-adapters` | External connectors, parsers, model transports, repository providers, and provider validation |
-| `harborrag-memory` | Conversation-memory policy on LangChain primitives; provider-neutral (no LLM-provider SDKs: the model arrives as a `BaseChatModel`) |
-| `harborrag-engine` | Pure ingestion transformations, representation/projection mapping, retrieval, and evidence orchestration |
-| `harborrag-runtime` | Configuration loading, composition, jobs, supervision, schedules, and durable-workflow boundaries |
-| `harborrag-app` | Application services, CLI commands, and HTTP controllers |
-| `harborrag-mcp-server` | MCP tool/server interfaces, policy, and audit behavior |
-| `harborrag` | Stable public re-exports only |
+[Architecture](docs/developers/architecture/README.md#package-map) lists what each of the
+eight packages owns and
+[which imports between them are allowed](docs/developers/architecture/README.md#dependency-direction).
+After changing an import that crosses packages, run:
 
-The allowed HarborRAG imports are:
-
-```text
-harborrag_core      -> none
-harborrag_adapters  -> core
-harborrag_memory    -> core
-harborrag_engine    -> core, memory
-harborrag_runtime   -> core, adapters, engine, memory
-harborrag_app       -> core, runtime
-harborrag_mcp_server -> core, runtime
-harborrag           -> any active HarborRAG package
+```bash
+uv run make import-boundaries
+uv run make deps-check
 ```
-
-Run `make deps-check` after changing cross-package imports.
 
 ## Developer map
 
 | Goal | Location |
 | --- | --- |
 | Add a connector | `packages/harborrag-adapters/src/harborrag_adapters/connectors/<provider>/` |
-| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/engines/<backend>.py` |
+| Add a PDF parser backend | `packages/harborrag-adapters/src/harborrag_adapters/parsers/pdf/engines/<backend>/` |
 | Change Confluence canonical normalization | `packages/harborrag-adapters/src/harborrag_adapters/connectors/confluence/normalization/` |
 | Add a vector repository | `packages/harborrag-adapters/src/harborrag_adapters/repositories/vector/<backend>/` |
-| Add a chat/model provider | `packages/harborrag-adapters/src/harborrag_adapters/models/<family>/` |
+| Add a chat or model provider | `packages/harborrag-adapters/src/harborrag_adapters/models/<family>/` |
 | Add a source chunking strategy | `packages/harborrag-engine/src/harborrag_engine/ingestion/chunking/sources/` |
-| Change ingestion business behavior | `packages/harborrag-engine/src/harborrag_engine/ingestion/` |
+| Change ingestion business behaviour | `packages/harborrag-engine/src/harborrag_engine/ingestion/` |
 | Change retrieval ranking | `packages/harborrag-engine/src/harborrag_engine/retrieval/` |
-| Add an API endpoint | `packages/harborrag-app/src/harborrag_app/api/routes/` |
+| Add an API endpoint | `packages/harborrag-app/src/harborrag_app/api/v1/` |
 | Add a CLI command | `packages/harborrag-app/src/harborrag_app/cli/commands/` |
-| Add an MCP tool | `packages/harborrag-mcp-server/src/harborrag_mcp_server/tools/` |
+| Add an MCP tool | `packages/harborrag-engine/src/harborrag_engine/tools/` |
 | Add durable execution | `packages/harborrag-runtime/src/harborrag_runtime/temporal/` |
 
-A new backend should add its implementation folder, configuration example, and
-contract-test registration. It should not require changes to engine pipelines,
-transports, or unrelated providers. The one current exception is provider metadata
-behind the single LiteLLM chat path, which remains in
-`models/chat/registry.py`; a second execution provider path requires a feature design
-before introducing a plugin registry.
+A new backend adds its implementation folder, a configuration example and its contract-test
+registration. It should not require changes to engine pipelines, transports or unrelated
+providers. The one current exception is provider metadata for the LiteLLM chat backends,
+which stays in `models/chat/registry.py`; a second execution provider path needs a feature
+design before a plugin registry is introduced.
 
 ## Adapter contributions
 
-Place provider code under the matching family in `packages/harborrag-adapters/src/harborrag_adapters/`:
+[Extending HarborRAG](docs/developers/extending/README.md) describes what a connector,
+parser, model provider or repository must implement and test. In short:
 
-```text
-connectors/<provider>/
-parsers/ or parsers/pdf/engines/
-models/{chat,embed,rerank}/
-repositories/{vector,graph,cache,object_store,database,state}/<provider>/
-```
-
-An adapter change should normally include:
-
-- typed configuration with early validation;
-- public exports or registry/plugin registration;
-- deterministic unit, failure, and security tests using fake SDK clients;
-- an optional-dependency declaration when a new SDK is required;
-- a safe example configuration or environment key when operators need one;
-- normalized HarborRAG domain or schema outputs rather than raw provider responses.
-
-Keep provider SDK imports inside adapters. Never require live credentials in default pytest collection, and never commit real provider payloads containing sensitive data.
-
-Repository operations must accept `StorageOperationContext` and preserve tenant isolation. Use `repositories/`, not a new `stores/` top-level family.
+- Keep provider SDK imports inside `harborrag-adapters`, and return HarborRAG domain or
+  schema objects rather than raw provider responses.
+- Declare an optional dependency when a new SDK is required.
+- Test with fake SDK clients. Never require live credentials in the default test run, and
+  never commit real provider payloads that hold sensitive data.
+- Add a safe example configuration or environment key when operators need one.
 
 ## Testing
 
-Add tests in the package that owns the behavior:
+Add tests in the package that owns the behaviour:
 
 ```text
-packages/<package>/tests/   package behavior
-tests/                      cross-package and website behavior
+packages/<package>/tests/   package behaviour
+tests/                      cross-package and website behaviour
 ```
 
 Useful commands:
@@ -141,23 +104,29 @@ uv run make test
 uv run make test-package PACKAGE=harborrag-core
 uv run make coverage
 uv run pytest packages/harborrag-adapters/tests/connectors/unit/
-uv run pytest -m "not integration and not slow"
+uv run pytest -m "not integration and not e2e and not smoke and not slow"
 ```
 
-The default suite must be deterministic and work without Docker, network
-access, cloud accounts, or paid APIs. Tests needing those boundaries must be
-opt-in and marked `integration`, or implemented as a standalone script under
-the owning `packages/harborrag-adapters/tests/<module>/smoke/` directory.
+A `-m` expression on the command line replaces the default selection, which leaves out
+`integration`, `e2e` and `smoke` tests, so the last command repeats those exclusions before
+it adds `slow`.
 
-See [Testing](docs/developers/testing/README.md) for markers and real-system smoke commands.
+The default suite must be deterministic and work without Docker, network access, cloud
+accounts or paid APIs. A test that needs one of those is opt-in: mark it `integration`, or
+write it as a standalone script in the owning `packages/<package>/tests/<module>/smoke/`
+folder. [Testing](docs/developers/testing/README.md) lists the markers and the real-system
+smoke commands.
 
 ## Quality gates
 
-Run the checks relevant to your change. Before a pull request, the full local set is:
+Run the checks relevant to your change. Before a pull request, sync every extra, as CI does,
+and run the full set:
 
 ```bash
+uv sync --all-packages --all-extras
 uv run make lint
 uv run make complexity
+uv run make file-length
 uv run make import-boundaries
 uv run make typecheck
 uv run make deps-check
@@ -171,17 +140,17 @@ Formatting is explicit and may modify files:
 uv run make format
 ```
 
-Review the resulting diff after formatting. `make lint` requires zero
-non-complexity Ruff findings. `make complexity` enforces the committed per-file
-`C901`/`PLR0913` ratchet: violations may only decrease, and reductions must update
-`.ruff-complexity-baseline.json` with
-`uv run python scripts/check_ruff_complexity.py --write-baseline`.
+Review the diff after formatting. `make lint` requires zero non-complexity Ruff findings.
+`make complexity` enforces the committed per-file `C901`/`PLR0913` ratchet: violations may
+only decrease, and a reduction must update `.ruff-complexity-baseline.json` with
+`uv run python scripts/check_ruff_complexity.py --write-baseline`. `make file-length` keeps
+every Python file at 1000 lines or fewer. `uv run make help` lists every target.
 
-The CI quality workflow runs Ruff lint, the complexity ratchet, import-linter, type
-checking, dependency direction, and compilation. The test workflow runs each package
-suite once, then combines their coverage for the same 90% gate that `make coverage`
-applies locally; it also runs the website and release-tooling tests with their own
-coverage floors. Configure branch protection to require the
+The CI quality workflow runs Ruff lint, the complexity ratchet, the file-length check,
+import-linter, type checking, dependency direction and compilation. The test workflow runs
+each package suite once, then combines their coverage for the same 90% gate that
+`make coverage` applies locally; it also runs the website and release-tooling tests with
+their own coverage floors. Configure branch protection to require the
 `Quality Gates / build-test` and `Test and Coverage / Test Summary` statuses.
 
 ## Git hooks
@@ -193,56 +162,54 @@ coverage floors. Configure branch protection to require the
 | `pre-commit` | Ruff format, Ruff check, file length, complexity ratchet, and file hygiene (trailing whitespace, end-of-file newline, YAML/TOML/JSON validity, merge conflicts, large files, private keys) |
 | `pre-push` | import-linter contracts, dependency direction, compilation, then mypy |
 
-Ruff rewrites files and then fails the commit, so you review the diff and
-commit again. Nothing is staged on your behalf.
+Ruff rewrites files and then fails the commit, so you review the diff and commit again.
+Nothing is staged on your behalf.
 
-Hooks invoke `uv run --all-packages --all-extras` rather than `make`, so tool
-versions resolve from `uv.lock` exactly as CI resolves them, and contributors
-without a bash shell get identical behavior.
+Hooks call `uv run --all-packages --all-extras` rather than `make`, so tool versions resolve
+from `uv.lock` exactly as in CI, and contributors without a Bash shell get the same
+behaviour.
 
-The push stage takes roughly ten seconds. The 90% coverage gate is not part
-of it: fifteen tests currently fail on Windows, five because creating a
-symlink needs Developer Mode and the rest because
-`harborrag-mcp-server` calls `os.fchmod`, which does not exist there. A local
-pytest gate would block every push from a Windows machine. Run
-`uv run make coverage` before opening a pull request, and restore the hook
-once those failures are fixed.
+The push stage takes roughly ten seconds. The 90% coverage gate is not part of it: fifteen
+tests currently fail on Windows, five because creating a symlink needs Developer Mode and the
+rest because `harborrag-mcp-server` calls `os.fchmod`, which does not exist there. A local
+pytest gate would block every push from a Windows machine. Run `uv run make coverage` before
+opening a pull request, and restore the hook once those failures are fixed.
 
-To skip one gate by id, for example while bisecting a type error:
+To skip one gate by its id, for example while bisecting a type error:
 
 ```bash
 SKIP=typecheck git push
 ```
 
-`git push --no-verify` skips every push gate and should stay reserved for
-emergencies. CI enforces all of them regardless.
+`git push --no-verify` skips every push gate; keep it for emergencies. CI enforces all of
+them regardless.
 
-The hygiene hooks exclude `LICENSE`, whose text must stay byte-exact, and
-`website/assets/`, which is a vendored icon and script library. The
-private-key check excludes
-`packages/harborrag-core/tests/test_core_contracts_domain_security.py`, which
-asserts that redaction masks a private-key header and holds no key material.
+The hygiene hooks exclude `LICENSE`, whose text must stay byte-exact, and `website/assets/`,
+a vendored icon and script library. The private-key check excludes
+`packages/harborrag-core/tests/test_core_contracts_domain_security.py`, which asserts that
+redaction masks a private-key header and holds no key material.
 
 ## Documentation changes
 
-Update documentation whenever behavior, public imports, commands, configuration, environment variables, dependencies, or deployment status changes.
+Update the documentation whenever behaviour, public imports, commands, configuration,
+environment variables, dependencies or deployment status change:
 
-- Root overview and first run: `README.md`
+- Project overview: `README.md`; first run: `docs/getting-started/quick-start.md`
 - User and developer guides: `docs/`
 - Package-specific API details: `packages/<package>/README.md` or the nearest module README
-- Release-visible behavior: `CHANGELOG.md`
+- Release-visible behaviour: `CHANGELOG.md`
 - Architecture decisions and boundaries: `docs/developers/architecture/`
 - Publication sequence (maintainers): `docs/developers/release-process.md`
 
-Use repository-relative Markdown links and runnable commands from the repository root. Be explicit about alpha or scaffolded surfaces; do not document a placeholder as operational.
+Use relative Markdown links and commands that run from the repository root. Be explicit about
+alpha or scaffolded surfaces; do not document a placeholder as working.
 
 All documentation is publication material. Follow the
-[open-source publication guidelines](docs/developers/publication-guidelines.md):
-use synthetic data, distinguish implemented behavior from direction, and leave
-out credentials, customer or employee content, internal hosts and topology,
-incident material, confidential roadmaps, and unsupported claims. Do not add a
-private research artifact and attempt to redact it in place; rewrite only the
-stable, community-useful information in the appropriate public guide.
+[open-source publication guidelines](docs/developers/publication-guidelines.md): use
+synthetic data, distinguish implemented behaviour from direction, and leave out credentials,
+customer or employee content, internal hosts and topology, incident material, confidential
+roadmaps and unsupported claims. Do not add a private research artifact and redact it in
+place; rewrite only the stable, community-useful information in the right public guide.
 
 Build and test the documentation site with:
 
@@ -254,59 +221,63 @@ uv run python website/check_branding.py
 uv run python website/check_publication.py
 ```
 
-The `docs` extra matters: without `markdown`, `pygments`, and `pymdown-extensions` the
-builder falls back to a degraded renderer - tables render as raw `|` pipes and heading
-anchors are lost - while still reporting success. It prints a warning, so read the build
-output rather than only its exit code.
+The `docs` extra matters: without `markdown`, `pygments` and `pymdown-extensions` the builder
+falls back to a degraded renderer, in which tables render as raw `|` pipes and heading anchors
+are lost, while still reporting success. It prints a warning, so read the build output rather
+than only its exit code.
 
-Collapsible sections in Markdown need `<details markdown="1">` (not a bare `<details>`) or
-the Markdown inside them will not be processed by the site builder.
+Collapsible sections need `<details markdown="1">`, not a bare `<details>`, or the site
+builder does not process the Markdown inside them.
 
 ## Configuration and secrets
 
-- Keep secrets out of YAML, examples, logs, fixtures, and exception messages.
-- Use `${ENVIRONMENT_VARIABLE}` references for model configuration and the documented `*_env` mapping for connector/parser secrets.
-- Example credentials must be unmistakable placeholders.
+- Keep secrets out of YAML, examples, logs, fixtures and exception messages.
+- Use `${ENVIRONMENT_VARIABLE}` references for model configuration and the documented `*_env`
+  mapping for connector and parser secrets.
+- Make example credentials unmistakable placeholders.
 - Do not rely on ambient cloud credentials unless the configuration explicitly opts in.
 - Pass potentially sensitive diagnostic text through the established redaction helpers.
 
 ## TODO comments
 
-A TODO should name its scope and define a concrete next action:
+A TODO names its scope and a concrete next action:
 
 ```python
 # TODO(connectors/jira): Add incremental sync using the updated timestamp cursor.
 # TODO(parsers/pdf): Preserve table bounding boxes exposed by layout-aware backends.
 ```
 
-Avoid vague notes such as `TODO: improve this`. `make provider-matrix` lists scoped TODOs across the packages.
+Avoid vague notes such as `TODO: improve this`. `make provider-matrix` lists the scoped TODOs
+across the packages.
 
 ## Commits and pull requests
 
-Prefer small, imperative commits. The repository commonly uses a scoped prefix, for example:
+Prefer small, imperative commits with a type and an optional scope:
 
 ```text
-adapters: validate GitHub pagination cursors
-runtime: reject duplicate parser definitions
-docs: refresh local repository smoke instructions
+feat(runtime): rerank retrieved passages with the catalog's rerank model
+fix(cli): reject a source type passed as a connection key
+docs(settings): list every runtime setting and its default
 ```
 
-A pull request should explain the behavior change, package boundaries affected, tests run, configuration or migration impact, and any intentionally unfinished follow-up. Complete `.github/PULL_REQUEST_TEMPLATE.md`, including its documentation-impact section.
+A pull request explains the behaviour change, the package boundaries it affects, the tests
+you ran, any configuration or migration impact, and any intentionally unfinished follow-up.
+Complete `.github/PULL_REQUEST_TEMPLATE.md`, including its Docs Impact section.
 
 ## Pull request checklist
 
-- [ ] The change is in the package that owns the behavior.
+- [ ] The change is in the package that owns the behaviour.
 - [ ] The public contract and non-goals are documented.
 - [ ] Cross-package imports pass `make import-boundaries` and `make deps-check`.
 - [ ] No logic is duplicated from another package.
 - [ ] Data shapes live in capability-local `schemas.py` files.
 - [ ] `__all__` appears only in `__init__.py`.
 - [ ] Configuration and failure-path examples are covered.
-- [ ] Unit and applicable contract/integration tests are present.
+- [ ] Unit and applicable contract or integration tests are present.
 - [ ] Observability is included where relevant.
 - [ ] Replaced code is removed without compatibility aliases.
 - [ ] No unused files or duplicate implementations remain.
 - [ ] Relevant README and ADR records are updated.
 - [ ] Public text and fixtures pass the publication checklist and contain only synthetic data.
 - [ ] Security-sensitive reports follow [SECURITY.md](SECURITY.md) instead of a public issue.
-- [ ] Lint, complexity, type checking, compilation, tests, and coverage pass.
+- [ ] Lint, complexity, type checking, compilation, tests and coverage pass.

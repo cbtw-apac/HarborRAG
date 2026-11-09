@@ -55,7 +55,7 @@ def start(  # noqa: PLR0913 - Typer requires one parameter per public option
             "--connector",
             metavar="NAME",
             help=(
-                "Connection source_key, such as default/jira-cpm or an imported key "
+                "Connection source_key, such as default/jira-demo or an imported key "
                 "like jira-main; not a source type."
             ),
         ),

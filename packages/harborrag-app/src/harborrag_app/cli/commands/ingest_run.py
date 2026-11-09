@@ -36,7 +36,7 @@ def run(  # noqa: PLR0913 - Typer requires one parameter per public option
         str,
         typer.Argument(
             metavar="CONNECTOR",
-            help="Connection source_key, such as workspace or default/jira-cpm.",
+            help="Connection source_key, such as harborrag-workspace or default/jira-demo.",
         ),
     ],
     tenant_id: Annotated[
