@@ -39,7 +39,6 @@ async def connect_retrieval_service(
     settings: RuntimeSettings,
 ) -> RuntimeRetrievalService:
     """Connect Postgres, MinIO, Qdrant, and FalkorDB as one owned resource set."""
-
     settings = GraphBuildConfig.from_settings(settings).effective_settings(settings)
     embed_config = HarborEmbedClientConfig.from_file(settings.model_config_path)
     model = settings.embedding_model or embed_config.default_model

@@ -57,6 +57,7 @@ class ChatTurnResources:
     config: ConfigProvider | None = None
 
     def runtime(self) -> HarborRAG:
+        """Return the runtime from ``runtime_provider``."""
         return self.runtime_provider()
 
 
@@ -85,7 +86,6 @@ async def prepare_turn(
     ``retrieval.rerank`` of the identity's project; older conversation history
     does not enter the prompt.
     """
-
     context = (
         await recent_memory_context(resources.memory, identity, query)
         if identity.session_id is not None

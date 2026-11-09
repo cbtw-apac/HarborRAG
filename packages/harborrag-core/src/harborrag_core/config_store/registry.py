@@ -228,6 +228,12 @@ class SettingsRegistry:
     def definition(self, key: str) -> SettingDefinition:
         """Return the definition of ``key``.
 
+        Args:
+            key: Dotted setting key, ``<group>.<field>``.
+
+        Returns:
+            The registered definition.
+
         Raises:
             HarborValidationError: The key is unknown or boot-only (``field = key``).
         """

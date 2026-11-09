@@ -91,7 +91,14 @@ class _NullRetrievalTelemetry:
 
 
 class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrievalMixin):
-    """Resolve projection visibility through Postgres before loading evidence."""
+    """Resolve projection visibility through Postgres before loading evidence.
+
+    Args:
+        resources: Stores and model clients the service reads through.
+        policy: Process-wide retrieval settings.
+        close_resources: Close operations ``aclose`` runs, in reverse order.
+        telemetry: Metrics sink for stale-candidate rejections; ``None`` drops them.
+    """
 
     def __init__(
         self,
@@ -178,7 +185,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         corpus) hits nothing was released for, come back as reason codes rather
         than as an empty answer that looks complete -- see ``EntitySummarySearch.find``.
         """
-
         request_id = f"entities-{uuid4().hex}"
         if self._entities is None or self._summaries is None:
             raise no_entity_index()
@@ -193,17 +199,23 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     @property
     def vector_repository(self) -> VectorRepositoryPort:
         """The connected vector client, for sharing with the memory index."""
-
         return self._vector_repository
 
     @property
     def embedding_dimensions(self) -> int:
         """Dense vector width, so a second index matches this deployment."""
-
         return self._policy.embedding_dimensions
 
     @classmethod
     async def connect(cls, settings: RuntimeSettings) -> RuntimeRetrievalService:
+        """Connect the stores and model clients ``settings`` name and own them.
+
+        Args:
+            settings: Runtime settings naming the stores and the model catalog.
+
+        Returns:
+            A connected service; ``aclose`` releases everything it opened.
+        """
         from .composition import connect_retrieval_service
 
         return await connect_retrieval_service(settings)
@@ -218,7 +230,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         access: AccessContext | None = None,
     ) -> RuntimeRetrievalReport:
         """Search active evidence vectors and return their canonical payload content."""
-
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
         # Before permission conditions join it: only the caller's own keys are
@@ -417,7 +428,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     async def _traced_items(
         self, field_filter: VectorFilter, context: StorageOperationContext
     ) -> tuple[str, ...]:
-        """The items a ``fields.*`` filter matches, among documents the caller may read.
+        """Return the items a ``fields.*`` filter matches, among documents the caller may read.
 
         Over the enumeration budget the pre-query ACL is the readable source
         scopes, which can hold documents the caller may not read. Whether any item
@@ -426,7 +437,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         item first costs a lookup per item, so the request is refused instead,
         exactly as such a principal's every request was before the scope fallback.
         """
-
         scoped = await self._permissions.scoped(field_filter, context)
         if not scoped.exact:
             logger.info("Fields filter refused: readable documents exceed the enumeration budget")
@@ -445,7 +455,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         something about documents the caller cannot read. So the candidates are
         permission-checked here, and the counts describe only those.
         """
-
         scoped = await self._permissions.scoped(request.filters, context)
         search = await self._search.search(
             replace(request, filters=scoped.filters), context=context
@@ -461,11 +470,13 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
     async def fetch_evidence(
         self, chunk_ids: tuple[str, ...], *, access: AccessContext
     ) -> EvidenceFetchResponse:
+        """Return the chunks the caller may read, as retrieval results."""
         return await self._knowledge.fetch(chunk_ids, access=access)
 
     async def resolve_entities(
         self, name: str, *, limit: int, access: AccessContext
     ) -> EntityResolveResponse:
+        """Return the canonical mentions of the named entity that the caller may read."""
         return await self._knowledge.resolve_entities(name, limit=limit, access=access)
 
     async def lookup_entities(
@@ -475,6 +486,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         chunk_ids: tuple[str, ...] = (),
         access: AccessContext,
     ) -> tuple[CanonicalMention, ...]:
+        """Return the canonical mentions of the given entities or chunks."""
         return await self._knowledge.lookup_entities(
             entity_ids=entity_ids,
             chunk_ids=chunk_ids,
@@ -490,6 +502,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         limit: int,
         access: AccessContext,
     ) -> RelationSearchResponse:
+        """Return the assertions that connect one canonical entity to others."""
         return await self._knowledge.find_relations(
             entity_id,
             predicates=predicates,
@@ -502,6 +515,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         self,
         request: SemanticPathRequest,
     ) -> SemanticPathResponse:
+        """Return the assertion paths between two canonical entities."""
         return await self._knowledge.find_paths(request)
 
     @staticmethod
@@ -526,6 +540,16 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
 
     async def aclose(self) -> None:
+        """Run every close operation, newest first; a second call after success is a no-op.
+
+        A failed close leaves the service open, so a caller can retry ``aclose`` and give
+        the failed resources another attempt; close operations must be idempotent.
+
+        Raises:
+            BaseExceptionGroup: A close operation raised a non-``Exception`` such as
+                ``KeyboardInterrupt``.
+            ExceptionGroup: One or more close operations failed.
+        """
         if self._closed:
             return
         results: list[BaseException] = []
@@ -543,8 +567,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         if fatal:
             raise BaseExceptionGroup("retrieval resource close failed", fatal)
         if errors:
-            # Deliberately left un-closed so a caller can retry aclose() and give the
-            # failed resources another attempt; close operations must be idempotent.
             raise ExceptionGroup("retrieval resource close failed", errors)
         self._closed = True
 

@@ -39,7 +39,6 @@ def relevant_results(
     lane cannot say", not "this is a poor match", and discarding on absence
     would silently empty the context for any backend that does not score.
     """
-
     if minimum <= 0.0:
         return tuple(results)
     return tuple(
@@ -52,8 +51,15 @@ async def chat_top_k(
 ) -> int:
     """Return the ``retrieval.top_k`` override for the session's level, else the environment value.
 
-    Raises:
-        HarborUnavailableError: The provider cannot load a never-cached tenant.
+    A provider that cannot load a never-cached tenant raises ``HarborUnavailableError``.
+
+    Args:
+        config: Runtime settings provider; ``None`` uses the environment value.
+        identity: Session whose project, else tenant, is the settings level.
+        settings: Process settings holding ``chat_retrieval_top_k``.
+
+    Returns:
+        Passages chat retrieval returns.
     """
     if config is None:
         return settings.chat_retrieval_top_k

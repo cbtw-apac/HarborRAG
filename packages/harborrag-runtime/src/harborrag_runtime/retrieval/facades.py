@@ -1,4 +1,10 @@
-"""Reader façades shared by the SDK and reader-only application."""
+"""Reader façades shared by the SDK and reader-only application.
+
+Each façade turns a transport-independent reader request into one
+``RuntimeRetrievalService`` call and its response; no retrieval logic lives here.
+
+Start from: RetrievalFacade, KnowledgeFacade, GraphFacade.
+"""
 
 from __future__ import annotations
 
@@ -49,10 +55,26 @@ class _ReaderOwner(Protocol):
 
 
 class RetrievalFacade:
+    """Passage and entity search.
+
+    Args:
+        owner: Runtime that opens the retrieval service on first use.
+    """
+
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner
 
     async def search(self, request: RetrievalRequest) -> RetrievalResponse:
+        """Search passages for ``request`` and return them with plain-dict diagnostics.
+
+        A malformed range filter raises ``ValueError``.
+
+        Args:
+            request: Search to run.
+
+        Returns:
+            The passages, diagnostics and topology evidence.
+        """
         from ..retrieval import RetrievalOptions
 
         service = await self._owner._retrieval_service()
@@ -79,11 +101,18 @@ class RetrievalFacade:
         )
 
     async def find_entities(self, request: EntityFindRequest) -> EntityFindResponse:
+        """Rank source entities for ``request``."""
         service = await self._owner._retrieval_service()
         return await service.find_entities(request)
 
 
 class GraphFacade:
+    """Knowledge-graph triplet, path and subgraph search.
+
+    Args:
+        owner: Runtime that opens the retrieval service on first use.
+    """
+
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner
 
@@ -91,6 +120,7 @@ class GraphFacade:
         self,
         request: GraphTripletRequest,
     ) -> GraphTripletResponse:
+        """Return the triplets that match ``request``."""
         service = await self._owner._retrieval_service()
         result = await service.search_graph_triplets(request.query, access=request.access)
         return GraphTripletResponse(
@@ -99,6 +129,7 @@ class GraphFacade:
         )
 
     async def find_paths(self, request: GraphPathRequest) -> GraphPathResponse:
+        """Return the graph paths that match ``request``."""
         service = await self._owner._retrieval_service()
         result = await service.search_graph_paths(request.query, access=request.access)
         return GraphPathResponse(
@@ -110,6 +141,7 @@ class GraphFacade:
         self,
         request: GraphSubgraphRequest,
     ) -> GraphSubgraphResponse:
+        """Return the subgraph around ``request``'s seed nodes."""
         service = await self._owner._retrieval_service()
         result = await service.search_graph_subgraph(request.query, access=request.access)
         return GraphSubgraphResponse(
@@ -120,40 +152,51 @@ class GraphFacade:
 
 
 class KnowledgeFacade:
-    """Canonical evidence and semantic reads used by MCP and the SDK."""
+    """Canonical evidence and semantic reads used by MCP and the SDK.
+
+    Args:
+        owner: Runtime that opens the retrieval service on first use.
+    """
 
     def __init__(self, owner: _ReaderOwner) -> None:
         self._owner = owner
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        """Return one page of the documents the caller can read."""
         service = await self._owner._retrieval_service()
         return await service.list_documents(request)
 
     async def fetch_evidence(self, request: EvidenceFetchRequest) -> EvidenceFetchResponse:
+        """Return the requested chunks as retrieval results."""
         service = await self._owner._retrieval_service()
         return await service.fetch_evidence(request.chunk_ids, access=request.access)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
+        """Return the requested chunks with their provenance and availability."""
         service = await self._owner._retrieval_service()
         return await service.read_evidence(request)
 
     async def get_document_context(
         self, request: DocumentContextRequest
     ) -> DocumentContextResponse:
+        """Return a window of consecutive chunks of one document."""
         service = await self._owner._retrieval_service()
         return await service.get_document_context(request)
 
     async def list_sources(self, request: SourceListRequest) -> SourceListResponse:
+        """Return one page of the source scopes the caller can read."""
         service = await self._owner._retrieval_service()
         return await service.list_readable_sources(request)
 
     async def resolve_graph_nodes(
         self, request: GraphNodeResolveRequest
     ) -> GraphNodeResolveResponse:
+        """Return the graph nodes that ``request``'s selector matches."""
         service = await self._owner._retrieval_service()
         return await service.resolve_graph_nodes(request)
 
     async def resolve_entities(self, request: EntityResolveRequest) -> EntityResolveResponse:
+        """Return the canonical mentions of the named entity."""
         service = await self._owner._retrieval_service()
         return await service.resolve_entities(
             request.name,
@@ -168,6 +211,7 @@ class KnowledgeFacade:
         entity_ids: tuple[str, ...] = (),
         chunk_ids: tuple[str, ...] = (),
     ) -> tuple[CanonicalMention, ...]:
+        """Return the canonical mentions of the given entities or chunks."""
         service = await self._owner._retrieval_service()
         return await service.lookup_entities(
             entity_ids=entity_ids,
@@ -176,6 +220,7 @@ class KnowledgeFacade:
         )
 
     async def find_relations(self, request: RelationSearchRequest) -> RelationSearchResponse:
+        """Return the assertions that connect one canonical entity to others."""
         service = await self._owner._retrieval_service()
         return await service.find_semantic_relations(
             request.entity_id,
@@ -186,6 +231,7 @@ class KnowledgeFacade:
         )
 
     async def find_paths(self, request: SemanticPathRequest) -> SemanticPathResponse:
+        """Return the assertion paths between two canonical entities."""
         service = await self._owner._retrieval_service()
         return await service.find_semantic_paths(request)
 
@@ -204,7 +250,6 @@ def _build_vector_filter(filters: dict[str, object]) -> VectorFilter | None:
     A scalar is an equality, a list is set membership, and a mapping of bounds
     (``{"fields.years_of_experience": {"gte": 3}}``) is a range on a number.
     """
-
     if not filters:
         return None
     return VectorFilter(

@@ -10,6 +10,15 @@ from typing import Any
 
 @dataclass(frozen=True, slots=True)
 class ModelCatalogSummary:
+    """Default logical models and deployment names of the chat and embed sections.
+
+    Args:
+        chat_default: Default logical chat model.
+        chat_deployments: Every chat deployment name, in catalog order.
+        embed_default: Default logical embedding model.
+        embed_deployments: Every embedding deployment name, in catalog order.
+    """
+
     chat_default: str
     chat_deployments: tuple[str, ...]
     embed_default: str
@@ -18,7 +27,6 @@ class ModelCatalogSummary:
 
 def describe_model_catalog(path: str | Path) -> ModelCatalogSummary:
     """Load the chat and embed sections eagerly; every ``${VAR}`` must resolve."""
-
     from harborrag_adapters.models.chat.configs import HarborChatClientConfig
     from harborrag_adapters.models.embed.configs import HarborEmbedClientConfig
 
