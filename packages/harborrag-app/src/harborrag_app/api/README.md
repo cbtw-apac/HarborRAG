@@ -1,10 +1,12 @@
 # Control Plane API
 
-Run HarborRAG's HTTP API, call its routes, and look up its errors, authentication,
-limits and settings. The `harborrag_app.api` package is HarborRAG's FastAPI boundary. It validates
+Run HarborRAG's HTTP API, call its routes, and look up its errors,
+authentication, limits and settings.
+
+The `harborrag_app.api` package is HarborRAG's FastAPI boundary. It validates
 HTTP input, authenticates callers, delegates workflow operations to the
 transport-neutral application service, and maps results onto stable HTTP
-responses. Connector execution, parsing, chunking, indexing, and Temporal
+responses. Connector execution, parsing, chunking, indexing and Temporal
 workflow rules remain outside this package.
 
 The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at
@@ -37,16 +39,17 @@ For the supported local Docker topology, use:
 ```bash
 scripts/deployment/dev.sh up
 curl --fail http://127.0.0.1:8000/healthz
-curl --fail -H "Authorization: Bearer $(cat env/api-scrape-token)" \
+curl --fail -H "Authorization: Bearer $(sed -n 's/^HARBORRAG_METRICS_SCRAPE_TOKEN=//p' env/.env.api)" \
   http://127.0.0.1:9465/metrics
 ```
 
-The development helper starts the data services, Temporal, an ingestion
-worker, and the API, then waits for its health check. If those dependencies are
-already running, `scripts/deployment/dev.sh api` starts only the API. API process
-and authentication values belong in the ignored `env/.env.api`; embedding
-credentials come from `env/.env.models`. Connector credentials remain isolated
-in the worker. See the repository
+The development helper starts the data services, Temporal, an ingestion worker
+and the API, then waits for its health check. If those dependencies are already
+running, `scripts/deployment/dev.sh api` starts only the API. API process and
+authentication values belong in the ignored `env/.env.api`, where `dev.sh api`
+and `dev.sh up` also generate the metrics scrape token when it is blank.
+Embedding credentials come from `env/.env.models`. Connector credentials remain
+isolated in the worker. See the repository
 [deployment guide](../../../../../docs/developers/deployment/README.md) for
 environment preparation and shutdown.
 
@@ -209,6 +212,12 @@ the public port has no `/metrics`. The body is the API registry in the
 Prometheus `text/plain; version=0.0.4` format: HTTP request counters and
 durations by route template, build information and process metrics. Ingestion
 counters come from the worker's own metrics port.
+
+The monitoring stack's Prometheus sends the same metrics scrape token, read from
+`env/.env.monitoring` as the `api-scrape-token` Compose secret at
+`/run/secrets/api-scrape-token`. Copy it there from `env/.env.api` by hand, as
+the [deployment guide](../../../../../docs/developers/deployment/README.md#run-the-monitoring-stack)
+shows; a different value fails the scrape with `401`.
 
 ## Settings
 

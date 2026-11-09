@@ -73,8 +73,7 @@ canonical document.
 
 > Today this is driven programmatically through the runtime's Temporal client
 > (`start_reindex`). There is no `harborrag reindex` CLI command or REST route yet; the
-> admin API reports `reindex_required` and can drop a tenant's projections
-> (`/v1/admin/projections/{tenant}`).
+> admin API reports `reindex_required`.
 
 ### Graph, not just vectors
 
@@ -174,9 +173,9 @@ That is parsing on its own. Ingestion and retrieval need backing services, which
 
 ## Install
 
-New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md)
-- it shows the expected output of every step below. The short version, about ten minutes and
-no clone:
+New to HarborRAG? Follow the [Quick Start](docs/getting-started/quick-start.md): it shows
+the expected output of every step below. The short version, about ten minutes and no
+clone:
 
 ```bash
 pip install "harborrag[local]"
@@ -292,7 +291,7 @@ Then open the files it created and replace the placeholders:
 | `env/.env.connector` | Source credentials - Jira, Confluence, GitHub, SharePoint, local paths | worker |
 | `env/.env.parser` | Optional parser/OCR settings; the default profile needs none | worker |
 | `env/.env.models` | Chat, embedding, and reranking provider credentials | worker, API, MCP, CLI chat |
-| `env/.env.api` | API bind address, port, and JWT settings | API, MCP |
+| `env/.env.api` | API bind address, port, JWT settings, and the metrics scrape token | API, MCP |
 | `env/.env.mcp` | Local MCP bearer token and transport overrides | MCP HTTP transport |
 
 ### Three values you must fill in
@@ -389,18 +388,26 @@ Set `enabled: false` on the ones you are not using if you would rather not see t
 warning. `harborrag-workspace` alone is enough to complete the quick start.
 
 **Monitoring.** The optional Prometheus/Grafana/Loki stack under [`deploy/`](deploy/) is
-the eighth template, and `bootstrap` does **not** create it. It needs three things:
+the eighth template, and neither `bootstrap` nor any other `dev.sh` command creates it. Set
+it up after `dev.sh up` has started the API: that creates the shared
+`harborrag-data-network` and generates `HARBORRAG_METRICS_SCRAPE_TOKEN` in `env/.env.api`.
+A first `up` on a clean checkout only creates the `env/` files and stops, so it generates
+no token. Then create the monitoring file and copy the token into it:
 
 ```bash
 cp env-example/.env.monitoring.example env/.env.monitoring
 chmod 600 env/.env.monitoring
+sed -i "s/^HARBORRAG_METRICS_SCRAPE_TOKEN=.*/$(grep '^HARBORRAG_METRICS_SCRAPE_TOKEN=' env/.env.api)/" env/.env.monitoring
 # then set a non-empty GRAFANA_ADMIN_PASSWORD -- it ships empty and is guarded like
-# HARBORRAG_SECRETS_ENCRYPTION_KEY, and run `dev.sh data` first so the shared
-# harborrag-data-network exists.
+# HARBORRAG_SECRETS_ENCRYPTION_KEY.
 ```
 
-Note that Grafana and the FalkorDB browser both default to host port `3000`, so whichever
-starts second fails to bind. Change `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
+The token in `env/.env.monitoring` must equal the one in `env/.env.api`: Prometheus sends
+it to the API's `/metrics`, and a blank or different value leaves the `harborrag-api`
+target down. Grafana and the FalkorDB browser both default to host port `3000`, so
+whichever starts second fails to bind; change `GRAFANA_PORT` or `FALKORDB_BROWSER_PORT`.
+[Deployment](docs/developers/deployment/README.md#run-the-monitoring-stack) has the start
+command and the fixes for a failed scrape.
 
 See [Configuration](docs/users/configuration/README.md) for the full reference.
 
@@ -434,7 +441,8 @@ Start pieces individually when you only need part of the stack:
 | `dev.sh down` | stop everything (add `--volumes` to discard data) |
 
 Add `--build` to `up`, `worker`, or `api` after changing source or dependencies.
-`config/` is mounted, so a configuration change needs only a restart. A missing image is built automatically on first start.
+`config/` is mounted, so a configuration change needs only a restart. A missing image is
+built automatically on first start.
 
 ### Verify it came up
 
@@ -585,7 +593,7 @@ More: [CLI reference](docs/users/cli-reference/README.md) ·
 HarborRAG exposes **eleven** audited reader tools over MCP, including
 `vector_search`, evidence and document reads, source discovery, and graph search.
 Tenant-scoped calls require an explicit tenant, pass JSON-schema and
-budget validation, and is recorded in an owner-only audit log that stores argument digests
+budget validation, and are recorded in an owner-only audit log that stores argument digests
 rather than raw query text.
 
 Chat is **not** an MCP tool - it is served through the REST API.

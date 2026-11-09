@@ -90,6 +90,27 @@ def test_monitoring_is_private_authenticated_and_version_pinned() -> None:
     assert "grafana_data:/var/lib/grafana" not in monitoring
 
 
+def test_prometheus_reads_the_scrape_token_from_the_monitoring_environment() -> None:
+    monitoring = yaml.safe_load(
+        (ROOT / "deploy/compose/docker-compose.monitoring.yml").read_text(encoding="utf-8")
+    )
+    prometheus_config = yaml.safe_load(
+        (ROOT / "deploy/prometheus/prometheus.yml").read_text(encoding="utf-8")
+    )
+    api_job = next(
+        job for job in prometheus_config["scrape_configs"] if job["job_name"] == "harborrag-api"
+    )
+    example = (ROOT / "env-example/.env.monitoring.example").read_text(encoding="utf-8")
+
+    assert monitoring["secrets"]["api-scrape-token"] == {
+        "environment": "HARBORRAG_METRICS_SCRAPE_TOKEN"
+    }
+    assert monitoring["services"]["prometheus"]["secrets"] == ["api-scrape-token"]
+    assert api_job["authorization"]["credentials_file"] == "/run/secrets/api-scrape-token"
+    assert "HARBORRAG_METRICS_SCRAPE_TOKEN=\n" in example
+    assert "api-scrape-token" not in DEV_SCRIPT.read_text(encoding="utf-8")
+
+
 def test_falkordb_constraints_use_restart_safe_snapshot_persistence() -> None:
     database = (ROOT / "deploy/compose/docker-compose.database.yml").read_text(encoding="utf-8")
     falkordb_service = database.split("  falkordb:", 1)[1].split("  redis:", 1)[0]
