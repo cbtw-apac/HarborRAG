@@ -190,12 +190,13 @@ class AppService(
     async def seed_setting_overrides_once(self) -> int:
         """Seed `setting_overrides` from `config/settings.yaml` on the first start of a fresh install."""
         control_plane = self._control_plane()
-        if control_plane.setting_overrides is None:
+        if control_plane.setting_overrides is None or control_plane.setting_scope_revisions is None:
             return 0
         planned = await seed_setting_overrides_once(
             self._settings.settings_seed_config_path,
             overrides=control_plane.setting_overrides,
             workspace=control_plane.settings,
+            revisions=control_plane.setting_scope_revisions,
             default_tenant_id=self._settings.ingestion_tenant_id,
         )
         return len(planned) if planned is not None else 0

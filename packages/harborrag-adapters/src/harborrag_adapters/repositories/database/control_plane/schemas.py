@@ -91,6 +91,8 @@ class SettingScopeRevisionRow(Base):
     scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
     scope_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
     revision: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0", nullable=False)
+    source: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    actor: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
 
     __table_args__ = (

@@ -16,7 +16,11 @@ from typing import Any
 import yaml
 
 from harborrag_core.domain.setting_override import SYSTEM_ACTOR, SettingOverride
-from harborrag_core.ports.control_plane import SettingOverrideRepositoryPort, SettingsRepositoryPort
+from harborrag_core.ports.control_plane import (
+    SettingOverrideRepositoryPort,
+    SettingScopeRevisionRepositoryPort,
+    SettingsRepositoryPort,
+)
 
 logger = logging.getLogger("harborrag.runtime.config.settings_seed")
 
@@ -26,6 +30,25 @@ DRIFT_EVENT = "config_yaml_drift"
 
 def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _read_settings_map(path: Path) -> dict[str, Any]:
+    """The raw `settings:` mapping in `path`, or `{}` if it cannot be parsed."""
+    try:
+        raw: Any = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    settings = raw.get("settings", {})
+    return settings if isinstance(settings, dict) else {}
+
+
+def _drifted_keys(path: Path, seeded: dict[str, Any]) -> list[str]:
+    """Keys in `path` whose value no longer matches what was originally seeded."""
+    current = _read_settings_map(path)
+    keys = sorted(set(seeded) | set(current))
+    return [key for key in keys if seeded.get(key) != current.get(key)]
 
 
 def _parse_overrides(path: Path, default_tenant_id: str) -> list[SettingOverride]:
@@ -62,6 +85,7 @@ async def seed_setting_overrides_once(
     *,
     overrides: SettingOverrideRepositoryPort,
     workspace: SettingsRepositoryPort,
+    revisions: SettingScopeRevisionRepositoryPort,
     default_tenant_id: str = "DEFAULT",
 ) -> list[SettingOverride] | None:
     """Seed tenant-level overrides from `path` the first time an install boots with none.
@@ -87,10 +111,12 @@ async def seed_setting_overrides_once(
     current_hash = _file_hash(path)
     if marker is not None:
         if marker.get("hash") != current_hash:
+            drifted = _drifted_keys(path, marker.get("settings", {}))
             logger.warning(
-                "%s path=%s seeded_hash=%s current_hash=%s",
+                "%s path=%s keys=%s seeded_hash=%s current_hash=%s",
                 DRIFT_EVENT,
                 path,
+                ",".join(drifted) if drifted else "<unparseable>",
                 marker.get("hash"),
                 current_hash,
             )
@@ -105,12 +131,21 @@ async def seed_setting_overrides_once(
     for override in planned:
         await overrides.put(override, expected_version=None)
     tenant_id = planned[0].tenant_id if planned else default_tenant_id
+    if planned:
+        await revisions.bump_if_match(
+            tenant_id, "tenant", tenant_id, expected_revision=0, source="seed", actor=None
+        )
     await workspace.put(
         replace(
             doc,
             data={
                 **doc.data,
-                SEED_MARKER_KEY: {"path": str(path), "hash": current_hash, "tenant_id": tenant_id},
+                SEED_MARKER_KEY: {
+                    "path": str(path),
+                    "hash": current_hash,
+                    "tenant_id": tenant_id,
+                    "settings": {o.key: o.value for o in planned},
+                },
             },
         )
     )

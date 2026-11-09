@@ -245,7 +245,10 @@ class SettingsService:
                     SettingsChange(key=key, before=before, after=spec.default, applies=spec.applies)
                 )
                 continue
-            spec.validate_value(new_value)
+            try:
+                spec.validate_value(new_value)
+            except ValueError as exc:
+                raise HarborValidationError(str(exc), details={"field": key}) from exc
             if spec.applies == "reindex" and new_value != before:
                 raise ReindexRequiredError(f"{key} requires reindex=true, not accepted before v2.1")
             planned.append(
@@ -257,7 +260,12 @@ class SettingsService:
             return SettingsChangeResult(revision=revision, dry_run=True, changed=planned)
 
         new_revision = await self._revisions().bump_if_match(
-            tenant_id, scope_level, row_scope_id, expected_revision=expected_revision
+            tenant_id,
+            scope_level,
+            row_scope_id,
+            expected_revision=expected_revision,
+            source="api",
+            actor=actor,
         )
         for change in planned:
             if changes[change.key] is None:

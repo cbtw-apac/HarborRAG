@@ -382,3 +382,213 @@ def test_ac2_a_key_set_nowhere_has_origin_default(
         params={"level": "tenant", "effective": "true"},
     )
     assert response.json()["values"]["ingestion.max_attempts"] == {"value": 3, "origin": "default"}
+
+
+# --- AC3: Change a setting --------------------------------------------------
+
+
+def test_ac3_admin_patches_project_level_and_bumps_the_revision(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": 300},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "revision": "rev_42",
+        "dry_run": False,
+        "changed": [
+            {"key": "chunking.max_tokens", "from": 384, "to": 300, "applies": "next_ingestion"}
+        ],
+    }
+    assert response.headers["ETag"] == 'W/"rev-42"'
+
+    reread = client.get(
+        "/v1/admin/settings", headers=_auth("admin"), params={"level": "project:cpm"}
+    )
+    assert reread.json()["values"]["chunking.max_tokens"] == 300
+    assert reread.headers["ETag"] == 'W/"rev-42"'
+
+    record = app_service.cp.setting_scope_revisions.records[("acme", "project", "cpm")]
+    assert record["source"] == "api"
+    assert record["actor"] == "u_huy"
+
+
+def test_ac3_editor_is_refused_a_project_level_patch(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("editor"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": 300},
+    )
+    assert response.status_code == 403
+
+
+# --- AC4: Dry run and removing an override ----------------------------------
+
+
+def test_ac4_dry_run_previews_without_saving(client: TestClient, app_service: _SettingsApp) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm", "dry_run": "true"},
+        json={"chunking.max_tokens": 300},
+    )
+    assert response.status_code == 200
+    assert response.json()["dry_run"] is True
+
+    unchanged = client.get(
+        "/v1/admin/settings", headers=_auth("admin"), params={"level": "project:cpm"}
+    )
+    assert unchanged.json()["values"]["chunking.max_tokens"] == 384
+    assert unchanged.headers["ETag"] == 'W/"rev-41"'
+
+
+def test_ac4_removing_an_override_falls_back_to_the_parent_scope(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": None},
+    )
+    assert response.status_code == 200
+
+    effective = client.get(
+        "/v1/admin/settings",
+        headers=_auth("admin"),
+        params={"level": "project:cpm", "effective": "true"},
+    )
+    assert effective.json()["values"]["chunking.max_tokens"] == {
+        "value": 512,
+        "origin": "tenant",
+    }
+
+
+# --- AC5: Rejected changes ---------------------------------------------------
+
+
+def test_ac5_unknown_key_is_rejected(client: TestClient, app_service: _SettingsApp) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokenz": 1},
+    )
+    assert response.status_code == 422
+
+
+def test_ac5_out_of_range_value_is_rejected(client: TestClient, app_service: _SettingsApp) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": 99999},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_ac5_key_not_allowed_at_this_level_is_rejected(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"ingestion.concurrency": 4},
+    )
+    assert response.status_code == 422
+    assert response.json()["error"]["code"] == "validation_error"
+
+
+def test_ac5_unknown_settings_key_entirely_is_rejected(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-41"'},
+        params={"level": "project:cpm"},
+        json={"database.url": "postgres://nope"},
+    )
+    assert response.status_code == 422
+
+
+def test_ac5_missing_if_match_is_rejected(client: TestClient, app_service: _SettingsApp) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers=_auth("admin"),
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": 300},
+    )
+    assert response.status_code == 422
+
+
+def test_ac5_stale_if_match_is_a_412(client: TestClient, app_service: _SettingsApp) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-40"'},
+        params={"level": "project:cpm"},
+        json={"chunking.max_tokens": 300},
+    )
+    assert response.status_code == 412
+    assert response.json()["error"]["code"] == "precondition_failed"
+
+
+def test_ac5_embedding_change_is_a_409_reindex_required(
+    client: TestClient, app_service: _SettingsApp
+) -> None:
+    _seed_cascade_fixture(app_service)
+    response = client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": 'W/"rev-0"'},
+        params={"level": "tenant"},
+        json={"models.embedding": "prov_openai:text-embedding-3-small"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "reindex_required"
+
+
+@pytest.mark.parametrize(
+    ("level", "if_match", "body"),
+    [
+        ("project:cpm", 'W/"rev-41"', {"chunking.max_tokenz": 1}),
+        ("project:cpm", 'W/"rev-41"', {"chunking.max_tokens": 99999}),
+        ("project:cpm", 'W/"rev-41"', {"ingestion.concurrency": 4}),
+        ("project:cpm", 'W/"rev-41"', {"database.url": "postgres://nope"}),
+        ("project:cpm", 'W/"rev-40"', {"chunking.max_tokens": 300}),
+    ],
+)
+def test_ac5_nothing_is_saved_for_any_rejected_change(
+    client: TestClient,
+    app_service: _SettingsApp,
+    level: str,
+    if_match: str,
+    body: dict[str, object],
+) -> None:
+    _seed_cascade_fixture(app_service)
+    client.patch(
+        "/v1/admin/settings",
+        headers={**_auth("admin"), "If-Match": if_match},
+        params={"level": level},
+        json=body,
+    )
+    reread = client.get("/v1/admin/settings", headers=_auth("admin"), params={"level": level})
+    assert reread.json()["values"].get("chunking.max_tokens", 384) == 384
+    assert reread.headers["ETag"] == 'W/"rev-41"'

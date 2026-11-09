@@ -31,6 +31,7 @@ from harborrag_core.domain.provider import Provider
 from harborrag_core.domain.setting_override import SettingOverride
 from harborrag_core.domain.setting_registry import ScopeLevel
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ports.control_plane import ScopeRevisionRecord
 from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
     FakeGraphConflictRepository as FakeGraphConflictRepository,
 )
@@ -412,10 +413,17 @@ class FakeSettingScopeRevisionRepository:
     """Dict-backed SettingScopeRevisionRepositoryPort, keyed by (tenant, level, scope_id)."""
 
     revisions: dict[tuple[str, str, str], int] = field(default_factory=dict)
+    records: dict[tuple[str, str, str], ScopeRevisionRecord] = field(default_factory=dict)
 
     async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
         """Current revision, or 0 when the scope has never been written."""
         return self.revisions.get((tenant_id, scope_level, scope_id), 0)
+
+    async def get_record(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> ScopeRevisionRecord | None:
+        """Revision plus ``source``/``actor`` of the last bump, or ``None`` if never written."""
+        return self.records.get((tenant_id, scope_level, scope_id))
 
     async def bump_if_match(
         self,
@@ -424,6 +432,8 @@ class FakeSettingScopeRevisionRepository:
         scope_id: str,
         *,
         expected_revision: int,
+        source: str,
+        actor: str | None = None,
     ) -> int:
         """Advance the scope's revision by one and return it."""
         identity = (tenant_id, scope_level, scope_id)
@@ -431,6 +441,7 @@ class FakeSettingScopeRevisionRepository:
         if expected_revision != current:
             raise HarborPreconditionFailedError("setting scope revision does not match")
         self.revisions[identity] = current + 1
+        self.records[identity] = {"revision": current + 1, "source": source, "actor": actor}
         return current + 1
 
 

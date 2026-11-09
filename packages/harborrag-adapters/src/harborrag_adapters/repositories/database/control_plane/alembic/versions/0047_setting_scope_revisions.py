@@ -24,6 +24,8 @@ def upgrade() -> None:
         sa.Column("scope_level", sa.String(16), nullable=False),
         sa.Column("scope_id", sa.Text(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="0"),
+        sa.Column("source", sa.String(32), nullable=False, server_default="api"),
+        sa.Column("actor", sa.String(255), nullable=True),
         sa.Column("updated_at", _TZDT, nullable=False),
         sa.PrimaryKeyConstraint(
             "tenant_id",

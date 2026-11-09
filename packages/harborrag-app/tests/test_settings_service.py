@@ -199,6 +199,21 @@ async def test_patch_allows_setting_embedding_model_to_its_own_current_value() -
 
 
 @pytest.mark.asyncio
+async def test_patch_rejects_an_out_of_range_value_as_validation_error() -> None:
+    service, _cp = _service()
+    with pytest.raises(HarborValidationError):
+        await service.patch(
+            "acme",
+            "tenant",
+            "acme",
+            {"chunking.max_tokens": 99999},
+            expected_revision=0,
+            actor="tester",
+            dry_run=False,
+        )
+
+
+@pytest.mark.asyncio
 async def test_patch_rejects_a_stale_revision() -> None:
     service, _cp = _service()
     with pytest.raises(HarborPreconditionFailedError):
