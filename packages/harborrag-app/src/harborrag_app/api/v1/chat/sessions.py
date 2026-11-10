@@ -15,7 +15,8 @@ from fastapi import APIRouter, Depends, Path, Query, Response
 from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
-from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
+from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
 

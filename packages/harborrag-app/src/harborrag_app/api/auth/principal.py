@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from harborrag_core.contracts.errors import HarborAuthError
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.domain.member import Role
 
@@ -49,3 +50,13 @@ class Principal:
         application-facing exception: they are meant to see every tenant.
         """
         return None if "*" in self.tenant_ids else self.tenant_ids
+
+
+def authorize_role(principal: Principal, minimum: Role) -> None:
+    """Reject a principal below the minimum role.
+
+    Raises:
+        HarborAuthError: The principal's role is below ``minimum``.
+    """
+    if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
+        raise HarborAuthError(f"requires {minimum} role", forbidden=True)

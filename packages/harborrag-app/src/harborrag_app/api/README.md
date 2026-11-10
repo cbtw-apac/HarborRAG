@@ -129,7 +129,8 @@ one envelope:
 }
 ```
 
-- `code` comes from the catalog in `errors.CATALOG`; clients branch on `code`, never on
+- `code` comes from the catalog in `operations/errors.py` (`CATALOG`), which the CLI
+  shares; clients branch on `code`, never on
   `message`.
 - `details` is `null`, an object, or for `validation_error` a list of `{field, issue}`.
   A body that is not valid JSON fails on field `body`.
@@ -274,8 +275,8 @@ uv run python -m harborrag_app.api.export_openapi > openapi.json
 ```text
 api/
 ├── app.py, router.py, settings.py, serve.py, dependencies.py
-├── errors.py, dependency_failures.py, middleware.py, schemas.py, sse.py
-├── auth/                 # credentials, tenants, the ordered role guard
+├── errors.py, middleware.py, schemas.py, sse.py   # errors.py holds the handlers
+├── auth/                 # credentials, tenants, the ordered role guard; role check in principal.py
 ├── probes.py, readiness.py
 ├── ops.py, metrics.py    # the ops port and its Prometheus registry
 ├── rate_limit.py, deadline.py, capacity*.py
@@ -286,6 +287,10 @@ api/
     ├── ingestion/        # ingestion runs and the failure inbox
     └── me.py
 ```
+
+The error catalogue and its status and code mapping (`operations/errors.py`) and
+`dependency_failures.py` live in the sibling `harborrag_app/operations/` package, which
+imports no web framework so the CLI can use them.
 
 This package may validate and serialize HTTP messages, authenticate principals and
 enforce route roles, manage the API process and its middleware, and delegate operations

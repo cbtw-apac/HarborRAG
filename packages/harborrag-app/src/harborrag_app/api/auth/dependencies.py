@@ -21,8 +21,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
-from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.errors import TenantForbiddenError
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,
@@ -40,15 +41,6 @@ logger = logging.getLogger("harborrag.app.api.auth")
 _bearer_scheme = HTTPBearer(auto_error=False)
 UNAUTHENTICATED = "missing or invalid credentials"
 API_KEY_ROLE: Role = "reader"
-
-
-class TenantForbiddenError(HarborAuthError):
-    """The request names a tenant the credential does not hold."""
-
-    error_code = "tenant_forbidden"
-
-    def __init__(self, message: str = "the credential does not hold this tenant") -> None:
-        super().__init__(message, forbidden=True)
 
 
 class VerifiedApiKey(Protocol):
@@ -244,13 +236,6 @@ async def get_principal(
             raise
         logger.info("Rejected a bearer credential: %s", exc)
         raise HarborAuthError(UNAUTHENTICATED) from None
-
-
-def authorize_role(principal: Principal, minimum: Role) -> None:
-    """Reject a principal below the minimum role, for in-body field checks."""
-
-    if ROLE_ORDER[principal.role] < ROLE_ORDER[minimum]:
-        raise HarborAuthError(f"requires {minimum} role", forbidden=True)
 
 
 def authorize_tenant(principal: Principal, tenant_id: str) -> None:

@@ -20,8 +20,8 @@ from starlette.routing import BaseRoute
 from harborrag_core.domain.member import Role
 
 from ..rate_limit import RateBucket, charge
-from .dependencies import authorize_role, get_principal
-from .principal import ROLE_ORDER, Principal
+from .dependencies import get_principal
+from .principal import ROLE_ORDER, Principal, authorize_role
 from .tenancy import resolve_tenant, tenant_header
 
 _MINIMUM_ROLE = "minimum_role"

@@ -20,10 +20,11 @@ from fastapi.responses import StreamingResponse
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.dependencies import ResponseContextDependency
-from harborrag_app.api.errors import ReferenceNotFoundError, documented_error_responses
+from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.sse import bounded_sse_frames, with_heartbeat
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
 from harborrag_app.api.v1.admin.dependencies import Administration, Editor, error_responses
+from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.workflow_control.control_plane.connection_views import ingestion_status
 from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
 from harborrag_app.workflow_control.ingestion.presenters import TERMINAL_STATES

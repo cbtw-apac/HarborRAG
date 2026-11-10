@@ -33,6 +33,7 @@ def test_cli_imports_without_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
 
     module = importlib.import_module("harborrag_app.cli.main")
     assert module is not None
+    assert importlib.import_module("harborrag_app.operations") is not None
 
 
 def test_ingestion_cli_service_does_not_import_model_provider_runtime() -> None:

@@ -12,8 +12,9 @@ from typing import Annotated
 
 from fastapi import Depends, Header, Request
 
-from ..errors import TenantRequiredError
-from .dependencies import TenantForbiddenError, get_principal
+from harborrag_app.operations.errors import TenantForbiddenError, TenantRequiredError
+
+from .dependencies import get_principal
 from .principal import Principal
 
 TenantHeader = Annotated[

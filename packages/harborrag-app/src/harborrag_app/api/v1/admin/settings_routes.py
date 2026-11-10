@@ -15,7 +15,7 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Header, Query, Response
 
-from harborrag_app.api.auth.dependencies import authorize_role
+from harborrag_app.api.auth.principal import authorize_role
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
