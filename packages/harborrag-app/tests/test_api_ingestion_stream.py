@@ -18,6 +18,7 @@ from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import ResponseContext
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.api.v1.ingestion.routes import stream_ingestion
+from harborrag_app.operations import LocalOperations, Scope
 from harborrag_core.contracts.events import HarborEvent
 
 
@@ -177,10 +178,11 @@ async def test_stream_closes_the_app_service_generator_on_early_disconnect() -> 
 
     response = await stream_ingestion(
         "t1",
-        service=_HangingAppService(),
-        tenant="DEFAULT",
+        operations=LocalOperations(_HangingAppService()),
+        scope=Scope(
+            Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})), "DEFAULT"
+        ),
         context=_context(),
-        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id=None,
     )
     body = response.body_iterator
@@ -210,10 +212,11 @@ async def test_stream_sends_a_ping_comment_while_the_run_is_quiet(
 
     response = await stream_ingestion(
         "t1",
-        service=_QuietAppService(),
-        tenant="DEFAULT",
+        operations=LocalOperations(_QuietAppService()),
+        scope=Scope(
+            Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})), "DEFAULT"
+        ),
         context=_context(),
-        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id=None,
     )
     chunks = [chunk async for chunk in response.body_iterator]
@@ -242,10 +245,11 @@ async def test_disconnect_while_idle_between_pings_closes_cleanly(
 
     response = await stream_ingestion(
         "t1",
-        service=_IdleAppService(),
-        tenant="DEFAULT",
+        operations=LocalOperations(_IdleAppService()),
+        scope=Scope(
+            Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})), "DEFAULT"
+        ),
         context=_context(),
-        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id=None,
     )
     body = response.body_iterator
@@ -277,10 +281,11 @@ async def test_stream_past_its_deadline_ends_with_a_deadline_exceeded_error_even
 
     response = await stream_ingestion(
         "t1",
-        service=_EndlessAppService(),
-        tenant="DEFAULT",
+        operations=LocalOperations(_EndlessAppService()),
+        scope=Scope(
+            Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})), "DEFAULT"
+        ),
         context=_context(0.05),
-        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id=None,
     )
     chunks = [chunk async for chunk in response.body_iterator]
@@ -365,10 +370,11 @@ async def test_a_quiet_run_opens_at_once_and_ends_with_a_deadline_error_event(
     monkeypatch.setattr("harborrag_app.api.v1.ingestion.routes.HEARTBEAT_SECONDS", 0.01)
     response = await stream_ingestion(
         "t1",
-        service=_QuietAppService(),
-        tenant="DEFAULT",
+        operations=LocalOperations(_QuietAppService()),
+        scope=Scope(
+            Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})), "DEFAULT"
+        ),
         context=_context(0.1),
-        _principal=Principal(subject="test", role="editor", tenant_ids=frozenset({"*"})),
         last_event_id="7",
     )
     chunks = [chunk async for chunk in response.body_iterator]

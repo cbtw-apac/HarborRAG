@@ -174,7 +174,7 @@ def source_failure(error: Exception) -> AppResponse:
 
 
 def _connection_service(service: BaseAppService) -> ConnectionService:
-    """Return the service's ``ConnectionAdministration.connection_service``.
+    """Return the service's ``connection_service``.
 
     Raises:
         HarborCapabilityError: This app service does not manage connections.
