@@ -6,6 +6,7 @@ Split from test_cli_project.py to keep both modules inside the file-length gate.
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -111,6 +112,7 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
     monkeypatch.chdir(nested)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
     assert cli.main(["retrieve", "anything", "--json"]) == 0
     assert Path.cwd() == tmp_path.resolve()

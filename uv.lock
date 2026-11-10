@@ -2277,6 +2277,7 @@ name = "harborrag-app"
 version = "2.0.0a2"
 source = { editable = "packages/harborrag-app" }
 dependencies = [
+    { name = "click" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
     { name = "harborrag-memory" },
@@ -2309,6 +2310,7 @@ production = [
 
 [package.metadata]
 requires-dist = [
+    { name = "click", specifier = ">=8.2.1,<9" },
     { name = "fastapi", marker = "extra == 'api'", specifier = ">=0.115" },
     { name = "harborrag-adapters", extras = ["chunking-code", "control-plane", "falkordb", "llm", "postgres", "qdrant", "s3"], marker = "extra == 'production'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },

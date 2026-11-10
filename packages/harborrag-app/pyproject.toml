@@ -11,6 +11,7 @@ dependencies = [
     "harborrag-runtime==2.0.0a2",
     "harborrag-engine==2.0.0a2",
     "harborrag-memory==2.0.0a2",
+    "click>=8.2.1,<9",
     "pydantic>=2.13,<3",
     "python-dotenv>=1,<2",
     "PyYAML>=6.0,<7",

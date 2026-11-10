@@ -1,6 +1,7 @@
 """``error_body`` and ``ConnectionRef`` behave the same under any transport."""
 
 import pytest
+from cli_fakes import raised_in_temporal_client
 
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.operations import ConnectionRef, Scope, TenantForbiddenError, error_body
@@ -13,24 +14,8 @@ from harborrag_core.contracts.errors import (
     HarborPreconditionFailedError,
 )
 from harborrag_runtime.config.connectors.models.spec import ConnectionValidationError, FieldIssue
-from harborrag_runtime.errors import RuntimeConnectionError
 
 pytestmark = pytest.mark.unit
-
-
-def _raised_in_temporal_client() -> RuntimeConnectionError:
-    namespace: dict[str, object] = {
-        "__name__": "temporalio.client",
-        "error": RuntimeConnectionError,
-    }
-    exec(compile("def connect():\n    raise error('refused')", "client.py", "exec"), namespace)  # noqa: S102
-    connect = namespace["connect"]
-    assert callable(connect)
-    try:
-        connect()
-    except RuntimeConnectionError as exc:
-        return exc
-    raise AssertionError("connect did not raise")
 
 
 CASES = [
@@ -72,7 +57,7 @@ def test_error_body_hides_configuration_text() -> None:
 
 
 def test_error_body_names_the_lost_dependency() -> None:
-    body = error_body(_raised_in_temporal_client())
+    body = error_body(raised_in_temporal_client())
 
     assert (body.status, body.code) == (503, "dependency_unavailable")
     assert body.details == {"dependency": "temporal"}

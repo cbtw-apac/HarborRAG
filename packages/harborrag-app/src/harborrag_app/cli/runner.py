@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -11,6 +10,9 @@ from dataclasses import dataclass
 
 import typer
 
+from harborrag_app.cli.invoke import build_service as build_runtime_service
+from harborrag_app.cli.invoke import close as close
+from harborrag_app.cli.invoke import control_plane_failure as control_plane_failure
 from harborrag_app.cli.rendering import CliRenderer
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.composition.selection import runtime_app_service
@@ -173,8 +175,7 @@ async def build_service(
     """Build the runtime service, or emit the failure envelope and return ``None``."""
 
     try:
-        logger.debug("Building the runtime application service")
-        return await asyncio.to_thread(runtime_app_service)
+        return await build_runtime_service(runtime_app_service)
     except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
         logger.error("Failed to build the runtime application service: %s", type(exc).__name__)
         logger.debug("Failed to build the runtime application service", exc_info=True)
@@ -201,22 +202,6 @@ def emit(
     renderer.render(response, command=command, action=action)
 
 
-async def close(service: BaseAppService) -> None:
-    aclose = getattr(service, "aclose", None)
-    if aclose is None:
-        return
-    try:
-        result = aclose()
-        if inspect.isawaitable(result):
-            await result
-    except Exception:
-        # Closing happens after the envelope was emitted; a teardown failure must not
-        # replace it with a traceback or change the exit code.
-        logger.warning(
-            "Closing the application service failed", exc_info=logger.isEnabledFor(logging.DEBUG)
-        )
-
-
 def failure(exc: Exception) -> AppResponse:
     # HarborConfigurationError messages are authored in this repository and name
     # HARBORRAG_* variables, never their values; they are the operator's whole
@@ -227,47 +212,6 @@ def failure(exc: Exception) -> AppResponse:
     else:
         error = public_error_message(exc)
     return AppResponse(False, data={"error_type": type(exc).__name__}, error=error)
-
-
-def control_plane_failure(service: BaseAppService) -> AppResponse | None:
-    """Return a failure response when the control plane is unusable, else ``None``."""
-
-    try:
-        health = service.health()
-    except Exception:
-        # A service that cannot report its own health is not evidence that the control
-        # plane is broken. Let the command run and fail on its own terms rather than
-        # blocking it on an inconclusive check.
-        logger.debug("Control-plane readiness check unavailable", exc_info=True)
-        return None
-    if health.ok:
-        return None
-    detail = _control_db_error(health)
-    logger.error("Control-plane readiness check failed: %s", detail)
-    return AppResponse(
-        False,
-        data={"error_type": "ControlPlaneUnavailable"},
-        error=(
-            "Control plane is not ready. Refusing to run "
-            "against a database whose schema may be stale; run 'harborrag doctor' for "
-            "diagnostics."
-        ),
-    )
-
-
-def _control_db_error(health: AppResponse) -> str:
-    """Dig the control-plane error out of the health envelope, if it carries one."""
-
-    diagnostics = health.data.get("diagnostics")
-    if isinstance(diagnostics, dict):
-        runtime = diagnostics.get("runtime")
-        if isinstance(runtime, dict):
-            control_db = runtime.get("control_db")
-            if isinstance(control_db, dict):
-                error = control_db.get("error")
-                if isinstance(error, str) and error:
-                    return error
-    return health.error or "runtime not ready"
 
 
 def state(context: typer.Context) -> CliState:

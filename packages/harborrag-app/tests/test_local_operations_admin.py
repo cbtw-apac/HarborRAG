@@ -23,6 +23,8 @@ from harborrag_app.operations import (
     TenantForbiddenError,
 )
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
+from harborrag_app.workflow_control.control_plane.settings_service import SettingsRead
+from harborrag_core.config_store import SettingsLevel
 from harborrag_core.contracts.errors import HarborAuthError, HarborPreconditionFailedError
 from harborrag_core.domain.project import Project
 
@@ -153,3 +155,26 @@ async def test_deleting_an_empty_project_starts_no_job(operations: LocalOperatio
     await operations.put_project(_scope("admin"), "demo", _DEMO, if_match=None, if_none_match=None)
 
     assert await operations.delete_project(_scope("admin"), "demo", cascade=False) is None
+
+
+class _Revisions:
+    """Settings service double answering a fixed tenant revision per tenant."""
+
+    def __init__(self, revisions: dict[str, int]) -> None:
+        self.revisions = revisions
+
+    async def read(self, *, tenant_id: str, level: SettingsLevel, effective: bool) -> SettingsRead:
+        return SettingsRead(str(level), self.revisions.get(tenant_id, 0), {})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("tenant_id", "expected"), [("acme", True), ("tuned", True), ("new", False)]
+)
+async def test_tenant_has_data_reads_projects_connections_and_settings(
+    tenant_id: str, expected: bool
+) -> None:
+    app = _AdminApp()
+    app.settings_service = _Revisions({"tuned": 2})
+
+    assert await LocalOperations(app).tenant_has_data(tenant_id) is expected

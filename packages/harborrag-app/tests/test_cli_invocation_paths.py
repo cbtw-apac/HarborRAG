@@ -48,7 +48,7 @@ def test_a_relative_cases_file_is_read_from_the_invocation_directory(
     assert cli.main(["topology", "evaluate", "cases.jsonl"]) == 0
 
     captured = capsys.readouterr()
-    assert "using project" in captured.err  # activation did move the process
+    assert Path.cwd() == in_project_subdirectory.parent  # activation did move the process
     assert json.loads(captured.out)["data"] == {"payload": '{"case": 1}\n'}
 
 

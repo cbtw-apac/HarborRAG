@@ -18,6 +18,7 @@ from harborrag_app.cli.commands import (
     config,
     doctor,
     ingest,
+    me,
     retrieve,
     source,
     topology,
@@ -86,6 +87,11 @@ def configure(
 
 
 app.command(
+    "me",
+    help="Show the principal, role and tenants the CLI acts with.",
+    rich_help_panel="Operations",
+)(me.command)
+app.command(
     "doctor",
     help="Check project, configuration, environment, and local services.",
     rich_help_panel="Operations",
@@ -149,10 +155,10 @@ def main(argv: list[str] | None = None) -> int:
         # Never configure a run from a directory the user cannot see they are in.
         if project is not None:
             if project.root != origin.resolve():
-                print(f"harborrag: using project {project.root}", file=sys.stderr)
+                _announce(f"harborrag: using project {project.root}")
         elif checkout is not None:
             if checkout != origin.resolve():
-                print(f"harborrag: using repository checkout {checkout}", file=sys.stderr)
+                _announce(f"harborrag: using repository checkout {checkout}")
         elif _requires_project(args):
             # Fail here with guidance instead of letting a catalog loader explain a missing
             # file in Docker-image terms to someone who just ran `pip install harborrag`.
@@ -169,6 +175,16 @@ def main(argv: list[str] | None = None) -> int:
     except SystemExit as exc:
         return _exit_code(exc.code)
     return 0
+
+
+def _announce(notice: str) -> None:
+    """Tell a person at a terminal which directory the command runs from.
+
+    Only on a terminal: a script reads stderr as the command's error report, so a notice
+    there would break parsing it.
+    """
+    if sys.stderr.isatty():
+        print(notice, file=sys.stderr)
 
 
 def _command_name(args: list[str]) -> str | None:

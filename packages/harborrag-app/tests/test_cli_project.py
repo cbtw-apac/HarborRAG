@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 import pytest
@@ -224,7 +225,7 @@ def test_explicit_project_selection_is_an_opt_in_and_skips_the_safety_check(
     assert project is not None and project.root == root.resolve()
 
 
-def test_main_announces_activation_when_it_leaves_the_current_directory(
+def test_main_announces_activation_at_a_terminal_when_it_leaves_the_current_directory(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
     from app_test_fixtures import MockAppService
@@ -237,6 +238,7 @@ def test_main_announces_activation_when_it_leaves_the_current_directory(
     monkeypatch.chdir(root / "sub")
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
+    monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
     unreachable(monkeypatch)
     cli.main(["doctor", "--json"])
