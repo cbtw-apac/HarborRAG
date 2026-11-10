@@ -7,32 +7,20 @@ stored answer byte for byte.
 
 from __future__ import annotations
 
-import contextlib
 from typing import Annotated
 
 from fastapi import APIRouter, Body, Depends, Header, Request, Response
+from fastapi.responses import StreamingResponse
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
+from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.middleware import current_trace_id
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.chat.completion import (
-    Completion,
-    RetrievalFound,
-    TurnCompleted,
-)
-from harborrag_core.contracts.errors import HarborConnectionError
 
-from .completion_dependency import CompletionService, CompletionServiceDependency
-from .dispatch import chat_options
-from .replay import CompletionAttempt
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .schemas import ChatCompletionRequest
 from .sessions import router as session_router
-from .streaming import completion_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
@@ -67,6 +55,7 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
     "/completions",
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
     **route_kwargs("create_chat_completion"),
+    dependencies=[Depends(require_role(OPERATIONS["create_chat_completion"].role, bucket="chat"))],
     summary="Ask a question",
     description="Answer in mode instant or classic, inside a session or as a one-off question "
     "(leave out session_id). The same Idempotency-Key and body within 24 h returns the "
@@ -96,11 +85,8 @@ async def create_chat_completion(  # noqa: PLR0913 - the route's dependencies
         ),
     ],
     http: Request,
-    service: CompletionServiceDependency,
-    principal: Annotated[
-        Principal, Depends(require_role(OPERATIONS["create_chat_completion"].role, bucket="chat"))
-    ],
-    tenant: TenantDependency,
+    operations: OperationsDependency,
+    scope: ScopeDependency,
     _capacity: ApiCapacityDependency,
     idempotency_key: Annotated[
         str | None,
@@ -114,60 +100,26 @@ async def create_chat_completion(  # noqa: PLR0913 - the route's dependencies
     ] = None,
 ) -> Response:
     """Answer one question with numbered citations."""
-
-    options = chat_options(request, principal, trace_id=current_trace_id(http))
-    attempt = CompletionAttempt.for_request(
-        service, request, tenant_id=tenant, principal=principal, key=idempotency_key
+    completion = await operations.create_chat_completion(
+        scope, request, idempotency_key=idempotency_key, trace_id=current_trace_id(http)
     )
-    body = await attempt.claim()
-    replayed = body is not None
-    if body is None:
-        completion = await _answer(service, request, tenant, principal, options, attempt)
-        body = ChatCompletionResponse.model_validate(completion.data()).model_dump_json()
-        await attempt.finish(body, session_id=completion.session_id)
-    if request.stream:
-        return completion_stream(body, replayed=replayed)
+    replayed = str(completion.replayed).lower()
+    if completion.events is not None:
+        return StreamingResponse(
+            completion.events,
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-store",
+                "X-Accel-Buffering": "no",
+                "Idempotency-Replayed": replayed,
+            },
+        )
+    assert completion.body is not None
     return Response(
-        content=body,
+        content=completion.body.model_dump_json(),
         media_type="application/json",
-        headers={"Cache-Control": "no-store", "Idempotency-Replayed": str(replayed).lower()},
+        headers={"Cache-Control": "no-store", "Idempotency-Replayed": replayed},
     )
-
-
-async def _answer(  # noqa: PLR0913 - the turn's request, caller and claim
-    service: CompletionService,
-    request: ChatCompletionRequest,
-    tenant: str,
-    principal: Principal,
-    options: ChatExecutionOptions,
-    attempt: CompletionAttempt,
-) -> Completion:
-    """Run the turn, giving the key back on a failure before any model call and spending it after.
-
-    The turn yields ``RetrievalFound`` after every read and check it makes before its
-    first model call, so a failure until then (a store or retrieval outage, a busy
-    session, a refused request, a caller that went away) leaves the key reusable. From
-    then on a model may have been paid for, and a failure records the key as failed.
-
-    Raises:
-        HarborConnectionError: The turn ended without its answer.
-    """
-    spent = False
-    events = service.chat_answer(
-        request.message, tenant_id=tenant, principal_id=principal.subject, options=options
-    )
-    try:
-        async with contextlib.aclosing(events):
-            async for event in events:
-                if isinstance(event, RetrievalFound):
-                    spent = True
-                elif isinstance(event, TurnCompleted):
-                    return event.completion
-    except BaseException:
-        await (attempt.finish() if spent else attempt.release())
-        raise
-    await attempt.finish()
-    raise HarborConnectionError("The chat turn ended without its answer")
 
 
 router.include_router(session_router)

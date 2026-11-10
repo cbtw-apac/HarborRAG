@@ -10,7 +10,7 @@ Does NOT frame events as SSE or set status codes and headers; the transport does
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
 from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
@@ -151,7 +151,7 @@ class IngestionOps:
 
     async def stream_ingestion(
         self, scope: Scope, ingestion_id: str, *, after_seq: int | None
-    ) -> AsyncIterator[HarborEvent] | None:
+    ) -> AsyncGenerator[HarborEvent, None] | None:
         """Follow a run's stored events, then its live ones, until ``run.completed``.
 
         The run is read first, which is the only tenant guard the event iterator has. A run

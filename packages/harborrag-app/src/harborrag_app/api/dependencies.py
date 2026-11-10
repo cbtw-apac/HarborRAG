@@ -44,7 +44,8 @@ def get_app_service(request: Request) -> BaseAppService:
 
 def get_operations(request: Request) -> Operations:
     """Return the operations the lifespan composed over the AppService."""
-    return cast(Operations, request.app.state.operations)
+    operations: Operations = request.app.state.operations
+    return operations
 
 
 def operation_scope(

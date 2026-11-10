@@ -176,8 +176,7 @@ async def stream_ingestion(  # noqa: PLR0913 - the route's dependencies and head
             async for event in events:
                 yield _sse_frame(event, ingestion_id)
         finally:
-            if isinstance(events, AsyncGenerator):
-                await events.aclose()
+            await events.aclose()
 
     return StreamingResponse(
         with_heartbeat(

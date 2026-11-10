@@ -50,13 +50,15 @@ composition and closes it at process shutdown. Its control database is
 `HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both refused at startup.
 
 The lifespan also wraps the `AppService` in `LocalOperations`, the in-process
-implementation of the `Operations` port in `harborrag_app/operations/`. The source-type,
-connection and project routes take it through `OperationsDependency` and the caller and
-tenant through `ScopeDependency`, both in `dependencies.py`. `/v1/me` takes
-`OperationsDependency` with its guard's principal and the optional tenant, since it can
-answer with no tenant picked. Each of those routes parses its input, calls the port method
-named after it, and sets the status code and `ETag`. The ingestion, failure, settings and
-chat routes still call the `AppService` directly.
+implementation of the `Operations` port in `harborrag_app/operations/`. Every `/v1` route
+takes it through `OperationsDependency` and the caller and tenant through
+`ScopeDependency`, both in `dependencies.py`. `/v1/me` takes its guard's principal and the
+optional tenant instead of a scope, since it can answer with no tenant picked.
+
+Each route parses its input, calls the port method named after it, and turns the result
+into the status code and headers: `ETag`, `Location`, `Idempotency-Replayed`, and the
+`text/event-stream` body of an ingestion's events or a streamed chat completion. The
+probes and the lifespan's background loops call the `AppService` directly.
 
 ## Routes
 
@@ -204,9 +206,9 @@ before its stream opens. A streamed ingestion event body has its own
 
 | Mechanism | Rule |
 | --- | --- |
-| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects and connections |
-| `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches |
-| `If-Match: *` | Connection `PUT` updates only |
+| `ETag` | `W/"rev-<n>"` on reads and successful writes of projects, connections and settings |
+| `If-Match: <etag>` | The write fails with `412 precondition_failed` unless it matches; settings `PATCH` without it is `422` on field `If-Match` |
+| `If-Match: *` | Connection `PUT` updates only; settings `PATCH` applies to the current revision |
 | `If-None-Match: *` | Project and connection `PUT` create only |
 | `Idempotency-Key` | `POST /v1/chat/completions` only: the same key and body within 24 h replay the stored answer without a model call; see [Retry without duplicates](../../../../../docs/users/chat/limits.md#retry-without-duplicates) |
 | Paging | `?limit=` 1-100 (20 by default) and `?cursor=`; the body is `{"items": [...], "next_cursor": null}`. A cursor the server did not issue is `422` on field `cursor` |
@@ -302,10 +304,11 @@ use it too. It holds the `Operations` port (`port.py`) and its in-process implem
 error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
 
 This package may validate and serialize HTTP messages, authenticate principals and
-enforce route roles, manage the API process and its middleware, and delegate operations
-through the `Operations` port or `BaseAppService`. It must not instantiate connectors,
-parsers, model clients or repositories, implement ingestion state transitions, expose
-Temporal SDK handles on the wire, or return provider exception details or secrets.
+enforce route roles, manage the API process and its middleware, and delegate `/v1`
+operations through the `Operations` port and probes and background loops through
+`BaseAppService`. It must not instantiate connectors, parsers, model clients or
+repositories, implement ingestion state transitions, expose Temporal SDK handles on the
+wire, or return provider exception details or secrets.
 
 Run its tests from the repository root:
 

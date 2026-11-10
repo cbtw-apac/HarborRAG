@@ -9,7 +9,7 @@ Start from: Operations.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
@@ -190,7 +190,7 @@ class Operations(Protocol):
 
     async def stream_ingestion(
         self, scope: Scope, ingestion_id: str, *, after_seq: int | None
-    ) -> AsyncIterator[HarborEvent] | None:
+    ) -> AsyncGenerator[HarborEvent, None] | None:
         """Follow one ingestion run's events after ``after_seq``."""
         ...
 

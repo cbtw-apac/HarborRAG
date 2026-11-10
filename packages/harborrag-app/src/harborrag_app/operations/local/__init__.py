@@ -9,14 +9,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from harborrag_app.operations.port import Operations
+
 from .admin import AdminOps
+from .chat import ChatOps
 from .ingestions import IngestionOps
+from .settings import SettingsOps
 
 if TYPE_CHECKING:
     from harborrag_app.workflow_control.composition.service import AppService
 
 
-class LocalOperations(AdminOps, IngestionOps):
+class LocalOperations(AdminOps, IngestionOps, SettingsOps, ChatOps):
     """The application operations, run in-process against the application service.
 
     Args:
@@ -25,3 +29,6 @@ class LocalOperations(AdminOps, IngestionOps):
 
     def __init__(self, app_service: AppService) -> None:
         self._app_service = app_service
+
+
+_conforms: type[Operations] = LocalOperations
