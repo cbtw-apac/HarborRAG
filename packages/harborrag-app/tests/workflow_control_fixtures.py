@@ -348,7 +348,7 @@ async def service_resources(
         return registry
 
     service = IngestionApplicationService(
-        RuntimeSettings(ingestion_tenant_id="default"),
+        RuntimeSettings(tenant_id="default"),
         client_provider=runtime_client,
         task_store_provider=task_store,
         source_input_builder=public_ingestion_source_input,

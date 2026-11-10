@@ -755,7 +755,7 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
         lambda: no_revisions, prepare=lambda *args, **kwargs: None
     )
     settings = type(
-        "Settings", (), {"connector_config_path": "connectors.yaml", "ingestion_tenant_id": "acme"}
+        "Settings", (), {"connector_config_path": "connectors.yaml", "tenant_id": "acme"}
     )()
     submission = SourceSubmission(
         task_id="t",

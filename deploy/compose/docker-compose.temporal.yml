@@ -228,7 +228,7 @@ services:
       # tenant named here. RuntimeSettings rejects the combination unless the mode is
       # tenant_shared and the shared tenant equals the ingestion tenant, so they move
       # together -- and with the tenant in config/graph/build.yaml.
-      HARBORRAG_INGESTION_TENANT_ID: ${HARBORRAG_INGESTION_TENANT_ID:-DEFAULT}
+      HARBORRAG_TENANT_ID: ${HARBORRAG_TENANT_ID:-DEFAULT}
       HARBORRAG_CORPUS_ACCESS_MODE: ${HARBORRAG_CORPUS_ACCESS_MODE:-source_acl}
       HARBORRAG_CORPUS_SHARED_TENANT_ID: ${HARBORRAG_CORPUS_SHARED_TENANT_ID:-}
       HARBORRAG_SUMMARY_PROCESSING_ALLOWED: "${HARBORRAG_SUMMARY_PROCESSING_ALLOWED:-false}"

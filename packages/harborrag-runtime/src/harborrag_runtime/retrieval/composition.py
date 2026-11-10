@@ -64,7 +64,7 @@ async def connect_retrieval_service(
     control = build_ingestion_control(settings)
     if settings.summary_processing_allowed:
         control.summaries.allow_shared_processing(
-            settings.ingestion_tenant_id, settings.summary_processing_revision
+            settings.tenant_id, settings.summary_processing_revision
         )
     object_store = build_object_store(settings)
     vector_repository = build_vector_repository(settings)

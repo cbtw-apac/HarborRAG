@@ -90,6 +90,17 @@ removed; [Temporal configuration](../../deploy/temporal/README.md) and
 - The development worker now mounts the whole `config/` read-only, like the API and the
   MCP server. A configuration change needs a worker restart, not an image rebuild.
 
+### Rename the tenant variable
+
+**Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID`, and it
+now sets the default tenant of the API as well as the workers and the CLI. There is no
+alias: a process that still has the old name set stops at start-up with
+`HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID`. Rename it wherever
+it is set, such as `env/.env.api`, `env/.env.worker` and your deployment manifests. The
+compose files pass `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) to the API and the
+workers. An API credential that holds every tenant (`*`) and sends no `X-Tenant-Id`
+header now acts in that tenant instead of always `DEFAULT`.
+
 ### Set the local source root
 
 **Breaking:** `LOCAL_SOURCE_PATH` no longer sets the folder that `local_file`
@@ -194,8 +205,8 @@ The API imports `config/sources/connectors.yaml` once, when all of these hold:
 - the install has no projects and no connections, in any tenant;
 - no earlier import was recorded.
 
-It imports into the tenant `HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set).
-An install upgraded with projects or connections already stored, including rows carried
+It imports into the tenant `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). An
+install upgraded with projects or connections already stored, including rows carried
 over from the old `/api/v1/sources` routes, is not imported: add its connections through
 the API or `harborrag source add`.
 
@@ -423,7 +434,8 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 
 #### Chat
 
-- **Chat sessions and history answer the explorer `Session` and `Message` shapes, with no alias for the old ones.**
+- **Chat sessions and history answer the explorer `Session` and `Message` shapes, with
+  no alias for the old ones.**
   - `POST /v1/chat/sessions` takes an optional `title` and `project_id`; `project_id` is
     fixed for the session's life. A project the tenant does not have is
     `422 reference_not_found`, and `profile_id` is `422 validation_error` until v2.1.0.
@@ -451,7 +463,8 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
     `message_count`, and system messages are not listed. So are the empty assistant
     steps of 1.x agent turns.
   - Another reader's session, or an unknown one, is `404 not_found`.
-- **`POST /v1/chat/completions` answers the explorer completion, with no alias for the old request or response.**
+- **`POST /v1/chat/completions` answers the explorer completion, with no alias for the
+  old request or response.**
   - The body is `message` (1 to 8,000 characters, was `prompt`), optional `session_id`,
     `mode` (`classic` by default, or `instant`), `reasoning` (`off` only),
     `project_ids`, `connections`, `filters` and `stream`. `tenant_id`,
@@ -533,10 +546,10 @@ old knob you changed and your value for each, for example `retrieval.top_k: 8`. 
 copy `config/settings.example.yaml` whole: it lists every key you can set at its
 registry default, and every key in the seed file becomes an override that replaces its
 old knob, so a copied default would pin the default over a value you changed. The API
-seeds the tenant `HARBORRAG_INGESTION_TENANT_ID` names from that file once, when the
-tenant has no settings revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file
-from another path. After the seed, edits to the file only log a `config_yaml_drift`
-warning; change settings with the API or `harborrag config import`.
+seeds the tenant `HARBORRAG_TENANT_ID` names from that file once, when the tenant has no
+settings revisions. Set `HARBORRAG_SETTINGS_SEED_PATH` to read the file from another
+path. After the seed, edits to the file only log a `config_yaml_drift` warning; change
+settings with the API or `harborrag config import`.
 
 The first sync after any `parsing.*` or `chunking.*` override reprocesses that
 connection, because both feed the processing identity.

@@ -50,7 +50,7 @@ Tenant = Annotated[
     typer.Option(
         "--tenant",
         metavar="TENANT_ID",
-        envvar="HARBORRAG_INGESTION_TENANT_ID",
+        envvar="HARBORRAG_TENANT_ID",
         help="Tenant that owns the connection.",
     ),
 ]

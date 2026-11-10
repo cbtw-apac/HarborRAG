@@ -9,7 +9,7 @@ Tenant and client IDs default to ``MICROSOFT_TENANT_ID`` and
 ``MICROSOFT_CLIENT_ID``, from the environment or else from the connector env file
 (``env/.env.connector``, or ``$CONNECTOR_ENV_FILE``) the CLI reads. The default
 token file sits in the folder of the HarborRAG tenant the connection belongs to:
-``--harborrag-tenant``, else ``HARBORRAG_INGESTION_TENANT_ID``, else ``DEFAULT``.
+``--harborrag-tenant``, else ``HARBORRAG_TENANT_ID``, else ``DEFAULT``.
 ``--logout`` deletes the stored sign-in.
 """
 
@@ -26,7 +26,7 @@ from .delegated import DelegatedTokenCache, DeviceCodeLogin, default_token_cache
 
 _TENANT_ID = "MICROSOFT_TENANT_ID"
 _CLIENT_ID = "MICROSOFT_CLIENT_ID"
-_HARBORRAG_TENANT = "HARBORRAG_INGESTION_TENANT_ID"
+_HARBORRAG_TENANT = "HARBORRAG_TENANT_ID"
 _CONNECTOR_ENV_FILE = "env/.env.connector"
 
 

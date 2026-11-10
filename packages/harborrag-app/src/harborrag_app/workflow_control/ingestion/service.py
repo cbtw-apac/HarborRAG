@@ -402,7 +402,7 @@ class IngestionApplicationService:
             actor_type=actor_type,
         )
         try:
-            tenant_id = str(original.request.get("tenant_id") or self._settings.ingestion_tenant_id)
+            tenant_id = str(original.request.get("tenant_id") or self._settings.tenant_id)
             retry = IngestionRetryRequest(
                 retry_task_id=retry_task_id,
                 original_task_id=task_id,

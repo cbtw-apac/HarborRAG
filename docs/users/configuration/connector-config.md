@@ -27,16 +27,17 @@ HarborRAG turns this file into connections once:
   import runs only while the install holds no project and no connection in any tenant.
   A failed import is recorded and never retried.
 - Each entry becomes a connection in project `default` of the tenant
-  `HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set). The entry's key becomes
-  the connection's `source_key`, the name you pass to `harborrag ingest run`. It is also
-  the `connection_id` when it is a valid id; otherwise the id is a slug of the key.
+  `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). The entry's key becomes the
+  connection's `source_key`, the name you pass to `harborrag ingest run`. It is also the
+  `connection_id` when it is a valid id; otherwise the id is a slug of the key.
 - Entries with `enabled: false` are skipped.
 - Values named under `environment:` are read once, at the import, and stored with the
   connection. Tokens and passwords named under `secrets:` are stored as references to
   their variable, which the process running the ingestion reads at the start of every
   run, so a new token takes effect without another import.
 - An entry whose variable is unset is still imported, with status `error`. Fix it with
-  `harborrag source update` or the API; see [Connection status](../connections.md#connection-status).
+  `harborrag source update` or the API; see
+  [Connection status](../connections.md#connection-status).
 
 After the import, the service ignores edits to this file. `harborrag doctor` and the
 Python loader below still read it.
@@ -342,16 +343,15 @@ exported, the command reads those two values, and nothing else, from
 `env/.env.connector` (or `$CONNECTOR_ENV_FILE`) relative to the current directory, so
 from a checkout the command without arguments is enough.
 
-The command prints a code to enter at `https://microsoft.com/devicelogin`, then
-stores the refresh token in
-`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the
-folder of the HarborRAG tenant the connection belongs to, so two tenants never share a
-sign-in. The tenant comes from `--harborrag-tenant`, else
-`HARBORRAG_INGESTION_TENANT_ID`, else `DEFAULT`. To use another file, set
-`token_cache_path` on the connection and pass the same path as `--token-cache-path`.
-Each run redeems the token and stores the rotated one. If the token expires or access
-is revoked, the run fails with an authentication error asking you to sign in again.
-`--logout` deletes the stored sign-in.
+The command prints a code to enter at `https://microsoft.com/devicelogin`, then stores
+the refresh token in
+`~/.harborrag/sharepoint/<harborrag-tenant>/token-<tenant>-<client>.json`, in the folder
+of the HarborRAG tenant the connection belongs to, so two tenants never share a sign-in.
+The tenant comes from `--harborrag-tenant`, else `HARBORRAG_TENANT_ID`, else `DEFAULT`.
+To use another file, set `token_cache_path` on the connection and pass the same path as
+`--token-cache-path`. Each run redeems the token and stores the rotated one. If the
+token expires or access is revoked, the run fails with an authentication error asking
+you to sign in again. `--logout` deletes the stored sign-in.
 
 That sign-in serves ingestion that runs on your machine (`harborrag ingest run`). The
 Temporal worker (`harborrag ingest start`) runs in a container that cannot read your
@@ -451,10 +451,10 @@ is bounded. What decides whether it finishes is outside the code:
 
 - **Rehearse with a limit.** Run the same scope first with `--limit` on
   `harborrag ingest run|start`, which stops after that many discovered artifacts. It
-  gives the real documents-per-issue
-  ratio, the attachment size distribution, the failure classes (for example Word 6.0/95
-  `.doc` files, which are rejected as unsupported) and the throughput of *your* host. Extrapolate from
-  that, not from the issue count.
+  gives the real documents-per-issue ratio, the attachment size distribution, the
+  failure classes (for example Word 6.0/95 `.doc` files, which are rejected as
+  unsupported) and the throughput of *your* host. Extrapolate from that, not from the
+  issue count.
 - **Throughput is CPU-bound.** OCR of image attachments dominates; on a 4-vCPU host
   with three workers expect roughly half a document per second, which is days for
   400,000 documents. A first pass with `include_attachments: false` finishes in hours

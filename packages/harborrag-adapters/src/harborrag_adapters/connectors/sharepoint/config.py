@@ -196,9 +196,7 @@ class SharePointSiteConfig:
         """
         if self.token_cache_path:
             return Path(self.token_cache_path).expanduser()
-        harborrag_tenant = self.harborrag_tenant_id or environment_default(
-            "HARBORRAG_INGESTION_TENANT_ID"
-        )
+        harborrag_tenant = self.harborrag_tenant_id or environment_default("HARBORRAG_TENANT_ID")
         if not harborrag_tenant:
             raise ValueError("auth_mode device_code needs token_cache_path or harborrag_tenant_id")
         return default_token_cache_path(harborrag_tenant, str(self.tenant_id), str(self.client_id))

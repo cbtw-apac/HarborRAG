@@ -73,7 +73,7 @@ def test_config_device_code_rejects_client_secret():
 
 
 def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
-    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -89,7 +89,7 @@ def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
 
 @pytest.mark.parametrize("auth_mode", ["Device_Code", " device_code "])
 def test_config_device_code_guard_normalizes_auth_mode(monkeypatch, auth_mode):
-    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -290,7 +290,7 @@ def test_each_harborrag_tenant_gets_its_own_default_token_file() -> None:
 
 
 def test_a_delegated_config_without_a_tenant_or_path_fails_closed(monkeypatch) -> None:
-    monkeypatch.delenv("HARBORRAG_INGESTION_TENANT_ID", raising=False)
+    monkeypatch.delenv("HARBORRAG_TENANT_ID", raising=False)
 
     with pytest.raises(ValueError, match="needs token_cache_path or harborrag_tenant_id"):
         SharePointSiteConfig(**_DELEGATED_SITE)

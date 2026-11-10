@@ -96,6 +96,7 @@ action.
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
 - **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
 - **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source with `--force-reprocess`
+- **Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID` (setting `RuntimeSettings.tenant_id`) and also sets the API's default tenant, so the API, the workers and the CLI share one; the old name has no alias and stops startup
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 

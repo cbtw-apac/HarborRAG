@@ -34,7 +34,7 @@ change applies from the next run on every worker, with no restart.
 `config/sources/connectors.yaml` is read once: when the API first starts, or when the
 CLI starts its first ingestion, on an install that holds no project and no connection
 yet. Its entries become connections in project `default` of the tenant that
-`HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set). Each YAML key becomes the
+`HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). Each YAML key becomes the
 connection's `connection_id` and its `source_key`. The attempt is recorded, a failed one
 too, and the file is never read again. After that, change connections through the API or
 `harborrag source`. The file format is in
@@ -165,11 +165,10 @@ python -m harborrag_adapters.connectors.sharepoint.login \
 ```
 
 Without a `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass the
-connection's tenant to `--harborrag-tenant` (the default is
-`HARBORRAG_INGESTION_TENANT_ID`, else `DEFAULT`). `token_cache_path` is a path on the
-worker, so only `config/sources/connectors.yaml` and the `harborrag source` CLI can set
-or change it; through the API, send it back as read, or leave it out when it was never
-set.
+connection's tenant to `--harborrag-tenant` (the default is `HARBORRAG_TENANT_ID`, else
+`DEFAULT`). `token_cache_path` is a path on the worker, so only
+`config/sources/connectors.yaml` and the `harborrag source` CLI can set or change it;
+through the API, send it back as read, or leave it out when it was never set.
 
 </details>
 

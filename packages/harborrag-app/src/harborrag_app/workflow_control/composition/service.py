@@ -208,6 +208,11 @@ class AppService(
         )
 
     @property
+    def default_tenant_id(self) -> str:
+        """Tenant ``HARBORRAG_TENANT_ID`` names, for callers that send no tenant."""
+        return self._settings.tenant_id
+
+    @property
     def ingestion_operations(self) -> IngestionOperations:
         """Run reads behind the ``/v1/admin/ingestions`` routes."""
         return self._ingestion_operations
@@ -242,7 +247,7 @@ class AppService(
         control_plane = self._control_plane()
         plan = await import_connectors_once(
             self._settings.connector_config_path,
-            tenant_id=self._settings.ingestion_tenant_id,
+            tenant_id=self._settings.tenant_id,
             projects=control_plane.projects,
             connections=control_plane.connections,
             settings=control_plane.settings,
@@ -254,7 +259,7 @@ class AppService(
         return await seed_settings_once(
             self._settings_importer,
             self._settings.settings_seed_path,
-            tenant_id=self._settings.ingestion_tenant_id,
+            tenant_id=self._settings.tenant_id,
         )
 
     async def resume_connection_removals(self) -> int:

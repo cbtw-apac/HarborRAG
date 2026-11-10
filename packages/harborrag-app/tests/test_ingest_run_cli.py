@@ -302,7 +302,7 @@ def test_tenant_defaults_from_environment(monkeypatch) -> None:
         return instances[-1]
 
     monkeypatch.setattr(cli_runner, "runtime_app_service", factory)
-    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
 
     cli.main(["ingest", "run", "workspace", "--json"])
 

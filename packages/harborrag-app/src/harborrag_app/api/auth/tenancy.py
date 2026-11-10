@@ -2,20 +2,19 @@
 
 The tenant comes from the credential. A credential that holds several tenants
 names one with ``X-Tenant-Id``; a wildcard credential without the header acts
-in the default tenant.
+in the tenant ``HARBORRAG_TENANT_ID`` names, which the API keeps in
+``app.state.default_tenant_id``.
 """
 
 from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import Depends, Header
+from fastapi import Depends, Header, Request
 
 from ..errors import TenantRequiredError
 from .dependencies import TenantForbiddenError, get_principal
 from .principal import Principal
-
-DEFAULT_TENANT = "DEFAULT"
 
 TenantHeader = Annotated[
     str | None,
@@ -28,10 +27,13 @@ TenantHeader = Annotated[
 
 
 def tenant_header(
+    request: Request,
     principal: Annotated[Principal, Depends(get_principal)],
     x_tenant_id: TenantHeader = None,
 ) -> str | None:
     """Return the tenant ``X-Tenant-Id`` names, or the credential's only one.
+
+    A wildcard credential without the header gets the configured default tenant.
 
     Returns:
         The tenant, or ``None`` when the credential holds several and sent no header.
@@ -44,7 +46,7 @@ def tenant_header(
             raise TenantForbiddenError()
         return x_tenant_id
     if "*" in principal.tenant_ids:
-        return DEFAULT_TENANT
+        return str(request.app.state.default_tenant_id)
     if len(principal.tenant_ids) == 1:
         return next(iter(principal.tenant_ids))
     return None

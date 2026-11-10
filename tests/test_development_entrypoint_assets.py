@@ -530,3 +530,18 @@ def test_api_and_worker_share_the_container_local_source_root(
     environment = document["services"][service]["environment"]
 
     assert environment["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/data/sources"
+
+
+@pytest.mark.parametrize(
+    "compose_file",
+    ["deploy/compose/docker-compose.yml", "deploy/compose/docker-compose.temporal.yml"],
+)
+def test_api_and_worker_share_one_tenant_setting(compose_file: str) -> None:
+    text = (ROOT / compose_file).read_text(encoding="utf-8")
+    document = yaml.safe_load(text)
+    service = "api" if compose_file.endswith("docker-compose.yml") else "temporal-worker"
+
+    environment = document["services"][service]["environment"]
+
+    assert environment["HARBORRAG_TENANT_ID"] == "${HARBORRAG_TENANT_ID:-DEFAULT}"
+    assert "INGESTION_TENANT_ID" not in text

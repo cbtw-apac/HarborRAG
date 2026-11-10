@@ -20,7 +20,7 @@ def workspace(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
         *_IDS,
         "MICROSOFT_CLIENT_SECRET",
         "CONNECTOR_ENV_FILE",
-        "HARBORRAG_INGESTION_TENANT_ID",
+        "HARBORRAG_TENANT_ID",
     ):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
@@ -64,6 +64,19 @@ def test_exported_ids_and_flags_outrank_the_file(
     assert login.main(["--logout", "--client-id", "flag-client"]) == 0
 
     assert str(_token_path(workspace, "shell-tenant", "flag-client")) in capsys.readouterr().out
+
+
+def test_token_file_sits_in_the_folder_of_harborrag_tenant_id(
+    workspace: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
+    monkeypatch.setenv("MICROSOFT_TENANT_ID", "t")
+    monkeypatch.setenv("MICROSOFT_CLIENT_ID", "c")
+
+    assert login.main(["--logout"]) == 0
+
+    expected = workspace / "home" / ".harborrag" / "sharepoint" / "acme" / "token-t-c.json"
+    assert str(expected) in capsys.readouterr().out
 
 
 def test_connector_env_file_override_is_honoured(

@@ -43,10 +43,7 @@ class SummaryRuntimeFactory:
         """The policy one scope runs under: tenant-wide settings plus its own facets."""
 
         policy = build_summary_policy(self.settings)
-        if (
-            self.settings.summary_processing_allowed
-            and tenant_id == self.settings.ingestion_tenant_id
-        ):
+        if self.settings.summary_processing_allowed and tenant_id == self.settings.tenant_id:
             policy = policy.model_copy(
                 update={"processing_policy_revision": self.settings.summary_processing_revision}
             )
@@ -76,10 +73,7 @@ class SummaryRuntimeFactory:
     async def initialize(self, tenant_id: str) -> None:
         """Apply the configured tenant gate and shared durable budget once at startup."""
         config = GraphBuildConfig.from_settings(self.settings)
-        if (
-            self.settings.summary_processing_allowed
-            and tenant_id == self.settings.ingestion_tenant_id
-        ):
+        if self.settings.summary_processing_allowed and tenant_id == self.settings.tenant_id:
             self.control.summaries.allow_shared_processing(
                 tenant_id, self.settings.summary_processing_revision
             )
@@ -103,10 +97,7 @@ class SummaryRuntimeFactory:
         if tenant:
             scopes.update(value.source_scope_id for value in tenant.sources)
         enabled = self.settings.topology_parent_enabled and not (tenant and tenant.prohibited)
-        if (
-            self.settings.summary_processing_allowed
-            and tenant_id == self.settings.ingestion_tenant_id
-        ):
+        if self.settings.summary_processing_allowed and tenant_id == self.settings.tenant_id:
             allowed = set(
                 await self.control.topology.allowed_source_scope_ids(
                     tenant_id,

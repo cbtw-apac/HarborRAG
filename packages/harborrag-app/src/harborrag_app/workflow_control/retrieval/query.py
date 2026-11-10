@@ -36,7 +36,7 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
     include_metadata: bool = False,
     score_threshold: float = 0.0,
 ) -> AppResponse:
-    selected_tenant = tenant_id or settings.ingestion_tenant_id
+    selected_tenant = tenant_id or settings.tenant_id
     try:
         response = await runtime().retrieval.search(
             RetrievalRequest(

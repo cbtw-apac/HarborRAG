@@ -219,7 +219,7 @@ async def test_app_retrieval_reads_the_shared_basis_only_for_the_shared_tenant(
         settings=RuntimeSettings(
             corpus_access_mode="tenant_shared",
             corpus_shared_tenant_id="SHARED",
-            ingestion_tenant_id="SHARED",
+            tenant_id="SHARED",
         ),
         factories=AppServiceFactories(
             retrieval_runtime=lambda settings: retrieval,  # type: ignore[arg-type]

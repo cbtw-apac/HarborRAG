@@ -59,7 +59,7 @@ class ConnectionSourceInputBuilder:
             try:
                 await import_connectors_once(
                     settings.connector_config_path,
-                    tenant_id=settings.ingestion_tenant_id,
+                    tenant_id=settings.tenant_id,
                     projects=control_plane.projects,
                     connections=control_plane.connections,
                     settings=control_plane.settings,

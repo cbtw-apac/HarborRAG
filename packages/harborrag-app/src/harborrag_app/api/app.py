@@ -40,6 +40,7 @@ _INGESTION_PROGRESS_INTERVAL_SECONDS = 2.0
 _CONTROL_PLANE_EFFECT_RECOVERY_INTERVAL_SECONDS = 30.0
 _CONNECTION_REMOVAL_RECOVERY_INTERVAL_SECONDS = 60.0
 _SCHEDULE_SYNC_RETRY_INTERVAL_SECONDS = 30.0
+DEFAULT_TENANT_ID = "DEFAULT"
 
 
 def _redirect_root(request: Request) -> RedirectResponse:
@@ -170,6 +171,7 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     service, mode = await asyncio.to_thread(select_app_service)
     app.state.app_service = service
     app.state.composition_mode = mode
+    app.state.default_tenant_id = getattr(service, "default_tenant_id", DEFAULT_TENANT_ID)
     logger.info("Application service composed in %s mode", mode)
     # Long-term memory extraction runs on a bounded in-process worker pool
     # owned by this process, so it starts with the app and is drained -- not
@@ -226,6 +228,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         lifespan=_lifespan,
     )
     app.state.settings = settings
+    app.state.default_tenant_id = DEFAULT_TENANT_ID
     app.state.token_verifier = build_token_verifier(settings)
     redis_url = (
         settings.api_capacity_redis_url.get_secret_value()

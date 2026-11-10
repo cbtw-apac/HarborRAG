@@ -412,7 +412,7 @@ write a card, a short dossier, for each source entity; `find_entities` and
 `facet.*` filters search those cards.
 
 Background summaries need their own approval. For a shared `DEFAULT` corpus,
-set `HARBORRAG_INGESTION_TENANT_ID=DEFAULT` and
+set `HARBORRAG_TENANT_ID=DEFAULT` and
 `HARBORRAG_SUMMARY_PROCESSING_ALLOWED=true`, and change
 `HARBORRAG_SUMMARY_PROCESSING_REVISION` whenever that approval changes. The
 summarization switch, model and budget of
@@ -500,11 +500,11 @@ be filtered directly too: every chunk of a Jira issue document (its summary,
 description and comments) carries the issue's typed custom fields under
 `fields.<key>`.
 
-- An attachment, such as a design document, is a document of its own and does not copy the
-  fields. A `fields.*` filter is first resolved to the matching issues, then
-  the search covers those issues' evidence *and* the evidence of every
-  document attached to them. Editing a field in Jira therefore takes effect as
-  soon as the issue is ingested again, without reprocessing its attachments.
+- An attachment, such as a design document, is a document of its own and does not copy
+  the fields. A `fields.*` filter is first resolved to the matching issues, then the
+  search covers those issues' evidence *and* the evidence of every document attached to
+  them. Editing a field in Jira therefore takes effect as soon as the issue is ingested
+  again, without reprocessing its attachments.
 - The key is the field's display name in snake case (`Story Points` ->
   `story_points`, `Budget ($)` -> `budget`). A name that collides with
   another or with a reserved runtime key falls back to the field ID
@@ -564,9 +564,9 @@ Matching rules:
 }
 ```
 
-Keys combine with AND. HarborRAG builds only equality, any-of and range
-conditions from `filters`, so a filter cannot express "not equal" or "field
-exists". The list of indexed keys is `EVIDENCE_PAYLOAD_INDEXES` in
+Keys combine with AND. HarborRAG builds only equality, any-of and range conditions from
+`filters`, so a filter cannot express "not equal" or "field exists". The list of indexed
+keys is `EVIDENCE_PAYLOAD_INDEXES` in
 `packages/harborrag-engine/src/harborrag_engine/ingestion/projections/vector/vector_store.py`.
 
 ## Explorer MCP UI server
@@ -903,5 +903,5 @@ sequence.
 - [MCP Tools](README.md): the eleven tools, their arguments, and what they
   return.
 - [Extending HarborRAG](../../../developers/extending/README.md#application-and-mcp-surfaces):
-  keep service tools in `harborrag-mcp-server` and call runtime or service
-  interfaces rather than provider clients.
+  keep service tools in `harborrag-mcp-server` and call runtime or service interfaces
+  rather than provider clients.

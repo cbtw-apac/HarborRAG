@@ -24,7 +24,23 @@ def _no_ambient_harborrag_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_default_tenant_is_operator_readable() -> None:
-    assert RuntimeSettings().ingestion_tenant_id == "DEFAULT"
+    assert RuntimeSettings().tenant_id == "DEFAULT"
+
+
+def test_tenant_id_reads_harborrag_tenant_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARBORRAG_TENANT_ID", "acme")
+
+    assert RuntimeSettings().tenant_id == "acme"
+
+
+def test_the_old_tenant_variable_stops_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
+
+    with pytest.raises(
+        ValidationError,
+        match="HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID",
+    ):
+        RuntimeSettings()
 
 
 def test_topology_retrieval_policy_is_versioned_configurable_and_bounded(monkeypatch) -> None:

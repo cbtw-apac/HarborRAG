@@ -560,7 +560,7 @@ def _cli_service(resources: _Resources, monkeypatch: pytest.MonkeyPatch) -> AppS
     composition.control_plane = fake_control_plane([], FakeSecrets())  # type: ignore[misc]
     return AppService(
         composition,  # type: ignore[arg-type]
-        settings=RuntimeSettings(ingestion_tenant_id="default"),
+        settings=RuntimeSettings(tenant_id="default"),
         factories=AppServiceFactories(
             client=client,  # type: ignore[arg-type]
             task_registry=registry,  # type: ignore[arg-type]

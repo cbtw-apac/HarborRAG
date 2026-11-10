@@ -62,10 +62,10 @@ without them leaves those fields out.
 
 ## Levels and precedence
 
-A level is `tenant`, `project:<project_id>` or `connection:<project_id>/<connection_id>`.
-A request without a level means `tenant`. The effective value resolves default, then
-tenant, then project, then connection; the most specific override wins. An override
-is accepted only at the levels its key lists.
+A level is `tenant`, `project:<project_id>` or
+`connection:<project_id>/<connection_id>`. A request without a level means `tenant`. The
+effective value resolves default, then tenant, then project, then connection; the most
+specific override wins. An override is accepted only at the levels its key lists.
 
 A key with no override leaves its boot setting in charge. The registry default equals
 the shipped value of that boot setting, so upgrading changes nothing. An override at
@@ -88,7 +88,8 @@ carry such a change over, see [Upgrading](../upgrading.md).
 ## Rerank chat retrieval
 
 `retrieval.rerank: true` makes chat reorder its passages with the rerank model of
-`config/models/models.yaml` ([The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog)).
+`config/models/models.yaml`
+([The shipped gateway catalog](model-config.md#the-shipped-gateway-catalog)).
 
 - Only chat reads it, over HTTP and with `harborrag chat`, at the same level as
   `retrieval.top_k`: the session's project, or the one project a one-off question
@@ -194,8 +195,8 @@ Nothing is saved when any key is refused.
 
 ## Seed file and drift
 
-`config/settings.yaml` seeds the tenant named by `HARBORRAG_INGESTION_TENANT_ID` once,
-at the first API start when that tenant has no revisions. The path is
+`config/settings.yaml` seeds the tenant named by `HARBORRAG_TENANT_ID` once, at the
+first API start when that tenant has no revisions. The path is
 `HARBORRAG_SETTINGS_SEED_PATH` (`/app/config/settings.yaml` in the API image). The file
 is git-ignored. `config/settings.example.yaml` lists every tenant-level key you can set
 at its default; do not use it whole, because each key in the seed file becomes an
@@ -231,14 +232,14 @@ harborrag config export --level tenant --output settings.yaml
 ```
 
 `import` is a dry run unless `--apply` is given; `--apply` writes the file as one
-revision. `--prune` also removes every stored override the file lacks, at any level.
-An invalid file exits `1`, names the file and the key, and applies nothing; boot-only
-keys are reported and skipped. `export` writes registry keys only, in the shape above,
-and `import` reads the result back unchanged. Overrides of a deleted project or
-connection stay in the store but are left out of the export, each named on stderr.
-Both take `--tenant` (default `DEFAULT`, or `HARBORRAG_INGESTION_TENANT_ID`); `export`
-takes `--level` (default: every level) and `import` takes `--json`. Imports are
-recorded in the revision log under the operator's `user@host`.
+revision. `--prune` also removes every stored override the file lacks, at any level. An
+invalid file exits `1`, names the file and the key, and applies nothing; boot-only keys
+are reported and skipped. `export` writes registry keys only, in the shape above, and
+`import` reads the result back unchanged. Overrides of a deleted project or connection
+stay in the store but are left out of the export, each named on stderr. Both take
+`--tenant` (default `DEFAULT`, or `HARBORRAG_TENANT_ID`); `export` takes `--level`
+(default: every level) and `import` takes `--json`. Imports are recorded in the revision
+log under the operator's `user@host`.
 
 From a repository checkout, `config import --apply` and `config export --output`
 refuse the local SQLite control database until the CLI points at the stack's Postgres

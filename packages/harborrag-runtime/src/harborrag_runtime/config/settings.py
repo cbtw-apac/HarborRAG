@@ -70,7 +70,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
 
     # staging is held to every prod guard: each check below tests env != "dev".
     env: Literal["dev", "staging", "prod"] = "dev"
-    ingestion_tenant_id: str = Field(
+    tenant_id: str = Field(
         default="DEFAULT",
         min_length=1,
         max_length=128,
@@ -254,6 +254,14 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             )
         return self
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_renamed_tenant_variable(cls, data: object) -> object:
+        """Refuse a process that still sets the removed ``HARBORRAG_INGESTION_TENANT_ID``."""
+        if "HARBORRAG_INGESTION_TENANT_ID" in os.environ:
+            raise ValueError("HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID")
+        return data
+
     @model_validator(mode="after")
     def validate_secret_urls(self) -> RuntimeSettings:
         if self.corpus_access_mode == "tenant_shared" and not self.corpus_shared_tenant_id:
@@ -264,10 +272,7 @@ class RuntimeSettings(MemorySettingsMixin, BaseSettings):
             raise ValueError(
                 "shared summary processing requires HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared"
             )
-        if (
-            self.summary_processing_allowed
-            and self.corpus_shared_tenant_id != self.ingestion_tenant_id
-        ):
+        if self.summary_processing_allowed and self.corpus_shared_tenant_id != self.tenant_id:
             raise ValueError("shared summary processing tenant must match the configured corpus")
         control_db_url = self.control_db_url.get_secret_value().lower()
         is_sqlite_control_db = control_db_url.startswith("sqlite")

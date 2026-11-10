@@ -26,7 +26,7 @@ def _arguments() -> argparse.Namespace:
 
 async def _run(arguments: argparse.Namespace) -> dict[str, object]:
     settings = RuntimeSettings()
-    tenant = arguments.tenant or settings.ingestion_tenant_id
+    tenant = arguments.tenant or settings.tenant_id
     runtime = open_reader_application(settings)
     server = McpServer(invoker=runtime.invoker, references=runtime.references)
     identity = {"tenant_id": tenant}

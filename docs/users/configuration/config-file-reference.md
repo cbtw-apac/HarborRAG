@@ -19,7 +19,7 @@ service reads in a repository checkout.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `HARBORRAG_ENV` | `dev` | `dev`, `staging` or `prod`; anything but `dev` turns on the production checks, such as refusing a SQLite control database |
-| `HARBORRAG_INGESTION_TENANT_ID` | `DEFAULT` | Default tenant of the `ingest`, `source` and `config` commands, the `connectors.yaml` import and the settings seed |
+| `HARBORRAG_TENANT_ID` | `DEFAULT` | The one default tenant of the API (for a `*` credential that sends no `X-Tenant-Id`), the workers and the CLI, the `connectors.yaml` import and the settings seed; the removed `HARBORRAG_INGESTION_TENANT_ID` stops startup |
 | `HARBORRAG_CONNECTOR_CONFIG_PATH` | `config/sources/connectors.yaml` | Connector file ([Connector Configuration](connector-config.md)) |
 | `HARBORRAG_PARSER_CONFIG_PATH` | `config/ingestion/parsers.yaml` | Parser file ([Parser Configuration](parser-config.md)) |
 | `HARBORRAG_CHUNKING_CONFIG_PATH` | `config/ingestion/chunking.yaml` | Chunking file; optional, built-in defaults apply when the default path is absent ([Chunking Configuration](chunking-config.md)) |

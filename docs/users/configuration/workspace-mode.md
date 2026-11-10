@@ -68,9 +68,9 @@ The portable form matches this regular expression:
 ```
 
 For example, use `engineering`, `tenant-7` or `acme.prod`. Tenant comparisons are exact,
-so use one canonical spelling and treat IDs as case-sensitive. Renaming a tenant does not
-migrate existing records, vector collections, graph nodes, chat sessions or model-policy
-state.
+so use one canonical spelling and treat IDs as case-sensitive. Renaming a tenant does
+not migrate existing records, vector collections, graph nodes, chat sessions or
+model-policy state.
 
 `DEFAULT` is convenient for local development. Use explicit, stable IDs when you test
 isolation or run a shared environment.
@@ -82,15 +82,20 @@ that registry for you.
 
 ## Configure the runtime fallback
 
-The runtime reads a fallback tenant for operations that do not receive one explicitly:
+One setting names the default tenant of the API, the workers and the CLI, so the three
+cannot silently act in different tenants:
 
 ```bash
-export HARBORRAG_INGESTION_TENANT_ID=tenant-1
+export HARBORRAG_TENANT_ID=tenant-1
 ```
 
-The default is `DEFAULT`. This variable is a fallback, not a global workspace selector:
-CLI commands, API requests, SDK calls and MCP tools can supply their own tenant. Pass the
-tenant explicitly whenever isolation matters. The fallback also names the tenant that
+The default is `DEFAULT`. The variable replaces `HARBORRAG_INGESTION_TENANT_ID`, which
+is no longer read: a process that still sets it stops at start-up with
+`HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID`.
+
+This variable is a fallback, not a global workspace selector: CLI commands, API
+requests, SDK calls and MCP tools can supply their own tenant. Pass the tenant
+explicitly whenever isolation matters. The fallback also names the tenant that
 `config/sources/connectors.yaml` is imported into, once, on a fresh install.
 
 `EngineConfig.tenant` is only a diagnostics label. It does not build an `AccessContext`,
@@ -104,12 +109,12 @@ tenant input:
 
 | Surface | Tenant input | Default | Authorization |
 | --- | --- | --- | --- |
-| CLI `ingest run`, `ingest start`, `source` and `config` | `--tenant` | `HARBORRAG_INGESTION_TENANT_ID`, else `DEFAULT` | The local CLI trusts the operator; it checks no bearer-token grant. |
+| CLI `ingest run`, `ingest start`, `source` and `config` | `--tenant` | `HARBORRAG_TENANT_ID`, else `DEFAULT` | The local CLI trusts the operator; it checks no bearer-token grant. |
 | CLI `retrieve`, `chat` and `topology` | `--tenant` | `DEFAULT` | The local CLI trusts the operator; it checks no bearer-token grant. |
 | Python SDK ingestion and retrieval | `AccessContext.tenant_id` | None; required | The embedding application must authenticate and authorize the principal before it builds the context. |
-| `/v1` HTTP API | The credential's tenant grant; the `X-Tenant-Id` header picks one when the credential holds several | The credential's only tenant; `DEFAULT` for a `*` grant without the header | The API checks the principal's role and tenant grants. |
+| `/v1` HTTP API | The credential's tenant grant; the `X-Tenant-Id` header picks one when the credential holds several | The credential's only tenant; `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) for a `*` grant without the header | The API checks the principal's role and tenant grants. |
 | MCP tools | Top-level `tenant_id` argument | The tenant a single-tenant key or token is bound to | Authenticated transports check the token's tenant grant; a call naming another tenant is refused. |
-| Runtime fallback | `HARBORRAG_INGESTION_TENANT_ID` or `runtime.ingestion_tenant_id` | `DEFAULT` | Used only where a runtime path does not already receive a tenant. |
+| Runtime fallback | `HARBORRAG_TENANT_ID` or `runtime.tenant_id` | `DEFAULT` | Used only where a runtime path does not already receive a tenant. |
 | Engine diagnostics | `EngineConfig.tenant` | `default` | A diagnostic label only; it does not change operational scope. |
 
 An explicit request value wins, because it travels in that request's `AccessContext` or
@@ -124,7 +129,7 @@ The SDK loads a configuration file only when your application passes its path:
 execution_mode: temporal
 discover_plugins: false
 runtime:
-  ingestion_tenant_id: tenant-1
+  tenant_id: tenant-1
   connector_config_path: config/sources/connectors.yaml
   parser_config_path: config/ingestion/parsers.yaml
   model_config_path: config/models/models.yaml
@@ -143,11 +148,11 @@ file.
 
 The CLI runs from a repository checkout: it walks up from the current directory to the
 checkout and runs from there, with the checkout's `config/` files and the `env/` files
-listed in [Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).
+listed in
+[Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).
 A directory found by walking up is accepted only when you own it and it is not
-world-writable. Set the CLI's ingestion fallback tenant with
-`HARBORRAG_INGESTION_TENANT_ID`; `retrieve` and `chat` default to `DEFAULT` whatever it
-says.
+world-writable. Set the CLI's fallback tenant with `HARBORRAG_TENANT_ID`; `retrieve` and
+`chat` default to `DEFAULT` whatever it says.
 
 Neither the SDK nor the CLI merges a profile or activates a tenant because a file or
 directory name matches it, and there is no `harborrag workspace use` command.
@@ -159,10 +164,10 @@ directory name matches it, and there is no `harborrag workspace use` command.
 Pass `--tenant` to each command of a workflow, and make sure the connection exists in
 that tenant. Connections are stored per tenant and project in the control database.
 `config/sources/connectors.yaml` is imported once, into the tenant that
-`HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set), under the project
-`default`. An imported connection such as `harborrag-workspace` therefore exists only in
-that tenant, and `harborrag ingest start --tenant tenant-1 --connector harborrag-workspace`
-fails with `ConnectionNotFoundError`.
+`HARBORRAG_TENANT_ID` names (`DEFAULT` unless set), under the project `default`. An
+imported connection such as `harborrag-workspace` therefore exists only in that tenant,
+and `harborrag ingest start --tenant tenant-1 --connector harborrag-workspace` fails
+with `ConnectionNotFoundError`.
 
 To ingest for another tenant, give that tenant its own project and connection. From a
 repository checkout, `source add` and `source sync` refuse the local SQLite control
@@ -180,7 +185,8 @@ database until `HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres; see
       -d '{"project_name": "Demo"}'
     ```
 
-    `201` means the project was created. See [Connections](../connections.md#before-you-start).
+    `201` means the project was created. See
+    [Connections](../connections.md#before-you-start).
 
 2. Write a body file for the connection, such as `handbook.yaml`, in the shape described
     under [Manage connections](../cli-reference/README.md#manage-connections).
@@ -204,12 +210,12 @@ database until `HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres; see
     ```
 
 The API can create the connection too, with
-`PUT /v1/admin/projects/{project_id}/connections/{connection_id}`. A successful ingestion
-can still return no results, because retrieval also needs read access inside the tenant;
-see [Read access inside a tenant](#read-access-inside-a-tenant).
+`PUT /v1/admin/projects/{project_id}/connections/{connection_id}`. A successful
+ingestion can still return no results, because retrieval also needs read access inside
+the tenant; see [Read access inside a tenant](#read-access-inside-a-tenant).
 
-Retrieval filters cannot contain `tenant_id`. The top-level `--tenant` option is the only
-tenant scope of the command, so a metadata filter cannot override the isolation
+Retrieval filters cannot contain `tenant_id`. The top-level `--tenant` option is the
+only tenant scope of the command, so a metadata filter cannot override the isolation
 boundary. See the [CLI reference](../cli-reference/README.md).
 
 A connection belongs to one tenant and one project, so the same connection name in two
@@ -328,9 +334,10 @@ the key's one tenant. The settings are:
 | `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` | `3600` | Maximum accepted difference between `iat` and `exp`. |
 | `HARBORRAG_AUTH_CLOCK_SKEW_SECONDS` | `30` | Permitted verification clock skew. |
 
-Do not commit the HMAC secret or use it as a tenant identifier. Production also needs the
-other production settings in [Engine and ingestion runtime configuration](config-file-reference.md);
-authentication settings alone are not a complete deployment.
+Do not commit the HMAC secret or use it as a tenant identifier. Production also needs
+the other production settings in
+[Engine and ingestion runtime configuration](config-file-reference.md); authentication
+settings alone are not a complete deployment.
 
 A verified token must carry claims equivalent to this payload:
 
@@ -356,8 +363,8 @@ cannot set or override this identity. Sessions created under the former shared
 individual users.
 
 The `tenants` value must be a non-empty list of non-empty strings. Matching is exact and
-case-sensitive. `"*"` grants every tenant; a high role without a matching tenant grant is
-still rejected.
+case-sensitive. `"*"` grants every tenant; a high role without a matching tenant grant
+is still rejected.
 
 The API role ladder is `reader < editor < admin < owner`:
 
@@ -484,16 +491,16 @@ and adds durable operation metadata:
 | `document_version_id` | Optional immutable-version correlation identity. |
 
 `StorageOperationContext.for_access(...)` keeps the end-user principal.
-`StorageOperationContext.system(...)` creates the fixed `harborrag-runtime` principal for
-trusted background work. Repository records that already contain a tenant must match
+`StorageOperationContext.system(...)` creates the fixed `harborrag-runtime` principal
+for trusted background work. Repository records that already contain a tenant must match
 `context.tenant_id`; adapters reject a mismatch rather than silently rewriting record
 ownership.
 
 ### Model request metadata
 
 `ModelRequestMetadata` carries correlation fields such as `request_id`, `trace_id`,
-`tenant_id`, `user_id`, `workflow_id`, collection and pipeline stage. It is separate from
-`AccessContext` on purpose, because model provider metadata is not an authorization
+`tenant_id`, `user_id`, `workflow_id`, collection and pipeline stage. It is separate
+from `AccessContext` on purpose, because model provider metadata is not an authorization
 object.
 
 When you call model adapters directly, copy the authorized tenant explicitly:
@@ -510,8 +517,8 @@ model_metadata = ModelRequestMetadata(
 ```
 
 Do not derive tenant authorization from model metadata on the return path. Provider
-headers and telemetry may carry a sanitized or hashed tenant identifier, but the original
-`AccessContext` stays the data-access authority.
+headers and telemetry may carry a sanitized or hashed tenant identifier, but the
+original `AccessContext` stays the data-access authority.
 
 ## How data isolation works
 
@@ -628,9 +635,9 @@ A practical onboarding sequence:
 2. Record its display name, environment, owners and retention policy outside HarborRAG.
 3. Grant only the required principals and roles in the token issuer.
 4. Create the tenant's projects and connections through the API, or its connections with
-   `harborrag source add --tenant`; `config/sources/connectors.yaml` is imported into one
-   tenant only. Parser, model and backend settings are shared by the process and are not
-   selected per tenant.
+   `harborrag source add --tenant`; `config/sources/connectors.yaml` is imported into
+   one tenant only. Parser, model and backend settings are shared by the process and are
+   not selected per tenant.
 5. Add tenant-specific MCP policy to `config/mcp/server.yaml`, if needed.
 6. Decide the tenant's read access: import permission snapshots, or make it the shared
    tenant (see [Read access inside a tenant](#read-access-inside-a-tenant)).
@@ -793,8 +800,8 @@ request must still use tenant-scoped repository operations.
 | Symptom | Check |
 | --- | --- |
 | Retrieval returns no results after a successful ingestion | Compare the tenant IDs, then check read access: run `harborrag topology indexing permissions-status --tenant <tenant>`, or confirm the tenant is the configured shared tenant. See [Read access inside a tenant](#read-access-inside-a-tenant). Indexed vectors alone do not grant access. |
-| A command reads data under `DEFAULT` | Pass `--tenant` explicitly instead of relying on a command default or the runtime fallback. `HARBORRAG_INGESTION_TENANT_ID` changes the default only for `ingest`, `source` and `config`. |
-| `harborrag ingest start --tenant` fails with `ConnectionNotFoundError` | The connection is not in that tenant. Connections imported from `config/sources/connectors.yaml` are in `DEFAULT`, unless `HARBORRAG_INGESTION_TENANT_ID` named another tenant at import; create the connection in this tenant with `harborrag source add --tenant` or the API. |
+| A command reads data under `DEFAULT` | Pass `--tenant` explicitly instead of relying on a command default or the runtime fallback. `HARBORRAG_TENANT_ID` changes the default of `ingest`, `source` and `config`, and of an API credential that holds every tenant and sends no `X-Tenant-Id`. |
+| `harborrag ingest start --tenant` fails with `ConnectionNotFoundError` | The connection is not in that tenant. Connections imported from `config/sources/connectors.yaml` are in `DEFAULT`, unless `HARBORRAG_TENANT_ID` named another tenant at import; create the connection in this tenant with `harborrag source add --tenant` or the API. |
 | The CLI refuses a checkout that you do not own or that is world-writable | A directory found by walking up must be yours and not writable by others. Fix its ownership or permissions. |
 | API returns `400 tenant_required` | The credential holds several tenants; send `X-Tenant-Id`. |
 | API returns `401` | Check that the bearer token is present, signed with the configured HMAC secret, unexpired, within the maximum lifetime, and has the configured issuer and audience. |
@@ -814,7 +821,7 @@ request must still use tenant-scoped repository operations.
 | SDK data crosses a tenant boundary in an embedding application | Audit authentication and authorization before the `AccessContext` is built; the SDK trusts the context the host supplies. |
 | A model cache is bypassed or a budget request is rejected | Fill `ModelRequestMetadata.tenant_id` when the configured policy requires tenant isolation. |
 | Chat session lookup returns `404` | Confirm that the tenant, the authenticated principal and the session ID all match the session's owner. |
-| Changing `HARBORRAG_INGESTION_TENANT_ID` does not show old data | The setting changes the future fallback only; it does not migrate existing tenant data. |
+| Changing `HARBORRAG_TENANT_ID` does not show old data | The setting changes the future fallback only; it does not migrate existing tenant data. |
 | A renamed tenant has partial data | A rename must migrate every persistence family; compare inventories, and return to the old ID until the migration is complete. |
 | A `.harbor` directory or a workspace name has no effect | Workspace profiles are not implemented. The CLI reads the configuration of the checkout it runs in; the SDK and services read the configuration paths and environment they are given. |
 
