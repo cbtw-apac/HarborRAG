@@ -426,3 +426,28 @@ def test_checkout_refuses_an_absolute_path_to_the_default_file(tmp_path: Path, m
     )
 
     assert checkout_write_refusal() is not None
+
+
+def test_checkout_reads_the_local_source_root_from_a_crlf_file(tmp_path: Path, monkeypatch) -> None:
+    path = tmp_path / "env/.env.database"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"HARBORRAG_LOCAL_SOURCE_ROOT=/data/sources\r\n")
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.delenv("HARBORRAG_LOCAL_SOURCE_ROOT", raising=False)
+
+    loaded = load_project_environment(tmp_path)
+
+    assert os.environ["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/data/sources"
+    assert loaded == (path,)
+
+
+def test_an_exported_local_source_root_outranks_the_file(tmp_path: Path, monkeypatch) -> None:
+    _write(tmp_path, "env/.env.database", "HARBORRAG_LOCAL_SOURCE_ROOT=/data/sources\n")
+    _mark_checkout(tmp_path)
+    _clear_control_db(monkeypatch)
+    monkeypatch.setenv("HARBORRAG_LOCAL_SOURCE_ROOT", "/srv/docs")
+
+    load_project_environment(tmp_path)
+
+    assert os.environ["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/srv/docs"

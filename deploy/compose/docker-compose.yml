@@ -45,6 +45,7 @@ services:
       # Connector execution and source credentials remain isolated in workers.
       # The API receives embedding credentials only for synchronous vector search.
       LOCAL_SOURCE_PATH: /data/sources
+      HARBORRAG_LOCAL_SOURCE_ROOT: /data/sources
       CONFLUENCE_BASE_URL: ${CONFLUENCE_BASE_URL:-}
       CONFLUENCE_SPACE_KEY: ${CONFLUENCE_SPACE_KEY:-}
       CONFLUENCE_EMAIL: ${CONFLUENCE_EMAIL:-}

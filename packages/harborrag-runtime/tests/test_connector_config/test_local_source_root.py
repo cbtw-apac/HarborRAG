@@ -8,7 +8,6 @@ import pytest
 
 from harborrag_runtime.config.connectors.models import ConnectionValidationError, validate
 from harborrag_runtime.config.connectors.models.local_file import (
-    LOCAL_SOURCE_PATH_VARIABLE,
     LOCAL_SOURCE_ROOT_VARIABLE,
     local_source_root,
 )
@@ -20,7 +19,6 @@ from harborrag_runtime.ingestion.connections import build_connector_from_parts
 def root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     allowed = tmp_path / "sources"
     (allowed / "handbook").mkdir(parents=True)
-    monkeypatch.delenv(LOCAL_SOURCE_PATH_VARIABLE, raising=False)
     monkeypatch.setenv(LOCAL_SOURCE_ROOT_VARIABLE, str(allowed))
     return allowed
 
@@ -50,16 +48,24 @@ def test_paths_outside_relative_or_escaping_through_a_link_are_refused(
     assert _issue("handbook") == "must be an absolute path"
 
 
-def test_the_root_defaults_to_local_source_path_and_is_open_when_neither_is_set(
+def test_the_root_comes_only_from_the_root_variable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     monkeypatch.delenv(LOCAL_SOURCE_ROOT_VARIABLE, raising=False)
-    monkeypatch.setenv(LOCAL_SOURCE_PATH_VARIABLE, str(tmp_path))
-    assert local_source_root() == tmp_path.resolve()
+    assert local_source_root({"LOCAL_SOURCE_PATH": "./docs"}) is None
+    assert local_source_root({LOCAL_SOURCE_ROOT_VARIABLE: "/data/sources"}) == Path("/data/sources")
 
-    monkeypatch.delenv(LOCAL_SOURCE_PATH_VARIABLE)
+    monkeypatch.setenv("LOCAL_SOURCE_PATH", str(tmp_path))
     assert local_source_root() is None
     validate("local_file", {}, {"source_path": "/anywhere"})
+
+
+def test_a_stored_container_path_passes_with_the_container_root(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(LOCAL_SOURCE_ROOT_VARIABLE, "/data/sources")
+    monkeypatch.setenv("LOCAL_SOURCE_PATH", "./docs")
+    validate("local_file", {}, {"source_path": "/data/sources"})
 
 
 def test_workers_refuse_to_build_a_connection_outside_the_root(root: Path) -> None:

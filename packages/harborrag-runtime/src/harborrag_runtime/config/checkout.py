@@ -21,6 +21,7 @@ OWNER_USER = "POSTGRES_USER"
 OWNER_PASSWORD = "POSTGRES_PASSWORD"  # noqa: S105 - a variable name, not a value
 CONTROL_DB_URL = "HARBORRAG_CONTROL_DB_URL"
 SECRETS_ENCRYPTION_KEY = "HARBORRAG_SECRETS_ENCRYPTION_KEY"  # noqa: S105 - a variable name
+LOCAL_SOURCE_ROOT = "HARBORRAG_LOCAL_SOURCE_ROOT"
 
 # ``${NAME}`` and ``${NAME:-default}``: the two forms the env-example files use.
 _REFERENCE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(?::-([^}]*))?\}")
@@ -159,6 +160,19 @@ def checkout_secrets_encryption_key(path: Path) -> str | None:
         return None
     key = read_compose_env_file(path).get(SECRETS_ENCRYPTION_KEY, "")
     return key if key.strip() else None
+
+
+def checkout_local_source_root(path: Path) -> str | None:
+    """The stack's ``HARBORRAG_LOCAL_SOURCE_ROOT`` from ``path``; None when blank.
+
+    The API and workers see local sources under this container path, so a host CLI
+    validates stored ``local_file`` connections against the same root.
+    """
+
+    if not path.is_file():
+        return None
+    root = read_compose_env_file(path).get(LOCAL_SOURCE_ROOT, "").strip()
+    return root or None
 
 
 def checkout_environment_name(root: Path) -> str | None:

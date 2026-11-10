@@ -14,17 +14,16 @@ from .fields import StrictModel, widget
 from .spec import AuthMethodSpec, Capabilities, FieldIssue, Setup, SourceTypeSpec
 
 LOCAL_SOURCE_ROOT_VARIABLE = "HARBORRAG_LOCAL_SOURCE_ROOT"
-LOCAL_SOURCE_PATH_VARIABLE = "LOCAL_SOURCE_PATH"
 
 
 def local_source_root(environ: Mapping[str, str] | None = None) -> Path | None:
     """The directory local connections must stay inside, when the install sets one.
 
-    ``HARBORRAG_LOCAL_SOURCE_ROOT`` wins; otherwise the ``LOCAL_SOURCE_PATH``
-    directory the compose files configure.
+    Read only from ``HARBORRAG_LOCAL_SOURCE_ROOT``; ``LOCAL_SOURCE_PATH`` names a
+    host or connectors.yaml path and never sets the root.
     """
     env = os.environ if environ is None else environ
-    value = env.get(LOCAL_SOURCE_ROOT_VARIABLE) or env.get(LOCAL_SOURCE_PATH_VARIABLE)
+    value = env.get(LOCAL_SOURCE_ROOT_VARIABLE)
     return Path(value).expanduser().resolve() if value else None
 
 

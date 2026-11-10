@@ -1,16 +1,16 @@
 # Connections
 
 Connect HarborRAG to a data source, such as a Jira project, a Confluence space, a
-SharePoint site, a GitHub repository or a local folder, then start, follow and retry
-its ingestions. You do this over the HTTP API, or from a terminal with the
+SharePoint site, a GitHub repository or a local folder, then start, follow and retry its
+ingestions. You do this over the HTTP API, or from a terminal with the
 `harborrag source` commands, which call the same service (see the
 [CLI reference](cli-reference/README.md#manage-connections)).
 
 ## Terms used on this page
 
-- **Tenant**: the isolation boundary that owns data. Everything HarborRAG stores
-  belongs to one tenant, and nothing is shared between tenants. A new install has one
-  tenant, `DEFAULT`. See [Tenant and workspace status](configuration/workspace-mode.md).
+- **Tenant**: the isolation boundary that owns data. Everything HarborRAG stores belongs
+  to one tenant, and nothing is shared between tenants. A new install has one tenant,
+  `DEFAULT`. See [Tenant and workspace status](configuration/workspace-mode.md).
 - **Project**: a named group of connections inside a tenant, such as `default` or
   `demo`. A project must exist before you save a connection in it.
 - **Connection**: one configured data source in a project. It holds the source type
@@ -18,8 +18,8 @@ its ingestions. You do this over the HTTP API, or from a terminal with the
   the source (`advanced`: request rate, paging, timeouts and retries) and a display
   `name`. Its address is `PROJECT/CONNECTION`, such as `demo/demo-tickets`.
 - **`source_key`**: the name that `harborrag ingest`, the Python SDK and schedules use
-  for a connection. A connection imported from `config/sources/connectors.yaml` keeps its
-  YAML key, such as `jira-main`. A connection created through the API or
+  for a connection. A connection imported from `config/sources/connectors.yaml` keeps
+  its YAML key, such as `jira-main`. A connection created through the API or
   `harborrag source add`, or one that existed before database migration 0041, has the
   form `PROJECT/CONNECTION`.
 - **Ingestion**, or run: one pass that reads a connection's source and indexes what
@@ -35,9 +35,9 @@ change applies from the next run on every worker, with no restart.
 CLI starts its first ingestion, on an install that holds no project and no connection
 yet. Its entries become connections in project `default` of the tenant that
 `HARBORRAG_INGESTION_TENANT_ID` names (`DEFAULT` unless set). Each YAML key becomes the
-connection's `connection_id` and its `source_key`. The attempt is recorded, a failed
-one too, and the file is never read again. After that, change connections through the
-API or `harborrag source`. The file format is in
+connection's `connection_id` and its `source_key`. The attempt is recorded, a failed one
+too, and the file is never read again. After that, change connections through the API or
+`harborrag source`. The file format is in
 [Connector configuration](configuration/connector-config.md); moving from 1.x is in
 [Upgrading](upgrading.md).
 
@@ -46,7 +46,8 @@ API or `harborrag source`. The file format is in
 - The API's address. On the local stack it is `http://127.0.0.1:8000`; the examples
   below use `https://harborrag.example.com`.
 - A bearer token in `$TOKEN` whose role is `editor` or higher. Roles and tokens are
-  described in [Configure API authentication](configuration/workspace-mode.md#configure-api-authentication).
+  described in
+  [Configure API authentication](configuration/workspace-mode.md#configure-api-authentication).
   On the local stack, `env/.env.api` (copied from `env-example/.env.api.example`) sets
   `HARBORRAG_AUTH_MODE=none`, which treats every request from the same machine as
   `owner`, so leave out the `Authorization` header there.
@@ -62,9 +63,9 @@ API or `harborrag source`. The file format is in
 
 ## Add a connection
 
-Adding a connection takes four steps: pick the source type, test the values, save
-them, and start the first ingestion. Each step needs the `editor` role. To fill the
-request body in a browser instead, see [Swagger UI templates](#swagger-ui-templates).
+Adding a connection takes four steps: pick the source type, test the values, save them,
+and start the first ingestion. Each step needs the `editor` role. To fill the request
+body in a browser instead, see [Swagger UI templates](#swagger-ui-templates).
 
 ### 1. Pick the source type
 
@@ -116,9 +117,10 @@ connector checks, answers `422` naming the field.
   [Using Personal Access Tokens](https://confluence.atlassian.com/enterprise/using-personal-access-tokens-1026032365.html).
   A server inside your network also needs [Network access](#network-access).
 - **What to read**: Jira reads the issues that `jql` or the `project_keys`,
-  `issue_types`, `statuses` and `labels` filters select. Confluence reads one `space_key`
-  and the `content_types` you list (`page`, `blogpost`). Every field is in the type's
-  `config_schema` and in [Connector configuration](configuration/connector-config.md).
+  `issue_types`, `statuses` and `labels` filters select. Confluence reads one
+  `space_key` and the `content_types` you list (`page`, `blogpost`). Every field is in
+  the type's `config_schema` and in
+  [Connector configuration](configuration/connector-config.md).
 
 </details>
 
@@ -146,8 +148,8 @@ these fields, `tenant_id` is your Microsoft Entra tenant, not a HarborRAG tenant
   `site_path`.
 
 The API cannot show the device-code sign-in prompt, so sign in from a terminal. On the
-local stack, put the connection's IDs in `env/.env.connector` as
-`MICROSOFT_TENANT_ID` and `MICROSOFT_CLIENT_ID`, then run:
+local stack, put the connection's IDs in `env/.env.connector` as `MICROSOFT_TENANT_ID`
+and `MICROSOFT_CLIENT_ID`, then run:
 
 ```bash
 scripts/deployment/dev.sh sharepoint-login
@@ -165,16 +167,17 @@ python -m harborrag_adapters.connectors.sharepoint.login \
 Without a `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass the
 connection's tenant to `--harborrag-tenant` (the default is
 `HARBORRAG_INGESTION_TENANT_ID`, else `DEFAULT`). `token_cache_path` is a path on the
-worker, so only `config/sources/connectors.yaml` and the `harborrag source` CLI can set or
-change it; through the API, send it back as read, or leave it out when it was never set.
+worker, so only `config/sources/connectors.yaml` and the `harborrag source` CLI can set
+or change it; through the API, send it back as read, or leave it out when it was never
+set.
 
 </details>
 
 <details markdown="1">
 <summary>GitHub: access token or public repository</summary>
 
-- GitHub is read through its REST API over HTTPS, so it signs in with a token, not an SSH
-  key. Create one as described in GitHub's
+- GitHub is read through its REST API over HTTPS, so it signs in with a token, not an
+  SSH key. Create one as described in GitHub's
   [Managing your personal access tokens](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
   and set it as `token` (`pat`).
 - A public repository can be read without a token (`none`), but GitHub then allows 60
@@ -184,7 +187,8 @@ change it; through the API, send it back as read, or leave it out when it was ne
 - **What to read**: `repository_url`, or `owner` and `repo`. An SSH URL such as
   `git@github.com:acme/handbook.git` is accepted as `repository_url`; only its owner and
   name are used. Pin a revision with `ref` or `branch`, or with `commit_sha`, not both.
-  The default file types leave out source code; see [File type filters](#file-type-filters).
+  The default file types leave out source code; see
+  [File type filters](#file-type-filters).
 
 </details>
 
@@ -205,11 +209,12 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 
 The answer is `200` for any valid input. When the values work, `ok` is `true`, each
 entry of `checks` (`schema`, `auth`, `reachable`, `permissions`, `preview`) has
-`"ok": true`, and `preview.sample` lists up to five items a sync would read. When a check
-fails, `ok` is `false`, the failing check carries a `message`, and `error_category` says
-why: `auth_invalid`, `auth_expired`, `forbidden`, `unreachable`, `rate_limited`, or
-`secret_unavailable` when a token is an `env:` reference that only the worker can read.
-A test gives up after 15 seconds. Without a body, the call tests the saved connection.
+`"ok": true`, and `preview.sample` lists up to five items a sync would read. When a
+check fails, `ok` is `false`, the failing check carries a `message`, and
+`error_category` says why: `auth_invalid`, `auth_expired`, `forbidden`, `unreachable`,
+`rate_limited`, or `secret_unavailable` when a token is an `env:` reference that only
+the worker can read. A test gives up after 15 seconds. Without a body, the call tests
+the saved connection.
 
 From a terminal, `harborrag source test demo/demo-tickets --file demo-tickets.yaml`
 tests a body file the same way and exits 1 when a check fails.
@@ -254,8 +259,8 @@ From a terminal, `harborrag source sync demo/demo-tickets` starts the run and pr
 
 ## Swagger UI templates
 
-The API's interactive documentation, at `/docs`, offers a complete request body for
-each setup in the table above. Open **Create or replace a connection** (or
+The API's interactive documentation, at `/docs`, offers a complete request body for each
+setup in the table above. Open **Create or replace a connection** (or
 **Test a connection**), select **Try it out**, and pick a template from the list Swagger
 UI labels **Examples**:
 
@@ -346,9 +351,9 @@ and resume, 30 s for cancel. If the wait ends first, the answer is the run as it
   cancelled but not paused or resumed: `pause` and `resume` on it are
   `409 invalid_state`.
 - Cancelling a run whose Temporal workflow was already terminated records it as
-  `cancelled`. So does cancelling a running or paused run, or a retry run, whose workflow
-  Temporal no longer has, for example after its history passed the namespace retention;
-  its `error_category` is then `workflow_not_found`.
+  `cancelled`. So does cancelling a running or paused run, or a retry run, whose
+  workflow Temporal no longer has, for example after its history passed the namespace
+  retention; its `error_category` is then `workflow_not_found`.
 - Cancelling a queued run that is not a retry run, and whose workflow Temporal does not
   have, answers `503`, since the workflow may not have started yet.
 
@@ -375,8 +380,8 @@ after `run.completed`.
 - `run.status` is `{"status", "counters"}` (the run's status and counters), sent when
   either changes, so a pause or resume shows as the new status. It covers `queued`,
   `running` and `paused`; the terminal state arrives only in `run.completed`.
-- `stage.progress` is `{"stage", "done", "total"}` and counts the documents that left the
-  pipeline (`processed` + `skipped` + `failed`) against `counters.discovered`, under
+- `stage.progress` is `{"stage", "done", "total"}` and counts the documents that left
+  the pipeline (`processed` + `skipped` + `failed`) against `counters.discovered`, under
   stage `publish`.
 - `document.failed` is `{"document_id", "stage", "error_category"}` for each failed
   document, with the document's source reference when it has one and the `stage` and
@@ -410,9 +415,9 @@ and `cursor`.
 
 ### `POST /v1/admin/failures/retry`
 
-Retries unresolved failures. The body has exactly one of `ids` (failure IDs) or
-`filter` (`connection_ref`, `error_category`, `stage`), else `422 validation_error`. It
-starts one retry run per original run and answers `202` with
+Retries unresolved failures. The body has exactly one of `ids` (failure IDs) or `filter`
+(`connection_ref`, `error_category`, `stage`), else `422 validation_error`. It starts
+one retry run per original run and answers `202` with
 `{"ingestion_id", "ingestion_ids", "queued"}`: the first new run, every new run, and the
 number of documents queued. Runs that cannot be retried are skipped, and only started
 runs are reported. When no unresolved, retryable failure matches, no run starts and the
@@ -577,13 +582,17 @@ See [Tenant and workspace status](configuration/workspace-mode.md).
 
 ## Local files
 
-A `local_file` connection reads a path on the worker. When
-`HARBORRAG_LOCAL_SOURCE_ROOT` is set, or otherwise `LOCAL_SOURCE_PATH`, `source_path`
-must be an absolute path inside that directory, and a symbolic link out of it is refused
-too. Set the same value on the API and the workers. Without either, the API refuses
-`local_file` connections with `422` on `config.source_path`, since any file the workers
-can read would otherwise be accepted; `config/sources/connectors.yaml` and the
-`harborrag source` CLI can still add them.
+A `local_file` connection reads a path on the worker. When `HARBORRAG_LOCAL_SOURCE_ROOT`
+is set, `source_path` must be an absolute path inside that directory, and a symbolic
+link out of it is refused too.
+
+- Only `HARBORRAG_LOCAL_SOURCE_ROOT` sets the root. `LOCAL_SOURCE_PATH` does not.
+- Set the same value on the API, the workers and the `harborrag` CLI. The compose files
+  set it for the API and the workers. From a checkout, the CLI reads it from
+  `env/.env.database`.
+- Without a root, the API refuses `local_file` connections with `422` on
+  `config.source_path`, since any file the workers can read would otherwise be accepted.
+  `config/sources/connectors.yaml` and the `harborrag source` CLI can still add them.
 
 ## Connection status
 

@@ -10,6 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 API_COMPOSE = ROOT / "deploy/compose/docker-compose.yml"
@@ -512,3 +513,20 @@ esac
         assert result.returncode == 2
         assert "Local connector source directory does not exist" in result.stderr
         assert api_up == []
+
+
+@pytest.mark.parametrize(
+    ("compose_file", "service"),
+    [
+        ("deploy/compose/docker-compose.yml", "api"),
+        ("deploy/compose/docker-compose.temporal.yml", "temporal-worker"),
+    ],
+)
+def test_api_and_worker_share_the_container_local_source_root(
+    compose_file: str, service: str
+) -> None:
+    document = yaml.safe_load((ROOT / compose_file).read_text(encoding="utf-8"))
+
+    environment = document["services"][service]["environment"]
+
+    assert environment["HARBORRAG_LOCAL_SOURCE_ROOT"] == "/data/sources"

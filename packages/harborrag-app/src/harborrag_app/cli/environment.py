@@ -21,8 +21,10 @@ import typer
 
 from harborrag_runtime.config.checkout import (
     CONTROL_DB_URL,
+    LOCAL_SOURCE_ROOT,
     SECRETS_ENCRYPTION_KEY,
     checkout_control_db_override,
+    checkout_local_source_root,
     checkout_object_store_credentials,
     checkout_secrets_encryption_key,
 )
@@ -36,8 +38,8 @@ logger = logging.getLogger("harborrag.app.cli.environment")
 # not loaded wholesale: they point services at in-cluster hostnames and at the API's own
 # control-plane DSN, which would silently repoint a host CLI at addresses it cannot reach.
 # From env/.env.database only the MinIO root pair (the host reaches the same MinIO on
-# localhost) and an explicit HARBORRAG_CONTROL_DB_URL line, with the secrets key that
-# database's secrets are stored under, are read (see load_project_environment); the
+# localhost), HARBORRAG_LOCAL_SOURCE_ROOT, and an explicit HARBORRAG_CONTROL_DB_URL line,
+# with the secrets key that database's secrets are stored under, are read (see load_project_environment); the
 # POSTGRES_* values alone never select the database.
 _ENV_FILES: tuple[tuple[str, str], ...] = (
     ("CONNECTOR_ENV_FILE", "env/.env.connector"),
@@ -73,6 +75,9 @@ def load_project_environment(root: Path | None = None) -> tuple[Path, ...]:
             applied = True
         if _apply_control_db_url(database_path):
             logger.info("Applied %s from %s", CONTROL_DB_URL, database_path)
+            applied = True
+        if _apply_local_source_root(database_path):
+            logger.info("Applied %s from %s", LOCAL_SOURCE_ROOT, database_path)
             applied = True
         if applied:
             loaded.append(database_path)
@@ -153,6 +158,22 @@ def _apply_control_db_url(path: Path) -> bool:
         if key is not None:
             os.environ[SECRETS_ENCRYPTION_KEY] = key
             logger.info("Applied %s from %s", SECRETS_ENCRYPTION_KEY, path)
+    return True
+
+
+def _apply_local_source_root(path: Path) -> bool:
+    """Export the file's ``HARBORRAG_LOCAL_SOURCE_ROOT`` where unset; True when set."""
+
+    if LOCAL_SOURCE_ROOT in os.environ:
+        return False
+    try:
+        root = checkout_local_source_root(path)
+    except (ValueError, OSError):
+        logger.debug("Ignoring unreadable %s", path)
+        return False
+    if root is None:
+        return False
+    os.environ[LOCAL_SOURCE_ROOT] = root
     return True
 
 
