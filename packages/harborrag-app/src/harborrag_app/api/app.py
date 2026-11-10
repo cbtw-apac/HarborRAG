@@ -13,6 +13,7 @@ import inspect
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING, cast
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,9 +31,13 @@ from harborrag_app.api.ops import OpsPortMiddleware
 from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.local import LocalOperations
 from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
+
+if TYPE_CHECKING:
+    from harborrag_app.workflow_control.composition.service import AppService
 
 logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0
@@ -170,6 +175,9 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     service, mode = await asyncio.to_thread(select_app_service)
     app.state.app_service = service
+    app.state.operations = LocalOperations(
+        cast("AppService", service)  # selection composes an AppService; tests pass a double
+    )
     app.state.composition_mode = mode
     app.state.default_tenant_id = getattr(service, "default_tenant_id", DEFAULT_TENANT_ID)
     logger.info("Application service composed in %s mode", mode)

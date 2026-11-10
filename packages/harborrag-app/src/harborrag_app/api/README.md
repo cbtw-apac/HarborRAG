@@ -4,9 +4,9 @@ Run HarborRAG's HTTP API, find its routes, and look up its errors, authenticatio
 and settings. These are contributor notes for the `harborrag_app.api` package.
 
 The package is HarborRAG's FastAPI boundary. It validates HTTP input, authenticates
-callers, delegates every operation to the transport-neutral application service, and maps
-results onto stable HTTP responses. Connector execution, parsing, chunking, indexing and
-Temporal workflow rules stay outside this package.
+callers, delegates each operation to transport-neutral code it shares with the CLI, and
+maps results onto stable HTTP responses. Connector execution, parsing, chunking, indexing
+and Temporal workflow rules stay outside this package.
 
 The public API lives under `/v1`. The probes `/healthz` and `/readyz` sit at the root, and
 Prometheus `/metrics` answers only on the separate ops port. `/` redirects to `/docs`
@@ -48,6 +48,15 @@ The application lifespan builds one `AppService` through the runtime's productio
 composition and closes it at process shutdown. Its control database is
 `HARBORRAG_CONTROL_DB_URL`, a local SQLite file by default. Outside
 `HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both refused at startup.
+
+The lifespan also wraps the `AppService` in `LocalOperations`, the in-process
+implementation of the `Operations` port in `harborrag_app/operations/`. The source-type,
+connection and project routes take it through `OperationsDependency` and the caller and
+tenant through `ScopeDependency`, both in `dependencies.py`. `/v1/me` takes
+`OperationsDependency` with its guard's principal and the optional tenant, since it can
+answer with no tenant picked. Each of those routes parses its input, calls the port method
+named after it, and sets the status code and `ETag`. The ingestion, failure, settings and
+chat routes still call the `AppService` directly.
 
 ## Routes
 
@@ -130,8 +139,7 @@ one envelope:
 ```
 
 - `code` comes from the catalog in `operations/errors.py` (`CATALOG`), which the CLI
-  shares; clients branch on `code`, never on
-  `message`.
+  shares; clients branch on `code`, never on `message`.
 - `details` is `null`, an object, or for `validation_error` a list of `{field, issue}`.
   A body that is not valid JSON fails on field `body`.
 - A connection failure no service translated is `503 dependency_unavailable`, with
@@ -288,15 +296,16 @@ api/
     └── me.py
 ```
 
-The error catalogue and its status and code mapping (`operations/errors.py`) and
-`dependency_failures.py` live in the sibling `harborrag_app/operations/` package, which
-imports no web framework so the CLI can use them.
+The sibling `harborrag_app/operations/` package imports no web framework, so the CLI can
+use it too. It holds the `Operations` port (`port.py`) and its in-process implementation
+(`local/`), the role and serialization table of every operation (`contract.py`), and the
+error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
 
 This package may validate and serialize HTTP messages, authenticate principals and
 enforce route roles, manage the API process and its middleware, and delegate operations
-through `BaseAppService`. It must not instantiate connectors, parsers, model clients or
-repositories, implement ingestion state transitions, expose Temporal SDK handles on the
-wire, or return provider exception details or secrets.
+through the `Operations` port or `BaseAppService`. It must not instantiate connectors,
+parsers, model clients or repositories, implement ingestion state transitions, expose
+Temporal SDK handles on the wire, or return provider exception details or secrets.
 
 Run its tests from the repository root:
 
