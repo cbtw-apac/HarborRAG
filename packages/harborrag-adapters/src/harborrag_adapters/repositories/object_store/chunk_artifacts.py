@@ -24,8 +24,13 @@ from harborrag_core.storage import StorageOperationContext
 class ChunkArtifactWriter:
     """Persist one canonical JSONL chunk set and its byte-range sidecar."""
 
-    def __init__(self, artifacts: ImmutableArtifactWriter) -> None:
+    def __init__(
+        self,
+        artifacts: ImmutableArtifactWriter,
+        reader: ImmutableArtifactReader,
+    ) -> None:
         self._artifacts = artifacts
+        self._reader = reader
 
     async def put(
         self,
@@ -34,7 +39,15 @@ class ChunkArtifactWriter:
         document_version_id: str,
         chunks: Sequence[ChunkRecord],
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ChunkSetArtifacts:
+        """Write the chunk set; ``adopt_existing`` keeps bytes an earlier attempt wrote.
+
+        Adoption never replaces stored bytes. When the key already holds a different
+        chunk set (for example one written before an upgrade added metadata), the
+        index is rebuilt from the stored bytes so the pair stays consistent.
+        """
+
         if not chunks:
             raise ValueError("a canonical chunk artifact must contain at least one chunk")
         payload, entries = self._jsonl(chunks)
@@ -47,7 +60,13 @@ class ChunkArtifactWriter:
                 artifact_kind="canonical-chunks",
             ),
             context=context,
+            adopt_existing=adopt_existing,
         )
+        if chunk_reference.sha256 != sha256(payload).hexdigest():
+            stored = await self._reader.get(chunk_reference, context=context)
+            if sha256(stored).hexdigest() != chunk_reference.sha256:
+                raise ValueError("adopted canonical chunk artifact failed its integrity check")
+            entries = self._entries_from_payload(stored)
         index_payload = b"".join(
             (
                 (
@@ -67,6 +86,7 @@ class ChunkArtifactWriter:
                 artifact_kind="chunk-index",
             ),
             context=context,
+            adopt_existing=adopt_existing,
         )
         return ChunkSetArtifacts(
             chunks=chunk_reference,
@@ -92,6 +112,25 @@ class ChunkArtifactWriter:
             payload.extend(encoded)
             payload.extend(b"\n")
         return bytes(payload), tuple(entries)
+
+    @staticmethod
+    def _entries_from_payload(payload: bytes) -> tuple[ChunkIndexEntry, ...]:
+        """Recover byte ranges from a stored newline-terminated JSONL chunk set."""
+
+        if not payload.endswith(b"\n"):
+            raise ValueError("canonical chunk artifact must be newline-terminated")
+        entries: list[ChunkIndexEntry] = []
+        offset = 0
+        for line in payload[:-1].split(b"\n"):
+            entries.append(
+                ChunkIndexEntry(
+                    chunk_id=str(json.loads(line)["chunk_id"]),
+                    byte_offset=offset,
+                    byte_length=len(line),
+                )
+            )
+            offset += len(line) + 1
+        return tuple(entries)
 
 
 class ChunkArtifactReader:

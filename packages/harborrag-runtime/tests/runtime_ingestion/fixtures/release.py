@@ -149,7 +149,7 @@ def build_dependencies(
         canonical_artifacts=CanonicalDocumentArtifactRepository(writer, reader),
         comment_artifacts=CanonicalCommentArtifactRepository(writer, reader),
         table_artifacts=CanonicalTableArtifactRepository(writer, reader),
-        chunk_writer=ChunkArtifactWriter(writer),
+        chunk_writer=ChunkArtifactWriter(writer, reader),
         chunk_reader=ChunkArtifactReader(reader),
         projection_artifacts=ProjectionArtifactRepository(writer, reader),
         vector_store=VectorProjectionStore(
