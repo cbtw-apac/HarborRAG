@@ -649,6 +649,162 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
     assert imports == ["connectors.yaml"]
 
 
+@pytest.mark.asyncio
+async def test_ac8_the_connection_scopes_setting_revision_reaches_the_prepared_source(
+    world: ConnectionWorld,
+) -> None:
+    """The run's `settings_revision` is the connection scope's revision, not a fake."""
+    from dataclasses import replace
+
+    from harborrag_app.workflow_control.ingestion import connection_sources
+    from harborrag_core.testing.control_plane_fakes import (
+        FakeSettingOverrideRepository,
+        FakeSettingScopeRevisionRepository,
+    )
+    from harborrag_runtime.ingestion_contracts import SourceSubmission
+
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    revisions = FakeSettingScopeRevisionRepository()
+    await revisions.bump_if_match(
+        "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
+    )
+    control_plane = replace(
+        world.control_plane,
+        setting_overrides=FakeSettingOverrideRepository(),
+        setting_scope_revisions=revisions,
+    )
+
+    captured: dict[str, object] = {}
+
+    def capture(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    builder = connection_sources.ConnectionSourceInputBuilder(
+        lambda: control_plane, prepare=capture
+    )
+    settings = type(
+        "Settings",
+        (),
+        {"connector_config_path": "connectors.yaml", "ingestion_tenant_id": "acme"},
+    )()
+    submission = SourceSubmission(
+        task_id="t",
+        tenant_id="acme",
+        connector_name="cpm/cpm-tickets",
+        connection_id="cpm/cpm-tickets",
+    )
+
+    await builder(settings, submission)  # type: ignore[arg-type]
+
+    assert captured["settings_revision"] == 1
+    assert captured["pdf_engine"] is None
+    assert captured["chunking_max_tokens"] is None
+
+
+@pytest.mark.asyncio
+async def test_ac8_an_overridden_pdf_parser_and_max_tokens_reach_the_prepared_source(
+    world: ConnectionWorld,
+) -> None:
+    """Explicit `parsing.pdf_parser`/`chunking.max_tokens` overrides reach the run."""
+    from dataclasses import replace
+
+    from harborrag_app.workflow_control.ingestion import connection_sources
+    from harborrag_core.domain.setting_override import SettingOverride
+    from harborrag_core.testing.control_plane_fakes import (
+        FakeSettingOverrideRepository,
+        FakeSettingScopeRevisionRepository,
+    )
+    from harborrag_runtime.ingestion_contracts import SourceSubmission
+
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    overrides = FakeSettingOverrideRepository()
+    for key, value in (("parsing.pdf_parser", "docling"), ("chunking.max_tokens", 256)):
+        await overrides.put(
+            SettingOverride(
+                tenant_id="acme",
+                scope_level="connection",
+                scope_id="cpm/cpm-tickets",
+                key=key,
+                value=value,
+                created_by="u_huy",
+                updated_by="u_huy",
+            ),
+            expected_version=None,
+        )
+    revisions = FakeSettingScopeRevisionRepository()
+    await revisions.bump_if_match(
+        "acme", "connection", "cpm/cpm-tickets", expected_revision=0, source="api", actor="u_huy"
+    )
+    control_plane = replace(
+        world.control_plane, setting_overrides=overrides, setting_scope_revisions=revisions
+    )
+
+    captured: dict[str, object] = {}
+
+    def capture(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    builder = connection_sources.ConnectionSourceInputBuilder(
+        lambda: control_plane, prepare=capture
+    )
+    settings = type(
+        "Settings",
+        (),
+        {"connector_config_path": "connectors.yaml", "ingestion_tenant_id": "acme"},
+    )()
+    submission = SourceSubmission(
+        task_id="t",
+        tenant_id="acme",
+        connector_name="cpm/cpm-tickets",
+        connection_id="cpm/cpm-tickets",
+    )
+
+    await builder(settings, submission)  # type: ignore[arg-type]
+
+    assert captured["pdf_engine"] == "docling"
+    assert captured["chunking_max_tokens"] == 256
+
+
+@pytest.mark.asyncio
+async def test_settings_revision_defaults_to_zero_without_a_revisions_port(
+    world: ConnectionWorld,
+) -> None:
+    from dataclasses import replace
+
+    from harborrag_app.workflow_control.ingestion import connection_sources
+    from harborrag_runtime.ingestion_contracts import SourceSubmission
+
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u_huy")
+    control_plane = replace(world.control_plane, setting_scope_revisions=None)
+
+    captured: dict[str, object] = {}
+
+    def capture(*args: object, **kwargs: object) -> object:
+        captured.update(kwargs)
+        return object()
+
+    builder = connection_sources.ConnectionSourceInputBuilder(
+        lambda: control_plane, prepare=capture
+    )
+    settings = type(
+        "Settings",
+        (),
+        {"connector_config_path": "connectors.yaml", "ingestion_tenant_id": "acme"},
+    )()
+    submission = SourceSubmission(
+        task_id="t",
+        tenant_id="acme",
+        connector_name="cpm/cpm-tickets",
+        connection_id="cpm/cpm-tickets",
+    )
+
+    await builder(settings, submission)  # type: ignore[arg-type]
+
+    assert captured["settings_revision"] == 0
+
+
 def _racing(world: ConnectionWorld, monkeypatch: pytest.MonkeyPatch, times: int) -> list[int]:
     """Let another write land just before each of the next ``times`` saves."""
     store = world.control_plane.connections

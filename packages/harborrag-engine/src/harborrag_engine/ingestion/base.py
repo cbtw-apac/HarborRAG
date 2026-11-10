@@ -33,3 +33,7 @@ class BaseChunker(ABC):
         plan: ChunkingPlan | None = None,
     ) -> ChunkingResult:
         raise NotImplementedError
+
+    def plan_for_max_tokens(self, connector_type: str, max_tokens: int) -> ChunkingPlan:
+        """A plan capping one run's chunks at `max_tokens`; see `ChunkingService`."""
+        raise NotImplementedError

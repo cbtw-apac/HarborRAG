@@ -105,6 +105,28 @@ def test_pdf_parser_returns_empty_content_for_zero_byte_input_instead_of_failing
 
 
 @pytest.mark.graybox
+def test_an_explicit_engine_override_skips_the_fallback_chain_and_quality_check():
+    """`metadata["pdf_engine_override"]` (a connection's `parsing.pdf_parser`
+    override, surfaced by the ingestion capture stage) forces one specific
+    engine instead of the profile's ordered fallback chain."""
+    parser = PdfParser(
+        backends=[EmptyPdfBackend(), UsefulPdfBackend()],
+        min_content_chars=10,
+    )
+
+    document = parser.parse_input(
+        ParseInput(
+            content=b"%PDF",
+            filename="doc.pdf",
+            metadata={"pdf_engine_override": "useful_pdf"},
+        )
+    )
+
+    assert document.content == "Useful PDF content for downstream retrieval"
+    assert document.metadata["pdf_engine"] == "useful_pdf"
+
+
+@pytest.mark.graybox
 def test_pdf_parser_rejects_oversized_input_before_any_engine_runs(monkeypatch):
     """The size ceiling used to be applied by pymupdf alone; the other four
     real PDF engines had no size check at all, and profile ordering (`ocr`,

@@ -28,6 +28,9 @@ def prepare_source_submission(
     *,
     connection: ResolvedConnection,
     defaults: SourceSubmissionDefaults = SourceSubmissionDefaults(),
+    settings_revision: int = 0,
+    pdf_engine: str | None = None,
+    chunking_max_tokens: int | None = None,
 ) -> PreparedSourceSubmission:
     """Turn a resolved connection and a submission into a provider-neutral run input.
 
@@ -36,6 +39,12 @@ def prepare_source_submission(
         submission: What the caller asked to ingest.
         connection: The connection snapshot the run will use.
         defaults: Batch and concurrency policy of the execution provider.
+        settings_revision: The connection scope's setting-override revision at
+            submission time, carried onto the run for `GET .../ingestions`.
+        pdf_engine: An explicit `parsing.pdf_parser` override, or `None` to use
+            the worker's configured PDF profile and fallback chain.
+        chunking_max_tokens: An explicit `chunking.max_tokens` override, or
+            `None` to use the connector's configured chunking profile.
 
     Returns:
         The deterministic input every activity of the run receives.
@@ -56,6 +65,17 @@ def prepare_source_submission(
         excluded_filters=config_filter_keys,
     )
     processing = build_processing_profile(settings)
+    parser_profile = processing.parser_profile
+    chunk_strategy = processing.chunk_strategy
+    if pdf_engine is not None:
+        # Folded into the identity `admission.processing_fingerprint` hashes:
+        # an override that changes between runs must produce a new document
+        # version, or a force-reprocess of unchanged content would reuse the
+        # prior chunk/canonical artifacts and never apply it (chunk/canonical
+        # caching is keyed on content + processing identity, not force_reprocess).
+        parser_profile = f"{parser_profile}:pdf_engine={pdf_engine}"
+    if chunking_max_tokens is not None:
+        chunk_strategy = f"{chunk_strategy}:max_tokens={chunking_max_tokens}"
     batch_size = submission.batch_size if submission.batch_size is not None else defaults.batch_size
     document_concurrency = (
         submission.document_concurrency
@@ -71,9 +91,9 @@ def prepare_source_submission(
         source_scope_id=source_scope_id,
         configuration_fingerprint=connection.fingerprint,
         processing=ProcessingProfileInput(
-            parser_profile=processing.parser_profile,
+            parser_profile=parser_profile,
             normalizer_version=processing.normalizer_version,
-            chunk_strategy=processing.chunk_strategy,
+            chunk_strategy=chunk_strategy,
             dense_encoder_profile=processing.dense_encoder_profile,
             sparse_encoder_profile=processing.sparse_encoder_profile,
             graph_projection_version=processing.graph_projection_version,
@@ -87,6 +107,9 @@ def prepare_source_submission(
         missing_threshold=submission.missing_threshold,
         batch_size=batch_size,
         continue_after_batches=submission.continue_after_batches,
+        settings_revision=settings_revision,
+        pdf_engine=pdf_engine,
+        chunking_max_tokens=chunking_max_tokens,
     )
 
 

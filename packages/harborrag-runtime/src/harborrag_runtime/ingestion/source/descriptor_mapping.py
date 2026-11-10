@@ -76,6 +76,8 @@ class SourceDescriptorMapper:
                             processing=request.processing,
                             configuration_fingerprint=request.configuration_fingerprint,
                             force_reprocess=request.force_reprocess,
+                            pdf_engine=request.pdf_engine,
+                            chunking_max_tokens=request.chunking_max_tokens,
                         ),
                         document_id=document_id,
                     ),

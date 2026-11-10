@@ -29,3 +29,8 @@ class ChunkingService(BaseChunker):
 
         candidates = self._candidates.run(request, plan)
         return self._results.build(request, candidates)
+
+    def plan_for_max_tokens(self, connector_type: str, max_tokens: int) -> ChunkingPlan:
+        """A plan capping this run's chunks at `max_tokens`; see `ChunkCandidatePipeline`."""
+
+        return self._candidates.plan_for_max_tokens(connector_type, max_tokens)

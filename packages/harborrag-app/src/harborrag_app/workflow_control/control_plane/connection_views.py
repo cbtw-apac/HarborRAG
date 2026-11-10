@@ -127,7 +127,7 @@ def ingestion_view(
             "principal_type": "user",
             "principal_id": triggered_by or str(summary.get("actor", "")),
         },
-        "settings_revision": str(request.get("configuration_fingerprint") or ""),
+        "settings_revision": str(request.get("settings_revision") or 0),
         "workflow_id": f"harborrag-source:{task.task_id}",
         "run_id": task.task_id,
         "trace_id": "",

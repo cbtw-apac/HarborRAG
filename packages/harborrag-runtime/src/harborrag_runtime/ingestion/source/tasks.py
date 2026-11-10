@@ -31,6 +31,7 @@ def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
             "connection_id": request.connection_id,
             "source_scope_id": request.source_scope_id,
             "configuration_fingerprint": request.configuration_fingerprint,
+            "settings_revision": request.settings_revision,
             "query": {
                 "path": query.path,
                 "pattern": query.pattern,

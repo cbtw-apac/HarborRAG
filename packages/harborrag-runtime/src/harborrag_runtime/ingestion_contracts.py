@@ -54,6 +54,9 @@ class PreparedSourceSubmission:
     missing_threshold: int = 2
     batch_size: int = 200
     continue_after_batches: int = 25
+    settings_revision: int = 0
+    pdf_engine: str | None = None
+    chunking_max_tokens: int | None = None
 
     def __post_init__(self) -> None:
         identities = (

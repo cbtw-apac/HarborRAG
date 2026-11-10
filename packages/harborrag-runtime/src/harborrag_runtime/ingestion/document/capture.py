@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 from time import perf_counter
 
@@ -129,9 +130,16 @@ class DocumentCaptureStages:
                 context=context,
             )
             marks.append(perf_counter())
+            parse_input = (
+                raw
+                if request.pdf_engine is None
+                else dataclasses.replace(
+                    raw, metadata={**raw.metadata, "pdf_engine_override": request.pdf_engine}
+                )
+            )
             parsed = await asyncio.to_thread(
                 self._dependencies.parser.parse,
-                raw,
+                parse_input,
             )
             marks.append(perf_counter())
             normalized = await asyncio.to_thread(

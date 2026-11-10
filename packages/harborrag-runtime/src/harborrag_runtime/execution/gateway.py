@@ -47,6 +47,9 @@ def prepare_configured_source_submission(
     submission: SourceSubmission,
     *,
     connection: ResolvedConnection,
+    settings_revision: int = 0,
+    pdf_engine: str | None = None,
+    chunking_max_tokens: int | None = None,
 ) -> PreparedSourceSubmission:
     """Translate the shared ingestion batch policy at composition only.
 
@@ -63,6 +66,9 @@ def prepare_configured_source_submission(
             batch_size=defaults.batch_size,
             document_concurrency=defaults.document_concurrency,
         ),
+        settings_revision=settings_revision,
+        pdf_engine=pdf_engine,
+        chunking_max_tokens=chunking_max_tokens,
     )
 
 
