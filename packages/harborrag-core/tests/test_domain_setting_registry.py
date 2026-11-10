@@ -69,15 +69,15 @@ def test_models_embedding_requires_provider_colon_model() -> None:
 def test_settings_schema_groups_preserve_catalog_order() -> None:
     groups = settings_schema_groups()
     assert [group.name for group in groups] == [
-        "capture",
+        "retrieval",
         "parsing",
         "chunking",
-        "embedding",
         "ingestion",
+        "models",
     ]
-    capture = groups[0]
-    assert capture.title == "Capture"
-    assert [spec.key for spec in capture.settings] == [
+    retrieval = groups[0]
+    assert retrieval.title == "Retrieval"
+    assert [spec.key for spec in retrieval.settings] == [
         "capture.max_document_mb",
         "capture.file_types",
         "capture.max_pdf_pages",

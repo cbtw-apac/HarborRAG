@@ -140,11 +140,11 @@ def test_schema_lists_every_group_for_an_editor(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert [g["name"] for g in body["groups"]] == [
-        "capture",
+        "retrieval",
         "parsing",
         "chunking",
-        "embedding",
         "ingestion",
+        "models",
     ]
 
 

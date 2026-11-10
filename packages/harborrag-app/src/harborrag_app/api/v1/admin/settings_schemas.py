@@ -14,13 +14,18 @@ ApplyModeName = Literal["live", "next_ingestion", "reindex"]
 
 
 class SettingSchemaOut(ApiModel):
-    """One key's declared shape, from `SETTING_REGISTRY`."""
+    """One key's declared shape, from `SETTING_REGISTRY`.
+
+    ``min``/``max``/``enum``/``items_type`` are omitted entirely (not sent as
+    null) when a key is not bounded, not enumerated, or not array-typed --
+    the route serializes this with ``response_model_exclude_none``.
+    """
 
     key: str
     type: SettingTypeName
     default: Any
-    minimum: float | None = None
-    maximum: float | None = None
+    min: int | float | None = None
+    max: int | float | None = None
     enum: tuple[Any, ...] | None = None
     items_type: SettingTypeName | None = None
     levels: list[ScopeLevelName]

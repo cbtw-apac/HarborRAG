@@ -133,11 +133,11 @@ def _spec(
     )
 
 
-_CAPTURE = "capture", "Capture"
+_RETRIEVAL = "retrieval", "Retrieval"
 _PARSING = "parsing", "Parsing"
 _CHUNKING = "chunking", "Chunking"
-_EMBEDDING = "embedding", "Embedding"
-_INGESTION = "ingestion", "Temporal workflow"
+_MODELS = "models", "Models"
+_INGESTION = "ingestion", "Ingestion"
 
 _SPECS: tuple[SettingSpec, ...] = (
     _spec(
@@ -147,7 +147,7 @@ _SPECS: tuple[SettingSpec, ...] = (
         ALL_LEVELS,
         "next_ingestion",
         "Largest source document accepted, in megabytes",
-        *_CAPTURE,
+        *_RETRIEVAL,
         minimum=1,
         maximum=100,
     ),
@@ -158,7 +158,7 @@ _SPECS: tuple[SettingSpec, ...] = (
         ALL_LEVELS,
         "next_ingestion",
         "Allowed file extensions",
-        *_CAPTURE,
+        *_RETRIEVAL,
         items_type="string",
     ),
     _spec(
@@ -168,7 +168,7 @@ _SPECS: tuple[SettingSpec, ...] = (
         ALL_LEVELS,
         "next_ingestion",
         "Largest PDF page count accepted",
-        *_CAPTURE,
+        *_RETRIEVAL,
         minimum=1,
         maximum=2000,
     ),
@@ -228,26 +228,6 @@ _SPECS: tuple[SettingSpec, ...] = (
         maximum=512,
     ),
     _spec(
-        "models.embedding",
-        "model_ref",
-        None,
-        TENANT_PROJECT_LEVELS,
-        "reindex",
-        "Embedding model as 'provider:model'",
-        *_EMBEDDING,
-    ),
-    _spec(
-        "embedding.batch_size",
-        "integer",
-        32,
-        TENANT_PROJECT_LEVELS,
-        "next_ingestion",
-        "Chunks per embedding request",
-        *_EMBEDDING,
-        minimum=1,
-        maximum=256,
-    ),
-    _spec(
         "ingestion.concurrency",
         "integer",
         4,
@@ -288,6 +268,26 @@ _SPECS: tuple[SettingSpec, ...] = (
         *_INGESTION,
         minimum=1,
         maximum=10,
+    ),
+    _spec(
+        "models.embedding",
+        "model_ref",
+        None,
+        TENANT_PROJECT_LEVELS,
+        "reindex",
+        "Embedding model as 'provider:model'",
+        *_MODELS,
+    ),
+    _spec(
+        "embedding.batch_size",
+        "integer",
+        32,
+        TENANT_PROJECT_LEVELS,
+        "next_ingestion",
+        "Chunks per embedding request",
+        *_MODELS,
+        minimum=1,
+        maximum=256,
     ),
 )
 

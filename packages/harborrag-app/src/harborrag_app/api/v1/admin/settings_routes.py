@@ -73,6 +73,7 @@ def _revision_str(revision: int) -> str:
     "/settings/schema",
     summary="Setting schema",
     response_model=SettingsSchemaOut,
+    response_model_exclude_none=True,
 )
 async def get_settings_schema() -> SettingsSchemaOut:
     """Every runtime setting with its type, default, allowed levels and apply timing."""
@@ -85,8 +86,8 @@ async def get_settings_schema() -> SettingsSchemaOut:
                     key=spec.key,
                     type=spec.type,
                     default=spec.default,
-                    minimum=spec.minimum,
-                    maximum=spec.maximum,
+                    min=spec.minimum,
+                    max=spec.maximum,
                     enum=spec.enum,
                     items_type=spec.items_type,
                     levels=sorted(spec.levels),
