@@ -12,13 +12,14 @@ from harborrag_core.contracts import HarborNotFoundError
 from harborrag_core.ingestion import (
     CleanupJobState,
     DocumentFailure,
+    DocumentFailureRecord,
     DocumentVersionState,
     ProjectionCleanupJob,
     ProjectionManifest,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 
-from .row_mapping import cleanup_job_from_row
+from .row_mapping import cleanup_job_from_row, document_failure_record_from_row
 from .schema import (
     DOCUMENT_FAILURES,
     DOCUMENT_VERSIONS,
@@ -86,6 +87,39 @@ class IngestionReliabilityRepository:
                     last_failure_at=now,
                     attempt_count=row["attempt_count"] + 1,
                 )
+            )
+
+    async def list_failures(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        limit: int = 100,
+    ) -> tuple[DocumentFailureRecord, ...]:
+        """Currently-failing documents of one connection, most recent first.
+
+        Joins to `documents` for the tenant/connection scope: a failure row
+        itself only knows its `document_id`, not which connection owns it.
+        """
+        if not tenant_id.strip():
+            raise ValueError("failures tenant_id must be non-empty")
+        if not connection_id.strip():
+            raise ValueError("failures connection_id must be non-empty")
+        if not 1 <= limit <= 1_000:
+            raise ValueError("failures limit must be between 1 and 1000")
+        async with self._client.sessions() as session:
+            result = await session.execute(
+                select(DOCUMENT_FAILURES)
+                .join(DOCUMENTS, DOCUMENTS.c.document_id == DOCUMENT_FAILURES.c.document_id)
+                .where(
+                    DOCUMENTS.c.tenant_id == tenant_id,
+                    DOCUMENTS.c.connection_id == connection_id,
+                )
+                .order_by(DOCUMENT_FAILURES.c.last_failure_at.desc())
+                .limit(limit)
+            )
+            return tuple(
+                document_failure_record_from_row(row) for row in result.mappings().all()
             )
 
     async def enqueue_cleanup(

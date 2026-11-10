@@ -1,10 +1,12 @@
-# Test Acceptance Criteria cho Runtime Settings Overrides (AC1 - AC6)
+# Test Acceptance Criteria cho Runtime Settings Overrides (AC1 - AC9)
 
-Tài liệu này hướng dẫn cách test 6 acceptance criteria (AC1-AC6) của tính năng
-runtime setting overrides (`setting_overrides`, `setting_scope_revisions`,
-`/v1/admin/settings*`). Mỗi AC có 2 cách: chạy **pytest tự động** (khuyến
-nghị, nhanh, deterministic) hoặc test **thủ công qua Postman** (copy
-method/URL/headers/body dưới đây vào từng request) trên stack đang chạy.
+Tài liệu này hướng dẫn cách test các acceptance criteria của tính năng runtime
+setting overrides: AC1-AC6 (`setting_overrides`, `setting_scope_revisions`,
+`/v1/admin/settings*`), AC8 (override áp dụng vào ingestion thật), AC9
+(Temporal activity options) và AC10 (run đang chạy giữ nguyên settings). Mỗi
+AC có 2 cách: chạy **pytest tự động** (khuyến nghị, nhanh, deterministic)
+hoặc test **thủ công qua Postman** (copy method/URL/headers/body dưới đây vào
+từng request) trên stack đang chạy.
 
 ## 0. Chuẩn bị
 
@@ -456,72 +458,119 @@ settings:
 
 ---
 
-## Xử lý sự cố thường gặp
+## AC8 — Parsing và chunking áp dụng vào ingestion thật
 
-- **`404 { "code": "not_found" }` trên mọi route `/v1/admin/settings*`**:
-  container API đang chạy build từ code cũ, chưa có route này. Rebuild +
-  restart: `./scripts/deployment/dev.sh api --build` (mất vài phút, API gián
-  đoạn ngắn trong lúc container được recreate).
-- **`401 Unauthorized`, log server ghi `invalid token lifetime`**: token mint
-  với `exp - iat` dài hơn `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` đang
-  chạy thật (mặc định 3600s/1h nếu không set trong `env/.env.api`, dù code
-  cho phép set tối đa 86400s/24h). Mint lại với lifetime ngắn hơn.
-- **`422 reference_not_found`**: `project_id`/`connection_id` trong URL không
-  tồn tại thật cho `tenant_id` của token (ví dụ token mint `tenants: ["qa"]`
-  nhưng project/connection chưa được tạo bằng 4 request PUT ở mục "Dựng
-  fixture"). Dựng lại fixture, hoặc kiểm tra dữ liệu hiện có bằng
-  `GET /v1/admin/projects` (role `reader` trở lên, tenant của token).
+**Đề bài**: Connection có override `parsing.pdf_parser` và/hoặc
+`chunking.max_tokens` ở bất kỳ cấp nào trong chain tenant→project→connection.
+Khi start 1 ingestion (đặc biệt là `force`) của connection đó, mọi tài liệu
+của run phải dùng đúng engine PDF / giới hạn token đã override — không phải
+giá trị mặc định của registry, và không phải tái dùng artifact cũ nếu chỉ có
+settings đổi (nội dung tài liệu không đổi). Run cũng phải mang theo
+`settings_revision` thật của đúng connection scope đó.
 
----
+### Cách 1 — pytest (không cần stack chạy)
 
-## Ghi chú
+```bash
+uv run pytest packages/harborrag-app/tests/test_connection_service.py -k ac8 -v
+uv run pytest packages/harborrag-adapters/tests/parsers/unit/test_parser_family_architecture.py -v
+uv run pytest packages/harborrag-adapters/tests/parsers/unit/pdf/test_parser.py -v
+uv run pytest packages/harborrag-engine/tests/ingestion/unit/test_plan_for_max_tokens.py -v
+uv run pytest packages/harborrag-runtime/tests/runtime_ingestion/unit/source/test_plan.py -v
+uv run pytest packages/harborrag-runtime/tests/runtime_ingestion/unit/temporal/test_submission.py -v
+```
 
-- Tất cả AC1-AC6 đã có test tự động tương ứng trong:
-  - `packages/harborrag-app/tests/test_api_admin_settings.py` (AC1-AC5, HTTP contract)
-  - `packages/harborrag-app/tests/test_settings_service.py` (service-level)
-  - `packages/harborrag-runtime/tests/unit/test_settings_seed.py` (AC6)
-  - `packages/harborrag-adapters/tests/repositories/integration/test_setting_scope_revision_repository.py` (revision `source`/`actor`, chạy trên Postgres thật)
-- **AC8 đã triển khai** (parser + chunking override áp dụng vào run thật):
-  - **`settings_revision` thật trên mỗi run**: khi `POST /v1/admin/ingestions`
-    (qua `connection_service.sync()`), hệ thống đọc effective settings của
-    đúng connection scope (`SettingsService.read(effective=True)`, cùng logic
-    cascade/revision của AC1-AC6) và gắn revision thật vào run — thay cho giá
-    trị giả trước đây (`configuration_fingerprint` của connection, không liên
-    quan gì đến settings). Xem `connection_sources.py:_resolve_connection_settings`,
-    `connection_views.py:ingestion_view`.
-  - **`parsing.pdf_parser` override thật**: khi connection scope có override
-    (khác giá trị mặc định đăng ký), engine PDF bị ép buộc
-    (`liteparse`/`docling`) cho mọi tài liệu của run tiếp theo, bỏ qua hoàn
-    toàn chuỗi fallback theo profile. Cơ chế: `ParseRequest.engine` (đã có sẵn
-    trong code nhưng chưa được dùng) + `PDFEngineRouter.override_engines` (mới,
-    để engine bị ép có thể nằm ngoài `engine_order` của profile đang chạy mà
-    không ảnh hưởng `.engines`/`.backends` — nhiều test cũ assert đúng danh
-    sách này). Xem `harborrag_adapters/parsers/pdf/{parser,router}.py`,
-    `harborrag_runtime/ingestion/document/capture.py`.
-  - **`chunking.max_tokens` override thật**: khi connection scope có override,
-    mọi chunk của run tiếp theo bị giới hạn đúng số token đó. Cơ chế:
-    `ChunkingPlan` (đã có sẵn, nhưng trước đây không nơi nào trong pipeline
-    thật truyền `plan` — luôn `None`) + `ChunkingService.plan_for_max_tokens()`
-    (mới) — chỉ ép `hard_maximum_tokens`, các giới hạn còn lại (min/target/soft)
-    lấy từ profile riêng của connector (vd Jira có ngưỡng thấp hơn Confluence)
-    rồi kẹp xuống không vượt quá cap mới, để không làm sai lệch cấu hình
-    chunking riêng của từng loại connector khi override chỉ nhắm vào 1 kết nối.
-    Xem `harborrag_engine/ingestion/chunking/pipeline/candidates.py`,
-    `harborrag_runtime/ingestion/document/materialization.py`.
-  - Cả hai override **chỉ áp dụng khi thật sự bị override** (origin khác
-    `"default"` ở bất kỳ cấp nào trong chain tenant→project→connection) — giá
-    trị mặc định của registry không trùng với mặc định thật của từng loại
-    connector (vd Jira chunking mặc định 1000 token, registry default 1100),
-    nên không được áp dụng vô điều kiện.
-  - Test mới: `test_connection_service.py` (2 test AC8 — revision thật +
-    override thật reaching `PreparedSourceSubmission`),
-    `test_parser_family_architecture.py` + `pdf/test_parser.py` (engine
-    override, kể cả override nằm ngoài profile đang active),
-    `test_plan_for_max_tokens.py` (chunking plan clamp + chặn token thật).
-  - **Chưa làm** (AC9, nằm ngoài phạm vi AC8): Temporal activity options
-    (`ingestion.concurrency`, `ingestion.activity_timeout`,
-    `ingestion.max_attempts`) chưa được wire vào workflow, và
-    `GET /v1/admin/failures` chưa tồn tại.
+### Cách 2 — test thủ công bằng Postman (trên stack thật)
+
+Dùng lại fixture `qa-project`/`qa-conn-a` đã dựng ở mục "0. Chuẩn bị".
+
+**1) Override PDF parser + chunking ở connection scope**
+
+- Method: `PATCH`
+- URL: `http://localhost:8000/v1/admin/settings?level=connection:qa-project/qa-conn-a`
+- Auth: Bearer `admin_token`
+- Headers: `If-Match: <ETag hiện tại của scope này>`, `Content-Type: application/json`
+- Body:
+  ```json
+  { "parsing.pdf_parser": "liteparse", "chunking.max_tokens": 64 }
+  ```
+- Kỳ vọng: `200`, `changed` liệt kê cả 2 key
+
+**2) Start force ingestion của connection**
+
+- Method: `POST`
+- URL: `http://localhost:8000/v1/admin/ingestions`
+- Auth: Bearer `editor_token`
+- Headers: `Content-Type: application/json`
+- Body:
+  ```json
+  { "project_id": "qa-project", "connection_id": "qa-conn-a", "mode": "force" }
+  ```
+- Kỳ vọng: `202`, header `Location` trỏ tới `GET /v1/admin/ingestions/{ingestion_id}`
+
+**3) Đọc lại run, kiểm tra `settings_revision` thật**
+
+- Method: `GET`
+- URL: `http://localhost:8000/v1/admin/ingestions/{ingestion_id}`
+- Auth: Bearer `reader_token`
+- Kỳ vọng: `settings_revision` khớp đúng revision hiện tại của
+  `connection:qa-project/qa-conn-a` (không phải `configuration_fingerprint`)
+
+**4) Chờ run `COMPLETED`, kiểm tra chunk thật** — xem chi tiết cách đọc chunk
+artifact trực tiếp từ MinIO + so khớp Postgres ở mục "Xác minh trực tiếp trên
+stack thật" ngay dưới đây; cách nhanh hơn là dùng pytest ở Cách 1.
+
+### Cơ chế
+
+- **`settings_revision` thật trên mỗi run**: khi `POST /v1/admin/ingestions`
+  (qua `connection_service.sync()`), hệ thống đọc effective settings của
+  đúng connection scope (`SettingsService.read(effective=True)`, cùng logic
+  cascade/revision của AC1-AC6) và gắn revision thật vào run — thay cho giá
+  trị giả trước đây (`configuration_fingerprint` của connection, không liên
+  quan gì đến settings). Xem `connection_sources.py:_resolve_connection_settings`,
+  `connection_views.py:ingestion_view`.
+- **`parsing.pdf_parser` override thật**: khi connection scope có override
+  (khác giá trị mặc định đăng ký), engine PDF bị ép buộc
+  (`liteparse`/`docling`) cho mọi tài liệu của run tiếp theo, bỏ qua hoàn
+  toàn chuỗi fallback theo profile. Cơ chế: `ParseRequest.engine` (đã có sẵn
+  trong code nhưng chưa được dùng) + `PDFEngineRouter.override_engines` (mới,
+  để engine bị ép có thể nằm ngoài `engine_order` của profile đang chạy mà
+  không ảnh hưởng `.engines`/`.backends` — nhiều test cũ assert đúng danh
+  sách này). Xem `harborrag_adapters/parsers/pdf/{parser,router}.py`,
+  `harborrag_runtime/ingestion/document/capture.py`.
+- **`chunking.max_tokens` override thật**: khi connection scope có override,
+  mọi chunk của run tiếp theo bị giới hạn đúng số token đó. Cơ chế:
+  `ChunkingPlan` (đã có sẵn, nhưng trước đây không nơi nào trong pipeline
+  thật truyền `plan` — luôn `None`) + `ChunkingService.plan_for_max_tokens()`
+  (mới) — chỉ ép `hard_maximum_tokens`, các giới hạn còn lại (min/target/soft)
+  lấy từ profile riêng của connector (vd Jira có ngưỡng thấp hơn Confluence)
+  rồi kẹp xuống không vượt quá cap mới, để không làm sai lệch cấu hình
+  chunking riêng của từng loại connector khi override chỉ nhắm vào 1 kết nối.
+  Xem `harborrag_engine/ingestion/chunking/pipeline/candidates.py`,
+  `harborrag_runtime/ingestion/document/materialization.py`.
+- Cả hai override **chỉ áp dụng khi thật sự bị override** (origin khác
+  `"default"` ở bất kỳ cấp nào trong chain tenant→project→connection) — giá
+  trị mặc định của registry không trùng với mặc định thật của từng loại
+  connector (vd Jira chunking mặc định 1000 token, registry default 1100),
+  nên không được áp dụng vô điều kiện.
+
+**File đã sửa**: `harborrag_runtime/ingestion_contracts.py`,
+`harborrag_runtime/execution/{source_submission,gateway}.py`,
+`harborrag_runtime/execution/source_conversion.py`,
+`harborrag_runtime/ingestion/source/{models,tasks,plan,descriptor_mapping}.py`,
+`harborrag_runtime/ingestion/document/{models,capture,materialization}.py`,
+`harborrag_adapters/parsers/pdf/{router,parser}.py`,
+`harborrag_adapters/parsers/factory.py`, `harborrag_engine/ingestion/base.py`,
+`harborrag_engine/ingestion/chunking/pipeline/{candidates,service}.py`,
+`harborrag_app/workflow_control/control_plane/connection_views.py`,
+`harborrag_app/workflow_control/ingestion/connection_sources.py`.
+
+**Test mới**: `test_connection_service.py` (2 test AC8 — revision thật +
+override thật reaching `PreparedSourceSubmission`), `test_parser_family_architecture.py`
++ `pdf/test_parser.py` (engine override, kể cả override nằm ngoài profile
+đang active), `test_plan_for_max_tokens.py` (chunking plan clamp + chặn token
+thật), `test_plan.py` (bug fix: checkpoint JSON không làm rơi mất override
+giữa các batch), `test_submission.py` (bug fix: override được gấp vào
+`processing_fingerprint` để force-reprocess thật sự rechunk).
 
 ### Xác minh trực tiếp trên stack thật (Postgres + MinIO + Temporal)
 
@@ -565,3 +614,247 @@ còn chưa được cài trong image worker. Request buộc dùng `docling` bị
 trong YAML) — không phải bug, nhưng cũng không chứng minh được "docling
 parse thật" trong môi trường này. Muốn verify đầy đủ cần một worker có
 enable + cài `docling` trong `parsers.yaml`.
+
+---
+
+## Xử lý sự cố thường gặp
+
+- **`404 { "code": "not_found" }` trên mọi route `/v1/admin/settings*`**:
+  container API đang chạy build từ code cũ, chưa có route này. Rebuild +
+  restart: `./scripts/deployment/dev.sh api --build` (mất vài phút, API gián
+  đoạn ngắn trong lúc container được recreate).
+- **`401 Unauthorized`, log server ghi `invalid token lifetime`**: token mint
+  với `exp - iat` dài hơn `HARBORRAG_AUTH_MAX_TOKEN_LIFETIME_SECONDS` đang
+  chạy thật (mặc định 3600s/1h nếu không set trong `env/.env.api`, dù code
+  cho phép set tối đa 86400s/24h). Mint lại với lifetime ngắn hơn.
+- **`422 reference_not_found`**: `project_id`/`connection_id` trong URL không
+  tồn tại thật cho `tenant_id` của token (ví dụ token mint `tenants: ["qa"]`
+  nhưng project/connection chưa được tạo bằng 4 request PUT ở mục "Dựng
+  fixture"). Dựng lại fixture, hoặc kiểm tra dữ liệu hiện có bằng
+  `GET /v1/admin/projects` (role `reader` trở lên, tenant của token).
+
+---
+
+## Ghi chú
+
+- Tất cả AC1-AC6 đã có test tự động tương ứng trong:
+  - `packages/harborrag-app/tests/test_api_admin_settings.py` (AC1-AC5, HTTP contract)
+  - `packages/harborrag-app/tests/test_settings_service.py` (service-level)
+  - `packages/harborrag-runtime/tests/unit/test_settings_seed.py` (AC6)
+  - `packages/harborrag-adapters/tests/repositories/integration/test_setting_scope_revision_repository.py` (revision `source`/`actor`, chạy trên Postgres thật)
+- **AC8 đã triển khai** — xem mục "AC8" bên dưới.
+- **AC9 đã triển khai đầy đủ (Temporal wiring + `GET /v1/admin/failures`),
+  AC10 đã có test riêng** — xem mục "AC9" bên dưới.
+
+---
+
+## AC9 — Temporal settings reach the workflow
+
+**Đề bài**: Connection `cpm/cpm-tickets` có 1 tài liệu luôn fail khi parse.
+`PATCH ?level=connection:cpm/cpm-tickets` với
+`{"ingestion.concurrency": 2, "ingestion.activity_timeout": "PT2M",
+"ingestion.max_attempts": 2}`, rồi start force ingestion. Kỳ vọng: Temporal
+history của run cho thấy timeout start-to-close 2 phút và retry policy 2
+attempt trên document activity, tối đa 2 document chạy cùng lúc; tài liệu
+fail xuất hiện ở `GET /v1/admin/failures?connection=cpm/cpm-tickets` với
+`attempts = 2`.
+
+### Phần 1 — Wiring 3 setting vào Temporal workflow (đã xong)
+
+**Vấn đề gốc phát hiện được**: `IngestionTemporalClient.start()`
+(`harborrag_runtime/temporal/client.py`) luôn ghi đè toàn bộ
+`workflow_options` của request bằng config tĩnh của deployment
+(`self._config.workflow_options()`) trước khi start workflow — nghĩa là dù
+có resolve được override theo connection ở tầng trên, nó vẫn bị vứt bỏ hoàn
+toàn ngay trước khi gửi cho Temporal. Đây là lý do chính khiến AC9 không thể
+"chỉ thêm field là xong" như AC8 — phải sửa đúng chỗ `client.start()` này.
+
+**Cơ chế** (theo đúng pattern đã dùng ở AC8: resolve 1 lần lúc submit, bake
+cứng vào input, workflow không bao giờ đọc lại settings giữa chừng):
+
+- **`ingestion.concurrency`** → map thẳng vào field `document_concurrency`
+  đã có sẵn trên `PreparedSourceSubmission`/`SourceIngestionInput` — field
+  này đã được `source_batch_workflow.py` dùng sẵn để giới hạn số document
+  activity chạy đồng thời trong 1 batch, nên **không cần thêm wiring Temporal
+  mới**, chỉ cần dẫn setting vào đúng chỗ resolve.
+- **`ingestion.activity_timeout`** (chuỗi ISO 8601, vd `"PT2M"`) và
+  **`ingestion.max_attempts`** → 2 field mới trên `PreparedSourceSubmission`:
+  `ingestion_activity_timeout_seconds`, `ingestion_max_attempts` (giống hệt
+  cách AC8 thêm `pdf_engine`/`chunking_max_tokens`). `IngestionTemporalClient`
+  được thêm hàm `_resolved_workflow_options()`: lấy `workflow_options` nền từ
+  config deployment rồi **overlay** 2 giá trị override này lên trên (thay vì
+  ghi đè toàn bộ như cũ), trước khi start workflow.
+  - `ActivityTimeoutConfig` (trong `temporal_models.py`) có thêm field
+    `document_seconds` (mặc định 1800s = giá trị hardcode cũ); 2 activity
+    `fetch_and_capture_raw` và `parse_and_normalize` trong
+    `document_workflow.py` (nơi việc parse PDF thật sự chạy) đổi từ
+    `timedelta(minutes=30)` hardcode sang đọc field này.
+  - Chuỗi ISO 8601 duration được parse bằng hàm mới
+    `harborrag_runtime/ingestion/durations.py::parse_iso8601_duration_seconds()`
+    (hỗ trợ `PnDTnHnMnS`, không cần thêm dependency ngoài).
+- **`ConnectionSourceInputBuilder._resolve_connection_settings()`**
+  (`harborrag_app/workflow_control/ingestion/connection_sources.py`) được mở
+  rộng để đọc thêm 3 key `ingestion.concurrency` / `ingestion.activity_timeout`
+  / `ingestion.max_attempts` qua `SettingsService.read(effective=True)`, theo
+  đúng luật đã áp dụng cho AC8: **chỉ áp dụng khi origin khác `"default"`**
+  (connection/project/tenant thật sự có set override), không áp dụng vô điều
+  kiện giá trị mặc định của registry.
+
+**File đã sửa**:
+- `packages/harborrag-runtime/src/harborrag_runtime/temporal_models.py`
+- `packages/harborrag-runtime/src/harborrag_runtime/temporal/document_workflow.py`
+- `packages/harborrag-runtime/src/harborrag_runtime/temporal/client.py`
+- `packages/harborrag-runtime/src/harborrag_runtime/ingestion_contracts.py`
+- `packages/harborrag-runtime/src/harborrag_runtime/execution/source_submission.py`
+- `packages/harborrag-runtime/src/harborrag_runtime/execution/gateway.py`
+- `packages/harborrag-app/src/harborrag_app/workflow_control/ingestion/connection_sources.py`
+- Mới: `packages/harborrag-runtime/src/harborrag_runtime/ingestion/durations.py`
+
+**Vì sao AC10 ("running ingestion giữ nguyên settings") tự động đúng cho cả
+3 setting này**: `workflow_options` (đã bao gồm 2 override mới) và
+`document_concurrency` đều là field của `SourceIngestionInput` — input này
+chỉ được build **một lần** lúc `POST /v1/admin/ingestions`/`start()`, rồi
+bake cứng vào Temporal workflow history; mọi lần workflow continue-as-new
+hay dispatch batch tiếp theo đều truyền lại nguyên `request.workflow_options`
+đã có (xem `source_workflow.py`, `source_batch_workflow.py`) — **không có
+chỗ nào đọc lại DB settings giữa chừng 1 run**. PATCH sau đó chỉ ảnh hưởng
+tới run **tiếp theo** (lần `prepare_source_submission()` kế tiếp sẽ đọc được
+revision/override mới).
+
+**Test đã chạy**: 127 test runtime liên quan (temporal config/client/
+document_workflow/submission) pass; mypy clean trên toàn bộ file đã sửa; full
+suite `harborrag-runtime` (1417 pass) và `harborrag-app` (1029 pass) — các
+test fail còn lại (migration count, timestamp, path-outside-root trên
+Windows, scaffold/init CLI) đã xác nhận **có từ trước**, không liên quan tới
+thay đổi này (confirm bằng `git stash` rồi chạy lại cùng test).
+
+### Test đã viết cho AC9 (phần 1) + AC10
+
+```bash
+uv run pytest packages/harborrag-app/tests/test_connection_service.py -k "ac9 or ac10" -v
+uv run pytest packages/harborrag-runtime/tests/runtime_ingestion/unit/temporal/test_client.py -k "overlay or deployment_defaults" -v
+```
+
+- `test_ac9_ingestion_concurrency_timeout_and_max_attempts_reach_the_prepared_source`
+  — override cả 3 key ở connection scope, xác nhận `ConnectionSourceInputBuilder`
+  resolve đúng (`ingestion.activity_timeout="PT2M"` → 120 giây).
+- `test_ac9_unset_ingestion_settings_stay_none` — không override gì → cả 3
+  field resolve về `None` (dùng default của worker/deployment, không phải
+  default của registry).
+- `test_client_overlays_a_connections_activity_timeout_and_max_attempts` —
+  ở tầng `IngestionTemporalClient.start()`: request có
+  `ingestion_activity_timeout_seconds=120`/`ingestion_max_attempts=2` thì
+  `workflow_options` được submit lên Temporal có đúng
+  `timeouts.document_seconds=120`, `retries.document.maximum_attempts=2`,
+  **đồng thời `task_queues` và `timeouts.discovery_seconds` vẫn giữ nguyên
+  theo config deployment** (overlay, không ghi đè toàn bộ).
+- `test_client_leaves_workflow_options_at_deployment_defaults_without_overrides`
+  — request không có override nào → `workflow_options` y hệt
+  `TemporalRuntimeConfig.workflow_options()` của deployment (không bị đổi bởi
+  cơ chế overlay mới).
+- **`test_ac10_a_running_ingestions_resolved_settings_survive_a_later_patch`**
+  — test trực tiếp kịch bản AC10: build input cho 1 "run đang chạy" với
+  `chunking.max_tokens=512`/`ingestion.concurrency=4` (revision 1); PATCH
+  connection scope xuống `256`/`2` (revision 2) **sau khi** run đó đã resolve;
+  xác nhận object đã capture của run cũ **không đổi** (`settings_revision=1`,
+  `512`, `4`), rồi build input cho "run kế tiếp" và xác nhận nó thấy đúng
+  `settings_revision=2`, `256`, `2`. Test này không cần Temporal thật — nó
+  verify đúng chỗ kiến trúc đảm bảo AC10 đúng: settings chỉ resolve 1 lần lúc
+  submit, object trả về là frozen dataclass, PATCH sau đó không thể và không
+  hề chạm vào object đã trả về trước đó.
+
+Tất cả pass (37/37 `test_connection_service.py`, 28/28
+`temporal/test_client.py`), mypy clean trên code nguồn; các file test có vài
+warning mypy tiền tồn tại (pattern `capture(*args, **kwargs)` không khớp
+chữ ký `Callable[..., PreparedSourceSubmission]`, và fake SDK client không
+khớp type `Client` thật) — đã xác nhận bằng `git stash` là có từ trước, các
+test mới chỉ lặp lại đúng pattern cũ, không phải lỗi mới.
+
+### Phần 2 — `GET /v1/admin/failures?connection=...` (đã xong)
+
+**Cơ chế**: bảng `document_failures` chỉ có `document_id`/
+`document_version_id`, không có `connection_id`/`tenant_id` trực tiếp — join
+sang bảng `documents` (có sẵn `tenant_id`, `connection_id` dạng
+`project_id/connection_id`, ví dụ `"cpm/cpm-tickets"`, đúng format
+`candidate.source_identity.connection_id` ghi vào khi publish document) để
+lọc đúng connection. Luồng mới, đi theo đúng pattern đã có của
+`list_documents`/`list_tasks`:
+
+- `IngestionReliabilityRepository.list_failures(tenant_id, connection_id, limit)`
+  (adapters) — `SELECT ... JOIN documents ... WHERE tenant_id = ? AND
+  connection_id = ? ORDER BY last_failure_at DESC`, map qua
+  `document_failure_record_from_row()` thành `DocumentFailureRecord` (model
+  đọc mới trong `harborrag_core.ingestion`, tách khỏi `DocumentFailure` —
+  model ghi — vì shape khác nhau: có `attempt_count`/timestamps, không có
+  `artifact_references`).
+- `IngestionTaskRegistry.list_failures()` (runtime) — uỷ quyền thẳng xuống
+  `control.reliability.list_failures()`.
+- `PublicTaskStore` Protocol (`harborrag_app/workflow_control/ingestion/ports.py`)
+  thêm chữ ký `list_failures` — `TaskRegistry` Protocol (composition/factories.py)
+  tự động thoả mãn vì nó extend `PublicTaskStore`.
+- `FailuresService` (mới, `harborrag_app/workflow_control/ingestion/failures.py`)
+  — use case mỏng gọi `task_registry()` rồi `store.list_failures(...)`, theo
+  đúng pattern `DurableIngestionOperations`/`IngestionApplicationService` đã
+  dùng cho `task_registry` provider.
+  `AppService.failures_service` (property mới) expose nó; thêm vào Protocol
+  `ConnectionAdministration` để route có thể gọi qua `Administration`
+  dependency (giống `connection_service`/`settings_service`).
+- Route mới `GET /v1/admin/failures` (`harborrag_app/api/v1/admin/failures_routes.py`),
+  role tối thiểu `reader`, tenant lấy từ `TenantDependency` (giống
+  `GET /v1/admin/settings`). Query bắt buộc `?connection={project_id}/{connection_id}`,
+  validate lại bằng chính `parse_level("connection:" + value)` đã dùng cho
+  `/v1/admin/settings` (cùng format, cùng thông báo lỗi 422 khi sai). Trả
+  `{"items": [{document_id, document_version_id, failed_stage, category,
+  retryable, safe_error_code, attempts, first_failure_at, last_failure_at}]}`
+  — `attempts` chính là `attempt_count` của bảng.
+- Đăng ký router mới vào `harborrag_app/api/router.py` (cùng chỗ
+  `connection_admin_routers`/`settings_admin_routers`).
+
+**File mới**:
+- `packages/harborrag-app/src/harborrag_app/api/v1/admin/failures_routes.py`
+- `packages/harborrag-app/src/harborrag_app/api/v1/admin/failures_schemas.py`
+- `packages/harborrag-app/src/harborrag_app/workflow_control/ingestion/failures.py`
+
+**File đã sửa**:
+`harborrag_core/ingestion/{lifecycle_contracts,__init__}.py` (model đọc mới
+`DocumentFailureRecord`),
+`harborrag_adapters/repositories/database/ingestion_control/{reliability,row_mapping}.py`,
+`harborrag_runtime/execution/task_registry.py`,
+`harborrag_app/workflow_control/ingestion/ports.py`,
+`harborrag_app/workflow_control/composition/service.py`,
+`harborrag_app/workflow_control/control_plane/administration.py`,
+`harborrag_app/api/router.py`.
+
+### Cách test
+
+```bash
+# Repository (join tenant+connection, cách ly tenant/connection khác) — sqlite thật
+uv run pytest packages/harborrag-adapters/tests/repositories/unit/test_ingestion_control_reliability.py -k list_failures -v
+
+# Service (wiring tenant/connection/limit xuống store) — fake store
+uv run pytest packages/harborrag-app/tests/test_failures_service.py -v
+
+# Route tồn tại đúng chỗ, khớp OpenAPI surface
+uv run pytest packages/harborrag-app/tests/test_export_openapi.py -v
+```
+
+Postman (reader_token trở lên, đã dựng fixture ở mục "0. Chuẩn bị"):
+
+- Method: `GET`
+- URL: `http://localhost:8000/v1/admin/failures?connection=qa-project/qa-conn-a`
+- Auth: Bearer `reader_token`
+- Kỳ vọng: `200`, `items: []` nếu connection chưa có tài liệu fail nào; sau
+  khi force 1 tài liệu luôn fail parse (vd input hỏng) rồi chờ run xong,
+  `items` có đúng tài liệu đó với `attempts` tăng dần mỗi lần retry.
+
+**Test đã chạy**: 20/20 pass (`test_ingestion_control_reliability.py` +
+`test_failures_service.py`), 5/5 pass (`test_export_openapi.py`, đã cập nhật
+golden route set — nhân tiện cũng thêm lại 2 path của `/v1/admin/settings*`
+vốn đã thiếu từ AC1-6, không liên quan AC9 nhưng phát hiện ra khi sửa), mypy
+clean trên toàn bộ file nguồn mới/sửa. Route tự xác nhận đã đăng ký đúng qua
+`app.openapi()["paths"]`. `test_api_access.py` có 2 case fail tiền tồn tại
+(route `/v1/admin/settings` thiếu `settings_service` trên fake test
+`_AccessApp`, không liên quan AC9) — xác nhận route `/v1/admin/failures` MỚI
+không thêm fail nào vào test này, vì `?connection=` là query bắt buộc nên
+request thiếu nó bị FastAPI chặn ở tầng validation (422) trước khi chạm vào
+handler/`failures_service`.

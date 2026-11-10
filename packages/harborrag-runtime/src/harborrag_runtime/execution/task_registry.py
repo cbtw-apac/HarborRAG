@@ -8,6 +8,7 @@ from harborrag_adapters.repositories.database import IngestionControlPlaneDataba
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import (
     ActiveDocumentVersion,
+    DocumentFailureRecord,
     IngestionTask,
     IngestionTaskState,
     TaskDocumentPage,
@@ -215,6 +216,17 @@ class IngestionTaskRegistry:
         document_ids: Sequence[str],
     ) -> dict[str, ActiveDocumentVersion]:
         return await self._control.document_versions.active_versions(document_ids)
+
+    async def list_failures(
+        self,
+        *,
+        tenant_id: str,
+        connection_id: str,
+        limit: int = 100,
+    ) -> tuple[DocumentFailureRecord, ...]:
+        return await self._control.reliability.list_failures(
+            tenant_id=tenant_id, connection_id=connection_id, limit=limit
+        )
 
     async def close(self) -> None:
         await self._control.close()

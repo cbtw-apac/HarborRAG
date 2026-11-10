@@ -39,6 +39,7 @@ from .identity import (
 from .lifecycle_contracts import (
     ActiveDocumentVersion,
     DocumentFailure,
+    DocumentFailureRecord,
     DocumentRetirementResult,
     DocumentVersionSnapshot,
     IngestionTask,
@@ -126,6 +127,7 @@ __all__ = [
     "CleanupJobState",
     "DiscoveredSourceItem",
     "DocumentFailure",
+    "DocumentFailureRecord",
     "DocumentRetirementResult",
     "DocumentIdentityBuilder",
     "DocumentIngestionOutcome",

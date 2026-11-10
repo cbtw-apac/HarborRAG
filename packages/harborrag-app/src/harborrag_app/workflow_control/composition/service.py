@@ -28,6 +28,7 @@ from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
+from ..ingestion.failures import FailuresService
 from ..ingestion.ports import SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import LEASE_NAME, LEASE_TTL_SECONDS, sync_ingestion_progress
@@ -146,6 +147,7 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
+        self._failures = FailuresService(task_registry=self._resources.task_registry)
         self._connection_service = ConnectionService(
             control_plane=self._control_plane,
             runs=self._resources.task_registry,
@@ -174,6 +176,11 @@ class AppService(
     def settings_service(self) -> SettingsService:
         """Setting-override use cases behind the ``/v1/admin/settings`` routes."""
         return self._settings_service
+
+    @property
+    def failures_service(self) -> FailuresService:
+        """Document-failure listing behind the ``/v1/admin/failures`` route."""
+        return self._failures
 
     async def import_connectors_once(self) -> int:
         """Import ``connectors.yaml`` on the first start of a fresh install."""

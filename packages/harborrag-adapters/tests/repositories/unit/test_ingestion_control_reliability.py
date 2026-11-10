@@ -293,6 +293,56 @@ async def test_failures_cleanup_and_task_results_are_durable_and_idempotent(
 
 
 @pytest.mark.asyncio
+async def test_list_failures_is_scoped_to_tenant_and_connection(tmp_path: Path) -> None:
+    """AC9: `GET /v1/admin/failures?connection=...` reads real `attempt_count`.
+
+    `document_failures` only knows a `document_id`; the connection/tenant
+    scope comes from joining `documents`, so this also proves that join does
+    not leak another tenant's or another connection's failures.
+    """
+    control_plane = make_control_plane(tmp_path)
+    async with control_plane:
+        value = candidate("failing document")
+        await control_plane.document_versions.create_candidate(value)
+        failure = DocumentFailure(
+            document_id=value.document_id,
+            document_version_id=value.document_version_id,
+            failed_stage="ParseAndNormalize",
+            category=FailureCategory.PARSER_FALLBACKABLE,
+            retryable=True,
+            safe_error_code="parser_rejected_document",
+        )
+        await control_plane.reliability.record_failure(failure)
+        await control_plane.reliability.record_failure(failure)
+
+        failures = await control_plane.reliability.list_failures(
+            tenant_id="DEFAULT", connection_id="wiki.example"
+        )
+
+        assert len(failures) == 1
+        record = failures[0]
+        assert record.document_id == value.document_id
+        assert record.document_version_id == value.document_version_id
+        assert record.failed_stage == "ParseAndNormalize"
+        assert record.attempt_count == 2
+        assert record.retryable is True
+        assert record.safe_error_code == "parser_rejected_document"
+
+        assert (
+            await control_plane.reliability.list_failures(
+                tenant_id="DEFAULT", connection_id="other.example"
+            )
+            == ()
+        )
+        assert (
+            await control_plane.reliability.list_failures(
+                tenant_id="other-tenant", connection_id="wiki.example"
+            )
+            == ()
+        )
+
+
+@pytest.mark.asyncio
 async def test_idempotency_keys_are_scoped_to_tenant(tmp_path: Path) -> None:
     control_plane = make_control_plane(tmp_path)
     async with control_plane:

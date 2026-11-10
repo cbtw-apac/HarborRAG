@@ -31,6 +31,20 @@ class DocumentFailure(StrictModel):
     projection_manifest_reference: ArtifactReference | None = None
 
 
+class DocumentFailureRecord(StrictModel):
+    """One document's current failure state, as read back for operators."""
+
+    document_id: DocumentId
+    document_version_id: DocumentVersionId
+    failed_stage: str = Field(min_length=1)
+    category: FailureCategory
+    retryable: bool
+    safe_error_code: str = Field(min_length=1)
+    attempt_count: int = Field(ge=1)
+    first_failure_at: datetime
+    last_failure_at: datetime
+
+
 class ProjectionCleanupJob(StrictModel):
     cleanup_job_id: str = Field(min_length=1)
     document_id: DocumentId

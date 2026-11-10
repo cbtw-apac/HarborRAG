@@ -31,6 +31,9 @@ def prepare_source_submission(
     settings_revision: int = 0,
     pdf_engine: str | None = None,
     chunking_max_tokens: int | None = None,
+    ingestion_concurrency: int | None = None,
+    ingestion_activity_timeout_seconds: int | None = None,
+    ingestion_max_attempts: int | None = None,
 ) -> PreparedSourceSubmission:
     """Turn a resolved connection and a submission into a provider-neutral run input.
 
@@ -45,6 +48,13 @@ def prepare_source_submission(
             the worker's configured PDF profile and fallback chain.
         chunking_max_tokens: An explicit `chunking.max_tokens` override, or
             `None` to use the connector's configured chunking profile.
+        ingestion_concurrency: An explicit `ingestion.concurrency` override, or
+            `None` to use the execution provider's configured concurrency.
+        ingestion_activity_timeout_seconds: An explicit `ingestion.activity_timeout`
+            override (already parsed to seconds), or `None` to use the worker's
+            configured document activity timeout.
+        ingestion_max_attempts: An explicit `ingestion.max_attempts` override, or
+            `None` to use the worker's configured document retry policy.
 
     Returns:
         The deterministic input every activity of the run receives.
@@ -80,7 +90,11 @@ def prepare_source_submission(
     document_concurrency = (
         submission.document_concurrency
         if submission.document_concurrency is not None
-        else defaults.document_concurrency
+        else (
+            ingestion_concurrency
+            if ingestion_concurrency is not None
+            else defaults.document_concurrency
+        )
     )
     return PreparedSourceSubmission(
         task_id=submission.task_id,
@@ -110,6 +124,8 @@ def prepare_source_submission(
         settings_revision=settings_revision,
         pdf_engine=pdf_engine,
         chunking_max_tokens=chunking_max_tokens,
+        ingestion_activity_timeout_seconds=ingestion_activity_timeout_seconds,
+        ingestion_max_attempts=ingestion_max_attempts,
     )
 
 

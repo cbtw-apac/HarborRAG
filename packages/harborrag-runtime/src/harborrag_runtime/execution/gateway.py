@@ -50,6 +50,9 @@ def prepare_configured_source_submission(
     settings_revision: int = 0,
     pdf_engine: str | None = None,
     chunking_max_tokens: int | None = None,
+    ingestion_concurrency: int | None = None,
+    ingestion_activity_timeout_seconds: int | None = None,
+    ingestion_max_attempts: int | None = None,
 ) -> PreparedSourceSubmission:
     """Translate the shared ingestion batch policy at composition only.
 
@@ -69,6 +72,9 @@ def prepare_configured_source_submission(
         settings_revision=settings_revision,
         pdf_engine=pdf_engine,
         chunking_max_tokens=chunking_max_tokens,
+        ingestion_concurrency=ingestion_concurrency,
+        ingestion_activity_timeout_seconds=ingestion_activity_timeout_seconds,
+        ingestion_max_attempts=ingestion_max_attempts,
     )
 
 

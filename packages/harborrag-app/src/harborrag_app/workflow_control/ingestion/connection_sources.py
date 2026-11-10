@@ -12,6 +12,7 @@ from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
+from harborrag_runtime.ingestion.durations import parse_iso8601_duration_seconds
 from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 
 from ..control_plane.settings import SettingsService
@@ -28,6 +29,9 @@ class _ResolvedConnectionSettings:
     revision: int
     pdf_engine: str | None
     chunking_max_tokens: int | None
+    ingestion_concurrency: int | None
+    ingestion_activity_timeout_seconds: int | None
+    ingestion_max_attempts: int | None
 
 
 class ConnectionSourceInputBuilder:
@@ -65,6 +69,9 @@ class ConnectionSourceInputBuilder:
             settings_revision=resolved.revision,
             pdf_engine=resolved.pdf_engine,
             chunking_max_tokens=resolved.chunking_max_tokens,
+            ingestion_concurrency=resolved.ingestion_concurrency,
+            ingestion_activity_timeout_seconds=resolved.ingestion_activity_timeout_seconds,
+            ingestion_max_attempts=resolved.ingestion_max_attempts,
         )
 
     async def _resolve_connection_settings(
@@ -80,7 +87,12 @@ class ConnectionSourceInputBuilder:
         control_plane = self._control_plane()
         if control_plane.setting_overrides is None or control_plane.setting_scope_revisions is None:
             return _ResolvedConnectionSettings(
-                revision=0, pdf_engine=None, chunking_max_tokens=None
+                revision=0,
+                pdf_engine=None,
+                chunking_max_tokens=None,
+                ingestion_concurrency=None,
+                ingestion_activity_timeout_seconds=None,
+                ingestion_max_attempts=None,
             )
         project_id, _, connection_id = source_key.partition("/")
         result = await SettingsService(control_plane=self._control_plane).read(
@@ -90,6 +102,9 @@ class ConnectionSourceInputBuilder:
         assert isinstance(values, dict)
         pdf_parser = values.get("parsing.pdf_parser")
         max_tokens = values.get("chunking.max_tokens")
+        concurrency = values.get("ingestion.concurrency")
+        activity_timeout = values.get("ingestion.activity_timeout")
+        max_attempts = values.get("ingestion.max_attempts")
         return _ResolvedConnectionSettings(
             revision=result.revision,
             pdf_engine=(
@@ -100,6 +115,21 @@ class ConnectionSourceInputBuilder:
             chunking_max_tokens=(
                 int(max_tokens["value"])
                 if isinstance(max_tokens, dict) and max_tokens.get("origin") != "default"
+                else None
+            ),
+            ingestion_concurrency=(
+                int(concurrency["value"])
+                if isinstance(concurrency, dict) and concurrency.get("origin") != "default"
+                else None
+            ),
+            ingestion_activity_timeout_seconds=(
+                parse_iso8601_duration_seconds(str(activity_timeout["value"]))
+                if isinstance(activity_timeout, dict) and activity_timeout.get("origin") != "default"
+                else None
+            ),
+            ingestion_max_attempts=(
+                int(max_attempts["value"])
+                if isinstance(max_attempts, dict) and max_attempts.get("origin") != "default"
                 else None
             ),
         )

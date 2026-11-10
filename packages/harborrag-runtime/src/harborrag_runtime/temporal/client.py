@@ -25,6 +25,7 @@ from harborrag_runtime.errors import (
     WorkflowOperationError,
     WorkflowSubmissionError,
 )
+from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .connection import connect_temporal_client
 from .failure_handling import terminal_failure_code
@@ -81,7 +82,7 @@ class IngestionTemporalClient:
         self,
         request: SourceIngestionInput,
     ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
-        request = replace(request, workflow_options=self._config.workflow_options())
+        request = replace(request, workflow_options=self._resolved_workflow_options(request))
         try:
             return await self._client.start_workflow(
                 "harborrag.source_ingestion",
@@ -101,6 +102,37 @@ class IngestionTemporalClient:
             raise WorkflowSubmissionError(
                 f"Could not start ingestion task {request.task_id!r}"
             ) from error
+
+    def _resolved_workflow_options(self, request: SourceIngestionInput) -> TemporalWorkflowOptions:
+        """The deployment's workflow options, overlaid with this run's own settings.
+
+        A connection's `ingestion.activity_timeout` / `ingestion.max_attempts`
+        overrides travel on the request itself (resolved once at submission,
+        same as `pdf_engine` / `chunking_max_tokens`) since `workflow_options`
+        would otherwise always be clobbered by the static deployment config.
+        """
+
+        options = self._config.workflow_options()
+        if request.ingestion_activity_timeout_seconds is not None:
+            options = replace(
+                options,
+                timeouts=replace(
+                    options.timeouts,
+                    document_seconds=request.ingestion_activity_timeout_seconds,
+                ),
+            )
+        if request.ingestion_max_attempts is not None:
+            options = replace(
+                options,
+                retries=replace(
+                    options.retries,
+                    document=replace(
+                        options.retries.document,
+                        maximum_attempts=request.ingestion_max_attempts,
+                    ),
+                ),
+            )
+        return options
 
     async def start_ingestion(
         self,
