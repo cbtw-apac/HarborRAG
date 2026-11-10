@@ -6,8 +6,6 @@ from typing import Annotated, Any, cast
 
 from fastapi import Depends, Request
 
-from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.schemas import Error
 from harborrag_app.workflow_control.control_plane.administration import ConnectionAdministration
 from harborrag_app.workflow_control.control_plane.settings_service import SettingsService
@@ -25,8 +23,6 @@ def _settings_service(request: Request) -> SettingsService:
 
 Administration = Annotated[ConnectionAdministration, Depends(_administration)]
 SettingsDependency = Annotated[SettingsService, Depends(_settings_service)]
-Editor = Annotated[Principal, Depends(require_role("editor"))]
-Admin = Annotated[Principal, Depends(require_role("admin"))]
 
 
 def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:

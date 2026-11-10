@@ -14,16 +14,19 @@ import json
 from collections.abc import AsyncGenerator
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Depends, Header, Query, Response, status
+from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from fastapi.responses import StreamingResponse
 
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.dependencies import ResponseContextDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.sse import bounded_sse_frames, with_heartbeat
-from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
-from harborrag_app.api.v1.admin.dependencies import Administration, Editor, error_responses
+from harborrag_app.api.v1.admin.connection_schemas import IngestionStartRequest
+from harborrag_app.api.v1.admin.dependencies import Administration, error_responses
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.workflow_control.control_plane.connection_views import ingestion_status
 from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
@@ -34,10 +37,8 @@ from harborrag_core.contracts.events import HarborEvent
 
 from .dependencies import IngestionServiceDependency
 from .schemas import (
-    IngestionDocumentPage,
     IngestionDocumentQuery,
     IngestionListQuery,
-    IngestionPage,
     RetryFailuresRequest,
 )
 
@@ -77,15 +78,14 @@ LIST_ERROR_RESPONSES = documented_error_responses(
 @router.post(
     "",
     summary="Start an ingestion",
-    response_model=IngestionOut,
-    status_code=202,
     responses=error_responses(409, 422, 501),
+    **route_kwargs("start_ingestion"),
 )
 async def start_ingestion(  # noqa: PLR0913 - the route's dependencies and body
     service: Administration,
     operations: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["start_ingestion"].role))],
     body: IngestionStartRequest,
     response: Response,
 ) -> dict[str, Any]:
@@ -114,13 +114,13 @@ async def start_ingestion(  # noqa: PLR0913 - the route's dependencies and body
 
 @router.get(
     "",
-    response_model=IngestionPage,
     responses=LIST_ERROR_RESPONSES,
+    **route_kwargs("list_ingestions"),
 )
 async def list_ingestions(
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    _principal: Editor,
+    _principal: Annotated[Principal, Depends(require_role(OPERATIONS["list_ingestions"].role))],
     query: Annotated[IngestionListQuery, Query()],
 ) -> dict[str, Any]:
     """Newest-first page of the tenant's ingestion runs."""
@@ -137,14 +137,14 @@ async def list_ingestions(
 
 @router.get(
     "/{ingestion_id}",
-    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
+    **route_kwargs("get_ingestion"),
 )
 async def get_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    _principal: Editor,
+    _principal: Annotated[Principal, Depends(require_role(OPERATIONS["get_ingestion"].role))],
 ) -> dict[str, Any]:
     """One ingestion run of the tenant."""
     return await service.ingestion_operations.get(tenant_id=tenant, ingestion_id=ingestion_id)
@@ -152,14 +152,16 @@ async def get_ingestion(
 
 @router.get(
     "/{ingestion_id}/documents",
-    response_model=IngestionDocumentPage,
     responses=ERROR_RESPONSES,
+    **route_kwargs("list_ingestion_documents"),
 )
 async def list_ingestion_documents(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    _principal: Editor,
+    _principal: Annotated[
+        Principal, Depends(require_role(OPERATIONS["list_ingestion_documents"].role))
+    ],
     query: Annotated[IngestionDocumentQuery, Query()],
 ) -> dict[str, Any]:
     """Page of a run's succeeded, skipped and failed documents."""
@@ -174,15 +176,15 @@ async def list_ingestion_documents(
 
 @router.get(
     "/{ingestion_id}/events",
-    response_model=None,
     responses=ERROR_RESPONSES,
+    **route_kwargs("stream_ingestion"),
 )
 async def stream_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
     context: ResponseContextDependency,
-    _principal: Editor,
+    _principal: Annotated[Principal, Depends(require_role(OPERATIONS["stream_ingestion"].role))],
     last_event_id: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
 ) -> StreamingResponse | Response:
     """Replay a run's stored events, then tail it live (SSE), until ``run.completed``.
@@ -254,14 +256,14 @@ def _sse_frame(event: HarborEvent, ingestion_id: str) -> bytes:
 
 @router.post(
     "/{ingestion_id}/pause",
-    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
+    **route_kwargs("pause_ingestion"),
 )
 async def pause_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["pause_ingestion"].role))],
 ) -> dict[str, Any]:
     """Pause a run; 409 when its status does not allow it."""
     return await service.ingestion_operations.act(
@@ -271,14 +273,14 @@ async def pause_ingestion(
 
 @router.post(
     "/{ingestion_id}/resume",
-    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
+    **route_kwargs("resume_ingestion"),
 )
 async def resume_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["resume_ingestion"].role))],
 ) -> dict[str, Any]:
     """Resume a run; 409 when its status does not allow it."""
     return await service.ingestion_operations.act(
@@ -288,14 +290,14 @@ async def resume_ingestion(
 
 @router.post(
     "/{ingestion_id}/cancel",
-    response_model=IngestionOut,
     responses=ERROR_RESPONSES,
+    **route_kwargs("cancel_ingestion"),
 )
 async def cancel_ingestion(
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["cancel_ingestion"].role))],
 ) -> dict[str, Any]:
     """Cancel a run; 409 when its status does not allow it."""
     return await service.ingestion_operations.act(
@@ -305,15 +307,16 @@ async def cancel_ingestion(
 
 @router.post(
     "/{ingestion_id}/retry-failures",
-    response_model=IngestionOut,
-    status_code=status.HTTP_202_ACCEPTED,
     responses=ERROR_RESPONSES,
+    **route_kwargs("retry_ingestion_failures"),
 )
 async def retry_ingestion_failures(  # noqa: PLR0913 - the route's dependencies and body
     ingestion_id: str,
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[
+        Principal, Depends(require_role(OPERATIONS["retry_ingestion_failures"].role))
+    ],
     response: Response,
     request: Annotated[RetryFailuresRequest | None, Body()] = None,
 ) -> dict[str, Any]:

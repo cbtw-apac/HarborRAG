@@ -20,8 +20,11 @@ from fastapi import APIRouter, Body, Depends, Header, Path, Query, Response
 from fastapi.responses import JSONResponse
 
 from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.dependencies import get_principal
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.pagination import DEFAULT_LIMIT, Page, PageDependency
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
     version_from_etag,
@@ -35,22 +38,17 @@ from harborrag_runtime.config.connectors.models.spec import Category
 
 from .connection_schemas import (
     ID_PATTERN,
-    ConnectionChipPage,
     ConnectionOut,
-    ConnectionPage,
     ConnectionStatusName,
-    ConnectionTestOut,
     ConnectionTestRequest,
     ConnectionWriteRequest,
     JobAcceptedOut,
     ProjectOut,
-    ProjectPage,
     ProjectWriteRequest,
     SourceTypeName,
-    SourceTypePage,
 )
 from .connection_templates import ConnectionTemplateBuilder
-from .dependencies import Admin, Administration, Editor, error_responses
+from .dependencies import Administration, error_responses
 
 ProjectId = Annotated[
     str,
@@ -90,30 +88,26 @@ _TEMPLATES = ConnectionTemplateBuilder(source_types).build()
 source_types_router = APIRouter(
     prefix="/admin/source-types",
     tags=["Connections"],
-    dependencies=[Depends(require_role("editor"))],
 )
 connections_router = APIRouter(
     prefix="/admin",
     tags=["Connections"],
-    dependencies=[Depends(require_role("editor"))],
 )
 projects_router = APIRouter(
     prefix="/admin/projects",
     tags=["Projects"],
-    dependencies=[Depends(require_role("admin"))],
 )
 reader_router = APIRouter(
     prefix="/projects",
     tags=["Connections"],
-    dependencies=[Depends(require_role("reader"))],
 )
 
 
 @source_types_router.get(
     "",
     summary="List source types",
-    response_model=SourceTypePage,
-    response_model_by_alias=True,
+    **route_kwargs("list_source_types"),
+    dependencies=[Depends(require_role(OPERATIONS["list_source_types"].role))],
 )
 async def list_source_types(
     category: Annotated[str | None, Query(pattern=r"^(issue_tracker|wiki|files|code)$")] = None,
@@ -128,8 +122,9 @@ async def list_source_types(
 @connections_router.get(
     "/connections",
     summary="List connections",
-    response_model=ConnectionPage,
     responses=_errors(422),
+    **route_kwargs("list_connections"),
+    dependencies=[Depends(require_role(OPERATIONS["list_connections"].role))],
 )
 async def list_connections(  # noqa: PLR0913 - the spec's list filters plus paging
     service: Administration,
@@ -154,8 +149,9 @@ async def list_connections(  # noqa: PLR0913 - the spec's list filters plus pagi
 @connections_router.get(
     "/projects/{project_id}/connections/{connection_id}",
     summary="Get a connection",
-    response_model=ConnectionOut,
     responses=_errors(404),
+    **route_kwargs("get_connection"),
+    dependencies=[Depends(require_role(OPERATIONS["get_connection"].role))],
 )
 async def get_connection(
     service: Administration,
@@ -175,14 +171,14 @@ async def get_connection(
 @connections_router.put(
     "/projects/{project_id}/connections/{connection_id}",
     summary="Create or replace a connection",
-    response_model=ConnectionOut,
-    status_code=200,
     responses={**_documented(201, ConnectionOut, "Created"), **_errors(404, 409, 412, 422)},
+    **route_kwargs("put_connection"),
+    dependencies=[Depends(require_role(OPERATIONS["put_connection"].role))],
 )
 async def put_connection(  # noqa: PLR0913 - path, body, preconditions and caller
     service: Administration,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(get_principal)],
     project_id: ProjectId,
     connection_id: ConnectionId,
     body: Annotated[ConnectionWriteRequest, Body(openapi_examples=_TEMPLATES)],
@@ -212,14 +208,14 @@ async def put_connection(  # noqa: PLR0913 - path, body, preconditions and calle
 @connections_router.delete(
     "/projects/{project_id}/connections/{connection_id}",
     summary="Delete a connection",
-    response_model=JobAcceptedOut,
-    status_code=202,
     responses=_errors(404, 409),
+    **route_kwargs("delete_connection"),
+    dependencies=[Depends(require_role(OPERATIONS["delete_connection"].role))],
 )
 async def delete_connection(  # noqa: PLR0913 - path, flag and caller
     service: Administration,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(get_principal)],
     project_id: ProjectId,
     connection_id: ConnectionId,
     purge: bool = Query(default=False, description="Also drop Postgres history"),
@@ -234,8 +230,9 @@ async def delete_connection(  # noqa: PLR0913 - path, flag and caller
 @connections_router.post(
     "/projects/{project_id}/connections/{connection_id}/test",
     summary="Test a connection",
-    response_model=ConnectionTestOut,
     responses=_errors(404, 422),
+    **route_kwargs("test_connection"),
+    dependencies=[Depends(require_role(OPERATIONS["test_connection"].role))],
 )
 async def test_connection(
     service: Administration,
@@ -262,7 +259,11 @@ async def test_connection(
 
 
 @projects_router.get(
-    "", summary="List projects", response_model=ProjectPage, responses=_errors(422)
+    "",
+    summary="List projects",
+    responses=_errors(422),
+    **route_kwargs("list_projects"),
+    dependencies=[Depends(require_role(OPERATIONS["list_projects"].role))],
 )
 async def list_projects(
     service: Administration,
@@ -278,7 +279,11 @@ async def list_projects(
 
 
 @projects_router.get(
-    "/{project_id}", summary="Get a project", response_model=ProjectOut, responses=_errors(404)
+    "/{project_id}",
+    summary="Get a project",
+    responses=_errors(404),
+    **route_kwargs("get_project"),
+    dependencies=[Depends(require_role(OPERATIONS["get_project"].role))],
 )
 async def get_project(
     service: Administration, tenant: TenantDependency, project_id: ProjectId, response: Response
@@ -292,14 +297,14 @@ async def get_project(
 @projects_router.put(
     "/{project_id}",
     summary="Create or replace a project",
-    response_model=ProjectOut,
-    status_code=200,
     responses={**_documented(201, ProjectOut, "Created"), **_errors(409, 412, 422)},
+    **route_kwargs("put_project"),
+    dependencies=[Depends(require_role(OPERATIONS["put_project"].role))],
 )
 async def put_project(  # noqa: PLR0913 - path, body, preconditions and caller
     service: Administration,
     tenant: TenantDependency,
-    principal: Admin,
+    principal: Annotated[Principal, Depends(get_principal)],
     project_id: Annotated[str, Path(pattern=ID_PATTERN, description="Chosen by you")],
     body: ProjectWriteRequest,
     response: Response,
@@ -324,16 +329,17 @@ async def put_project(  # noqa: PLR0913 - path, body, preconditions and caller
 @projects_router.delete(
     "/{project_id}",
     summary="Delete a project",
-    status_code=204,
     responses={
         **_documented(202, JobAcceptedOut, "cascade=true: removal runs in the background"),
         **_errors(404, 409),
     },
+    **route_kwargs("delete_project"),
+    dependencies=[Depends(require_role(OPERATIONS["delete_project"].role))],
 )
 async def delete_project(  # noqa: PLR0913 - path, flag and caller
     service: Administration,
     tenant: TenantDependency,
-    principal: Admin,
+    principal: Annotated[Principal, Depends(get_principal)],
     project_id: ProjectId,
     cascade: bool = Query(
         default=False, description="Also remove its connections, documents and secrets"
@@ -351,8 +357,9 @@ async def delete_project(  # noqa: PLR0913 - path, flag and caller
 @reader_router.get(
     "/{project_id}/connections",
     summary="List a project's connections",
-    response_model=ConnectionChipPage,
     responses=_errors(404),
+    **route_kwargs("list_searchable_connections"),
+    dependencies=[Depends(require_role(OPERATIONS["list_searchable_connections"].role))],
 )
 async def list_searchable_connections(
     service: Administration, tenant: TenantDependency, project_id: ProjectId

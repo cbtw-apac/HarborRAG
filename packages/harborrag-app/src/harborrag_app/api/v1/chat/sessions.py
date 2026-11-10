@@ -16,6 +16,7 @@ from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
@@ -30,8 +31,6 @@ def _no_store(response: Response) -> None:
 
 
 router = APIRouter(prefix="/sessions", dependencies=[Depends(_no_store)])
-
-Reader = Annotated[Principal, Depends(require_role("reader"))]
 
 CREATE_ERRORS = documented_error_responses(
     {
@@ -73,15 +72,14 @@ def _access(principal: Principal, tenant: str, session_id: str | None = None) ->
 
 @router.post(
     "",
-    response_model=Session,
-    status_code=201,
     responses=CREATE_ERRORS,
     name="create_chat_session",
+    **route_kwargs("create_chat_session"),
 )
 async def create_chat_session(
     request: ChatSessionCreateRequest,
     service: ChatServiceDependency,
-    principal: Reader,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["create_chat_session"].role))],
     tenant: TenantDependency,
 ) -> Session:
     """Start a session, scoped to one project of the tenant for its whole life."""
@@ -101,10 +99,15 @@ async def create_chat_session(
     return Session.model_validate(result.data)
 
 
-@router.get("", response_model=SessionList, responses=READ_ERRORS, name="list_chat_sessions")
+@router.get(
+    "",
+    responses=READ_ERRORS,
+    name="list_chat_sessions",
+    **route_kwargs("list_chat_sessions"),
+)
 async def list_sessions(  # noqa: PLR0913 - the route's dependencies and query
     service: ConversationServiceDependency,
-    principal: Reader,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["list_chat_sessions"].role))],
     tenant: TenantDependency,
     cursor: CursorQuery = None,
     limit: LimitQuery = 20,
@@ -118,11 +121,17 @@ async def list_sessions(  # noqa: PLR0913 - the route's dependencies and query
     return SessionList.model_validate(result.data)
 
 
-@router.get("/{session_id}/messages", response_model=MessageList, responses=READ_ERRORS)
+@router.get(
+    "/{session_id}/messages",
+    responses=READ_ERRORS,
+    **route_kwargs("list_conversation_messages"),
+)
 async def list_conversation_messages(  # noqa: PLR0913 - the route's dependencies and query
     session_id: SessionPath,
     service: ConversationServiceDependency,
-    principal: Reader,
+    principal: Annotated[
+        Principal, Depends(require_role(OPERATIONS["list_conversation_messages"].role))
+    ],
     tenant: TenantDependency,
     cursor: CursorQuery = None,
     limit: LimitQuery = 20,

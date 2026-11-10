@@ -11,13 +11,15 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query
 
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.errors import documented_error_responses
-from harborrag_app.api.v1.admin.dependencies import Editor
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 
 from .dependencies import IngestionServiceDependency
-from .schemas import FailurePage, FailureQuery, FailureRetryAccepted, FailureRetryRequest
+from .schemas import FailureQuery, FailureRetryRequest
 
 router = APIRouter(
     prefix="/admin/failures",
@@ -35,12 +37,14 @@ _ERROR_RESPONSES = documented_error_responses(
 
 
 @router.get(
-    "", response_model=FailurePage, response_model_exclude_unset=True, responses=_ERROR_RESPONSES
+    "",
+    responses=_ERROR_RESPONSES,
+    **route_kwargs("list_failures"),
 )
 async def list_failures(
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    _principal: Editor,
+    _principal: Annotated[Principal, Depends(require_role(OPERATIONS["list_failures"].role))],
     query: Annotated[FailureQuery, Query()],
 ) -> dict[str, Any]:
     """Newest-first page of the tenant's failed documents."""
@@ -60,14 +64,13 @@ async def list_failures(
 
 @router.post(
     "/retry",
-    response_model=FailureRetryAccepted,
-    status_code=202,
     responses=_ERROR_RESPONSES,
+    **route_kwargs("retry_failures"),
 )
 async def retry_failures(
     service: IngestionServiceDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["retry_failures"].role))],
     body: FailureRetryRequest,
 ) -> dict[str, Any]:
     """Retry unresolved, retryable failures; answers the new runs, 409 when nothing matches."""

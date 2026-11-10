@@ -6,8 +6,8 @@ import pytest
 from fastapi.routing import APIRoute
 
 from harborrag_app.api.capacity_dependency import hold_api_capacity, require_api_capacity
-from harborrag_app.api.v1.chat import router as chat_router
-from harborrag_app.api.v1.ingestion import router as ingestion_router
+from harborrag_app.api.v1.chat.routes import router as chat_router
+from harborrag_app.api.v1.ingestion.routes import router as ingestion_router
 
 
 @pytest.mark.parametrize("router", [ingestion_router])

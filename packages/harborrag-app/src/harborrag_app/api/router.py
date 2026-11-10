@@ -8,9 +8,9 @@ from harborrag_app.api.deadline import enforce_deadline
 from harborrag_app.api.probes import router as probes_router
 from harborrag_app.api.v1.admin.connection_routes import routers as connection_admin_routers
 from harborrag_app.api.v1.admin.settings_routes import router as settings_router
-from harborrag_app.api.v1.chat import router as chat_router
-from harborrag_app.api.v1.ingestion import failures_router
-from harborrag_app.api.v1.ingestion import router as ingestion_router
+from harborrag_app.api.v1.chat.routes import router as chat_router
+from harborrag_app.api.v1.ingestion.failure_routes import router as failures_router
+from harborrag_app.api.v1.ingestion.routes import router as ingestion_router
 from harborrag_app.api.v1.me import router as me_router
 
 PUBLIC_PREFIX = "/v1"

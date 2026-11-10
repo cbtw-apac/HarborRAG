@@ -18,6 +18,7 @@ from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.middleware import current_trace_id
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_app.workflow_control.chat.completion import (
     Completion,
@@ -30,6 +31,7 @@ from .completion_dependency import CompletionService, CompletionServiceDependenc
 from .dispatch import chat_options
 from .replay import CompletionAttempt
 from .schemas import ChatCompletionRequest, ChatCompletionResponse
+from .sessions import router as session_router
 from .streaming import completion_stream
 
 router = APIRouter(prefix="/chat", tags=["Chat"])
@@ -63,8 +65,8 @@ COMPLETION_RESPONSES: dict[int | str, dict[str, object]] = {
 
 @router.post(
     "/completions",
-    response_model=ChatCompletionResponse,
     responses=ERROR_RESPONSES | COMPLETION_RESPONSES,
+    **route_kwargs("create_chat_completion"),
     summary="Ask a question",
     description="Answer in mode instant or classic, inside a session or as a one-off question "
     "(leave out session_id). The same Idempotency-Key and body within 24 h returns the "
@@ -95,7 +97,9 @@ async def create_chat_completion(  # noqa: PLR0913 - the route's dependencies
     ],
     http: Request,
     service: CompletionServiceDependency,
-    principal: Annotated[Principal, Depends(require_role("reader", bucket="chat"))],
+    principal: Annotated[
+        Principal, Depends(require_role(OPERATIONS["create_chat_completion"].role, bucket="chat"))
+    ],
     tenant: TenantDependency,
     _capacity: ApiCapacityDependency,
     idempotency_key: Annotated[
@@ -164,3 +168,6 @@ async def _answer(  # noqa: PLR0913 - the turn's request, caller and claim
         raise
     await attempt.finish()
     raise HarborConnectionError("The chat turn ended without its answer")
+
+
+router.include_router(session_router)

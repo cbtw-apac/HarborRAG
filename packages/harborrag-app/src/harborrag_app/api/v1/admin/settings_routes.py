@@ -13,10 +13,12 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Header, Query, Response
+from fastapi import APIRouter, Body, Depends, Header, Query, Response
 
-from harborrag_app.api.auth.principal import authorize_role
+from harborrag_app.api.auth.access import require_role
+from harborrag_app.api.auth.principal import Principal, authorize_role
 from harborrag_app.api.auth.tenancy import TenantDependency
+from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.workflow_control.control_plane.connection_views import (
     etag,
     version_from_etag,
@@ -24,8 +26,7 @@ from harborrag_app.workflow_control.control_plane.connection_views import (
 from harborrag_core.config_store import SettingsLevel, revision_label
 from harborrag_core.contracts.errors import HarborValidationError
 
-from .dependencies import Admin, Editor, SettingsDependency, error_responses
-from .settings_schemas import SettingsOut, SettingsPatchOut
+from .dependencies import SettingsDependency, error_responses
 
 LevelQuery = Annotated[
     str | None,
@@ -45,13 +46,13 @@ router = APIRouter(prefix="/admin/settings", tags=["Settings"])
 @router.get(
     "",
     summary="Read settings at a level",
-    response_model=SettingsOut,
     responses=error_responses(403, 422),
+    **route_kwargs("read_settings"),
 )
 async def read_settings(  # noqa: PLR0913 - tenant, caller, level, view and response header
     service: SettingsDependency,
     tenant: TenantDependency,
-    principal: Editor,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["read_settings"].role))],
     response: Response,
     level: LevelQuery = None,
     effective: bool = False,
@@ -72,13 +73,13 @@ async def read_settings(  # noqa: PLR0913 - tenant, caller, level, view and resp
 @router.patch(
     "",
     summary="Change settings at a level",
-    response_model=SettingsPatchOut,
     responses=error_responses(403, 409, 412, 422),
+    **route_kwargs("patch_settings"),
 )
 async def patch_settings(  # noqa: PLR0913 - body, level, flags, precondition and caller
     service: SettingsDependency,
     tenant: TenantDependency,
-    principal: Admin,
+    principal: Annotated[Principal, Depends(require_role(OPERATIONS["patch_settings"].role))],
     body: Annotated[
         dict[str, Any], Body(description="Key to new value; null removes the override")
     ],
@@ -117,7 +118,11 @@ async def patch_settings(  # noqa: PLR0913 - body, level, flags, precondition an
     "/schema",
     summary="JSON schema of every setting",
     responses=error_responses(403),
+    **route_kwargs("settings_schema"),
 )
-async def settings_schema(service: SettingsDependency, _principal: Editor) -> dict[str, Any]:
+async def settings_schema(
+    service: SettingsDependency,
+    _principal: Annotated[Principal, Depends(require_role(OPERATIONS["settings_schema"].role))],
+) -> dict[str, Any]:
     """The registry's settings by group: type, range, levels, when a change applies, description."""
     return service.schema()
