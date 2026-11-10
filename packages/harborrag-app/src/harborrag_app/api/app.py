@@ -226,6 +226,7 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         docs_url="/docs" if settings.docs_enabled else None,
         redoc_url=None,
         lifespan=_lifespan,
+        generate_unique_id_function=lambda route: route.name,
     )
     app.state.settings = settings
     app.state.default_tenant_id = DEFAULT_TENANT_ID
