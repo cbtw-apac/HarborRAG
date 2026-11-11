@@ -18,7 +18,10 @@ from harborrag_adapters.connectors.atlassian.query import require_self_contained
 
 _PROJECT_RE = re.compile(r"^[A-Z][A-Z0-9_]+$")
 _ISSUE_KEY_RE = re.compile(r"^[A-Z][A-Z0-9_]+-[1-9][0-9]*$")
-_ORDER_BY_RE = re.compile(r"\border\s+by\b", re.IGNORECASE)
+_QUOTED_VALUE_OR_ORDER_BY_RE = re.compile(
+    r""""(?:[^"\\]|\\.)*"|'[^']*'|(?P<order_by>\border\s+by\b)""",
+    re.IGNORECASE | re.DOTALL,
+)
 _DEFAULT_ORDERING = "order by updated ASC, key ASC"
 
 
@@ -255,8 +258,10 @@ def _split_raw_jql(raw: str) -> tuple[str, str]:
 
     Both ``raw`` and its condition must be self-contained, so the ORDER BY that
     stays outside any wrapping parentheses cannot hold a stray parenthesis or quote
-    either. The ``ValueError`` of ``require_self_contained_query`` passes through
-    when either could reach outside its parentheses.
+    either. The words ``order by`` inside a quoted value, as in
+    ``text ~ "order by"``, are part of the condition. The ``ValueError`` of
+    ``require_self_contained_query`` passes through when either could reach
+    outside its parentheses.
 
     Args:
         raw: Caller-supplied JQL, optionally ending in its own ORDER BY.
@@ -268,13 +273,25 @@ def _split_raw_jql(raw: str) -> tuple[str, str]:
         ValueError: ``raw`` has nothing before its ORDER BY.
     """
     require_self_contained_query(raw)
-    order_match = _ORDER_BY_RE.search(raw)
-    if order_match is None:
+    order_by_start = _order_by_start(raw)
+    if order_by_start is None:
         return raw, ""
-    condition = raw[: order_match.start()].strip()
+    condition = raw[:order_by_start].strip()
     if not condition:
         raise ValueError("Raw JQL must contain a query before ORDER BY")
-    return require_self_contained_query(condition), raw[order_match.start() :].strip()
+    return require_self_contained_query(condition), raw[order_by_start:].strip()
+
+
+def _order_by_start(raw: str) -> int | None:
+    """Return the offset of the first ORDER BY outside a quoted value, or ``None`` without one.
+
+    Args:
+        raw: Self-contained JQL, so every quoted value in it is closed.
+    """
+    for match in _QUOTED_VALUE_OR_ORDER_BY_RE.finditer(raw):
+        if match.group("order_by"):
+            return match.start()
+    return None
 
 
 def _quoted_values(values: Sequence[str]) -> str:

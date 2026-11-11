@@ -32,6 +32,7 @@ from .drive_paths import (
     is_drive_folder,
     is_within_drive_path,
     item_extension,
+    item_has_drive_location,
     item_hidden,
     item_mime_type,
     item_name,
@@ -174,19 +175,24 @@ class SharePointDriveAPI:
         """Refuse an item selected by ID that lies outside the configured ``root_path``.
 
         The item's drive path comes from its ``parentReference.path``. An item
-        without that path resolves to its bare name, so with ``root_path`` set
-        it is refused rather than trusted. With no ``root_path`` every item in
-        the drive passes.
+        without that path resolves to its bare name, which could equal
+        ``root_path`` by coincidence, so with ``root_path`` set it is refused
+        rather than trusted. With no ``root_path`` every item in the drive
+        passes.
 
         Args:
             item: Drive item payload fetched with ``DRIVE_ITEM_SELECT``.
 
         Raises:
-            ValueError: ``root_path`` is set and the item's drive path is
-                neither ``root_path`` nor below it.
+            ValueError: ``root_path`` is set and the item has no drive
+                location, or its drive path is neither ``root_path`` nor below it.
         """
         root_path = self.config.root_path
-        if root_path and not is_within_drive_path(item_path(item), root_path):
+        if not root_path:
+            return
+        if not item_has_drive_location(item) or not is_within_drive_path(
+            item_path(item), root_path
+        ):
             raise ValueError(_OUTSIDE_ROOT_PATH)
 
     def walk_children(

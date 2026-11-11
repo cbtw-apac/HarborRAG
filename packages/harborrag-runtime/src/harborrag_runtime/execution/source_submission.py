@@ -2,8 +2,9 @@
 
 Provider-neutral: turns what a caller asked for and the connection snapshot into
 the deterministic input every activity of the run receives. Connection config
-filters are a ceiling a run can only narrow, and the source scope id comes from
-the run's own query, so editing connection config keeps the scope.
+filters are a ceiling a run can only narrow, with the function the source type
+registers for that filter, and the source scope id comes from the run's own
+query, so editing connection config keeps the scope.
 
 Start from: prepare_source_submission.
 """
@@ -23,7 +24,6 @@ from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, Sour
 from harborrag_runtime.serialization import to_json_value
 from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
 
-_JQL_FILTER = "jql"
 _EXECUTION_FILTERS = ("include_comments", "build_graph")
 
 
@@ -72,7 +72,7 @@ def prepare_source_submission(
         connector_name=source_key,
         connector_type=connection.provider,
         connection_id=source_key,
-        query=submission.query,
+        query=_without_empty_query_fields(submission.query, connection.spec.query_fields),
     )
     run_settings = connection.run_settings
     processing = build_processing_profile(settings, run_settings=run_settings)
@@ -153,7 +153,8 @@ def _effective_query(connection: ResolvedConnection, query: SourceQuery) -> Sour
     A filter the connection configures is a ceiling the run can only narrow: a run
     that leaves the key unset or empty gets the configured value, and a run value is
     combined with it by ``_narrowed_filter``, whose ``ConnectorConfigurationError``
-    passes through when the two cannot be combined.
+    passes through when the two cannot be combined. ``_without_empty_query_fields``
+    keeps that unset-or-empty equivalence in the source scope id.
 
     Args:
         connection: The connection snapshot the run will use.
@@ -170,7 +171,9 @@ def _effective_query(connection: ResolvedConnection, query: SourceQuery) -> Sour
     for key, connection_value in config_filters.items():
         run_value = filters.get(key)
         filters[key] = (
-            _narrowed_filter(key, connection_value, run_value) if run_value else connection_value
+            _narrowed_filter(connection, key, connection_value, run_value)
+            if run_value
+            else connection_value
         )
     return replace(
         query,
@@ -179,38 +182,65 @@ def _effective_query(connection: ResolvedConnection, query: SourceQuery) -> Sour
     )
 
 
-def _narrowed_filter(key: str, connection_value: object, run_value: object) -> str:
+def _narrowed_filter(
+    connection: ResolvedConnection, key: str, connection_value: object, run_value: object
+) -> str:
     """Combine a run's value for a configured filter with the connection's, narrowing it.
 
-    Jira's ``jql`` is the only configured filter today, and a run JQL is ANDed onto the
-    connection's so the run can only select fewer issues.
+    The source type's ``query_narrowers`` own how a filter narrows; Jira, for one,
+    ANDs a run ``jql`` onto the connection's so the run can only select fewer issues.
 
     Args:
+        connection: The connection snapshot, whose source type names the narrowers.
         key: Filter name both the connection and the run set.
         connection_value: The connection's configured value.
         run_value: The run's value.
 
     Returns:
-        The combined JQL.
+        The combined filter value.
 
     Raises:
-        ConnectorConfigurationError: The filter cannot be narrowed, the run value is
-            not JQL text, or either JQL could reach outside its parentheses.
+        ConnectorConfigurationError: The source type has no narrower for the filter,
+            either value is not text, or the narrower refuses to combine them.
     """
-    from harborrag_adapters.connectors.jira.query import narrow_jql
-
-    if key != _JQL_FILTER or not isinstance(connection_value, str):
+    narrow = connection.spec.query_narrowers.get(key)
+    if narrow is None or not isinstance(connection_value, str):
         raise ConnectorConfigurationError(
             f"A run cannot replace the connection's {key} filter; it can only narrow it"
         )
     if not isinstance(run_value, str):
-        raise ConnectorConfigurationError("A run jql filter must be JQL text")
+        raise ConnectorConfigurationError(f"A run {key} filter must be text")
     try:
-        return narrow_jql(connection_value, run_value)
+        return narrow(connection_value, run_value)
     except ValueError as error:
         raise ConnectorConfigurationError(
-            f"Run jql cannot narrow the connection jql: {error}"
+            f"Run {key} cannot narrow the connection {key}: {error}"
         ) from error
+
+
+def _without_empty_query_fields(query: SourceQuery, query_fields: frozenset[str]) -> SourceQuery:
+    """Drop the source type's query fields a run left empty from its filters.
+
+    An empty query field selects what leaving it out selects, so both runs must
+    get one source scope id.
+
+    Args:
+        query: The query the run submitted.
+        query_fields: The source type's query fields, such as Jira ``jql``.
+
+    Returns:
+        ``query`` itself when nothing was dropped, else a copy without the empty fields.
+    """
+    filters = json.loads(query.filters_json)
+    if not isinstance(filters, dict):
+        return query
+    kept = {key: value for key, value in filters.items() if value or key not in query_fields}
+    if len(kept) == len(filters):
+        return query
+    return replace(
+        query,
+        filters_json=json.dumps(kept, ensure_ascii=False, separators=(",", ":"), sort_keys=True),
+    )
 
 
 def _scope_query(query: SourceQuery) -> dict[str, object]:

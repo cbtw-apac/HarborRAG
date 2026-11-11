@@ -424,11 +424,13 @@ class SharePointConnector(BaseConnector):
     def _load_file(self, record: SourceRecord, site: dict[str, Any]) -> RawDocument:
         """Download one SharePoint drive file as a raw document.
 
-        Every allowlist, size, and extension check runs on the item's metadata
-        before its content is requested, so an out-of-policy file is never
-        downloaded. Both requests go through ``drive_item_endpoint``, so the
-        ``ValueError`` for an unsafe item ID passes through before any request,
-        as do drive-scope and item-level errors.
+        Every root-path, allowlist, size, and extension check runs on the
+        item's metadata before its content is requested, so an out-of-policy
+        file is never downloaded. Both requests go through
+        ``drive_item_endpoint``, so the ``ValueError`` for an unsafe item ID
+        passes through before any request, as do drive-scope and item-level
+        errors and the ``ValueError`` of ``require_inside_root`` for a file
+        outside ``root_path``.
 
         Args:
             record: File record from discovery or ``load_by_ids``.
@@ -449,6 +451,7 @@ class SharePointConnector(BaseConnector):
             lambda: self._drive.get_item(drive_id, item_id),
             item_id=item_id,
         )
+        self._drive.require_inside_root(item)
 
         if not is_drive_file(item):
             raise DocumentProcessingError(

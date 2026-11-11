@@ -214,6 +214,22 @@ def test_load_blob_size_mismatch_raises() -> None:
         )
 
 
+def test_load_record_outside_configured_root_raises_before_any_request() -> None:
+    client = FakeGitHubClient()
+    connector = GitHubConnector(config(root_path="docs"), client=client)
+    record = SourceRecord(
+        "github://acme/harbor-rag/src/app.py",
+        "text/x-python",
+        "src/app.py",
+        metadata={"path": "src/app.py", "sha": "sha-app", "size": 7},
+    )
+
+    with pytest.raises(ValueError, match="inside the configured root path"):
+        connector.load(record)
+
+    assert client.calls == []
+
+
 def test_load_by_paths_paths_inside_root_load_each_file() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)

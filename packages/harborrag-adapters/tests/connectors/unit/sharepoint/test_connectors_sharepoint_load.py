@@ -19,7 +19,7 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 _DOWNLOAD_URL = "@microsoft.graph.downloadUrl"
-_UNSAFE_ITEM_IDS = ("..", "a?b", "a:b", "a%2F..", "file1\n")
+_UNSAFE_ITEM_IDS = ("..", "a?b", "a:b", "a%2F..", "file1\n", "bad/file1")
 
 
 def _site_id_connector(client: FakeGraphClient, **overrides: object) -> SharePointConnector:
@@ -142,6 +142,19 @@ def test_load_record_with_unsafe_item_id_raises_before_any_request(item_id: str)
     with pytest.raises(ValueError, match="drive item ID"):
         connector.load(_file_record(item_id))
     assert client.calls == []
+    assert client.byte_calls == []
+
+
+def test_load_record_outside_root_path_raises_before_download() -> None:
+    item = file_item("file1", "A.docx")
+    item["parentReference"]["path"] = "/drive/root:/Secrets"
+    client = FakeGraphClient()
+    client.add("drives/drive1/items/file1", item)
+    client.downloads["drives/drive1/items/file1/content"] = b"bytes-a"
+    connector = _site_id_connector(client, root_path="Docs")
+
+    with pytest.raises(ValueError, match="item must stay inside the configured root path"):
+        connector.load(_file_record())
     assert client.byte_calls == []
 
 

@@ -253,6 +253,23 @@ def test_should_process_file_caller_exclude_paths_add_to_configured_exclusions()
     assert _processed(cfg, "src/app.py", query)
 
 
+@pytest.mark.parametrize(
+    "requested",
+    [
+        pytest.param({"include_paths": ["src", "../outside"]}, id="include-paths"),
+        pytest.param({"exclude_paths": ["docs", "../outside"]}, id="exclude-paths"),
+        pytest.param({"include_globs": ["*.py", "../outside"]}, id="include-globs"),
+        pytest.param({"exclude_globs": ["*.md", "../outside"]}, id="exclude-globs"),
+    ],
+)
+def test_should_process_file_caller_filter_parent_segment_after_a_match_raises(
+    requested: dict[str, Any],
+) -> None:
+    """An entry that matches first must not hide a later ``..`` entry from validation."""
+    with pytest.raises(ValueError, match=r"must not contain '\.\.' segments"):
+        _processed(config(), "src/app.py", _query(filters=requested))
+
+
 def test_file_paths_from_query_string_alias_returns_one_path() -> None:
     query = _query(filters={"paths": "src/App.PY"})
 

@@ -49,6 +49,7 @@ _GRAPH_ANNOTATION_PREFIX = "@microsoft.graph."
 _GRAPH_ID_SEGMENT = re.compile(r"[A-Za-z0-9!_-]+")
 _UNSAFE_GRAPH_ID = "{label} must be one URL path segment of letters, digits, '!', '_' or '-'"
 _DRIVE_ITEM_ID_LABEL = "SharePoint drive item ID"
+_DRIVE_ROOT_MARKER = "root:"
 
 
 def stored_payload(item: dict[str, Any]) -> dict[str, Any]:
@@ -236,22 +237,38 @@ def item_hidden(item: dict[str, Any]) -> bool:
     return isinstance(value, dict) or value is True
 
 
+def item_has_drive_location(item: dict[str, Any]) -> bool:
+    """Return whether Graph ``parentReference`` metadata places an item in its drive.
+
+    Graph gives a child of the drive root the parent path ``/drive/root:`` and
+    a deeper item ``/drive/root:/<folders>``. Without that path ``item_path``
+    falls back to the bare name, which says nothing about where the item sits.
+    """
+    return _DRIVE_ROOT_MARKER in _parent_path(item)
+
+
 def item_path(item: dict[str, Any]) -> str:
     """Reconstruct a drive-relative path from Graph ``parentReference`` metadata.
 
     Graph percent-encodes ``itemReference.path`` (``root:/HR%20Policies``) while
     names, allowlist prefixes and ``root_path`` are plain text, so the folder
-    part is decoded before the name is appended.
+    part is decoded before the name is appended. An item without a drive
+    location resolves to its bare name; see ``item_has_drive_location``.
     """
     name = item_name(item)
-    parent_path = str(item.get("parentReference", {}).get("path") or "")
-    if "root:" not in parent_path:
+    parent_path = _parent_path(item)
+    if _DRIVE_ROOT_MARKER not in parent_path:
         return name
 
-    folder_path = unquote(parent_path.split("root:", 1)[1]).strip("/")
+    folder_path = unquote(parent_path.split(_DRIVE_ROOT_MARKER, 1)[1]).strip("/")
     if not folder_path:
         return name
     return f"{folder_path}/{name}".strip("/")
+
+
+def _parent_path(item: dict[str, Any]) -> str:
+    """Return the raw ``parentReference.path`` of a drive item, or ``""`` without one."""
+    return str(item.get("parentReference", {}).get("path") or "")
 
 
 def matches_pattern(item: dict[str, Any], pattern: str | None) -> bool:

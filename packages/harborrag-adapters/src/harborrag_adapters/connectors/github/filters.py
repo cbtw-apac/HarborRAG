@@ -125,16 +125,19 @@ def _path_allowed(
     query: ConnectorQuery,
     path: str,
 ) -> bool:
-    """Return whether a path passes both the configured and the requested path roots."""
+    """Return whether a path passes both the configured and the requested path roots.
+
+    Every requested root is normalized before any is matched, so the ValueError
+    of normalize_repo_path for a ``..`` segment never depends on which root
+    matches first.
+    """
+    included = _requested_paths(query, "include_paths")
+    excluded = _requested_paths(query, "exclude_paths")
     return _within_path_roots(
         path,
         included=config.include_paths,
         excluded=config.exclude_paths,
-    ) and _within_path_roots(
-        path,
-        included=_requested_values(query, "include_paths"),
-        excluded=_requested_values(query, "exclude_paths"),
-    )
+    ) and _within_path_roots(path, included=included, excluded=excluded)
 
 
 def _glob_allowed(
@@ -142,16 +145,19 @@ def _glob_allowed(
     query: ConnectorQuery,
     path: str,
 ) -> bool:
-    """Return whether a path passes both the configured and the requested globs."""
+    """Return whether a path passes both the configured and the requested globs.
+
+    Every requested glob is normalized before any is matched, so the ValueError
+    of normalize_repo_path for a ``..`` segment never depends on which glob
+    matches first.
+    """
+    included = _requested_paths(query, "include_globs")
+    excluded = _requested_paths(query, "exclude_globs")
     return _matches_globs(
         path,
         included=config.include_globs,
         excluded=config.exclude_globs,
-    ) and _matches_globs(
-        path,
-        included=_requested_values(query, "include_globs"),
-        excluded=_requested_values(query, "exclude_globs"),
-    )
+    ) and _matches_globs(path, included=included, excluded=excluded)
 
 
 def _within_path_roots(path: str, *, included: Sequence[str], excluded: Sequence[str]) -> bool:
@@ -180,6 +186,14 @@ def _requested_allowed_extensions(query: ConnectorQuery) -> list[str]:
 def _requested_values(query: ConnectorQuery, key: str) -> list[str]:
     """Return one caller filter as a list of strings, empty when the query omits it."""
     return normalized_string_list(query.filters.get(key), default=())
+
+
+def _requested_paths(query: ConnectorQuery, key: str) -> list[str]:
+    """Return one caller path or glob filter with every entry normalized.
+
+    A ``..`` segment in any entry raises ValueError from normalize_repo_path.
+    """
+    return [normalize_repo_path(value) for value in _requested_values(query, key)]
 
 
 def _callback_allows_file(

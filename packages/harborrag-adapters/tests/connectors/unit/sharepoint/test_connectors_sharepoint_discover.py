@@ -298,9 +298,17 @@ def test_discover_item_id_in_percent_encoded_root_path_yields_item() -> None:
         _in_folder(file_item("file1", "A.docx"), "/drive/root:/Docs2"),
         _in_folder(file_item("file1", "A.docx"), "/drive/root:"),
         _in_folder(file_item("file1", "A.docx"), None),
+        _in_folder(folder_item("file1", "Docs"), None),
         _in_folder(folder_item("file1", "Runbooks"), "/drive/root:"),
     ],
-    ids=["other-folder", "sibling-prefix", "drive-root", "no-parent-path", "folder"],
+    ids=[
+        "other-folder",
+        "sibling-prefix",
+        "drive-root",
+        "no-parent-path",
+        "root-name-without-parent-path",
+        "folder",
+    ],
 )
 def test_discover_item_id_outside_root_path_raises_before_yielding(item: dict[str, Any]) -> None:
     client = FakeGraphClient()

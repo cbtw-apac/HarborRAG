@@ -159,6 +159,32 @@ def test_build_jql_with_raw_jql_reaching_outside_its_group_raises(raw_jql: str) 
         build_jql(project_keys=["ENG"], raw_jql=raw_jql)
 
 
+@pytest.mark.parametrize(
+    ("raw_jql", "expected"),
+    [
+        pytest.param(
+            'text ~ "order by"',
+            'project in ("ENG") and (text ~ "order by") order by updated ASC, key ASC',
+            id="double-quoted-value",
+        ),
+        pytest.param(
+            "text ~ 'order by'",
+            "project in (\"ENG\") and (text ~ 'order by') order by updated ASC, key ASC",
+            id="single-quoted-value",
+        ),
+        pytest.param(
+            'text ~ "order by" ORDER BY created',
+            'project in ("ENG") and (text ~ "order by") ORDER BY created',
+            id="quoted-value-then-ordering",
+        ),
+    ],
+)
+def test_build_jql_with_order_by_inside_a_quoted_value_keeps_it_in_the_condition(
+    raw_jql: str, expected: str
+) -> None:
+    assert build_jql(project_keys=["ENG"], raw_jql=raw_jql) == expected
+
+
 def test_build_jql_supports_filters_without_project_keys() -> None:
     jql = build_jql(issue_types=["Bug"])
     assert 'issuetype in ("Bug")' in jql

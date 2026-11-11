@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -164,6 +165,40 @@ def test_an_empty_run_jql_keeps_the_connection_jql(tmp_path: Path) -> None:
     )
 
     assert json.loads(source.query.filters_json)["jql"] == "project = CPM"
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        pytest.param({"jql": "project = CPM"}, id="connection-jql"),
+        pytest.param({}, id="no-connection-jql"),
+    ],
+)
+def test_an_empty_run_jql_gets_the_scope_of_a_run_without_jql(
+    tmp_path: Path, config: dict[str, Any]
+) -> None:
+    settings = _settings(tmp_path)
+    empty_jql = _submission(query=SourceQuery(filters_json='{"jql":""}'))
+    own_jql = _submission(query=SourceQuery(filters_json='{"jql":"status = Done"}'))
+
+    omitted = build_source_input(settings, _submission(), connection=_jira(config=config))
+    empty = build_source_input(settings, empty_jql, connection=_jira(config=config))
+    narrowed = build_source_input(settings, own_jql, connection=_jira(config=config))
+
+    assert empty.source_scope_id == omitted.source_scope_id
+    assert narrowed.source_scope_id != omitted.source_scope_id
+
+
+def test_run_filter_without_a_source_type_narrower_is_rejected(tmp_path: Path) -> None:
+    connection = _jira(config={"jql": "project = CPM"})
+    without_narrower = replace(connection, spec=replace(connection.spec, query_narrowers={}))
+
+    with pytest.raises(ConnectorConfigurationError, match="can only narrow"):
+        prepare_source_submission(
+            _settings(tmp_path),
+            _submission(query=SourceQuery(filters_json='{"jql":"project = HR"}')),
+            connection=without_narrower,
+        )
 
 
 @pytest.mark.parametrize(

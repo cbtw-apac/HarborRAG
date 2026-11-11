@@ -215,8 +215,9 @@ class GitHubConnector(BaseConnector):
         """Load one repository blob as a raw document.
 
         A record without a blob sha is resolved through the contents API first.
-        A record path with a ``..`` segment, or a sha that is not one URL path
-        segment, raises ValueError before the blob is fetched.
+        A record path outside the configured ``root_path`` or with a ``..``
+        segment raises ValueError before any GitHub request, and a sha that is
+        not one URL path segment raises it before the blob is fetched.
 
         Args:
             record: Source record from discover, or one built for a known path.
@@ -227,10 +228,11 @@ class GitHubConnector(BaseConnector):
         Raises:
             DocumentProcessingError: No blob sha could be resolved for the record.
         """
+        path = file_path_from_record(record)
+        self._require_inside_root([path])
         repository = self._github.resolve_repository()
         commit = self._github.resolve_commit(repository)
         ref = self._github.resolved_ref or str(commit.get("sha") or "")
-        path = file_path_from_record(record)
         sha = file_sha_from_record(record)
 
         if not sha:

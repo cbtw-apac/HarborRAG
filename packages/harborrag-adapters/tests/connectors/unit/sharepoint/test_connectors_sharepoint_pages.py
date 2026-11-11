@@ -297,7 +297,7 @@ def test_load_page_record_with_pages_off_raises() -> None:
     assert client.calls == []
 
 
-@pytest.mark.parametrize("page_id", ["..", "a?b", "a:b", "a%2F..", "page1\n", "a.b"])
+@pytest.mark.parametrize("page_id", ["..", "a?b", "a:b", "a%2F..", "page1\n", "a.b", "bad/page1"])
 def test_load_page_record_with_unsafe_page_id_raises_before_page_request(page_id: str) -> None:
     client = FakeGraphClient()
     add_site_and_default_drive(client)
