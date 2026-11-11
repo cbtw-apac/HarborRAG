@@ -234,8 +234,7 @@ be listed in `HARBORRAG_CONNECTOR_ALLOWED_HOSTS`; see
 
 </details>
 
-The Jira connector reads `JIRA_TOKEN`, the variable `token_env` names. It falls back to
-`JIRA_API_TOKEN` only when you build the connector yourself in Python without a token.
+The Jira connector reads `JIRA_TOKEN`, the variable `token_env` names.
 
 ### Filter Jira and Confluence attachments by type
 

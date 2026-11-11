@@ -233,6 +233,15 @@ token is kept.
   `scripts/deployment/dev.sh sharepoint-login` (or the `login` command with
   `--harborrag-tenant`) before the next sync; connections with an explicit
   `token_cache_path` are unaffected.
+- **Connector configs built in Python take credentials only from their
+  arguments.** `GitHubRepositoryConfig`, `ConfluenceSpaceConfig`,
+  `JiraProjectConfig` and `SharePointSiteConfig` no longer read `GITHUB_TOKEN`,
+  `CONFLUENCE_*`, `JIRA_*`, `MICROSOFT_*` or `HARBORRAG_INGESTION_TENANT_ID`
+  when a value is missing. Pass each one explicitly, for example
+  `token=os.environ["JIRA_TOKEN"]`. A GitHub config without a token reads
+  public repositories anonymously; Jira, Confluence and SharePoint configs
+  without credentials fail validation. Connections in
+  `config/sources/connectors.yaml` and the control database are unaffected.
 - **Configuration fingerprints change once.** Runs now check a fingerprint of
   the stored connection. Retrying the failures of a run started before the
   upgrade reports a configuration difference; start a new sync instead.
