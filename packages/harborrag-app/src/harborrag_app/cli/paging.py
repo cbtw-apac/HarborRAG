@@ -18,6 +18,7 @@ from typing import Annotated, Any
 import typer
 
 from harborrag_app.api.v1.admin.connection_schemas import ConnectionPage, ProjectPage
+from harborrag_app.api.v1.ingestion.schemas import FailurePage, IngestionPage
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
@@ -33,7 +34,7 @@ AllOption = Annotated[
 ]
 
 
-async def collect_pages[P: (ProjectPage, ConnectionPage)](
+async def collect_pages[P: (ProjectPage, ConnectionPage, IngestionPage, FailurePage)](
     fetch: Callable[[str | None], Awaitable[P]], *, cursor: str | None, follow: bool
 ) -> P:
     """Fetch one page, or with ``follow`` every page from ``cursor`` merged into one.

@@ -186,6 +186,10 @@ class ConnectionService:
         connection = await self._require(key)
         return await self._view(connection), connection.version
 
+    async def stored(self, key: ConnectionKey) -> Connection:
+        """Return the stored row with the ``source_key`` runs use; not found as ``get`` raises."""
+        return await self._require(key)
+
     async def list_page(  # noqa: PLR0913 - the spec's list filters plus paging
         self,
         *,

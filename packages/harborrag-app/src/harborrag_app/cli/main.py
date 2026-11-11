@@ -18,7 +18,9 @@ from harborrag_app.cli.commands import (
     config,
     connections,
     doctor,
+    failures,
     ingest,
+    ingestions,
     me,
     projects,
     retrieve,
@@ -105,6 +107,15 @@ app.add_typer(
 )
 app.add_typer(
     connections.app, name="connections", help="Manage connections.", rich_help_panel="Resources"
+)
+app.add_typer(
+    ingestions.app,
+    name="ingestions",
+    help="Start, follow and control ingestion runs.",
+    rich_help_panel="Resources",
+)
+app.add_typer(
+    failures.app, name="failures", help="List and retry failed items.", rich_help_panel="Resources"
 )
 app.add_typer(
     ingest.app,

@@ -1,8 +1,9 @@
 """Table-mode views of operation bodies, for a person at a terminal.
 
 Handles:
-- Lists (a body with ``items``): one row per item with its identifiers, name, source type
-  or status and one timestamp, then ``More: --cursor <next_cursor>`` when a page follows
+- Lists (a body with ``items``): one row per item with the identifiers, name, source type,
+  status, stage, error category and one timestamp that any item has, then
+  ``More: --cursor <next_cursor>`` when a page follows; items with none of those print as a tree
 - Single objects: a key/value tree, where a stored secret's status reads ``set ****1234``
 
 Does NOT change what JSON or YAML print; it draws the same serialized body. Values are
@@ -31,33 +32,39 @@ _IDENTIFIER_FIELDS = (
 )
 _REF_PARTS = frozenset({"project_id", "connection_id"})
 _NAME_FIELDS = ("name", "project_name", "title")
-_LABEL_FIELDS = ("source_type", "status")
+_LABEL_FIELDS = ("source_type", "status", "stage", "error_category")
 _TIMESTAMP_FIELDS = ("updated_at", "created_at", "finished_at")
 _EMPTY = "-"
 _MASK = "****"
 
 
-def render(operation_id: str, data: object) -> None:
+def render(operation_id: str | None, data: object) -> None:
     """Print an operation's serialized body as a table or a key/value tree.
 
     Args:
-        operation_id: Operation whose body ``data`` is.
+        operation_id: Operation whose body ``data`` is; ``None`` for a CLI-only command.
         data: The body as ``dump_body`` serialized it.
     """
     console = Console(highlight=False)
     if isinstance(data, Mapping) and isinstance(data.get("items"), list):
-        _print_list(console, data["items"], data.get("next_cursor"))
-        return
+        rows = [item for item in data["items"] if isinstance(item, Mapping)]
+        columns = _columns(rows)
+        if columns or not rows:
+            _print_table(console, rows, columns, data.get("next_cursor"))
+            return
     tree = Tree("", hide_root=True)
     _add_children(tree, data)
     console.print(tree)
 
 
-def _print_list(console: Console, items: Sequence[object], next_cursor: object) -> None:
-    """One table row per item, then the hint for the next page."""
-    rows = [item for item in items if isinstance(item, Mapping)]
-    columns = _columns(rows[0]) if rows else ()
-    if columns:
+def _print_table(
+    console: Console,
+    rows: Sequence[Mapping[str, object]],
+    columns: Sequence[str],
+    next_cursor: object,
+) -> None:
+    """One table row per item, or ``No items.``, then the hint for the next page."""
+    if rows:
         table = Table(box=box.SIMPLE)
         for column in columns:
             table.add_column(column, overflow="fold")
@@ -70,14 +77,18 @@ def _print_list(console: Console, items: Sequence[object], next_cursor: object) 
         console.print(Text(f"More: --cursor {next_cursor}"))
 
 
-def _columns(item: Mapping[str, object]) -> tuple[str, ...]:
-    """Identifiers, name, source type or status, and one timestamp, as the item has them."""
-    identifiers = [key for key in item if key in _IDENTIFIER_FIELDS]
-    if "connection_ref" in item:
+def _columns(rows: Sequence[Mapping[str, object]]) -> tuple[str, ...]:
+    """Identifiers, name, labels and one timestamp, from the keys of every row in first-seen order.
+
+    A body serialized without unset fields can leave a key out of some rows only.
+    """
+    keys = dict.fromkeys(key for row in rows for key in row)
+    identifiers = [key for key in keys if key in _IDENTIFIER_FIELDS]
+    if "connection_ref" in keys:
         identifiers = [key for key in identifiers if key not in _REF_PARTS]
-    names = [key for key in _NAME_FIELDS if key in item][:1]
-    labels = [key for key in _LABEL_FIELDS if key in item]
-    timestamps = [key for key in _TIMESTAMP_FIELDS if key in item][:1]
+    names = [key for key in _NAME_FIELDS if key in keys][:1]
+    labels = [key for key in _LABEL_FIELDS if key in keys]
+    timestamps = [key for key in _TIMESTAMP_FIELDS if key in keys][:1]
     return (*identifiers, *names, *labels, *timestamps)
 
 

@@ -4,18 +4,20 @@ Handles:
 - One application service per invocation: built off the event loop, refused when its control
   plane is not ready, closed afterwards
 - Before a write: the checkout's control-database refusal and the new-tenant question
-- The body on stdout and exit 0; a result that cannot be printed after the operation ran is
-  reported as that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one line on stderr,
-  with a trace id minted per invocation, and the spec's exit code
+- The body on stdout and exit 0, or the exit code an ``Outcome`` names (``8`` for a followed
+  run that failed); a result that cannot be printed after the operation ran is reported as
+  that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one
+  line on stderr, with a trace id minted per invocation, and the spec's exit code
 - A failure to set up the local service (settings, composition, control-plane readiness) as
   the operator's own configuration error: ``error_body``'s status and code, with a message
   that says what to fix instead of the opaque one an operation's failure gets
 - The in-process server's log: unless ``HARBORRAG_LOG_LEVEL`` is set, what it would print is
-  held back and printed only after a success, so a failure's stderr is its error report alone
+  held back and printed only after a success, so a failure's stderr is its error report alone;
+  a command that keeps working after its operation succeeded releases it early
 
 Does NOT parse arguments or hold business rules; commands parse, operations decide.
 
-Start from: run_operation.
+Start from: run_operation, Outcome, release_held_logs.
 """
 
 from __future__ import annotations
@@ -27,7 +29,8 @@ import os
 import sys
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from contextlib import asynccontextmanager, contextmanager
-from dataclasses import replace
+from contextvars import ContextVar
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, NoReturn, cast
 from uuid import uuid4
 
@@ -71,6 +74,31 @@ DEBUG_HINT = " (set HARBORRAG_LOG_LEVEL=DEBUG for details)"
 _CLICK_OUTCOMES = (click.ClickException, click.exceptions.Exit, click.exceptions.Abort)
 
 
+@dataclass(frozen=True, slots=True)
+class Outcome:
+    """A command's result whose exit code depends on it, such as a followed run that failed.
+
+    Args:
+        body: Printed as the operation's body; ``None`` when the command has shown it already.
+        exit_code: Code to exit with once ``body`` is printed.
+    """
+
+    body: object
+    exit_code: int
+
+
+def release_held_logs() -> None:
+    """Print the log records held back so far, and let later ones through as they happen.
+
+    For a command that keeps working after its operation succeeded, such as following a run:
+    its warnings show while it runs instead of at the end. Outside ``run_operation``, or with
+    ``HARBORRAG_LOG_LEVEL`` set, nothing is held and this does nothing.
+    """
+    hold = _HOLD.get()
+    if hold is not None:
+        hold.release()
+
+
 class LocalSetupError(Exception):
     """The local application service could not be built or is not ready to use.
 
@@ -84,19 +112,21 @@ class LocalSetupError(Exception):
 
 
 def run_operation(
-    operation_id: str, call: OperationCall, *, globals: Globals, write: bool = False
+    operation_id: str | None, call: OperationCall, *, globals: Globals, write: bool = False
 ) -> NoReturn:
     """Run one operation, print its body or its error, and exit with the spec's code.
 
     Args:
-        operation_id: Key of ``OPERATIONS``; picks the response model the body prints with.
-        call: Calls the operation with the local operations and the CLI's scope.
+        operation_id: Key of ``OPERATIONS``, which picks the response model the body prints
+            with; ``None`` for a CLI-only command, whose body prints as it is.
+        call: Calls the operation with the local operations and the CLI's scope; an
+            ``Outcome`` it returns names the exit code.
         globals: The invocation's resolved global options.
         write: The operation writes, so the checkout refusal and the new-tenant question run.
 
     Raises:
-        typer.Exit: Always: ``0`` after the body, else the code of the failure's status;
-            ``130`` on Ctrl-C.
+        typer.Exit: Always: ``0`` after the body, or the code an ``Outcome`` names; else the
+            code of the failure's status; ``130`` on Ctrl-C.
         click.UsageError: A write into a tenant with no data, without a terminal or ``--yes``.
         click.exceptions.Abort: The user declined that write at the question; Click exits 1.
     """
@@ -115,11 +145,14 @@ def run_operation(
             logger.debug("%s failed trace_id=%s", operation_id, trace_id, exc_info=exc)
             print_error(error, output=globals.output, trace_id=trace_id)
             raise typer.Exit(exit_code_for(error.status)) from None
-        _print_result(operation_id, result, globals=globals, trace_id=trace_id)
-    raise typer.Exit(0)
+        if not (isinstance(result, Outcome) and result.body is None):
+            _print_result(operation_id, result, globals=globals, trace_id=trace_id)
+    raise typer.Exit(result.exit_code if isinstance(result, Outcome) else 0)
 
 
-def _print_result(operation_id: str, result: object, *, globals: Globals, trace_id: str) -> None:
+def _print_result(
+    operation_id: str | None, result: object, *, globals: Globals, trace_id: str
+) -> None:
     """Print a successful result; a failure here is reported as the print failing.
 
     The operation has already run, and a write is committed, so the error says so instead of
@@ -243,8 +276,8 @@ async def _run(call: OperationCall, *, globals: Globals, write: bool) -> object:
 
 
 def _unwrapped(result: object) -> object:
-    """The body of a ``Tagged``, ``Saved`` or ``Accepted`` result; any other result as is."""
-    if isinstance(result, Tagged | Saved | Accepted):
+    """The body of a ``Tagged``, ``Saved``, ``Accepted`` or ``Outcome``; any other result as is."""
+    if isinstance(result, Tagged | Saved | Accepted | Outcome):
         return result.body
     return result
 
@@ -261,6 +294,36 @@ class _HeldRecords(logging.Filter):
         return False
 
 
+type _Held = list[tuple[logging.Handler, _HeldRecords]]
+
+
+class _LogHold:
+    """Records held back from the CLI's stream handlers until they are released or dropped.
+
+    Args:
+        handlers: Handlers to hold records back from; none holds nothing.
+    """
+
+    def __init__(self, handlers: list[logging.Handler]) -> None:
+        self._held: _Held = [(handler, _HeldRecords()) for handler in handlers]
+        for handler, records in self._held:
+            handler.addFilter(records)
+
+    def stop(self) -> _Held:
+        """Let records through again; return the ones held so far, with their handler."""
+        held, self._held = self._held, []
+        for handler, records in held:
+            handler.removeFilter(records)
+        return held
+
+    def release(self) -> None:
+        """Print the records held so far, then let records through as they happen."""
+        _replay(self.stop())
+
+
+_HOLD: ContextVar[_LogHold | None] = ContextVar("harborrag_cli_log_hold", default=None)
+
+
 @contextmanager
 def _held_logs() -> Iterator[None]:
     """Hold back the CLI's log output; print it when the block succeeds, drop it otherwise.
@@ -268,17 +331,21 @@ def _held_logs() -> Iterator[None]:
     The error envelope, or the one error line, is the whole report of a failure, as over
     HTTP, where the server's log stays with the server. ``HARBORRAG_LOG_LEVEL`` turns the
     hold off, so ``DEBUG`` shows the failure's cause and traceback as they happen.
+    ``release_held_logs`` ends the hold early for the rest of the block.
     """
-    handlers = [] if LEVEL_ENV_VAR in os.environ else _cli_log_handlers()
-    held = {handler: _HeldRecords() for handler in handlers}
-    for handler, records in held.items():
-        handler.addFilter(records)
+    hold = _LogHold([] if LEVEL_ENV_VAR in os.environ else _cli_log_handlers())
+    token = _HOLD.set(hold)
     try:
         yield
     finally:
-        for handler, records in held.items():
-            handler.removeFilter(records)
-    for handler, records in held.items():
+        _HOLD.reset(token)
+        held = hold.stop()
+    _replay(held)
+
+
+def _replay(held: _Held) -> None:
+    """Print held records through the handler that held each one."""
+    for handler, records in held:
         for record in records.records:
             handler.handle(record)
 

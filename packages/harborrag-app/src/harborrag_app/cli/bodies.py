@@ -8,7 +8,7 @@ Handles:
 Does NOT call operations or print values: an error names a field and its problem, never the
 value it held, so a secret in a rejected body stays out of the terminal.
 
-Start from: load_body, read_fields, read_with_secrets.
+Start from: load_body, read_fields, read_with_secrets, comma_list.
 """
 
 from __future__ import annotations
@@ -41,6 +41,13 @@ def load_body[M: BaseModel](path: str | None, model: type[M], *, flags: Mapping[
             in the file, or the body does not validate.
     """
     return validate_body(model, read_fields(path, flags=flags), source=path or "the flags")
+
+
+def comma_list(value: str | None) -> list[str] | None:
+    """Split a flag's ``a,b`` value into its non-blank parts; ``None`` when it was not given."""
+    if value is None:
+        return None
+    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def read_fields(path: str | None, *, flags: Mapping[str, object]) -> dict[str, object]:

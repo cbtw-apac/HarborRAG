@@ -38,6 +38,7 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 
@@ -188,6 +189,26 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
 
     with pytest.raises(HarborCapabilityError):
         await world.service.sync(CONNECTION_KEY, actor="u", item_refs=("ENG-1",))
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_stored_returns_the_row_with_its_pinned_source_key(world: ConnectionWorld) -> None:
+    await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
+    repository = world.control_plane.connections
+    assert isinstance(repository, FakeConnectionRepository)
+    created = await world.service.stored(CONNECTION_KEY)
+    repository.connections[created.id] = replace(created, source_key="jira-main")
+
+    stored = await world.service.stored(CONNECTION_KEY)
+
+    assert (stored.ref, stored.source_key, stored.source_type) == (
+        "cpm/cpm-tickets",
+        "jira-main",
+        "jira",
+    )
+    with pytest.raises(HarborNotFoundError):
+        await world.service.stored(replace(CONNECTION_KEY, connection_id="missing"))
 
 
 async def _store_as(world: ConnectionWorld, **changes: Any) -> None:

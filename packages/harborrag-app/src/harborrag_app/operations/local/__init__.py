@@ -33,6 +33,15 @@ class LocalOperations(AdminOps, IngestionOps, SettingsOps, ChatOps):
     def __init__(self, app_service: AppService) -> None:
         self._app_service = app_service
 
+    @property
+    def app_service(self) -> AppService:
+        """The application service the operations run over.
+
+        Not part of the port: the CLI's in-process commands, such as ``ingestions start
+        --inline``, use it directly.
+        """
+        return self._app_service
+
     async def tenant_has_data(self, tenant_id: str) -> bool:
         """Whether the tenant holds a project, a connection or a saved settings revision.
 

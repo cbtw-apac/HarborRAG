@@ -35,11 +35,12 @@ class OutputFormat(StrEnum):
     YAML = "yaml"
 
 
-def print_body(operation_id: str, body: object, *, output: OutputFormat) -> None:
+def print_body(operation_id: str | None, body: object, *, output: OutputFormat) -> None:
     """Print a successful operation's body to stdout.
 
     Args:
-        operation_id: Key of ``OPERATIONS`` whose response model serializes ``body``.
+        operation_id: Key of ``OPERATIONS`` whose response model serializes ``body``; ``None``
+            for a CLI-only command, whose JSON-ready body prints as it is.
         body: What the operation returned, unwrapped; ``None`` when it answers no body,
             which prints nothing, or ``Done.`` in table mode.
         output: Format to print.
@@ -48,7 +49,7 @@ def print_body(operation_id: str, body: object, *, output: OutputFormat) -> None
         if output is OutputFormat.TABLE:
             print(DONE)
         return
-    data = dump_body(operation_id, body)
+    data = body if operation_id is None else dump_body(operation_id, body)
     if output is OutputFormat.TABLE:
         render(operation_id, data)
     else:
