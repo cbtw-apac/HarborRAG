@@ -22,6 +22,7 @@ from harborrag_core.ports.model_clients import (
     AsyncHarborChatClientProtocol,
     StructuredUsageResult,
 )
+from harborrag_core.topology.evidence import EvidenceCanonicalizer
 from harborrag_core.topology.extraction import (
     ChunkExtractionInput,
     ExtractionOutput,
@@ -29,12 +30,11 @@ from harborrag_core.topology.extraction import (
     digest,
 )
 from harborrag_core.topology.ontology import OntologyRegistry, builtin_ontology
+from harborrag_core.topology.output_policy import ExtractionOutputPolicy, OutputPolicyViolation
 from harborrag_core.topology.windowing import input_character_count
 
-from .evidence import EvidenceCanonicalizer
 from .extraction_budget import SEMANTIC_ATTEMPTS, evidence_json, request_budget
 from .extraction_schema import response_schema
-from .output_policy import ExtractionOutputPolicy, OutputPolicyViolation
 
 EXTRACTION_PROMPT = """In one fused extraction, write a useful title, short description,
 grounded entities, and qualified assertions from supplied

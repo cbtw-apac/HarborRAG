@@ -3,10 +3,15 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.ingestion import (
+    ChunkValidationError,
+    CleanupPolicy,
     DocumentVersionState,
+    DocumentVersionTransitionPolicy,
     FailureCategory,
+    IngestionFailureClassifier,
     ProjectionWriteError,
     PublicationConflictError,
+    PublicationPolicy,
     SourceAdmissionDecision,
     SourceItemNotFoundError,
     SourceRetriesExhaustedError,
@@ -14,13 +19,6 @@ from harborrag_core.ingestion import (
     is_explicitly_retryable_failure_code,
     is_retryable_failure_code,
 )
-from harborrag_engine.ingestion import (
-    CleanupPolicy,
-    DocumentVersionTransitionPolicy,
-    IngestionFailureClassifier,
-    PublicationPolicy,
-)
-from harborrag_engine.ingestion.chunking import ChunkValidationError
 
 
 def test_document_version_policy_enforces_order_and_replay() -> None:

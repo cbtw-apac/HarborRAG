@@ -12,10 +12,13 @@ from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from harborrag_core.contracts.errors import HarborNoIndexedContentError, HarborUnavailableError
+from harborrag_core.contracts.errors import (
+    ConnectionOutOfScopeError,
+    HarborNoIndexedContentError,
+    HarborUnavailableError,
+    UnknownReferenceError,
+)
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
-
-from .errors import ConnectionOutOfScopeError, UnknownReferenceError
 
 SOURCE_SCOPE_FILTER = "source_scope_id"
 

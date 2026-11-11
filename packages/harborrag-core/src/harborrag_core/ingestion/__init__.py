@@ -50,6 +50,13 @@ from .lifecycle_contracts import (
     ReindexProgress,
     TaskDocumentResult,
 )
+from .policies import (
+    CleanupPolicy,
+    DocumentVersionTransitionPolicy,
+    IngestionFailureClassifier,
+    PublicationPolicy,
+    SafeFailure,
+)
 from .projection_contracts import (
     GRAPH_SCHEMA_VERSION,
     GraphEdgeRecord,
@@ -112,6 +119,11 @@ from .task_query_contracts import (
 )
 
 __all__ = [
+    "CleanupPolicy",
+    "DocumentVersionTransitionPolicy",
+    "IngestionFailureClassifier",
+    "PublicationPolicy",
+    "SafeFailure",
     "ActiveDocumentVersion",
     "ActiveSourceDocument",
     "AdmissionSnapshot",

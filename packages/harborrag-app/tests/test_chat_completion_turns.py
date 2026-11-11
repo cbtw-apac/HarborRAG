@@ -15,10 +15,9 @@ from chat_service_fixtures import (
 )
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
-from harborrag_app.workflow_control.chat.errors import ChatModelUnavailableError
 from harborrag_app.workflow_control.memory import SessionLocks
 from harborrag_app.workflow_control.memory.locks import ConversationTurnBusyError
-from harborrag_core.contracts.errors import HarborConflictError
+from harborrag_core.contracts.errors import ChatModelUnavailableError, HarborConflictError
 from harborrag_core.models.errors import HarborChatConnectionError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory

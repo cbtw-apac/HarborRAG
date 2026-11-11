@@ -10,8 +10,7 @@ from harborrag_adapters.repositories.errors import (
     HarborStorageRateLimitError,
     HarborStorageTimeoutError,
 )
-from harborrag_core.ingestion import FailureCategory
-from harborrag_engine.ingestion import IngestionFailureClassifier
+from harborrag_core.ingestion import FailureCategory, IngestionFailureClassifier
 
 
 def _object_store_errors() -> tuple[type[BaseException], ...]:

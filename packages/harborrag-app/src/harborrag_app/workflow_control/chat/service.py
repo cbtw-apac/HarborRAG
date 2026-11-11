@@ -23,11 +23,13 @@ from harborrag_app.workflow_control.memory.titles import conversation_title
 from harborrag_app.workflow_control.memory.usage import ModelCall, record_model_usage
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import (
+    ChatModelUnavailableError,
     HarborConnectionError,
     HarborError,
     HarborNotFoundError,
     HarborUnavailableError,
     HarborValidationError,
+    UnknownReferenceError,
 )
 from harborrag_core.models.chat import StreamEventType
 from harborrag_core.models.errors import HarborChatError
@@ -50,7 +52,6 @@ from .completion import (
     TurnCompleted,
     TurnEvent,
 )
-from .errors import ChatModelUnavailableError, UnknownReferenceError
 from .events import cited_event, error_event
 from .options import ChatExecutionOptions
 from .preparation import ChatTurnResources, PreparedTurn, RuntimeProvider, prepare_turn

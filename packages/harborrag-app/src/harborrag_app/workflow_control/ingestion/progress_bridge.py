@@ -17,12 +17,12 @@ from typing import Any
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask
+from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.ports.events import EventBusPort
 
 from ..control_plane.connection_views import ingestion_counters, ingestion_status
 from .ports import PublicTaskStore
 from .presenters import TERMINAL_STATES
-from .stages import spec_stage
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion.progress_bridge")
 

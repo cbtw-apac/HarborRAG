@@ -9,16 +9,13 @@ from harborrag_core.contracts.errors import (
     HarborRateLimitError,
     HarborUnavailableError,
 )
-from harborrag_core.ingestion import (
+from harborrag_core.ingestion.errors import (
     ChunkValidationError,
-    DocumentVersionState,
-    FailureCategory,
     ParserRejectedDocumentError,
     ProjectionVerificationError,
     ProjectionWriteError,
     PublicationConflictError,
     RepresentationProviderError,
-    SourceAdmissionDecision,
     SourceAuthenticationError,
     SourceAuthorizationError,
     SourceForbiddenError,
@@ -26,6 +23,11 @@ from harborrag_core.ingestion import (
     SourceRetriesExhaustedError,
     SourceUnavailableError,
     UnsupportedDocumentError,
+)
+from harborrag_core.ingestion.states import (
+    DocumentVersionState,
+    FailureCategory,
+    SourceAdmissionDecision,
 )
 
 _DURABLE_STAGES = (

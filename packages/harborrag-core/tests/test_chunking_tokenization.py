@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_runtime.tokenization import ApproximateTokenCounter
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 
 
 def test_ascii_text_uses_bpe_sized_estimates() -> None:

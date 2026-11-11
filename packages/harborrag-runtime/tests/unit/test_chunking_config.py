@@ -7,6 +7,7 @@ from pathlib import Path
 import pytest
 
 from harborrag_adapters.chunking import RecursiveTextRefiner, RoutingTextRefiner, factory
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_runtime.config.chunking import (
     RefinerConfig,
     chunking_settings_from,
@@ -22,7 +23,6 @@ from harborrag_runtime.ingestion.chunking_profile import (
     refiner_fingerprint,
 )
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[4]
 SHIPPED = REPOSITORY_ROOT / "config" / "ingestion" / "chunking.yaml"

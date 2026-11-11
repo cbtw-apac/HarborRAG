@@ -1,6 +1,6 @@
 """Provider-neutral token estimates for per-turn context assembly.
 
-This mirrors ``harborrag_runtime.tokenization.ApproximateTokenCounter`` on
+This mirrors ``harborrag_core.chunking.tokenization.ApproximateTokenCounter`` on
 purpose: the memory package may not import the runtime, and a per-turn window
 still has to be trimmed to a token budget without a provider tokenizer.
 """

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.stages import SPEC_STAGES, internal_stages, spec_stage
+from harborrag_core.ingestion.stages import SPEC_STAGES, internal_stages, spec_stage
 
 pytestmark = pytest.mark.unit
 

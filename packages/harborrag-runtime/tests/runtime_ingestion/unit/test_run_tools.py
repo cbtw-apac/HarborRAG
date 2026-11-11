@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.domain.document import Document
 from harborrag_core.domain.element import DocumentElement
 from harborrag_core.domain.provenance import DocumentProvenance
@@ -23,7 +24,6 @@ from harborrag_runtime.ingestion.runtime_builder import build_default_chunker
 from harborrag_runtime.ingestion_contracts import RunSettings
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 pytestmark = pytest.mark.unit
 

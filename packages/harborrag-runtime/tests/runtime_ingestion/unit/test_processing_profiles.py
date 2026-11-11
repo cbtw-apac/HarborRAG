@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.ingestion import ChangeFingerprintBuilder
 from harborrag_engine.ingestion.chunking import ChunkingConfig
 from harborrag_engine.ingestion.chunking.sources import CanonicalDocumentChunkingStrategy
@@ -17,7 +18,6 @@ from harborrag_runtime.ingestion.chunking_profile import (
     default_chunking_config,
 )
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 
 def test_profile_mapping_order_does_not_change_processing_identity() -> None:

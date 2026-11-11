@@ -13,6 +13,7 @@ from harborrag_adapters.repositories.object_store import (
     ImmutableArtifactWriter,
 )
 from harborrag_adapters.topology.descriptions import DESCRIPTION_MAX_REPAIR_ATTEMPTS
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.models.embed import HarborEmbedRequest, HarborEmbedResponse
 from harborrag_core.ports.description_generation import UsageAwareDescriptionPort
@@ -27,7 +28,6 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .contextual import Embedder

@@ -13,13 +13,13 @@ from harborrag_adapters.chunking import (
     text_refiner_fingerprint,
 )
 from harborrag_adapters.chunking.factory import grammar_set_problems
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts.chunking import TextRefiner, TokenCounter
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy, ChunkStrategyRegistry
 from harborrag_engine.ingestion.chunking.pipeline.composition import builtin_chunking_strategies
 from harborrag_engine.ingestion.chunking.table.rendering import TableRenderer
 from harborrag_runtime.config.chunking import RefinerConfig, default_chunking_settings
 from harborrag_runtime.config.errors import ChunkingConfigurationError
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 
 def default_chunking_config() -> ChunkingConfig:

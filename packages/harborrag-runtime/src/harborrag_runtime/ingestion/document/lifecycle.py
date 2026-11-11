@@ -13,6 +13,7 @@ from harborrag_core.ingestion import (
     DocumentFailure,
     DocumentVersionSnapshot,
     DocumentVersionState,
+    DocumentVersionTransitionPolicy,
     RawDocumentReference,
     RepresentationSet,
 )
@@ -24,9 +25,6 @@ from harborrag_core.ports.artifacts import (
 from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.ingestion import (
-    DocumentVersionTransitionPolicy,
-)
 
 from ..failure_classification import ingestion_failure_classifier
 

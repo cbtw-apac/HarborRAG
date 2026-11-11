@@ -22,6 +22,7 @@ from harborrag_adapters.repositories.object_store import (
     RawDocumentArtifactRepository,
 )
 from harborrag_core.chunking import ConnectorType
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion import (
     AdmissionSnapshot,
@@ -48,7 +49,6 @@ from harborrag_runtime.ingestion import (
     GraphRelationRepairService,
     SourceIngestionRequest,
 )
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .connectors import (
     DeterministicEmbedClient,

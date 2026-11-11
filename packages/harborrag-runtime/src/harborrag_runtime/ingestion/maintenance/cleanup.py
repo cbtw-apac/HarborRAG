@@ -9,10 +9,10 @@ from dataclasses import dataclass
 from harborrag_adapters.repositories.database import (
     IngestionControlPlaneDatabase,
 )
-from harborrag_core.ingestion import ProjectionCleanupJob
+from harborrag_core.ingestion import CleanupPolicy, ProjectionCleanupJob
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.ingestion import CleanupPolicy, VectorProjectionStore
+from harborrag_engine.ingestion import VectorProjectionStore
 
 logger = logging.getLogger("harborrag.runtime.ingestion.cleanup")
 

@@ -17,6 +17,7 @@ from harborrag_adapters.topology.descriptions import (
 )
 from harborrag_core.base import utc_now
 from harborrag_core.chunking import ChunkRecord
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.contracts import HarborConflictError
 from harborrag_core.ingestion import (
     DocumentIdentityBuilder,
@@ -57,7 +58,6 @@ from harborrag_engine.topology.summary_reducer import (
     input_digest,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .entity_summary_index import EntitySummaryIndex

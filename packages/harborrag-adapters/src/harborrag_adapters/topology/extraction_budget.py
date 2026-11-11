@@ -3,9 +3,9 @@
 import json
 
 from harborrag_core.topology import ChunkExtractionInput, ExtractionProfile, digest
+from harborrag_core.topology.output_policy import OUTPUT_POLICY_VERSION
 
 from .extraction_schema import response_schema
-from .output_policy import OUTPUT_POLICY_VERSION
 
 SEMANTIC_ATTEMPTS = 4
 PROVIDER_CALLS_PER_SEMANTIC_ATTEMPT = 2

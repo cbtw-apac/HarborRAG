@@ -9,9 +9,8 @@ from app_test_chat import FakeConnectionCatalog
 from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
-from harborrag_app.workflow_control.chat.errors import UnknownReferenceError
 from harborrag_app.workflow_control.chat.presenters import citation_marker
-from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_runtime.config.settings import RuntimeSettings

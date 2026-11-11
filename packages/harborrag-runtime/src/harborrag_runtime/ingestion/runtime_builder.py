@@ -19,6 +19,7 @@ from harborrag_adapters.repositories.object_store import (
     ProjectionArtifactRepository,
     RawDocumentArtifactRepository,
 )
+from harborrag_core.chunking.tokenization import ApproximateTokenCounter
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import (
     BaseChunker,
@@ -52,7 +53,6 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import default_secret_resolver
 from harborrag_runtime.rate_limiting import build_connector_rate_limiter
-from harborrag_runtime.tokenization import ApproximateTokenCounter
 
 from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime

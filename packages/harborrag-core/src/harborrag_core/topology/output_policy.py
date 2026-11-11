@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.topology import (
+from harborrag_core.topology.extraction import (
     ChunkExtractionInput,
     ExtractedAssertion,
     ExtractedEntity,

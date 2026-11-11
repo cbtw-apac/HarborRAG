@@ -7,10 +7,10 @@ import asyncio
 from harborrag_core.ingestion import (
     DocumentVersionState,
     ProjectionVerificationError,
+    PublicationPolicy,
 )
 from harborrag_engine.ingestion import (
     ProjectionManifestInput,
-    PublicationPolicy,
     VectorProjectionBuilder,
     VectorProjectionInput,
 )

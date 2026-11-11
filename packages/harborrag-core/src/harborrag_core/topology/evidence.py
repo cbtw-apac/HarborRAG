@@ -1,6 +1,6 @@
 """Deterministic repair for exact model-provided evidence quotes."""
 
-from harborrag_core.topology import ChunkExtractionInput, EvidenceSpan, ExtractionOutput
+from harborrag_core.topology.extraction import ChunkExtractionInput, EvidenceSpan, ExtractionOutput
 
 
 class EvidenceCanonicalizer:

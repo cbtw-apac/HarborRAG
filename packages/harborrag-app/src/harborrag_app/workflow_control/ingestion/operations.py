@@ -16,6 +16,7 @@ from harborrag_core.ingestion import (
     TaskDocumentPage,
     TaskPage,
 )
+from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.invariants import require
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 
@@ -29,7 +30,6 @@ from .presenters import (
     encode_cursor,
     encode_task_cursor,
 )
-from .stages import spec_stage
 
 ControlAction = Literal["pause", "resume", "cancel"]
 DocumentStatus = Literal["all", "succeeded", "skipped", "failed"]

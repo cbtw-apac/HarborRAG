@@ -9,8 +9,8 @@ from time import perf_counter
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from harborrag_core.ingestion import IngestionFailureClassifier
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_engine.ingestion import IngestionFailureClassifier
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
 from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
 from harborrag_runtime.ingestion.document.stage_models import (
