@@ -103,7 +103,8 @@ pages instead of running OCR in-process. It comes from `HARBORRAG_OCR_SERVER_URL
 unset or empty, no OCR server is used and LiteParse OCRs locally with Tesseract. The
 repository's Compose files do not start an OCR server.
 
-<details markdown="1"><summary>Ingestion worker in a container</summary>
+<details markdown="1">
+<summary>Ingestion worker in a container</summary>
 
 Use a Docker DNS name rather than `localhost`, which would be the worker itself. With
 the OCR server attached to the external `harborrag-data-network` under the alias
@@ -115,7 +116,8 @@ HARBORRAG_OCR_SERVER_URL=http://ppocr-server:8888/ocr
 
 </details>
 
-<details markdown="1"><summary>Parser running on the host</summary>
+<details markdown="1">
+<summary>Parser running on the host</summary>
 
 ```dotenv
 HARBORRAG_OCR_SERVER_URL=http://localhost:8888/ocr
