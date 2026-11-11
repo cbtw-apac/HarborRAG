@@ -32,6 +32,7 @@ class EvidenceResultLoader:
         self._policy = policy
 
     async def dense_vector(self, query: str) -> tuple[float, ...]:
+        """Embed ``query`` as a non-cacheable query vector."""
         response = await self._embed.aembed(
             request=HarborEmbedRequest(
                 inputs=(query,),
@@ -86,6 +87,14 @@ class EvidenceResultLoader:
 
     @staticmethod
     def result(candidate: VectorSearchResult) -> RetrievalResult:
+        """Build a retrieval result from a candidate's payload.
+
+        Older evidence payloads predate the provenance fields, so those keys are
+        always present, empty when absent, to keep the public metadata shape stable.
+
+        Raises:
+            ValueError: The payload lacks a required identity or content field.
+        """
         payload = candidate.payload
         metadata: dict[str, object] = {
             "document_id": required_text(payload, "document_id"),
@@ -97,8 +106,6 @@ class EvidenceResultLoader:
             "quality_score": payload.get("quality_score"),
             "raw_score": candidate.raw_score,
             "retrieval_source": "qdrant-authoritative",
-            # Older evidence payloads predate these provenance fields; keep
-            # the public metadata shape stable instead of omitting the keys.
             "document_title": optional_text(payload, "document_title"),
             "section_path": section_path(payload),
         }

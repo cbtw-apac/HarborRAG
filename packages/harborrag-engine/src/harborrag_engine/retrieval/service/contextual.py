@@ -47,9 +47,13 @@ class ContextualEvidenceSearch:
     async def search(
         self, query: VectorSearchQuery, *, context: StorageOperationContext
     ) -> tuple[tuple[VectorSearchResult, TopologyEvidence], ...]:
+        """Return authorized generated-view hits with their evidence.
+
+        Returns nothing when the query vector does not match the profile dimension
+        or carries filters: raw-only metadata predicates are not guaranteed to
+        exist on generated points, so the filtered flat search answers instead.
+        """
         if len(query.vector) != self._profile.dimension or query.filters is not None:
-            # Raw-only metadata predicates are not guaranteed to exist on generated
-            # points. Preserve the explicit filtered-flat fallback until adapted.
             return ()
         records = await self._repository.active_derivations(
             str(context.tenant_id), access=context.access, limit=_MAX_ARTIFACTS

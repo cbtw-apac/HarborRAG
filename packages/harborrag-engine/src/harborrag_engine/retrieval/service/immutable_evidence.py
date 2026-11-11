@@ -35,6 +35,11 @@ class ImmutableEvidenceReader:
     async def read(
         self, request: EvidenceReadRequest, context: StorageOperationContext
     ) -> tuple[EvidenceReadItem, ...]:
+        """Read the requested evidence chunks the caller is authorized to see.
+
+        Raises:
+            HarborCapabilityError: The immutable evidence reader is not configured.
+        """
         if self._snapshots is None:
             raise HarborCapabilityError("immutable evidence reader is not configured")
         located = await self._locate(request, context)

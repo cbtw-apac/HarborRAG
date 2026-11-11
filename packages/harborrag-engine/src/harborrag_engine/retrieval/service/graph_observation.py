@@ -1,4 +1,23 @@
-"""Optional graph observation attached to an authoritative retrieval response."""
+"""Optional graph observation attached to an authoritative retrieval response.
+
+Seeds cover the whole result set rather than an arbitrary prefix: provenance that
+describes three of ten results is worse than none, because a caller cannot tell
+which results it covers. The cap bounds the fan-out for large ``top_k``.
+
+Depth 2 is what provenance needs: a chunk reaches its Structure in one hop and the
+owning DocumentVersion in a second. Depth 4 paid for two more hops the summary never
+read, but this is not a net saving: raising the seed count from 3 to 10 outweighs the
+shallower walk (about 0.6 ms to 2.2 ms of FalkorDB time on a 3.2k-node graph). The
+traversals run concurrently and observation is opt-in. Walks are undirected because
+HAS_CHUNK and CONTAINS both point down the spine towards the chunk, so an outgoing
+walk from a chunk seed cannot reach its own document, and memory seeds are arbitrary
+graph nodes whose relations point either way.
+
+Caller-supplied seeds, the graph entities this session's recalled memories
+reference, get their own allowance on top of the result-seed budget. Sharing it
+would let memory crowd out result provenance. Five is the same order as the recall
+``top_k`` that produces them.
+"""
 
 from __future__ import annotations
 
@@ -17,27 +36,10 @@ from .validation import required_text
 
 logger = logging.getLogger("harborrag.runtime.retrieval")
 
-# Seeds cover the whole result set rather than an arbitrary prefix: provenance that
-# describes three of ten results is worse than none, because a caller cannot tell which
-# results it covers. The cap bounds the fan-out for large top_k.
 _GRAPH_SEED_LIMIT = 10
-# Depth 2 is exactly what provenance needs: a chunk reaches its Structure in one hop
-# (:Structure)-[:HAS_CHUNK]->(:Chunk) and the owning DocumentVersion in a second
-# (:DocumentVersion)-[:CONTAINS]->(:Structure). Depth 4 paid for two more hops the summary
-# never read. Note this is not a net saving -- raising the seed count from 3 to 10
-# outweighs the shallower walk (measured ~0.6ms -> ~2.2ms of FalkorDB time on a 3.2k-node
-# graph). The traversals are gathered concurrently, and observation is opt-in.
 _GRAPH_OBSERVE_DEPTH = 2
 _GRAPH_OBSERVE_MAX_NODES = 100
-# Undirected: HAS_CHUNK and CONTAINS both point down the spine towards the chunk, so an
-# outgoing walk from a chunk seed cannot reach its own document, and memory seeds are
-# arbitrary graph nodes whose relations point either way.
 _GRAPH_OBSERVE_DIRECTION = "both"
-# Caller-supplied seeds (the graph entities this session's recalled memories
-# reference) get their own allowance *on top of* the result-seed budget rather
-# than sharing it. Sharing would let memory crowd out result provenance, and
-# provenance that describes three of ten results is exactly what the comment
-# above rejects. Five is the same order as the recall top_k that produces them.
 _MEMORY_SEED_LIMIT = 5
 
 
@@ -101,6 +103,13 @@ class GraphObserver:
         context: StorageOperationContext,
         memory_seeds: Sequence[str],
     ) -> GraphObservation:
+        """Walk the graph from result and memory seeds and summarise what it reached.
+
+        Every walk contributes documents, so a document only memory reached is
+        still summarised. ``related_results`` is built from the result walks
+        alone, because its ``result_id`` is contractually a vector result's chunk
+        id and a memory seed is not one.
+        """
         results = tuple(
             dict.fromkeys(required_text(candidate.payload, "chunk_id") for candidate in candidates)
         )[:_GRAPH_SEED_LIMIT]
@@ -131,10 +140,6 @@ class GraphObserver:
             nodes=len(nodes),
             relations=len(relation_ids),
             truncated=any(traversal.truncated for traversal in walks),
-            # Every walk contributes documents, so a document only memory reached
-            # is still summarised -- but ``related_results`` is built from the
-            # result walks alone, because its ``result_id`` is contractually a
-            # vector result's chunk id and a memory seed is not one.
             documents=_summarise_documents(
                 tuple(nodes.values()),
                 tuple(zip(results, walks[: len(results)], strict=True)),

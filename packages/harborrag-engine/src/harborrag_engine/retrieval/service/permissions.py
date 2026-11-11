@@ -1,4 +1,14 @@
-"""Canonical document ACLs constrain vector ranking, then guard the final read."""
+"""Canonical document ACLs constrain vector ranking, then guard the final read.
+
+The enumeration budget is the most document ids one pre-query ACL condition lists,
+the adapter's ceiling. Each authority lookup gets its own timeout, and the scope
+fallback has a budget of its own rather than what the failed enumeration left of a
+shared one. A principal found over the enumeration budget goes straight to the
+scope condition for a while, and a bounded number of such principals are
+remembered. One whose readable set has since shrunk is still served correctly
+meanwhile, because the scope condition is a superset that ``validate`` narrows,
+just less tightly.
+"""
 
 from __future__ import annotations
 
@@ -24,15 +34,8 @@ from harborrag_core.topology.search import TopologySearchPort
 
 logger = logging.getLogger("harborrag.runtime.retrieval.permissions")
 
-# The most document ids one pre-query ACL condition lists (the adapter's ceiling).
 _ENUMERATION_BUDGET = 10000
-# Each authority lookup gets this long; the scope fallback has its own budget
-# rather than what the failed enumeration left of a shared one.
 _LOOKUP_TIMEOUT_SECONDS = 2.0
-# How long a principal found over the enumeration budget goes straight to the
-# scope condition, and how many such principals are remembered. A principal whose
-# readable set has since shrunk is still served correctly meanwhile -- the scope
-# condition is a superset that ``validate`` narrows -- just less tightly.
 _OVER_BUDGET_TTL_SECONDS = 60.0
 _OVER_BUDGET_MEMORY = 1024
 
@@ -54,6 +57,15 @@ class ScopedFilter:
 
 
 class RetrievalPermissions:
+    """Join a caller's document ACL to a vector filter, then validate candidates against it.
+
+    Args:
+        repository: Canonical topology authority. ``None`` is for embedding-only
+            callers, whose filters pass through unchanged; production composition
+            always supplies it, and unknown permissions there deny.
+        clock: Monotonic time source, replaceable in tests.
+    """
+
     def __init__(
         self,
         repository: TopologySearchPort | None,
@@ -67,18 +79,24 @@ class RetrievalPermissions:
     async def scope_filter(
         self, filters: VectorFilter | None, context: StorageOperationContext
     ) -> VectorFilter | None:
+        """Return ``filters`` with the caller's pre-query ACL condition joined to it."""
         return (await self.scoped(filters, context)).filters
 
     async def scoped(
         self, filters: VectorFilter | None, context: StorageOperationContext
     ) -> ScopedFilter:
+        """Join the caller's pre-query ACL condition to ``filters``.
+
+        Tenant-shared corpora need no condition because the vector repository
+        already scopes by tenant; the final canonical publication check still
+        runs in ``validate``.
+
+        Raises:
+            HarborAuthorizationUnavailableError: The permission authority failed.
+        """
         if self._repository is None:
-            # Explicit legacy embedding-only callers. Production composition
-            # always supplies canonical authority; unknown permissions there deny.
             return ScopedFilter(filters, exact=True)
         if context.access.corpus_mode == "tenant_shared":
-            # The vector repository already scopes by tenant. The final canonical
-            # publication check still runs in validate().
             return ScopedFilter(filters, exact=True)
         try:
             condition = await self._readable_condition(self._repository, context)
@@ -100,7 +118,7 @@ class RetrievalPermissions:
     async def _readable_condition(
         self, repository: TopologySearchPort, context: StorageOperationContext
     ) -> VectorFilterCondition:
-        """The narrowest pre-query ACL condition the authority can enumerate.
+        """Return the narrowest pre-query ACL condition the authority can enumerate.
 
         The readable documents themselves, while there are few enough to list.
         Past the enumeration budget the readable source scopes stand in: a
@@ -155,6 +173,7 @@ class RetrievalPermissions:
     async def validate(
         self, candidates: tuple[VectorSearchResult, ...], context: StorageOperationContext
     ) -> tuple[VectorSearchResult, ...]:
+        """Keep the candidates whose documents are currently published and readable."""
         if self._repository is None:
             return candidates
         documents = tuple(

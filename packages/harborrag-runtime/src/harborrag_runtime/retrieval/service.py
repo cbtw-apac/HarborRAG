@@ -124,9 +124,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         self._permissions = RetrievalPermissions(resources.topology_repository)
         self._candidate_validator = ActiveVersionCandidateValidator(resources.active_versions)
-        # Retained so the conversation-memory index can share this one connected
-        # Qdrant client instead of opening a second one; memory lives in its own
-        # logical collection, never the document/evidence one.
         self._vector_repository = resources.vector_repository
         self._knowledge = KnowledgeRetrieval(
             resources.topology_repository,
@@ -201,7 +198,10 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
 
     @property
     def vector_repository(self) -> VectorRepositoryPort:
-        """The connected vector client, for sharing with the memory index."""
+        """The connected vector client, so the memory index shares it instead of opening a second one.
+
+        Memory lives in its own logical collection, never the document or evidence one.
+        """
         return self._vector_repository
 
     @property
@@ -232,11 +232,33 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         options: RetrievalOptions | None = None,
         access: AccessContext | None = None,
     ) -> RuntimeRetrievalReport:
-        """Search active evidence vectors and return their canonical payload content."""
+        """Search active evidence vectors and return their canonical payload content.
+
+        Filters are split before searching. The caller's own keys are checked
+        before permission conditions join them, and an unindexed key is refused
+        rather than scanned. A ``facet.*`` filter addresses entity summary points,
+        not chunks, so it is applied on the entity lane and taken out of the chunk
+        filter; left in, it would match nothing on chunks and force the flat lane.
+        A ``fields.*`` filter names an item's own fields, such as a Jira issue's
+        custom fields, which its attachments do not carry. It is resolved to the
+        matching items first and applied as their evidence or evidence attached to
+        them, so a CV is reached through the issue it belongs to. When no item has
+        those values nothing can qualify, no entity's evidence either, and an empty
+        membership condition is not one every backend accepts, so the search is
+        skipped.
+
+        Entity-reached chunks join the authoritative set before validation, so they
+        face the permission and active-version checks every other candidate faces,
+        and they must meet the rest of the caller's filter. With a facet filter the
+        lane selects instead of enriching: only qualifying entities' evidence
+        remains. Entity- and topology-reached chunks arrive after the search
+        collapsed its own duplicates, so duplicates are collapsed again. Graph
+        observation is optional diagnostic context and is discarded when
+        publication advanced during retrieval, so it cannot describe a candidate
+        the final authority check removed.
+        """
         validate_retrieval_request(query, tenant_id, top_k)
         selected = options or RetrievalOptions()
-        # Before permission conditions join it: only the caller's own keys are
-        # checked, and an unindexed one is refused rather than scanned.
         validate_evidence_filter(selected.filters)
         started = perf_counter()
         request_id = f"retrieval-{uuid4().hex}"
@@ -257,9 +279,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             if selected.lane in {RetrievalLane.DENSE, RetrievalLane.HYBRID}
             else None
         )
-        # A ``facet.*`` filter addresses entity summary points, not chunks. It is
-        # applied on the entity lane and taken out of the chunk filter; left in, it
-        # would match nothing on chunks and force the flat lane for no reason.
         facet_filter, chunk_filter = (
             split_facet_filters(selected.filters)
             if self._entities is not None
@@ -267,10 +286,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         if facet_filter is not None:
             selected = replace(selected, filters=chunk_filter)
-        # A ``fields.*`` filter names an item's own fields -- a Jira issue's custom
-        # fields -- which its attachments do not carry. It is resolved to the
-        # matching items first, then applied as "their evidence or evidence
-        # attached to them", so a CV is reached through the issue it belongs to.
         field_filter, chunk_filter = split_field_filters(chunk_filter)
         traced: tuple[str, ...] | None = None
         try:
@@ -291,8 +306,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                     context,
                 )
                 if traced != ()
-                # No item has those field values: nothing can qualify, and an empty
-                # membership condition is not one every backend accepts.
                 else AuthoritativeSearchResult((), _NO_CANDIDATES)
             )
         except HarborStorageNotFoundError as exc:
@@ -302,16 +315,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             )
             raise no_indexed_content() from exc
         candidates = search.candidates
-        # When no item has the fields filter's values, no entity's evidence can
-        # qualify either; ``traced`` is then empty and the lane has nothing to add.
         if self._entities is not None and traced != ():
-            # Entity-reached chunks join the authoritative set before validation,
-            # so they face exactly the permission and active-version checks every
-            # other candidate faces -- reaching them differently is not a reason
-            # to serve them differently. They must also meet the rest of the
-            # caller's filter (scope, type, the traced fields items). With a facet
-            # filter the lane selects instead of enriching: only qualifying
-            # entities' evidence remains.
             candidates = await self._entities.expand(
                 candidates,
                 dense_vector,
@@ -348,8 +352,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         )
         permitted = await self._permissions.validate(final_validation.accepted, context)
         active_candidate_ids = {str(candidate.id) for candidate in permitted}
-        # Entity- and topology-reached chunks join after the search collapsed its
-        # own duplicates, so the same text can arrive twice by different routes.
         distinct, late_duplicates = collapse_duplicates(
             [result for candidate, result in loaded if str(candidate.id) in active_candidate_ids],
             lambda result: duplicate_identity(result.metadata),
@@ -367,9 +369,6 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
             topology_diagnostics = budget_diagnostics(topology_diagnostics, tokens, excluded)
         results = results[:top_k]
         if final_validation.rejected_count:
-            # Graph observation is optional diagnostic context. Discard it when
-            # publication advanced during retrieval so it cannot describe a
-            # candidate that the final authority check removed.
             observation = GraphObservation()
         duration_ms = (perf_counter() - started) * 1_000
         diagnostics = search.diagnostics

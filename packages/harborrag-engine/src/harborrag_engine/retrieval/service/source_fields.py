@@ -7,6 +7,10 @@ the issue, and re-ingesting -- re-OCRing -- attachments on every field edit is t
 wrong price for keeping them current. So the fields stay where they belong, and
 retrieval follows the attachment link instead: first the items whose fields
 match, then the evidence of those items *and* of everything attached to them.
+
+The traced item ids become one set-membership condition. Past ``MAX_TRACED_ITEMS``
+the filter narrows nothing useful, and a silently truncated set would drop matching
+items at random, so the caller is asked to narrow it instead.
 """
 
 from __future__ import annotations
@@ -24,9 +28,6 @@ if TYPE_CHECKING:
 
 FIELD_FILTER_PREFIX = SOURCE_FIELD_FILTER_PREFIX
 
-# The traced item ids become one set-membership condition. Past this many the
-# filter is not narrowing anything useful, and a silently truncated set would
-# drop matching items at random -- so the caller is asked to narrow it instead.
 MAX_TRACED_ITEMS = 10_000
 
 
@@ -62,7 +63,9 @@ class PayloadIndexCatalog(Protocol):
         *,
         refresh: bool = False,
         context: StorageOperationContext,
-    ) -> frozenset[str]: ...
+    ) -> frozenset[str]:
+        """Return the payload keys indexed on ``index_name``, re-reading them when ``refresh``."""
+        ...
 
 
 @dataclass(frozen=True)
@@ -79,7 +82,7 @@ class SourceFieldTrace:
         *,
         context: StorageOperationContext,
     ) -> tuple[str, ...]:
-        """The source items whose own fields satisfy the filter (already permission-scoped)."""
+        """Return the source items whose own fields satisfy the filter, already permission-scoped."""
 
         await self._require_indexed(field_filter, context=context)
         items = await self.vectors.distinct_values(

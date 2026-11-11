@@ -15,12 +15,23 @@ from .reader_resources import ReaderResources
 
 
 class DocumentCatalogReader:
+    """List and describe published documents the caller may read.
+
+    Args:
+        resources: Readers shared by the bounded reader use cases.
+    """
+
     def __init__(self, resources: ReaderResources) -> None:
         self._resources = resources
 
     async def metadata(
         self, document_id: str, access: AccessContext, context: StorageOperationContext
     ) -> DocumentMetadata | None:
+        """Return the active metadata of a readable document, or None when it is hidden.
+
+        Raises:
+            HarborCapabilityError: The document catalog is not configured.
+        """
         resources = self._resources
         if resources.topology is None or resources.snapshots is None:
             raise HarborCapabilityError("document catalog is not configured")
@@ -70,11 +81,17 @@ class DocumentCatalogReader:
         request_id: str,
         context: StorageOperationContext,
     ) -> DocumentListResponse:
+        """List one page of readable documents ordered by document id.
+
+        The permission port enumerates at most 10,000 documents and fails
+        explicitly beyond that; only the requested page reads artifacts.
+
+        Raises:
+            HarborCapabilityError: The document catalog is not configured.
+        """
         topology = self._resources.topology
         if topology is None:
             raise HarborCapabilityError("document catalog is not configured")
-        # The existing permission port has a strict 10,000-document enumeration
-        # budget and fails explicitly when exceeded. Only one page reads artifacts.
         if request.access.corpus_mode == "tenant_shared":
             candidates = list(
                 await topology.published_document_page(

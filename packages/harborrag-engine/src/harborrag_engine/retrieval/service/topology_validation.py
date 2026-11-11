@@ -15,6 +15,7 @@ async def eligible_semantic_candidates(
     evidence: dict[str, TopologyEvidence],
     context: StorageOperationContext,
 ) -> tuple[VectorSearchResult, ...]:
+    """Keep semantic candidates whose builds and derived-view lineage still serve."""
     builds = tuple(sorted({build for item in evidence.values() for build in item.build_ids}))
     artifacts = tuple(
         sorted({artifact for item in evidence.values() for artifact in item.derived_artifact_ids})

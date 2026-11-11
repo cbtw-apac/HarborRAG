@@ -8,18 +8,17 @@ the whole result unusable.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any
 
 
-def optional_text(payload: Mapping[str, Any], key: str) -> str:
-    """A payload string, or empty when absent -- never a missing key."""
+def optional_text(payload: Mapping[str, object], key: str) -> str:
+    """Return a payload string, or empty when absent -- never a missing key."""
 
     value = payload.get(key)
     return value.strip() if isinstance(value, str) else ""
 
 
-def section_path(payload: Mapping[str, Any]) -> list[str]:
-    """The heading trail for the chunk, as a list of non-blank strings.
+def section_path(payload: Mapping[str, object]) -> list[str]:
+    """Return the heading trail for the chunk, as a list of non-blank strings.
 
     Confluence writes this as a real list, but older rows stored a repr of
     one; both degrade to an empty trail rather than failing the turn.

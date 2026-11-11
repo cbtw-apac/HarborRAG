@@ -188,16 +188,11 @@ async def test_an_anchor_that_is_not_in_the_version_is_unavailable(
 @pytest.mark.parametrize(
     ("topology", "snapshots"),
     [
-        # The caller may not read the document at all.
-        (Topology(allowed_calls=0), Snapshots()),
-        # No active publication for the document.
-        (Topology(), Snapshots(None)),
-        # Access is revoked while the window is read.
-        (Topology(allowed_calls=1), Snapshots()),
-        # The active version moves on while the window is read.
-        (Topology(), Snapshots("version-1", "version-2")),
-        # The document is unpublished while the window is read.
-        (Topology(), Snapshots("version-1", None)),
+        pytest.param(Topology(allowed_calls=0), Snapshots(), id="caller-may-not-read"),
+        pytest.param(Topology(), Snapshots(None), id="no-active-publication"),
+        pytest.param(Topology(allowed_calls=1), Snapshots(), id="access-revoked-mid-read"),
+        pytest.param(Topology(), Snapshots("version-1", "version-2"), id="version-moves-mid-read"),
+        pytest.param(Topology(), Snapshots("version-1", None), id="unpublished-mid-read"),
     ],
 )
 async def test_a_window_fails_closed_when_access_or_publication_does_not_hold(
@@ -254,5 +249,4 @@ async def test_a_single_chunk_over_budget_is_skipped_as_an_output_limit(
     assert response.outcome == "output_limit"
     assert response.chunks == ()
     assert response.next_offset == 1
-    # The skipped chunk still supplies the document title.
     assert response.document_title == "Guide"

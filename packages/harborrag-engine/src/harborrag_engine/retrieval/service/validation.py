@@ -6,6 +6,11 @@ from collections.abc import Mapping
 
 
 def required_text(values: Mapping[str, object], key: str) -> str:
+    """Return a required non-blank string field.
+
+    Raises:
+        ValueError: The field is missing or not a non-blank string.
+    """
     value = values.get(key)
     if not isinstance(value, str) or not value.strip():
         raise ValueError(f"retrieval candidate is missing {key}")
@@ -16,6 +21,11 @@ def required_mapping(
     values: Mapping[str, object],
     key: str,
 ) -> Mapping[str, object]:
+    """Return a required mapping field.
+
+    Raises:
+        ValueError: The field is missing or not a mapping.
+    """
     value = values.get(key)
     if not isinstance(value, Mapping):
         raise ValueError(f"retrieval candidate is missing {key}")
@@ -23,6 +33,12 @@ def required_mapping(
 
 
 def validate_retrieval_request(query: str, tenant_id: str, top_k: int) -> None:
+    """Validate the public retrieval inputs.
+
+    Raises:
+        ValueError: The query is blank, the tenant id is not 1 to 100 characters,
+            or ``top_k`` is outside 1 to 100.
+    """
     if not query.strip():
         raise ValueError("retrieval query must be non-empty")
     if not tenant_id.strip() or len(tenant_id) > 100:

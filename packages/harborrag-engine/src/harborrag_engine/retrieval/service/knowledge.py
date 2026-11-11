@@ -59,6 +59,7 @@ class KnowledgeRetrieval:
         *,
         access: AccessContext,
     ) -> EvidenceFetchResponse:
+        """Fetch authorized evidence chunks by id."""
         request_id = f"evidence-{uuid4().hex}"
         context = _context(access, request_id, "evidence-fetch")
         identity = DocumentIdentityBuilder()
@@ -86,6 +87,7 @@ class KnowledgeRetrieval:
         limit: int,
         access: AccessContext,
     ) -> EntityResolveResponse:
+        """Resolve an entity name to at most ``limit`` canonical mentions, one per entity."""
         topology = self._require_topology()
         request_id = f"entity-{uuid4().hex}"
         rows = await topology.active_mentions(
@@ -108,6 +110,7 @@ class KnowledgeRetrieval:
         chunk_ids: tuple[str, ...] = (),
         access: AccessContext,
     ) -> tuple[CanonicalMention, ...]:
+        """Look up canonical mentions by entity id or chunk id, one per entity."""
         topology = self._require_topology()
         if not entity_ids and not chunk_ids:
             return ()
@@ -129,6 +132,7 @@ class KnowledgeRetrieval:
         limit: int,
         access: AccessContext,
     ) -> RelationSearchResponse:
+        """Find active relations of an entity, filtered by predicate and direction."""
         topology = self._require_topology()
         request_id = f"relation-{uuid4().hex}"
         rows = await topology.active_assertions(
@@ -156,6 +160,7 @@ class KnowledgeRetrieval:
         self,
         request: SemanticPathRequest,
     ) -> SemanticPathResponse:
+        """Walk active assertions from the start entity, breadth first, within the request bounds."""
         topology = self._require_topology()
         request_id = f"path-{uuid4().hex}"
         queue = deque(

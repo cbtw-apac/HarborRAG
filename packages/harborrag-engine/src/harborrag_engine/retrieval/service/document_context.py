@@ -22,6 +22,12 @@ class _ContextUnavailableError(Exception):
 
 
 class DocumentContextReader:
+    """Read an ordered window of chunks bound to the document's active version.
+
+    Args:
+        resources: Readers shared by the bounded reader use cases.
+    """
+
     def __init__(self, resources: ReaderResources) -> None:
         self._topology = resources.topology
         self._snapshots = resources.snapshots
@@ -33,6 +39,11 @@ class DocumentContextReader:
         request_id: str,
         context: StorageOperationContext,
     ) -> DocumentContextResponse:
+        """Return the requested chunk window, or an unavailable response when it is hidden.
+
+        Raises:
+            HarborCapabilityError: The document context reader is not configured.
+        """
         if self._snapshots is None:
             raise HarborCapabilityError("document context reader is not configured")
         if not await self._document_allowed(request):

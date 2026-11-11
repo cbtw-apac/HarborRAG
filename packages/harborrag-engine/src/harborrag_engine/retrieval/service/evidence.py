@@ -77,6 +77,7 @@ def build_evidence_bundle(
     evidence: dict[str, TopologyEvidence],
     diagnostics: TopologyDiagnostics,
 ) -> EvidenceBundle:
+    """Group the results' topology evidence into assertions, paths, navigation and gaps."""
     assertions: dict[str, CanonicalAssertion] = {}
     paths: dict[EvidencePath, None] = {}
     navigation: dict[str, dict[str, object]] = {}
@@ -109,8 +110,11 @@ def build_evidence_bundle(
 
 
 def _conflicts(assertions: tuple[CanonicalAssertion, ...]) -> tuple[tuple[str, ...], ...]:
-    # Do not choose a winner by ingestion time. These are candidate conflicts,
-    # grouped conservatively only when the explicit temporal qualification agrees.
+    """Group assertions that may contradict each other, without choosing a winner.
+
+    Ingestion time never decides; assertions group only when their explicit
+    temporal qualification agrees.
+    """
     groups: dict[tuple[str, ...], list[CanonicalAssertion]] = {}
     for item in assertions:
         key = (
@@ -142,6 +146,7 @@ def _conflicts(assertions: tuple[CanonicalAssertion, ...]) -> tuple[tuple[str, .
 
 
 def evidence_metadata(evidence: TopologyEvidence) -> dict[str, object]:
+    """Render one result's topology evidence as response metadata."""
     return {
         "topology_build_ids": evidence.build_ids,
         "topology_assertion_ids": evidence.assertion_ids,
@@ -156,4 +161,5 @@ def evidence_metadata(evidence: TopologyEvidence) -> dict[str, object]:
 def budget_diagnostics(
     diagnostics: TopologyDiagnostics, tokens: int, excluded: int
 ) -> TopologyDiagnostics:
+    """Return ``diagnostics`` with the final context token count and budget exclusions."""
     return replace(diagnostics, context_tokens=tokens, budget_excluded=excluded)

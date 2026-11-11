@@ -10,6 +10,7 @@ async def apply_summary_views(
     reader: SummaryReaderPort | None,
     access: AccessContext,
 ) -> tuple[GraphNodeRecord, ...]:
+    """Join summary descriptions onto nodes after graph visibility and ACL checks."""
     if reader is None:
         return nodes
     eligible = tuple(

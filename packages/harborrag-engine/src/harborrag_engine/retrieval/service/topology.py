@@ -32,6 +32,17 @@ logger = logging.getLogger("harborrag.runtime.retrieval.topology")
 
 @dataclass(frozen=True, slots=True)
 class TopologyCandidates:
+    """Flat and semantic candidates with the evidence and diagnostics that go with them.
+
+    Args:
+        flat: Candidates from the ordinary vector search.
+        semantic: Validated semantic candidates; empty when topology is off.
+        evidence: Topology evidence keyed by chunk id.
+        diagnostics: What the semantic lane did.
+        semantic_weight: Weight of the semantic ranking in fusion.
+        rrf_constant: Reciprocal-rank-fusion constant.
+    """
+
     flat: tuple[VectorSearchResult, ...]
     semantic: tuple[VectorSearchResult, ...] = ()
     evidence: dict[str, TopologyEvidence] = field(default_factory=dict)
@@ -41,6 +52,7 @@ class TopologyCandidates:
 
     @property
     def candidates(self) -> tuple[VectorSearchResult, ...]:
+        """Fuse flat and semantic candidates into one ranking."""
         return fuse_candidates(
             self.flat,
             self.semantic,
@@ -50,6 +62,16 @@ class TopologyCandidates:
 
 
 class TopologyRetrieval:
+    """Add canonical-build-validated semantic candidates to a vector search.
+
+    Args:
+        repository: Canonical topology authority; ``None`` disables the lane.
+        vectors: Vector repository searched for semantic candidates.
+        validator: Active-version check applied to candidates.
+        policy: Lane limits; defaults apply when omitted.
+        contextual: Generated-view search, when configured.
+    """
+
     def __init__(
         self,
         repository: TopologySearchPort | None,
@@ -75,6 +97,7 @@ class TopologyRetrieval:
         context: StorageOperationContext,
         dense_vector: tuple[float, ...] | None = None,
     ) -> TopologyCandidates:
+        """Gather semantic candidates for ``query`` next to the flat ``candidates``."""
         batch = TopologyCandidates(
             candidates,
             diagnostics=TopologyDiagnostics(
@@ -164,6 +187,7 @@ class TopologyRetrieval:
         *,
         context: StorageOperationContext,
     ) -> tuple[list[tuple[VectorSearchResult, RetrievalResult]], TopologyDiagnostics]:
+        """Validate loaded semantic results against the canonical build and report diagnostics."""
         if not batch.semantic or self._repository is None:
             return loaded, batch.diagnostics
         try:
@@ -263,6 +287,11 @@ def _merge_contextual(
     *,
     rrf_constant: int = 60,
 ) -> tuple[tuple[VectorSearchResult, ...], dict[str, TopologyEvidence]]:
+    """Merge contextual hits into the semantic candidates.
+
+    Independent contextual and graph ranks receive equal weight in the enrichment
+    lane; neither inherits a systematic append-order penalty.
+    """
     contextual_candidates: list[VectorSearchResult] = []
     for candidate, support in contextual:
         chunk = str(candidate.payload.get("chunk_id", ""))
@@ -292,8 +321,6 @@ def _merge_contextual(
                 ),
             )
         )
-    # Independent contextual and graph ranks receive equal weight in the
-    # enrichment lane; neither inherits a systematic append-order penalty.
     return fuse_candidates(
         semantic, tuple(contextual_candidates), rrf_constant=rrf_constant
     ), evidence

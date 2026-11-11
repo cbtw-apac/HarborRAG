@@ -16,6 +16,18 @@ from .permissions import RetrievalPermissions
 
 @dataclass(frozen=True, slots=True)
 class ReaderResources:
+    """Dependencies shared by the bounded reader use cases.
+
+    Args:
+        vectors: Vector repository holding evidence points.
+        validator: Active-version check applied to evidence candidates.
+        permissions: Document ACL joins and final read validation.
+        topology: Canonical topology authority, when configured.
+        snapshots: Active document snapshot reader, when configured.
+        chunks: Immutable chunk artifact reader.
+        sources: Readable source catalog, when configured.
+    """
+
     vectors: VectorRepositoryPort
     validator: ActiveVersionCandidateValidator
     permissions: RetrievalPermissions

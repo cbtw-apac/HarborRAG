@@ -1,4 +1,8 @@
-"""Bounded, publication-safe reader workflows for MCP clients."""
+"""Bounded, publication-safe reader workflows for MCP clients.
+
+A shared source entity is stored without attributes, so its node key prefix, not the
+``external`` flag, marks a stub on read-back.
+"""
 
 from __future__ import annotations
 
@@ -31,8 +35,6 @@ from .reader_resources import ReaderResources
 from .summary_views import apply_summary_views
 
 _READ_DEADLINE_SECONDS = 10
-# ``external_source_entity_node_key``'s domain prefix: a shared source entity is stored
-# without attributes, so the key, not the ``external`` flag, marks a stub on read-back.
 _EXTERNAL_STUB_KEY_PREFIX = "graph-v2-external-source-entity:"
 _RESOLUTION_CANDIDATE_LIMIT = 100
 
@@ -47,12 +49,14 @@ class ReaderRetrieval:
         self._catalog = DocumentCatalogReader(resources)
 
     async def list_documents(self, request: DocumentListRequest) -> DocumentListResponse:
+        """List readable documents within the read deadline."""
         request_id = f"documents-{uuid4().hex}"
         context = _context(request.access, request_id, "document-list")
         async with asyncio.timeout(_READ_DEADLINE_SECONDS):
             return await self._catalog.list_documents(request, request_id, context)
 
     async def read_evidence(self, request: EvidenceReadRequest) -> EvidenceReadResponse:
+        """Read authorized immutable evidence within the read deadline."""
         request_id = f"evidence-{uuid4().hex}"
         context = _context(request.access, request_id, "evidence-read")
         async with asyncio.timeout(_READ_DEADLINE_SECONDS):
@@ -60,12 +64,18 @@ class ReaderRetrieval:
         return EvidenceReadResponse(request_id, items)
 
     async def document_context(self, request: DocumentContextRequest) -> DocumentContextResponse:
+        """Read ordered document context within the read deadline."""
         request_id = f"document-{uuid4().hex}"
         context = _context(request.access, request_id, "document-context")
         async with asyncio.timeout(_READ_DEADLINE_SECONDS):
             return await self._documents.read(request, request_id, context)
 
     async def list_sources(self, request: SourceListRequest) -> SourceListResponse:
+        """List the sources the caller may read.
+
+        Raises:
+            HarborCapabilityError: The source catalog is not configured.
+        """
         if self._resources.sources is None:
             raise HarborCapabilityError("source catalog is not configured")
         request_id = f"sources-{uuid4().hex}"
@@ -85,6 +95,14 @@ class ReaderRetrieval:
     async def resolve_graph_nodes(
         self, request: GraphNodeResolveRequest
     ) -> GraphNodeResolveResponse:
+        """Resolve graph nodes the caller may see, with summary descriptions joined.
+
+        Visibility uses the reader's own grants, not the batch's, and the graph
+        query is issued only when the principal can read something in the tenant.
+
+        Raises:
+            HarborCapabilityError: Graph retrieval is not configured.
+        """
         if self._resources.graph is None:
             raise HarborCapabilityError("graph retrieval is not configured")
         request_id = f"nodes-{uuid4().hex}"
@@ -97,8 +115,6 @@ class ReaderRetrieval:
             visible = await self._visible_nodes(
                 raw.candidates,
                 request.access,
-                # The reader's own grants, not the batch's: the query is only issued at
-                # all when the principal can read something in the tenant.
                 tenant_readable=query.access_scope is None or query.access_scope.tenant_visible,
             )
             visible = await apply_summary_views(visible, self._resources.summaries, request.access)
@@ -170,14 +186,18 @@ def _node_visible(
     tenant_visible: bool,
     tenant_readable: bool,
 ) -> bool:
+    """Decide whether a node is visible to the caller.
+
+    A shared external stub is visible to anyone who can read the tenant: its
+    ``source_scope_id`` is only the declarer projected last, so checking it would
+    flip the stub with ingestion order. This is the rule of
+    ``graph_visibility._record_authorized`` and the FalkorDB access predicate.
+    """
     if node.ownership_scope == GraphOwnershipScope.TENANT:
         return tenant_visible
     if node.document_id is not None:
         return str(node.document_id) in documents
     if node.node_key.startswith(_EXTERNAL_STUB_KEY_PREFIX):
-        # A shared external stub's source_scope_id is just the declarer projected last;
-        # checked against it, the stub flipped with ingestion order. Same rule as
-        # graph_visibility._record_authorized and the FalkorDB access predicate.
         return tenant_readable
     return node.source_scope_id in sources
 

@@ -96,9 +96,7 @@ async def test_a_second_over_budget_request_skips_the_document_enumeration() -> 
         scoped = await permissions.scope_filter(None, CONTEXT)
         assert [(c.field, c.value) for c in scoped.must] == [("source_scope_id", ["HR-2025"])]
 
-    # Only the first request paid for the discarded 10k-row enumeration.
     assert (repository.document_calls, repository.scope_calls) == (1, 3)
-    # Another principal is not affected by this one's corpus size.
     other = StorageOperationContext.for_access(
         AccessContext(principal_id="someone-else", tenant_id="DEFAULT"),
         operation_kind="search",
@@ -106,7 +104,6 @@ async def test_a_second_over_budget_request_skips_the_document_enumeration() -> 
     )
     await permissions.scope_filter(None, other)
     assert repository.document_calls == 2
-    # Once the memory expires the documents are tried again, in case the set shrank.
     now[0] += 61
     await permissions.scope_filter(None, CONTEXT)
     assert repository.document_calls == 3

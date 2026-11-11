@@ -48,6 +48,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativeTripletResult:
+        """Search authorized graph triplets, with summary descriptions joined to their nodes.
+
+        Raises:
+            HarborCapabilityError: No knowledge graph is configured.
+        """
         async with asyncio.timeout(10):
             result = await self._require_graph_search().triplets(
                 query,
@@ -74,6 +79,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativePathResult:
+        """Search authorized graph paths, with summary descriptions joined to their nodes.
+
+        Raises:
+            HarborCapabilityError: No knowledge graph is configured.
+        """
         async with asyncio.timeout(10):
             result = await self._require_graph_search().paths(
                 query,
@@ -101,6 +111,11 @@ class RuntimeGraphRetrievalMixin:
         *,
         access: AccessContext,
     ) -> AuthoritativeSubgraphResult:
+        """Search an authorized subgraph, with summary descriptions joined to its nodes.
+
+        Raises:
+            HarborCapabilityError: No knowledge graph is configured.
+        """
         async with asyncio.timeout(10):
             result = await self._require_graph_search().subgraph(
                 query,

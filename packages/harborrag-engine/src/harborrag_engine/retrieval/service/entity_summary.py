@@ -11,6 +11,11 @@ Nothing is served from the summary point itself. It yields a node key; the
 summary authority decides, per request, whether that binding is readable and
 current, and answers with chunk identities. Those chunks then go through the same
 permission validation and loading as every other candidate.
+
+With facet filters the lane does selection, not enrichment: the caller has said which
+entities count, so the ceiling is how many of them are ranked. A facet name that no
+source scope declared cannot match anything, so the empty answer it produces is not
+conclusive and is reported as ``UNKNOWN_FACET``.
 """
 
 from __future__ import annotations
@@ -49,12 +54,8 @@ from .source_fields import PayloadIndexCatalog
 
 _MAX_ENTITIES = 8
 _MAX_CHUNKS_PER_ENTITY = 8
-# With facet filters the lane is doing selection, not enrichment: the caller has
-# said which entities count, so the ceiling is how many of them we will rank.
 _MAX_SELECTED_ENTITIES = 50
 FACET_FILTER_PREFIX = "facet."
-# A facet named that no source scope declared: the filter cannot match anything,
-# so the empty answer it produces is not a conclusive one.
 UNKNOWN_FACET = "unknown_facet"
 _FACET_NAME = re.compile(FACET_NAME_PATTERN)
 
@@ -126,6 +127,15 @@ def _folded_condition(condition: VectorFilterCondition) -> VectorFilterCondition
 
 @dataclass(frozen=True)
 class EntityHit:
+    """An entity summary point that matched the question.
+
+    Args:
+        node_key: Graph node key of the source entity.
+        source_scope_id: Scope the entity belongs to, when known.
+        score: Similarity of the summary point.
+        coverage_mode: How completely the summary covers the entity, when stated.
+    """
+
     node_key: str
     source_scope_id: str | None
     score: float
@@ -196,7 +206,9 @@ class EntitySummarySearch:
 
         Returns the input unchanged on every path that cannot be served safely,
         so a missing index, an empty vector or an unreadable binding degrades to
-        plain chunk retrieval instead of failing the request.
+        plain chunk retrieval instead of failing the request. The scope conditions
+        narrow the entity ranking without turning enrichment into selection, so
+        the mode's own entity ceiling stays.
         """
 
         if dense_vector is None or len(dense_vector) != self.profile.dimension:
@@ -205,8 +217,6 @@ class EntitySummarySearch:
             dense_vector,
             context,
             _with_scope_conditions(facet_filter, chunk_filter),
-            # The scope conditions narrow the ranking; they do not turn
-            # enrichment into selection, so the mode's own ceiling stays.
             limit=_MAX_SELECTED_ENTITIES if facet_filter is not None else self.max_entities,
         )
         reached = tuple(
@@ -346,7 +356,7 @@ class EntitySummarySearch:
     async def _undeclared_facets(
         self, facets: Mapping[str, object], context: StorageOperationContext
     ) -> tuple[str, ...]:
-        """The facet names the entity index has no payload index for.
+        """Return the facet names the entity index has no payload index for.
 
         Every facet any scope declares is indexed when its cards are published,
         so a name missing from the index was declared nowhere: a filter on it can
@@ -424,6 +434,11 @@ class EntitySummarySearch:
         node_keys: tuple[str, ...],
         context: StorageOperationContext,
     ) -> tuple[VectorSearchResult, ...]:
+        """Load the evidence chunks of the ranked entities, in entity rank order.
+
+        A chunk's position is its entity's rank, not its own similarity, which is
+        the point of the lane.
+        """
         if not node_keys:
             return ()
         evidence = await self.summaries.entity_evidence(
@@ -451,8 +466,6 @@ class EntitySummarySearch:
             and row.payload.get("record_kind") == "evidence"
             and row.payload.get("chunk_id") in set(chunks)
         }
-        # Preserve the entity ranking: a chunk's position here is its entity's
-        # rank, not its own similarity, which is the point of the lane.
         return tuple(
             VectorSearchResult(id=row.id, score=0, raw_score=0, payload=row.payload)
             for chunk in chunks
@@ -548,7 +561,7 @@ def _is_number(value: object) -> bool:
 
 
 def _same(value: object, wanted: object) -> bool:
-    # ``True == 1`` in Python, never in a payload match.
+    """Compare a payload value to a wanted one, never letting ``True`` match ``1``."""
     if isinstance(value, bool) or isinstance(wanted, bool):
         return isinstance(value, bool) and isinstance(wanted, bool) and value is wanted
     return value == wanted

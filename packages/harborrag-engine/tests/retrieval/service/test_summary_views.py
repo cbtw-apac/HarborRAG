@@ -74,7 +74,6 @@ def test_the_card_ceiling_is_wide_but_the_enforced_budget_is_the_policy_s():
     )
     assert widened.card_words.for_kind("SourceEntity") == 400
     assert widened.card_words.for_kind("DocumentVersion") == 60
-    # A budget is model-affecting, so it has to move the fingerprint.
     assert widened.fingerprint != SummaryPolicy(model_fingerprint="model").fingerprint
 
 

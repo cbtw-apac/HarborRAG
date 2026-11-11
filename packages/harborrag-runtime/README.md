@@ -4,7 +4,8 @@ Composes [HarborRAG](https://github.com/cbtw-apac/HarborRAG) for production: it 
 repositories, model clients and engine policies from settings, and runs ingestion either
 inline or durably on Temporal. It also hosts the SDK facade, retrieval, chat and memory
 composition, schedules and topology enrichment. Domain types and ports live in
-`harborrag-core`; adapters and the engine stay unaware of Temporal.
+`harborrag-core`; the retrieval use cases live in `harborrag-engine`; adapters and the
+engine stay unaware of Temporal.
 
 To use HarborRAG as a library, install the [`harborrag`](https://pypi.org/project/harborrag/)
 facade instead, which re-exports this package's SDK.
@@ -27,7 +28,7 @@ src/harborrag_runtime/
   execution/                # direct and durable execution strategies, source submission, task registry
   temporal/                 # workflows, activities, client, gateway, schedule backend and the worker
   ingestion/                # document release, source orchestration and maintenance services
-  retrieval/                # authoritative dense, sparse, hybrid and graph retrieval, and reranking
+  retrieval/                # retrieval service, its composition from settings and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
   memory/                   # database-backed conversation memory and its composition
   scheduling/               # schedule management on top of the execution engine
@@ -48,7 +49,6 @@ src/harborrag_runtime/
   plugins.py                # entry-point plugin discovery and registration
   rate_limiting.py          # connector rate-limit coordination
   serialization.py          # deterministic JSON conversion of runtime values
-  tokenization.py           # provider-neutral token estimates
   errors.py                 # runtime and Temporal boundary errors
 ```
 
@@ -149,15 +149,20 @@ groups are `harborrag.connectors`, `harborrag.parsers`, `harborrag.model_provide
 
 ## Retrieve and rerank
 
-Retrieval composes the same embedding model, active Qdrant collection, FalkorDB graph and
-canonical chunk object store that ingestion writes. Query embeddings are marked sensitive
-and non-cacheable.
+The retrieval use cases (permission-scoped search, evidence selection, graph and reader
+workflows) live in the
+[`harborrag_engine.retrieval.service`](https://github.com/cbtw-apac/HarborRAG/tree/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service)
+package. This package's `retrieval/` module wires them to adapters:
+`RuntimeRetrievalService` composes the same embedding model, active Qdrant collection,
+FalkorDB graph and canonical chunk object store that ingestion writes. Query embeddings
+are marked sensitive and non-cacheable.
 
-`harborrag_engine/retrieval/service/reranking.py` holds the rerank stage. `PassageReranker` orders passages the
-caller may already read, using the client built from the `rerank` section of the model
-catalog. It puts the model's score in `metadata["rerank_score"]` and leaves `relevance`
-at the lane's similarity. Passage text is sent to the rerank provider as sensitive and
-non-cacheable.
+The rerank stage is `PassageReranker` in the engine's
+[`reranking.py`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-engine/src/harborrag_engine/retrieval/service/reranking.py).
+It orders passages the caller may already read, using the client built from the `rerank`
+section of the model catalog. It puts the model's score in `metadata["rerank_score"]` and
+leaves `relevance` at the lane's similarity. Passage text is sent to the rerank provider
+as sensitive and non-cacheable.
 
 ## Monitor ingestion
 
