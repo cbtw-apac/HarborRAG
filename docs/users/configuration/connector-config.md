@@ -179,7 +179,8 @@ the pages of `space_key`. The shipped file takes both from the environment, and
 [Add a connection](../connections.md#add-a-connection) lists as `api_token` (Cloud)
 and `pat` (Data Center).
 
-<details markdown="1"><summary>Jira Cloud or Confluence Cloud</summary>
+<details markdown="1">
+<summary>Jira Cloud or Confluence Cloud</summary>
 
 Cloud signs in with an account's email address and an Atlassian API token. Create the
 token as Atlassian describes in
@@ -206,7 +207,8 @@ place of `project_keys`, and `CONFLUENCE_TOKEN` and `CONFLUENCE_EMAIL`.
 
 </details>
 
-<details markdown="1"><summary>Jira Data Center or Confluence Data Center</summary>
+<details markdown="1">
+<summary>Jira Data Center or Confluence Data Center</summary>
 
 Data Center signs in with a personal access token and no email address. Create the
 token as Atlassian describes in
@@ -265,7 +267,8 @@ national clouds.
 is `access_token` if a token is set, else `client_credentials`; delegated access is
 never inferred.
 
-<details markdown="1"><summary>App-only sign-in (client_credentials)</summary>
+<details markdown="1">
+<summary>App-only sign-in (client_credentials)</summary>
 
 The app signs in with its own client secret and an application `Sites.Selected` grant
 ([Permissions](#permissions)).
@@ -286,7 +289,8 @@ connectors:
 
 </details>
 
-<details markdown="1"><summary>Delegated sign-in (device_code)</summary>
+<details markdown="1">
+<summary>Delegated sign-in (device_code)</summary>
 
 The connector reads as a user who signed in once; no client secret is used. Set up
 the app and sign in as [Delegated sign-in](#delegated-sign-in) describes.

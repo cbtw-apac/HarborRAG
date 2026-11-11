@@ -21,7 +21,8 @@ Install these tools first. Each link goes to the tool's own installation guide.
 | OpenSSL | The setup script uses it to generate keys. macOS and most Linux distributions include it | `openssl version` |
 | curl | Checks that the stack is ready | `curl --version` |
 
-<details markdown="1"><summary>macOS</summary>
+<details markdown="1">
+<summary>macOS</summary>
 
 Install [Docker Desktop for Mac](https://docs.docker.com/desktop/setup/install/mac-install/),
 which includes Compose, and start it before you continue. The setup script runs with the
@@ -29,7 +30,8 @@ Bash and sed that macOS ships.
 
 </details>
 
-<details markdown="1"><summary>Linux</summary>
+<details markdown="1">
+<summary>Linux</summary>
 
 Install [Docker Engine](https://docs.docker.com/engine/install/) with its Compose plugin, then
 follow the [post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/)
@@ -37,7 +39,8 @@ so that your user can run `docker` without `sudo`. The setup script calls `docke
 
 </details>
 
-<details markdown="1"><summary>Windows</summary>
+<details markdown="1">
+<summary>Windows</summary>
 
 HarborRAG runs on Linux and macOS only, so use WSL 2:
 [install WSL](https://learn.microsoft.com/windows/wsl/install), turn on
