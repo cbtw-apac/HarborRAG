@@ -67,8 +67,8 @@ a logical model of the catalog's `embed` section, such as `primary`.
 
 Changing the embedding model needs a re-index. Vectors written by the previous model
 have the same 1536 dimensions, so nothing reports an error: retrieval quality drops
-without warning until every source is re-ingested with `--force-reprocess` (or
-`harborrag source sync PROJECT/CONNECTION --mode force`).
+without warning until every connection is re-ingested in `force` mode, for example
+with `harborrag ingestions start default/harborrag-workspace --mode force`.
 
 ### Optional memory model
 

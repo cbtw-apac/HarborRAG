@@ -66,8 +66,8 @@ secrets in the ignored `env/.env.temporal` file or a secret manager, never in th
 - `ingestion.batch_size` is the number of documents per `SourceBatchWorkflow` child, and
   `ingestion.document_concurrency` the number of concurrent `DocumentIngestionWorkflow`
   children per wave. Per-document latency is roughly `document_concurrency` divided by
-  throughput. `harborrag ingest start --batch-size` and `--document-concurrency` override them
-  for one run.
+  throughput. An SDK `IngestionRequest` can override `document_concurrency` for one run; the
+  CLI and the HTTP API cannot.
 - `workflow.execution_timeout_seconds` is 2592000, 30 days.
 
 ## Tune settings for ingestion tests

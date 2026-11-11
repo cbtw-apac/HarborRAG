@@ -13,16 +13,24 @@ not exist is an error.
 
 ## Check the file
 
-Validate the file and print its effective values, including every key this page
-leaves out:
+Load the file with the runtime's own loader, from the root of a repository checkout:
 
 ```bash
-harborrag topology config validate
+uv run python -c "
+from harborrag_runtime.config import load_graph_build_config
+config = load_graph_build_config('config/graph/build.yaml')
+print([tenant.tenant_id for tenant in config.tenants])
+"
 ```
 
-The output is one JSON envelope that starts with `{"ok": true, "data": {"runtime": {…`.
-`--path` checks another file. `harborrag topology config apply` writes the tenant and
-source policy to the control database.
+For the shipped file it prints `['DEFAULT']`. An invalid file raises
+`GraphBuildConfigurationError`, which names the file and each failing key with its
+problem, such as `runtime.bogus_key` and `Extra inputs are not permitted`. Pass another
+path to check another file.
+
+The CLI has no command for this file in 2.0.0: `harborrag topology config validate` and
+`harborrag topology config apply`, which wrote the tenant and source policy to the
+control database, were removed with the rest of `harborrag topology`.
 
 ## File layout
 
@@ -67,7 +75,7 @@ are rejected at load time.
 
 Each `tenants` entry sets the graph policy of one tenant and of its sources. A source
 is named by its source scope ID, the stable ID of the content one ingestion source
-covers (`--source-scope-id` on `harborrag ingest run`).
+covers.
 
 | Key | Default | Meaning |
 | --- | --- | --- |

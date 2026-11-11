@@ -19,6 +19,7 @@
 - [Scheduled Ingestion](users/scheduled-ingestion.md)
 - [Python SDK](users/python-sdk/README.md)
 - [CLI Reference](users/cli-reference/README.md)
+  - [CLI Command Reference](users/cli-reference/commands.md)
 - [Configuration](users/configuration/README.md)
   - [Connector Configuration](users/configuration/connector-config.md)
   - [Parser Configuration](users/configuration/parser-config.md)

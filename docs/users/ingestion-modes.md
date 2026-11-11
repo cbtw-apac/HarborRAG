@@ -14,13 +14,13 @@ Every way of starting a run sets the same switch:
 | Where you start the run | How to force re-evaluation |
 | --- | --- |
 | HTTP API | `"mode": "force"` in the `POST /v1/admin/ingestions` body |
-| CLI, by project and connection | `harborrag source sync PROJECT/CONNECTION --mode force` |
-| CLI, by `source_key` | `harborrag ingest start CONNECTOR --force-reprocess`, or the same option on `ingest run` |
+| CLI | `harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`, with or without `--inline` |
 | Python SDK | `IngestionRequest(force_reprocess=True)` |
 | Schedule | `mode: force` under `source:` in `config/sources/schedules.yaml`; see [Scheduled ingestion](scheduled-ingestion.md) |
 
-Without one of these, a run is `incremental`. `CONNECTOR` is the connection's
-`source_key`; see [Name the connector](cli-reference/README.md#name-the-connector).
+Without one of these, a run is `incremental`. `PROJECT_ID/CONNECTION_ID` is the
+connection's ref, such as `default/harborrag-workspace`; see
+[Run and control ingestion](cli-reference/README.md#run-and-control-ingestion).
 
 The mode is not `execution_mode`, which is `direct` or `temporal` and chooses how a run
 executes rather than what it admits.
@@ -76,18 +76,12 @@ for the full artifact, projection, verification and publication path.
 
 ### Narrow a run
 
-`harborrag ingest start` and `harborrag ingest run` can narrow one run:
-
-- `--path`: a path inside the connector's source root; for a local folder, relative to
-  its `source_path`.
-- `--pattern`: a case-insensitive substring, or a glob matched against the path relative
-  to the source root.
-- `--filters-json`: connector filters as a JSON object; a local folder connection
-  rejects unknown keys.
-
-`source sync` does not take these options. The HTTP body takes `updated_after` instead,
-to re-read the items changed since a date-time; see
-[`POST /v1/admin/ingestions`](connections.md#post-v1adminingestions).
+A run reads the scope the connection's configuration defines. To re-read only the items
+changed since a date-time, send `updated_after` in the HTTP body, or pass
+`--updated-after` to `harborrag ingestions start`, with a UTC offset such as
+`2026-11-01T00:00:00Z`; see
+[`POST /v1/admin/ingestions`](connections.md#post-v1adminingestions). To narrow what a
+connection reads, change its `config`.
 
 ## Run a force ingestion
 
@@ -132,7 +126,7 @@ workflow is the tool, but no CLI command or HTTP route starts it yet; see
 
 ## Run the CLI from a checkout
 
-From a repository checkout, `ingest run` and `ingest start` refuse the local SQLite
+From a repository checkout, `harborrag ingestions start` refuses the local SQLite
 control database until `HARBORRAG_CONTROL_DB_URL` points at the stack's Postgres. The
 setup is in [Run from a repository checkout](cli-reference/README.md#run-from-a-repository-checkout).
 Three details of that setup are not covered there:

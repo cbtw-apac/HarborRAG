@@ -75,9 +75,9 @@ discovered -> admitted -> artifacts written -> projections verified -> active
 
 ## Retrieval path
 
-Retrieval does not run through Temporal. A request comes from the Python SDK, the CLI
-(`harborrag retrieve`), an MCP tool, or chat over HTTP or `harborrag chat`; the HTTP API has
-no retrieval routes of its own. Every request follows the same direct path:
+Retrieval does not run through Temporal. A request comes from the Python SDK, an MCP tool,
+or chat over HTTP or `harborrag chat`; neither the HTTP API nor the CLI has a retrieval
+command or route of its own. Every request follows the same direct path:
 
 1. The entry point builds the query and the required access context.
 2. Under the default `source_acl` access mode, canonical document permissions produce an
@@ -124,13 +124,13 @@ changes the authority model above.
 ## Current boundaries
 
 - MCP is a governed, read-only retrieval surface; it exposes neither ingestion nor chat.
-- Only chat reranks, and only when the `retrieval.rerank` runtime setting is on;
-  `harborrag retrieve` and the MCP `vector_search` tool do not. See
+- Only chat reranks, and only when the `retrieval.rerank` runtime setting is on; the MCP
+  `vector_search` tool does not. See
   [Rerank chat retrieval](../../users/configuration/runtime-settings.md#rerank-chat-retrieval).
 - Query rewriting is an engine port, `QueryRewriter`, that no runtime path wires yet.
-- Connectors do not synchronize permission snapshots. Under the default `source_acl` mode
-  they are imported with `harborrag topology indexing permissions-import`; a tenant whose
-  corpus is deliberately shared uses `tenant_shared` instead. See
+- Connectors do not synchronize permission snapshots, and 2.0.0 has no command that
+  imports them (`harborrag topology indexing permissions-import` was removed); a tenant
+  whose corpus is deliberately shared uses `tenant_shared` instead. See
   [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 - Cleanup and relationship repair can be eventually consistent after a safe publication.
 - Production identity, TLS, network isolation, secret delivery, backups, observability and

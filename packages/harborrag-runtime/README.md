@@ -120,8 +120,8 @@ deployment. Every supported field is listed in
 [Temporal configuration](https://github.com/cbtw-apac/HarborRAG/blob/main/deploy/temporal/README.md).
 Keep `HARBORRAG_TEMPORAL_API_KEY` in `env/.env.temporal` or a secret manager.
 
-Operators drive the same runtime with the `harborrag ingest` commands of a repository
-checkout. Their options and how to name a connection are in the
+Operators drive the same runtime with the `harborrag ingestions` commands of a repository
+checkout. How they name a connection and follow a run is in the
 [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-and-control-ingestion).
 
 Applications that bypass the SDK can submit to Temporal with

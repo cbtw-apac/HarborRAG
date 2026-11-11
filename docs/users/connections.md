@@ -2,9 +2,10 @@
 
 Connect HarborRAG to a data source, such as a Jira project, a Confluence space, a
 SharePoint site, a GitHub repository or a local folder, then start, follow and retry its
-ingestions. You do this over the HTTP API, or from a terminal with the
-`harborrag source` commands, which call the same service (see the
-[CLI reference](cli-reference/README.md#manage-connections)).
+ingestions. You do this over the HTTP API, or from a terminal with the `harborrag`
+`projects`, `connections`, `ingestions` and `failures` commands, which call the same
+operations (see the
+[CLI reference](cli-reference/README.md#manage-projects-and-connections)).
 
 ## Terms used on this page
 
@@ -16,12 +17,13 @@ ingestions. You do this over the HTTP API, or from a terminal with the
 - **Connection**: one configured data source in a project. It holds the source type
   (`source_type`), how to sign in (`credentials`), what to read (`config`), how to call
   the source (`advanced`: request rate, paging, timeouts and retries) and a display
-  `name`. Its address is `PROJECT/CONNECTION`, such as `demo/demo-tickets`.
-- **`source_key`**: the name that `harborrag ingest`, the Python SDK and schedules use
-  for a connection. A connection imported from `config/sources/connectors.yaml` keeps
-  its YAML key, such as `jira-main`. A connection created through the API or
-  `harborrag source add`, or one that existed before database migration 0041, has the
-  form `PROJECT/CONNECTION`.
+  `name`. Its address, the `connection_ref`, is `PROJECT_ID/CONNECTION_ID`, such as
+  `demo/demo-tickets`; the CLI names connections by it.
+- **`source_key`**: the name that the Python SDK and schedules use for a connection. A
+  connection imported from `config/sources/connectors.yaml` keeps its YAML key, such as
+  `jira-main`. A connection created through the API or `harborrag connections create`,
+  or one that existed before database migration 0041, has the form
+  `PROJECT_ID/CONNECTION_ID`.
 - **Ingestion**, or run: one pass that reads a connection's source and indexes what
   changed.
 
@@ -31,13 +33,13 @@ change applies from the next run on every worker, with no restart.
 
 ## Where the first connections come from
 
-`config/sources/connectors.yaml` is read once: when the API first starts, or when the
-CLI starts its first ingestion, on an install that holds no project and no connection
-yet. Its entries become connections in project `default` of the tenant that
-`HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). Each YAML key becomes the
-connection's `connection_id` and its `source_key`. The attempt is recorded, a failed one
-too, and the file is never read again. After that, change connections through the API or
-`harborrag source`. The file format is in
+`config/sources/connectors.yaml` is read once, when the API first starts on an install
+that holds no project and no connection yet. Its entries become connections in project
+`default` of the tenant that `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). Each
+YAML key becomes the connection's `connection_id` and its `source_key`, so the entry
+`jira-main` becomes the connection `default/jira-main`. The attempt is recorded, a
+failed one too, and the file is never read again. After that, change connections
+through the API or the `harborrag connections` commands. The file format is in
 [Connector configuration](configuration/connector-config.md); moving from 1.x is in
 [Upgrading](upgrading.md).
 
@@ -51,7 +53,7 @@ too, and the file is never read again. After that, change connections through th
   On the local stack, `env/.env.api` (copied from `env-example/.env.api.example`) sets
   `HARBORRAG_AUTH_MODE=none`, which treats every request from the same machine as
   `owner`, so leave out the `Authorization` header there.
-- A project. Creating one needs the `admin` role, and the CLI has no command for it:
+- A project. Creating one needs the `admin` role:
 
     ```bash
     curl -X PUT -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -59,7 +61,9 @@ too, and the file is never read again. After that, change connections through th
       -d '{"project_name": "Demo"}'
     ```
 
-    `201` means the project was created, `200` that it existed and was updated.
+    `201` means the project was created, `200` that it existed and was updated. From a
+    terminal, `harborrag projects create demo --project-name Demo` creates it and fails
+    with `412` when it exists.
 
 ## Add a connection
 
@@ -167,7 +171,8 @@ python -m harborrag_adapters.connectors.sharepoint.login \
 Without a `token_cache_path`, the sign-in is kept per HarborRAG tenant, so pass the
 connection's tenant to `--harborrag-tenant` (the default is `HARBORRAG_TENANT_ID`, else
 `DEFAULT`). `token_cache_path` is a path on the worker, so only
-`config/sources/connectors.yaml` and the `harborrag source` CLI can set or change it;
+`config/sources/connectors.yaml` and the `harborrag connections` commands can set or
+change it;
 through the API, send it back as read, or leave it out when it was never set.
 
 </details>
@@ -215,8 +220,9 @@ check fails, `ok` is `false`, the failing check carries a `message`, and
 the worker can read. A test gives up after 15 seconds. Without a body, the call tests
 the saved connection.
 
-From a terminal, `harborrag source test demo/demo-tickets --file demo-tickets.yaml`
-tests a body file the same way and exits 1 when a check fails.
+From a terminal, `harborrag connections test demo/demo-tickets -f demo-tickets.yaml`
+tests a body file the same way. It exits 0 even when a check fails, as the route answers
+`200`, so read `ok` from its output.
 
 ### 3. Save the connection
 
@@ -236,9 +242,10 @@ call: a `PUT` to a new `connection_id` creates it. Use the project's ID, such as
 `default`, not its display name; a write that names a project by its display name
 answers `404 project 'Default' not found; did you mean 'default'?`.
 
-From a terminal, `harborrag source add demo/demo-tickets --file demo-tickets.yaml`
+From a terminal, `harborrag connections create demo/demo-tickets -f demo-tickets.yaml`
 creates the connection from a YAML or JSON body file and refuses an ID that already
-exists.
+exists with `412`. Leave the token out of the file and add `--secret-prompt api_token` to
+type it without echo.
 
 ### 4. Start the first ingestion
 
@@ -253,8 +260,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 The answer is `202` with the new run, including its `ingestion_id` and `status`. Follow
 it with `GET /v1/admin/ingestions/{ingestion_id}` until `status` is `succeeded`, or
 stream its events; see [Start and control ingestions](#start-and-control-ingestions).
-From a terminal, `harborrag source sync demo/demo-tickets` starts the run and prints the
-`harborrag ingest watch` command that follows it.
+From a terminal, `harborrag ingestions start demo/demo-tickets` starts the run and prints
+it; add `--wait` to follow it until it ends.
 
 ## Swagger UI templates
 
@@ -429,7 +436,7 @@ A secret field accepts a value or a reference:
 | You send | What is stored |
 | --- | --- |
 | `"api_token": "ATATT3x..."` | The value, encrypted in the control database. Sending the value already stored keeps it, and clears a `needs_reauth` status. |
-| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/sources/connectors.yaml` and the `harborrag source` CLI can set one; the API answers `422` and asks for the value. |
+| `"api_token": {"secret_ref": "env:JIRA_TOKEN"}` | A reference: the worker reads `JIRA_TOKEN` from its own environment when the run starts. Only `config/sources/connectors.yaml` and the `harborrag connections` commands can set one; the API answers `422` and asks for the value. |
 | The field left out, or its status sent back | The stored value or reference is kept. Re-saving a form without the key keeps it. |
 | `"api_token": null` | Refused with `422` and `required`; the stored value is kept. Every secret is required by its auth method, so switch `method` to drop it. |
 
@@ -576,7 +583,9 @@ The PDF and image limits are set in `config/ingestion/parsers.yaml`
 The tenant comes from the credential. A credential that holds one tenant acts in it. A
 credential that holds several sends `X-Tenant-Id` to pick one; without the header the
 call fails with `400 tenant_required`. A wildcard (`*`) credential without the header
-acts in `DEFAULT`. A tenant the credential does not hold gives `403 tenant_forbidden`.
+acts in the tenant `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). A tenant the
+credential does not hold gives `403 tenant_forbidden`. The CLI takes the tenant from
+`--tenant`.
 See [Tenant and workspace status](configuration/workspace-mode.md).
 
 ## Local files
@@ -591,7 +600,8 @@ link out of it is refused too.
   `env/.env.database`.
 - Without a root, the API refuses `local_file` connections with `422` on
   `config.source_path`, since any file the workers can read would otherwise be accepted.
-  `config/sources/connectors.yaml` and the `harborrag source` CLI can still add them.
+  `config/sources/connectors.yaml` and the `harborrag connections` commands can still add
+  them.
 
 ## Connection status
 
@@ -607,7 +617,9 @@ link out of it is refused too.
 Errors use `{"error": {"code", "message", "details", "trace_id"}}`. A
 `422 validation_error` lists each failing field in `details` as
 `[{"field": "credentials.base_url", "issue": "..."}]`; fields are named
-`credentials.<name>`, `config.<name>` or `advanced.<name>`.
+`credentials.<name>`, `config.<name>` or `advanced.<name>`. The CLI prints the same
+envelope on stderr with `-o json`, and exits with the code its
+[status maps to](cli-reference/README.md#read-errors-and-exit-codes).
 
 ## Removed routes
 

@@ -80,8 +80,11 @@ removed; [Temporal configuration](../../deploy/temporal/README.md) and
   or `graph/build.yaml` means the built-in defaults, and the graph-build defaults make
   no LLM calls; a missing `mcp/server.yaml` means the packaged MCP defaults. A missing
   `schedules.yaml` always means no declared schedules. A file left at its old path is
-  therefore ignored without a warning. Run `harborrag doctor` and
-  `harborrag topology config validate` after the move.
+  therefore ignored without a warning. Run `harborrag doctor` after the move; it checks
+  the connector, parser, model and chunking files. `harborrag topology config validate`
+  is removed, so check `config/graph/build.yaml` as
+  [Graph build configuration](configuration/graph-build-config.md#check-the-file)
+  shows.
 - A relative `source_path` written directly in `connectors.yaml` resolves against the
   file's folder, now `config/sources/`. Add a `../` or use an absolute path.
   Environment-backed paths such as `LOCAL_SOURCE_PATH` are unaffected.
@@ -184,18 +187,145 @@ gateway as `primary` is: `provider: openai_compatible`, `api_base: ${HARBORRAG_U
 The shipped embedding model is now the gateway's, in the embedding space
 `harbor-cohere-embed-v4`. Vectors written by the previous model have the same 1536
 dimensions, so nothing reports an error, but retrieval quality drops without warning
-until every document is embedded again. Re-ingest every source with `--force-reprocess`,
-so unchanged documents are embedded again too:
+until every document is embedded again. Re-ingest every connection in `force` mode, so
+unchanged documents are embedded again too. `harborrag connections list` lists the
+connections; start each one by its ref, for example:
 
 ```bash
-harborrag ingest run <connector> --force-reprocess
+harborrag ingestions start default/harborrag-workspace --mode force --wait
 ```
 
-`harborrag source sync <project>/<connection> --mode force` does the same through the
-workers, by project and connection ID.
+Over HTTP, send `"mode": "force"` to `POST /v1/admin/ingestions`.
 
 Until a source finishes, its documents are still searched with the old vectors. The same
 holds whenever you change `HARBORRAG_EMBED_MODEL` later.
+
+### Update scripts for CLI v2.0.0
+
+**Breaking:** the `harborrag` commands now follow the HTTP API. Each command calls the
+same operation as its route, takes the same input, prints the same JSON and fails with
+the same error codes; the [CLI reference](cli-reference/README.md) maps every command to
+its route. The old names get no alias, so update every script, cron entry and runbook
+that calls the CLI.
+
+#### Rename the commands
+
+An old subcommand, such as `harborrag source list`, prints the command that replaced it
+and exits 2:
+`error: 'harborrag source list' was renamed; use 'harborrag connections list'`.
+
+| Before | Now |
+| --- | --- |
+| `harborrag source list` | `harborrag connections list` |
+| `harborrag source show REF` | `harborrag connections get REF` |
+| `harborrag source add REF --file BODY` | `harborrag connections create REF -f BODY` |
+| `harborrag source update REF --file BODY` | `harborrag connections update REF -f BODY` |
+| `harborrag source test REF` | `harborrag connections test REF` |
+| `harborrag source sync REF` | `harborrag ingestions start REF` |
+| `harborrag source remove REF` | `harborrag connections delete REF` |
+| `harborrag ingest start CONNECTOR` | `harborrag ingestions start REF` |
+| `harborrag ingest run CONNECTOR` | `harborrag ingestions start REF --inline`, which refuses a `local_file` connection whose `source_path` is not a directory on this machine, such as the stack's `/data/sources` |
+| `harborrag ingest status RUN_ID` | `harborrag ingestions get INGESTION_ID` |
+| `harborrag ingest wait RUN_ID`, `harborrag ingest watch RUN_ID` | `harborrag ingestions get INGESTION_ID --watch` |
+| `harborrag ingest pause RUN_ID`, `resume`, `cancel` | `harborrag ingestions pause INGESTION_ID`, `resume`, `cancel` |
+
+These commands are removed, with no replacement in the CLI:
+
+- `harborrag retrieve`: search with the MCP `vector_search` tool, or ask with
+  `harborrag chat`.
+- `harborrag topology` and every command under it, including
+  `topology summaries backfill`, `topology config validate` and `apply`, and
+  `topology indexing permissions-import`.
+- `harborrag init`, with its scaffold templates. A project directory an earlier `init`
+  created keeps working through its `harborrag.yaml`, or with `--project DIR`. Set up a
+  new install from a repository checkout, as the
+  [Quick Start](../getting-started/quick-start.md) does.
+
+New commands: `me`, `projects`, `source-types list`, `ingestions list` and
+`retry-failures`, `failures list` and `retry`, and `settings schema`, `get` and `set`.
+
+#### Name a connection by its ref
+
+`ingestions start` and the `connections` commands take the connection's ref,
+`PROJECT_ID/CONNECTION_ID`, where `ingest start` took its `source_key`. A connection
+imported from `config/sources/connectors.yaml` sits in project `default` with its YAML
+key as its ID, so `harborrag-workspace` becomes:
+
+```bash
+harborrag ingestions start default/harborrag-workspace --wait
+```
+
+A bare key is refused with exit 2 and a hint:
+`Invalid value for REF: expected PROJECT_ID/CONNECTION_ID, for example default/harborrag-workspace; list them with harborrag connections list`.
+
+The CLI no longer imports `config/sources/connectors.yaml` before its first ingestion.
+The API imports it at its first start, and `ingestions start` needs the connection to
+exist.
+
+#### Replace the flags that changed
+
+- `--json` is now `-o json`, and `-o yaml` is new. `-o json` prints the HTTP response
+  body, not the `{"ok", "data", "error"}` envelope. Without `-o`, the CLI prints a table
+  in a terminal and JSON otherwise.
+- `--force-reprocess` is now `--mode force`. `--updated-after` and `--wait` stay.
+- `ingest start` and `ingest run` options that scoped a run are removed with no
+  replacement: `--connector-id` and `--connector`, `--run-id`, `--connection-id`,
+  `--source-scope-id`, `--path`, `--pattern`, `--recursive` and `--no-recursive`,
+  `--attachments` and `--no-attachments`, `--filters-json`, `--limit`, `--batch-size` and
+  `--document-concurrency`. So are `--timeout`, `--refresh` and `--events`: Ctrl-C stops
+  following a run.
+- `source add --sync-now` is removed: run `ingestions start` after `connections create`.
+- `source update --if-version N` is now `connections update --if-match ETAG`.
+- `source list --type` is now `connections list --source-type`.
+- `chat --session` and `--project` are now `--session-id` and `--project-id`. Without
+  `--session-id`, `chat` asks a one-off question and creates no session.
+- `config export --output PATH` is now `--file PATH`; `-o` is the output format on every
+  command.
+- `doctor --temporal` and `doctor --json` are removed: `doctor` always checks Temporal,
+  and `-o json` prints its report.
+- `--tenant`, `-o`, `--profile`, `--config` and `-y`/`--yes` are global options, given
+  after the command. A profile in `~/.config/harborrag/config.yaml` can set the default
+  tenant and output; see [Global options](cli-reference/README.md#global-options).
+- The CLI's tenant variable is `HARBORRAG_TENANT_ID`, as for the API and the workers; see
+  [Rename the tenant variable](#rename-the-tenant-variable).
+- From a checkout, the CLI reads `HARBORRAG_LOCAL_SOURCE_ROOT` from `env/.env.database`;
+  see [Set the local source root](#set-the-local-source-root).
+
+#### Read errors and exit codes again
+
+Errors go to stderr: with `-o json` as the HTTP error envelope,
+`{"error": {"code", "message", "details", "trace_id"}}`, and in a table as one line such
+as `error 404 not_found: connection 'no-such' not found (trace 3877634d…)`. The exit
+codes changed:
+
+| Exit code | Before | Now |
+| --- | --- | --- |
+| `1` | Any failure, including a run that did not complete | Anything else, such as an internal error (`500`) |
+| `2` | Usage error | Usage error or bad input (`400`, `413`, `422`, `501`); an invalid `config import` file, which exited 1 |
+| `3` | `--timeout` ran out | Not found (`404`) |
+| `4` | none | Conflict (`409`, `412`), such as pausing a paused run, which exited 1 |
+| `5` | none | Not allowed (`401`, `403`) |
+| `6` | none | Unavailable (`429`, `503`, `504`); also `doctor` when only service checks fail |
+| `8` | none | The run `--wait` or `--watch` followed ended `failed` or `cancelled` |
+| `130` | Interrupted | Interrupted; the run keeps going |
+
+`connections test` exits 0 when the check reports `"ok": false`, as the route answers
+`200`; `source test` exited 1.
+
+#### Check what a write does
+
+- `projects update` replaces the project body, as the `PUT` does: a field left out is
+  cleared, so pass `--project-name` on every update.
+- A write into a tenant that holds no data asks first, so a typo in `--tenant` does not
+  create a tenant. Without a terminal it stops with exit 2 unless you pass `--yes`. This
+  covers `config import --apply` into a new tenant too.
+- `connections delete` and `projects delete` ask before they remove anything, and need
+  `--yes` without a terminal.
+- Projects and connections the CLI writes, and the runs it starts through Temporal,
+  record the CLI's principal, `cli:<os-user>`, in `created_by`, `updated_by` and
+  `triggered_by`.
+- The notice `harborrag: using repository checkout DIR` (or `using project DIR`) prints
+  only when stderr is a terminal, so a script that reads stderr sees only errors.
 
 ### What happens at the first start
 
@@ -208,7 +338,7 @@ The API imports `config/sources/connectors.yaml` once, when all of these hold:
 It imports into the tenant `HARBORRAG_TENANT_ID` names (`DEFAULT` unless set). An
 install upgraded with projects or connections already stored, including rows carried
 over from the old `/api/v1/sources` routes, is not imported: add its connections through
-the API or `harborrag source add`.
+the API or `harborrag connections create`.
 
 The import runs once. A failed import is recorded and not tried again; a project it
 created that holds no connection is removed, and what it missed is added through the
@@ -235,9 +365,9 @@ Each entry becomes a connection:
   the `PUT` only adds the `email`.
 
 The plan is logged and the import is recorded in the workspace settings. The file is
-never read again: later changes go through the API. `harborrag doctor` keeps checking
-the file. `harborrag ingest run` and `harborrag ingest start` run the same import before
-their first submission.
+never read again: later changes go through the API or the `harborrag connections`
+commands. `harborrag doctor` keeps checking the file. The CLI does not run the import,
+so start the API once before you start an ingestion from the CLI.
 
 ### Rows from `/api/v1/sources`
 
@@ -303,21 +433,14 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 
 #### CLI, dependencies and Temporal
 
-- **`harborrag init` is removed**, with its scaffold templates and no replacement; the
-  CLI has eight commands. A project directory an earlier `init` created keeps working
-  through its `harborrag.yaml`, or with `--project DIR`. Set up a new install from a
-  repository checkout, as the [Quick Start](../getting-started/quick-start.md) does.
-  Outside a checkout or a project directory, every command except `doctor` stops with
-  `harborrag: no project found. …`.
-- **`harborrag ingest pause|resume|cancel` use the HTTP rules.** An action the run's
-  status does not allow exits 1 with the `invalid_state` message and sends nothing to
+- **The CLI runs from a checkout.** Outside a checkout or a project directory, every
+  command except `doctor` stops with `harborrag: no project found. …`. The command
+  changes are in [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
+- **`harborrag ingestions pause|resume|cancel` use the HTTP rules.** An action the run's
+  status does not allow exits 4 with the `invalid_state` error and sends nothing to
   Temporal: pausing a paused run, pausing or resuming a retry run, and any action on a
-  finished run. The command needs a reachable control database, and a run it does not
-  hold is reported as not found; stop such a run in the Temporal UI.
-- **`harborrag retrieve` honours the shared tenant.** With
-  `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`, retrieval for
-  `HARBORRAG_CORPUS_SHARED_TENANT_ID` reads the shared corpus, as chat does; every other
-  tenant stays ACL-scoped.
+  finished run. A run the control database does not hold is not found (exit 3); stop
+  such a run in the Temporal UI.
 - **`qdrant-client` must be 1.17 to 1.19.** Installs of the `qdrant` extra that pinned
   an older client need `pip install -U "qdrant-client>=1.17,<1.20"`.
 - **A paused run shows as `Running` in the Temporal UI.** HarborRAG now pauses a run by
@@ -516,9 +639,9 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   Sessions created by the 1.x agent surface stay stored and are now listed by
   `GET /v1/chat/sessions` like any chat session. Session listings no longer carry
   `kind`, stored messages no longer carry `run_id`, and the `tool` message role is gone.
-- **`harborrag chat`** prints the new answer (`--json` prints the completion body),
-  creates its session in the `--project` project, and refuses `--project` with
-  `--session`.
+- **`harborrag chat`** calls `POST /v1/chat/completions` and prints the new answer;
+  `-o json` prints the completion body. Without `--session-id` it asks a one-off
+  question; see [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
 - **SDK callers of the chat service** (`harborrag_app.workflow_control`):
   - `ChatExecutionOptions.session_id` is optional (`None` asks a one-off question),
     `project_id` is replaced by `project_ids` (one-off questions only), and `mode`,
@@ -669,7 +792,8 @@ filters that use them.
 ### 6. Optional: keep entity summaries
 
 Summarization is now off by default. To keep entity summaries, set
-`summarization.enabled` to `true` in `config/graph/build.yaml`, then run:
+`summarization.enabled` to `true` in `config/graph/build.yaml`, then run the 2.0.0a2
+command below. 2.0.0 removes it with the rest of `harborrag topology`.
 
 ```bash
 harborrag topology summaries backfill

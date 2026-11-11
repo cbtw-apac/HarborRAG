@@ -43,14 +43,14 @@ COMMAND_OPERATIONS: Mapping[str, str] = {
 """The operationId each command calls, keyed by its path after ``harborrag``."""
 
 HTTP_ONLY: Mapping[str, str] = {
-    "create_chat_session": "Chat sessions belong to the web chat; chat --session-id continues one",
+    "create_chat_session": "Chat sessions belong to the web chat; `chat --session-id` continues one",
     "list_chat_sessions": "Browsing chat history is a web console view",
     "list_conversation_messages": "Reading back a session's messages is a web console view",
     "list_searchable_connections": "Feeds the chat's connection picker for readers",
     "list_ingestion_documents": "Per-document drill-down of a run is a web console view",
-    "stream_ingestion": "Server-sent events for the web console; ingestions get --watch polls",
+    "stream_ingestion": "Server-sent events for the web console; `ingestions get --watch` polls",
     "healthz": "Liveness probe for the orchestrator",
-    "readyz": "Readiness probe for the orchestrator; doctor runs the same checks locally",
+    "readyz": "Readiness probe for the orchestrator; `doctor` runs the same checks locally",
 }
 """Operations with no command, by operationId, with the reason."""
 

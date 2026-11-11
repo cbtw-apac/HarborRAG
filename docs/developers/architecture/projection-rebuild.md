@@ -71,10 +71,11 @@ covers the API itself. These logical indexes are current:
 | --- | --- |
 | `evidence` | Ingestion: one point per evidence chunk |
 | `memories` | Chat long-term memory |
-| `contextual-v2-<fingerprint>`, `parent-v2-<fingerprint>` | Semantic topology derived vectors, built by `harborrag topology derive` |
+| `contextual-v2-<fingerprint>`, `parent-v2-<fingerprint>` | Semantic topology derived vectors, built by the topology runtime |
 
-`harborrag topology cleanup` previews the derived-vector and graph projections of retired
-builds, and `--apply` deletes them while keeping the frozen data.
+2.0.0 has no command that previews or deletes the derived-vector and graph projections of
+retired topology builds: `harborrag topology derive` and `harborrag topology cleanup` were
+removed with the rest of `harborrag topology`.
 
 A collection whose name ends in `_routes` is residue from before the route lane was removed.
 Nothing provisions, writes, searches or deletes it, and its points carry `preview` and
@@ -123,9 +124,9 @@ returns candidates. Missing or expired permission snapshots deny access.
 `AuthoritativeProjectionSearch` handles version activeness; the surrounding retrieval service
 applies access control.
 
-Connectors do not synchronize permission snapshots yet. Import them with
-`harborrag topology indexing permissions-import`, or run a tenant whose corpus is deliberately
-shared in `tenant_shared` mode; see
+Connectors do not synchronize permission snapshots yet, and 2.0.0 has no command that imports
+them (`harborrag topology indexing permissions-import` was removed). Run a tenant whose corpus
+is deliberately shared in `tenant_shared` mode; see
 [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 
 ## Entering the graph

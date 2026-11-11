@@ -476,8 +476,8 @@ regenerates that scope's source-entity cards and nothing else.
 With `HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED=true`, facets are also written to
 the entity point's payload under `facet.<name>` and indexed, so they filter:
 
-- `vector_search` and the runtime retrieval service (the SDK and
-  `harborrag retrieve --filters-json`) accept `facet.*` keys in `filters`, for
+- `vector_search` and the runtime retrieval service (the SDK) accept `facet.*`
+  keys in `filters`, for
   example `{"facet.stage": "Done", "facet.component": ["billing", "payments"]}`.
   Such a filter selects entities on the entity lane and is taken out of the
   chunk filter, so the semantic lanes stay on instead of falling back to flat
@@ -489,9 +489,8 @@ the entity point's payload under `facet.<name>` and indexed, so they filter:
 
 ## Filter search results
 
-`vector_search`, the runtime retrieval service (the SDK and
-`harborrag retrieve --filters-json`) and chat accept filters that narrow the
-search to matching chunks.
+`vector_search`, the runtime retrieval service (the SDK) and chat accept
+filters that narrow the search to matching chunks.
 
 ### Filter evidence by Jira fields
 

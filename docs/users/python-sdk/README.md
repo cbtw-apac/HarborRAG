@@ -127,16 +127,17 @@ Cancelling a paused run releases that wait and stops at the same safe boundary.
 `status(task_id)` returns an `IngestionStatus` with `task_id`, `status`, `paused` and
 `cancel_requested`, and nothing more: no stages and no progress counts. Its `status` is
 the workflow's own state, such as `RUNNING`, not the HTTP API's run status (`queued`,
-`running`, `succeeded` and so on). `harborrag ingest watch` shows a richer view because
-it goes through the application service, which combines workflow status, per-stage
-progress and execution status; that view is not available through the SDK.
+`running`, `succeeded` and so on). `harborrag ingestions get` and
+`GET /v1/admin/ingestions/{ingestion_id}` show a richer view, with the run's status and
+counters, because they go through the application service; that view is not available
+through the SDK.
 
 `IngestionRequest` also accepts scoping and tuning fields: `task_id`, `connection_id`,
 `source_scope_id`, `path`, `pattern`, `recursive`, `updated_after`, `limit`,
 `include_attachments`, `filters`, `force_reprocess`, `discovery_page_size`,
 `discovery_concurrency` and `document_concurrency`. `force_reprocess=True` is the same
-switch as `"mode": "force"` on `POST /v1/admin/ingestions` and `--force-reprocess` on
-the CLI; see [Ingestion modes](../ingestion-modes.md).
+switch as `"mode": "force"` on `POST /v1/admin/ingestions` and `--mode force` on
+`harborrag ingestions start`; see [Ingestion modes](../ingestion-modes.md).
 
 ## Retrieval
 
@@ -236,7 +237,7 @@ constructs the connector, so the mapping it returns holds only the keys you supp
 
 `ingestion.run` cannot take a definition built this way: an `IngestionRequest` names a
 stored connection. To ingest it, create a connection through the API or
-`harborrag source add`.
+`harborrag connections create`.
 
 ## What needs backing services
 

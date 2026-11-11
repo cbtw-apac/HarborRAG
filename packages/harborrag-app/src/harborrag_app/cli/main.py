@@ -50,7 +50,7 @@ _NO_PROJECT_MESSAGE = (
 
 # One-shot commands render their own result envelope, so diagnostic logs stay
 # off unless an operator asks for them. Logs go to stderr either way, which
-# keeps `--json` output on stdout parseable at any level.
+# keeps `-o json` output on stdout parseable at any level.
 _DEFAULT_CLI_LOG_LEVEL = "WARNING"
 
 app = typer.Typer(

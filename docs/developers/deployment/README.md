@@ -249,13 +249,26 @@ configuration and the packaged chat prompts. They run as the non-root `harborrag
 Configuration paths inside the images point to `/app/config`; mount a replacement directory
 there read-only to deploy a different catalog.
 
-The CLI image uses `harborrag` as its entry point. Provide `env/.env.models` for chat, and the
-relevant service settings for retrieval or ingestion commands:
+The CLI image uses `harborrag` as its entry point, and its default command is
+`doctor -o json`, which runs without a project. Every other command needs a project
+directory: the image's working directory, `/var/lib/harborrag`, holds no `harborrag.yaml`
+and is not inside a checkout, so without one the command stops with
+`harborrag: no project found. …` and exit 1. Mount a directory that holds a
+`harborrag.yaml`, which may be empty, and name it with `HARBORRAG_PROJECT`; the image's
+`HARBORRAG_*_CONFIG_PATH` variables keep the catalogs at `/app/config`.
+
+A command that calls an operation also needs the service settings: `HARBORRAG_CONTROL_DB_URL`,
+`HARBORRAG_SECRETS_ENCRYPTION_KEY` and the store endpoints the container can reach, here in
+an environment file of your own, `cli.env`, and `env/.env.models` for chat:
 
 ```bash
+mkdir -p cli-project && touch cli-project/harborrag.yaml
 docker run --rm \
   --env-file env/.env.models \
-  harborrag-cli chat "Explain HarborRAG." --json
+  --env-file cli.env \
+  --volume "$PWD/cli-project:/project:ro" \
+  --env HARBORRAG_PROJECT=/project \
+  harborrag-cli chat "Explain HarborRAG." -o json
 ```
 
 The MCP image uses `python -m harborrag_mcp_server` as its entry point and defaults to stdio.

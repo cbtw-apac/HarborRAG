@@ -276,6 +276,11 @@ def test_errors_match_http(
 
 
 def test_reference_is_current() -> None:
-    assert render_reference() == _REFERENCE_PAGE.read_text(encoding="utf-8"), (
+    assert render_reference(_openapi()) == _REFERENCE_PAGE.read_text(encoding="utf-8"), (
         "the command reference is stale; run make cli-reference"
     )
+
+
+def test_reference_refuses_an_operation_missing_from_openapi() -> None:
+    with pytest.raises(ValueError, match="is not in the OpenAPI document"):
+        render_reference({"paths": {}})

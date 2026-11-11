@@ -66,8 +66,19 @@ def test_help_lists_only_the_spec_commands(capsys: pytest.CaptureFixture[str]) -
 
 def test_no_output_string_names_an_old_command() -> None:
     source = Path(__file__).parents[1] / "src"
-    pattern = re.compile(r"harborrag (source|ingest) ")
+    legacy_table = source / "harborrag_app" / "cli" / "commands" / "legacy.py"
+    pattern = re.compile(
+        r"harborrag (source|ingest) "
+        r"|\bingest (run|start|status|wait|watch|pause|resume|cancel)\b"
+        r"|\bsource (list|show|add|update|test|sync|remove)\b"
+    )
 
-    hits = [str(path) for path in source.rglob("*.py") if pattern.search(path.read_text("utf-8"))]
+    hits = [
+        f"{path}:{number}"
+        for path in sorted(source.rglob("*.py"))
+        if path != legacy_table
+        for number, line in enumerate(path.read_text("utf-8").splitlines(), start=1)
+        if pattern.search(line)
+    ]
 
     assert hits == []

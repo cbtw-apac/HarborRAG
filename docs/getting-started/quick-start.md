@@ -81,9 +81,9 @@ Run every command in this tutorial from the `HarborRAG` folder. Check that the c
 uv run harborrag --help
 ```
 
-`uv run` runs a command inside `.venv/`. You should see eight commands, grouped by purpose:
-`doctor`, `auth` and `config` (Operations); `chat` (Chat); `retrieve` (Retrieval); and
-`ingest`, `topology` and `source` (Ingestion).
+`uv run` runs a command inside `.venv/`. You should see the commands grouped by purpose:
+`me`, `doctor`, `auth` and `config` under Operations; `chat` under Chat; and `projects`,
+`source-types`, `connections`, `ingestions`, `failures` and `settings` under Resources.
 
 ## 2. Create the environment files
 
@@ -176,9 +176,9 @@ HarborRAG API is healthy at http://127.0.0.1:8000/healthz
 ```
 
 At its first start the API imports `config/sources/connectors.yaml`, whose entries describe
-*connections*: sources HarborRAG can ingest, together with their settings. This tutorial uses
-the `harborrag-workspace` entry, which reads this repository's `docs/` folder and needs no
-credentials.
+*connections*: sources HarborRAG can ingest, together with their settings. Each entry lands
+in the project `default`, under its YAML key. This tutorial uses the `harborrag-workspace`
+entry, which reads this repository's `docs/` folder and needs no credentials.
 
 ## 4. Check everything is in place
 
@@ -199,67 +199,79 @@ shows whether that service's container is running, and
 [Troubleshooting](../users/troubleshooting/README.md) lists common fixes. The Temporal UI at
 <http://localhost:8080> shows each ingestion run while it works.
 
+List the connections the API imported:
+
+```bash
+uv run harborrag connections list
+```
+
+In a terminal you should see a table with one row per connection, among them:
+
+```text
+  connection_ref                name                  source_type   status   updated_at
+ ────────────────────────────────────────────────────────────────────────────────────────────────────────
+  default/harborrag-workspace   harborrag-workspace   local_file    active   2026-11-05T03:45:36.924071Z
+```
+
+`connection_ref` is how every command names a connection: the project, a slash, then the
+connection, `PROJECT_ID/CONNECTION_ID`. The other connections in the file need credentials
+you have not set, so they may show the status `error`; this tutorial does not use them.
+
 ## 5. Ingest the documentation folder
 
 *Ingestion* reads a connection's documents, splits them into passages, and stores each passage
-as a vector in Qdrant and as nodes in the knowledge graph. Start it for `harborrag-workspace`
-and wait for it to finish:
+as a vector in Qdrant and as nodes in the knowledge graph. Start it for
+`default/harborrag-workspace` and wait for it to finish:
 
 ```bash
-uv run harborrag ingest start harborrag-workspace --wait
+uv run harborrag ingestions start default/harborrag-workspace --wait
 ```
 
 The command submits the run to the Temporal server on `localhost:7233`, and `--wait` keeps it
 attached until the run ends. Each passage is sent to your gateway's embedding model.
 
-While the run works you see a live block: the run ID and its status, the stages from
-`Discover` to `Reconcile`, a progress bar counting documents, and the number of documents
-`succeeded`, `unchanged`, `skipped` and `failed`. A summary follows when the run ends. A
-document that fails is listed by name; the rest of the run continues.
+While the run works, the command prints a line whenever the run's status or counts change:
+the run's ID, its status, and how many documents were `discovered`, `processed`, `skipped`
+and `failed`. The last line shows `succeeded`, and the command exits with status 0. A
+document that fails is counted under `failed`; the rest of the run continues. If the whole
+run fails or is cancelled, the command exits with status 8.
 
-Run the same command again and the documents are reported as `unchanged`: HarborRAG only
-processes what changed.
+Run the same command again and the unchanged documents are counted as `skipped`: HarborRAG
+only processes what changed.
 
 If every document fails, check the gateway values from step 2. For other errors, see
 [Troubleshooting](../users/troubleshooting/README.md).
 
 ## 6. Ask a question
 
-The `harborrag` command searches as its own user, `harborrag-cli`, which has no permissions on
-individual sources, so by default it finds nothing. Let it read everything ingested into the
-`DEFAULT` *tenant*, the isolated set of sources and data that this tutorial uses. The
-ingestion workers use the same setting from `env/.env.temporal`, which the command does not
-read:
+The `harborrag` command searches as `cli:` followed by your user name on this machine,
+which has no permissions on individual sources, so by default it finds nothing. Let it read
+everything ingested into the `DEFAULT` *tenant*, the isolated set of sources and data that
+this tutorial uses. The ingestion workers use the same setting from `env/.env.temporal`,
+which the command does not read:
 
 ```bash
 export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
 export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
 ```
 
-These exports last for the current shell. Search for the passages that match a question:
-
-```bash
-uv run harborrag retrieve "How do I start the local stack?" --top-k 3 --include-content
-```
-
-You should see a `Result` tree whose `Results` branch lists three passages, each with its
-`rank` and `score`, and whose `Diagnostics` branch shows `Candidate Hits: 3`;
-`--include-content` adds each passage's text. `Candidate Hits: 0` with no results means the
-search found nothing: check that the two exports above ran in this shell.
-
-Ask the chat model for an answer grounded in those passages. It calls your gateway, so it can
-cost a little:
+These exports last for the current shell. Ask the chat model for an answer grounded in the
+passages that match your question. It calls your gateway, so it can cost a little:
 
 ```bash
 uv run harborrag chat "Summarise what the HarborRAG documentation covers in three bullet points."
 ```
 
-That is the whole loop: change documents, run `ingest start`, then `retrieve` or `chat`.
+The answer cites its sources as `[1]`, `[2]` and so on, and below it lists each number with
+the title of the document it points to. An answer with no citations means the search found
+nothing: check that the two exports above ran in this shell.
+
+That is the whole loop: change documents, run `ingestions start`, then `chat`.
 
 ## What you built
 
 You ran HarborRAG's full local stack, ingested a folder through a durable Temporal workflow,
-and searched and chatted over it. Stop the stack with `scripts/deployment/dev.sh down`; add
+and chatted over it. Stop the stack with `scripts/deployment/dev.sh down`; add
 `--volumes` to discard the data as well.
 
 Next:

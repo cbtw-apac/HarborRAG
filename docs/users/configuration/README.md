@@ -70,10 +70,10 @@ loads: copy them, or pass their paths explicitly.
 | The model gateway's URL, key or model names | `env/.env.models` | Recreate the API and worker containers so they read the file again. A new embedding model needs a re-index ([Model Configuration](model-config.md#the-shipped-gateway-catalog)) |
 | Which models each family uses, or their provider | `config/models/models.yaml` | Restart the API and the worker |
 | A connector token or password | `env/.env.connector` | Recreate the worker container; its next run reads the new value |
-| Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag source add` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Checkout quick start](../../developers/checkout-quick-start.md)) |
+| Which sources are ingested, or a source's URL or folder | Before the first start: `config/sources/connectors.yaml` and the variables it names in `env/.env.connector`. After it: `harborrag connections create` or `update`, or the API | [Connections](../connections.md). The CLI writes connections only once `HARBORRAG_CONTROL_DB_URL` points it at the stack's Postgres ([Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout)) |
 | How PDFs and images are parsed, and the OCR server | `config/ingestion/parsers.yaml`, `HARBORRAG_OCR_SERVER_URL` in `env/.env.parser` | Restart the API and the worker; the next sync of each connection reprocesses its documents |
 | Chunk sizes and profiles | `config/ingestion/chunking.yaml` | Restart the API and the worker; documents re-chunk on their next ingestion |
-| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP or with `harborrag config import` | Nothing; see [Runtime Settings](runtime-settings.md) |
+| Retrieval size, reranking, the PDF engine, the chunk cap or concurrency for one tenant, project or connection | A runtime setting, over HTTP, with `harborrag settings set` or with `harborrag config import` | Nothing; see [Runtime Settings](runtime-settings.md) |
 
 `harborrag doctor` validates the connector, parser, chunking and model files and names
 any blank variable the model catalog or an enabled remote connector needs.

@@ -1,8 +1,8 @@
 # harborrag-app
 
-The `harborrag` operator command and the HarborRAG HTTP API. Use it to start, follow and
-control ingestion runs, manage connections, search the indexes and ask grounded questions,
-from a terminal or over HTTP.
+The `harborrag` operator command and the HarborRAG HTTP API. Use it to manage projects
+and connections, start, follow and control ingestion runs, change runtime settings and ask
+grounded questions, from a terminal or over HTTP.
 
 ## Install
 
@@ -19,48 +19,55 @@ From the checkout, list the commands:
 uv run harborrag --help
 ```
 
-You should see eight commands, grouped by purpose: `doctor`, `auth` and `config`
-(Operations); `chat` (Chat); `retrieve` (Retrieval); and `ingest`, `topology` and `source`
-(Ingestion). `uv run harborrag COMMAND --help` lists each command's options.
+You should see the commands grouped by purpose: `me`, `doctor`, `auth` and `config` under
+Operations; `chat` under Chat; and `projects`, `source-types`, `connections`,
+`ingestions`, `failures` and `settings` under Resources. `uv run harborrag COMMAND --help`
+lists each command's options.
 
 ## What it provides
 
-- **The `harborrag` CLI.** Every command and option is in the
-  [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md).
+- **The `harborrag` CLI.** Each command calls the same operation as its HTTP route, with
+  the same input, output and error codes; the
+  [CLI reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md)
+  maps them, and the
+  [CLI command reference](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/commands.md)
+  lists every option.
 - **The HTTP API** under `/v1`: connections, projects, runtime settings, ingestion runs
   and the failure inbox under `/v1/admin`, chat sessions and completions under `/v1/chat`.
   See [Connections](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/connections.md)
   and [Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
-- **One application service** that both call. The CLI and the API never construct
+- **One set of operations** that both call. The CLI and the API never construct
   connectors or repositories themselves.
 
 ## Run and control ingestions
 
-`ingest run` executes an ingestion in the current process, without Temporal or a worker.
-`ingest start` submits it to Temporal, and the other actions follow or control the run:
+`ingestions start` submits an ingestion of a connection to Temporal, as
+`POST /v1/admin/ingestions` does; `--wait` follows it until it ends, and the other
+commands read or control the run by its `ingestion_id`:
 
 ```bash
-uv run harborrag ingest start harborrag-workspace --wait
-uv run harborrag ingest status RUN_ID --json
-uv run harborrag ingest watch RUN_ID
-uv run harborrag ingest pause RUN_ID
-uv run harborrag ingest resume RUN_ID
-uv run harborrag ingest cancel RUN_ID
+uv run harborrag ingestions start default/harborrag-workspace --wait
+uv run harborrag ingestions list --connection-ref default/harborrag-workspace
+uv run harborrag ingestions get INGESTION_ID --watch
+uv run harborrag ingestions pause INGESTION_ID
+uv run harborrag ingestions resume INGESTION_ID
+uv run harborrag ingestions cancel INGESTION_ID
 ```
 
-The argument is the connection's `source_key`, not a source type such as `local`; how that
-key is formed is in
-[Name the connector](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#name-the-connector).
-`uv run harborrag source sync PROJECT/CONNECTION` starts any connection by project and
-connection ID, whatever its key. From a checkout, commands that write need the stack's
-control database first; see
+The argument of `start` is the connection's ref, `PROJECT_ID/CONNECTION_ID`;
+`uv run harborrag connections list` lists them. `--inline` runs the ingestion in the
+current process, without Temporal or a worker; it reads files on this machine, so it
+refuses a `local_file` connection whose `source_path` is not a directory here, such as
+the stack's `/data/sources`. See
+[Run an ingestion in this process](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-an-ingestion-in-this-process).
+From a checkout, commands that write need
+the stack's control database first; see
 [Run from a repository checkout](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-from-a-repository-checkout).
 
-`ingest watch` and `ingest start --wait` follow a run with an inline progress block.
-Every command that takes `--json` prints one stable envelope,
-`{"ok":...,"data":...,"error":...}`, without color or spinners; see
-[Read JSON output and exit codes](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#read-json-output-and-exit-codes).
-The durable workflows behind `ingest start` are described in
+`-o json` prints the HTTP response body, and an error goes to stderr as the HTTP error
+envelope, with an exit code for each class of status; see
+[Read errors and exit codes](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#read-errors-and-exit-codes).
+The durable workflows behind `ingestions start` are described in
 [Runtime reliability](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/developers/architecture/runtime-reliability.md).
 
 ## Schedule ingestions
@@ -70,25 +77,20 @@ API applies each time it starts. See
 [Scheduled ingestion](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/scheduled-ingestion.md)
 for the file format, pausing a schedule during an incident, and monitoring.
 
-## Search the indexes
+## Ask a grounded question
 
-`harborrag retrieve` searches the active Qdrant vectors of a tenant and expands the leading
-results with graph context from FalkorDB:
+`harborrag chat` calls `POST /v1/chat/completions`: it retrieves the passages that match a
+question and answers with numbered citations.
 
 ```bash
-uv run harborrag retrieve "deployment requirements" --top-k 5
-uv run harborrag retrieve "deployment requirements" --lane sparse --no-graph --json
+uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
 ```
 
-Retrieved text is left out unless you pass `--include-content`, so shell logs and
-automation artifacts do not collect source content. An unexpected provider error reaches
-the output only as its exception type, never its message. From a checkout, retrieval also
-needs the two variables in
-[Retrieve evidence](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#retrieve-evidence).
-
-Retrieval is served by this CLI, the
-[MCP tools](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/README.md)
-and chat (`POST /v1/chat/completions`); the HTTP API has no separate retrieval routes.
+From a checkout, chat also needs the two variables in
+[Ask a grounded question](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#ask-a-grounded-question).
+Search without a chat model is served by the
+[MCP tools](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/detailed-guides/mcp-server/README.md);
+the HTTP API has no separate retrieval routes.
 
 ## Contributing
 

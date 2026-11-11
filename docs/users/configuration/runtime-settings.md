@@ -47,8 +47,8 @@ What each key does:
   `config/ingestion/chunking.yaml`; a profile already at or below the cap is unchanged.
   Route chunks keep their 512-token cap.
 - `ingestion.concurrency` is the number of documents processed at once. An explicit
-  value on the submission (`harborrag ingest start --document-concurrency`) wins over
-  it.
+  `document_concurrency` on an SDK `IngestionRequest` wins over it; the CLI and the HTTP
+  API take no per-run value.
 - Keys that start with `database.`, `redis.`, `temporal.`, `qdrant.`, `graph.`,
   `listeners.`, `auth.`, `telemetry.` or `secrets.` are boot-only and are refused at
   every entry point.
@@ -93,8 +93,7 @@ carry such a change over, see [Upgrading](../upgrading.md).
 
 - Only chat reads it, over HTTP and with `harborrag chat`, at the same level as
   `retrieval.top_k`: the session's project, or the one project a one-off question
-  names, else the tenant. The MCP `vector_search` tool and `harborrag retrieve` do not
-  rerank.
+  names, else the tenant. The MCP `vector_search` tool does not rerank.
 - Retrieval fetches a pool of four times `top_k` passages, at most 100 and never fewer
   than `top_k`. The rerank model orders the pool, and chat keeps the first `top_k`.
 - Each reranked result carries the model's score in its `metadata` as `rerank_score`;
@@ -193,6 +192,17 @@ Nothing is saved when any key is refused.
 | `PATCH /v1/admin/settings` | `admin` |
 | `GET /v1/admin/settings/schema` | `editor` |
 
+From a terminal, `harborrag settings get`, `harborrag settings set` and
+`harborrag settings schema` call the same routes, with the same checks and errors:
+
+```bash
+harborrag settings get --effective
+harborrag settings set retrieval.top_k=3 --level tenant
+```
+
+`settings set` reads the current `ETag` and sends it as `If-Match`. See
+[Read and change runtime settings](../cli-reference/README.md#read-and-change-runtime-settings).
+
 ## Seed file and drift
 
 `config/settings.yaml` seeds the tenant named by `HARBORRAG_TENANT_ID` once, at the
@@ -228,23 +238,25 @@ connections:
 ```bash
 harborrag config import settings.yaml
 harborrag config import settings.yaml --apply
-harborrag config export --level tenant --output settings.yaml
+harborrag config export --level tenant --file settings.yaml
 ```
 
 `import` is a dry run unless `--apply` is given; `--apply` writes the file as one
 revision. `--prune` also removes every stored override the file lacks, at any level. An
-invalid file exits `1`, names the file and the key, and applies nothing; boot-only keys
-are reported and skipped. `export` writes registry keys only, in the shape above, and
-`import` reads the result back unchanged. Overrides of a deleted project or connection
-stay in the store but are left out of the export, each named on stderr. Both take
-`--tenant` (default `DEFAULT`, or `HARBORRAG_TENANT_ID`); `export` takes `--level`
-(default: every level) and `import` takes `--json`. Imports are recorded in the revision
-log under the operator's `user@host`.
+invalid file exits `2`, names the file and the key, and applies nothing; boot-only keys
+are reported and skipped. `export` writes registry keys only, in the shape above, to
+stdout or to `--file`, and `import` reads the result back unchanged. Overrides of a
+deleted project or connection stay in the store but are left out of the export, each
+named on stderr. Both take the CLI's global options, such as `--tenant` (default
+`HARBORRAG_TENANT_ID`, else `DEFAULT`) and `-o json`; `export` takes `--level` (default:
+every level). Imports are recorded in the revision log under the operator's `user@host`.
 
-From a repository checkout, `config import --apply` and `config export --output`
-refuse the local SQLite control database until the CLI points at the stack's Postgres
-with `HARBORRAG_CONTROL_DB_URL`; see
-[Checkout quick start](../../developers/checkout-quick-start.md).
+`import --apply` into a tenant that holds no data asks before it creates the tenant;
+without a terminal it stops with exit 2 unless you pass `--yes`. From a repository
+checkout, `config import --apply` and `config export --file` refuse the local SQLite
+control database until the CLI points at the stack's Postgres with
+`HARBORRAG_CONTROL_DB_URL`; see
+[Run from a repository checkout](../cli-reference/README.md#run-from-a-repository-checkout).
 
 ## Propagation and outages
 

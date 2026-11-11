@@ -57,7 +57,7 @@ question. The `Idempotency-Key` header makes the request safe to retry
 curl --fail-with-body http://127.0.0.1:8000/v1/chat/completions \
   --header 'Content-Type: application/json' \
   --header 'Idempotency-Key: 5f0c2b1e-8d4a-4c3e-9f7b-1a2b3c4d5e6f' \
-  --data '{"session_id":"<session-id>","message":"Who has Go and Kubernetes experience?"}'
+  --data '{"session_id":"<session-id>","message":"Which services does the DEMO-1 design change?"}'
 ```
 
 | Request field | Default | Meaning |
@@ -274,26 +274,34 @@ export HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared
 export HARBORRAG_CORPUS_SHARED_TENANT_ID=DEFAULT
 ```
 
-Then ask, and pass the returned `session_id` back to continue the
-conversation:
+Then ask. `harborrag chat` calls `POST /v1/chat/completions` with
+`stream: false`, so it takes the same fields and answers the same body:
 
 ```bash
-uv run harborrag chat "Explain HarborRAG in one paragraph." --json
-uv run harborrag chat "Explain the last point." --session <session-id> --json
+uv run harborrag chat "Explain HarborRAG in one paragraph." -o json
+uv run harborrag chat "Explain the last point." --session-id <session-id> -o json
 ```
 
 How the command behaves:
 
-- Without `--session`, it creates a session, in the project `--project` names
-  when given (validated like HTTP). An existing session keeps its own project,
-  so `--session` with `--project` is refused.
-- `--tenant` picks the tenant, `DEFAULT` unless you pass another.
-- It answers in `classic` mode.
-- `--json` prints one envelope, `{"ok": ..., "data": ..., "error": ...}`,
-  whose `data` is the same completion body as the HTTP answer. Pass its
-  `session_id` to `--session` to continue the conversation.
+- Without `--session-id`, it asks a one-off question: nothing is stored and
+  no session is created. `--project-id` limits a one-off question to a
+  project; repeat it for more.
+- `--session-id` continues a session you created with
+  `POST /v1/chat/sessions`; the command cannot create one.
+- `--connection-ref PROJECT_ID/CONNECTION_ID` narrows the search to a
+  connection; repeat it for more.
+- `--mode` is `classic` (the default) or `instant`.
+- `--tenant` picks the tenant: `HARBORRAG_TENANT_ID`, else the CLI profile's,
+  else `DEFAULT`.
+- `-o json` prints the completion body, the same as the HTTP answer; in a
+  terminal it prints the answer and then one line per citation. An error goes
+  to stderr as the HTTP error envelope, with the
+  [exit code](../cli-reference/README.md#read-errors-and-exit-codes) of its
+  status.
 
-All options are in the [CLI reference](../cli-reference/README.md).
+Every option is in the
+[CLI command reference](../cli-reference/commands.md#harborrag-chat).
 
 ## Migration
 

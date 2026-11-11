@@ -300,7 +300,7 @@ def test_doctor_converts_an_escaping_exception_into_the_error_envelope(
 
     A factory failure is already reported as a check; a raising `health()` is not, so
     without the boundary in the command it reaches the interpreter as a traceback and
-    `--json` consumers get no envelope at all.
+    `-o json` consumers get no envelope at all.
     """
 
     class UnreportableHealth(MockAppService):

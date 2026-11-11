@@ -5,10 +5,10 @@ an operator pauses a run. It is for contributors who change workflows, activitie
 behaviour, and for operators who plan a deployment.
 
 HarborRAG has two ways to run ingestion. **Direct ingestion** runs in the calling process, for
-local and embedded use, such as `harborrag ingest run`. **Durable ingestion** runs on
-[Temporal](https://docs.temporal.io/), a workflow engine that records each run's progress so
-it survives process restarts. Both paths call the same engine policies: orchestration decides
-*when* work runs, never *whether* a document version is safe to publish.
+local and embedded use, such as `harborrag ingestions start --inline`. **Durable ingestion**
+runs on [Temporal](https://docs.temporal.io/), a workflow engine that records each run's
+progress so it survives process restarts. Both paths call the same engine policies:
+orchestration decides *when* work runs, never *whether* a document version is safe to publish.
 
 ## Where Temporal participates
 
@@ -74,8 +74,9 @@ deployment assigns.
 ## Safe operator controls
 
 A source ingestion workflow answers status and progress queries and accepts pause, resume and
-graceful-cancel signals. From the CLI these are `harborrag ingest status`, `watch`, `pause`,
-`resume` and `cancel`; see [Run and control ingestion](../../users/cli-reference/README.md).
+graceful-cancel signals. From the CLI these are `harborrag ingestions get`, `get --watch`,
+`pause`, `resume` and `cancel`; see
+[Run and control ingestion](../../users/cli-reference/README.md#run-and-control-ingestion).
 
 A pause stops scheduling new expensive work after the current safe boundary. A graceful
 cancellation keeps the immutable artifacts already written and prevents an unverified version

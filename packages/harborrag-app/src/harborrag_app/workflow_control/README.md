@@ -12,7 +12,7 @@ runtime client; nothing in this package hands a Temporal object to a caller.
 | --- | --- |
 | `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results |
 | `memory/` | Conversation sessions, messages, titles, usage and erasure |
-| `retrieval/` | The vector and hybrid retrieval use case behind `harborrag retrieve`, with its access mode |
+| `retrieval/` | The vector and hybrid retrieval use case of `AppService.retrieve`, and the corpus access mode that chat retrieval reads |
 | `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline or durable execution |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |
 | `control_plane/` | Projects, connections, active runs, runtime settings import and export, and recovery of control-plane side effects |

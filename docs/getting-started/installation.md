@@ -45,7 +45,7 @@ uv sync --all-packages --extra production
 This installs every workspace package with the clients the `harborrag` command needs to reach
 the local stack: Temporal, PostgreSQL, Qdrant, FalkorDB and MinIO. Add `--extra dev` for the
 lint, type-check and test tools. `--extra dev` on its own leaves out those stack clients, so
-`harborrag ingest start` cannot reach Temporal.
+`harborrag ingestions start` cannot reach Temporal.
 
 Run tools through the managed environment, with no activation step:
 
@@ -92,8 +92,8 @@ python -m pip install -e ".[dev]"
 ```
 
 `harborrag-app` depends on `harborrag-memory`, so conversation memory is installed with the
-CLI. `make bootstrap` installs no Temporal client, so `harborrag ingest start` and the other
-durable commands also need the `temporal` extra of `harborrag-runtime`:
+CLI. `make bootstrap` installs no Temporal client, so `harborrag ingestions start` and the
+other commands that reach Temporal also need the `temporal` extra of `harborrag-runtime`:
 
 ```bash
 python -m pip install -e "packages/harborrag-runtime[production,temporal]"
@@ -143,7 +143,7 @@ same in this repository and in 2.0.0a2.
 | `harborrag[server]` | `harborrag-app[api]` and the reader providers | running the HTTP API |
 | `harborrag[mcp]` | `harborrag-mcp-server` with its reader providers | exposing MCP tools to an IDE or agent |
 | `harborrag[memory]` | `harborrag-memory`, already part of the bare install | pinning conversation memory explicitly |
-| `harborrag[temporal]` | Temporal client | durable orchestration: `ingest start`, `status`, `pause`, `resume`, `cancel` |
+| `harborrag[temporal]` | Temporal client | durable orchestration: `ingestions start`, `pause`, `resume`, `cancel` |
 | `harborrag[qdrant]` | `qdrant-client` | Qdrant vector storage |
 | `harborrag[falkordb]` | `falkordb` | FalkorDB graph storage |
 | `harborrag[postgres]` | `asyncpg` plus the control plane | a PostgreSQL-backed control plane |
@@ -245,12 +245,12 @@ or XPU through an accelerator-enabled PyTorch installation.
 In a checkout:
 
 ```bash
-uv run harborrag doctor --json
+uv run harborrag doctor
 uv run python scripts/check_dependency_direction.py
 ```
 
-`harborrag doctor` checks the checkout's catalogs and the local services; it contacts Temporal
-only with `--temporal`. Its service checks fail until the stack is running, so run it after
+`harborrag doctor` checks the checkout's catalogs and the local services, Temporal included.
+Its service checks fail until the stack is running, so run it after
 [starting the local stack](quick-start.md#3-start-the-local-stack). In a checkout, the
 `source path` and `connector credentials` checks also fail until `env/.env.connector` sets
 `LOCAL_SOURCE_PATH` and the remote connections' credentials.
@@ -269,7 +269,7 @@ It prints the names the public facade exports, such as `HarborRAG` and `Retrieva
   `harborrag[qdrant]` or `harborrag[chat]`.
 - `ModuleNotFoundError: harborrag_*` in a checkout: run commands through `uv run`, activate
   the expected virtual environment, or reinstall the editable packages.
-- `harborrag ingest start` or another stack command fails on a missing module such as
+- `harborrag ingestions start` or another stack command fails on a missing module such as
   `temporalio` in a checkout: sync with `--extra production` (Option A), or install the
   `temporal` extra of `harborrag-runtime` (Option B).
 - Optional parser import error: install the matching adapter extra, plus any native or model

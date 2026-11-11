@@ -59,7 +59,7 @@ def configure_logging(
     ``propagate`` is disabled because hosts such as uvicorn configure the root
     logger themselves; propagating would emit every HarborRAG record twice.
     Records go to stderr so that machine-readable command output on stdout
-    (``--json``) stays parseable when logging is turned up.
+    (``-o json``) stays parseable when logging is turned up.
     """
 
     logger = logging.getLogger(ROOT_LOGGER_NAME)

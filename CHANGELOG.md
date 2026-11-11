@@ -8,7 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 Documents are re-chunked and re-embedded on their next ingestion, and the shipped
-embedding model changes, so re-ingest every source with `--force-reprocess`. Follow the
+embedding model changes, so re-ingest every source in `force` mode
+(`harborrag ingestions start PROJECT_ID/CONNECTION_ID --mode force`). The `harborrag`
+commands are renamed to follow the HTTP API. Follow the
 [upgrade guide](docs/users/upgrading.md) before upgrading; entries marked **Breaking** need
 action.
 
@@ -24,6 +26,12 @@ action.
 #### harborrag-app
 
 - `GET` and `PATCH /v1/admin/settings` and `GET /v1/admin/settings/schema` read and change runtime settings
+- CLI commands that call the same operation as their HTTP route, with the same input, output and error codes: `me`, `projects list|get|create|update|delete`, `source-types list`, `connections list|get|create|update|delete|test`, `ingestions start|list|get|pause|resume|cancel|retry-failures`, `failures list|retry` and `settings schema|get|set`
+- CLI global options `--tenant`, `-o/--output table|json|yaml`, `--profile`, `--config` and `-y/--yes`, with defaults from `HARBORRAG_TENANT_ID`, `HARBORRAG_OUTPUT`, `HARBORRAG_PROFILE` and the profiles in `~/.config/harborrag/config.yaml` (keys `tenant` and `output`)
+- `harborrag ingestions start --wait` and `ingestions get --watch` follow a run and exit `8` when it ends `failed` or `cancelled`; `ingestions start --inline` runs the pipeline in the CLI's process without Temporal
+- The CLI asks before a write into a tenant that holds no data, `config import --apply` included; `--yes` skips the question
+- `harborrag doctor` lists the tenants that hold data and checks the services with the `/readyz` checks, Temporal included
+- `make cli-reference` writes `docs/users/cli-reference/commands.md` from the CLI's help, the command registry and the OpenAPI export, with each command's HTTP route and the CLI-only and HTTP-only lists; a test fails when a command and its HTTP route drift apart or the page is stale
 - `harborrag config import` and `harborrag config export` move runtime settings through a YAML file
 - `harborrag doctor` validates `config/ingestion/chunking.yaml`
 - `GET /v1/admin/failures` lists failed documents with `counts` per error category, and `POST /v1/admin/failures/retry` starts one retry run per original run
@@ -70,7 +78,13 @@ action.
   - an empty project is `409 no_indexed_content` before any model call, a busy session `409 session_busy` at once, and a provider failure `503 llm_unavailable` with nothing stored
   - `instant` skips the scope-check model call and graph observation, and an out-of-scope request is an ordinary answer without citations
   - `stream: true` sends the finished answer as `response.started`, one `response.output_text.delta` and `response.completed`
-- **Breaking:** `harborrag chat` prints the new answer, creates its session in the `--project` project, and refuses `--project` with `--session`
+- **Breaking:** `harborrag chat` calls `POST /v1/chat/completions` and prints the new answer; without `--session-id` it asks a one-off question, and `--session` and `--project` are now `--session-id` and `--project-id`
+- **Breaking:** the CLI follows the HTTP API, with no alias for the old names: `source list|show|add|update|test|remove` are `connections list|get|create|update|test|delete`, `source sync` and `ingest start` are `ingestions start`, `ingest run` is `ingestions start --inline`, `ingest status` is `ingestions get`, `ingest wait|watch` are `ingestions get --watch`, and `ingest pause|resume|cancel` are `ingestions pause|resume|cancel`; an old name prints the new one and exits `2`
+- **Breaking:** `ingestions start` and the `connections` commands take the connection ref `PROJECT_ID/CONNECTION_ID`, refuse a bare key such as `harborrag-workspace` with a hint, and no longer import `config/sources/connectors.yaml`; `--force-reprocess` is `--mode force`, and `--timeout`, `--batch-size`, `--document-concurrency`, `--run-id`, `--connection-id`, `--source-scope-id`, `--path`, `--pattern`, `--recursive`, `--attachments`, `--filters-json`, `--limit`, `--events` and `--refresh` are removed
+- **Breaking:** CLI `--json` is `-o json` and prints the HTTP response body instead of `{"ok", "data", "error"}`; errors go to stderr as the HTTP error envelope, or one line in a table; exit codes follow the HTTP status: `2` bad input, `3` not found (no longer a `--timeout`), `4` conflict, `5` not allowed, `6` unavailable, `8` a followed run that failed or was cancelled, `130` interrupted
+- **Breaking:** `harborrag projects update` replaces the project body like the `PUT`, so a field left out is cleared; `harborrag connections test` exits `0` when the check reports `ok: false`
+- **Breaking:** `harborrag config export --output` is `--file`, and `harborrag doctor` drops `--json` and `--temporal`: it always checks Temporal and exits `6` when only a service check fails
+- The CLI prints `harborrag: using repository checkout DIR` and `using project DIR` only when stderr is a terminal
 - **Breaking:** chat completion failures and accounting change:
   - `503 dependency_unavailable` when the answer cannot be stored, `503 llm_unavailable` for an empty answer, and `422` for a whitespace-only `message`
   - `usage` adds up the scope check and the answer
@@ -79,7 +93,7 @@ action.
 - **Breaking:** every `/v1/admin/ingestions*` route answers the explorer `Ingestion` shape and the task shape is retired, reads need role `editor` and take the tenant from `X-Tenant-Id` (`?tenant_id` is removed), pause, resume and cancel answer `200` with the run, and `retry-failures` answers `202` with the new run
 - Connection tests report `error_category` `secret_unavailable` when the API cannot read a secret, and say that an `env:` secret lives in the worker's environment
 - `HARBORRAG_TEMPORAL_UI_URL` and `HARBORRAG_GRAFANA_URL` fill the `links` of an ingestion run
-- `POST /v1/admin/ingestions` and `harborrag source sync` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
+- `POST /v1/admin/ingestions` and `harborrag ingestions start` refuse a connection a run would reject, with `422 validation_error` naming each failing field, instead of starting a run that fails in the worker
 - The CLI recognises a checkout by `config/sources/connectors.yaml`
 
 #### harborrag-engine
@@ -95,7 +109,7 @@ action.
 
 - **Breaking:** `config/` is organised by domain (`sources/`, `ingestion/`, `graph/`, `models/`, `mcp/`) and every default path follows; a deployment that sets each `HARBORRAG_*_CONFIG_PATH` keeps working
 - **Breaking:** `config/models/models.yaml` sends chat, embedding and reranking through one LiteLLM proxy gateway and reads `HARBORRAG_URL`, `HARBORRAG_API_KEY`, `HARBORRAG_CHAT_MODEL`, `HARBORRAG_EMBED_MODEL` and `HARBORRAG_RERANKER_MODEL` instead of a provider, model and API key per family
-- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source with `--force-reprocess`
+- **Breaking:** the shipped embedding model is the gateway's, in the embedding space `harbor-cohere-embed-v4`; its vectors have the same 1536 dimensions as before, so re-ingest every source in `force` mode
 - **Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID` (setting `RuntimeSettings.tenant_id`) and also sets the API's default tenant, so the API, the workers and the CLI share one; the old name has no alias and stops startup
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
@@ -113,6 +127,7 @@ action.
 #### harborrag-app
 
 - **Breaking:** `harborrag init` and its scaffold templates are removed with no replacement; run the CLI from a repository checkout. Projects an earlier `init` created keep working through their `harborrag.yaml` or `--project DIR`
+- **Breaking:** `harborrag retrieve` and every `harborrag topology` command, `topology summaries backfill`, `topology config validate` and `apply` and `topology indexing permissions-import` included, are removed; search with the MCP `vector_search` tool or `harborrag chat`
 
 ### Fixed
 
@@ -126,17 +141,16 @@ action.
 - A connection's `stats.errors` counts the failed documents of its latest run, also after a cancel, and is `0` before any run
 - A run whose Temporal workflow ended without recording it, such as one terminated in the Temporal UI, no longer blocks its connection with `409 already_running`, retry runs included: starting an ingestion, removing the connection and cancelling the run record it as `CANCELLED` or `FAILED` first
 - Cancelling a retry run cancels its workflow and records the run as `cancelled`, instead of answering `503`; `pause` and `resume` on a retry run answer `409 invalid_state`
-- Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingest cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
+- Cancelling a running or paused run whose Temporal workflow is gone, such as one past the namespace retention, records it as `cancelled` with `error_category` `workflow_not_found`, over HTTP and with `harborrag ingestions cancel`, instead of answering `503` every time; a queued run that is not a retry run still answers `503`
 - `POST /v1/admin/ingestions` with an `updated_after` that has no UTC offset answers `422 validation_error` on `updated_after`, instead of `500`
-- `harborrag ingest pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit 1 with the `invalid_state` message and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
-- `harborrag retrieve` reads on the shared basis for the shared tenant (`HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared`), as chat does, instead of returning no candidates
+- `harborrag ingestions pause`, `resume` and `cancel` follow the HTTP rules: pausing a paused run, pausing or resuming a retry run, and any action on a finished run exit `4` with `invalid_state` and send no signal, cancelling a retry run cancels its own workflow instead of answering "task not found", and an unknown run is not found
 
 #### harborrag-runtime
 
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled
-- `harborrag ingest status` of a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
+- Reading a run Temporal reports as natively paused shows `paused` instead of failing with `8 is not a valid WorkflowExecutionStatus`
 - Pausing a run no longer strands it: a run and its batch are paused by signal only, not natively in Temporal, where a workflow task scheduled at the pause was never dispatched again and resume and cancel hung; the Temporal UI now shows a paused run as `Running`
 
 #### Deployment
