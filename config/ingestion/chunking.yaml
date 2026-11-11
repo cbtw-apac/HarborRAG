@@ -30,7 +30,15 @@ profiles:
       target_tokens: 750
       maximum_tokens: 1200
       overlap_tokens: 0
+  sharepoint:
+    strategy: sharepoint
+    limits:
+      minimum_tokens: 120
+      target_tokens: 700
+      maximum_tokens: 1100
+      overlap_tokens: 0
 
 source_profiles:
   confluence: confluence
   jira: jira
+  sharepoint: sharepoint
