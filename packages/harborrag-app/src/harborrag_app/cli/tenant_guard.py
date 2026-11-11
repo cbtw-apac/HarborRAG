@@ -1,10 +1,10 @@
-"""Ask before the first write into a tenant that holds no data.
+"""Ask before a write the operator may not mean: into a tenant with no data, or a deletion.
 
 A tenant ID names the tenant's storage, and an owner's write creates it on first use, so a
 typo in ``--tenant`` would create a new tenant. The question is asked only on the client;
 the operations and the HTTP contract do not change.
 
-Start from: confirm_tenant_write.
+Start from: confirm_tenant_write, confirm_deletion.
 """
 
 from __future__ import annotations
@@ -38,3 +38,22 @@ async def confirm_tenant_write(
         abort=True,
         err=True,
     )
+
+
+def confirm_deletion(question: str, *, yes: bool, interactive: bool) -> None:
+    """Return when the deletion may go ahead; ask first unless ``--yes`` was given.
+
+    Args:
+        question: What the deletion removes, as a question.
+        yes: ``--yes`` was given, so nothing is asked.
+        interactive: stdin is a terminal, so the question can be answered.
+
+    Raises:
+        click.UsageError: There is no terminal and no ``--yes``.
+        click.Abort: The user declined; Click exits 1.
+    """
+    if yes:
+        return
+    if not interactive:
+        raise click.UsageError("Pass --yes to delete without a terminal.")
+    click.confirm(question, abort=True, err=True)

@@ -4,7 +4,8 @@ Handles:
 - One application service per invocation: built off the event loop, refused when its control
   plane is not ready, closed afterwards
 - Before a write: the checkout's control-database refusal and the new-tenant question
-- The body on stdout and exit 0; any failure as the HTTP error envelope or one line on stderr,
+- The body on stdout and exit 0; a result that cannot be printed after the operation ran is
+  reported as that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one line on stderr,
   with a trace id minted per invocation, and the spec's exit code
 - A failure to set up the local service (settings, composition, control-plane readiness) as
   the operator's own configuration error: ``error_body``'s status and code, with a message
@@ -65,6 +66,7 @@ CONTROL_PLANE_NOT_READY = (
     "Control plane is not ready. Refusing to run against a database whose schema may be "
     "stale; run 'harborrag doctor' for diagnostics."
 )
+RESULT_NOT_PRINTED = "The operation succeeded, but its result could not be printed"
 DEBUG_HINT = " (set HARBORRAG_LOG_LEVEL=DEBUG for details)"
 _CLICK_OUTCOMES = (click.ClickException, click.exceptions.Exit, click.exceptions.Abort)
 
@@ -103,8 +105,7 @@ def run_operation(
         refuse_checkout_write()
     with _held_logs():
         try:
-            body = asyncio.run(_run(call, globals=globals, write=write))
-            print_body(operation_id, _unwrapped(body), output=globals.output)
+            result = asyncio.run(_run(call, globals=globals, write=write))
         except KeyboardInterrupt:
             raise typer.Exit(INTERRUPTED) from None
         except _CLICK_OUTCOMES:
@@ -114,7 +115,26 @@ def run_operation(
             logger.debug("%s failed trace_id=%s", operation_id, trace_id, exc_info=exc)
             print_error(error, output=globals.output, trace_id=trace_id)
             raise typer.Exit(exit_code_for(error.status)) from None
+        _print_result(operation_id, result, globals=globals, trace_id=trace_id)
     raise typer.Exit(0)
+
+
+def _print_result(operation_id: str, result: object, *, globals: Globals, trace_id: str) -> None:
+    """Print a successful result; a failure here is reported as the print failing.
+
+    The operation has already run, and a write is committed, so the error says so instead of
+    reporting the operation as failed.
+
+    Raises:
+        typer.Exit: ``1`` when the result could not be printed.
+    """
+    try:
+        print_body(operation_id, _unwrapped(result), output=globals.output)
+    except Exception as exc:  # noqa: BLE001 - after the operation: report the print, not the work
+        logger.debug("%s result not printed trace_id=%s", operation_id, trace_id, exc_info=exc)
+        error = ErrorBody(500, "internal_error", RESULT_NOT_PRINTED, None)
+        print_error(error, output=globals.output, trace_id=trace_id)
+        raise typer.Exit(exit_code_for(error.status)) from None
 
 
 @asynccontextmanager

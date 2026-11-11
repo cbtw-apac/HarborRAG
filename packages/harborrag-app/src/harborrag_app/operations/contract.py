@@ -15,7 +15,7 @@ from dataclasses import dataclass
 from functools import cache
 from typing import Any
 
-from pydantic import TypeAdapter
+from pydantic import BaseModel, TypeAdapter
 
 from harborrag_app.api.v1.admin.connection_schemas import (
     ConnectionChipPage,
@@ -136,11 +136,12 @@ def dump_body(operation_id: str, body: object) -> object:
 
     Returns:
         JSON-ready data validated into the response model, with the entry's flags applied;
-        ``body`` unchanged when the operation has no response model.
+        for an operation with no response model, a model dumped as JSON data (the route's
+        hand-built 202 body) or any other ``body`` unchanged.
     """
     spec = OPERATIONS[operation_id]
     if spec.response_model is None:
-        return body
+        return body.model_dump(mode="json") if isinstance(body, BaseModel) else body
     adapter = _adapter(operation_id)
     return adapter.dump_python(
         adapter.validate_python(body),

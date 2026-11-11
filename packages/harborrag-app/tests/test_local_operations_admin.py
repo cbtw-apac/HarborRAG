@@ -25,7 +25,11 @@ from harborrag_app.operations import (
 from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_app.workflow_control.control_plane.settings_service import SettingsRead
 from harborrag_core.config_store import SettingsLevel
-from harborrag_core.contracts.errors import HarborAuthError, HarborPreconditionFailedError
+from harborrag_core.contracts.errors import (
+    HarborAuthError,
+    HarborPreconditionFailedError,
+    HarborValidationError,
+)
 from harborrag_core.domain.project import Project
 
 pytestmark = pytest.mark.unit
@@ -148,6 +152,16 @@ async def test_list_projects_wraps_each_service_page(operations: LocalOperations
     assert first.next_cursor is not None
     assert [project.project_id for project in rest.items] == ["engineering"]
     assert rest.next_cursor is None
+
+
+@pytest.mark.asyncio
+async def test_an_unknown_source_type_category_is_a_validation_error(
+    operations: LocalOperations,
+) -> None:
+    with pytest.raises(HarborValidationError) as caught:
+        await operations.list_source_types(_scope(), category="chat")
+
+    assert caught.value.details == {"field": "category"}
 
 
 @pytest.mark.asyncio

@@ -9,7 +9,7 @@ Does NOT choose status codes or headers; the transport does.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, get_args
 
 from harborrag_app.api.auth.principal import Principal, authorize_role
 from harborrag_app.api.v1.admin.connection_schemas import (
@@ -34,6 +34,7 @@ from harborrag_app.workflow_control.control_plane.connection_views import (
     version_from_etag,
 )
 from harborrag_app.workflow_control.control_plane.connections import ConnectionWrite, WriteOrigin
+from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.connection import ConnectionStatus
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
@@ -87,10 +88,13 @@ class AdminOps:
             category: ``issue_tracker``, ``wiki``, ``files`` or ``code``; ``None`` for all.
 
         Returns:
-            The matching types; none for a category no type has.
+            The matching types.
+
+        Raises:
+            HarborValidationError: ``category`` is not one of the four categories.
         """
         scope.require(OPERATIONS["list_source_types"].role)
-        selected = cast(Category | None, category)  # an unknown category matches no spec
+        selected = _category(category)
         items = [source_types.describe(spec.source_type) for spec in source_types.all(selected)]
         return SourceTypePage.model_validate({"items": items})
 
@@ -346,6 +350,18 @@ class AdminOps:
             tenant_id=scope.tenant_id, project_id=project_id
         )
         return ConnectionChipPage.model_validate({"items": items})
+
+
+def _category(value: str | None) -> Category | None:
+    """Narrow a category name to ``Category``; ``None`` stays ``None``."""
+    if value is None:
+        return None
+    for category in get_args(Category):
+        if value == category:
+            return category  # type: ignore[no-any-return]  # get_args yields the Literal's members
+    raise HarborValidationError(
+        f"category must be one of {', '.join(get_args(Category))}", {"field": "category"}
+    )
 
 
 def _connection_write(body: ConnectionWriteRequest | ConnectionTestRequest) -> ConnectionWrite:

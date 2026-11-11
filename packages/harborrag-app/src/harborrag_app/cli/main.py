@@ -16,11 +16,14 @@ from harborrag_app.cli.commands import (
     auth,
     chat,
     config,
+    connections,
     doctor,
     ingest,
     me,
+    projects,
     retrieve,
     source,
+    source_types,
     topology,
 )
 from harborrag_app.cli.environment import load_project_environment
@@ -96,6 +99,13 @@ app.command(
     help="Check project, configuration, environment, and local services.",
     rich_help_panel="Operations",
 )(doctor.command)
+app.add_typer(projects.app, name="projects", help="Manage projects.", rich_help_panel="Resources")
+app.add_typer(
+    source_types.app, name="source-types", help="List source types.", rich_help_panel="Resources"
+)
+app.add_typer(
+    connections.app, name="connections", help="Manage connections.", rich_help_panel="Resources"
+)
 app.add_typer(
     ingest.app,
     name="ingest",

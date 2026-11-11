@@ -5,11 +5,13 @@ parameters, so the options stay per-command and ``main()``'s argv scan is unaffe
 A flag beats its environment variable, which beats the profile, which beats the built-in
 default. These options carry what an HTTP call carries in its headers.
 
-Start from: resolve_globals.
+Start from: current_globals (a command) or resolve_globals.
 """
 
 from __future__ import annotations
 
+import os
+import sys
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
@@ -131,6 +133,26 @@ def resolve_globals(  # noqa: PLR0913 - one keyword per global option and its co
         output=output or _environment_output(environ) or chosen.output or terminal_default,
         yes=yes,
         profile=name,
+    )
+
+
+def current_globals(  # noqa: PLR0913 - one keyword per global option
+    *,
+    tenant: str | None,
+    output: OutputFormat | None,
+    profile: str | None,
+    config: Path | None,
+    yes: bool,
+) -> Globals:
+    """Resolve the options of this process: its environment and whether stdout is a terminal."""
+    return resolve_globals(
+        tenant=tenant,
+        output=output,
+        profile=profile,
+        config=config,
+        yes=yes,
+        environ=os.environ,
+        stdout_is_tty=sys.stdout.isatty(),
     )
 
 
