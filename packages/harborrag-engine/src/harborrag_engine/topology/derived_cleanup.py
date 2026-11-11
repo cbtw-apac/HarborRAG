@@ -29,6 +29,20 @@ class RetiredDerivedProjectionCleaner:
         *,
         context: StorageOperationContext,
     ) -> int:
+        """Delete the manifest point IDs of retired derived records and drop emptied indexes.
+
+        Args:
+            build_id: Retired build that must own every record and point.
+            records: Derived artifact records of that build.
+            context: Storage scope for every vector call.
+
+        Returns:
+            Number of vector points removed.
+
+        Raises:
+            ValueError: A manifest or point belongs to another build, a manifest is
+                malformed, or a point survives deletion.
+        """
         removed = 0
         touched_indexes: set[str] = set()
         for record in records:
@@ -68,6 +82,7 @@ def _validated_manifest(
     build_id: str,
     record: DerivedArtifactRecord,
 ) -> ContextualManifest | None:
+    """Return the record's manifest after checking build, index name and point IDs, else None."""
     prefix = _INDEX_PREFIXES.get(record.lineage.artifact_kind)
     if prefix is None:
         return None

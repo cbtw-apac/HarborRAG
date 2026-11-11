@@ -24,6 +24,14 @@ class TopologyInspectionBuilder:
     resolved_deployment: dict[str, object] | None = None
 
     def build(self, *, limit: int) -> dict[str, object]:
+        """Return the build, generation and evidence view, capped at ``limit`` rows.
+
+        Args:
+            limit: Maximum mentions, assertions and representations, clamped to 1-100.
+
+        Returns:
+            JSON-ready mapping of build identity, generation provenance and evidence.
+        """
         bounded = max(1, min(limit, 100))
         mentions = self.topology.mentions[:bounded]
         assertions = self.topology.assertions[:bounded]
@@ -91,9 +99,7 @@ class TopologyInspectionBuilder:
     def _representation(
         item: ChunkEnrichment, checkpoint: ChunkExtractionCheckpoint | None
     ) -> dict[str, object]:
-        # ``retrieval_context`` belongs to the legacy v3 extraction contract.
-        # Frozen builds must remain readable, but semantic-v6 inspection should
-        # not expose a retired empty field as though it were a current product.
+        """Project one chunk enrichment; legacy v3 builds also expose ``retrieval_context``."""
         generated = {
             "title": item.title,
             "description": item.description,

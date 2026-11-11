@@ -23,8 +23,7 @@ def _profile() -> ContextualIndexProfile:
 
 
 def test_every_publishable_index_prefix_is_known_to_cleanup() -> None:
-    # Three uncoordinated dicts governed these names; forgetting one leaks vector points
-    # with no error at write, read or cleanup time.
+    """Forgetting a prefix would leak vector points with no error at write, read or cleanup."""
     assert {product.index_prefix for product in DERIVED_VECTOR_PRODUCTS} == set(
         _INDEX_PREFIXES.values()
     )
@@ -42,8 +41,7 @@ def test_registry_reproduces_the_profile_index_names_exactly() -> None:
 
 
 def test_artifact_kind_and_record_kind_are_distinct_vocabularies() -> None:
-    # contextual publishes artifact_kind "contextual_chunk" but record_kind "contextual";
-    # conflating them silently breaks payload validation.
+    """Contextual publishes artifact kind ``contextual_chunk`` but record kind ``contextual``."""
     contextual = next(p for p in DERIVED_VECTOR_PRODUCTS if p.artifact_kind == "contextual_chunk")
 
     assert contextual.record_kind == "contextual"
