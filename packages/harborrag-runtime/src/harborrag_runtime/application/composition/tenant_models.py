@@ -25,7 +25,7 @@ def tenant_model_sources(
     composition: Any,
     settings: RuntimeSettings,
 ) -> TenantModelSources | None:
-    """The catalog and secrets ports for per-tenant chat, or None to stay shared.
+    """Return the catalog and secrets ports for per-tenant chat, or None to stay shared.
 
     ``None`` is the default and means every tenant keeps answering from the
     process-wide ``config/models/models.yaml`` catalog, exactly as before.

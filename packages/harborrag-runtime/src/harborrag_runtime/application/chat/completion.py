@@ -42,7 +42,7 @@ class Completion:
     usage: CompletionUsage
 
     def data(self) -> dict[str, object]:
-        """The explorer completion body, fields in the explorer's order."""
+        """Return the explorer completion body, fields in the explorer's order."""
         usage = self.usage
         return {
             "completion_id": self.completion_id,

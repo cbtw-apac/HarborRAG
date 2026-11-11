@@ -60,7 +60,12 @@ class SettingsPatched:
 
 
 class SettingsService:
-    """Runtime settings use cases of one tenant at a time."""
+    """Runtime settings use cases of one tenant at a time.
+
+    Args:
+        control_plane: Returns the control-plane repositories.
+        registry: Registry of the settings keys and their validators.
+    """
 
     def __init__(
         self, control_plane: Callable[[], ControlPlaneRepositories], registry: SettingsRegistry

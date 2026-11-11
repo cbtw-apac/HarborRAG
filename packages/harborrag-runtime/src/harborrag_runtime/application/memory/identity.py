@@ -48,7 +48,7 @@ class MemoryIdentity:
         )
 
     def owner(self) -> MemoryOwner:
-        """The long-term memory isolation key for this caller."""
+        """Return the long-term memory isolation key for this caller."""
 
         return MemoryOwner(
             tenant_id=self.tenant_id,
@@ -59,7 +59,7 @@ class MemoryIdentity:
         )
 
     def conversation(self) -> ConversationIdentity:
-        """The conversation-history isolation key for this session.
+        """Return the conversation-history isolation key for this session.
 
         ``user_id`` is what owns the conversation: one service principal
         fronting several people must not make ``session_id`` the only thing

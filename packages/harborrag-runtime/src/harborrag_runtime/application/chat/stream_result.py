@@ -24,6 +24,22 @@ def stream_result(
     project_id: str | None,
     memory_persisted: bool,
 ) -> dict[str, object]:
+    """Build the final ``result`` event body of a stream that ended with a model chunk.
+
+    Args:
+        answer: What the stream delivered, ending in a completed model chunk.
+        prepared: The turn's prepared request and retrieved passages.
+        session_id: The session the turn belongs to.
+        project_id: The project the turn was scoped to, if any.
+        memory_persisted: Whether the exchange reached conversation memory.
+
+    Returns:
+        The same response contract the JSON completion uses.
+
+    Raises:
+        ValueError: The stream delivered no model chunk.
+    """
+
     chunk = answer.last_chunk
     if chunk is None:
         raise ValueError("a completed stream must contain a model chunk")

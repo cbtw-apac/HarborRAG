@@ -58,7 +58,12 @@ class SettingsExport:
 
 
 class SettingsImporter:
-    """Plans and applies settings documents for one tenant at a time."""
+    """Plan and apply settings documents for one tenant at a time.
+
+    Args:
+        control_plane: Returns the control-plane repositories.
+        registry: Registry of the settings keys and their validators.
+    """
 
     def __init__(
         self, control_plane: Callable[[], ControlPlaneRepositories], registry: SettingsRegistry

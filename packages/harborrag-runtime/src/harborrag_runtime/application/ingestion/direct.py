@@ -25,10 +25,18 @@ CLI_PRINCIPAL = "harborrag-cli"
 
 
 def new_run_id() -> str:
+    """Return a new run ID for an inline ingestion."""
+
     return f"ingest-{uuid4().hex}"
 
 
 class DirectIngestionOperations:
+    """Run an ingestion inside this process through the SDK.
+
+    Args:
+        runtime_sdk: Returns the SDK whose ingestion facade executes the run.
+    """
+
     def __init__(self, runtime_sdk: Callable[[], HarborRAG]) -> None:
         self._runtime_sdk = runtime_sdk
 
@@ -49,6 +57,8 @@ class DirectIngestionOperations:
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
     ) -> AppResponse:
+        """Execute one ingestion inline and return its final result, or a failure envelope."""
+
         try:
             request = IngestionRequest(
                 access=AccessContext(principal_id=CLI_PRINCIPAL, tenant_id=TenantId(tenant_id)),
@@ -73,6 +83,8 @@ class DirectIngestionOperations:
 
 
 class DirectIngestionClientMixin:
+    """Forward inline ingestion to ``DirectIngestionOperations``."""
+
     _direct: DirectIngestionOperations
 
     async def run_ingestion(  # noqa: PLR0913 - stable service port
@@ -92,6 +104,8 @@ class DirectIngestionClientMixin:
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
     ) -> AppResponse:
+        """Execute one ingestion inline and return its final result, or a failure envelope."""
+
         return await self._direct.run_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,

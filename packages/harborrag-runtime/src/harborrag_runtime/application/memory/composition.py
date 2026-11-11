@@ -42,7 +42,7 @@ def conversation_memory(composition: Any) -> ConversationHistoryRepository:
 
 
 def long_term_memories(composition: Any) -> MemoryRepository | None:
-    """The durable memory store, or None when none is wired.
+    """Return the durable memory store, or None when none is wired.
 
     Unlike conversation history, this one is optional: without it the memory
     layer still trims and replays the recent window, it just cannot persist
@@ -61,7 +61,7 @@ def long_term_memories(composition: Any) -> MemoryRepository | None:
 
 
 def long_term_memory_index(composition: Any) -> MemoryIndex | None:
-    """The memory vector index, or None when this deployment wires none.
+    """Return the memory vector index, or None when this deployment wires none.
 
     Optional like the memory store itself: without it recall and extraction
     dedup fall back to the repository's lexical filter, which is a weaker
@@ -76,7 +76,7 @@ def long_term_memory_index(composition: Any) -> MemoryIndex | None:
 
 
 def model_usage_records(composition: Any) -> ModelUsageRepository | None:
-    """The durable per-request usage ledger, or None when none is wired.
+    """Return the durable per-request usage ledger, or None when none is wired.
 
     Optional like the long-term memory store: without it a turn still answers,
     it just leaves no accounting trail. That is a real gap outside

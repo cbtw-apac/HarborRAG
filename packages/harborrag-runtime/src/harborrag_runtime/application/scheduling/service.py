@@ -17,7 +17,13 @@ type ScheduleBackendProvider = Callable[[], Awaitable[ScheduleBackend]]
 
 
 class ScheduleApplicationService:
-    """Apply ``config/sources/schedules.yaml`` to the schedule engine at startup."""
+    """Apply ``config/sources/schedules.yaml`` to the schedule engine at startup.
+
+    Args:
+        settings: Runtime settings; name the schedule file.
+        backend_provider: Returns the schedule backend.
+        source_input_builder: Prepares the source submission a schedule runs.
+    """
 
     def __init__(
         self,

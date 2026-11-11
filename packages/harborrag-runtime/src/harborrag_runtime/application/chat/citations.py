@@ -31,6 +31,9 @@ class CitationNumbering:
     ``feed`` returns the text that can be shown so far; a marker split across pieces,
     and the whitespace before it, is held back until it closes. ``finish`` returns what
     is left. The concatenated output is the answer as stored and returned.
+
+    Args:
+        passages: The passages of the prompt, in the order the model saw them.
     """
 
     def __init__(self, passages: Sequence[RetrievalResult]) -> None:
@@ -52,7 +55,7 @@ class CitationNumbering:
         return _MARKER.sub(self._renumber, rest)
 
     def citations(self) -> tuple[CitationRecord, ...]:
-        """The cited passages, ``n`` ascending."""
+        """Return the cited passages, ``n`` ascending."""
         order = sorted(self._numbers.items(), key=lambda item: item[1])
         return tuple(citation_record(n, self._passages[index - 1]) for index, n in order)
 
@@ -66,7 +69,7 @@ class CitationNumbering:
         return marker.group(1) + "".join(f"[{number}]" for number in dict.fromkeys(numbers))
 
     def _indexes(self, items: str) -> list[int]:
-        """The passage indexes a marker names, in order; unknown ones left out."""
+        """Return the passage indexes a marker names, in order; unknown ones are left out."""
         indexes: list[int] = []
         for item in items.split(","):
             first, _, last = item.replace("–", "-").partition("-")
@@ -97,7 +100,7 @@ def citation_record(n: int, result: RetrievalResult) -> CitationRecord:
 
 
 def snippet(text: str) -> str:
-    """The passage with whitespace collapsed, cut to ``SNIPPET_LIMIT`` characters."""
+    """Collapse the passage's whitespace and cut it to ``SNIPPET_LIMIT`` characters."""
     collapsed = " ".join(text.split())
     if len(collapsed) <= SNIPPET_LIMIT:
         return collapsed

@@ -6,10 +6,14 @@ from ..ports import BaseAppService
 
 
 def select_app_service() -> tuple[BaseAppService, str]:
+    """Return the configured application service and the name of its composition mode."""
+
     return runtime_app_service(), "production"
 
 
 def runtime_app_service() -> BaseAppService:
+    """Build the production application service from the process settings."""
+
     from harborrag_runtime.composition import CompositionRoot
     from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -21,5 +25,7 @@ def runtime_app_service() -> BaseAppService:
 
 
 def get_app_service() -> BaseAppService:
+    """Return the configured application service."""
+
     service, _ = select_app_service()
     return service

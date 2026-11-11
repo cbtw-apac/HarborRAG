@@ -75,15 +75,34 @@ if TYPE_CHECKING:
 logger = logging.getLogger("harborrag.app.workflow_control.chat")
 
 MEMORY_WARNING = "conversation_memory_unavailable"
-# The provider adapter's own failure, reported as an ERROR chunk rather than
-# raised. Named here because it is the one error event with no exception behind
-# it, and the transport still has to tell it apart from the others.
 STREAM_ERROR = "ChatStreamError"
+"""Error name for the provider adapter's own failure, reported as an ERROR chunk, not raised.
+
+It is the one error event with no exception behind it, and the transport still has to tell
+it apart from the others.
+"""
 _MODEL_FAILURES = (HarborChatError, HarborConnectionError, HarborUnavailableError)
 
 
 class ChatApplicationService:
-    """Ground chat completions in retrieved evidence and project the result."""
+    """Ground chat completions in retrieved evidence and project the result.
+
+    Completions are serialized per session, so building the context and appending the
+    exchange cannot interleave across concurrent requests or SQL-backed workers.
+
+    Args:
+        runtime_provider: Returns the runtime that retrieves and calls the chat model.
+        settings: Process settings holding the chat retrieval policy.
+        memory: Conversation history store.
+        projects: Project lookup; ``None`` skips project checks.
+        memories: Long-term memory store, when enabled.
+        index: Long-term memory vector index, when enabled.
+        extraction: Queue that extracts long-term memories off the request path.
+        locks: Per-session locks; built over ``memory`` when omitted.
+        usage: Model usage ledger, when the deployment keeps one.
+        config: Runtime settings provider for per-project retrieval overrides.
+        catalog: Connection catalog that resolves a request's scope.
+    """
 
     def __init__(  # noqa: PLR0913 - one keyword-only collaborator per injected port
         self,
@@ -112,8 +131,6 @@ class ChatApplicationService:
         self._projects = projects
         self._catalog = catalog
         self._extraction = extraction
-        # Serializes completions per session so ``build context -> append``
-        # cannot interleave across concurrent requests or SQL-backed workers.
         self._locks = locks or SessionLocks(memory)
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
@@ -260,6 +277,7 @@ class ChatApplicationService:
     async def _session_projects(
         self, tenant_id: str, principal_id: str, options: ChatExecutionOptions
     ) -> tuple[str, ...]:
+        """Return the project the session was created for, refusing ``project_ids`` in a session."""
         if options.project_ids:
             raise HarborValidationError(
                 "project_ids are for one-off questions; a session reads its own project",
@@ -375,9 +393,10 @@ class ChatApplicationService:
         principal_id: str,
         options: ChatExecutionOptions,
     ) -> AsyncGenerator[dict[str, object], None]:
-        """Yield ``{"kind": ...}`` events: one ``citations``, many ``chunk``, at
-        most one ``warning`` (memory not persisted), and one terminal
-        ``result`` or ``error``. A transport adapts these into SSE frames.
+        """Yield ``{"kind": ...}`` events for a transport to adapt into SSE frames.
+
+        The events are one ``citations``, many ``chunk``, at most one ``warning`` (memory
+        not persisted), and one terminal ``result`` or ``error``.
 
         ``aclosing`` is what makes an abandoned stream recoverable: when the
         client hangs up, ``GeneratorExit`` lands here, and closing the inner
@@ -405,6 +424,25 @@ class ChatApplicationService:
         identity: MemoryIdentity,
         options: ChatExecutionOptions,
     ) -> AsyncGenerator[dict[str, object], None]:
+        """Run the locked turn, persisting whatever text was delivered however it ends.
+
+        The provider adapter reports a failure as an ERROR chunk and then raises; the chunk
+        is treated as the single terminal error so the exception path never adds a second,
+        differently shaped frame. Headers and the citations event are already on the wire
+        after retrieval, so a later failure ends the stream as an in-band error event, and the
+        delivered text, which was still paid for, is persisted and marked partial first.
+
+        ``CancelledError`` (the transport deadline) and ``GeneratorExit`` (the client hanging
+        up) are not errors this service reports, since nothing can be yielded after either, so
+        the delivered text is persisted before they propagate. That holds on the ``aclose()``
+        path, which is how both normally arrive; under a hard cancellation of the surrounding
+        task the first write to suspend re-raises and the turn is lost. Making that durable
+        means shielding the writes and the session lock together.
+
+        The final ``_finish`` sits outside the ``try`` on purpose: yielding from inside it
+        would put the yield under the ``except BaseException`` that finishes the turn, so a
+        client leaving at exactly that frame persisted the delivered text twice.
+        """
         try:
             await self._require_scope(identity)
             prepared = await prepare_turn(self._resources, query, identity, options)
@@ -429,10 +467,6 @@ class ChatApplicationService:
             ):
                 answer.observe(chunk)
                 if chunk.event is StreamEventType.ERROR:
-                    # The provider adapter reports a failure as an ERROR chunk
-                    # and then raises. Treat the chunk as the single terminal
-                    # error and stop consuming, so the exception path below
-                    # never adds a second, differently shaped error frame.
                     logger.error(
                         "Chat provider stream failed for tenant=%s session=%s",
                         identity.tenant_id,
@@ -442,33 +476,12 @@ class ChatApplicationService:
                     break
                 yield {"kind": "chunk", "chunk": chat_stream_chunk_data(chunk)}
         except Exception as exc:  # noqa: BLE001 - stable application envelope
-            # Headers and the citations event are already on the wire, so a
-            # failure here cannot become an HTTP error response -- it must
-            # end the stream as a terminal in-band event instead. Whatever
-            # text reached the caller was still paid for, so it is persisted
-            # and marked partial before the error frame goes out.
             await self._finish(identity, question, prepared, answer.delivered())
             yield error_event(exc, "generate chat completion stream")
             return
         except BaseException:  # noqa: BLE001 - deadline or disconnect, then re-raised
-            # ``CancelledError`` (the transport deadline firing) and
-            # ``GeneratorExit`` (the client hanging up) are not errors this
-            # service reports -- nothing can be yielded after either -- so the
-            # delivered text is persisted before they propagate.
-            #
-            # That holds on the ``aclose()`` path, which is how both normally
-            # arrive: the transport closes this generator and the writes below
-            # run to completion. It is best-effort under a hard cancellation of
-            # the surrounding task, where the first write to suspend re-raises
-            # ``CancelledError`` and the turn is lost. Making that case durable
-            # means shielding the writes *and* the session lock together, which
-            # is a larger change than this handler.
             await self._finish(identity, question, prepared, answer.delivered())
             raise
-        # Outside the ``try`` on purpose. Finishing the turn and then yielding
-        # from inside it puts the yield under the same ``except BaseException``
-        # that finishes the turn, so a client leaving at exactly that frame
-        # persisted the delivered text twice.
         remembered = await self._finish(identity, question, prepared, answer.delivered())
         delivered = answer.delivered()
         if delivered.text and not provider_failed:
@@ -534,7 +547,7 @@ class ChatApplicationService:
 
 
 def _identity(tenant_id: str, principal_id: str, options: ChatExecutionOptions) -> MemoryIdentity:
-    """The identity of a streamed turn, which needs a session.
+    """Return the identity of a streamed turn, which needs a session.
 
     Raises:
         HarborValidationError: The options name no session.
@@ -551,6 +564,7 @@ def _identity(tenant_id: str, principal_id: str, options: ChatExecutionOptions) 
 
 
 def _access(identity: MemoryIdentity) -> MemoryAccess:
+    """Return the memory access key of ``identity``."""
     return MemoryAccess(
         tenant_id=identity.tenant_id,
         principal_id=identity.principal_id,
@@ -561,7 +575,7 @@ def _access(identity: MemoryIdentity) -> MemoryAccess:
 
 
 def _usage(options: ChatExecutionOptions, calls: Sequence[HarborChatResponse]) -> CompletionUsage:
-    """What every model call of the turn cost; ``cost_usd`` is ``None`` when one is unpriced."""
+    """Total what the turn's model calls cost; ``cost_usd`` is ``None`` when one is unpriced."""
     costs = [call.estimated_cost_usd for call in calls]
     return CompletionUsage(
         mode=options.mode,

@@ -19,6 +19,17 @@ async def retryable_document_ids(
     task_id: str,
     requested: Sequence[str],
 ) -> tuple[str, ...]:
+    """Select the failed documents of a run that a retry may re-run.
+
+    Args:
+        store: The run registry.
+        task_id: The run whose failures are read.
+        requested: Documents the operator named; empty selects by the recorded verdicts.
+
+    Returns:
+        The distinct IDs of the documents to retry, in the order they were read.
+    """
+
     requested_set = set(requested)
     selected: list[str] = []
     after_updated_at: datetime | None = None
@@ -49,9 +60,12 @@ async def retryable_document_ids(
 
 
 def _retryable(result: Mapping[str, object], *, explicitly_requested: bool) -> bool:
-    # A blanket retry honours the verdict recorded with the failure. A document
-    # the operator names is retried unless its failure is inherent to the source:
-    # that is how a deterministic failure gets re-run once a fix is deployed.
+    """Apply the retry policy to one failed document's result.
+
+    A blanket retry honours the verdict recorded with the failure. A document the operator
+    names is retried unless its failure is inherent to the source, which is how a
+    deterministic failure gets re-run once a fix is deployed.
+    """
     code = result.get("safe_error_code")
     if explicitly_requested and isinstance(code, str) and code.strip():
         return is_explicitly_retryable_failure_code(code)

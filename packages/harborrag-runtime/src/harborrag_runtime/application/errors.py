@@ -1,4 +1,14 @@
-"""Secret-safe application error envelopes."""
+"""Secret-safe application error envelopes.
+
+Messages reach CLI output and HTTP responses, so only reviewed text is forwarded. The
+allow-list of exception types is an explicit tuple, not an ``isinstance`` check against a
+shared base class: a base-class check would silently admit every future subclass whose
+message nobody reviewed. Adding a type to it means accepting its messages as public. Its
+types are authored inside HarborRAG and interpolate only caller-supplied identifiers (run
+IDs, connector names, queue names), never provider responses, credentials or storage
+layout. ``ValueError`` stays on it for local argument validation raised by the application
+services themselves.
+"""
 
 from __future__ import annotations
 
@@ -29,59 +39,63 @@ from .schemas import AppResponse
 
 
 class IngestionNotFoundError(HarborNotFoundError):
+    """The named ingestion does not exist for the caller's tenant."""
+
     error_code = "not_found"
 
 
 class IngestionAlreadyCompletedError(HarborConflictError):
+    """The ingestion already reached a terminal state."""
+
     error_code = "invalid_state"
 
 
 class IngestionAlreadyPausedError(HarborConflictError):
+    """The ingestion is already paused."""
+
     error_code = "invalid_state"
 
 
 class IngestionAlreadyRunningError(HarborConflictError):
+    """The ingestion is already running."""
+
     error_code = "already_running"
 
 
 class IngestionActionStateError(HarborConflictError):
+    """The requested action is not allowed in the ingestion's current state."""
+
     error_code = "invalid_state"
 
 
 class IngestionIdempotencyConflictError(HarborConflictError):
+    """An idempotency key was reused for a different ingestion request."""
+
     error_code = "invalid_state"
 
 
 class IngestionRetryConflictError(HarborConflictError):
+    """There is nothing to retry, or the run is not yet complete enough to retry."""
+
     error_code = "invalid_state"
 
 
 class IngestionCursorError(HarborValidationError):
+    """A pagination cursor is malformed or does not match the request filters."""
+
     error_code = "validation_error"
 
 
 class IngestionFailureIdError(HarborValidationError):
+    """A failure ID is malformed."""
+
     error_code = "validation_error"
 
 
 class SettingsLevelNotFoundError(HarborValidationError):
+    """The settings level the caller named does not exist."""
+
     error_code = "reference_not_found"
-
-
-# Error types whose messages are authored inside HarborRAG at the Temporal
-# boundary and only ever interpolate caller-supplied identifiers (run IDs,
-# connector names, queue names) -- never provider responses, credentials, or
-# storage layout. Their messages are the operator's primary diagnostic, so
-# they are forwarded verbatim.
-#
-# This is deliberately an explicit tuple rather than an isinstance check
-# against a shared base class: a base-class check would silently admit every
-# future subclass whose message nobody reviewed, which is the exact leak this
-# module exists to prevent. Adding a type here means accepting its messages
-# as public.
-#
-# ``ValueError`` is included to preserve the original behaviour for local
-# argument validation raised by the application services themselves.
 
 
 _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
@@ -100,7 +114,11 @@ _PUBLIC_MESSAGE_TYPES: tuple[type[Exception], ...] = (
 
 
 def validation_error_detail(exc: ValidationError) -> str:
-    """Summarise a ValidationError as ``loc: msg`` pairs, without input values."""
+    """Summarise a ValidationError as ``loc: msg`` pairs, without input values.
+
+    A ValidationError is a ValueError, but its text embeds the offending input values (DSNs,
+    keys), so only where and why each field failed is reported.
+    """
 
     errors = exc.errors(include_input=False, include_url=False)
     if not errors:
@@ -122,8 +140,6 @@ def public_error_message(exc: Exception) -> str:
     full detail stays available to whoever operates the process.
     """
 
-    # ValidationError is a ValueError, but its text embeds the offending input values
-    # (DSNs, keys). Report only where and why each field failed.
     if isinstance(exc, ValidationError):
         return validation_error_detail(exc)
     if isinstance(exc, _PUBLIC_MESSAGE_TYPES):

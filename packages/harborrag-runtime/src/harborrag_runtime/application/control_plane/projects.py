@@ -48,7 +48,13 @@ class ProjectIdTakenError(HarborConflictError):
 
 
 class ProjectService:
-    """Facade over projects and the cascade that removes their connections."""
+    """Facade over projects and the cascade that removes their connections.
+
+    Args:
+        control_plane: Returns the control-plane repositories.
+        runs: Returns the run registry of connections.
+        connections: Connection service the removal cascade deletes through.
+    """
 
     def __init__(
         self,

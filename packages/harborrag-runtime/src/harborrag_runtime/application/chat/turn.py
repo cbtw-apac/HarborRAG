@@ -48,6 +48,7 @@ class DeliveredAnswer:
 
     @property
     def completion_tokens(self) -> int | None:
+        """Tokens the provider reported for the answer, when it reported any."""
         return None if self.call is None else self.call.usage.completion_tokens
 
 
@@ -84,7 +85,7 @@ class StreamedAnswer:
             self.completed = True
 
     def delivered(self) -> DeliveredAnswer:
-        """The answer as it stands, partial unless the stream said COMPLETED."""
+        """Return the answer as it stands, partial unless the stream said COMPLETED."""
 
         return DeliveredAnswer(
             "".join(self.parts),
@@ -105,12 +106,16 @@ class RememberedTurn:
     ``persisted`` is the user/assistant pair only when both writes landed:
     long-term extraction cites history message ids as provenance, so a fact
     must never outlive the messages it came from.
+
+    Attributes:
+        question: The stored question, or ``None`` when its write failed.
+        answer: The stored answer, or ``None`` when it was not written or its write failed.
+        empty: The turn produced no answer text at all, so there was nothing to write;
+            distinct from a write that was attempted and failed.
     """
 
     question: ConversationMessage | None
     answer: ConversationMessage | None
-    # True when the turn produced no answer text at all, so there was nothing
-    # to write -- distinct from a write that was attempted and failed.
     empty: bool = False
 
     @property
@@ -133,6 +138,7 @@ class RememberedTurn:
 
     @property
     def persisted(self) -> tuple[ConversationMessage, ...] | None:
+        """The stored question and answer, or ``None`` unless both were written."""
         if self.question is None or self.answer is None:
             return None
         return (self.question, self.answer)

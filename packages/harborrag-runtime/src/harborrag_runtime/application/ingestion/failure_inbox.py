@@ -31,7 +31,8 @@ _UNKNOWN_CATEGORY = "unknown"
 class FailureRuns(Protocol):
     """The run registry the inbox needs."""
 
-    async def get(self, task_id: str) -> IngestionTask | None: ...
+    async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the run ``task_id``, or ``None`` when it does not exist."""
 
     async def failure_page(  # noqa: PLR0913 - the registry's query filters
         self,
@@ -46,7 +47,8 @@ class FailureRuns(Protocol):
         limit: int,
         include_total: bool,
         known_stages: frozenset[str] | None = None,
-    ) -> FailurePage: ...
+    ) -> FailurePage:
+        """Return one keyset page of a tenant's failed documents, with counts per category."""
 
     async def failures_for_retry(  # noqa: PLR0913 - the registry's query filters
         self,
@@ -58,7 +60,8 @@ class FailureRuns(Protocol):
         internal_stages: frozenset[str] | None,
         limit: int = 1000,
         known_stages: frozenset[str] | None = None,
-    ) -> tuple[StoredFailure, ...]: ...
+    ) -> tuple[StoredFailure, ...]:
+        """Return the tenant's unresolved failures selected by ``keys`` or by the filters."""
 
 
 def failure_id(task_id: str, document_id: str) -> str:
@@ -87,7 +90,13 @@ def parse_failure_id(value: str) -> tuple[str, str]:
 
 
 class FailureInboxService:
-    """Page and retry the failed documents of one tenant."""
+    """Page and retry the failed documents of one tenant.
+
+    Args:
+        connections: Returns the connection repository that maps failures to connections.
+        runs: Returns the run registry that holds the failures.
+        actions: Starts retry runs.
+    """
 
     def __init__(
         self,

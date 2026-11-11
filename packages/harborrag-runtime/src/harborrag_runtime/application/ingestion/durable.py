@@ -1,3 +1,10 @@
+"""Durable ingestion operations the CLI and HTTP share, independent of the transport.
+
+Runs are registered in the control plane first, then started through the runtime's ingestion
+gateway; every failure leaves as an ``AppResponse`` envelope and no Temporal object leaves
+this module.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -45,6 +52,12 @@ class DurableIngestionOperations:
     A collaborator rather than a mixin: it declares the settings, client, registry, and
     builder it needs, so mypy checks those uses instead of them being attributes it hopes
     the host class happens to define.
+
+    Args:
+        settings: Runtime settings handed to the source input builder.
+        runtime_client: Returns the ingestion gateway that starts workflows.
+        task_registry: Returns the durable task registry.
+        source_input_builder: Prepares a submission from the connection it names.
     """
 
     def __init__(
@@ -80,6 +93,31 @@ class DurableIngestionOperations:
         document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
+        """Register a durable ingestion run and start its workflow.
+
+        Args:
+            tenant_id: Tenant the run belongs to.
+            connector_name: Connector to run, or the connection's source key.
+            run_id: Run ID; generated when omitted.
+            connection_id: Stored connection to ingest from.
+            source_scope_id: Source scope within the connection.
+            path: Restrict a local source to this path.
+            pattern: Restrict a local source to files matching this pattern.
+            recursive: Whether to descend into subdirectories.
+            updated_after: Only ingest source entities changed after this timestamp.
+            max_artifacts: Stop after this many source entities.
+            include_attachments: Whether to ingest attachments.
+            filters: Connector-specific filters.
+            force_reprocess: Reprocess unchanged documents.
+            batch_size: Documents per batch, when overriding the default.
+            document_concurrency: Documents processed at once, when overriding the default.
+            wait: Wait for the workflow to finish and include its result.
+
+        Returns:
+            The run, its workflow reference and, with ``wait``, its result; a failure envelope
+            when the run could not be registered or started.
+        """
+
         suffix = uuid4().hex
         run_id = run_id or f"ingestion-{suffix}"
         try:
@@ -152,12 +190,23 @@ class DurableIngestionOperations:
         task: IngestionTask,
         request: PreparedSourceSubmission,
     ) -> tuple[IngestionGateway, IngestionExecutionReference] | AppResponse:
-        """Start a registered run, or answer why it did not start and where it stands."""
+        """Start a registered run, or answer why it did not start and where it stands.
+
+        A finished run cannot start again: Temporal would accept the ID and run a workflow
+        whose first task transition the control plane then refuses.
+
+        When the runtime cannot be reached nothing was submitted, so an unsubmitted run
+        would look queued forever and later start unasked; it is failed instead. The store
+        decides atomically, because ``task`` is a snapshot: the outbox may have started the
+        run since, or an earlier start may already have been confirmed.
+
+        When a start fails with a submission error the request may have reached Temporal, so
+        the run stays PENDING for the outbox and the operator learns how to check it. The
+        message is shared with HTTP, so it names no CLI command; the CLI renderer adds one.
+        """
 
         run_id = task.task_id
         if task.status in TERMINAL_STATES:
-            # A finished run cannot start again; Temporal would accept the ID and run
-            # a workflow whose first task transition the control plane then refuses.
             return failure_response(
                 logger,
                 WorkflowRunAlreadyStartedError(
@@ -172,11 +221,6 @@ class DurableIngestionOperations:
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             failure = failure_response(logger, exc, "connect to start ingestion run %r", run_id)
             if isinstance(exc, RuntimeConnectionError):
-                # Nothing was submitted, so an unsubmitted run can never start on its
-                # own; left PENDING it would look queued forever and later start
-                # unasked. The store decides atomically, because ``task`` is a
-                # snapshot: the outbox may have started the run since, or an earlier
-                # start may already have been confirmed.
                 current = await self._fail_unsubmitted(registry, run_id)
                 if current is not None:
                     status = current.value
@@ -188,9 +232,6 @@ class DurableIngestionOperations:
         except Exception as exc:  # noqa: BLE001 - stable error envelope
             failure = failure_response(logger, exc, "start ingestion run %r", run_id)
             if isinstance(exc, WorkflowSubmissionError):
-                # The request may have reached Temporal before the call failed, so the
-                # run stays PENDING for the outbox and the operator learns how to check.
-                # Shared with HTTP, so no CLI command here; the CLI renderer adds one.
                 reason = str(failure.error or type(exc).__name__).rstrip(".")
                 failure = AppResponse(
                     False,
@@ -225,6 +266,11 @@ class DurableIngestionOperations:
             return None
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
+        """Return a run's status, progress and execution status.
+
+        A run whose workflow Temporal does not know is answered from the control-plane record.
+        """
+
         try:
             client = await self._runtime_client()
             status, progress, execution_status = await asyncio.gather(
@@ -260,7 +306,7 @@ class DurableIngestionOperations:
             return failure_response(logger, exc, "read status for ingestion run %r", run_id)
 
     async def _control_plane_status(self, run_id: str) -> dict[str, object] | None:
-        """The recorded state of a run Temporal does not know, e.g. one never submitted.
+        """Return the recorded state of a run Temporal does not know, e.g. one never submitted.
 
         Shaped like the Temporal status envelope so status renderers keep working;
         ``execution_status`` says there is no execution behind it.
@@ -293,6 +339,8 @@ class DurableIngestionOperations:
         }
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
+        """Return the final result of a run once its workflow has finished."""
+
         try:
             result = await (await self._runtime_client()).result(run_id)
             return AppResponse(True, {"result": to_jsonable_python(result)})
@@ -301,7 +349,7 @@ class DurableIngestionOperations:
 
 
 def _run_failure(run_id: str, status: str, failure: AppResponse) -> AppResponse:
-    """A start failure that still names the run and the state it was left in."""
+    """Wrap a start failure so it still names the run and the state it was left in."""
 
     return AppResponse(
         False,

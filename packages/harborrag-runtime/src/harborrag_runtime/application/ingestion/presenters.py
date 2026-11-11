@@ -1,3 +1,5 @@
+"""Public projections, request hashing and keyset cursors for ingestion tasks."""
+
 from __future__ import annotations
 
 import base64
@@ -35,6 +37,12 @@ STATUS_NAMES = {
 
 
 def task_response(task: IngestionTask, counts: dict[str, int]) -> dict[str, object]:
+    """Project a task and its document counts as the public task document.
+
+    Raises:
+        HarborInvariantError: The stored task has no tenant identity.
+    """
+
     tenant_id = task.request.get("tenant_id")
     if not isinstance(tenant_id, str) or not tenant_id.strip():
         raise HarborInvariantError("stored ingestion task is missing tenant identity")
@@ -113,6 +121,8 @@ def _task_message(status: str, stage: str) -> str:
 
 
 def request_hash(payload: dict[str, object]) -> str:
+    """Hash a public request payload canonically, for idempotency-key comparison."""
+
     encoded = json.dumps(
         payload,
         ensure_ascii=False,
@@ -128,6 +138,8 @@ def task_id() -> str:
 
 
 def encode_cursor(*, task_id: str, position: DocumentPageCursor) -> str:
+    """Pack a document-page position into an opaque cursor bound to ``task_id``."""
+
     return _pack(
         {
             "task_id": task_id,
@@ -138,6 +150,12 @@ def encode_cursor(*, task_id: str, position: DocumentPageCursor) -> str:
 
 
 def decode_cursor(value: str, *, task_id: str) -> DocumentPageCursor:
+    """Read a document-page cursor, rejecting one that is malformed or belongs to another task.
+
+    Raises:
+        IngestionCursorError: ``value`` is not a valid cursor for ``task_id``.
+    """
+
     try:
         payload = _unpack(value)
         if payload.get("task_id") != task_id:
@@ -152,6 +170,8 @@ def decode_cursor(value: str, *, task_id: str) -> DocumentPageCursor:
 
 
 def encode_task_cursor(position: TaskPageCursor) -> str:
+    """Pack a task-list keyset position into an opaque cursor."""
+
     return _pack({"submitted_at": position.submitted_at, "task_id": position.task_id})
 
 

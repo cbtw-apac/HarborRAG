@@ -18,6 +18,8 @@ from .query import retrieve
 
 
 class RetrievalClientMixin:
+    """Forward retrieval to the retrieval use case of the application service."""
+
     _resources: AppResources
     _settings: RuntimeSettings
 
@@ -36,6 +38,8 @@ class RetrievalClientMixin:
         include_metadata: bool = False,
         score_threshold: float = 0.0,
     ) -> AppResponse:
+        """Run one retrieval for the tenant and return the ranked results as an ``AppResponse``."""
+
         return await retrieve(
             self._resources.runtime_sdk,
             self._settings,

@@ -27,12 +27,13 @@ from .options import ChatExecutionOptions
 from .prompting import build_chat_request, history_messages
 from .retrieval import chat_rerank, chat_top_k, relevant_results, search_documents
 
-# ``ChatEvidence`` budgets the rendered prompt in bytes; the policy states it in
-# tokens. Four is the usual conservative byte-per-token ratio for the mixed
-# prose and JSON an evidence packet carries -- passing the token count straight
-# through instead capped the whole evidence block at roughly a quarter of the
-# context it was allowed, and rejected long questions outright.
 _BYTES_PER_TOKEN = 4
+"""Conservative bytes per token for the mixed prose and JSON of an evidence packet.
+
+``ChatEvidence`` budgets the rendered prompt in bytes while the policy states it in
+tokens. Passing the token count straight through capped the evidence block at about a
+quarter of the context it was allowed and rejected long questions outright.
+"""
 
 if TYPE_CHECKING:
     from harborrag_core.domain.retrieval import RetrievalResult
@@ -84,7 +85,9 @@ async def prepare_turn(
     contains that question once; a one-off question has none. Retrieval stays in
     the caller's tenant and within ``filters``, at the ``retrieval.top_k`` and
     ``retrieval.rerank`` of the identity's project; older conversation history
-    does not enter the prompt.
+    does not enter the prompt. Results are gated once by the minimum relevance, before they
+    become both the model's evidence and the caller's citations, so an answer is never
+    reported as grounded in a document too weak a match to be shown to the model.
     """
     context = (
         await recent_memory_context(resources.memory, identity, query)
@@ -106,9 +109,6 @@ async def prepare_turn(
         filters=filters if filters is not None else options.filters,
         rerank=await chat_rerank(resources.config, identity),
     )
-    # Gated once, before the results become both the model's evidence and the
-    # caller's citations, so an answer is never reported as grounded in a
-    # document that was too weak a match to be shown to the model.
     results = relevant_results(
         response.results,
         minimum=resources.settings.chat_retrieval_min_relevance,

@@ -29,21 +29,21 @@ _RETIRE_WHEN_IDLE_KIND = "retire_secret_when_idle"
 _LOG_ACTIVITY_KIND = "log_activity"
 
 type ConnectionBusy = Callable[[str, str], Awaitable[bool]]
-# The tenant migration 0032 gives a legacy secret no source row still owns.
 LEGACY_SECRET_TENANT_ID = "DEFAULT"
+"""Tenant migration 0032 gives a legacy secret that no source row still owns."""
 
-# Named lease AppService.recover_pending_control_plane_effects runs its drain
-# under (LeaseRepositoryPort), mirroring the ingestion progress bridge's
-# LEASE_NAME -- without it, every API process/replica drains the same queue
-# on its own timer and can replay the same pending effect concurrently.
-# retire_secret is idempotent either way (deleting an already-gone ref is a
-# no-op), but log_activity is not: two processes racing to replay the same
-# entry id both attempt an insert, and only a unique-id constraint (or the
-# idempotent-append guard on the repository) stops that from double-logging.
-# TTL is a few drain intervals so a crashed holder's lease lapses quickly
-# without its own timer jitter costing it the lease.
 EFFECT_RECOVERY_LEASE_NAME = "control_plane_effect_recovery"
+"""Lease ``AppService.recover_pending_control_plane_effects`` runs its drain under.
+
+It mirrors the ingestion progress bridge's ``LEASE_NAME``. Without it every API
+process or replica drains the same queue on its own timer and can replay the same
+pending effect concurrently. ``retire_secret`` is idempotent either way, but
+``log_activity`` is not: two processes replaying one entry ID both attempt an insert,
+and only a unique-ID constraint or the repository's idempotent-append guard stops
+the double entry.
+"""
 EFFECT_RECOVERY_LEASE_TTL_SECONDS = 120.0
+"""Lease lifetime of a few drain intervals, so a crashed holder's lease lapses quickly."""
 
 
 async def retire_refs(
@@ -107,7 +107,9 @@ async def recover_pending_control_plane_effects(
     Post-commit effects and pre-delete erasure intents are idempotent; a
     concurrent initial attempt may perform the same deletion harmlessly.
     A row that fails again is left pending for the next drain pass; one bad
-    row must not block the rest.
+    row must not block the rest. A failure to delete a row that already replayed
+    is logged and the row replays again next pass, which is safe because both
+    effect kinds are idempotent.
     """
     recovered = 0
     for effect in await control_plane.pending_effects.list_pending(limit=limit):
@@ -126,10 +128,6 @@ async def recover_pending_control_plane_effects(
         try:
             await control_plane.pending_effects.complete(effect.id)
         except Exception:
-            # The replay above already succeeded -- only the delete from the
-            # queue failed. Leaving the row pending just means it replays
-            # again next pass (safe: both effect kinds are idempotent), so a
-            # failure here must not abort the rest of this batch.
             logger.exception(
                 "control-plane pending effect complete failed id=%s kind=%s; will retry",
                 effect.id,
@@ -166,7 +164,7 @@ async def _queue_effect(
 async def _still_in_use(
     effect: PendingControlPlaneEffect, connection_busy: ConnectionBusy | None
 ) -> bool:
-    """True while a deferred retirement's connection still has an active run."""
+    """Report whether a deferred retirement's connection still has an active run."""
     if effect.kind != _RETIRE_WHEN_IDLE_KIND:
         return False
     if connection_busy is None:
@@ -179,6 +177,16 @@ async def _still_in_use(
 async def _replay_effect(
     control_plane: ControlPlaneRepositories, effect: PendingControlPlaneEffect
 ) -> None:
+    """Perform one queued effect.
+
+    A secret retirement queued before refs became tenant-scoped carries no tenant. Its ref
+    was retired from the source that used it, so migration 0032 found no owner and left
+    the secret under ``LEGACY_SECRET_TENANT_ID``; it is retired there rather than dropped,
+    which would orphan the ciphertext.
+
+    Raises:
+        HarborInvariantError: The effect kind is unknown.
+    """
     if effect.kind == _RETIRE_WHEN_IDLE_KIND:
         await control_plane.secrets.delete(
             str(effect.payload["ref"]), tenant_id=str(effect.payload["tenant_id"])
@@ -187,10 +195,6 @@ async def _replay_effect(
     if effect.kind == _RETIRE_SECRET_KIND:
         tenant_id = effect.payload.get("tenant_id")
         if not isinstance(tenant_id, str) or not tenant_id:
-            # A retirement queued before refs became tenant-scoped (alpha1). Its
-            # ref was retired from the source that used it, so migration 0032
-            # found no owner and left the secret under DEFAULT: retire it there
-            # rather than drop it and orphan the ciphertext.
             logger.warning(
                 "pending secret retirement carries no tenant; retiring under %s ref=%r",
                 LEGACY_SECRET_TENANT_ID,

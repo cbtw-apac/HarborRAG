@@ -1,3 +1,5 @@
+"""Transport-neutral response envelope shared by every application service."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

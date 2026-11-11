@@ -15,7 +15,7 @@ logger = logging.getLogger("harborrag.app.workflow_control.memory")
 
 
 def memory_context_request(identity: MemoryIdentity, question: str) -> MemoryContextRequest:
-    """Build identity for explicitly requested memory maintenance operations.
+    """Build the memory context request that memory maintenance operations take for a turn.
 
     Raises:
         ValueError: The turn is a one-off question with no session.
@@ -62,7 +62,7 @@ async def recent_memory_context(
 
 
 def empty_memory_context(question: str) -> MemoryContext:
-    """The no-history context a failed memory lookup degrades to."""
+    """Return the no-history context a failed memory lookup degrades to."""
 
     return MemoryContext(
         messages=(),

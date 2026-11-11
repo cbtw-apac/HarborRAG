@@ -1,3 +1,5 @@
+"""Projection of a retrieval report onto the transport-neutral application envelope."""
+
 from __future__ import annotations
 
 from itertools import islice
@@ -17,7 +19,25 @@ def retrieval_response(
     top_k: int,
     score_threshold: float = 0.0,
 ) -> AppResponse:
-    """Map an authoritative retrieval report onto the transport-neutral envelope."""
+    """Map an authoritative retrieval report onto the transport-neutral envelope.
+
+    ``relevance`` is the number a caller may threshold on. ``score`` is whatever the lane
+    produced, and on the hybrid lane that is rank arithmetic rescaled into a 0..1 shape, so
+    its top hit reads near 1.0 even when nothing matched.
+
+    Args:
+        response: The retrieval report.
+        include_content: Include each result's text.
+        include_metadata: Include each result's metadata.
+        top_k: Most results to return.
+        score_threshold: Drop results scoring below this.
+
+    Returns:
+        The ranked results with the request ID, lane and diagnostics.
+
+    Raises:
+        ValueError: ``top_k`` is below one.
+    """
 
     if top_k < 1:
         raise ValueError("retrieval top_k must be positive")
@@ -31,10 +51,6 @@ def retrieval_response(
             "rank": rank,
             "id": item.id,
             "score": item.score,
-            # The number a caller may threshold on. ``score`` is whatever the
-            # lane produced, and on the hybrid lane that is rank arithmetic
-            # rescaled into a 0..1 shape, so its top hit reads near 1.0 even
-            # when nothing matched.
             "relevance": item.relevance,
             "source": item.metadata.get("retrieval_source", "hybrid"),
         }

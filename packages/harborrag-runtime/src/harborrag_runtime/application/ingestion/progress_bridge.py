@@ -40,16 +40,15 @@ STREAMED_EVENTS = frozenset({RUN_STATUS, STAGE_PROGRESS, DOCUMENT_FAILED, RUN_CO
 _DEFAULT_TICK_INTERVAL_SECONDS = 2.0
 _LIST_ACTIVE_PAGE_LIMIT = 500
 
-# Named lease this bridge's tick runs under (LeaseRepositoryPort) so only one
-# process ticks it when the API is scaled to multiple processes/replicas --
-# without this, N processes diff the same tasks concurrently and each one's
-# read-then-write snapshot check races the others into appending duplicate
-# progress rows (distinct by seq, never deduped). Must match the lease name
-# seeded by control_plane migration 0017. TTL is a few tick intervals so a
-# crashed leader's lease lapses and a live process picks the work back up
-# quickly, without either process's own timer jitter costing it the lease.
 LEASE_NAME = "ingestion_progress_bridge"
+"""Lease the bridge's tick runs under (``LeaseRepositoryPort``), so one process ticks at a time.
+
+When the API is scaled to several processes, concurrent ticks would diff the same tasks and
+race their read-then-write snapshot checks into appending duplicate progress rows. The name
+must match the lease seeded by control-plane migration 0017.
+"""
 LEASE_TTL_SECONDS = _DEFAULT_TICK_INTERVAL_SECONDS * 4
+"""Lease lifetime of a few tick intervals, so a crashed leader's lease lapses quickly."""
 
 
 def event_prefix(task_id: str) -> str:

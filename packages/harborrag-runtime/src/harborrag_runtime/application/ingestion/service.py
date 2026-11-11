@@ -98,7 +98,15 @@ async def record_control_action(
 
 
 class IngestionApplicationService:
-    """Coordinate API persistence and workflow submission, never ingestion work."""
+    """Coordinate API persistence and workflow submission, never ingestion work.
+
+    Args:
+        settings: Runtime settings; the tenant ID defaults retry requests.
+        client_provider: Returns the ingestion gateway that starts and controls workflows.
+        task_store_provider: Returns the durable task store.
+        source_input_builder: Prepares a submission from the connection it names.
+        task_id_factory: Generates task IDs; random UUIDs when omitted.
+    """
 
     def __init__(
         self,
@@ -121,6 +129,23 @@ class IngestionApplicationService:
         *,
         idempotency_key: str | None,
     ) -> dict[str, object]:
+        """Register an ingestion and start its workflow, or return the run its key already made.
+
+        A workflow start that cannot be reached leaves the run pending for recovery.
+
+        Args:
+            command: The validated ingestion request.
+            idempotency_key: Caller key; a repeat with the same request returns the first run.
+
+        Returns:
+            The accepted task's ID, status, message and submission time.
+
+        Raises:
+            IngestionIdempotencyConflictError: The key was used for a different request.
+            HarborConnectionError: The workflow service could not take the submission.
+            HarborValidationError: The connection's settings cannot build its connector.
+        """
+
         source = await self._build_source(command)
         hashed_request = request_hash(command.public_request)
         store = await self._task_store_provider()
@@ -188,6 +213,12 @@ class IngestionApplicationService:
         }
 
     async def get_task(self, task_id: str) -> dict[str, object]:
+        """Return the public document of a run.
+
+        Raises:
+            IngestionNotFoundError: No such run.
+        """
+
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         counts = await store.progress(task_id)
@@ -203,6 +234,11 @@ class IngestionApplicationService:
         workflow may exist. Its claim, like that of a pass that dies mid-start,
         stays until it is stale; the store then hands the task out again, and the
         retry is idempotent because a start treats an existing workflow id as success.
+        A task another pass owns, or that started or settled meanwhile, yields no claim
+        and is skipped.
+
+        Returns:
+            The number of tasks whose workflow was started.
         """
 
         store = await self._task_store_provider()
@@ -211,7 +247,7 @@ class IngestionApplicationService:
             try:
                 claim = await store.claim_submission(task.task_id)
                 if claim is None:
-                    continue  # another pass owns it, or it started or settled meanwhile
+                    continue
             except Exception:  # noqa: BLE001 - one bad task must not starve the outbox
                 logger.exception(
                     "Pending ingestion submission claim failed task_id=%s", task.task_id
@@ -253,6 +289,16 @@ class IngestionApplicationService:
             logger.exception("Could not release the submission claim task_id=%s", task_id)
 
     async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Pause a run's workflow and record who asked.
+
+        Raises:
+            IngestionNotFoundError: No such run.
+            IngestionActionStateError: The run is a retry run, which can only be cancelled.
+            IngestionAlreadyCompletedError: The run already ended.
+            IngestionAlreadyPausedError: The run is already paused.
+            HarborConnectionError: The workflow service could not take the request.
+        """
+
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         _refuse_retry_run(task, "paused")
@@ -272,6 +318,16 @@ class IngestionApplicationService:
         }
 
     async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Resume a paused run's workflow and record who asked.
+
+        Raises:
+            IngestionNotFoundError: No such run.
+            IngestionActionStateError: The run is a retry run, which can only be cancelled.
+            IngestionAlreadyCompletedError: The run already ended.
+            IngestionAlreadyRunningError: The run is already running.
+            HarborConnectionError: The workflow service could not take the request.
+        """
+
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         _refuse_retry_run(task, "resumed")
@@ -291,6 +347,16 @@ class IngestionApplicationService:
         }
 
     async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Cancel an unfinished run and record who asked.
+
+        A run whose workflow already ended outside HarborRAG is settled instead of cancelled.
+
+        Raises:
+            IngestionNotFoundError: No such run.
+            IngestionAlreadyCompletedError: The run already ended.
+            HarborConnectionError: The workflow service could not take the request.
+        """
+
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -378,6 +444,23 @@ class IngestionApplicationService:
         actor: str | None = None,
         actor_type: str | None = None,
     ) -> dict[str, object]:
+        """Start a retry run of a finished run's failed documents.
+
+        Args:
+            task_id: The finished run.
+            document_ids: Documents to retry; empty retries every retryable failure.
+            actor: Principal recorded on the retry run.
+            actor_type: ``user`` or ``api_key``.
+
+        Returns:
+            The original and retry task IDs and the number of documents accepted.
+
+        Raises:
+            IngestionNotFoundError: No such run.
+            IngestionRetryConflictError: The run is not finished or has no retryable failures.
+            HarborConnectionError: The workflow service could not take the retry.
+        """
+
         store = await self._task_store_provider()
         original = await self._required_task(store, task_id)
         if original.status not in TERMINAL_STATES:

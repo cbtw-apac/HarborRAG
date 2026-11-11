@@ -16,7 +16,11 @@ from .presenters import conversation_summary_data
 
 
 class ConversationSessionService:
-    """Create authenticated session resources before a completion is requested."""
+    """Create authenticated session resources before a completion is requested.
+
+    Args:
+        repository: Conversation store that holds sessions and completion claims.
+    """
 
     def __init__(self, repository: ConversationHistoryRepository) -> None:
         self._repository = repository
@@ -61,6 +65,8 @@ class ConversationSessionService:
         principal_id: str,
         user_id: str | None = None,
     ) -> bool:
+        """Report whether the caller owns the session ``session_id``."""
+
         return await self._repository.exists(
             _identity(tenant_id, principal_id, session_id, user_id)
         )
@@ -68,6 +74,8 @@ class ConversationSessionService:
     async def claim_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
     ) -> CompletionClaim:
+        """Claim an idempotency key for a completion; see ``CompletionRequestStore``."""
+
         return await self._repository.claim_completion(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -85,6 +93,8 @@ class ConversationSessionService:
         response_json: str | None,
         session_id: str | None = None,
     ) -> None:
+        """Record the terminal outcome of a claimed completion; see ``CompletionRequestStore``."""
+
         await self._repository.finish_completion(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -97,6 +107,8 @@ class ConversationSessionService:
     async def release_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
     ) -> None:
+        """Free a claimed key whose request never reached a model."""
+
         await self._repository.release_completion(
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )

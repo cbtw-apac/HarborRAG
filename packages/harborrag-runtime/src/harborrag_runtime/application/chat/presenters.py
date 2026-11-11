@@ -41,7 +41,7 @@ def citation_marker(index: int, result: RetrievalResult) -> str:
 
 
 def source_heading(result: RetrievalResult) -> str:
-    """The passage's document title and section (or page) as a reader would name it."""
+    """Name the passage's document title and section (or page) as a reader would."""
 
     metadata = result.metadata
     title = (
@@ -68,6 +68,8 @@ def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
 def cited_evidence(
     answer: str, results: Sequence[RetrievalResult]
 ) -> tuple[dict[str, object], ...]:
+    """Return the evidence entries of the results whose ``[n]`` marker appears in ``answer``."""
+
     return tuple(
         evidence_data(index, result)
         for index, result in enumerate(results, start=1)
@@ -148,7 +150,7 @@ def cited_results(
     answer: str,
     results: Sequence[RetrievalResult],
 ) -> tuple[RetrievalResult, ...]:
-    """The retrieved results the answer actually cited, in retrieval order.
+    """Return the retrieved results the answer actually cited, in retrieval order.
 
     Retrieval returns its top-k whether or not any of it bears on the
     question, so reporting all of it as citations claims evidence the answer

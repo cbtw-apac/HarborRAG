@@ -27,6 +27,8 @@ logger = logging.getLogger("harborrag.app.workflow_control.chat.query_scope")
 
 
 class ScopeDecision(BaseModel):
+    """The model's one-field verdict on whether a request is in scope."""
+
     model_config = ConfigDict(extra="forbid")
     scope: Literal["knowledge", "conversation", "unsupported"]
 
@@ -76,7 +78,7 @@ async def require_query_scope(
 
 
 async def scope_history(resources: ChatTurnResources, access: MemoryAccess) -> ScopeHistory:
-    """The session's last three exchanges as the scope check reads them; none for a one-off."""
+    """Return the session's last three exchanges for the scope check; none for a one-off."""
 
     if access.session_id is None:
         return []
@@ -107,7 +109,10 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
     """Ask the model whether a request is about indexed knowledge or the conversation.
 
     Makes the model call and nothing else that can fail before it, so a caller can treat
-    the call as started once this is awaited.
+    the call as started once this is awaited. The call asks for at most 512 tokens, because
+    reasoning models can consume a smaller output budget before producing even a one-field
+    decision. Admission is a real model call even when rejected, so its usage is recorded
+    separately; the completion's cost scope remains answer generation, not admission.
 
     Args:
         resources: The turn's ports.
@@ -129,8 +134,6 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
                 HarborChatMessage.user(json.dumps({"query": query, "recent_history": history})),
             ),
             logical_model=model,
-            # Reasoning models can consume the entire smaller output budget
-            # before producing even a one-field JSON decision.
             max_tokens=512,
             sensitive=True,
             metadata=HarborChatMetadata(
@@ -142,8 +145,6 @@ async def check_query_scope(  # noqa: PLR0913 - the check's inputs, then the cal
         ),
         prompt=ChatPrompt.QUERY_GATE,
     )
-    # Admission is a real model call even when rejected. Record it separately;
-    # the completion's cost scope remains answer_generation, not admission.
     if resources.usage is not None:
         try:
             await resources.usage.record(

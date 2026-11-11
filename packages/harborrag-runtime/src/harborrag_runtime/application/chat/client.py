@@ -22,6 +22,8 @@ class ChatClientMixin:
     async def claim_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
     ) -> CompletionClaim:
+        """Claim an idempotency key for a completion; see ``CompletionRequestStore``."""
+
         return await self._sessions.claim_completion(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -39,6 +41,8 @@ class ChatClientMixin:
         response_json: str | None,
         session_id: str | None = None,
     ) -> None:
+        """Record the terminal outcome of a claimed completion; see ``CompletionRequestStore``."""
+
         await self._sessions.finish_completion(
             tenant_id=tenant_id,
             user_id=user_id,
@@ -51,6 +55,8 @@ class ChatClientMixin:
     async def release_completion(
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
     ) -> None:
+        """Free a claimed key whose request never reached a model."""
+
         await self._sessions.release_completion(
             tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
         )
@@ -64,9 +70,10 @@ class ChatClientMixin:
         title: str | None = None,
         project_id: str | None = None,
     ) -> AppResponse:
-        """``user_id`` owns the new conversation and defaults to the principal.
+        """Create a chat session scoped to ``project_id`` for its whole life.
 
-        The transport must pass the same end-user identity it later puts on
+        ``user_id`` owns the new conversation and defaults to the principal. The transport
+        must pass the same end-user identity it later puts on
         ``ChatExecutionOptions``: the session is keyed by it, so creating as
         the credential and completing as the human would make every turn look
         like an unknown session.
@@ -92,6 +99,8 @@ class ChatClientMixin:
         principal_id: str,
         user_id: str | None = None,
     ) -> bool:
+        """Report whether the caller owns the chat session ``session_id``."""
+
         return await self._sessions.exists(
             session_id,
             tenant_id=tenant_id,
@@ -143,6 +152,8 @@ class ChatClientMixin:
         principal_id: str,
         options: ChatExecutionOptions,
     ) -> AsyncGenerator[dict[str, object], None]:
+        """Stream one completion as ``{"kind": ...}`` events."""
+
         return self._chat.stream(
             query,
             tenant_id=tenant_id,

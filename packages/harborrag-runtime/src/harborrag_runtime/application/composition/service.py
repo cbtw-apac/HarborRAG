@@ -76,7 +76,7 @@ logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
 def _operator() -> str:
-    """The local operator, for the run's event trail; access control is the DB credential."""
+    """Return the local operator for the run's event trail; access control is the DB credential."""
     return f"{getpass.getuser()}@{socket.gethostname()}"
 
 
@@ -88,7 +88,19 @@ class AppService(
     RetrievalClientMixin,
     BaseAppService,
 ):
-    """Keep transport concerns outside the canonical ingestion execution path."""
+    """Application service that keeps transport concerns outside the ingestion execution path.
+
+    Each process holds a random instance ID, stable for its lifetime, that identifies it as a
+    lease holder to the ingestion progress bridge and the recovery loops. The memory
+    extraction pool runs off the request path because extraction costs a model call; the API
+    lifespan starts and drains it and the CLI never does.
+
+    Args:
+        composition: Runtime composition root that owns the repositories and gateways.
+        settings: Runtime settings; read from the environment when omitted.
+        factories: Overrides for the ingestion description, source preparation and
+            gateway factories; production defaults when omitted.
+    """
 
     def __init__(
         self,
@@ -99,8 +111,6 @@ class AppService(
     ) -> None:
         self._composition = composition
         self._settings = settings or RuntimeSettings()
-        # Identifies this process as a lease holder (ingestion progress bridge);
-        # stable for the process's lifetime, unique across concurrently running ones.
         self._instance_id = uuid.uuid4().hex
         selected = factories or AppServiceFactories()
         self._runtime_config = selected.ingestion_description(self._settings)
@@ -131,8 +141,6 @@ class AppService(
         usage = model_usage_records(self._composition)
         self._sessions = ConversationSessionService(memory)
         locks = SessionLocks(memory)
-        # Extraction costs a model call, so it runs off the request path; the
-        # API lifespan starts and drains the pool (the CLI never starts it).
         self._extraction: MemoryExtractionQueue | None = (
             MemoryExtractionQueue(
                 runtime_provider=self._resources.runtime_sdk,
@@ -277,12 +285,14 @@ class AppService(
         )
 
     def _control_plane(self) -> ControlPlaneRepositories:
+        """Return the control-plane repositories, or fail when no database is configured."""
         control_plane = self._composition.control_plane
         if control_plane is None:
             raise HarborUnavailableError("control-plane database is not configured")
         return control_plane
 
     def health(self) -> AppResponse:
+        """Report whether the composition's runtime diagnostics say it is ready."""
         diagnostics = self._composition.diagnostics()
         runtime = diagnostics.get("runtime")
         ready = bool(runtime.get("ready")) if isinstance(runtime, dict) else False
@@ -293,6 +303,7 @@ class AppService(
         )
 
     async def runtime_health(self) -> AppResponse:
+        """Probe the ingestion runtime within its health timeout; failures become an envelope."""
         try:
             async with asyncio.timeout(self._runtime_config.health_timeout_seconds):
                 client = await self._resources.runtime_client()
@@ -312,9 +323,11 @@ class AppService(
             return failure_response(logger, exc, "check ingestion runtime health")
 
     async def tenants_with_data(self) -> list[str]:
+        """List the tenants holding a project or a connection."""
         return await tenants_with_data(self._control_plane())
 
     async def sync_declared_schedules(self) -> dict[str, int] | None:
+        """Reconcile the declared schedules into the schedule engine; ``None`` when it has none."""
         return await self._schedules.sync_declared()
 
     async def recover_pending_control_plane_effects(self, *, limit: int = 100) -> int:
@@ -440,6 +453,7 @@ class AppService(
         document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
+        """Submit a durable ingestion run; wait for its result when ``wait`` is set."""
         return await self._durable.start_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,
@@ -460,9 +474,11 @@ class AppService(
         )
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
+        """Return the status of the durable run ``run_id``."""
         return await self._durable.ingestion_status(run_id)
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
+        """Return the final result of the durable run ``run_id``."""
         return await self._durable.ingestion_result(run_id)
 
     async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
@@ -481,7 +497,7 @@ class AppService(
             await self._ingestion_operations.act(
                 tenant_id=tenant_id,
                 ingestion_id=run_id,
-                action=cast(ControlAction, action),
+                action=cast(ControlAction, action),  # membership in ControlAction checked above
                 actor=_operator(),
             )
             logger.info("Applied %r to ingestion run %r", action, run_id)
@@ -490,9 +506,11 @@ class AppService(
             return failure_response(logger, exc, "apply %r to ingestion run %r", action, run_id)
 
     async def start_config_provider(self) -> None:
+        """Start the composition's configuration provider."""
         await self._composition.start()
 
     async def aclose(self) -> None:
+        """Close the connection service, memory extraction, resources and composition in turn."""
         try:
             await self._connection_service.aclose()
             await self.drain_memory_extraction()

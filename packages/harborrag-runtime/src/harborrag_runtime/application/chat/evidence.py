@@ -31,6 +31,14 @@ _INSTRUCTIONS = (
 
 @dataclass(frozen=True, slots=True)
 class ChatEvidence:
+    """The passages, prompt and history that one chat request carries.
+
+    Args:
+        passages: The retrieved passages that fit the byte budget, in prompt order.
+        prompt: The rendered turn prompt, with the quoted evidence block.
+        history: The complete recent user-assistant pairs that still fit the budget.
+    """
+
     passages: tuple[RetrievalResult, ...]
     prompt: str
     history: tuple[HarborChatMessage, ...]
@@ -46,15 +54,34 @@ class ChatEvidence:
         overlay: bool,
         prefix: str = "",
     ) -> ChatEvidence:
+        """Fit the evidence packet and as much recent history as the budget allows.
+
+        Whole passages are added in retrieval order until the next one would exceed the budget;
+        generated guidance is added only after them. History is kept as complete user-assistant
+        pairs, newest first, and a past turn is never truncated.
+
+        Args:
+            response: Retrieval results with the topology evidence, if any.
+            query: The user's question.
+            history: Earlier messages of the session, oldest first.
+            max_bytes: Budget for the rendered prompt plus the retained history.
+            overlay: Whether to add generated graph guidance to the packet.
+            prefix: Text placed before the instructions, such as a memory block.
+
+        Returns:
+            The prepared evidence.
+
+        Raises:
+            HarborValidationError: The question alone does not fit the budget. This is the
+                caller's input being too long, not the service being unavailable.
+        """
+
         builder = _PromptBuilder(query, max_bytes, prefix=prefix)
         bundle = response.evidence if overlay else EvidenceBundle()
         if bundle.conflicting_evidence:
             builder.guidance["conflicts_present"] = True
         builder.guidance["coverage_gaps"] = list(bundle.coverage_gaps)
         if not builder.fits():
-            # The question alone does not fit, so no evidence ever could. This
-            # is the caller's input being too long, not the service being
-            # unavailable: ValueError here reached the client as a 503.
             raise HarborValidationError("Question is too long for this deployment's context budget")
         for result in response.results:
             builder.add_passage(result)
@@ -62,7 +89,6 @@ class ChatEvidence:
             builder.add_overlay(bundle)
         prompt = builder.render()
         retained: tuple[HarborChatMessage, ...] = ()
-        # Keep complete recent user/assistant pairs; never truncate a past turn.
         for end in range(len(history), 0, -2):
             pair = history[max(0, end - 2) : end]
             proposed = (*pair, *retained)
@@ -169,6 +195,9 @@ class _PromptBuilder:
 
 
 def _quoted(value: object) -> str:
-    # Escaping '<' prevents a retrieved passage from closing the evidence tag.
-    # Keep '>' literal: escaping it caused models to copy '\\u003e' into answers.
+    """Serialize ``value`` as compact JSON that a passage cannot use to close the evidence tag.
+
+    Only ``<`` is escaped; ``>`` stays literal because escaping it made models copy the
+    escape sequence into their answers.
+    """
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")

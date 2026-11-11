@@ -34,6 +34,8 @@ class MemoryAdminClientMixin:
 
     @property
     def has_memory_extraction(self) -> bool:
+        """Report whether a background extraction queue is configured."""
+
         return self._extraction is not None
 
     async def start_memory_extraction(self) -> None:
@@ -54,6 +56,8 @@ class MemoryAdminClientMixin:
         scope: MemoryScope | None = None,
         limit: int = 20,
     ) -> AppResponse:
+        """List the caller's long-term memories, optionally of one scope, as an ``AppResponse``."""
+
         memories = await self._memory_admin.list_memories(
             access.owner(),
             scopes=() if scope is None else (scope,),
@@ -68,12 +72,16 @@ class MemoryAdminClientMixin:
         *,
         shared_scopes: frozenset[MemoryScope] = frozenset(),
     ) -> AppResponse:
+        """Delete one long-term memory the caller owns, or a shared scope in ``shared_scopes``."""
+
         await self._memory_admin.delete_memory(
             access.owner(), memory_id, shared_scopes=shared_scopes
         )
         return AppResponse(True, {"memory_id": memory_id, "deleted": True})
 
     async def erase_memory_session(self, access: MemoryAccess) -> AppResponse:
+        """Erase one session's memories and report what was removed."""
+
         report = await self._memory_admin.erase_session(
             access.owner(),
             actor=access.principal_id,
@@ -81,6 +89,8 @@ class MemoryAdminClientMixin:
         return AppResponse(True, {"session_id": access.session_id, **report.as_dict()})
 
     async def erase_memory_user(self, access: MemoryAccess, user_id: str) -> AppResponse:
+        """Erase every memory of ``user_id`` and report what was removed."""
+
         report = await self._memory_admin.erase_user(
             access.target(user_id),
             actor=access.principal_id,
@@ -95,6 +105,8 @@ class MemoryAdminClientMixin:
         limit: int = 20,
         title_query: str | None = None,
     ) -> AppResponse:
+        """Return one page of the caller's own sessions, newest activity first."""
+
         return AppResponse(
             True,
             await self._conversation_directory.list_conversations(
@@ -112,13 +124,19 @@ class MemoryAdminClientMixin:
         cursor: str | None = None,
         limit: int = 20,
     ) -> AppResponse:
+        """Return one page of one session's history, newest first."""
+
         return AppResponse(
             True,
             await self._conversation_directory.messages(access, cursor=cursor, limit=limit),
         )
 
     async def rename_conversation(self, access: MemoryAccess, *, title: str) -> AppResponse:
+        """Retitle one of the caller's conversations; blank clears the title."""
+
         return AppResponse(True, await self._conversation_directory.rename(access, title=title))
 
     async def delete_conversation(self, access: MemoryAccess) -> AppResponse:
+        """Erase one conversation, its memories and their vector points."""
+
         return AppResponse(True, await self._conversation_directory.delete(access))

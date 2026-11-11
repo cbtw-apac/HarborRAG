@@ -1,12 +1,8 @@
 """Connection use cases: read, write, test, sync and delete one configured data source.
 
-Handles:
-- ``put`` with whole-config replacement, secret keep/rotate/clear and ETag preconditions
-- ``test`` of form values or the saved connection, saving nothing
-- ``sync`` with one active ingestion per connection
-- ``delete`` as a background removal from every store, resumed after a restart
-
-Does NOT speak HTTP; routes translate these results and errors.
+``put`` replaces the whole config (secret keep, rotate or clear; ETag preconditions), ``test``
+saves nothing, ``sync`` allows one active ingestion per connection, and ``delete`` removes the
+connection from every store in the background, resumed after a restart. Does not speak HTTP.
 """
 
 from __future__ import annotations
@@ -95,19 +91,25 @@ class ConnectionRuns(Protocol):
 
     async def latest_for_connection(
         self, *, tenant_id: str, connection_id: str
-    ) -> IngestionTask | None: ...
+    ) -> IngestionTask | None:
+        """Return the connection's most recently submitted run, or ``None`` when it has none."""
 
     async def active_for_connection(
         self, *, tenant_id: str, connection_id: str
-    ) -> IngestionTask | None: ...
+    ) -> IngestionTask | None:
+        """Return the connection's run that has not ended, or ``None`` when it has none."""
 
-    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int: ...
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
+        """Count the documents the connection's runs have recorded."""
 
-    async def get(self, task_id: str) -> IngestionTask | None: ...
+    async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the run ``task_id``, or ``None`` when it does not exist."""
 
-    async def progress(self, task_id: str) -> dict[str, int]: ...
+    async def progress(self, task_id: str) -> dict[str, int]:
+        """Return the run's document counts by result status."""
 
-    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        """Return the document counts by result status for each of ``task_ids``."""
 
 
 class IngestionSubmitter(Protocol):
@@ -115,9 +117,11 @@ class IngestionSubmitter(Protocol):
 
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
-    ) -> dict[str, object]: ...
+    ) -> dict[str, object]:
+        """Register an ingestion and start its workflow; the accepted task as a public document."""
 
-    async def settle_if_ended(self, task_id: str) -> bool: ...
+    async def settle_if_ended(self, task_id: str) -> bool:
+        """Record the end of a run whose workflow ended unrecorded; whether the run is over."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -158,7 +162,15 @@ class ConnectionKey:
 
 
 class ConnectionService:
-    """Facade over the connection repository, secrets, ingestion runs and removal."""
+    """Facade over the connection repository, secrets, ingestion runs and removal.
+
+    Args:
+        control_plane: Returns the control-plane repositories.
+        runs: Returns the run registry of connections.
+        ingestions: Starts ingestions and settles runs that ended unrecorded.
+        removal: Returns the stores a connection removal clears.
+        instance_id: ID of this process, which names the holder of a connection sync lease.
+    """
 
     def __init__(
         self,
@@ -214,7 +226,7 @@ class ConnectionService:
         return views, next_cursor
 
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
-        """Connections of one project as reader filter chips.
+        """List the connections of one project as reader filter chips.
 
         Raises:
             HarborNotFoundError: The project does not exist in the tenant.
@@ -339,9 +351,7 @@ class ConnectionService:
             spec, _effective_credentials(sent, existing, keep), write, existing, key.tenant_id
         )
         written = await CredentialSecretWriter(
-            control_plane.secrets,
-            tenant_id=key.tenant_id,
-            sources=_secret_sources(origin),
+            control_plane.secrets, tenant_id=key.tenant_id, sources=_secret_sources(origin)
         ).apply(
             sent,
             secret_fields=spec.secret_fields,
@@ -375,13 +385,7 @@ class ConnectionService:
         )
 
     async def _result(
-        self,
-        key: ConnectionKey,
-        stored: Connection,
-        actor: str,
-        *,
-        created: bool,
-        sync_now: bool,
+        self, key: ConnectionKey, stored: Connection, actor: str, *, created: bool, sync_now: bool
     ) -> ConnectionPutResult:
         """Return the saved connection, after starting the ``sync_now`` ingestion when asked."""
         ingestion: dict[str, Any] | None = None
@@ -524,10 +528,7 @@ class ConnectionService:
             raise HarborUnavailableError("the ingestion was accepted but cannot be read back")
         await self._record(connection, "synced", actor, None, summary=f"Started a {mode} sync")
         return ingestion_view(
-            task,
-            connection=connection,
-            progress=await runs.progress(task.task_id),
-            mode=mode,
+            task, connection=connection, progress=await runs.progress(task.task_id), mode=mode
         )
 
     async def delete(self, key: ConnectionKey, *, actor: str, purge: bool = False) -> str:
@@ -630,13 +631,13 @@ class ConnectionService:
             )
 
     async def _active_run(self, tenant_id: str, source_key: str) -> IngestionTask | None:
-        """The connection's pending, running or paused run; ones whose workflow ended are settled."""
+        """Return the connection's pending, running or paused run, settling ended ones first."""
         return await active_run(
             await self._runs(), self._ingestions, tenant_id=tenant_id, source_key=source_key
         )
 
     async def connection_busy(self, tenant_id: str, source_key: str) -> bool:
-        """True while an ingestion of the connection is pending, running or paused."""
+        """Report whether an ingestion of the connection is pending, running or paused."""
         return await self._active_run(tenant_id, source_key) is not None
 
     async def aclose(self) -> None:
@@ -880,12 +881,12 @@ def _test_tuning(spec: SourceTypeSpec, tuning: Mapping[str, Any]) -> dict[str, A
 
 
 def _secret_sources(origin: WriteOrigin) -> frozenset[SecretSource]:
-    """Reference sources a caller may set: ``env:`` only from operator paths."""
+    """Return the reference sources a caller may set: ``env:`` only from operator paths."""
     return frozenset({"stored", "env"}) if origin == "operator" else frozenset({"stored"})
 
 
 def _is_status_echo(value: Any) -> bool:
-    """True for a ``SecretStatus`` sent back as read."""
+    """Report whether ``value`` is a ``SecretStatus`` sent back as read."""
     return isinstance(value, Mapping) and "set" in value and "secret_ref" not in value
 
 
@@ -950,7 +951,7 @@ def _build(  # noqa: PLR0913 - the parts of one stored connection
 
 
 def _sends_secret_value(write: ConnectionWrite, spec: SourceTypeSpec) -> bool:
-    """True when the write carries a secret as a value, not a status or reference."""
+    """Report whether the write carries a secret as a value, not a status or reference."""
     return any(
         isinstance(write.credentials.get(name), str) and write.credentials.get(name)
         for name in spec.secret_fields
@@ -958,7 +959,7 @@ def _sends_secret_value(write: ConnectionWrite, spec: SourceTypeSpec) -> bool:
 
 
 def _unchanged(before: Connection, after: Connection) -> bool:
-    """True when a write would store exactly what ``before`` holds."""
+    """Report whether a write would store exactly what ``before`` holds."""
     return (
         before.name == after.name
         and before.status == after.status
@@ -988,7 +989,7 @@ def _changed_fields(before: Connection, after: Connection) -> list[str]:
 def _merge_secrets(
     validated: Mapping[str, Any], secrets: Mapping[str, Any], secret_fields: frozenset[str]
 ) -> dict[str, Any]:
-    """Validated non-secret fields plus the secret fields in the form ``secrets`` holds them."""
+    """Merge the validated non-secret fields with the secret fields as ``secrets`` holds them."""
     merged = {name: value for name, value in validated.items() if name not in secret_fields}
     merged.update({name: value for name, value in secrets.items() if name in secret_fields})
     return merged

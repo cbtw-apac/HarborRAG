@@ -1,3 +1,9 @@
+"""Port that every application service implements for the HTTP and CLI transports.
+
+`BaseAppService` holds the contract; optional capabilities default to a no-op so a
+concrete service overrides only what it supports.
+"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -15,6 +21,8 @@ class BaseAppService(ABC):
 
     @abstractmethod
     def health(self) -> AppResponse:
+        """Return the service's health without contacting external systems."""
+
         raise NotImplementedError
 
     async def runtime_health(self) -> AppResponse:
@@ -108,6 +116,8 @@ class BaseAppService(ABC):
         principal_id: str,
         user_id: str | None = None,
     ) -> bool:
+        """Report whether the caller owns the chat session ``session_id``."""
+
         raise NotImplementedError
 
     async def chat_completion(
@@ -159,6 +169,8 @@ class BaseAppService(ABC):
         document_concurrency: int | None = None,
         wait: bool = False,
     ) -> AppResponse:
+        """Submit one ingestion run; with ``wait``, also wait for its result."""
+
         raise NotImplementedError
 
     async def run_ingestion(  # noqa: PLR0913 - mirrors start_ingestion
@@ -188,9 +200,13 @@ class BaseAppService(ABC):
         raise NotImplementedError
 
     async def ingestion_status(self, run_id: str) -> AppResponse:
+        """Return the status of the ingestion run ``run_id``."""
+
         raise NotImplementedError
 
     async def ingestion_result(self, run_id: str) -> AppResponse:
+        """Return the final result of the ingestion run ``run_id``."""
+
         raise NotImplementedError
 
     async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
@@ -208,6 +224,8 @@ class BaseAppService(ABC):
         include_metadata: bool = False,
         score_threshold: float = 0.0,
     ) -> AppResponse:
+        """Run one retrieval against the tenant's index and return the ranked results."""
+
         raise NotImplementedError
 
     async def control_ingestion(
@@ -215,4 +233,6 @@ class BaseAppService(ABC):
         run_id: str,
         action: str,
     ) -> AppResponse:
+        """Apply the control ``action`` (pause, resume or cancel) to the run ``run_id``."""
+
         raise NotImplementedError

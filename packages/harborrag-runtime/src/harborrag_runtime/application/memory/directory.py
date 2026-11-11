@@ -36,7 +36,12 @@ _NOT_FOUND = "Conversation session was not found"
 
 
 class ConversationDirectoryService:
-    """The caller's own conversation directory: list, read, rename, delete."""
+    """The caller's own conversation directory: list, read, rename, delete.
+
+    Args:
+        repository: Conversation store the directory reads and renames through.
+        administration: Memory administration service that owns the erasure path.
+    """
 
     def __init__(
         self,
@@ -54,7 +59,7 @@ class ConversationDirectoryService:
         limit: int = 20,
         title_query: str | None = None,
     ) -> dict[str, object]:
-        """One page of the caller's sessions, newest activity first.
+        """Return one page of the caller's sessions, newest activity first.
 
         Args:
             access: The caller's own conversation key.
@@ -91,7 +96,7 @@ class ConversationDirectoryService:
         cursor: str | None = None,
         limit: int = 20,
     ) -> dict[str, object]:
-        """One page of a session's history, newest first.
+        """Return one page of a session's history, newest first.
 
         One extra message is read so the last page never advertises a cursor
         that would only lead to an empty page.
@@ -154,7 +159,7 @@ class ConversationDirectoryService:
 
     @staticmethod
     def _identity(access: MemoryAccess) -> ConversationIdentity:
-        """The conversation isolation key; a missing session is a 404, not a 500."""
+        """Return the conversation isolation key; a missing session is a 404, not a 500."""
 
         if access.session_id is None:
             raise HarborNotFoundError(_NOT_FOUND)

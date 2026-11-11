@@ -25,7 +25,17 @@ if TYPE_CHECKING:
 
 
 class AppResources:
-    """Create each runtime resource at most once and release them together."""
+    """Create each runtime resource at most once and release them together.
+
+    Whether a tenant may bring its own chat models is a property of this process, not of a
+    request, so it is resolved once here rather than per SDK build; ``None`` keeps the single
+    process-wide chat client.
+
+    Args:
+        settings: Runtime settings every factory receives.
+        factories: Factories that create the gateway, backends, SDK, registry and event bus.
+        composition: Composition root the per-tenant chat model ports are read from.
+    """
 
     def __init__(
         self,
@@ -36,9 +46,6 @@ class AppResources:
     ) -> None:
         self._settings = settings
         self._factories = factories
-        # Resolved once here rather than per SDK build: whether a tenant may
-        # bring its own chat models is a property of this process, not of a
-        # request. None keeps the single process-wide chat client.
         self._tenant_models = tenant_model_sources(composition, settings)
         self._client: IngestionGateway | None = None
         self._schedule_backend: ScheduleBackend | None = None
@@ -51,6 +58,8 @@ class AppResources:
         self._task_registry_lock = asyncio.Lock()
 
     async def runtime_client(self) -> IngestionGateway:
+        """Return the ingestion gateway, connecting on first use."""
+
         if self._client is not None:
             return self._client
         async with self._client_lock:
@@ -59,6 +68,8 @@ class AppResources:
         return self._client
 
     async def schedule_backend(self) -> ScheduleBackend:
+        """Return the schedule backend, connecting on first use."""
+
         if self._schedule_backend is not None:
             return self._schedule_backend
         async with self._schedule_backend_lock:
@@ -81,6 +92,8 @@ class AppResources:
         return self._retrieval_runtime
 
     async def task_registry(self) -> TaskRegistry:
+        """Return the task registry, connecting on first use."""
+
         if self._task_registry is not None:
             return self._task_registry
         async with self._task_registry_lock:
@@ -89,21 +102,33 @@ class AppResources:
         return self._task_registry
 
     async def public_task_store(self) -> PublicTaskStore:
+        """Return the task registry as the public task store."""
+
         return await self.task_registry()
 
     def connection_removal(self) -> ConnectionRemoval:
-        """The stores connection removals use, built on first use."""
+        """Return the stores connection removals use, built on first use."""
         if self._connection_removal is None:
             self._connection_removal = ConnectionRemoval(self._settings)
         return self._connection_removal
 
     def event_bus(self) -> EventBusPort:
+        """Return the event bus, created on first use."""
+
         if self._event_bus is None:
             self._event_bus = self._factories.event_bus()
         return self._event_bus
 
     async def aclose(self) -> None:
-        """Close every resource that was created, then report any failures together."""
+        """Close every resource that was created, then report any failures together.
+
+        Temporal clients (the ingestion gateway and the schedule backend) expose no close;
+        their connections end with the process. Every close runs even when another fails, so
+        one failing resource cannot keep its siblings from releasing.
+
+        Raises:
+            ExceptionGroup: One or more resources failed to close.
+        """
 
         closers = [
             resource
@@ -111,13 +136,9 @@ class AppResources:
                 self._retrieval_runtime.aclose if self._retrieval_runtime else None,
                 self._task_registry.close if self._task_registry else None,
                 self._connection_removal.aclose if self._connection_removal else None,
-                # Temporal clients (ingestion gateway and schedule backend) expose
-                # no close; their connections end with the process.
             )
             if resource is not None
         ]
-        # return_exceptions keeps one failing resource from cancelling the siblings, so
-        # every resource still gets its chance to release before we report.
         results = await asyncio.gather(
             *(close() for close in closers),
             return_exceptions=True,

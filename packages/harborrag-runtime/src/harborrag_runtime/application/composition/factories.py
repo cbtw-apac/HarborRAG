@@ -41,32 +41,41 @@ type EventBusFactory = Callable[[], EventBusPort]
 
 
 class TaskRegistry(PublicTaskStore, Protocol):
+    """Task registry with the public task store plus the connection run queries."""
+
     async def latest_for_connection(
         self, *, tenant_id: str, connection_id: str
-    ) -> IngestionTask | None: ...
+    ) -> IngestionTask | None:
+        """Return the connection's most recently submitted run, or ``None`` when it has none."""
 
     async def active_for_connection(
         self, *, tenant_id: str, connection_id: str
-    ) -> IngestionTask | None: ...
+    ) -> IngestionTask | None:
+        """Return the connection's run that has not ended, or ``None`` when it has none."""
 
-    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int: ...
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
+        """Count the documents the connection's runs have recorded."""
 
     async def source_scope_ids_by_connection(
         self, *, tenant_id: str, connection_ids: Sequence[str]
-    ) -> dict[str, list[str]]: ...
+    ) -> dict[str, list[str]]:
+        """Return the source scope IDs each of ``connection_ids`` was ingested under."""
 
     async def published_connection_ids(
         self, *, tenant_id: str, connection_ids: Sequence[str]
-    ) -> set[str]: ...
+    ) -> set[str]:
+        """Return which of ``connection_ids`` have published documents."""
 
     async def fail_if_unsubmitted(
         self,
         task_id: str,
         *,
         summary: Mapping[str, object],
-    ) -> IngestionTaskState | None: ...
+    ) -> IngestionTaskState | None:
+        """Fail the run when its workflow start was never confirmed; return its state afterwards."""
 
-    async def close(self) -> None: ...
+    async def close(self) -> None:
+        """Release the registry's database resources."""
 
 
 type TaskRegistryFactory = Callable[[RuntimeSettings], Awaitable[TaskRegistry]]

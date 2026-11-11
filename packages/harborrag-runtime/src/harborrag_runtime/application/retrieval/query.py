@@ -36,6 +36,27 @@ async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-ne
     include_metadata: bool = False,
     score_threshold: float = 0.0,
 ) -> AppResponse:
+    """Search the tenant's index and return the ranked results; failures become an envelope.
+
+    Args:
+        runtime: Returns the runtime whose retrieval facade searches.
+        settings: Runtime settings; supply the default tenant and corpus access mode.
+        query: The question to search for.
+        tenant_id: Tenant to search; the configured tenant when omitted.
+        principal_id: Principal the access context is built for.
+        top_k: Most results to return.
+        filters: Evidence filters for the search.
+        lane: Retrieval lane to search.
+        mode: Retrieval mode to search with.
+        observe_graph: Whether to observe the graph alongside the search.
+        include_content: Include each result's text.
+        include_metadata: Include each result's metadata.
+        score_threshold: Drop results scoring below this.
+
+    Returns:
+        The ranked results with the request ID, lane and diagnostics.
+    """
+
     selected_tenant = tenant_id or settings.tenant_id
     try:
         response = await runtime().retrieval.search(

@@ -43,7 +43,7 @@ def cited_event(
     identity: MemoryIdentity,
     options: ChatExecutionOptions,
 ) -> dict[str, object]:
-    """The sources the finished answer cited, as a distinct terminal event.
+    """Describe the sources the finished answer cited, as a distinct terminal event.
 
     The opening ``citations`` event is emitted before any text exists, so it
     can only ever say what retrieval found. This says what the answer used --

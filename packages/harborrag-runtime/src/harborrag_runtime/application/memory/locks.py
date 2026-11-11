@@ -39,6 +39,15 @@ class SessionLocks:
     explicit process-local fallback for small test doubles. Shared leases are
     renewed during inference, expire after worker crashes, and cancel their
     owner if renewal fails. Idempotent response replay is a separate concern.
+
+    Args:
+        repository: Shared lease store; ``None`` keeps locks process-local.
+        lease_seconds: Lifetime of a shared lease before it must be renewed.
+        acquire_timeout: Longest a turn waits for a busy session, in seconds.
+        poll_interval: Pause between attempts to take a shared lease, in seconds.
+
+    Raises:
+        ValueError: A duration is not positive and finite.
     """
 
     def __init__(
@@ -101,6 +110,12 @@ class SessionLocks:
     async def _hold_shared(
         self, identity: ConversationIdentity, *, deadline: float, wait: bool
     ) -> AsyncIterator[None]:
+        """Hold the shared lease, renewing it while the body runs.
+
+        A heartbeat renews the lease every third of its lifetime and cancels the owning task
+        when renewal fails. On exit the lease is released, and when it was lost only the
+        cancellation sent by this heartbeat is consumed before the loss is raised.
+        """
         repository = self._repository
         if repository is None:
             yield
@@ -147,11 +162,10 @@ class SessionLocks:
                 await repository.release_turn_lease(identity, token=token)
             finally:
                 if lost.is_set():
-                    # Consume only the cancellation sent by this heartbeat.
                     owner.uncancel()
                     raise ConversationTurnLeaseLostError("conversation turn lease was lost")
 
     def active(self, identity: ConversationIdentity) -> bool:
-        """Whether a completion currently holds or awaits this session's lock."""
+        """Report whether a completion currently holds or awaits this session's lock."""
 
         return self._holders[identity] > 0

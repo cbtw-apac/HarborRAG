@@ -20,7 +20,12 @@ logger = logging.getLogger("harborrag.app.workflow_control.ingestion.connection_
 
 
 class ConnectionSourceInputBuilder:
-    """Resolve the submission's connection, then prepare its provider-neutral input."""
+    """Resolve the submission's connection, then prepare its provider-neutral input.
+
+    Args:
+        control_plane: Returns the control-plane repositories that hold the connections.
+        prepare: Builds the prepared submission from settings, submission and connection.
+    """
 
     def __init__(
         self,

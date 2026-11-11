@@ -24,7 +24,7 @@ def _isoformat(value: datetime | None) -> str | None:
 
 
 def memory_data(memory: Memory) -> dict[str, object]:
-    """One stored memory as the API returns it."""
+    """Project one stored memory as the API returns it."""
 
     return {
         "memory_id": memory.memory_id,
@@ -44,7 +44,7 @@ def memory_data(memory: Memory) -> dict[str, object]:
 
 
 def conversation_summary_data(row: ConversationSummaryRow) -> dict[str, object]:
-    """One conversation as the explorer ``Session``; an untitled one has title ``""``."""
+    """Project one conversation as the explorer ``Session``; an untitled one has title ``""``."""
 
     return {
         "session_id": row.session_id,
@@ -58,7 +58,7 @@ def conversation_summary_data(row: ConversationSummaryRow) -> dict[str, object]:
 
 
 def _citation(position: int, item: dict[str, object]) -> dict[str, object]:
-    """One stored citation as the explorer ``Citation``.
+    """Project one stored citation as the explorer ``Citation``.
 
     Answers written before the explorer contract stored ``document_title`` and
     no ``n``, ``snippet``, ``url`` or ``page``; they read back numbered by
@@ -102,7 +102,7 @@ def _citations(raw: str | None) -> list[dict[str, object]]:
 def conversation_message_data(
     message: ConversationMessage, *, session_id: str
 ) -> dict[str, object]:
-    """One stored message as the explorer ``Message``.
+    """Project one stored message as the explorer ``Message``.
 
     Only an assistant answer carries ``mode``, ``citations``, ``trace_id`` and
     ``feedback``; a user message reads ``None``, ``[]``, ``None`` and ``None``.

@@ -49,7 +49,7 @@ _dropped = 0
 
 
 def dropped_extractions() -> int:
-    """How many exchanges this process dropped because the queue was full."""
+    """Count the exchanges this process dropped because the queue was full."""
 
     return _dropped
 
@@ -62,7 +62,24 @@ def reset_dropped_extractions() -> None:
 
 
 class MemoryExtractionQueue:
-    """Run memory extraction for finished exchanges off the request path."""
+    """Run memory extraction for finished exchanges off the request path.
+
+    ``_started`` answers "is anything going to run this?" for callers, while ``_workers``
+    is the pool itself, which ``drain`` empties while the tasks are still finishing; they
+    are not the same question.
+
+    Args:
+        runtime_provider: Returns the runtime whose memory service extracts facts.
+        memories: Long-term memory store; with ``None`` every submission is refused.
+        index: Memory vector index used for recall and deduplication, when wired.
+        max_queue: Exchanges that may wait; a full queue drops the next one.
+        workers: Size of the worker pool.
+        item_timeout_seconds: Bound on one extraction, so a hanging model call cannot
+            wedge the pool.
+
+    Raises:
+        ValueError: ``max_queue`` or ``workers`` is below one.
+    """
 
     def __init__(  # noqa: PLR0913 - one keyword-only collaborator per injected port
         self,
@@ -83,9 +100,6 @@ class MemoryExtractionQueue:
         self._item_timeout_seconds = item_timeout_seconds
         self._queue: asyncio.Queue[_Item] = asyncio.Queue(maxsize=max_queue)
         self._workers: list[asyncio.Task[None]] = []
-        # ``_started`` is the contract with callers ("is anything going to run
-        # this?"); ``_workers`` is the pool itself, which ``drain`` empties
-        # while the tasks are still finishing. They are not the same question.
         self._started = False
         self._closing = False
 

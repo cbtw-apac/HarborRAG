@@ -61,11 +61,14 @@ _TARGET_STATES: dict[str, frozenset[IngestionTaskState]] = {
 class IngestionRuns(Protocol):
     """The durable run registry the reads need."""
 
-    async def get(self, task_id: str) -> IngestionTask | None: ...
+    async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the run ``task_id``, or ``None`` when it does not exist."""
 
-    async def progress(self, task_id: str) -> dict[str, int]: ...
+    async def progress(self, task_id: str) -> dict[str, int]:
+        """Return the run's document counts by result status."""
 
-    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]: ...
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        """Return the document counts by result status for each of ``task_ids``."""
 
     async def document_results_page(  # noqa: PLR0913 - the registry's page filters
         self,
@@ -75,7 +78,8 @@ class IngestionRuns(Protocol):
         after_updated_at: datetime | None = None,
         after_document_id: str | None = None,
         limit: int = 50,
-    ) -> TaskDocumentPage: ...
+    ) -> TaskDocumentPage:
+        """Return one keyset page of the run's document results."""
 
     async def list_tasks(  # noqa: PLR0913 - the registry's listing filters
         self,
@@ -87,7 +91,8 @@ class IngestionRuns(Protocol):
         scope_connection_ids: frozenset[str] | None = None,
         created_after: datetime | None = None,
         limit: int = 50,
-    ) -> TaskPage: ...
+    ) -> TaskPage:
+        """Return one keyset page of runs, newest submission first, narrowed by the filters."""
 
 
 async def connection_index(
@@ -146,11 +151,14 @@ def _keys(
 class IngestionActions(Protocol):
     """The workflow actions on a run."""
 
-    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...
+    async def pause(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Ask the run's workflow to pause."""
 
-    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...
+    async def resume(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Ask the run's workflow to resume."""
 
-    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]: ...
+    async def cancel(self, task_id: str, *, actor: str | None = None) -> dict[str, object]:
+        """Ask the run's workflow to cancel."""
 
     async def retry_failures(
         self,
@@ -159,11 +167,20 @@ class IngestionActions(Protocol):
         document_ids: Sequence[str],
         actor: str | None = None,
         actor_type: str | None = None,
-    ) -> dict[str, object]: ...
+    ) -> dict[str, object]:
+        """Start a retry run of the failed documents of ``task_id``."""
 
 
 class IngestionOperations:
-    """List, read and control ingestion runs of one tenant."""
+    """List, read and control ingestion runs of one tenant.
+
+    Args:
+        connections: Returns the connection repository that names each run's connection.
+        runs: Returns the run registry.
+        links: Deep links to the Temporal and Grafana consoles shown on each run.
+        actions: Workflow actions on a run.
+        sleep: Pause used between status polls; replaced in tests.
+    """
 
     def __init__(  # noqa: PLR0913 - the run reads plus the action seam
         self,
