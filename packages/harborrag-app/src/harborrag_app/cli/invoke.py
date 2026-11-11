@@ -8,6 +8,7 @@ Handles:
   run that failed); a result that cannot be printed after the operation ran is reported as
   that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one
   line on stderr, with a trace id minted per invocation, and the spec's exit code
+- The invocation's trace id, minted once and read by a call through ``current_trace_id``
 - A failure to set up the local service (settings, composition, control-plane readiness) as
   the operator's own configuration error: ``error_body``'s status and code, with a message
   that says what to fix instead of the opaque one an operation's failure gets
@@ -17,7 +18,7 @@ Handles:
 
 Does NOT parse arguments or hold business rules; commands parse, operations decide.
 
-Start from: run_operation, Outcome, release_held_logs.
+Start from: run_operation, Outcome, current_trace_id, release_held_logs.
 """
 
 from __future__ import annotations
@@ -87,6 +88,18 @@ class Outcome:
     exit_code: int
 
 
+def current_trace_id() -> str:
+    """The trace id of the invocation running, as its error report prints it.
+
+    Returns:
+        The id ``run_operation`` minted, for an operation that records one with its result.
+
+    Raises:
+        LookupError: Called outside ``run_operation``.
+    """
+    return _TRACE_ID.get()
+
+
 def release_held_logs() -> None:
     """Print the log records held back so far, and let later ones through as they happen.
 
@@ -131,6 +144,7 @@ def run_operation(
         click.exceptions.Abort: The user declined that write at the question; Click exits 1.
     """
     trace_id = uuid4().hex
+    _TRACE_ID.set(trace_id)
     if write:
         refuse_checkout_write()
     with _held_logs():
@@ -321,6 +335,7 @@ class _LogHold:
         _replay(self.stop())
 
 
+_TRACE_ID: ContextVar[str] = ContextVar("harborrag_cli_trace_id")
 _HOLD: ContextVar[_LogHold | None] = ContextVar("harborrag_cli_log_hold", default=None)
 
 

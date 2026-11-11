@@ -4,6 +4,7 @@ Handles:
 - Lists (a body with ``items``): one row per item with the identifiers, name, source type,
   status, stage, error category and one timestamp that any item has, then
   ``More: --cursor <next_cursor>`` when a page follows; items with none of those print as a tree
+- A chat completion: the answer text, then its citations as a numbered list
 - Single objects: a key/value tree, where a stored secret's status reads ``set ****1234``
 
 Does NOT change what JSON or YAML print; it draws the same serialized body. Values are
@@ -46,6 +47,9 @@ def render(operation_id: str | None, data: object) -> None:
         data: The body as ``dump_body`` serialized it.
     """
     console = Console(highlight=False)
+    if operation_id == "create_chat_completion" and isinstance(data, Mapping):
+        _print_completion(console, data)
+        return
     if isinstance(data, Mapping) and isinstance(data.get("items"), list):
         rows = [item for item in data["items"] if isinstance(item, Mapping)]
         columns = _columns(rows)
@@ -55,6 +59,19 @@ def render(operation_id: str | None, data: object) -> None:
     tree = Tree("", hide_root=True)
     _add_children(tree, data)
     console.print(tree)
+
+
+def _print_completion(console: Console, data: Mapping[str, object]) -> None:
+    """The answer, then ``[n] title (url)`` for each citation."""
+    console.print(Text(_scalar(data.get("answer"))))
+    citations = data.get("citations")
+    if not isinstance(citations, list) or not citations:
+        return
+    console.print()
+    for citation in citations:
+        if isinstance(citation, Mapping):
+            link = f" ({citation['url']})" if citation.get("url") else ""
+            console.print(Text(f"[{citation.get('n')}] {_scalar(citation.get('title'))}{link}"))
 
 
 def _print_table(

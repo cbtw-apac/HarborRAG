@@ -1,16 +1,18 @@
-"""`harborrag config import|export` over a migrated SQLite control database."""
+"""``harborrag config import|export`` over a migrated SQLite control database."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from app_test_connections import FakeSecrets, fake_control_plane
-from app_test_fixtures import MockAppService
+from cli_fakes import serving
 from project_test_support import scaffold
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -19,8 +21,8 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
     create_control_plane_engine,
 )
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
+from harborrag_app.cli import invoke
 from harborrag_app.cli import main as cli
-from harborrag_app.cli import runner as cli_runner
 from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry
 from harborrag_core.config_store.documents import plan_import
@@ -34,10 +36,14 @@ _STORED = f"{_KEY}: 384\n"
 _SENTINEL = "ATATT3xFfGF0-sentinel-9f2c"
 
 
-class _ConfigApp(MockAppService):
+class _ConfigOperations:
+    """The operations the config commands use: the service that holds the importer."""
+
     def __init__(self, importer: SettingsImporter) -> None:
-        super().__init__()
-        self.settings_importer = importer
+        self.app_service = SimpleNamespace(settings_importer=importer)
+
+    async def tenant_has_data(self, tenant_id: str) -> bool:
+        return True
 
 
 @dataclass
@@ -96,7 +102,10 @@ def world(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> _World:
         config=CachedConfigProvider(store, registry),
     )
     importer = SettingsImporter(lambda: plane, registry)
-    monkeypatch.setattr(cli_runner, "runtime_app_service", lambda: _ConfigApp(importer))
+    monkeypatch.setattr(invoke, "local_operations", serving(_ConfigOperations(importer)))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("HARBORRAG_LOG_LEVEL", raising=False)
+    monkeypatch.setattr(logging.getLogger("harborrag"), "handlers", [])
     monkeypatch.chdir(scaffold(tmp_path / "project"))
     return _World(store, tmp_path)
 
@@ -109,8 +118,8 @@ def _run(capsys: pytest.CaptureFixture[str], *arguments: str) -> tuple[int, str,
 
 
 def _json(capsys: pytest.CaptureFixture[str], *arguments: str) -> tuple[int, dict[str, Any]]:
-    code, out, _ = _run(capsys, *arguments, "--json")
-    return code, json.loads(out)
+    code, out, err = _run(capsys, *arguments, "-o", "json")
+    return code, json.loads(out or err)
 
 
 def test_import_dry_run_prints_diff_and_changes_nothing(
@@ -119,7 +128,7 @@ def test_import_dry_run_prints_diff_and_changes_nothing(
     world.seed(f"{_KEY}: 512\n")
     path = world.file(_STORED)
 
-    code, out, _ = _run(capsys, "import", str(path))
+    code, out, _ = _run(capsys, "import", str(path), "-o", "table")
 
     assert code == 0
     for expected in (_KEY, "512", "384", "next_ingestion"):
@@ -146,10 +155,10 @@ def test_import_apply_again_prints_no_changes(
     path = world.file(_STORED)
     _run(capsys, "import", str(path), "--apply")
 
-    code, out, _ = _run(capsys, "import", str(path), "--apply")
+    code, out = _json(capsys, "import", str(path), "--apply")
 
     assert code == 0
-    assert "no changes" in out
+    assert out["changes"] == []
     assert world.revision() == 1
 
 
@@ -174,8 +183,8 @@ def test_import_bad_value_exits_non_zero(world: _World, capsys: pytest.CaptureFi
     code, out = _json(capsys, "import", str(path), "--apply")
 
     assert code != 0
-    assert str(path) in out["error"]
-    assert _KEY in out["error"]
+    assert str(path) in out["error"]["message"]
+    assert _KEY in out["error"]["message"]
     assert world.revision() == 0
 
 
@@ -184,10 +193,10 @@ def test_import_reports_and_skips_boot_only_key(
 ) -> None:
     path = world.file("database.url: postgresql://example/db\n")
 
-    code, out, _ = _run(capsys, "import", str(path), "--apply")
+    code, out = _json(capsys, "import", str(path), "--apply")
 
     assert code == 0
-    assert "skipped tenant database.url: boot-only" in out
+    assert out["skipped"] == [{"level": "tenant", "key": "database.url", "reason": "boot_only"}]
     assert world.revision() == 0
 
 
@@ -197,12 +206,12 @@ def test_export_round_trip_reports_no_changes(
     world.seed(f"{_KEY}: 512\nretrieval.top_k: 7\n")
     exported = world.directory / "export.yaml"
 
-    code, _, _ = _run(capsys, "export", "--output", str(exported))
-    _, out, _ = _run(capsys, "import", str(exported))
+    code, _, _ = _run(capsys, "export", "--file", str(exported))
+    _, out = _json(capsys, "import", str(exported))
 
     assert code == 0
     assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\nretrieval.top_k: 7\n"
-    assert "no changes" in out
+    assert out["changes"] == []
 
 
 def test_export_carries_registry_keys_only(
@@ -242,11 +251,33 @@ def test_export_leaves_out_a_deleted_connection_and_imports_back(
     )
     exported = world.directory / "export.yaml"
 
-    code, _, err = _run(capsys, "export", "--output", str(exported))
-    imported, out, _ = _run(capsys, "import", str(exported))
+    code, _, err = _run(capsys, "export", "--file", str(exported))
+    imported, out = _json(capsys, "import", str(exported))
 
     assert code == 0
     assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\n"
     assert gone in err
     assert imported == 0
-    assert "no changes" in out
+    assert out["changes"] == []
+
+
+def test_export_to_a_file_prints_where_it_wrote(
+    world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    world.seed(f"{_KEY}: 512\n")
+    exported = world.directory / "out.yaml"
+
+    code, out = _json(capsys, "export", "--file", str(exported))
+
+    assert code == 0
+    assert out == {"file": str(exported)}
+    assert exported.read_text(encoding="utf-8") == f"{_KEY}: 512\n"
+
+
+def test_export_has_no_output_option_of_its_own(
+    world: _World, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, out, _ = _run(capsys, "export", "--output", "x")
+
+    assert code == 2
+    assert out == ""

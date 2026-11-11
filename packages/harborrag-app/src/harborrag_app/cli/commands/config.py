@@ -7,6 +7,7 @@ default for ``import``; the control database stays the source of truth.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Annotated, Any
@@ -15,35 +16,31 @@ import typer
 from pydantic_core import to_jsonable_python
 
 from harborrag_app.cli.commands.auth_keys import operator_identity
-from harborrag_app.cli.commands.ingest_run import JsonOption
 from harborrag_app.cli.environment import refuse_checkout_write
-from harborrag_app.cli.runner import invoke
-from harborrag_app.cli.source_support import source_failure
-from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_app.cli.globals import (
+    ConfigOption,
+    OutputOption,
+    ProfileOption,
+    TenantOption,
+    YesOption,
+    current_globals,
+)
+from harborrag_app.cli.invoke import Outcome, run_operation
+from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.scope import Scope
 from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
-from harborrag_core.contracts.errors import HarborCapabilityError, HarborValidationError
+from harborrag_core.contracts.errors import HarborValidationError
 
 app = typer.Typer(
     no_args_is_help=True,
     help="Import and export runtime settings: the overrides stored in the control database.",
 )
 
-Tenant = Annotated[
-    str,
-    typer.Option(
-        "--tenant",
-        metavar="TENANT_ID",
-        envvar="HARBORRAG_TENANT_ID",
-        help="Tenant whose settings to read or change.",
-    ),
-]
-
-type ImporterCall = Callable[[SettingsImporter], Awaitable[Mapping[str, Any]]]
+type ImporterCall = Callable[[SettingsImporter, str], Awaitable[Mapping[str, Any] | Outcome]]
 
 
 @app.command("import")
 def import_settings(  # noqa: PLR0913 - one parameter per documented option
-    context: typer.Context,
     file: Annotated[Path, typer.Argument(metavar="FILE", help="Settings YAML file.")],
     apply: Annotated[
         bool, typer.Option("--apply", help="Write the changes; without it, print them only.")
@@ -51,25 +48,28 @@ def import_settings(  # noqa: PLR0913 - one parameter per documented option
     prune: Annotated[
         bool, typer.Option("--prune", help="Also remove stored overrides the file lacks.")
     ] = False,
-    tenant: Tenant = "DEFAULT",
-    as_json: JsonOption = False,
+    tenant: TenantOption = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
 ) -> None:
     """Show what FILE would change, or write it as one revision with ``--apply``.
 
-    Boot-only keys are reported and skipped. An invalid file exits 1, naming the file
+    Boot-only keys are reported and skipped. An invalid file exits 2, naming the file
     and the key, and changes nothing.
     """
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
 
-    if apply:
-        refuse_checkout_write()
-
-    async def operation(importer: SettingsImporter) -> dict[str, Any]:
+    async def operation(importer: SettingsImporter, tenant_id: str) -> dict[str, Any]:
         from harborrag_runtime.config.settings_document import (  # noqa: PLC0415
             load_settings_document,
         )
 
         document = load_settings_document(file)
-        plan = await importer.plan(tenant_id=tenant, document=document, prune=prune)
+        plan = await importer.plan(tenant_id=tenant_id, document=document, prune=prune)
         revision = None
         if apply:
             revision = await importer.apply(plan, source="import", created_by=operator_identity())
@@ -93,12 +93,11 @@ def import_settings(  # noqa: PLR0913 - one parameter per documented option
             "dry_run": not apply,
         }
 
-    _invoke(context, "import", operation, as_json=as_json, subject=file)
+    run_operation(None, _importer_call(operation, file), globals=resolved, write=apply)
 
 
 @app.command("export")
-def export_settings(
-    context: typer.Context,
+def export_settings(  # noqa: PLR0913 - the level and file flags plus the global options
     level: Annotated[
         str | None,
         typer.Option(
@@ -107,78 +106,64 @@ def export_settings(
             help="tenant, project:ID or connection:PROJECT/CONNECTION; default: every level.",
         ),
     ] = None,
-    tenant: Tenant = "DEFAULT",
-    output: Annotated[
-        Path | None, typer.Option("--output", metavar="PATH", help="Write here, not to stdout.")
+    file: Annotated[
+        Path | None, typer.Option("--file", metavar="PATH", help="Write here, not to stdout.")
     ] = None,
+    tenant: TenantOption = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
 ) -> None:
     """Print the stored overrides as a settings file that ``import`` reads back unchanged.
 
     Overrides of a deleted project or connection are left out, each named on stderr.
     """
-
-    if output is not None:
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
+    if file is not None:
         refuse_checkout_write()
 
-    async def operation(importer: SettingsImporter) -> dict[str, Any]:
+    async def operation(importer: SettingsImporter, tenant_id: str) -> Mapping[str, Any] | Outcome:
         from harborrag_core.config_store import SettingsLevel  # noqa: PLC0415
         from harborrag_runtime.config.settings_document import (  # noqa: PLC0415
             dump_settings_document,
         )
 
         exported = await importer.export(
-            tenant_id=tenant, level=None if level is None else SettingsLevel.parse(level)
+            tenant_id=tenant_id, level=None if level is None else SettingsLevel.parse(level)
         )
         for label in exported.left_out:
             typer.echo(f"harborrag: left out {label}: it no longer exists", err=True)
         text = dump_settings_document(exported.document)
-        if output is None:
-            return {"yaml": text}
-        output.expanduser().write_text(text, encoding="utf-8")
-        return {"output": str(output)}
+        if file is None:
+            sys.stdout.write(text)
+            return Outcome(None, 0)
+        file.expanduser().write_text(text, encoding="utf-8")
+        return {"file": str(file)}
 
-    _invoke(context, "export", operation, as_json=False)
-
-
-def _invoke(
-    context: typer.Context,
-    action: str,
-    operation: ImporterCall,
-    *,
-    as_json: bool,
-    subject: Path | None = None,
-) -> None:
-    """Run ``operation`` on the settings importer through the shared CLI runner."""
-    invoke(
-        _importer_call(operation, subject),
-        context=context,
-        command="config",
-        action=action,
-        as_json=as_json,
-    )
+    run_operation(None, _importer_call(operation, None), globals=resolved)
 
 
-def _importer_call(operation: ImporterCall, subject: Path | None) -> Callable[..., Any]:
-    async def call(service: BaseAppService) -> AppResponse:
+def _importer_call(
+    operation: ImporterCall, subject: Path | None
+) -> Callable[[LocalOperations, Scope], Awaitable[object]]:
+    """Run ``operation`` on the settings importer of the invocation's service."""
+
+    async def call(operations: LocalOperations, scope: Scope) -> object:
         from harborrag_runtime.config.settings_document import (  # noqa: PLC0415
             SettingsDocumentError,
         )
 
+        importer = operations.app_service.settings_importer
         try:
-            importer: SettingsImporter | None = getattr(service, "settings_importer", None)
-            if importer is None:
-                raise HarborCapabilityError("this HarborRAG setup does not manage settings")
-            return AppResponse(True, data=to_jsonable_python(dict(await operation(importer))))
+            result = await operation(importer, scope.tenant_id)
         except SettingsDocumentError as error:
-            return AppResponse(False, data={"error_type": type(error).__name__}, error=str(error))
+            raise HarborValidationError(str(error)) from error
         except HarborValidationError as error:
-            return AppResponse(
-                False,
-                data={"error_type": type(error).__name__},
-                error=_validation_message(error, subject),
-            )
-        except Exception as error:  # noqa: BLE001 - the CLI's stable error boundary
-            return source_failure(error)
+            raise HarborValidationError(_validation_message(error, subject)) from error
+        return result if isinstance(result, Outcome) else to_jsonable_python(dict(result))
 
     return call
 

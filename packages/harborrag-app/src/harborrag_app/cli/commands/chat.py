@@ -1,4 +1,4 @@
-"""One-shot, retrieval-grounded chat completion command."""
+"""``harborrag chat``: one grounded answer with numbered citations."""
 
 from __future__ import annotations
 
@@ -6,84 +6,75 @@ from typing import Annotated
 
 import typer
 
-from harborrag_app.cli.runner import invoke
-from harborrag_app.workflow_control import AppResponse, BaseAppService
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_runtime.chat import ChatPrompt
+from harborrag_app.api.v1.chat.schemas import ChatCompletionRequest, ChatCompletionResponse
+from harborrag_app.cli.bodies import load_body
+from harborrag_app.cli.globals import (
+    ConfigOption,
+    OutputOption,
+    ProfileOption,
+    TenantOption,
+    YesOption,
+    current_globals,
+)
+from harborrag_app.cli.invoke import current_trace_id, run_operation
+from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.scope import Scope
+from harborrag_core.invariants import HarborInvariantError
 
 
-def command(  # noqa: PLR0913 - explicit CLI flags are the public command contract
-    context: typer.Context,
+def command(  # noqa: PLR0913 - one parameter per documented flag plus the global options
     message: Annotated[
-        str,
-        typer.Argument(
-            metavar="MESSAGE",
-            help="User message sent to the configured chat model.",
-        ),
+        str, typer.Argument(metavar="MESSAGE", help="Question for the configured chat model.")
     ],
-    tenant_id: Annotated[
-        str,
-        typer.Option("--tenant", metavar="TENANT_ID", help="Tenant identity for model policy."),
-    ] = "DEFAULT",
     session_id: Annotated[
-        str | None,
-        typer.Option("--session", metavar="SESSION_ID", help="Conversation memory session key."),
+        str | None, typer.Option("--session-id", metavar="SESSION_ID", help="Continue a session.")
+    ] = None,
+    mode: Annotated[
+        str | None, typer.Option("--mode", help="instant or classic (default: classic).")
     ] = None,
     project_id: Annotated[
-        str | None,
+        list[str] | None,
         typer.Option(
-            "--project",
-            metavar="PROJECT_ID",
-            help="Project a new session is scoped to; must exist in the tenant.",
+            "--project-id", metavar="PROJECT_ID", help="One-off questions: read only this project."
         ),
     ] = None,
-    as_json: Annotated[
-        bool,
-        typer.Option("--json", help="Emit the stable machine-readable response envelope."),
-    ] = False,
-) -> None:
-    """Retrieve supporting evidence and generate one grounded response."""
-
-    invoke(
-        lambda service: _complete(
-            service,
-            message=message,
-            tenant_id=tenant_id,
-            session_id=session_id,
-            project_id=project_id,
+    connection_ref: Annotated[
+        list[str] | None,
+        typer.Option(
+            "--connection-ref",
+            metavar="REF",
+            help="Narrow to this connection, PROJECT_ID/CONNECTION_ID; repeat for more.",
         ),
-        context=context,
-        command="chat",
-        as_json=as_json,
+    ] = None,
+    tenant: TenantOption = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
+) -> None:
+    """Retrieve supporting evidence and answer one question with numbered citations."""
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
+    request = load_body(
+        None,
+        ChatCompletionRequest,
+        flags={
+            "session_id": session_id,
+            "message": message,
+            "mode": mode,
+            "project_ids": project_id or None,
+            "connections": connection_ref or None,
+            "stream": False,
+        },
     )
 
+    async def call(operations: LocalOperations, scope: Scope) -> ChatCompletionResponse:
+        completion = await operations.create_chat_completion(
+            scope, request, idempotency_key=None, trace_id=current_trace_id()
+        )
+        if completion.body is None:
+            raise HarborInvariantError("a non-streaming completion carried no body")
+        return completion.body
 
-async def _complete(
-    service: BaseAppService,
-    *,
-    message: str,
-    tenant_id: str,
-    session_id: str | None,
-    project_id: str | None,
-) -> AppResponse:
-    if session_id is None:
-        created = await service.create_chat_session(
-            tenant_id=tenant_id,
-            principal_id="harborrag-cli",
-            project_id=project_id,
-        )
-        if not created.ok:
-            return created
-        session_id = str(created.data["session_id"])
-    elif project_id is not None:
-        return AppResponse(
-            False,
-            {"error_type": "HarborValidationError"},
-            "--project creates a session; an existing session keeps its own project",
-        )
-    return await service.chat_completion(
-        message,
-        tenant_id=tenant_id,
-        principal_id="harborrag-cli",
-        options=ChatExecutionOptions(session_id=session_id, system=ChatPrompt.DEFAULT),
-    )
+    run_operation("create_chat_completion", call, globals=resolved)

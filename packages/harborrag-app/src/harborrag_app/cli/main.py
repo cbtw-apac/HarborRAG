@@ -24,6 +24,7 @@ from harborrag_app.cli.commands import (
     me,
     projects,
     retrieve,
+    settings,
     source,
     source_types,
     topology,
@@ -129,6 +130,12 @@ app.add_typer(
     name="source",
     help="Manage connections (source list|show|add|update|test|sync|remove).",
     rich_help_panel="Ingestion",
+)
+app.add_typer(
+    settings.app,
+    name="settings",
+    help="Read and change settings.",
+    rich_help_panel="Resources",
 )
 app.add_typer(
     auth.app,
