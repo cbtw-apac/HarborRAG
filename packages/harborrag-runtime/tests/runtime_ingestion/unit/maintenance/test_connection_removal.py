@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.connection_removal import (
     ConnectionRemovalIncompleteError,
     ConnectionRemovalService,

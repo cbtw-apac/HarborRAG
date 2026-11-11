@@ -13,12 +13,12 @@ from harborrag_core.ingestion import (
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion.chunking import ChunkingRequest
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
+from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
 
 from .dependencies import DocumentReleaseDependencies
 from .lifecycle import DocumentVersionLifecycle
 from .materialization_helpers import representation_artifact_name
 from .models import DocumentReleaseRequest
-from .stage_models import PreparedDocumentStage
 
 
 class DocumentMaterializationStages:

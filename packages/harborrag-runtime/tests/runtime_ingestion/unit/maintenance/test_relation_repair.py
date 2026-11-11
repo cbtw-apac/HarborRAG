@@ -15,10 +15,10 @@ from harborrag_core.ingestion import (
     KnowledgeNodeKind,
 )
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_runtime.ingestion import (
     DocumentReindexService,
     DocumentReleaseService,
-    ProjectionCleanupService,
     ReindexRequest,
     SourceIngestionService,
 )

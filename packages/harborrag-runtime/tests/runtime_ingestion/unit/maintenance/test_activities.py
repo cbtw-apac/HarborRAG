@@ -10,7 +10,7 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ReindexJob, ReindexJobState
-from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupBatch
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
 from harborrag_runtime.ingestion.observability import IngestionTelemetry

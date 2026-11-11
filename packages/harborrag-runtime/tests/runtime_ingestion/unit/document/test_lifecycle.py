@@ -12,9 +12,9 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
 )
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_runtime.ingestion import (
     DocumentReleaseService,
-    ProjectionCleanupService,
 )
 
 from ...fixtures.connectors import SourceConnector

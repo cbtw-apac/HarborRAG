@@ -7,15 +7,15 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_core.schemas.ids import DocumentId
+from harborrag_engine.ingestion.release.stage_models import (
+    PreparedDocumentStage,
+    RawCaptureStageResult,
+)
 from harborrag_runtime.execution.source_conversion import (
     to_processing_profile as to_processing_profile,
 )
 from harborrag_runtime.execution.source_conversion import (
     to_source_request as to_source_request,
-)
-from harborrag_runtime.ingestion.document.stage_models import (
-    PreparedDocumentStage,
-    RawCaptureStageResult,
 )
 
 from .schemas import (

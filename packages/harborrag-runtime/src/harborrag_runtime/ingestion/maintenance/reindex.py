@@ -30,13 +30,16 @@ from harborrag_engine.ingestion import (
     ChunkVersionRebinder,
     source_version_from_document,
 )
+from harborrag_engine.ingestion.maintenance.reindex_plan import (
+    ReindexPlan,
+    processing_profile_from_canonical,
+)
 
 from ..document.dependencies import DocumentReleaseDependencies
 from ..document.lifecycle import DocumentVersionLifecycle
 from ..document.models import DocumentReleaseRequest
 from ..document.pipeline import DocumentStagePipeline
 from ..limits import validate_reindex_limit
-from .reindex_plan import ReindexPlan, processing_profile_from_canonical
 from .reindex_reuse import ChunkReuseCoordinator
 
 logger = logging.getLogger("harborrag.runtime.ingestion.reindex")

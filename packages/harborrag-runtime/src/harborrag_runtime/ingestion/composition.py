@@ -16,6 +16,7 @@ from harborrag_adapters.repositories.object_store import ARTIFACT_BUCKET, RAW_BU
 from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.storage import ObjectStorePort, VectorRepositoryPort
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_runtime.composition.connection_stores import ConnectionStores
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import RuntimeConnectionError
@@ -23,7 +24,6 @@ from harborrag_runtime.errors import RuntimeConnectionError
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
 from .document.pipeline import DocumentStagePipeline
 from .document.service import DocumentReleaseService
-from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService
@@ -33,9 +33,8 @@ from .source.service import SourceIngestionService
 
 if TYPE_CHECKING:
     from harborrag_engine.ingestion import ChunkingConfig, ChunkStrategy
+    from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
     from harborrag_runtime.config_store import CachedConfigProvider
-
-    from .document.normalizers import SourceDocumentNormalizerBuilder
 
 logger = logging.getLogger("harborrag.runtime.ingestion.composition")
 

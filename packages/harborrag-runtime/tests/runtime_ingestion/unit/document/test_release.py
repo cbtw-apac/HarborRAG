@@ -384,8 +384,8 @@ async def test_retried_publish_of_an_already_active_version_is_a_replay(
     # The publish commits, the attempt times out, and Temporal runs it again:
     # that used to raise "document version in ACTIVE cannot publish".
     from harborrag_core.ingestion import SourceAdmissionDecision
+    from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
     from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
-    from harborrag_runtime.ingestion.document.stage_models import PreparedDocumentStage
 
     control = build_control_plane(tmp_path)
     store = MemoryObjectStore()

@@ -20,8 +20,7 @@ from dataclasses import dataclass
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.storage import StorageOperationContext
-
-from .cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.connection_removal")
 

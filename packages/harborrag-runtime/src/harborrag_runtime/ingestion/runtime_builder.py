@@ -34,6 +34,8 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
 from harborrag_runtime.composition.config_store import build_config_provider
 from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
@@ -58,15 +60,11 @@ from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
 from .document.dependencies import DocumentReleaseDependencies
-from .document.normalizers import (
-    SourceDocumentNormalizerBuilder,
-    default_source_document_normalizer_builder,
-)
+from .document.normalizers import default_source_document_normalizer_builder
 from .document.pipeline import DocumentStagePipeline
 from .document.run_tools import RunTools
 from .document.service import DocumentReleaseService
 from .field_indexes import declared_field_indexes
-from .maintenance.cleanup import ProjectionCleanupService
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
 from .maintenance.retention import RetiredVersionPurgeService

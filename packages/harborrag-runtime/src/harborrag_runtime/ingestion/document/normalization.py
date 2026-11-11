@@ -2,19 +2,9 @@
 
 from __future__ import annotations
 
-from .normalizers import (
-    SourceDocumentNormalizer,
-    default_source_document_normalizer_builder,
-)
-from .normalizers import (
-    SourceDocumentNormalizerBuilder as SourceDocumentNormalizerBuilder,
-)
-from .normalizers import (
-    SourceNormalizerFactory as SourceNormalizerFactory,
-)
-from .normalizers import (
-    SourceNormalizerRegistration as SourceNormalizerRegistration,
-)
+from harborrag_engine.ingestion.normalizers.router import SourceDocumentNormalizer
+
+from .normalizers import default_source_document_normalizer_builder
 
 CANONICAL_NORMALIZER_VERSION = "canonical-v4"
 

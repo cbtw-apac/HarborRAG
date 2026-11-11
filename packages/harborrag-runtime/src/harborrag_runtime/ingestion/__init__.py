@@ -9,19 +9,13 @@ if TYPE_CHECKING:
     from .composition import IngestionRuntime, build_ingestion_runtime
     from .document.dependencies import DocumentReleaseDependencies
     from .document.models import DocumentReleaseOutcome, DocumentReleaseRequest
-    from .document.normalizers import (
-        SourceDocumentNormalizerBuilder,
-        SourceNormalizerRegistration,
-        default_source_document_normalizer_builder,
-    )
+    from .document.normalizers import default_source_document_normalizer_builder
     from .document.service import DocumentReleaseService
-    from .maintenance.cleanup import ProjectionCleanupBatch, ProjectionCleanupService
     from .maintenance.reindex import (
         DocumentReindexService,
         ReindexRequest,
         source_identity_from_canonical,
     )
-    from .maintenance.reindex_plan import ReindexPlan, processing_profile_from_canonical
     from .maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
     from .maintenance.retention import RetiredVersionPurgeBatch, RetiredVersionPurgeService
     from .runtime_builder import IngestionRuntimeBuilder
@@ -38,23 +32,17 @@ __all__ = [
     "GraphRelationRepairService",
     "IngestionRuntime",
     "IngestionRuntimeBuilder",
-    "ProjectionCleanupBatch",
-    "ProjectionCleanupService",
     "RelationRepairResult",
     "ReindexRequest",
-    "ReindexPlan",
     "RetiredVersionPurgeBatch",
     "RetiredVersionPurgeService",
     "SourceIngestionOutcome",
     "SourceIngestionRequest",
     "SourceIngestionService",
-    "SourceDocumentNormalizerBuilder",
-    "SourceNormalizerRegistration",
     "SourcePlanRepository",
     "build_ingestion_runtime",
     "default_source_document_normalizer_builder",
     "source_identity_from_canonical",
-    "processing_profile_from_canonical",
 ]
 
 _EXPORT_MODULES = {
@@ -66,24 +54,18 @@ _EXPORT_MODULES = {
     "GraphRelationRepairService": "harborrag_runtime.ingestion.maintenance.relation_repair",
     "IngestionRuntime": "harborrag_runtime.ingestion.composition",
     "IngestionRuntimeBuilder": "harborrag_runtime.ingestion.runtime_builder",
-    "ProjectionCleanupBatch": "harborrag_runtime.ingestion.maintenance.cleanup",
-    "ProjectionCleanupService": "harborrag_runtime.ingestion.maintenance.cleanup",
     "RelationRepairResult": "harborrag_runtime.ingestion.maintenance.relation_repair",
     "ReindexRequest": "harborrag_runtime.ingestion.maintenance.reindex",
-    "ReindexPlan": "harborrag_runtime.ingestion.maintenance.reindex_plan",
     "RetiredVersionPurgeBatch": "harborrag_runtime.ingestion.maintenance.retention",
     "RetiredVersionPurgeService": "harborrag_runtime.ingestion.maintenance.retention",
-    "SourceDocumentNormalizerBuilder": "harborrag_runtime.ingestion.document.normalizers",
     "SourceIngestionOutcome": "harborrag_runtime.ingestion.source.models",
     "SourceIngestionRequest": "harborrag_runtime.ingestion.source.models",
     "SourceIngestionService": "harborrag_runtime.ingestion.source.service",
-    "SourceNormalizerRegistration": "harborrag_runtime.ingestion.document.normalizers",
     "SourcePlanRepository": "harborrag_runtime.ingestion.source.plan",
     "build_ingestion_runtime": "harborrag_runtime.ingestion.composition",
     "default_source_document_normalizer_builder": (
         "harborrag_runtime.ingestion.document.normalizers"
     ),
-    "processing_profile_from_canonical": ("harborrag_runtime.ingestion.maintenance.reindex_plan"),
     "source_identity_from_canonical": "harborrag_runtime.ingestion.maintenance.reindex",
 }
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from harborrag_core.ingestion import ProcessingProfile
-from harborrag_runtime.ingestion import ReindexPlan
+from harborrag_engine.ingestion.maintenance.reindex_plan import ReindexPlan
 
 
 def _profile(**updates: str) -> ProcessingProfile:

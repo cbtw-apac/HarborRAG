@@ -9,8 +9,8 @@ from harborrag_adapters.connectors.document_transform import (
     ConnectorDocumentTransformFactory,
 )
 from harborrag_engine.ingestion import BaseDocumentNormalizer
+from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
 
-from .builder import SourceDocumentNormalizerBuilder
 from .transform import ConnectorTransformDocumentNormalizer
 
 

@@ -29,9 +29,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.object_store import PutObjectRequest
 from harborrag_core.storage import StorageFamily, StorageOperationContext
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_runtime.ingestion import (
     DocumentReleaseService,
-    ProjectionCleanupService,
     RetiredVersionPurgeService,
 )
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch

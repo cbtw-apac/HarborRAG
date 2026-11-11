@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_engine.ingestion import VectorProjectionPolicy, VectorProjectionStore
-from harborrag_runtime.ingestion.maintenance.cleanup import ProjectionCleanupService
+from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_runtime.ingestion.maintenance.connection_removal import (
     ConnectionRemovalService,
     ConnectionRemovalSummary,

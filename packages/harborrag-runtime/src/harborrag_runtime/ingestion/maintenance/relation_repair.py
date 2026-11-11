@@ -28,9 +28,9 @@ from harborrag_engine.ingestion import (
     GraphProjectionInput,
     target_connector_type,
 )
+from harborrag_engine.ingestion.maintenance.relation_supersession import document_relations
 
 from ..document.models import DocumentReleaseRequest
-from .relation_supersession import document_relations
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 

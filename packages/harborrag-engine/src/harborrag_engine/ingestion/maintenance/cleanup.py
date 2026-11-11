@@ -6,11 +6,9 @@ import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-from harborrag_adapters.repositories.database import (
-    IngestionControlPlaneDatabase,
-)
 from harborrag_core.ingestion import CleanupPolicy, ProjectionCleanupJob
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
+from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import VectorProjectionStore
 
@@ -31,7 +29,7 @@ class ProjectionCleanupService:
     def __init__(
         self,
         *,
-        control: IngestionControlPlaneDatabase,
+        control: DocumentControlPort,
         vector_store: VectorProjectionStore,
         graph_store: KnowledgeGraphRepositoryPort,
     ) -> None:
