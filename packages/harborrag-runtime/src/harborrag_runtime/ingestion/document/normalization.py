@@ -1,4 +1,4 @@
-"""Compatibility facade for canonical document normalization composition."""
+"""Canonical normalizer version and construction of the default source router."""
 
 from __future__ import annotations
 
@@ -11,5 +11,4 @@ CANONICAL_NORMALIZER_VERSION = "canonical-v4"
 
 def build_source_document_normalizer() -> SourceDocumentNormalizer:
     """Build the default router from independently registered providers."""
-
     return default_source_document_normalizer_builder().build()

@@ -30,6 +30,17 @@ from harborrag_engine.ingestion import (
 
 @dataclass(frozen=True, slots=True)
 class ProjectionVerificationRequest:
+    """Everything the coordinator verifies against the projection stores.
+
+    Args:
+        manifest: Manifest the projections were built for.
+        document: Canonical document.
+        chunks: Chunk records of the version.
+        vectors: Vector projection batch.
+        graph: Graph projection batch.
+        canonical_comment_ids: Comment IDs the canonical document carries.
+    """
+
     manifest: ProjectionManifest
     document: Document
     chunks: tuple[ChunkRecord, ...]
@@ -39,7 +50,13 @@ class ProjectionVerificationRequest:
 
 
 class DocumentProjectionCoordinator:
-    """Coordinate pure projection building and projection-store verification."""
+    """Coordinate pure projection building and projection-store verification.
+
+    Args:
+        projection_artifacts: Port that stores the projection artifacts.
+        vector_store: Store the vector projection is verified against.
+        graph_store: Store the graph projection is verified against.
+    """
 
     def __init__(
         self,
@@ -62,6 +79,7 @@ class DocumentProjectionCoordinator:
         document: Document,
         chunks: tuple[ChunkRecord, ...],
     ) -> GraphProjectionBatch:
+        """Build the structural graph projection of a document version."""
         return self._graph_builder.build_structural(
             document=document,
             chunks=chunks,
@@ -77,6 +95,11 @@ class DocumentProjectionCoordinator:
         graph: GraphProjectionBatch,
         context: StorageOperationContext,
     ) -> tuple[ArtifactReference, ArtifactReference]:
+        """Store the vector and graph projection artifacts concurrently.
+
+        Returns:
+            References to the vector artifact and the graph artifact, in that order.
+        """
         return await asyncio.gather(
             self._projection_artifacts.put_vector_projection(
                 document_id=document_id,
@@ -97,6 +120,7 @@ class DocumentProjectionCoordinator:
         self,
         request: ProjectionManifestInput,
     ) -> ProjectionManifest:
+        """Build the projection manifest for a version."""
         return self._manifest_builder.build(request)
 
     async def verify(
@@ -105,6 +129,7 @@ class DocumentProjectionCoordinator:
         *,
         context: StorageOperationContext,
     ) -> IndexVerificationResult:
+        """Verify both projections against their stores concurrently and combine the results."""
         vector_result, graph_result = await asyncio.gather(
             self._vector_store.verify(request.vectors, context=context),
             self._graph_store.verify_projection(

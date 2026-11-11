@@ -21,7 +21,6 @@ logger = logging.getLogger("harborrag.runtime.ingestion.document_pipeline")
 
 def tag_failure_stage(error: BaseException, stage: str) -> None:
     """Record the failing stage on the original exception without ever raising."""
-
     try:
         error.harborrag_stage = stage  # type: ignore[attr-defined]
     except Exception:  # noqa: BLE001 - exceptions with __slots__ reject attributes
@@ -29,7 +28,11 @@ def tag_failure_stage(error: BaseException, stage: str) -> None:
 
 
 class DocumentStagePipeline:
-    """Compose named, independently retryable document ingestion stages."""
+    """Compose named, independently retryable document ingestion stages.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
 
     def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
         self.preparation = DocumentPreparationStages(dependencies)
@@ -40,6 +43,10 @@ class DocumentStagePipeline:
         request: DocumentReleaseRequest,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentReleaseOutcome:
+        """Run capture, normalization and every later stage for one source item.
+
+        Tags the failing stage on any exception it re-raises.
+        """
         started_at = perf_counter()
         connector_type = request.source_identity.connector_type.value
         logger.debug(
@@ -101,7 +108,6 @@ class DocumentStagePipeline:
         document_version_id: str,
     ) -> DocumentReleaseOutcome:
         """Resume from the earliest durable artifact; never fetch the connector."""
-
         prepared = await self.preparation.replay_from_artifacts(
             request,
             document_version_id,
@@ -119,7 +125,6 @@ class DocumentStagePipeline:
         prepared: PreparedDocumentStage,
     ) -> DocumentReleaseOutcome:
         """Resume the shared pipeline from a canonical candidate reference."""
-
         if not prepared.requires_processing:
             outcome = await self.projections.publish_version(prepared)
             self._log_outcome(outcome)

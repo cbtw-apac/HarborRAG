@@ -1,4 +1,9 @@
-"""Repair graph relations after source publication or reindexing."""
+"""Repair graph relations after source publication or reindexing.
+
+A reverse repair re-repairs at most ``_MAX_RESOLVABLE_DECLARERS`` declarers per pass, so
+one run cannot be held hostage by a tenant's whole backlog; the next run picks up where
+the cursor stops.
+"""
 
 from __future__ import annotations
 
@@ -39,14 +44,26 @@ class PlannedRelease(Protocol):
     """Structural input required by relation repair after source dispatch."""
 
     @property
-    def document_id(self) -> str: ...
+    def document_id(self) -> str:
+        """Document the release published."""
+        ...
 
     @property
-    def request(self) -> DocumentReleaseRequest: ...
+    def request(self) -> DocumentReleaseRequest:
+        """Request the release ran with."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class RelationRepairResult:
+    """Counts of one repair pass.
+
+    Args:
+        repaired_documents: Documents whose source relations were reconciled.
+        resolved_relations: Relations that now point at a published target.
+        unresolved_relations: Distinct (target, predicate) links still missing a target.
+    """
+
     repaired_documents: int
     resolved_relations: int
     unresolved_relations: int
@@ -54,21 +71,38 @@ class RelationRepairResult:
 
 @dataclass(frozen=True, slots=True)
 class _RepairTarget:
+    """One document a repair pass reconciles.
+
+    Args:
+        document_id: Document to repair.
+        processing_fingerprint: Fingerprint the active version must carry; ``None`` accepts
+            whatever profile it was processed with, because a declarer re-repaired for a new
+            target belongs to another run's configuration.
+        graph_projection_version: Graph projection version the repaired edges are built with.
+    """
+
     document_id: str
-    # None accepts whatever profile the active version was processed with: a declarer
-    # re-repaired because its target appeared belongs to another run's configuration.
     processing_fingerprint: str | None
     graph_projection_version: str
 
 
-# Re-repair at most this many declarers per pass, so one run cannot be held hostage by a
-# tenant's whole backlog; the next run picks up where the cursor stops.
 _MAX_RESOLVABLE_DECLARERS = 10_000
 _RESOLVABLE_PAGE = 500
 
 
 class GraphRelationRepairService:
-    """Resolve cross-document edges after a bounded source batch publishes."""
+    """Resolve cross-document edges after a bounded source batch publishes.
+
+    Args:
+        control: Document control plane with active versions and unresolved relations.
+        canonical_artifacts: Reader of canonical documents.
+        chunk_reader: Reader of chunk artifacts.
+        graph_store: Graph store the relations are replaced in.
+        max_concurrency: Documents repaired concurrently.
+
+    Raises:
+        ValueError: ``max_concurrency`` is below one.
+    """
 
     def __init__(
         self,
@@ -95,6 +129,18 @@ class GraphRelationRepairService:
         *,
         tenant_id: str,
     ) -> RelationRepairResult:
+        """Repair the links of the documents a source batch just published.
+
+        Does not prune stubs: finalization calls this once per plan page and a prune scans the
+        tenant's whole graph, so ``repair_resolvable`` prunes once, after it.
+
+        Args:
+            planned: Releases of the batch.
+            tenant_id: Tenant that owns the documents.
+
+        Returns:
+            Counts of what the pass repaired.
+        """
         context = StorageOperationContext.system(tenant_id)
         results = await self._repair_targets(
             tuple(
@@ -109,8 +155,6 @@ class GraphRelationRepairService:
             ),
             context=context,
         )
-        # No stub pruning here: finalization calls this once per plan page, and a prune
-        # scans the tenant's whole graph. ``repair_resolvable`` prunes once, after it.
         return self._result(results)
 
     async def repair_resolvable(
@@ -132,8 +176,10 @@ class GraphRelationRepairService:
         is logged and skipped rather than failing the caller's task: its unresolved rows
         stay, and a later run retries it. This is also where the stubs orphaned by this
         pass and by the caller's forward repairs are pruned, once.
-        """
 
+        Pages by a cursor rather than "until nothing is left": a declarer whose repair
+        still leaves its row (a failed or skipped repair) would otherwise loop forever.
+        """
         context = StorageOperationContext.system(tenant_id)
         cursor = ""
         totals: list[tuple[int, int, int]] = []
@@ -162,8 +208,6 @@ class GraphRelationRepairService:
                 )
             )
             visited += len(page)
-            # A cursor, not "until nothing is left": a declarer whose repair still
-            # leaves the row (a failed or skipped repair) would otherwise loop forever.
             cursor = page[-1]
         if failed:
             logger.warning(
@@ -178,7 +222,6 @@ class GraphRelationRepairService:
 
     async def _prune_stubs(self, context: StorageOperationContext) -> None:
         """Remove stubs nothing points at any more; a failure only delays the cleanup."""
-
         try:
             pruned = await self._graph.prune_external_stubs(context=context)
         except Exception as error:  # noqa: BLE001 -- pruning is best-effort housekeeping
@@ -200,7 +243,6 @@ class GraphRelationRepairService:
         limit: int = 100_000,
     ) -> RelationRepairResult:
         """Restore active source edges after retired target nodes are cleaned."""
-
         fingerprint = self._fingerprints.processing_fingerprint(profile=processing)
         document_ids = await self._control.document_versions.active_relation_document_ids(
             processing_fingerprint=fingerprint,
@@ -229,8 +271,11 @@ class GraphRelationRepairService:
         context: StorageOperationContext,
         failed: list[str] | None = None,
     ) -> tuple[tuple[int, int, int], ...]:
-        """Repair every target; with ``failed``, record a failing one there and go on."""
+        """Repair every target; with ``failed``, record a failing one there and go on.
 
+        Failures are caught per target rather than with ``gather(return_exceptions=True)``,
+        which would also swallow a cancelled activity's ``CancelledError``.
+        """
         slots = asyncio.Semaphore(self._max_concurrency)
 
         async def repair(target: _RepairTarget) -> tuple[int, int, int]:
@@ -245,8 +290,6 @@ class GraphRelationRepairService:
                 except Exception as error:
                     if failed is None:
                         raise
-                    # Caught per target rather than gather(return_exceptions=True),
-                    # which would also swallow a cancelled activity's CancelledError.
                     logger.warning(
                         "Skipping relation repair of a resolvable declarer "
                         "tenant_id=%s document_id=%s error_type=%s",
@@ -275,6 +318,27 @@ class GraphRelationRepairService:
         graph_projection_version: str,
         context: StorageOperationContext,
     ) -> tuple[int, int, int]:
+        """Reconcile one active document's source relations with the graph.
+
+        Skips a document whose active artifacts were cleaned: relation repair is a degradable
+        follow-up and an old deployment can keep an active Postgres version after its
+        disposable artifact generation is gone, so failing or retrying the whole source
+        ingestion for it would be wrong. A skip is not "unresolved": nothing says any of its
+        links lack a target.
+
+        Replaces the owning version's whole link set, including an empty set. That handles
+        reverse links and targets that moved after a prior repair, which reconstructing the
+        initial guessed endpoints cannot name.
+
+        Returns:
+            Repaired-document, resolved-relation and unresolved-link counts; the last counts
+            one per distinct (target, predicate), so a link repeated on the document is still
+            one missing target.
+
+        Raises:
+            RuntimeError: The active document lacks canonical graph inputs.
+            ValueError: The repaired projection fails verification.
+        """
         snapshot = await self._control.document_versions.active_snapshot(document_id)
         if snapshot is None:
             return (0, 0, 0)
@@ -297,17 +361,12 @@ class GraphRelationRepairService:
                 ),
             )
         except HarborStorageNotFoundError:
-            # Relation repair is a degradable follow-up. Old deployments can
-            # retain an active Postgres version after its disposable artifact
-            # generation was cleaned. Do not fail or repeatedly retry the
-            # entire source ingestion for that stale repair target.
             logger.warning(
                 "Skipping relation repair because active artifacts are unavailable "
                 "document_id=%s document_version_id=%s",
                 document_id,
                 snapshot.document_version_id,
             )
-            # Skipped, not unresolved: nothing here says any of its links lack a target.
             return (0, 0, 0)
         source_ids = tuple(dict.fromkeys(relation.target_id for relation in document.relations))
         if not source_ids:
@@ -347,9 +406,6 @@ class GraphRelationRepairService:
             for node_key in (relation.source_node_key, relation.target_node_key)
         }
         nodes = tuple(node for node in graph.nodes if node.node_key in endpoint_keys)
-        # Reconcile the whole owning version's link set, including an empty set.
-        # This handles reverse links and targets that moved after a prior repair;
-        # reconstructing the initial guessed endpoints cannot name those edges.
         await self._graph.replace_source_relations(
             str(snapshot.document_version_id),
             nodes,
@@ -381,8 +437,6 @@ class GraphRelationRepairService:
         return (
             int(bool(relations)),
             len(relations),
-            # One per distinct (target, predicate): a link repeated on the document is
-            # still one missing target.
             len(graph.unresolved_relations),
         )
 
@@ -451,14 +505,17 @@ class GraphRelationRepairService:
         resolved_targets: Mapping[str, GraphDocumentTarget],
         graph_projection_version: str,
     ) -> GraphProjectionBatch:
+        """Build the graph projection with external stubs for unresolved targets.
+
+        Repair is where a link is known to be unresolvable, so it is the only build that may
+        stand an external stub in for the missing target.
+        """
         return self._builder.build(
             GraphProjectionInput(
                 document=document,
                 chunks=chunks,
                 resolved_targets=resolved_targets,
                 graph_projection_version=graph_projection_version,
-                # Repair is where a link is known to be unresolvable, so it is the only
-                # build that may stand an external stub in for the missing target.
                 external_stubs=True,
             )
         )

@@ -1,4 +1,11 @@
-"""Cleanup of rebuildable document projections."""
+"""Cleanup of rebuildable document projections.
+
+Deletes version-addressed vector and graph projections for jobs queued in the
+document control plane. Never touches canonical evidence, and a job for the
+active version is cancelled rather than run.
+
+Entry point: ProjectionCleanupService.
+"""
 
 from __future__ import annotations
 
@@ -17,6 +24,15 @@ logger = logging.getLogger("harborrag.runtime.ingestion.cleanup")
 
 @dataclass(frozen=True, slots=True)
 class ProjectionCleanupBatch:
+    """Counts of one cleanup pass.
+
+    Args:
+        claimed: Jobs this pass claimed.
+        completed: Claimed jobs whose projections were deleted.
+        cancelled: Claimed jobs skipped because the version is active.
+        failed: Claimed jobs that raised and were marked failed.
+    """
+
     claimed: int
     completed: int
     cancelled: int
@@ -24,7 +40,13 @@ class ProjectionCleanupBatch:
 
 
 class ProjectionCleanupService:
-    """Delete version-addressed projections without touching canonical evidence."""
+    """Delete version-addressed projections without touching canonical evidence.
+
+    Args:
+        control: Document control plane holding cleanup jobs and active versions.
+        vector_store: Store the vector projections are deleted from.
+        graph_store: Store the graph versions are deleted from.
+    """
 
     def __init__(
         self,
@@ -45,6 +67,16 @@ class ProjectionCleanupService:
         source_scope_id: str,
         limit: int = 100,
     ) -> ProjectionCleanupBatch:
+        """Run the pending cleanup jobs of one source scope.
+
+        Args:
+            tenant_id: Tenant that owns the jobs.
+            source_scope_id: Source scope whose jobs run.
+            limit: Maximum jobs claimed in this pass.
+
+        Returns:
+            Counts of what this pass did.
+        """
         jobs = await self._control.reliability.pending_cleanup_jobs(
             tenant_id=tenant_id,
             limit=limit,
@@ -59,6 +91,16 @@ class ProjectionCleanupService:
         document_ids: Sequence[str],
         limit: int = 100,
     ) -> ProjectionCleanupBatch:
+        """Run the pending cleanup jobs of the given documents.
+
+        Args:
+            tenant_id: Tenant that owns the jobs.
+            document_ids: Documents whose jobs run.
+            limit: Maximum jobs claimed in this pass.
+
+        Returns:
+            Counts of what this pass did.
+        """
         jobs = await self._control.reliability.pending_cleanup_jobs(
             tenant_id=tenant_id,
             limit=limit,
@@ -72,8 +114,15 @@ class ProjectionCleanupService:
         tenant_id: str,
         limit: int = 1_000,
     ) -> ProjectionCleanupBatch:
-        """Drain this tenant's jobs after a tenant-wide reindex."""
+        """Drain this tenant's jobs after a tenant-wide reindex.
 
+        Args:
+            tenant_id: Tenant that owns the jobs.
+            limit: Maximum jobs claimed in this pass.
+
+        Returns:
+            Counts of what this pass did.
+        """
         jobs = await self._control.reliability.pending_cleanup_jobs(
             tenant_id=tenant_id,
             limit=limit,
@@ -86,6 +135,7 @@ class ProjectionCleanupService:
         *,
         tenant_id: str,
     ) -> ProjectionCleanupBatch:
+        """Claim and clean each job, counting the outcomes."""
         logger.info(
             "Projection cleanup batch started jobs=%d",
             len(jobs),
@@ -123,6 +173,7 @@ class ProjectionCleanupService:
         *,
         context: StorageOperationContext,
     ) -> str:
+        """Clean one claimed job and return ``completed``, ``cancelled`` or ``failed``."""
         cleanup_id = str(job.cleanup_job_id)
         version_id = str(job.document_version_id)
         try:

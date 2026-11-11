@@ -22,7 +22,6 @@ def active_candidate(
     decision: SourceAdmissionDecision,
 ) -> PreparedDocumentStage:
     """Reuse the accepted artifact when force-repairing an active projection."""
-
     if not request.force_reprocess:
         return PreparedDocumentStage(
             document_id=capture.document_id,

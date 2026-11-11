@@ -28,6 +28,15 @@ from .models import DocumentReleaseRequest
 
 @dataclass(frozen=True, slots=True)
 class ProjectionMaterial:
+    """Inputs the projection stages rebuild from.
+
+    Args:
+        document: Canonical document.
+        chunks: Chunk records of the version.
+        chunk_artifacts: References to the stored chunk set.
+        representations: Dense and sparse representations of the chunks.
+    """
+
     document: Document
     chunks: tuple[ChunkRecord, ...]
     chunk_artifacts: ChunkSetArtifacts
@@ -35,7 +44,12 @@ class ProjectionMaterial:
 
 
 class ProjectionMaterialLoader:
-    """Reload large projection inputs inside activities, never workflow history."""
+    """Reload large projection inputs inside activities, never workflow history.
+
+    Args:
+        dependencies: Ports and stores the material is read from.
+        coordinator: Builds the graph projection from the loaded material.
+    """
 
     def __init__(
         self,
@@ -50,6 +64,11 @@ class ProjectionMaterialLoader:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> ProjectionMaterial:
+        """Read the version's canonical document, chunks and representations.
+
+        Raises:
+            ValueError: The version does not exist or its projection inputs are incomplete.
+        """
         snapshot = await self._dependencies.control.document_versions.get_version(
             prepared.document_version_id
         )
@@ -103,6 +122,7 @@ class ProjectionMaterialLoader:
         request: DocumentReleaseRequest,
         material: ProjectionMaterial,
     ) -> GraphProjectionBatch:
+        """Build the structural graph projection of the loaded material."""
         return self._coordinator.build_graph(
             processing=request.processing,
             document=material.document,
@@ -115,6 +135,11 @@ class ProjectionMaterialLoader:
         *,
         request: DocumentReleaseRequest,
     ) -> tuple[VectorProjectionBatch, GraphProjectionBatch]:
+        """Read the manifest's stored vector and graph projections.
+
+        Raises:
+            ValueError: The manifest lacks a vector or graph artifact.
+        """
         if manifest.vector_artifact is None or manifest.graph_artifact is None:
             raise ValueError("projection artifacts are unavailable")
         points, graph_records = await asyncio.gather(
@@ -137,6 +162,11 @@ class ProjectionMaterialLoader:
         self,
         document_version_id: str,
     ) -> ProjectionManifest:
+        """Return the projection manifest of a version.
+
+        Raises:
+            ValueError: No manifest exists.
+        """
         manifest = await self._dependencies.control.reliability.projection_manifest(
             document_version_id
         )
@@ -148,10 +178,12 @@ class ProjectionMaterialLoader:
     def context(
         request: DocumentReleaseRequest,
     ) -> StorageOperationContext:
+        """Return the system storage context of the request's tenant."""
         return StorageOperationContext.system(request.tenant_id)
 
 
 def vector_batch(
     points: tuple[VectorEvidenceRecord, ...],
 ) -> VectorProjectionBatch:
+    """Assemble stored evidence records into a vector projection batch."""
     return VectorProjectionBatch.assemble(evidence_records=tuple(points))

@@ -43,6 +43,11 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
+    """Release publishes, and an unchanged replay skips the expensive stages.
+
+    Both loggers are captured at DEBUG with the same handler, so neither must raise the
+    other's level. Each parsed document reports how long every parse step took.
+    """
     control = build_control_plane(tmp_path)
     store = MemoryObjectStore()
     connector = SourceConnector()
@@ -61,7 +66,6 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
                 logging.DEBUG,
                 logger="harborrag.runtime.ingestion.document_pipeline",
             ),
-            # Same handler as above, so this must not raise its level past DEBUG.
             caplog.at_level(logging.DEBUG, logger="harborrag.runtime.ingestion.capture"),
         ):
             first = await service.release(
@@ -89,7 +93,6 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
         assert replay.decision == SourceAdmissionDecision.UNCHANGED
         assert (connector.loads, parser.calls, len(embed.inputs)) == expensive_counts
         assert "Document stage completed" in caplog.text
-        # Each parsed document reports how long every parse step took.
         assert "Document parsed" in caplog.text
         assert "parse_ms=" in caplog.text and "persist_ms=" in caplog.text
         assert "stage=WriteVectorProjection" in caplog.text
@@ -98,13 +101,16 @@ async def test_release_publishes_and_unchanged_replay_skips_expensive_stages(
 
 @pytest.mark.asyncio
 async def test_contentless_document_is_skipped_as_unsupported(tmp_path: Path) -> None:
+    """A document with no body and no title is skipped as unsupported.
+
+    A body-less page whose title is a real page name is published with that title as its
+    content; the document that has genuinely nothing is the one whose title is only the
+    normalizer's fallback to the record id.
+    """
     control = build_control_plane(tmp_path)
     store = MemoryObjectStore()
     connector = SourceConnector()
     connector.body = ""
-    # No title either. A body-less page whose title is a real page name is now published
-    # with that title as its content; the document that has genuinely nothing is the one
-    # whose title is only the normalizer's fallback to the record id.
     connector.title = None
     parser = TextParser()
     embed = DeterministicEmbedClient()
@@ -381,8 +387,11 @@ async def test_release_writes_each_artifact_once_and_no_relation_artifact(
 async def test_retried_publish_of_an_already_active_version_is_a_replay(
     tmp_path: Path,
 ) -> None:
-    # The publish commits, the attempt times out, and Temporal runs it again:
-    # that used to raise "document version in ACTIVE cannot publish".
+    """A retried publish of an already active version is a replay.
+
+    The publish commits, the attempt times out, and Temporal runs it again; that used to
+    raise "document version in ACTIVE cannot publish".
+    """
     from harborrag_core.ingestion import SourceAdmissionDecision
     from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
     from harborrag_runtime.ingestion.document.pipeline import DocumentStagePipeline
@@ -428,10 +437,13 @@ async def test_retried_publish_of_an_already_active_version_is_a_replay(
 async def test_release_adopts_an_unrecorded_canonical_left_by_an_earlier_attempt(
     tmp_path: Path,
 ) -> None:
-    # An attempt wrote the canonical object, then timed out before recording
-    # it; the retry re-parses to different bytes (OCR under load). That used to
-    # fail permanently with "immutable artifact key already contains different
-    # content". Learn the deterministic ids from a clean run first.
+    """Release adopts a canonical object an earlier attempt wrote but did not record.
+
+    An attempt wrote the canonical object, then timed out before recording it; the retry
+    re-parses to different bytes (OCR under load). That used to fail permanently with
+    "immutable artifact key already contains different content". The deterministic ids are
+    learned from a clean run first.
+    """
     from harborrag_adapters.repositories.object_store import (
         CanonicalDocumentArtifactRepository,
         ImmutableArtifactReader,

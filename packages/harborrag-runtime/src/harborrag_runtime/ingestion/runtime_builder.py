@@ -77,7 +77,14 @@ logger = logging.getLogger("harborrag.runtime.ingestion.runtime_builder")
 
 
 class IngestionRuntimeBuilder:
-    """Assemble one runtime graph without performing external I/O."""
+    """Assemble one runtime graph without performing external I/O.
+
+    Args:
+        settings: Runtime settings the graph is built from.
+        normalizer_builder: Source normalizer builder; the built-in providers when omitted.
+        chunking_config: Chunking configuration overriding the settings'.
+        chunking_strategies: Extra chunk strategies registered next to the built-in ones.
+    """
 
     def __init__(
         self,
@@ -95,6 +102,7 @@ class IngestionRuntimeBuilder:
         self._chunking_strategies = tuple(chunking_strategies)
 
     def build(self) -> IngestionRuntime:
+        """Create the clients and services of the ingestion runtime without connecting them."""
         settings = self._settings
         telemetry = IngestionTelemetry(
             metrics_port=settings.metrics_port,
@@ -238,7 +246,6 @@ class IngestionRuntimeBuilder:
 
     def build_document_normalizer(self) -> BaseDocumentNormalizer:
         """Build the configured immutable provider router."""
-
         return self._normalizer_builder.build()
 
     def _rate_limiter(self, telemetry: IngestionTelemetry) -> ConnectorRateLimiter:
@@ -286,7 +293,6 @@ def build_default_chunker(
     refiner: RefinerConfig | None = None,
 ) -> BaseChunker:
     """Build canonical chunking with optional source-owned extensions."""
-
     token_counter = ApproximateTokenCounter()
     return build_chunking_service(
         config=config or default_chunking_config(),
@@ -304,7 +310,6 @@ def build_ingestion_runtime(
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> IngestionRuntime:
     """Build the production ingestion object graph without starting resources."""
-
     return IngestionRuntimeBuilder(
         settings or RuntimeSettings(),
         normalizer_builder=normalizer_builder,

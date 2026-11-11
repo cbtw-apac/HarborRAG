@@ -22,7 +22,11 @@ from .models import DocumentReleaseRequest
 
 
 class DocumentMaterializationStages:
-    """Persist canonical content, chunks, and dense/sparse representations."""
+    """Persist canonical content, chunks, and dense/sparse representations.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
 
     def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
         self._dependencies = dependencies
@@ -38,9 +42,11 @@ class DocumentMaterializationStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
-        # Kept as an activity so in-flight workflow histories still replay. Its only
-        # output was the comment artifact, which build_projections writes and records
-        # in the manifest; nothing reads it before then.
+        """Do nothing; the stage is kept so in-flight workflow histories still replay.
+
+        Its only output was the comment artifact, which ``build_projections`` writes and
+        records in the manifest; nothing reads it before then.
+        """
         del request, prepared
 
     async def persist_canonical(
@@ -48,12 +54,18 @@ class DocumentMaterializationStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Record the canonical artifact on the version.
+
+        ``parse_and_normalize`` already wrote the canonical object, so this stage only
+        records it: re-reading and re-writing the same immutable key cost a GET, two HEADs
+        and a full serialization per document. Comment and table artifacts are written
+        once, by ``build_projections``, which records them in the manifest.
+
+        Raises:
+            ValueError: No canonical artifact is available for the version.
+        """
         if not prepared.requires_processing:
             return
-        # parse_and_normalize already wrote the canonical object; this stage records
-        # it. Re-reading and re-writing the same immutable key cost a GET, two HEADs
-        # and a full serialization per document. Comment and table artifacts are
-        # written once, by build_projections, which records them in the manifest.
         reference = prepared.canonical_reference
         if reference is None:
             snapshot = await self._required_snapshot(prepared.document_version_id)
@@ -72,6 +84,12 @@ class DocumentMaterializationStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> ChunkingStatistics | None:
+        """Chunk the canonical document and store the chunk artifacts.
+
+        Returns:
+            Chunking statistics, or ``None`` when nothing needs processing or the chunks
+            already exist.
+        """
         if not prepared.requires_processing:
             return None
         snapshot = await self._required_snapshot(prepared.document_version_id)
@@ -110,6 +128,13 @@ class DocumentMaterializationStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Encode the version's chunks into dense and sparse representations.
+
+        Reuses the active version's representations for a metadata-only change.
+
+        Raises:
+            ValueError: The version has no chunk artifact to encode.
+        """
         if not prepared.requires_processing:
             return
         snapshot = await self._required_snapshot(prepared.document_version_id)
@@ -154,6 +179,7 @@ class DocumentMaterializationStages:
         stage: str,
         error: Exception,
     ) -> None:
+        """Record a stage failure on the version when it needs processing."""
         if not prepared.requires_processing:
             return
         await self._lifecycle.record_failure(

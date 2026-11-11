@@ -16,7 +16,6 @@ from .transform import ConnectorTransformDocumentNormalizer
 
 def default_source_document_normalizer_builder() -> SourceDocumentNormalizerBuilder:
     """Create a builder containing HarborRAG's built-in source providers."""
-
     builder = SourceDocumentNormalizerBuilder()
     for provider_name in connector_registry.canonical_names():
         definition = connector_registry.get_definition(provider_name)

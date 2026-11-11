@@ -1,3 +1,8 @@
+"""Convert document stage results between engine values and Temporal workflow payloads.
+
+Workflow payload models live in ``schemas``; nothing here performs I/O.
+"""
+
 from __future__ import annotations
 
 from harborrag_core.ingestion import (
@@ -30,6 +35,7 @@ def to_raw_capture_result(
     document: DocumentIngestionInput,
     capture: RawCaptureStageResult,
 ) -> RawCaptureResult:
+    """Convert a raw capture stage result to its workflow payload."""
     raw = capture.raw_reference
     return RawCaptureResult(
         document=document,
@@ -48,6 +54,12 @@ def to_raw_capture_result(
 def to_capture_stage(
     capture: RawCaptureResult,
 ) -> RawCaptureStageResult:
+    """Convert a raw capture workflow payload back to a stage result.
+
+    Raises:
+        HarborInvariantError: A captured payload lacks its metadata artifact, connector
+            type or content hash.
+    """
     raw = None
     if capture.source_artifact is not None:
         if capture.metadata_artifact is None:
@@ -75,6 +87,7 @@ def to_prepared_document(
     document: DocumentIngestionInput,
     prepared: PreparedDocumentStage,
 ) -> PreparedDocument:
+    """Convert a prepared stage to its workflow payload."""
     return PreparedDocument(
         document=document,
         document_id=prepared.document_id,
@@ -91,6 +104,7 @@ def to_prepared_document(
 def to_prepared_stage(
     prepared: PreparedDocument,
 ) -> PreparedDocumentStage:
+    """Convert a prepared document workflow payload back to a stage value."""
     return PreparedDocumentStage(
         document_id=prepared.document_id,
         document_version_id=prepared.document_version_id,
@@ -106,6 +120,7 @@ def to_prepared_stage(
 def to_workflow_artifact(
     reference: ArtifactReference,
 ) -> WorkflowArtifactReference:
+    """Convert an artifact reference to its workflow payload."""
     return WorkflowArtifactReference(
         bucket=reference.bucket,
         key=reference.key,
@@ -120,6 +135,7 @@ def to_workflow_artifact(
 def to_artifact_reference(
     reference: WorkflowArtifactReference,
 ) -> ArtifactReference:
+    """Convert a workflow artifact payload back to an artifact reference."""
     return ArtifactReference(
         bucket=reference.bucket,
         key=reference.key,

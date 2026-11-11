@@ -56,13 +56,20 @@ class ReindexRequest:
     limit: int = 10_000
 
     def __post_init__(self) -> None:
+        """Reject blank job or tenant IDs and an out-of-range limit."""
         if not self.reindex_job_id.strip() or not self.tenant_id.strip():
             raise ValueError("reindex job and tenant IDs must be non-empty")
         validate_reindex_limit(self.limit)
 
 
 class DocumentReindexService:
-    """Rebuild active versions exclusively from immutable canonical artifacts."""
+    """Rebuild active versions exclusively from immutable canonical artifacts.
+
+    Args:
+        dependencies: Ports and stores the reindex reads and writes.
+        pipeline: Stage pipeline that releases each candidate; built from
+            ``dependencies`` when omitted.
+    """
 
     def __init__(
         self,
@@ -90,6 +97,13 @@ class DocumentReindexService:
         )
 
     async def run(self, request: ReindexRequest) -> ReindexJob:
+        """Reindex the stale active documents of a tenant without calling a connector.
+
+        A failing document is logged and counted; the others still run.
+
+        Returns:
+            The finished reindex job with its progress counts.
+        """
         target_fingerprint = self._fingerprints.processing_fingerprint(profile=request.processing)
         submitted = await self._dependencies.control.reindex.submit(
             reindex_job_id=request.reindex_job_id,
@@ -227,7 +241,6 @@ class DocumentReindexService:
 
 def source_identity_from_canonical(document: Document) -> SourceIdentity:
     """Recover stable source identity without consulting a source connector."""
-
     metadata = document.provenance.extra
     required = {
         name: str(metadata.get(name, "")).strip()

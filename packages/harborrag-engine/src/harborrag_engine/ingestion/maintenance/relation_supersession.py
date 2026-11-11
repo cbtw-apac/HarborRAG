@@ -9,8 +9,14 @@ from harborrag_engine.ingestion import GraphProjectionBatch
 
 
 def document_relations(graph: GraphProjectionBatch) -> tuple[GraphEdgeRecord, ...]:
-    """This document's own explicit source-entity relations, both ends included."""
+    """Return the document's own explicit source-entity relations, both ends included.
 
+    Args:
+        graph: Projection batch of one document.
+
+    Returns:
+        Relations whose source and target are both source-entity nodes of the batch.
+    """
     document_node_keys = {
         node.node_key for node in graph.nodes if node.node_kind == KnowledgeNodeKind.SOURCE_ENTITY
     }
@@ -38,8 +44,14 @@ def superseded_relations(
     Compare both endpoints: reversed native predicates place the referenced
     placeholder on the source side. A placeholder endpoint still present in the
     repaired batch is not superseded, including a different unresolved target.
-    """
 
+    Args:
+        first_pass: Projection batch built with no resolved targets.
+        resolved: Relations of the repaired projection.
+
+    Returns:
+        The first-pass relations to retract.
+    """
     nodes = {node.node_key: node for node in first_pass.nodes}
     relations = document_relations(first_pass)
     resolved_keys = {

@@ -41,7 +41,11 @@ logger = logging.getLogger("harborrag.runtime.ingestion.capture")
 
 
 class DocumentCaptureStages:
-    """Own source admission, raw capture, and canonical candidate creation."""
+    """Own source admission, raw capture, and canonical candidate creation.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
 
     def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
         self._dependencies = dependencies
@@ -61,6 +65,7 @@ class DocumentCaptureStages:
         request: DocumentReleaseRequest,
         connector: BaseConnector | HarborConnector,
     ) -> RawCaptureStageResult:
+        """Admit the source item and capture its raw artifact unless it is unchanged."""
         document_id = self._identities.document_id(
             tenant_id=request.tenant_id,
             connector_type=request.source_identity.connector_type,
@@ -113,6 +118,11 @@ class DocumentCaptureStages:
         request: DocumentReleaseRequest,
         capture: RawCaptureStageResult,
     ) -> PreparedDocumentStage:
+        """Parse the captured raw document into a canonical candidate.
+
+        Parsing is the longest document stage, so each step's share of the time is logged
+        per document: it tells a slow parser from slow storage on a large run.
+        """
         if capture.raw_reference is None:
             if capture.document_version_id is None:
                 raise HarborInvariantError("capture.document_version_id must not be None here")
@@ -123,8 +133,6 @@ class DocumentCaptureStages:
             )
         context = _context(request.tenant_id)
         candidate_id: str | None = None
-        # Parsing is the longest document stage, so each step's share is logged
-        # per document: it tells a slow parser from slow storage on a large run.
         marks = [perf_counter()]
         try:
             raw = await self._dependencies.raw_artifacts.get(
@@ -250,7 +258,6 @@ class DocumentCaptureStages:
         only gets here when no reference is recorded, so the first writer's object
         is adopted: the version id already pins its evidence and retrieval content.
         """
-
         reference = await self._dependencies.canonical_artifacts.put(
             document_id=document_id,
             document_version_id=document_version_id,
@@ -275,7 +282,6 @@ class DocumentCaptureStages:
         should have been a clean UNSUPPORTED skip into a failed release. Segmentation
         owns the rule.
         """
-
         return produces_evidence(document)
 
     async def prepare_canonical(
@@ -287,7 +293,6 @@ class DocumentCaptureStages:
         decision: SourceAdmissionDecision,
     ) -> PreparedDocumentStage:
         """Start a connector-free release at its canonical replay boundary."""
-
         document_id = str(candidate.document_id)
         document_version_id = str(candidate.document_version_id)
         try:
@@ -334,7 +339,6 @@ class DocumentCaptureStages:
         document_version_id: str,
     ) -> PreparedDocumentStage:
         """Resume a durable version without contacting its source connector."""
-
         snapshot = await self._dependencies.control.document_versions.get_version(
             document_version_id
         )
@@ -399,7 +403,6 @@ def _log_parse_timings(
     document_id: str, document_version_id: str, decision: object, marks: list[float]
 ) -> None:
     """One line per parsed document with the milliseconds each step took."""
-
     steps = " ".join(
         f"{name}_ms={(marks[index + 1] - marks[index]) * 1000:.0f}"
         for index, name in enumerate(_PARSE_STEPS)

@@ -16,7 +16,14 @@ from ..document.pipeline import DocumentStagePipeline
 
 
 class ChunkReuseCoordinator:
-    """Rebind existing chunks and representations onto a new document version."""
+    """Rebind existing chunks and representations onto a new document version.
+
+    Args:
+        dependencies: Ports and stores the reuse reads and writes.
+        pipeline: Stage pipeline whose preparation stages the reuse runs through.
+        lifecycle: Version state transitions and artifact records.
+        chunk_rebinder: Rebinds previous chunks to the new document version.
+    """
 
     def __init__(
         self,
@@ -39,6 +46,14 @@ class ChunkReuseCoordinator:
         active: DocumentVersionSnapshot,
         plan: ReindexPlan,
     ) -> None:
+        """Rebind the active version's chunks and reuse or regenerate its representations.
+
+        Records a stage failure on the candidate before re-raising.
+
+        Raises:
+            ValueError: The active version has no reusable chunks or the configured
+                encoders do not match the reindex target.
+        """
         if not prepared.requires_processing:
             return
         try:
@@ -114,7 +129,6 @@ class ChunkReuseCoordinator:
         active: DocumentVersionSnapshot,
     ) -> None:
         """Carry immutable source provenance into a connector-free version."""
-
         if not prepared.requires_processing:
             return
         candidate = await self._dependencies.control.document_versions.get_version(

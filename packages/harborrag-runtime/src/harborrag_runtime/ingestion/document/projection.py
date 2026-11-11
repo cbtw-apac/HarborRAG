@@ -27,7 +27,11 @@ from .projection_material import ProjectionMaterialLoader, vector_batch
 
 
 class DocumentProjectionStages:
-    """Build, stage, verify, and publish rebuildable retrieval projections."""
+    """Build, stage, verify, and publish rebuildable retrieval projections.
+
+    Args:
+        dependencies: Ports and stores the stages read and write.
+    """
 
     def __init__(self, dependencies: DocumentReleaseDependencies) -> None:
         self._dependencies = dependencies
@@ -54,14 +58,16 @@ class DocumentProjectionStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Move the version to ``REPRESENTATIONS_READY`` so a failed version re-enters replay.
+
+        Only the state step remains. The relations it used to build and store were
+        write-only: nothing reads the relation artifact, ``build_projections`` rebuilds the
+        same graph, and ``graph.jsonl`` carries the edges. Skipping it saves a full reload of
+        canonical, chunks and representations per document.
+        """
         if not prepared.requires_processing:
             return
         del request
-        # Only the state step remains, so a FAILED version still re-enters replay
-        # here. The relations it used to build and store were write-only: nothing
-        # reads the relation artifact, build_projections rebuilds the same graph, and
-        # graph.jsonl carries the edges. Skipping it saves a full reload of canonical,
-        # chunks and representations per document.
         await self._lifecycle.advance(
             prepared.document_version_id,
             DocumentVersionState.REPRESENTATIONS_READY,
@@ -72,6 +78,7 @@ class DocumentProjectionStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Build the vector and graph projections and save the projection manifest."""
         if not prepared.requires_processing:
             return
         material = await self._material.load(request, prepared)
@@ -135,6 +142,7 @@ class DocumentProjectionStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Stage the manifest's vector projection in the vector store."""
         if not prepared.requires_processing:
             return
         manifest = await self._material.manifest(prepared.document_version_id)
@@ -154,6 +162,7 @@ class DocumentProjectionStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Write the manifest's graph projection to the graph store and mark it staged."""
         if not prepared.requires_processing:
             return
         manifest = await self._material.manifest(prepared.document_version_id)
@@ -178,6 +187,11 @@ class DocumentProjectionStages:
         request: DocumentReleaseRequest,
         prepared: PreparedDocumentStage,
     ) -> None:
+        """Verify both projections against their stores and mark the version verified.
+
+        Raises:
+            ProjectionVerificationError: The projections do not match the manifest.
+        """
         if not prepared.requires_processing:
             return
         material = await self._material.load(request, prepared)
@@ -216,6 +230,14 @@ class DocumentProjectionStages:
         self,
         prepared: PreparedDocumentStage,
     ) -> DocumentReleaseOutcome:
+        """Publish the candidate version when its decision requires publication.
+
+        Returns:
+            The release outcome with projection counts when the version was processed.
+
+        Raises:
+            RuntimeError: The candidate version no longer exists.
+        """
         if not self._publication.requires_publication(prepared.decision):
             return DocumentReleaseOutcome(
                 document_id=prepared.document_id,

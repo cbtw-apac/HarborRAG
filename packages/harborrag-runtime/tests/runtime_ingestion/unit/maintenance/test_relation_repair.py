@@ -153,6 +153,10 @@ async def test_relation_repair_does_not_mutate_a_newer_active_version(
 async def test_relation_repair_degrades_when_an_active_artifact_was_cleaned(
     tmp_path: Path,
 ) -> None:
+    """Relation repair skips a document whose active artifact was cleaned.
+
+    Skipped, not unresolved: a missing artifact says nothing about its targets.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     connector = LinkedDocumentsConnector()
@@ -180,7 +184,6 @@ async def test_relation_repair_degrades_when_an_active_artifact_was_cleaned(
         )
 
         assert result.repaired_documents == 0
-        # Skipped, not unresolved: a missing artifact says nothing about its targets.
         assert result.unresolved_relations == 0
 
 
@@ -188,6 +191,11 @@ async def test_relation_repair_degrades_when_an_active_artifact_was_cleaned(
 async def test_sequential_reindex_repairs_links_after_target_cleanup(
     tmp_path: Path,
 ) -> None:
+    """Sequential reindexes repair links after the target's old version is cleaned.
+
+    The old source assertion retires with its document; the new version's unknown-scope
+    link remains unresolved until the repair pass.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     connector = LinkedDocumentsConnector()
@@ -234,8 +242,6 @@ async def test_sequential_reindex_repairs_links_after_target_cleanup(
                 document_ids=(document_id,),
             )
 
-        # The old source assertion retires with its document; the new version's
-        # unknown-scope link remains unresolved until the repair pass below.
         assert not _links(resources)
 
         result = await repair.repair_reindexed(

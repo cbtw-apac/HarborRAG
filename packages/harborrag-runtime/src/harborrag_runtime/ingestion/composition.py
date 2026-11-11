@@ -1,4 +1,8 @@
-"""Runtime resource ownership and public composition entry point."""
+"""Runtime resource ownership and public composition entry point.
+
+``_START_HINTS`` is the fallback fix hint per resource for runtimes built without
+``resource_hints`` (tests, embedders).
+"""
 
 from __future__ import annotations
 
@@ -44,7 +48,6 @@ _FALLBACK_TARGETS = {
     "vector": "the vector store",
     "graph": "the graph store",
 }
-# Fallbacks for runtimes built without resource_hints (tests, embedders).
 _START_HINTS = {
     "control": "check HARBORRAG_CONTROL_DB_URL",
     "object_store": "check HARBORRAG_OBJECT_STORE_* credentials and that MinIO is running",
@@ -55,7 +58,36 @@ _START_HINTS = {
 
 @dataclass(slots=True)
 class IngestionRuntime:
-    """Own connected providers and production ingestion application services."""
+    """Own connected providers and production ingestion application services.
+
+    Args:
+        connector_pool: Per-run connectors built on first use.
+        processing: Processing profile new versions are built with.
+        control: Ingestion control-plane database.
+        documents: Document release service.
+        stages: Ordered document stage pipeline.
+        sources: Source ingestion service.
+        relations: Graph relation repair service.
+        cleanup: Projection cleanup service.
+        reindex: Connector-free reindex service.
+        source_plans: Repository of source ingestion plans.
+        object_store: Object store holding artifacts.
+        vector_repository: Vector store repository.
+        graph_repository: Knowledge graph repository.
+        embed_client: Embedding client.
+        connector_rate_limiter: Limiter shared by the connectors.
+        telemetry: Ingestion metrics.
+        connection_health: Health of the configured connections.
+        connection_resolver: Resolves connection snapshots for a run.
+        connection_stores: Stores behind connection records.
+        retention: Retired-version purge; ``None`` keeps hand-built runtimes (tests,
+            embedders) free of the purge.
+        resource_targets: Safe display string per resource label; read only on the failure
+            path.
+        resource_hints: What to check per resource label for the configured providers; read
+            only on the failure path.
+        config: Cached runtime configuration provider.
+    """
 
     connector_pool: ConnectorPool
     processing: ProcessingProfile
@@ -76,11 +108,8 @@ class IngestionRuntime:
     connection_health: ConnectionHealth = field(default_factory=lambda: ConnectionHealth(None))
     connection_resolver: ConnectionResolver | None = None
     connection_stores: ConnectionStores | None = None
-    # None keeps hand-built runtimes (tests, embedders) free of the purge.
     retention: RetiredVersionPurgeService | None = None
-    # Safe display strings per resource label; read only on the failure path.
     resource_targets: Mapping[str, str] = field(default_factory=dict)
-    # What to check per resource label for the configured providers; same path.
     resource_hints: Mapping[str, str] = field(default_factory=dict)
     config: CachedConfigProvider | None = None
     _started: bool = field(default=False, init=False)
@@ -130,7 +159,7 @@ class IngestionRuntime:
         logger.info("Ingestion runtime started resources=%d", len(connected))
 
     def _unreachable(self, label: str, error: Exception) -> RuntimeConnectionError:
-        """Authored message only: the driver's text may carry credentials."""
+        """Build a connection error from authored text only, as the driver's text may carry credentials."""
         targets = getattr(self, "resource_targets", None) or {}
         target = targets.get(label) or _FALLBACK_TARGETS[label]
         hints = getattr(self, "resource_hints", None) or {}
@@ -148,6 +177,15 @@ class IngestionRuntime:
             await config.aclose()
 
     async def close(self) -> None:
+        """Close every owned resource, then mark the runtime not started.
+
+        On failure the runtime stays started and retryable: repository and connector close
+        contracts are idempotent, so a later close attempt can converge the resources whose
+        first close failed.
+
+        Raises:
+            BaseExceptionGroup: One or more resources failed to close.
+        """
         if not self._started:
             await asyncio.gather(
                 self._close_config(),
@@ -178,9 +216,6 @@ class IngestionRuntime:
                 len(failures),
                 ",".join(sorted({type(error).__name__ for error in failures})),
             )
-            # Keep the runtime retryable. Repository/connector close contracts
-            # are idempotent, so a later close attempt can converge resources
-            # whose first close failed.
             raise BaseExceptionGroup("ingestion runtime shutdown failed", failures)
         self._started = False
         logger.info("Ingestion runtime closed")
@@ -226,7 +261,6 @@ def build_ingestion_runtime(
     chunking_strategies: tuple[ChunkStrategy, ...] = (),
 ) -> IngestionRuntime:
     """Build an ingestion runtime through the production object-graph builder."""
-
     from .runtime_builder import build_ingestion_runtime as build
 
     return build(
