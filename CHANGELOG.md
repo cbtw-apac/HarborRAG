@@ -109,6 +109,10 @@ action.
 
 ### Removed
 
+#### harborrag-adapters
+
+- **Breaking:** GitHub, Confluence, Jira and SharePoint configs built in Python no longer read credentials from environment variables; pass them explicitly
+
 #### harborrag-app
 
 - **Breaking:** `harborrag init` and its scaffold templates are removed with no replacement; run the CLI from a repository checkout. Projects an earlier `init` created keep working through their `harborrag.yaml` or `--project DIR`

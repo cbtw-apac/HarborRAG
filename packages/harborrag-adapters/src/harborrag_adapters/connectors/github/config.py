@@ -16,7 +16,6 @@ from harborrag_adapters.connectors.policies.validation import (
     validate_non_negative_limit,
 )
 
-from ..environment import environment_default
 from .repository_paths import (
     DEFAULT_GITHUB_API_URL,
     DEFAULT_GITHUB_API_VERSION,
@@ -61,7 +60,6 @@ class GitHubRepositoryConfig:
 
     def __post_init__(self) -> None:
         """Resolve repository URL shortcuts and validate mutually exclusive refs."""
-        self.token = self.token or environment_default("GITHUB_TOKEN")
         self.api_url = self.api_url.rstrip("/")
         self.web_url = self.web_url.rstrip("/")
         validate_https_url("api_url", self.api_url)
