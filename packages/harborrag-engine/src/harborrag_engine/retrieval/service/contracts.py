@@ -1,4 +1,4 @@
-"""Ports, policies, and value objects for runtime retrieval.
+"""Ports, policies, and value objects for the retrieval service.
 
 The read-side ports the retrieval service needs from storage, the policy it runs
 with, and the report it returns. Values only: no I/O and no adapter imports.
