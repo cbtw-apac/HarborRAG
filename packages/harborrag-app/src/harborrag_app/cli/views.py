@@ -10,7 +10,7 @@ Handles:
 Does NOT change what JSON or YAML print; it draws the same serialized body. Values are
 printed as plain text, never read as Rich markup.
 
-Start from: render.
+Start from: render, render_doctor.
 """
 
 from __future__ import annotations
@@ -19,6 +19,7 @@ from collections.abc import Mapping, Sequence
 
 from rich import box
 from rich.console import Console
+from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 from rich.tree import Tree
@@ -35,6 +36,12 @@ _REF_PARTS = frozenset({"project_id", "connection_id"})
 _NAME_FIELDS = ("name", "project_name", "title")
 _LABEL_FIELDS = ("source_type", "status", "stage", "error_category")
 _TIMESTAMP_FIELDS = ("updated_at", "created_at", "finished_at")
+_CHECK_GLYPHS = {
+    "ok": ("✓", "green"),
+    "fail": ("✗", "red"),
+    "warn": ("!", "yellow"),
+    "skip": ("–", "dim"),
+}
 _EMPTY = "-"
 _MASK = "****"
 
@@ -59,6 +66,42 @@ def render(operation_id: str | None, data: object) -> None:
     tree = Tree("", hide_root=True)
     _add_children(tree, data)
     console.print(tree)
+
+
+def render_doctor(data: Mapping[str, object]) -> None:
+    """Print the ``doctor`` report: one row per check, the hints of failed ones, the tenants.
+
+    Args:
+        data: The report's payload, with ``checks``, ``ready`` and ``tenants``.
+    """
+    console = Console(highlight=False)
+    table = Table(box=box.SIMPLE, expand=True, pad_edge=False)
+    table.add_column("", width=2, justify="center")
+    table.add_column("Check", style="bold", no_wrap=True)
+    table.add_column("Detail", ratio=1, overflow="fold")
+    hints: list[str] = []
+    checks = data.get("checks")
+    for check in checks if isinstance(checks, list) else []:
+        if not isinstance(check, Mapping):
+            continue
+        status = str(check.get("status"))
+        glyph, style = _CHECK_GLYPHS.get(status, ("?", "dim"))
+        table.add_row(
+            Text(glyph, style=style),
+            Text(_scalar(check.get("name"))),
+            Text(_scalar(check.get("detail")), style="" if status == "ok" else style),
+        )
+        hint = str(check.get("hint") or "")
+        if status == "fail" and hint and hint not in hints:
+            hints.append(hint)
+    ready = bool(data.get("ready"))
+    title = Text("✓ Ready" if ready else "✗ Not ready", style="bold green" if ready else "bold red")
+    console.print(Panel(table, title=title, border_style="green" if ready else "red"))
+    for hint in hints:
+        console.print(Text(f"→ {hint}", style="yellow"))
+    tenants = data.get("tenants")
+    names = ", ".join(str(name) for name in tenants) if isinstance(tenants, list) else ""
+    console.print(Text(f"Tenants with data: {names or _EMPTY}"))
 
 
 def _print_completion(console: Console, data: Mapping[str, object]) -> None:

@@ -30,6 +30,7 @@ from ..control_plane.effect_recovery import (
 from ..control_plane.projects import ProjectService
 from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
+from ..control_plane.tenants import tenants_with_data
 from ..errors import IngestionNotFoundError, failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
@@ -309,6 +310,9 @@ class AppService(
             )
         except Exception as exc:  # noqa: BLE001 - service returns a stable error envelope
             return failure_response(logger, exc, "check ingestion runtime health")
+
+    async def tenants_with_data(self) -> list[str]:
+        return await tenants_with_data(self._control_plane())
 
     async def sync_declared_schedules(self) -> dict[str, int] | None:
         return await self._schedules.sync_declared()

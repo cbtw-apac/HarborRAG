@@ -1,65 +1,57 @@
-"""Layered readiness diagnostics."""
+"""``harborrag doctor``: diagnose the stack with the checks ``/readyz`` runs."""
 
 from __future__ import annotations
 
 import asyncio
-from typing import Annotated
+import logging
+from uuid import uuid4
 
 import typer
 
-from harborrag_app.cli import runner
+from harborrag_app.cli import invoke
 from harborrag_app.cli.doctor import run_doctor
-from harborrag_app.cli.rendering import CliRenderer
-from harborrag_app.workflow_control import AppResponse
+from harborrag_app.cli.exit_codes import exit_code_for
+from harborrag_app.cli.globals import (
+    ConfigOption,
+    OutputOption,
+    ProfileOption,
+    TenantOption,
+    YesOption,
+    current_globals,
+)
+from harborrag_app.cli.output import OutputFormat, print_body, print_error
+from harborrag_app.cli.views import render_doctor
+from harborrag_app.operations.errors import error_body
+
+logger = logging.getLogger("harborrag.app.cli.doctor")
 
 
 def command(
-    context: typer.Context,
-    as_json: Annotated[
-        bool,
-        typer.Option("--json", help="Emit the stable machine-readable response envelope."),
-    ] = False,
-    temporal: Annotated[
-        bool,
-        typer.Option("--temporal", help="Also check the Temporal workflow service."),
-    ] = False,
+    tenant: TenantOption = None,
+    output: OutputOption = None,
+    profile: ProfileOption = None,
+    config: ConfigOption = None,
+    yes: YesOption = False,
 ) -> None:
-    """Check project, configuration, environment, and local services."""
+    """Check project, configuration, services and the tenants that hold data.
 
-    state = runner.state(context)
-    renderer = CliRenderer(no_color=state.no_color)
+    Runs without the API. Exits 0 when every check passes, 6 when a service check fails,
+    1 when a configuration check fails.
+    """
+    resolved = current_globals(
+        tenant=tenant, output=output, profile=profile, config=config, yes=yes
+    )
     try:
-        report = asyncio.run(
-            run_doctor(temporal=temporal, service_factory=runner.runtime_app_service)
-        )
-    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-        # The checks that build a service can raise; without this the CLI would print a
-        # raw traceback instead of the envelope automation parses.
-        runner.emit(
-            runner.failure(exc),
-            renderer=renderer,
-            command="doctor",
-            action=None,
-            as_json=as_json,
-        )
-        raise typer.Exit(1) from None
-    data = report.as_payload()
-    if as_json:
-        # runner.emit owns the machine-readable envelope; a second copy here would drift.
-        runner.emit(
-            AppResponse(
-                report.ok,
-                data,
-                None if report.ok else "one or more required checks failed",
-            ),
-            renderer=renderer,
-            command="doctor",
-            action=None,
-            as_json=True,
-        )
+        report = asyncio.run(run_doctor(service_factory=invoke.runtime_app_service))
+    except Exception as exc:  # noqa: BLE001 - the CLI's error boundary, as invoke's
+        trace_id = uuid4().hex
+        logger.debug("doctor failed trace_id=%s", trace_id, exc_info=exc)
+        error = error_body(exc)
+        print_error(error, output=resolved.output, trace_id=trace_id)
+        raise typer.Exit(exit_code_for(error.status)) from None
+    payload = report.as_payload()
+    if resolved.output is OutputFormat.TABLE:
+        render_doctor(payload)
     else:
-        # The check table itself conveys failure; the renderer's error panel is for
-        # operations that could not run at all.
-        renderer.render(AppResponse(True, data), command="doctor")
-    if not report.ok:
-        raise typer.Exit(1)
+        print_body(None, payload, output=resolved.output)
+    raise typer.Exit(report.exit_code)

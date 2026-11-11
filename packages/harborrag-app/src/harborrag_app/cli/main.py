@@ -28,7 +28,6 @@ from harborrag_app.cli.commands import (
 )
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
-from harborrag_app.cli.runner import CliState
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     _ManagedStreamHandler,
@@ -86,8 +85,9 @@ def configure(
 ) -> None:
     """Configure presentation shared by all HarborRAG commands."""
 
-    del project  # consumed before Click ran; see main()
-    context.obj = CliState(no_color=no_color)
+    del context, project  # project is consumed before Click ran; see main()
+    if no_color:
+        os.environ["NO_COLOR"] = "1"
 
 
 app.command(

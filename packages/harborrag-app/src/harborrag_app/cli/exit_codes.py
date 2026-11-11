@@ -7,6 +7,7 @@ reads the same outcome from the CLI as from the route's status.
 from __future__ import annotations
 
 USAGE = 2
+UNAVAILABLE = 6
 RUN_FAILED = 8
 INTERRUPTED = 130
 
@@ -21,9 +22,9 @@ _BY_STATUS: dict[int, int] = {
     412: 4,
     401: 5,
     403: 5,
-    429: 6,
-    503: 6,
-    504: 6,
+    429: UNAVAILABLE,
+    503: UNAVAILABLE,
+    504: UNAVAILABLE,
 }
 
 

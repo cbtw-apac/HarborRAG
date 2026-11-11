@@ -88,8 +88,8 @@ def test_main_activates_the_enclosing_project_before_running(
 ) -> None:
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     root = _scaffold(tmp_path)
     (root / "sub").mkdir()
@@ -100,12 +100,12 @@ def test_main_activates_the_enclosing_project_before_running(
     # A marker-only project has no catalogs, so doctor itself reports failures (exit 1);
     # this test only cares that the project was found and activated before it ran.
     unreachable(monkeypatch)
-    cli.main(["doctor", "--json"])
+    cli.main(["doctor", "-o", "json"])
 
     import json
 
     payload = json.loads(capsys.readouterr().out)
-    assert payload["data"]["checks"][0] == {
+    assert payload["checks"][0] == {
         "name": "project",
         "group": "project",
         "status": "ok",
@@ -121,7 +121,7 @@ def test_main_activates_the_enclosing_project_before_running(
 def test_main_rejects_a_project_option_without_a_marker(tmp_path: Path, capsys) -> None:
     from harborrag_app.cli import main as cli
 
-    assert cli.main(["--project", str(tmp_path), "doctor", "--json"]) == 1
+    assert cli.main(["--project", str(tmp_path), "doctor", "-o", "json"]) == 1
     assert "does not contain harborrag.yaml" in capsys.readouterr().err
 
 
@@ -230,8 +230,8 @@ def test_main_announces_activation_at_a_terminal_when_it_leaves_the_current_dire
 ) -> None:
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     root = _scaffold(tmp_path)
     (root / "sub").mkdir()
@@ -241,7 +241,7 @@ def test_main_announces_activation_at_a_terminal_when_it_leaves_the_current_dire
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
     unreachable(monkeypatch)
-    cli.main(["doctor", "--json"])
+    cli.main(["doctor", "-o", "json"])
 
     assert f"using project {root.resolve()}" in capsys.readouterr().err
 

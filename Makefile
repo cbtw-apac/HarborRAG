@@ -88,7 +88,7 @@ compile:
 	$(PYTHON) -m compileall -q packages scripts
 
 doctor:
-	$(PYTHON) -m harborrag_app.cli.main doctor --json
+	$(PYTHON) -m harborrag_app.cli.main doctor -o json
 
 deps-check:
 	$(PYTHON) scripts/check_dependency_direction.py

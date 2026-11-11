@@ -192,3 +192,18 @@ async def test_tenant_has_data_reads_projects_connections_and_settings(
     app.settings_service = _Revisions({"tuned": 2})
 
     assert await LocalOperations(app).tenant_has_data(tenant_id) is expected
+
+
+@pytest.mark.asyncio
+async def test_tenants_with_data_lists_each_tenant_once_in_code_point_order() -> None:
+    from harborrag_app.workflow_control.control_plane.tenants import tenants_with_data
+
+    world = connection_world(
+        [
+            Project(id="a", name="A", collection="a", tenant_id="acme"),
+            Project(id="b", name="B", collection="b", tenant_id="acme"),
+            Project(id="c", name="C", collection="c", tenant_id="DEFAULT"),
+        ]
+    )
+
+    assert await tenants_with_data(world.control_plane) == ["DEFAULT", "acme"]

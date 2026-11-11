@@ -13,8 +13,8 @@ import pytest
 from app_test_fixtures import MockAppService
 from doctor_test_support import project, unreachable
 
+from harborrag_app.cli import invoke as cli_runner
 from harborrag_app.cli import main as cli
-from harborrag_app.cli import runner as cli_runner
 from harborrag_app.cli.doctor import probes
 
 
@@ -42,10 +42,10 @@ def test_doctor_never_prints_the_value_of_a_bad_source_path(
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     monkeypatch.setenv("LOCAL_SOURCE_PATH", "sk-live-secret-looking-value")
 
-    cli.main(["doctor", "--json"])
+    cli.main(["doctor", "-o", "json"])
 
     out = capsys.readouterr().out
-    checks = {c["name"]: c for c in json.loads(out)["data"]["checks"]}
+    checks = {c["name"]: c for c in json.loads(out)["checks"]}
     assert checks["source path"]["status"] == "fail"
     assert "sk-live-secret-looking-value" not in out
 
@@ -62,12 +62,10 @@ def test_doctor_does_not_echo_a_valid_source_path_either(
     secret_looking.mkdir()
     monkeypatch.setenv("LOCAL_SOURCE_PATH", str(secret_looking))
 
-    cli.main(["doctor", "--json"])
+    cli.main(["doctor", "-o", "json"])
 
     out = capsys.readouterr().out
-    assert {c["name"]: c for c in json.loads(out)["data"]["checks"]}["source path"][
-        "status"
-    ] == "ok"
+    assert {c["name"]: c for c in json.loads(out)["checks"]}["source path"]["status"] == "ok"
     assert "sk-live-looking-folder" not in out
 
 

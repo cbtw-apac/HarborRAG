@@ -22,6 +22,11 @@ class BaseAppService(ABC):
 
         return self.health()
 
+    async def tenants_with_data(self) -> list[str]:
+        """List the tenants holding a project or a connection where the service supports it."""
+
+        return []
+
     async def recover_pending_submissions(self, *, limit: int = 100) -> int:
         """Recover durable workflow starts where the concrete service supports it."""
 

@@ -77,8 +77,8 @@ def test_main_keeps_working_in_a_legacy_checkout_layout(
 
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     (tmp_path / "config" / "sources").mkdir(parents=True)
     (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
@@ -102,8 +102,8 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
 
     from app_test_fixtures import MockAppService
 
+    from harborrag_app.cli import invoke as cli_runner
     from harborrag_app.cli import main as cli
-    from harborrag_app.cli import runner as cli_runner
 
     (tmp_path / "config" / "sources").mkdir(parents=True)
     (tmp_path / "config" / "sources" / "connectors.yaml").write_text("version: 1\nconnectors: {}\n")
@@ -138,7 +138,7 @@ def test_doctor_stays_in_its_directory_inside_a_legacy_checkout(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
 
     unreachable(monkeypatch)
-    cli.main(["doctor", "--json"])
+    cli.main(["doctor", "-o", "json"])
 
     assert Path.cwd() == nested.resolve()
     assert "using repository checkout" not in capsys.readouterr().err

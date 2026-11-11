@@ -46,7 +46,11 @@ def _readiness(request: Request) -> ReadinessChecks:
             return health is not None and (await health()).ok
 
         readiness = ReadinessChecks(
-            build_readiness_checks(RuntimeSettings(), app.state.settings, temporal=temporal)
+            build_readiness_checks(
+                RuntimeSettings(),
+                capacity_redis_url=app.state.settings.api_capacity_redis_url,
+                temporal=temporal,
+            )
         )
         app.state.readiness = readiness
     return readiness

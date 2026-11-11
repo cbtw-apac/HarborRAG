@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import importlib.util
 import logging
 import os
 from collections.abc import Callable
@@ -11,6 +10,9 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
+from harborrag_app.api.readiness import Check as ReadinessCheck
+from harborrag_app.api.readiness import ReadinessChecks, build_readiness_checks
+from harborrag_app.cli.invoke import close
 from harborrag_app.cli.project import (
     PROJECT_FILE,
     ProjectError,
@@ -28,7 +30,7 @@ from harborrag_runtime.config import (
 from harborrag_runtime.config.settings import DEFAULT_CONTROL_DB_URL, RuntimeSettings
 
 from . import probes
-from .checks import Check, DoctorReport
+from .checks import SERVICES_GROUP, Check, DoctorReport
 from .environment import (
     check_error_detail,
     credentials_check,
@@ -41,8 +43,7 @@ from .environment import (
 
 logger = logging.getLogger("harborrag.app.cli.doctor.suite")
 
-_QDRANT_HTTP_PORT = 6333
-_QDRANT_GRPC_PORT = 6334
+_READINESS_TIMEOUT_SECONDS = 6.0
 
 _PROJECT_HINT = "Run harborrag inside a HarborRAG repository checkout, or pass --project DIR."
 _CONNECTORS_HINT = (
@@ -52,16 +53,19 @@ _CONNECTORS_HINT = (
 _TEMPORAL_HINT = (
     "Durable mode needs the Temporal stack (scripts/deployment/dev.sh up in a checkout)."
 )
-_TEMPORAL_CLIENT_HINT = (
-    'Durable commands need the Temporal client: pip install "harborrag[temporal]"'
-)
 
 
-async def run_doctor(
-    *,
-    temporal: bool,
-    service_factory: Callable[[], BaseAppService],
-) -> DoctorReport:
+async def run_doctor(*, service_factory: Callable[[], BaseAppService]) -> DoctorReport:
+    """Run every check and list the tenants that hold data.
+
+    Args:
+        service_factory: Builds the application service the control-plane, Temporal and
+            tenant checks use; a failure to build it is a failed check, not an error.
+
+    Returns:
+        The checks in order: project and configuration, control plane, readiness, object
+        store.
+    """
     checks: list[Check] = [_project_check(), packages_check()]
     settings = _settings(checks)
     if settings is None:
@@ -70,10 +74,18 @@ async def run_doctor(
     control_db = _control_db_check(settings)
     if control_db is not None:
         checks.append(control_db)
-    checks.extend(await asyncio.to_thread(_service_checks, settings))
-    control_checks, diagnostics = await _control_plane_checks(service_factory, temporal=temporal)
-    checks.extend(control_checks)
-    return DoctorReport(tuple(checks), diagnostics=diagnostics)
+    service, control_plane = await _control_plane_check(service_factory)
+    checks.append(control_plane)
+    try:
+        checks.extend(await _readiness_checks(settings, service))
+        checks.extend(await asyncio.to_thread(_object_store_checks, settings))
+        tenants, tenant_check = await _tenants(service)
+        if tenant_check is not None:
+            checks.append(tenant_check)
+        return DoctorReport(tuple(checks), diagnostics=_diagnostics(service), tenants=tenants)
+    finally:
+        if service is not None:
+            await close(service)
 
 
 def _project_check() -> Check:
@@ -208,39 +220,8 @@ def _control_db_check(settings: RuntimeSettings) -> Check | None:
     )
 
 
-def _qdrant_error(settings: RuntimeSettings) -> str | None:
-    error = probes.http_ok(settings.qdrant_url.rstrip("/") + "/readyz")
-    if error is not None or not settings.qdrant_prefer_grpc:
-        return error
-    host, _ = probes.host_port(settings.qdrant_url, default_port=_QDRANT_HTTP_PORT)
-    grpc_error = probes.tcp_reachable(host, _QDRANT_GRPC_PORT)
-    if grpc_error is None:
-        return None
-    # The runtime has no gRPC-port setting either: the client uses Qdrant's default.
-    return (
-        f"{grpc_error}; the client prefers Qdrant gRPC (default port {_QDRANT_GRPC_PORT}) "
-        "and HTTP alone is not enough"
-    )
-
-
-def _service_checks(settings: RuntimeSettings) -> list[Check]:
-    checks = [
-        _service_check(
-            "qdrant",
-            probes.safe_url(settings.qdrant_url),
-            _qdrant_error(settings),
-            hint_extra=(
-                "or set HARBORRAG_QDRANT_PREFER_GRPC=false to use HTTP only"
-                if settings.qdrant_prefer_grpc
-                else None
-            ),
-        ),
-        _service_check(
-            "falkordb",
-            f"{settings.falkordb_host}:{settings.falkordb_port}",
-            probes.redis_ping(settings.falkordb_host, settings.falkordb_port),
-        ),
-    ]
+def _object_store_checks(settings: RuntimeSettings) -> list[Check]:
+    checks: list[Check] = []
     if settings.object_store_provider != "s3":
         # The runtime never touches the S3 endpoint for these providers, so probing it
         # could only report a false failure (or a false pass).
@@ -352,12 +333,10 @@ def _service_check(
     return Check(name, "services", "fail", error, hint=hint)
 
 
-async def _control_plane_checks(
+async def _control_plane_check(
     service_factory: Callable[[], BaseAppService],
-    *,
-    temporal: bool,
-) -> tuple[list[Check], dict[str, object] | None]:
-    """Control-plane and Temporal checks, plus the health diagnostics block if available."""
+) -> tuple[BaseAppService | None, Check]:
+    """Build the service and report its control-plane health."""
 
     try:
         service = await asyncio.to_thread(service_factory)
@@ -365,57 +344,63 @@ async def _control_plane_checks(
         # Never interpolate the raw exception: a composition failure routinely carries
         # HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
         logger.debug("Control-plane service could not be built", exc_info=True)
-        detail = check_error_detail(exc)
         hint = f"Check HARBORRAG_CONTROL_DB_URL in {env_hint('settings')}."
-        failed = [
-            Check("control plane", "services", "fail", detail, hint=hint),
-            _temporal_skipped(),
-        ]
-        return failed, None
+        detail = check_error_detail(exc)
+        return None, Check("control plane", SERVICES_GROUP, "fail", detail, hint=hint)
     try:
         health = service.health()
-        raw = health.data.get("diagnostics")
-        diagnostics = dict(raw) if isinstance(raw, dict) else None
-        checks = [
-            Check(
-                "control plane",
-                "services",
-                "ok" if health.ok else "fail",
-                health.error or "ready",
-            )
-        ]
-        if not temporal:
-            checks.append(_temporal_skipped())
-            return checks, diagnostics
-        # `--temporal` is an explicit request to check it, so its failure is blocking.
-        # Only the unrequested `_temporal_skipped()` case stays non-required.
-        if importlib.util.find_spec("temporalio") is None:
-            detail = "temporalio is not installed"
-            checks.append(Check("temporal", "durable", "fail", detail, hint=_TEMPORAL_CLIENT_HINT))
-            return checks, diagnostics
-        runtime = await service.runtime_health()
-        checks.append(
-            Check(
-                "temporal",
-                "durable",
-                "ok" if runtime.ok else "fail",
-                runtime.error or "ready",
-                hint=_TEMPORAL_HINT,
-            )
-        )
-        return checks, diagnostics
-    finally:
-        close = getattr(service, "aclose", None)
-        if close is not None:
-            await close()
+    except BaseException:
+        await close(service)
+        raise
+    detail = health.error or "ready"
+    return service, Check("control plane", SERVICES_GROUP, "ok" if health.ok else "fail", detail)
 
 
-def _temporal_skipped() -> Check:
-    if importlib.util.find_spec("temporalio") is None:
-        detail = (
-            "client not installed; only needed for ingest start|status|watch|pause|resume|cancel"
+def _diagnostics(service: BaseAppService | None) -> dict[str, object] | None:
+    """The health diagnostics block of a built service."""
+
+    if service is None:
+        return None
+    raw = service.health().data.get("diagnostics")
+    return dict(raw) if isinstance(raw, dict) else None
+
+
+async def _readiness_checks(
+    settings: RuntimeSettings, service: BaseAppService | None
+) -> list[Check]:
+    """Run the checks ``/readyz`` runs; Redis is the runtime's only, as there is no API."""
+
+    checks = build_readiness_checks(
+        settings, capacity_redis_url=None, temporal=_temporal_probe(service)
+    )
+    report = await ReadinessChecks(checks, timeout_seconds=_READINESS_TIMEOUT_SECONDS).report()
+    return [
+        _service_check(
+            name,
+            "ready",
+            None if result == "ok" else "did not answer the readiness probe",
+            hint_extra=_TEMPORAL_HINT if name == "temporal" else None,
         )
-        return Check(
-            "temporal", "durable", "skip", detail, hint=_TEMPORAL_CLIENT_HINT, required=False
-        )
-    return Check("temporal", "durable", "skip", "not checked; pass --temporal", required=False)
+        for name, result in report.items()
+    ]
+
+
+def _temporal_probe(service: BaseAppService | None) -> ReadinessCheck:
+    """Ask the workflow service for its health; fail when the service could not be built."""
+
+    async def probe() -> bool:
+        return service is not None and (await service.runtime_health()).ok
+
+    return probe
+
+
+async def _tenants(service: BaseAppService | None) -> tuple[tuple[str, ...], Check | None]:
+    """The tenants holding data, or a failed check when the control plane cannot be read."""
+
+    if service is None:
+        return (), None
+    try:
+        return tuple(await service.tenants_with_data()), None
+    except Exception as exc:  # noqa: BLE001 - reported as a check, never raised
+        logger.debug("Tenants could not be listed", exc_info=True)
+        return (), Check("tenants", SERVICES_GROUP, "fail", check_error_detail(exc))

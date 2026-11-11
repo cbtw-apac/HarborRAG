@@ -1,4 +1,4 @@
-"""Dependency readiness checks for ``GET /readyz``.
+"""Dependency readiness checks for ``GET /readyz`` and ``harborrag doctor``.
 
 Handles:
 - One protocol-level probe per dependency: Postgres, Redis, Temporal, Qdrant and the graph store
@@ -20,9 +20,9 @@ from collections.abc import Awaitable, Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlsplit
 
-from harborrag_runtime.config.settings import RuntimeSettings
+from pydantic import SecretStr
 
-from .settings import ApiSettings
+from harborrag_runtime.config.settings import RuntimeSettings
 
 logger = logging.getLogger("harborrag.app.api.readiness")
 
@@ -209,19 +209,19 @@ def _graph_check(runtime: RuntimeSettings) -> Check | None:
 
 def build_readiness_checks(
     runtime: RuntimeSettings,
-    api: ApiSettings,
     *,
+    capacity_redis_url: SecretStr | None,
     temporal: Check,
 ) -> dict[str, Check]:
     """Build one check per dependency this API process uses.
 
     Postgres is checked only for a Postgres control database, Redis only when the runtime
-    or the API capacity limiter names one, and Qdrant and the graph store only when they
+    or the capacity limiter names one, and Qdrant and the graph store only when they
     are the configured providers.
 
     Args:
         runtime: Runtime settings naming the stores.
-        api: API settings naming the capacity Redis.
+        capacity_redis_url: Redis of the API capacity limiter, ``None`` outside the API.
         temporal: Check that asks the workflow service for its health.
 
     Returns:
@@ -229,7 +229,7 @@ def build_readiness_checks(
     """
     redis_urls = [
         secret.get_secret_value()
-        for secret in (api.api_capacity_redis_url, runtime.redis_url)
+        for secret in (capacity_redis_url, runtime.redis_url)
         if secret is not None
     ]
     checks: dict[str, Check | None] = {
