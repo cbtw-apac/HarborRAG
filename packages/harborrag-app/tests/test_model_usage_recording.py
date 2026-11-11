@@ -19,8 +19,9 @@ from chat_service_fixtures import (
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 IDENTITY = ConversationIdentity("ACME", "svc-1", "session-1", "alice@example.com")
 OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="alice@example.com")

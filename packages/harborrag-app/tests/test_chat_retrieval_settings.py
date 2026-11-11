@@ -15,8 +15,9 @@ from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExec
 from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.domain.project import Project
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 pytestmark = pytest.mark.unit
 

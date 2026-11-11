@@ -13,8 +13,8 @@ import re
 from collections.abc import Sequence
 
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_memory.messages import CitationRecord
 
-from ..memory import CitationRecord
 from .presenters import citation_uri, display_text
 
 SNIPPET_LIMIT = 300

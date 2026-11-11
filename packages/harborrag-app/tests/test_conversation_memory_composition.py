@@ -8,7 +8,7 @@ import pytest
 
 from harborrag_app.workflow_control.memory import conversation_memory
 from harborrag_core.contracts.errors import HarborConfigurationError
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 
 def test_conversation_memory_uses_the_persistent_control_plane_backend() -> None:

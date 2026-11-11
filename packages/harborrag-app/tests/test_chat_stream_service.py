@@ -19,8 +19,9 @@ from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatStreamChunk
 from harborrag_core.models.chat.enums import StreamEventType
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.contracts import RetrievalResponse
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 
 def _service(runtime: _Runtime) -> AppService:

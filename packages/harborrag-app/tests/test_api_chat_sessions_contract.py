@@ -10,7 +10,7 @@ from app_test_conversations import ALICE, BOB, CONVERSATIONS, auth, hmac_app, id
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
-from harborrag_app.workflow_control.memory import CitationRecord, ExchangeRecord, record_exchange
+from harborrag_memory.messages import CitationRecord, ExchangeRecord, record_exchange
 
 pytestmark = pytest.mark.blackbox
 

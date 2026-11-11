@@ -7,7 +7,7 @@ Allowed direction (lower layers never import higher ones):
     harborrag_memory    -> core
     harborrag_engine    -> core
     harborrag_runtime   -> core, adapters, engine, memory
-    harborrag_app       -> core, runtime, engine
+    harborrag_app       -> core, runtime, engine, memory
     harborrag_mcp_server -> core, runtime, engine
     harborrag           -> any harborrag package (public facade)
 
@@ -60,7 +60,12 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
     # and ``harborrag-mcp-server`` declares the dependency in its metadata.
     # Routing these through ``harborrag_runtime`` instead would push engine's
     # tool-budget constants through a package that has no other use for them.
-    "harborrag_app": {"harborrag_core", "harborrag_runtime", "harborrag_engine"},
+    "harborrag_app": {
+        "harborrag_core",
+        "harborrag_runtime",
+        "harborrag_engine",
+        "harborrag_memory",
+    },
     "harborrag_mcp_server": {"harborrag_core", "harborrag_runtime", "harborrag_engine"},
     "harborrag": {
         "harborrag_core",

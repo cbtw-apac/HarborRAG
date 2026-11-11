@@ -184,8 +184,9 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
         ChatApplicationService,
         ChatExecutionOptions,
     )
+    from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
     from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+    from harborrag_runtime.memory import ConversationIdentity
 
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     memory = InMemoryConversationMemory()
@@ -230,8 +231,9 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
     )
     from harborrag_core.models.chat import HarborChatStreamChunk
     from harborrag_core.models.chat.enums import StreamEventType
+    from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
     from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+    from harborrag_runtime.memory import ConversationIdentity
 
     class _CitingStream(FakeChatFacade):
         async def _events(self):

@@ -7,12 +7,12 @@ from typing import Any
 
 import pytest
 
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.memory import (
     ConversationHistoryRepository,
     ConversationIdentity,
     ConversationMessage,
     DatabaseConversationMemory,
-    InMemoryConversationMemory,
 )
 
 pytestmark = pytest.mark.unit

@@ -13,8 +13,7 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 
 from harborrag_core.domain.retrieval import RetrievalResult
-
-from ..memory import ChatMode, CitationRecord
+from harborrag_memory.messages import ChatMode, CitationRecord
 
 
 @dataclass(frozen=True, slots=True)

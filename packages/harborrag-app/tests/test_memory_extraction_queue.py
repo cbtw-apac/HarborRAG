@@ -21,8 +21,9 @@ from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryQuery
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import InMemoryConversationMemory, MemoryContextRequest
+from harborrag_runtime.memory import MemoryContextRequest
 
 
 class FakeMemories:

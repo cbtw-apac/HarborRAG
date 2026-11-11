@@ -13,8 +13,9 @@ from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 RESULTS = (

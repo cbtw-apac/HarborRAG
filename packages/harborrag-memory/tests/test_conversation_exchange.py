@@ -6,9 +6,9 @@ import json
 
 import pytest
 
-from harborrag_app.workflow_control.memory import CitationRecord, ExchangeRecord, record_exchange
 from harborrag_core.ports.conversation import ConversationIdentity, new_message_id
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.messages import CitationRecord, ExchangeRecord, record_exchange
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 pytestmark = pytest.mark.unit
 

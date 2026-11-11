@@ -25,8 +25,9 @@ from chat_service_fixtures import (
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_core.models.chat import HarborChatStreamChunk, HarborChatUsage
 from harborrag_core.models.chat.enums import StreamEventType
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="reader-1")

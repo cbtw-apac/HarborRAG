@@ -18,9 +18,9 @@ from .presenters import memory_data
 
 if TYPE_CHECKING:
     from harborrag_core.ports.memory import MemoryScope
+    from harborrag_memory.access import MemoryAccess
+    from harborrag_memory.administration import MemoryAdministrationService
 
-    from .access import MemoryAccess
-    from .administration import MemoryAdministrationService
     from .directory import ConversationDirectoryService
     from .extraction import MemoryExtractionQueue
 

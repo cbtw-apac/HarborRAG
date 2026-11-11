@@ -8,10 +8,10 @@ import pytest
 
 from harborrag_app.workflow_control.chat.preparation import ChatTurnResources
 from harborrag_app.workflow_control.chat.query_scope import require_query_scope
-from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.contracts.errors import HarborUnavailableError, HarborValidationError
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
 from harborrag_core.ports.conversation import ConversationTurn
+from harborrag_memory.access import MemoryAccess
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.config.settings import RuntimeSettings
 

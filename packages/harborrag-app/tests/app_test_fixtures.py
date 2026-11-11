@@ -15,11 +15,11 @@ from harborrag_app.workflow_control.ingestion.models import IngestionCreateComma
 from harborrag_app.workflow_control.memory import (
     ConversationDirectoryService,
     MemoryAdminClientMixin,
-    MemoryAdministrationService,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.administration import MemoryAdministrationService
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 

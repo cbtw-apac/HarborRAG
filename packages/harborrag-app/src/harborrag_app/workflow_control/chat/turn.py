@@ -24,9 +24,9 @@ from harborrag_core.models.chat import (
     StreamEventType,
 )
 from harborrag_core.ports.conversation import ConversationMessage
+from harborrag_memory.messages import answer_message, append_message, question_message
 
 from ..memory.identity import MemoryIdentity
-from ..memory.messages import answer_message, append_message, question_message
 from ..memory.usage import ModelCall, record_model_usage
 from .preparation import ChatTurnResources
 from .presenters import citation_data, cited_results

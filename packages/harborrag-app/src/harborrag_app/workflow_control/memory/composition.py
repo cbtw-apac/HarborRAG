@@ -8,7 +8,8 @@ from typing import Any
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
-from harborrag_runtime.memory import ConversationHistoryRepository, InMemoryConversationMemory
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationHistoryRepository
 
 logger = logging.getLogger("harborrag.app.workflow_control.memory")
 _IN_MEMORY_MODES = frozenset({"development", "test"})

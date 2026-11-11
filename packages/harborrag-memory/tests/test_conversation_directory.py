@@ -11,14 +11,14 @@ from datetime import UTC, datetime
 
 import pytest
 
-from harborrag_runtime.memory import (
+from harborrag_core.ports.conversation import (
     ConversationHistoryRepository,
     ConversationIdentity,
     ConversationMessage,
     ConversationTurn,
-    InMemoryConversationMemory,
     encode_conversation_cursor,
 )
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 pytestmark = pytest.mark.unit
 

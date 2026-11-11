@@ -3,10 +3,10 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Mapping
 
+from harborrag_memory.access import MemoryAccess
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .chat.options import ChatExecutionOptions
-from .memory import MemoryAccess
 from .schemas import AppResponse
 
 

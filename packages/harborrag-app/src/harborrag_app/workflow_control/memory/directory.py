@@ -29,9 +29,8 @@ from .presenters import conversation_message_data, conversation_summary_data
 
 if TYPE_CHECKING:
     from harborrag_core.ports.conversation import ConversationHistoryRepository
-
-    from .access import MemoryAccess
-    from .administration import MemoryAdministrationService
+    from harborrag_memory.access import MemoryAccess
+    from harborrag_memory.administration import MemoryAdministrationService
 
 _NOT_FOUND = "Conversation session was not found"
 

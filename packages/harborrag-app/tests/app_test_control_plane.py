@@ -28,8 +28,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
-from harborrag_runtime.memory import InMemoryConversationMemory
 
 
 def control_plane_app_service(  # noqa: PLR0913 - one seedable kwarg per control-plane repository

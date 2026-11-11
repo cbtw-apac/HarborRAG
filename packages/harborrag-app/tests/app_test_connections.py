@@ -31,8 +31,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.composition import ControlPlaneRepositories
-from harborrag_runtime.memory import InMemoryConversationMemory
 
 CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
 JIRA_WRITE = ConnectionWrite(

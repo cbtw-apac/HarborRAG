@@ -18,9 +18,9 @@ from harborrag_core.models.chat import (
 )
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.usage import ModelUsageRecord
+from harborrag_memory.access import MemoryAccess
 from harborrag_runtime.chat import ChatPrompt
 
-from ..memory.access import MemoryAccess
 from .preparation import ChatTurnResources
 
 logger = logging.getLogger("harborrag.app.workflow_control.chat.query_scope")

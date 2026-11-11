@@ -13,6 +13,8 @@ from typing import cast, get_args
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ports.events import EventBusPort
+from harborrag_memory.administration import MemoryAdministrationService
+from harborrag_memory.projects import project_lookup
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -54,13 +56,11 @@ from ..memory import (
     ConversationDirectoryService,
     ConversationSessionService,
     MemoryAdminClientMixin,
-    MemoryAdministrationService,
     MemoryExtractionQueue,
     conversation_memory,
     long_term_memories,
     long_term_memory_index,
     model_usage_records,
-    project_lookup,
 )
 from ..memory.locks import SessionLocks
 from ..ports import BaseAppService

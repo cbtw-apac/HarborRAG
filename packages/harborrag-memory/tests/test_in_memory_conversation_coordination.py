@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 import pytest
 
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 
@@ -90,7 +90,7 @@ async def test_a_request_key_is_kept_for_a_day_then_free_for_any_request(
 ) -> None:
     from datetime import UTC, datetime, timedelta
 
-    from harborrag_runtime.memory import in_memory
+    from harborrag_memory.tiers import in_memory
 
     now = [datetime(2026, 11, 4, tzinfo=UTC)]
     monkeypatch.setattr(in_memory, "utc_now", lambda: now[0])

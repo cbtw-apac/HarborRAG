@@ -5,9 +5,8 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 
+from harborrag_memory.messages import ChatMode
 from harborrag_runtime.chat import ChatPrompt
-
-from ..memory import ChatMode
 
 
 @dataclass(frozen=True, slots=True)

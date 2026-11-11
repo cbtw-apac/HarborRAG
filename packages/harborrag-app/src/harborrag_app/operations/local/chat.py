@@ -37,8 +37,8 @@ from harborrag_app.workflow_control.chat.completion import (
     RetrievalFound,
     TurnCompleted,
 )
-from harborrag_app.workflow_control.memory import MemoryAccess
 from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
+from harborrag_memory.access import MemoryAccess
 
 if TYPE_CHECKING:
     from harborrag_app.workflow_control.composition.service import AppService

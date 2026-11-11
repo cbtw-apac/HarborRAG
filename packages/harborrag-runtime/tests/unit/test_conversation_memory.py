@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.memory import (
     ConversationHistoryRepository,
     ConversationIdentity,
@@ -16,7 +17,6 @@ from harborrag_runtime.memory import (
     ConversationRole,
     ConversationTurn,
     DatabaseConversationMemory,
-    InMemoryConversationMemory,
 )
 
 

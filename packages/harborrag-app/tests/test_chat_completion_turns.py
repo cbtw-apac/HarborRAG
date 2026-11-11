@@ -19,8 +19,9 @@ from harborrag_app.workflow_control.memory import SessionLocks
 from harborrag_app.workflow_control.memory.locks import ConversationTurnBusyError
 from harborrag_core.contracts.errors import ChatModelUnavailableError, HarborConflictError
 from harborrag_core.models.errors import HarborChatConnectionError
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 pytestmark = pytest.mark.unit
 

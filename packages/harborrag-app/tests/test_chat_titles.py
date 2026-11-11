@@ -7,8 +7,9 @@ from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRunti
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_core.domain.identity import DEFAULT_USER
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 IDENTITY = ConversationIdentity("ACME", "reader", "session-title", DEFAULT_USER)
 OPTIONS = ChatExecutionOptions(session_id=IDENTITY.session_id)

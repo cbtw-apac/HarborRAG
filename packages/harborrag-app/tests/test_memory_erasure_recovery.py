@@ -11,11 +11,11 @@ from app_test_memory import FakeMemoryIndex, FakeMemoryStore, memory
 from harborrag_app.workflow_control.control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
-from harborrag_app.workflow_control.memory.administration import MemoryAdministrationService
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryScope
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.administration import MemoryAdministrationService
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 
 @pytest.fixture

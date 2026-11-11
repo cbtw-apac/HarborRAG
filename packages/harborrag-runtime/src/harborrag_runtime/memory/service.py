@@ -1,8 +1,4 @@
-"""Database-backed conversation history plugin owned by the runtime.
-
-The in-memory implementation lives in ``in_memory.py``; it is re-exported here
-for callers that imported it from this module before the split.
-"""
+"""Database-backed conversation history plugin owned by the runtime."""
 
 from __future__ import annotations
 
@@ -19,8 +15,6 @@ from harborrag_core.ports.conversation import (
     ConversationSummaryRow,
     ConversationTurn,
 )
-
-from .in_memory import InMemoryConversationMemory as InMemoryConversationMemory
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine

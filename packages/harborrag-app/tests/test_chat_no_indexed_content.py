@@ -13,8 +13,9 @@ from chat_service_fixtures import FakeChatFacade, FakeRuntime
 
 from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_core.contracts.errors import HarborNoIndexedContentError
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.memory import ConversationIdentity, InMemoryConversationMemory
+from harborrag_runtime.memory import ConversationIdentity
 
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 

@@ -35,7 +35,7 @@ from harborrag_memory import (
     MemoryOwner,
     ShortTermMemory,
 )
-from harborrag_runtime.memory import InMemoryConversationMemory
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 
 async def main() -> None:
