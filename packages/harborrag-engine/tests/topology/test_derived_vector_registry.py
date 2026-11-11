@@ -8,7 +8,7 @@ from harborrag_core.topology.derived import (
     DERIVED_VECTOR_PRODUCTS,
     ContextualIndexProfile,
 )
-from harborrag_runtime.topology.derived_cleanup import _INDEX_PREFIXES
+from harborrag_engine.topology.derived_cleanup import _INDEX_PREFIXES
 
 pytestmark = pytest.mark.unit
 

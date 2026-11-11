@@ -51,6 +51,7 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 from harborrag_engine.topology.summary_planner import SummaryPlanNode
 from harborrag_engine.topology.summary_reducer import (
     SummaryBudgetDeferred,
@@ -61,7 +62,6 @@ from harborrag_runtime.config.settings import RuntimeSettings
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .entity_summary_index import EntitySummaryIndex
-from .reservation_deadline import reservation_seconds
 
 logger = logging.getLogger("harborrag.runtime.topology")
 type SummaryPlanLoader = Callable[

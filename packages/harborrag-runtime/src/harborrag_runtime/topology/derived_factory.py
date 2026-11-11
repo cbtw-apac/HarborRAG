@@ -16,6 +16,7 @@ from harborrag_core.chunking import RecordKind
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.permissions import DerivedArtifactRecord
+from harborrag_engine.topology.derived_cleanup import RetiredDerivedProjectionCleaner
 from harborrag_engine.topology.parent_builder import ParentDescriptionPolicy
 from harborrag_runtime.composition.resources import build_vector_repository
 from harborrag_runtime.config.settings import RuntimeSettings
@@ -23,7 +24,6 @@ from harborrag_runtime.ingestion.observability import build_model_telemetry
 
 from .contextual import ContextualMaterializer, ContextualResources
 from .derived import DerivedEnrichmentCoordinator, DerivedResources, ParentProjectionPort
-from .derived_cleanup import RetiredDerivedProjectionCleaner
 from .derived_models import (
     DerivedBudget,
     DescriptionArtifacts,

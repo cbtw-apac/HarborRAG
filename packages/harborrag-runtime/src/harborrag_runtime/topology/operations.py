@@ -16,13 +16,13 @@ from harborrag_core.topology import ExtractionProfile, TopologyPolicy, digest
 from harborrag_core.topology.records import TopologyBuildContent
 from harborrag_core.topology.resolution import ResolutionRequest
 from harborrag_engine.topology.assembly import build_identity
+from harborrag_engine.topology.inspection import TopologyInspectionBuilder
 from harborrag_runtime.config.graph_build import GraphBuildConfig, graph_build_runtime_view
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .composition import connect_topology_authority, connect_topology_runtime
 from .configuration import GraphBuildConfigSynchronizer, GraphBuildProfileFactory
 from .derived_dispatch import DerivedDispatcher
-from .inspection import TopologyInspectionBuilder
 
 
 async def configure(

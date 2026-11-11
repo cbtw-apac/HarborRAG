@@ -21,8 +21,7 @@ from harborrag_core.topology import (
     digest,
 )
 from harborrag_core.topology.budget import BudgetRequest, UsageSettlement
-
-from .reservation_deadline import reservation_seconds
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 
 
 class EnrichmentDeferredError(RuntimeError):

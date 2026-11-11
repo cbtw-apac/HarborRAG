@@ -28,10 +28,10 @@ from harborrag_core.topology.derived import (
 )
 from harborrag_core.topology.extraction import digest
 from harborrag_core.topology.text_policy import PARENT_DESCRIPTION_MAX_WORDS
+from harborrag_engine.topology.reservation_deadline import reservation_seconds
 
 from .budgeted_extractor import EnrichmentDeferredError
 from .contextual import Embedder
-from .reservation_deadline import reservation_seconds
 from .run_cost import RunCostLedger
 
 
