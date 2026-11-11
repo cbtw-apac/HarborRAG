@@ -13,9 +13,9 @@ from chat_service_fixtures import (
 )
 
 from harborrag_app.workflow_control.chat import ChatApplicationService
-from harborrag_app.workflow_control.chat.scope import ConnectionSources
 from harborrag_app.workflow_control.memory import ConversationSessionService
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_engine.chat.scope import ConnectionSources
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.config.settings import RuntimeSettings
 

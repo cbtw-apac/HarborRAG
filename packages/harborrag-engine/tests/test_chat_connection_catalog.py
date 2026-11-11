@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_app.workflow_control.chat.scope import (
+from harborrag_core.domain.connection import Connection
+from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
+from harborrag_engine.chat.scope import (
     ConnectionSources,
     ControlPlaneConnectionCatalog,
 )
-from harborrag_core.domain.connection import Connection
-from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
 
 pytestmark = pytest.mark.unit
 

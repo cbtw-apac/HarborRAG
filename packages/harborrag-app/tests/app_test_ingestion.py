@@ -12,8 +12,8 @@ from harborrag_app.workflow_control.errors import (
     IngestionAlreadyCompletedError,
     IngestionNotFoundError,
 )
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.schemas import AppResponse
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 
 
 class FixtureIngestionOperations:

@@ -37,6 +37,7 @@ from harborrag_core.ports.conversation import (
 )
 from harborrag_core.ports.memory import MemoryIndex, MemoryRepository
 from harborrag_core.ports.usage import ModelUsageRepository
+from harborrag_engine.chat.scope import ConnectionCatalog, RetrievalScope, resolve_scope
 from harborrag_memory.access import MemoryAccess
 from harborrag_memory.messages import ExchangeRecord, record_exchange
 from harborrag_memory.projects import require_project
@@ -57,7 +58,6 @@ from .options import ChatExecutionOptions
 from .preparation import ChatTurnResources, PreparedTurn, RuntimeProvider, prepare_turn
 from .presenters import chat_stream_chunk_data, evidence_data
 from .query_scope import ScopeCheck, ScopeHistory, check_query_scope, scope_history
-from .scope import ConnectionCatalog, RetrievalScope, resolve_scope
 from .stream_result import stream_result
 from .turn import (
     DeliveredAnswer,

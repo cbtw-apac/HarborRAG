@@ -13,6 +13,7 @@ from typing import cast, get_args
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ports.events import EventBusPort
+from harborrag_engine.chat.scope import ControlPlaneConnectionCatalog
 from harborrag_memory.administration import MemoryAdministrationService
 from harborrag_memory.projects import project_lookup
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
@@ -21,7 +22,6 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 
 from ..chat import ChatApplicationService, ChatClientMixin
-from ..chat.scope import ControlPlaneConnectionCatalog
 from ..control_plane.connection_views import IngestionLinks
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (

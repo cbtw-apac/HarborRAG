@@ -11,9 +11,9 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
 )
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
 
 from ..errors import IngestionCursorError
-from .models import DocumentPageCursor, TaskPageCursor
 
 TERMINAL_STATES = frozenset(
     {

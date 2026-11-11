@@ -12,7 +12,6 @@ from harborrag_app.workflow_control.control_plane.connections import (
     ConnectionService,
     ConnectionWrite,
 )
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -31,6 +30,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeSettingsRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.composition import ControlPlaneRepositories
 

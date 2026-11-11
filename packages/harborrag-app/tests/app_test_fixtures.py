@@ -11,13 +11,13 @@ from app_test_retrieval_records import retrieval_payload
 
 from harborrag_app.workflow_control import AppResponse, BaseAppService
 from harborrag_app.workflow_control.chat import ChatClientMixin
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.memory import (
     ConversationDirectoryService,
     MemoryAdminClientMixin,
 )
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.testing.control_plane_fakes import FakePendingEffectRepository
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_memory.administration import MemoryAdministrationService
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode

@@ -40,6 +40,7 @@ from harborrag_core.domain.connection import (
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
 from harborrag_core.security.secret_refs import SecretSource, all_refs, stored_refs
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import (
     ConnectionValidationError,
@@ -68,7 +69,6 @@ from harborrag_runtime.ingestion.connections import (
     build_connector_from_parts,
 )
 
-from ..ingestion.models import IngestionCreateCommand
 from .active_runs import active_run
 from .connection_views import ingestion_view, read_connection_views, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs

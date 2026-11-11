@@ -14,6 +14,7 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.invariants import require
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
@@ -39,7 +40,6 @@ from ..errors import (
     IngestionNotFoundError,
     IngestionRetryConflictError,
 )
-from .models import IngestionCreateCommand
 from .ports import (
     ClientProvider,
     PublicTaskStore,

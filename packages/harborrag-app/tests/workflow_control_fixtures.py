@@ -10,10 +10,10 @@ from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClie
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_app.workflow_control.composition.factories import AppServiceFactories
 from harborrag_app.workflow_control.composition.service import AppService
-from harborrag_app.workflow_control.ingestion.models import IngestionCreateCommand
 from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import (

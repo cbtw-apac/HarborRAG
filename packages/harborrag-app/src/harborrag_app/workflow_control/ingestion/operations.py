@@ -19,10 +19,10 @@ from harborrag_core.ingestion import (
 from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.invariants import require
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
+from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
 
 from ..control_plane.connection_views import INGESTION_STATES, IngestionLinks, ingestion_view
 from ..errors import IngestionActionStateError, IngestionCursorError, IngestionNotFoundError
-from .models import DocumentPageCursor, TaskPageCursor
 from .presenters import (
     TERMINAL_STATES,
     decode_cursor,

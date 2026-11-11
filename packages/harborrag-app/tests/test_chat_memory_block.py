@@ -6,7 +6,6 @@ from datetime import UTC, datetime
 
 import pytest
 
-from harborrag_app.workflow_control.chat.memory_block import memory_block
 from harborrag_app.workflow_control.chat.presenters import citation_marker
 from harborrag_app.workflow_control.chat.prompting import (
     build_chat_request,
@@ -17,6 +16,7 @@ from harborrag_app.workflow_control.memory import MemoryIdentity
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.ports.conversation import ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryScope, MemoryType
+from harborrag_engine.chat.memory_block import memory_block
 from harborrag_runtime.memory import MemoryContext
 
 IDENTITY = MemoryIdentity.build(

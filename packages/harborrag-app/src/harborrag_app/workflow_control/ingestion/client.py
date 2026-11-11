@@ -8,9 +8,9 @@ ingestion application service without adding transport or policy of its own.
 
 from __future__ import annotations
 
+from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.config.settings import RuntimeSettings
 
-from .models import IngestionCreateCommand
 from .service import IngestionApplicationService
 
 
