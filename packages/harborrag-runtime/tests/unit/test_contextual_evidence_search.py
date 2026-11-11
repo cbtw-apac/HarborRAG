@@ -19,7 +19,7 @@ from harborrag_core.topology.permissions import (
     DerivedArtifactRecord,
     PermissionDependency,
 )
-from harborrag_runtime.retrieval.contextual import ContextualEvidenceSearch
+from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
 
 PROFILE = ContextualIndexProfile(model="existing", dimension=3, deployment_revision="pinned")
 CONTEXT = StorageOperationContext.system("tenant-1")

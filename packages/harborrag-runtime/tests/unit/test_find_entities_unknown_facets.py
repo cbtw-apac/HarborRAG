@@ -8,13 +8,13 @@ from test_entity_summary_search import PROFILE, Vectors
 from harborrag_core.contracts.reader import EntityFindRequest
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
-from harborrag_engine.tools.find_entities import FIND_ENTITIES_SPEC, FindEntitiesTool
-from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_runtime.retrieval.entity_summary import (
+from harborrag_engine.retrieval.service.entity_summary import (
     UNKNOWN_FACET,
     EntitySummarySearch,
     facet_filter_from_mapping,
 )
+from harborrag_engine.tools.find_entities import FIND_ENTITIES_SPEC, FindEntitiesTool
+from harborrag_engine.tools.references import KnowledgeReferenceStore
 
 CONTEXT = StorageOperationContext.system("DEFAULT")
 

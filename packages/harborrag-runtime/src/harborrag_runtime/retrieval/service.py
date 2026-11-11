@@ -36,8 +36,7 @@ from harborrag_engine.retrieval import (
 )
 from harborrag_engine.retrieval.duplicates import collapse_duplicates, duplicate_identity
 from harborrag_engine.retrieval.evidence_filters import validate_evidence_filter
-
-from .contracts import (
+from harborrag_engine.retrieval.service.contracts import (
     CloseOperation,
     RetrievalDiagnostics,
     RetrievalOptions,
@@ -46,20 +45,24 @@ from .contracts import (
     RetrievalTelemetry,
     RuntimeRetrievalReport,
 )
-from .entity_summary import split_facet_filters
-from .errors import no_entity_index, no_indexed_content
-from .evidence import budget_diagnostics, build_evidence_bundle, select_evidence
-from .graph_observation import GraphObservation, GraphObserver
-from .graph_service import RuntimeGraphRetrievalMixin
-from .knowledge import KnowledgeRetrieval
-from .permissions import RetrievalPermissions
-from .reader_service import RuntimeReaderRetrievalMixin
-from .readers import ReaderResources, ReaderRetrieval
-from .reranking import PassageReranker
-from .result_loader import EvidenceResultLoader
-from .source_fields import SourceFieldTrace, split_field_filters
-from .topology import TopologyRetrieval
-from .validation import validate_retrieval_request
+from harborrag_engine.retrieval.service.entity_summary import split_facet_filters
+from harborrag_engine.retrieval.service.errors import no_entity_index, no_indexed_content
+from harborrag_engine.retrieval.service.evidence import (
+    budget_diagnostics,
+    build_evidence_bundle,
+    select_evidence,
+)
+from harborrag_engine.retrieval.service.graph_observation import GraphObservation, GraphObserver
+from harborrag_engine.retrieval.service.graph_service import RuntimeGraphRetrievalMixin
+from harborrag_engine.retrieval.service.knowledge import KnowledgeRetrieval
+from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
+from harborrag_engine.retrieval.service.reader_service import RuntimeReaderRetrievalMixin
+from harborrag_engine.retrieval.service.readers import ReaderResources, ReaderRetrieval
+from harborrag_engine.retrieval.service.reranking import PassageReranker
+from harborrag_engine.retrieval.service.result_loader import EvidenceResultLoader
+from harborrag_engine.retrieval.service.source_fields import SourceFieldTrace, split_field_filters
+from harborrag_engine.retrieval.service.topology import TopologyRetrieval
+from harborrag_engine.retrieval.service.validation import validate_retrieval_request
 
 RERANK_POOL_FACTOR = 4
 RERANK_POOL_LIMIT = 100

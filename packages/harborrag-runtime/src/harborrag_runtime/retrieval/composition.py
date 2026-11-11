@@ -15,6 +15,9 @@ from harborrag_adapters.repositories.object_store import (
 )
 from harborrag_core.ingestion import SparseEncoderProfile
 from harborrag_engine.ingestion import BM25SparseEncoder
+from harborrag_engine.retrieval.service.contextual import ContextualEvidenceSearch
+from harborrag_engine.retrieval.service.contracts import RetrievalPolicy, RetrievalResources
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
 
 from ..composition.resources import (
     build_ingestion_control,
@@ -29,9 +32,6 @@ from ..config.models import has_rerank_model
 from ..config.settings import RuntimeSettings
 from ..observability.model import IngestionTelemetry, build_model_telemetry
 from ..topology.embedding_profile import build_contextual_profile
-from .contextual import ContextualEvidenceSearch
-from .contracts import RetrievalPolicy, RetrievalResources
-from .entity_summary import EntitySummarySearch
 from .service import RuntimeRetrievalService
 
 

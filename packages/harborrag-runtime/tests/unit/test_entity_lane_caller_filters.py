@@ -13,14 +13,14 @@ from harborrag_core.indexing import (
     VectorSearchResult,
 )
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.retrieval.entity_summary import (
+from harborrag_engine.retrieval.service.entity_summary import (
     EntitySummarySearch,
     facet_filter_from_mapping,
     payload_matches,
     split_facet_filters,
 )
+from harborrag_engine.retrieval.service.source_fields import SourceFieldTrace
 from harborrag_runtime.retrieval.facades import _build_vector_filter
-from harborrag_runtime.retrieval.source_fields import SourceFieldTrace
 
 CONTEXT = StorageOperationContext.system("DEFAULT")
 

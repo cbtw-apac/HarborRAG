@@ -29,6 +29,9 @@ from harborrag_core.retrieval import (
 )
 from harborrag_core.security import AccessContext
 from harborrag_engine.retrieval import ActiveVersionCandidateValidator
+from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
+from harborrag_engine.retrieval.service.reader_resources import ReaderResources
+from harborrag_engine.retrieval.service.readers import ReaderRetrieval
 from harborrag_runtime.contracts import (
     DocumentContextRequest,
     EvidenceReadRequest,
@@ -36,9 +39,6 @@ from harborrag_runtime.contracts import (
     GraphNodeResolveRequest,
 )
 from harborrag_runtime.reader_contracts import DocumentListRequest
-from harborrag_runtime.retrieval.permissions import RetrievalPermissions
-from harborrag_runtime.retrieval.reader_resources import ReaderResources
-from harborrag_runtime.retrieval.readers import ReaderRetrieval
 
 ACCESS = AccessContext.system("tenant-1")
 

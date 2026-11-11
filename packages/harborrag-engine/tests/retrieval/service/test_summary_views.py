@@ -9,7 +9,7 @@ from harborrag_core.retrieval.graph import compact_node
 from harborrag_core.security.context import AccessContext
 from harborrag_core.summaries import CardWordBudgets, SummaryPolicy
 from harborrag_core.summary_cards import SummaryAttribute, SummaryCard, SummaryView
-from harborrag_runtime.retrieval.summary_views import apply_summary_views
+from harborrag_engine.retrieval.service.summary_views import apply_summary_views
 
 
 def record(kind):

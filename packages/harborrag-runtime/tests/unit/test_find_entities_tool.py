@@ -14,10 +14,10 @@ from harborrag_core.indexing import VectorFilter, VectorFilterCondition
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.summaries import SummaryAttribute, SummaryCard, SummaryView
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
 from harborrag_engine.tools.catalog import build_reader_tool_catalog
 from harborrag_engine.tools.find_entities import FindEntitiesTool
 from harborrag_engine.tools.references import KnowledgeReferenceStore
-from harborrag_runtime.retrieval.entity_summary import EntitySummarySearch
 
 
 class Retrieval:

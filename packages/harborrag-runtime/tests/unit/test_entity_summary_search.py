@@ -16,7 +16,7 @@ from harborrag_core.summaries import (
     SummaryManifest,
 )
 from harborrag_core.topology.derived import ContextualIndexProfile
-from harborrag_runtime.retrieval.entity_summary import EntitySummarySearch
+from harborrag_engine.retrieval.service.entity_summary import EntitySummarySearch
 from harborrag_runtime.topology.entity_summary_index import (
     EntitySummaryIndex,
     entity_embedding_text,

@@ -153,7 +153,7 @@ Retrieval composes the same embedding model, active Qdrant collection, FalkorDB 
 canonical chunk object store that ingestion writes. Query embeddings are marked sensitive
 and non-cacheable.
 
-`retrieval/reranking.py` holds the rerank stage. `PassageReranker` orders passages the
+`harborrag_engine/retrieval/service/reranking.py` holds the rerank stage. `PassageReranker` orders passages the
 caller may already read, using the client built from the `rerank` section of the model
 catalog. It puts the model's score in `metadata["rerank_score"]` and leaves `relevance`
 at the lane's similarity. Passage text is sent to the rerank provider as sensitive and

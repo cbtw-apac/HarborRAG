@@ -12,6 +12,10 @@ from harborrag_core.config_store import SettingsLevel, SettingsSnapshot
 from harborrag_core.config_store.resolution import EffectiveSettings, EffectiveValue
 from harborrag_core.contracts.reader import RetrievalLane
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_engine.retrieval.service.contracts import (
+    RetrievalDiagnostics,
+    RuntimeRetrievalReport,
+)
 from harborrag_mcp_server.audit import McpAuditLog
 from harborrag_mcp_server.configuration import McpConfigurationStore
 from harborrag_mcp_server.server.server import McpServer
@@ -19,7 +23,6 @@ from harborrag_runtime.composition.readers import open_reader_application
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store import CachedConfigProvider
 from harborrag_runtime.config_store.defaults import registry_for
-from harborrag_runtime.retrieval.contracts import RetrievalDiagnostics, RuntimeRetrievalReport
 
 pytestmark = pytest.mark.unit
 

@@ -11,7 +11,7 @@ from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_core.indexing import FilterOperator, VectorFilter, VectorFilterCondition
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.retrieval.permissions import RetrievalPermissions
+from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
 
 ACCESS = AccessContext(principal_id="reader", tenant_id="DEFAULT")
 CONTEXT = StorageOperationContext.for_access(
@@ -126,7 +126,7 @@ class SlowEnumeration(OverBudget):
 
 @pytest.mark.asyncio
 async def test_the_scope_fallback_has_its_own_time_budget(monkeypatch) -> None:
-    from harborrag_runtime.retrieval import permissions as module
+    from harborrag_engine.retrieval.service import permissions as module
 
     monkeypatch.setattr(module, "_LOOKUP_TIMEOUT_SECONDS", 0.2)
     scoped = await RetrievalPermissions(SlowEnumeration()).scope_filter(None, CONTEXT)

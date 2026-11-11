@@ -11,12 +11,12 @@ required and which are merely optional:
 - ``GRAPH_SEARCH_DIAGNOSTICS_SCHEMA`` -- ``GraphSearchDiagnostics``
   (``harborrag_engine.retrieval.graph``), the diagnostics behind every graph tool.
 - ``RETRIEVAL_RESULT_SCHEMA`` -- ``RetrievalResult`` as built by
-  ``EvidenceResultLoader.result`` (``harborrag_runtime.retrieval.result_loader``), less
+  ``EvidenceResultLoader.result`` (``harborrag_engine.retrieval.service.result_loader``), less
   the keys the tool trims (``vector_search.TRIMMED_METADATA_KEYS``); this is the only
   place a production ``vector_search`` response constructs one, so its ``metadata``
   keys are exhaustive, not illustrative.
 - ``RETRIEVAL_DIAGNOSTICS_SCHEMA`` -- ``RetrievalDiagnostics``
-  (``harborrag_runtime.retrieval.contracts``), including its nested
+  (``harborrag_engine.retrieval.service.contracts``), including its nested
   ``graph_documents``/``related_results`` (``GraphDocumentSummary`` /
   ``GraphResultNeighborhood``), which reuse the same node/relation projection.
 

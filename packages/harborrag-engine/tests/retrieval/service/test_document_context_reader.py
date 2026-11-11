@@ -19,8 +19,8 @@ from harborrag_core.contracts.errors import HarborCapabilityError
 from harborrag_core.contracts.reader import DocumentContextRequest
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.retrieval import document_context
-from harborrag_runtime.retrieval.document_context import DocumentContextReader
+from harborrag_engine.retrieval.service import document_context
+from harborrag_engine.retrieval.service.document_context import DocumentContextReader
 
 ACCESS = AccessContext.system("tenant-1")
 CONTEXT = StorageOperationContext.for_access(

@@ -27,12 +27,12 @@ from harborrag_core.summaries import (
 from harborrag_engine.ingestion.projections.graph.collaboration_source_projectors import (
     _issue_attributes,
 )
-from harborrag_runtime.config.graph_build import GraphBuildConfig
-from harborrag_runtime.retrieval.entity_summary import (
+from harborrag_engine.retrieval.service.entity_summary import (
     EntitySummarySearch,
     facet_filter_from_mapping,
     split_facet_filters,
 )
+from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.topology.entity_summary_index import (
     EntitySummaryIndex,
     entity_point_id,

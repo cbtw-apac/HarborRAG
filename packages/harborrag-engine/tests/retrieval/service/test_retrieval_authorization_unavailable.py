@@ -5,7 +5,7 @@ import pytest
 from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
 from harborrag_core.security import AccessContext
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.retrieval.permissions import RetrievalPermissions
+from harborrag_engine.retrieval.service.permissions import RetrievalPermissions
 
 
 class UnavailablePermissions:

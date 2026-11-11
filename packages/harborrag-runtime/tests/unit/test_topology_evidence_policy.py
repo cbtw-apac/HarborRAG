@@ -12,9 +12,9 @@ from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.security import AccessContext
 from harborrag_core.topology.retrieval_policy import TopologyRetrievalPolicy
+from harborrag_engine.retrieval.service.evidence import select_evidence
+from harborrag_engine.retrieval.service.topology import fuse_candidates
 from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
-from harborrag_runtime.retrieval.evidence import select_evidence
-from harborrag_runtime.retrieval.topology import fuse_candidates
 
 LOCAL = RetrievalOptions(mode="local_semantic")
 
