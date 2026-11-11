@@ -280,9 +280,9 @@ class CanonicalChunkFactory:
 
     @classmethod
     def _local_timestamps(cls, request: ChunkingRequest) -> dict[str, str]:
-        # Local files have no chunk-producing source strategy that copies provenance,
-        # so their document dates are carried onto each chunk under the same
-        # created_at/updated_at names Jira and SharePoint chunks use.
+        """Local files have no chunk-producing source strategy that copies provenance,
+        so their document dates are carried onto each chunk under the same
+        ``created_at``/``updated_at`` names Jira and SharePoint chunks use.""" 
         if cls._connector_type(request) != ConnectorType.LOCAL:
             return {}
         provenance = request.document.provenance
