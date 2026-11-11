@@ -73,7 +73,6 @@ def test_config_device_code_rejects_client_secret():
 
 
 def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
-    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -81,6 +80,7 @@ def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
         auth_mode="device_code",
         tenant_id="tid",
         client_id="cid",
+        harborrag_tenant_id="acme",
     )
     assert config.access_token is None
     assert config.client_secret is None
@@ -89,7 +89,6 @@ def test_config_device_code_ignores_ambient_app_credentials(monkeypatch):
 
 @pytest.mark.parametrize("auth_mode", ["Device_Code", " device_code "])
 def test_config_device_code_guard_normalizes_auth_mode(monkeypatch, auth_mode):
-    monkeypatch.setenv("HARBORRAG_INGESTION_TENANT_ID", "acme")
     monkeypatch.setenv("MICROSOFT_GRAPH_TOKEN", "ambient-token")
     monkeypatch.setenv("MICROSOFT_CLIENT_SECRET", "ambient-secret")
     config = SharePointSiteConfig(
@@ -97,6 +96,7 @@ def test_config_device_code_guard_normalizes_auth_mode(monkeypatch, auth_mode):
         auth_mode=auth_mode,
         tenant_id="tid",
         client_id="cid",
+        harborrag_tenant_id="acme",
     )
     assert config.auth_mode == "device_code"
     assert config.access_token is None
