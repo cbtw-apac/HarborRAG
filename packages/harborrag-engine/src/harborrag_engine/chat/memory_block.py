@@ -70,12 +70,14 @@ def memory_block(
     *,
     as_of: datetime | None = None,
 ) -> str:
-    """One delimited block, or an empty string when there is nothing to inject."""
+    """One delimited block, or an empty string when there is nothing to inject.
+
+    ``Memory`` rejects blank content at construction, so every memory renders.
+    """
 
     elements: list[str] = []
     if summary and summary.strip():
         elements.append(_summary_element(summary, as_of=as_of))
-    # ``Memory`` rejects blank content at construction, so every memory here renders.
     elements.extend(_memory_element(memory) for memory in memories)
     if not elements:
         return ""

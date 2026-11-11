@@ -25,8 +25,13 @@ SOURCE_SCOPE_FILTER = "source_scope_id"
 
 @dataclass(frozen=True, slots=True)
 class ConnectionSources:
-    """One connection's public ref, the source scopes it was ingested under, and whether
-    any of its documents is published."""
+    """One connection's public ref, source scopes and published state.
+
+    Args:
+        ref: Public reference of the connection.
+        source_scope_ids: Source scopes the connection was ingested under.
+        published: Whether any of its documents is published.
+    """
 
     ref: str
     source_scope_ids: tuple[str, ...]
@@ -48,11 +53,15 @@ class ConnectionIndex(Protocol):
 
     async def source_scope_ids_by_connection(
         self, *, tenant_id: str, connection_ids: Sequence[str]
-    ) -> dict[str, list[str]]: ...
+    ) -> dict[str, list[str]]:
+        """Source scope ids of each connection, keyed by ``source_key``."""
+        ...
 
     async def published_connection_ids(
         self, *, tenant_id: str, connection_ids: Sequence[str]
-    ) -> set[str]: ...
+    ) -> set[str]:
+        """The ``source_key`` of every connection with a published document."""
+        ...
 
 
 class ControlPlaneConnectionCatalog:
@@ -60,6 +69,11 @@ class ControlPlaneConnectionCatalog:
 
     A project costs three reads whatever its number of connections: the connections, their
     source scopes, and whether each has a published document.
+
+    Args:
+        connections: Returns the connection repository; raises when no control-plane
+            database is configured.
+        index: Returns the ingestion records read for source scopes and published state.
     """
 
     def __init__(
