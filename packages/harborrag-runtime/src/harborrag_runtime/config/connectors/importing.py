@@ -250,7 +250,7 @@ class ConnectionImportService:
                     exc_info=True,
                 )
 
-    # TODO: expose as `harborrag source export`; only tests call it today.
+    # TODO: expose through the CLI; the old `source export` command was removed in v2.0.0.
     async def export(self, *, tenant_id: str, project_id: str) -> str:
         """Return a project's connections as an importable YAML document.
 

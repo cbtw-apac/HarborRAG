@@ -1,7 +1,7 @@
 """Path arguments resolve from where the user ran the command, not the activated root.
 
 `main()` moves into the project before Click parses argv, so without rebasing a relative
-`cases.jsonl` typed in a project subdirectory would be looked up at the project root.
+output path typed in a project subdirectory would be looked up at the project root.
 Discovery also stops at the nearest marker, so a checkout is not outranked by a stray
 `harborrag.yaml` in an ancestor.
 """
@@ -31,38 +31,6 @@ def in_project_subdirectory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.chdir(sub)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     return sub.resolve()
-
-
-def test_a_relative_cases_file_is_read_from_the_invocation_directory(
-    in_project_subdirectory: Path, monkeypatch: pytest.MonkeyPatch, capsys
-) -> None:
-    from harborrag_runtime.topology import operations
-
-    (in_project_subdirectory / "cases.jsonl").write_text('{"case": 1}\n', encoding="utf-8")
-
-    async def fake_evaluate(payload: str) -> dict[str, str]:
-        return {"payload": payload}
-
-    monkeypatch.setattr(operations, "evaluate", fake_evaluate)
-
-    assert cli.main(["topology", "evaluate", "cases.jsonl"]) == 0
-
-    captured = capsys.readouterr()
-    assert Path.cwd() == in_project_subdirectory.parent  # activation did move the process
-    assert json.loads(captured.out)["data"] == {"payload": '{"case": 1}\n'}
-
-
-def test_a_relative_permissions_file_is_checked_against_the_invocation_directory(
-    in_project_subdirectory: Path, capsys
-) -> None:
-    """`exists=True` runs inside the type, so the rebase must happen before it."""
-
-    (in_project_subdirectory.parent / "only-at-root.json").write_text("{}", encoding="utf-8")
-
-    code = cli.main(["topology", "indexing", "permissions-import", "only-at-root.json"])
-
-    assert code == 2
-    assert "does not exist" in capsys.readouterr().err
 
 
 def test_a_relative_secret_output_lands_where_the_user_stood_and_is_reported_absolute(
@@ -148,7 +116,7 @@ def test_main_keeps_the_checkout_and_its_write_guard_under_a_stray_marker(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.delenv("HARBORRAG_CONTROL_DB_URL", raising=False)
 
-    cli.main(["topology", "evaluate", "nope"])
+    cli.main(["me", "-o", "json"])
 
     assert "using project" not in capsys.readouterr().err
     assert project_module.active_project() is None

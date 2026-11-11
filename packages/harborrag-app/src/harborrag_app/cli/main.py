@@ -19,15 +19,12 @@ from harborrag_app.cli.commands import (
     connections,
     doctor,
     failures,
-    ingest,
     ingestions,
+    legacy,
     me,
     projects,
-    retrieve,
     settings,
-    source,
     source_types,
-    topology,
 )
 from harborrag_app.cli.environment import load_project_environment
 from harborrag_app.cli.project import ProjectError, activate_from_argv, activate_legacy_checkout
@@ -44,8 +41,9 @@ _HELP_FLAGS = ("-h", "--help")
 # a value-taking option missing from this set would be read as the sub-command name.
 # `test_global_value_options_are_all_declared` asserts this matches `configure()`.
 _VALUE_TAKING_GLOBAL_OPTIONS = frozenset({"--project"})
-# Commands that work without a project: `doctor` reports its absence.
-_PROJECT_OPTIONAL_COMMANDS = frozenset({"doctor"})
+# Commands that work without a project: `doctor` reports its absence; the removed `source` and
+# `ingest` names only print their replacement.
+_PROJECT_OPTIONAL_COMMANDS = frozenset({"doctor", "source", "ingest"})
 _NO_PROJECT_MESSAGE = (
     "harborrag: no project found. Run it inside a HarborRAG repository checkout, or pass "
     "--project DIR for a directory containing harborrag.yaml."
@@ -59,7 +57,7 @@ _DEFAULT_CLI_LOG_LEVEL = "WARNING"
 app = typer.Typer(
     name="harborrag",
     help="[bold cyan]Operate HarborRAG ingestion workflows.[/bold cyan]",
-    epilog="[dim]Use 'harborrag ingest ACTION --help' for action-specific options.[/dim]",
+    epilog="[dim]Use 'harborrag COMMAND --help' for command-specific options.[/dim]",
     no_args_is_help=True,
     rich_markup_mode="rich",
     pretty_exceptions_enable=False,
@@ -118,19 +116,8 @@ app.add_typer(
 app.add_typer(
     failures.app, name="failures", help="List and retry failed items.", rich_help_panel="Resources"
 )
-app.add_typer(
-    ingest.app,
-    name="ingest",
-    help="Submit, observe, and control ingestion runs.",
-    rich_help_panel="Ingestion",
-)
-app.add_typer(topology.app, name="topology", rich_help_panel="Ingestion")
-app.add_typer(
-    source.app,
-    name="source",
-    help="Manage connections (source list|show|add|update|test|sync|remove).",
-    rich_help_panel="Ingestion",
-)
+app.add_typer(legacy.SOURCE_APP, name="source", hidden=True)
+app.add_typer(legacy.INGEST_APP, name="ingest", hidden=True)
 app.add_typer(
     settings.app,
     name="settings",
@@ -154,11 +141,6 @@ app.command(
     help="Generate a response with the configured chat model.",
     rich_help_panel="Chat",
 )(chat.command)
-app.command(
-    "retrieve",
-    help="Search active Qdrant vectors with FalkorDB context expansion.",
-    rich_help_panel="Retrieval",
-)(retrieve.command)
 
 
 def main(argv: list[str] | None = None) -> int:

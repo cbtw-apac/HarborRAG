@@ -63,7 +63,7 @@ def test_main_reports_a_malformed_marker_without_a_traceback(
     monkeypatch.chdir(root)
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 1
+    assert cli.main(["me", "-o", "json"]) == 1
 
     captured = capsys.readouterr()
     assert "could not be read" in captured.err
@@ -86,7 +86,7 @@ def test_main_keeps_working_in_a_legacy_checkout_layout(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
+    assert cli.main(["me", "-o", "json"]) == 0
     # The checkout is the CWD here, so the activation notice must stay suppressed.
     assert "using repository checkout" not in capsys.readouterr().err
 
@@ -114,7 +114,7 @@ def test_main_finds_a_legacy_checkout_from_one_of_its_subdirectories(
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
     monkeypatch.setattr(sys.stderr, "isatty", lambda: True)
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 0
+    assert cli.main(["me", "-o", "json"]) == 0
     assert Path.cwd() == tmp_path.resolve()
     assert "using repository checkout" in capsys.readouterr().err
 

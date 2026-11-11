@@ -259,7 +259,7 @@ async def test_direct_source_ingestion_persists_terminal_discovery_failure(
 async def test_direct_ingestion_cancelled_during_discovery_releases_task_and_scan(
     tmp_path: Path,
 ) -> None:
-    # Ctrl-C on `harborrag ingest run` reaches the run as CancelledError, which an
+    # Ctrl-C on `harborrag ingestions start --inline` reaches the run as CancelledError, which an
     # `except Exception` never sees; the scan must not stay STARTED and block the scope.
     class InterruptedConnector(DescriptorConnector):
         def discover(self, query):

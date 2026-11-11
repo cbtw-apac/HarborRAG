@@ -126,7 +126,7 @@ def test_main_rejects_a_project_option_without_a_marker(tmp_path: Path, capsys) 
 
 
 def test_project_value_is_not_mistaken_for_the_command(tmp_path: Path) -> None:
-    """`--project DIR retrieve` must resolve the command to `retrieve`, not to DIR.
+    """`--project DIR connections` must resolve the command to `connections`, not to DIR.
 
     If the value-skip regressed, `_requires_project` would be asked about the path and the
     failure would surface as an unrelated missing-project error.
@@ -136,11 +136,11 @@ def test_project_value_is_not_mistaken_for_the_command(tmp_path: Path) -> None:
 
     root = _scaffold(tmp_path)
 
-    assert cli._command_name(["--project", str(root), "retrieve", "q"]) == "retrieve"
-    assert cli._command_name([f"--project={root}", "retrieve", "q"]) == "retrieve"
+    assert cli._command_name(["--project", str(root), "connections", "list"]) == "connections"
+    assert cli._command_name([f"--project={root}", "connections", "list"]) == "connections"
     assert cli._command_name(["--no-color", "--project", str(root), "doctor"]) == "doctor"
     assert cli._requires_project(["--project", str(root), "doctor"]) is False
-    assert cli._requires_project(["--project", str(root), "retrieve", "q"]) is True
+    assert cli._requires_project(["--project", str(root), "connections", "list"]) is True
 
 
 def test_global_value_options_are_all_declared() -> None:
@@ -174,7 +174,7 @@ def test_main_explains_how_to_start_when_no_project_exists(
     monkeypatch.delenv("HARBORRAG_PROJECT", raising=False)
     from harborrag_app.cli import main as cli
 
-    assert cli.main(["retrieve", "anything", "--json"]) == 1
+    assert cli.main(["connections", "list"]) == 1
     err = capsys.readouterr().err
     assert "repository checkout" in err and "--project" in err
 

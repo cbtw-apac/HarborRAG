@@ -1,32 +1,19 @@
-"""Service lifecycle and response presentation shared by CLI commands."""
+"""Response presentation shared by ``doctor``; the other commands run on ``cli.invoke``."""
 
 from __future__ import annotations
 
-import asyncio
 import json
-import logging
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 import typer
 
-from harborrag_app.cli.invoke import build_service as build_runtime_service
-from harborrag_app.cli.invoke import close as close
-from harborrag_app.cli.invoke import control_plane_failure as control_plane_failure
 from harborrag_app.cli.rendering import CliRenderer
-from harborrag_app.workflow_control import AppResponse, BaseAppService
-from harborrag_app.workflow_control.composition.selection import runtime_app_service
+from harborrag_app.workflow_control import AppResponse
+from harborrag_app.workflow_control.composition.selection import (
+    runtime_app_service as runtime_app_service,
+)
 from harborrag_app.workflow_control.errors import public_error_message
 from harborrag_core.contracts.errors import HarborConfigurationError
-
-type ResponseCall = Callable[[BaseAppService], Awaitable[AppResponse]]
-
-logger = logging.getLogger("harborrag.app.cli.runner")
-
-# Exit status for "gave up waiting, the run keeps going" (1 = not completed, 130 = Ctrl-C).
-TIMEOUT_EXIT_CODE = 3
-# Bound on the best-effort status read behind the timeout message.
-_STATUS_LOOKUP_SECONDS = 2.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,153 +21,6 @@ class CliState:
     """Presentation options propagated through the Typer context tree."""
 
     no_color: bool = False
-
-
-def invoke(  # noqa: PLR0913 - one parameter per independent CLI presentation option
-    call: ResponseCall,
-    *,
-    context: typer.Context,
-    command: str,
-    action: str | None = None,
-    as_json: bool = False,
-    requires_control_plane: bool = True,
-    succeeded: Callable[[AppResponse], bool] | None = None,
-) -> None:
-    """Execute one application-service call and render its stable response.
-
-    ``requires_control_plane`` gates the command on a usable control-plane database.
-    Composition deliberately boots degraded when migrations fail, so a service that
-    cannot reach its schema is still returned; a command that then does real work fails
-    much later with an opaque error such as a missing column. Diagnostic commands set
-    this to ``False`` -- a degraded control plane is exactly when they are run.
-
-    ``succeeded`` adds a command-specific test on an ``ok`` response before exiting 0:
-    a wait that returns a FAILED run is a successful call but not a successful command.
-    Waiting on a durable run (with ``--timeout`` and Ctrl-C handling) lives in
-    ``cli.following``.
-    """
-
-    exit_code = asyncio.run(
-        _invoke(
-            call,
-            state=state(context),
-            command=command,
-            action=action,
-            as_json=as_json,
-            requires_control_plane=requires_control_plane,
-            succeeded=succeeded,
-        )
-    )
-    if exit_code:
-        raise typer.Exit(exit_code)
-
-
-async def _invoke(  # noqa: PLR0913 - mirrors invoke()'s option surface
-    call: ResponseCall,
-    *,
-    state: CliState,
-    command: str,
-    action: str | None,
-    as_json: bool,
-    requires_control_plane: bool = True,
-    succeeded: Callable[[AppResponse], bool] | None = None,
-) -> int:
-    renderer = CliRenderer(no_color=state.no_color)
-    service = await build_service(renderer, command=command, action=action, as_json=as_json)
-    if service is None:
-        return 1
-    try:
-        unavailable = control_plane_failure(service) if requires_control_plane else None
-        if unavailable is not None:
-            emit(
-                unavailable,
-                renderer=renderer,
-                command=command,
-                action=action,
-                as_json=as_json,
-            )
-            return 1
-        try:
-            with renderer.operation(
-                _operation_message(command, action),
-                enabled=not as_json,
-            ):
-                response = await call(service)
-        except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-            response = failure(exc)
-        emit(
-            response,
-            renderer=renderer,
-            command=command,
-            action=action,
-            as_json=as_json,
-        )
-        return 0 if response.ok and (succeeded is None or succeeded(response)) else 1
-    finally:
-        await close(service)
-
-
-async def report_timeout(
-    service: BaseAppService,
-    renderer: CliRenderer,
-    run_id: str,
-    status: str | None = None,
-    *,
-    as_json: bool = False,
-) -> None:
-    """Tell the operator the wait expired while the durable run carries on.
-
-    With ``as_json`` stdout also gets one envelope: ``ok`` is true because the call
-    executed, ``timed_out`` and exit 3 say the wait gave up, and ``run`` says where
-    the run stands.
-    """
-
-    if status is None:
-        status = "running"
-        try:
-            # Best effort: a paused run should not be reported as running.
-            from harborrag_app.cli.progress import ProgressSnapshot  # noqa: PLC0415
-
-            async with asyncio.timeout(_STATUS_LOOKUP_SECONDS):
-                reply = await service.ingestion_status(run_id)
-            if reply.ok:
-                status = ProgressSnapshot.from_status_payload(reply.data).status
-        except Exception:  # includes the lookup's own TimeoutError
-            logger.debug("Could not read the run status after a timeout", exc_info=True)
-    renderer.error_console.print(
-        f"Run {run_id} is still {status}; it keeps running. "
-        f"Re-attach with: harborrag ingest watch {run_id}",
-        markup=False,
-        soft_wrap=True,
-        highlight=False,
-    )
-    if as_json:
-        timed_out = {"run": {"run_id": run_id, "status": status}, "timed_out": True}
-        emit(
-            AppResponse(True, timed_out),
-            renderer=renderer,
-            command="ingest",
-            action=None,
-            as_json=True,
-        )
-
-
-async def build_service(
-    renderer: CliRenderer,
-    *,
-    command: str,
-    action: str | None,
-    as_json: bool,
-) -> BaseAppService | None:
-    """Build the runtime service, or emit the failure envelope and return ``None``."""
-
-    try:
-        return await build_runtime_service(runtime_app_service)
-    except Exception as exc:  # noqa: BLE001 - CLI owns the stable error boundary
-        logger.error("Failed to build the runtime application service: %s", type(exc).__name__)
-        logger.debug("Failed to build the runtime application service", exc_info=True)
-        emit(failure(exc), renderer=renderer, command=command, action=action, as_json=as_json)
-        return None
 
 
 def emit(
@@ -217,23 +57,3 @@ def failure(exc: Exception) -> AppResponse:
 def state(context: typer.Context) -> CliState:
     value = context.find_root().obj
     return value if isinstance(value, CliState) else CliState()
-
-
-def _operation_message(command: str, action: str | None) -> str:
-    if command == "doctor":
-        return "Checking Temporal runtime…"
-    if command == "chat":
-        return "Generating chat response…"
-    messages = {
-        "start": "Starting ingestion workflow…",
-        "status": "Loading ingestion status…",
-        "wait": "Waiting for ingestion to finish…",
-        "pause": "Pausing ingestion…",
-        "resume": "Resuming ingestion…",
-        "cancel": "Cancelling ingestion…",
-    }
-    return (
-        messages.get(action, "Running HarborRAG command…")
-        if action
-        else "Running HarborRAG command…"
-    )
