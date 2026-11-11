@@ -44,10 +44,11 @@ generated metrics scrape token and `dev.sh api` for the API alone are in the
 
 ## Composition
 
-The application lifespan builds one `AppService`, defined in `harborrag_runtime.application`,
-through the runtime's production composition and closes it at process shutdown. Its control database is
-`HARBORRAG_CONTROL_DB_URL`, a local SQLite file by default. Outside
-`HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both refused at startup.
+The application lifespan builds one `AppService` and closes it at process shutdown.
+`AppService` is defined in `harborrag_runtime.application` and built through the runtime's
+production composition. Its control database is `HARBORRAG_CONTROL_DB_URL`, a local SQLite
+file by default. Outside `HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both
+refused at startup.
 
 The lifespan also wraps the `AppService` in `LocalOperations`, the in-process
 implementation of the `Operations` port in `harborrag_app/operations/`. Every `/v1` route
@@ -266,7 +267,7 @@ API process settings use the `HARBORRAG_` prefix. The model is `ApiSettings` in
 | `HARBORRAG_LOG_LEVEL` | `INFO` | HarborRAG namespace log level |
 
 The per-user and per-tenant capacity variables are in
-[Limits and accounting](../../../../../docs/users/chat/limits.md#request-rates-and-concurrency).
+[Request rates and concurrency](../../../../../docs/users/chat/limits.md#request-rates-and-concurrency).
 Credentialed CORS rejects wildcard origins. Swagger and `/openapi.json` default to
 disabled under `HARBORRAG_ENV=staging` and `prod` unless an operator enables them.
 
@@ -302,6 +303,10 @@ The sibling `harborrag_app/operations/` package imports no web framework, so the
 use it too. It holds the `Operations` port (`port.py`) and its in-process implementation
 (`local/`), the role and serialization table of every operation (`contract.py`), and the
 error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
+
+The application services live in `harborrag_runtime.application`, which this package
+imports and which never imports it; see its
+[README](../../../../../packages/harborrag-runtime/src/harborrag_runtime/application/README.md).
 
 This package may validate and serialize HTTP messages, authenticate principals and
 enforce route roles, manage the API process and its middleware, and delegate `/v1`

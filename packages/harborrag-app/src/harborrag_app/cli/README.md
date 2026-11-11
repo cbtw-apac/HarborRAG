@@ -23,9 +23,10 @@ uv run harborrag --help
 ```
 
 The base package is enough for `--help`. A command that calls an operation builds the
-whole application service (`harborrag_runtime.application`) in its process, so it needs the services that service uses:
-the control database, Temporal for ingestion runs, and the stores and the model gateway
-for `chat`. Start the repository's development stack with:
+whole application service in its process, so it needs the services that service uses: the
+control database, Temporal for ingestion runs, and the stores and the model gateway for
+`chat`. The application services live in `harborrag_runtime.application`, not in this
+package. Start the repository's development stack with:
 
 ```bash
 scripts/deployment/dev.sh up
@@ -257,7 +258,8 @@ those opt-outs on an untrusted network.
 This package may:
 
 - define Typer commands and parse command-line arguments and body files;
-- call the operations through `run_operation`, one application service per invocation;
+- call the operations through `run_operation`, which builds one application service
+  (`harborrag_runtime.application`) per invocation;
 - print bodies and errors in the shape the HTTP route answers, and exit with the codes
   in `exit_codes.py`.
 

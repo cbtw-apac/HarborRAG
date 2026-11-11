@@ -36,9 +36,13 @@ lists each command's options.
   and the failure inbox under `/v1/admin`, chat sessions and completions under `/v1/chat`.
   See [Connections](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/connections.md)
   and [Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
-- **One set of operations** that both call. The CLI and the API never construct
-  connectors or repositories themselves; the application services behind the operations live in
-  [`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md).
+- **One set of operations** that both call, held in `operations/`. The CLI and the API
+  never construct connectors or repositories themselves.
+
+The package holds only these three transports: `api/` for HTTP, `cli/` for the command line
+and `operations/` for the port both call. The application services behind the operations live
+in [`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
+and the retrieval, ingestion and topology use cases they run live in `harborrag-engine`.
 
 ## Run and control ingestions
 
@@ -61,8 +65,7 @@ current process, without Temporal or a worker; it reads files on this machine, s
 refuses a `local_file` connection whose `source_path` is not a directory here, such as
 the stack's `/data/sources`. See
 [Run an ingestion in this process](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-an-ingestion-in-this-process).
-From a checkout, commands that write need
-the stack's control database first; see
+From a checkout, commands that write need the stack's control database first; see
 [Run from a repository checkout](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/cli-reference/README.md#run-from-a-repository-checkout).
 
 `-o json` prints the HTTP response body, and an error goes to stderr as the HTTP error
@@ -96,7 +99,8 @@ the HTTP API has no separate retrieval routes.
 ## Contributing
 
 Tests for this package live in `packages/harborrag-app/tests/`. Keep new tests there when
-you add or change behaviour this package owns, and run them from the repository root:
+you add or change behaviour of the CLI, the HTTP API or the operations layer, and run them
+from the repository root:
 
 ```bash
 uv run pytest packages/harborrag-app/tests

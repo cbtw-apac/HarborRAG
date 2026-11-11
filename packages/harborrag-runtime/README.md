@@ -3,9 +3,10 @@
 Composes [HarborRAG](https://github.com/cbtw-apac/HarborRAG) for production: it builds the
 repositories, model clients and engine policies from settings, and runs ingestion either
 inline or durably on Temporal. It also hosts the SDK facade, retrieval, chat and memory
-composition, schedules and topology enrichment. Domain types and ports live in
-`harborrag-core`; the retrieval use cases live in `harborrag-engine`; adapters and the
-engine stay unaware of Temporal.
+composition, schedules, topology enrichment and the application services that the
+`harborrag-app` HTTP API and CLI call. Domain types and ports live in `harborrag-core`;
+the retrieval, ingestion and topology use cases live in `harborrag-engine`; the memory use
+cases live in `harborrag-memory`; adapters and the engine stay unaware of Temporal.
 
 To use HarborRAG as a library, install the [`harborrag`](https://pypi.org/project/harborrag/)
 facade instead, which re-exports this package's SDK.
@@ -30,7 +31,7 @@ src/harborrag_runtime/
   ingestion/                # document release, source orchestration and maintenance services
   retrieval/                # retrieval service, its composition from settings and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
-  application/              # application services behind the HTTP API and the CLI: chat, memory, ingestion, control plane
+  application/              # application services that harborrag-app calls: chat, memory, ingestion, control plane
   memory/                   # database-backed conversation memory and its composition
   scheduling/               # schedule management on top of the execution engine
   topology/                 # opt-in durable topology enrichment, independent of publication

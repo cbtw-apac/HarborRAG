@@ -55,8 +55,8 @@ These rules matter more than any single provider choice:
 | `harborrag-adapters` | Connectors, parsers, model clients and repository implementations | External I/O boundary |
 | `harborrag-engine` | Ingestion, retrieval, topology and chat-prompt policy, plus the reader tools MCP serves | Business behaviour and invariants |
 | `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; memory itself is optional configuration |
-| `harborrag-runtime` | Composition, direct and Temporal executors, lifecycle, scheduling and configuration loading | Execution boundary |
-| `harborrag-app` | HTTP API, CLI, authentication and presentation mapping | User transport |
+| `harborrag-runtime` | Composition, direct and Temporal executors, lifecycle, scheduling, configuration loading and the application services behind the HTTP API and CLI | Execution boundary |
+| `harborrag-app` | HTTP API, CLI and operations layer: authentication and presentation mapping | User transport |
 | `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy and audit | Agent transport |
 | `harborrag` | Stable SDK re-exports and the installation bundle | `HarborRAG` public facade |
 
@@ -268,6 +268,8 @@ or a provider SDK.
 - the async `HarborRAG` facade used by the SDK and the app;
 - `harborrag_runtime.chat`, which composes the asynchronous chat client lazily, owns its
   lifecycle, and resolves the typed prompts that engine packages;
+- `harborrag_runtime.application`, the application services that the HTTP API and the CLI
+  call: chat turns, conversation memory, ingestion commands and the control-plane use cases;
 - explicit, opt-in discovery of Python entry-point plugins.
 
 Runtime schedules publication and cleanup and chooses retry, timeout and concurrency
@@ -283,7 +285,8 @@ code, not in provider adapters.
 
 The CLI and the HTTP API both call one application service, `BaseAppService`, never adapters.
 The service lives in `harborrag_runtime.application`; `harborrag_app` holds only the transports
-and the operations layer.
+(`api/`, `cli/`) and the `operations/` layer both call.
+
 Ingestion commands and HTTP ingestion routes resolve a secret-free source contract, persist a
 pending task in PostgreSQL, and hand it to runtime's neutral `IngestionGateway`. The default
 `TemporalIngestionGateway` translates submission, retry, status and result values into

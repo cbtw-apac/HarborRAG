@@ -196,9 +196,12 @@ of core, adapters or engine.
 
 ## Application and MCP surfaces
 
-CLI and HTTP code call `BaseAppService`, which lives in `harborrag_runtime.application`. The MCP server registers the shared reader tools from
-`harborrag_engine.tools`, bound to runtime's reader composition. Neither surface builds a
-provider client in a handler.
+CLI and HTTP code call `BaseAppService`, which lives in `harborrag_runtime.application`.
+New application services (chat turns, ingestion commands, control-plane use cases) go in
+that package; `harborrag_app` keeps only the transports and the `operations/` layer, and
+conversation memory policy lives in `harborrag-memory`. The MCP server registers the shared
+reader tools from `harborrag_engine.tools`, bound to runtime's reader composition. Neither
+surface builds a provider client in a handler.
 
 Stored chat prompts belong under `harborrag_engine/chat/prompts/templates/`. To add a public
 prompt, add its UTF-8 Markdown template, add a stable name to `ChatPrompt` and its filename to
