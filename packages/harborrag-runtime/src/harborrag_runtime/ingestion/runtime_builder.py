@@ -158,7 +158,7 @@ class IngestionRuntimeBuilder:
                 artifacts,
                 artifact_reader,
             ),
-            chunk_writer=ChunkArtifactWriter(artifacts),
+            chunk_writer=ChunkArtifactWriter(artifacts, artifact_reader),
             chunk_reader=chunk_reader,
             projection_artifacts=ProjectionArtifactRepository(
                 artifacts,
