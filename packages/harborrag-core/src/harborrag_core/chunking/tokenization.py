@@ -17,6 +17,7 @@ class ApproximateTokenCounter:
     version = "1"
 
     def count(self, text: str) -> int:
+        """Return the estimated token count of ``text``: 0 when empty, otherwise at least 1."""
         if not text:
             return 0
         ascii_characters = sum(ord(character) < 128 for character in text)

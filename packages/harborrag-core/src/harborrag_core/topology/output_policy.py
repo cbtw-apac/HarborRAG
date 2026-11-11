@@ -24,6 +24,7 @@ class OutputPolicyViolation(ValueError):
     """A complete model response contained candidates HarborRAG cannot accept."""
 
     def __init__(self, reasons: tuple[str, ...]) -> None:
+        """Build the error from the violation reasons, kept on ``reasons``."""
         self.reasons = reasons
         super().__init__(
             f"semantic output rejected ({len(reasons)} violation(s)): " + ", ".join(reasons)
@@ -34,6 +35,11 @@ class ExtractionOutputPolicy:
     """Validate graph text atomically; never truncate or silently discard candidates."""
 
     def apply(self, output: ExtractionOutput, value: ChunkExtractionInput) -> ExtractionOutput:
+        """Return ``output`` once it passes every text rule.
+
+        Raises:
+            OutputPolicyViolation: Any entity, assertion or chunk text breaks a rule.
+        """
         valid_entities, reasons = self._entities(output)
         assertions, assertion_reasons = self._assertions(output, valid_entities)
         reasons.extend(assertion_reasons)

@@ -1,3 +1,11 @@
+"""Provider-independent ingestion rules: version transitions, publication gate and failure classes.
+
+Pure rules over core states and errors; nothing here performs I/O or knows an adapter.
+Adapter error types are supplied to the classifier by runtime.
+
+Start from: DocumentVersionTransitionPolicy, PublicationPolicy, IngestionFailureClassifier.
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -51,11 +59,16 @@ _STAGE_CATEGORIES = {
     "PublishVersion": FailureCategory.PUBLICATION_FAILURE,
 }
 type KnownFailure = tuple[type[Exception], FailureCategory, bool, str]
-"""An error type with the category, retryable flag and safe code it classifies as."""
+"""An error type with the category, retryable flag and safe code it classifies as.
+
+The first isinstance match wins, so a subclass is listed before its parent:
+``SourceAuthenticationError`` and ``SourceAuthorizationError`` before ``SourceForbiddenError``;
+``SourceItemNotFoundError`` (a deleted item answers the same however often it is asked) and
+``SourceRetriesExhaustedError`` (the connector spent its retry budget, so the run does not
+retry it again) before ``SourceUnavailableError``.
+"""
 
 _SIMPLE_FAILURES: tuple[KnownFailure, ...] = (
-    # More specific than SourceForbiddenError below; order matters since the
-    # first isinstance match wins and both are SourceForbiddenError subclasses.
     (
         SourceAuthenticationError,
         FailureCategory.SOURCE_FORBIDDEN,
@@ -69,16 +82,12 @@ _SIMPLE_FAILURES: tuple[KnownFailure, ...] = (
         "authorization_failed",
     ),
     (SourceForbiddenError, FailureCategory.SOURCE_FORBIDDEN, False, "source_forbidden"),
-    # Before SourceUnavailableError: a connector's not-found error is also a fetch
-    # error, and a deleted item answers the same way however often it is asked.
     (
         SourceItemNotFoundError,
         FailureCategory.SOURCE_FORBIDDEN,
         False,
         "source_item_not_found",
     ),
-    # Also before SourceUnavailableError: the connector already spent its own
-    # retry budget, so the run does not retry it again. It stays transient.
     (
         SourceRetriesExhaustedError,
         FailureCategory.TRANSIENT,
@@ -120,9 +129,14 @@ _TRANSIENT_ERRORS: tuple[type[BaseException], ...] = (
 
 
 class DocumentVersionTransitionPolicy:
-    """Validate provider-independent state transitions and replay boundaries."""
+    """Validate provider-independent state transitions and replay boundaries.
+
+    A connector-free reindex starts from an already authoritative immutable canonical
+    artifact, so ``PENDING`` may go straight to ``CANONICAL_READY`` without a raw-capture stage.
+    """
 
     def allows(self, current: DocumentVersionState, target: DocumentVersionState) -> bool:
+        """Return whether ``current`` may move to ``target``; staying in place is allowed."""
         if current == target:
             return True
         if target == DocumentVersionState.FAILED:
@@ -141,8 +155,6 @@ class DocumentVersionTransitionPolicy:
             current == DocumentVersionState.PENDING
             and target == DocumentVersionState.CANONICAL_READY
         ):
-            # Connector-free reindex starts from an already authoritative
-            # immutable canonical artifact, so there is no raw-capture stage.
             return True
         current_rank = _STAGE_RANK.get(current)
         target_rank = _STAGE_RANK.get(target)
@@ -154,7 +166,6 @@ class DocumentVersionTransitionPolicy:
         target: DocumentVersionState,
     ) -> bool:
         """Return whether an idempotent replay has passed the requested stage."""
-
         if current == DocumentVersionState.ACTIVE and target in _STAGE_RANK:
             return True
         current_rank = _STAGE_RANK.get(current)
@@ -162,6 +173,11 @@ class DocumentVersionTransitionPolicy:
         return current_rank is not None and target_rank is not None and current_rank > target_rank
 
     def require(self, current: DocumentVersionState, target: DocumentVersionState) -> None:
+        """Raise unless ``current`` may move to ``target``.
+
+        Raises:
+            PublicationConflictError: The transition is not allowed.
+        """
         if not self.allows(current, target):
             raise PublicationConflictError(
                 f"invalid document-version transition: {current.value} -> {target.value}"
@@ -169,9 +185,14 @@ class DocumentVersionTransitionPolicy:
 
 
 class PublicationPolicy:
-    """Decide whether a candidate may enter the atomic publication transaction."""
+    """Decide whether a candidate may enter the atomic publication transaction.
+
+    A retried publish whose first attempt committed (the version is active and current) passes
+    silently: the publisher answers it as an idempotent replay, so it is not a conflict.
+    """
 
     def requires_publication(self, decision: SourceAdmissionDecision) -> bool:
+        """Return whether an admission decision leads to a published document version."""
         return decision not in {
             SourceAdmissionDecision.UNCHANGED,
             SourceAdmissionDecision.UNSUPPORTED,
@@ -187,13 +208,23 @@ class PublicationPolicy:
         requires_processing: bool,
         is_current_active: bool = False,
     ) -> None:
+        """Raise unless the document version may be published.
+
+        Args:
+            decision: Admission decision taken for the candidate.
+            state: Current state of the document version.
+            requires_processing: Whether the candidate went through the processing stages.
+            is_current_active: Whether the version is already the active one.
+
+        Raises:
+            PublicationConflictError: The decision cannot publish, or the state is not one
+                publication accepts.
+        """
         if not self.requires_publication(decision):
             raise PublicationConflictError(
                 f"admission decision {decision.value} cannot publish a document version"
             )
         if state == DocumentVersionState.ACTIVE and is_current_active:
-            # A retried publish whose first attempt committed: the publisher
-            # answers this as an idempotent replay, so it is not a conflict.
             return
         if requires_processing:
             required = {DocumentVersionState.VERIFIED}
@@ -212,11 +243,20 @@ class CleanupPolicy:
     """Prevent cleanup from deleting the active authoritative projection."""
 
     def may_delete(self, *, document_version_id: str, active_version_id: str | None) -> bool:
+        """Return whether ``document_version_id`` is not the active version and may be cleaned up."""
         return active_version_id is None or active_version_id != document_version_id
 
 
 @dataclass(frozen=True, slots=True)
 class SafeFailure:
+    """A failure reduced to what may be stored and shown.
+
+    Args:
+        category: Failure category.
+        retryable: Whether the run may retry.
+        code: Safe error code, free of document content.
+    """
+
     category: FailureCategory
     retryable: bool
     code: str
@@ -226,11 +266,8 @@ class IngestionFailureClassifier:
     """Map normalized domain errors to safe durable failure information.
 
     Infrastructure failures -- a dropped connection, a timeout, a full or
-    unavailable object store -- are transient in every stage. Before, any
-    unexpected exception in a parse, persist or chunk stage counted as a
-    validation failure and was never retried, so a short MinIO or database
-    outage failed documents permanently. Adapter-level types the engine cannot
-    import (storage, S3, SQL drivers) are supplied by the runtime.
+    unavailable object store -- are transient in every stage. Adapter-level
+    types core cannot import (storage, S3, SQL drivers) are supplied by the runtime.
     """
 
     def __init__(
@@ -249,6 +286,7 @@ class IngestionFailureClassifier:
         self._known_failures = (*known_failures, *_SIMPLE_FAILURES)
 
     def classify(self, stage: str, error: Exception) -> SafeFailure:
+        """Return the safe category, retry flag and code for ``error`` raised in ``stage``."""
         for error_type, category, retryable, code in self._known_failures:
             if isinstance(error, error_type):
                 return SafeFailure(category, retryable, code)
@@ -290,7 +328,6 @@ class IngestionFailureClassifier:
         Only ``raise ... from`` chains count: an error merely raised while handling
         a timeout (``__context__``) is that handler's own verdict, not the timeout.
         """
-
         seen: set[int] = set()
         current: BaseException | None = error
         while current is not None and id(current) not in seen and len(seen) < 16:

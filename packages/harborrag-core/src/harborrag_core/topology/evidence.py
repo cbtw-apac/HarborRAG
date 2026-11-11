@@ -1,5 +1,7 @@
 """Deterministic repair for exact model-provided evidence quotes."""
 
+from __future__ import annotations
+
 from harborrag_core.topology.extraction import ChunkExtractionInput, EvidenceSpan, ExtractionOutput
 
 
@@ -14,6 +16,7 @@ class EvidenceCanonicalizer:
     def canonicalize(
         self, result: ExtractionOutput, value: ChunkExtractionInput
     ) -> ExtractionOutput:
+        """Return ``result`` with every evidence span aligned to its exact quote in ``value``."""
         entities = tuple(
             item.model_copy(
                 update={
