@@ -58,6 +58,12 @@ class VectorPayload(StrictModel):
     project_id: str | None = None
     issue_key: str | None = None
     attachment_id: str | None = None
+    # SharePoint identity and the document's SharePoint URL, so a point can be
+    # attributed to its site, drive, item and opened in place.
+    site_id: str | None = None
+    drive_id: str | None = None
+    item_id: str | None = None
+    web_url: str | None = None
     # Source-owned descriptors a caller narrows or sorts a result set on. They
     # describe the evidence, never replace it: the text stays in ``content``.
     created_at: str | None = None
@@ -99,6 +105,10 @@ class VectorPayload(StrictModel):
         "project_id",
         "issue_key",
         "attachment_id",
+        "site_id",
+        "drive_id",
+        "item_id",
+        "web_url",
         "created_at",
         "updated_at",
         "resolved_at",
