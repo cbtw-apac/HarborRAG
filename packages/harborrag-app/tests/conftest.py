@@ -10,6 +10,12 @@ import pytest
 
 from harborrag_app.cli import project as project_module
 
+SHELL_VARIABLES = (
+    "HARBORRAG_LOCAL_SOURCE_ROOT",
+    "HARBORRAG_TENANT_ID",
+    "HARBORRAG_INGESTION_TENANT_ID",
+)
+
 
 @pytest.fixture(autouse=True)
 def _isolated_application_environment(
@@ -19,6 +25,10 @@ def _isolated_application_environment(
 ) -> None:
     """Use loopback auth and a durable database isolated to each test.
 
+    Drops the variables a developer's shell may export (``SHELL_VARIABLES``), and pins
+    ``COLUMNS`` so Rich does not wrap usage boxes at a narrow terminal's width; a test
+    that needs one of them sets it.
+
     Depends on ``_restore_process_environment`` so that fixture snapshots the
     environment *before* these variables are set. Without the ordering its
     snapshot included this test's own tmp-path database URL, and because its
@@ -27,6 +37,9 @@ def _isolated_application_environment(
     every suite that ran afterwards.
     """
 
+    for name in SHELL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("COLUMNS", "200")
     monkeypatch.setenv("HARBORRAG_HOST", "127.0.0.1")
     monkeypatch.setenv("HARBORRAG_ENV", "dev")
     # Every no-auth test client calls as one principal; tests that need limits set them.

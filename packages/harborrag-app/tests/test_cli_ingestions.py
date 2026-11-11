@@ -28,7 +28,12 @@ from harborrag_app.workflow_control import AppResponse
 from harborrag_app.workflow_control.composition import service as service_module
 from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
 from harborrag_app.workflow_control.ingestion import connection_sources
-from harborrag_core.contracts.errors import HarborAlreadyRunningError, HarborCapabilityError
+from harborrag_core.contracts.errors import (
+    HarborAlreadyRunningError,
+    HarborCapabilityError,
+    HarborNotFoundError,
+    HarborUnavailableError,
+)
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_runtime.execution import direct as runtime_direct
@@ -79,15 +84,18 @@ def _accepted() -> Accepted[IngestionOut]:
 
 
 class _ScriptedRuns(FakeOperations):
-    """Answers each ``get_ingestion`` with the next state of the run."""
+    """Answers each ``get_ingestion`` with the next state of the run, or raises it."""
 
-    def __init__(self, states: list[IngestionOut]) -> None:
+    def __init__(self, states: list[IngestionOut | Exception]) -> None:
         super().__init__(results={"start_ingestion": _accepted()})
         self.states = list(states)
 
     async def get_ingestion(self, *args: object, **kwargs: object) -> IngestionOut:  # type: ignore[override]  # the canned-result method is generic
         self.calls.append(Call("get_ingestion", args, dict(kwargs)))
-        return self.states.pop(0)
+        state = self.states.pop(0)
+        if isinstance(state, Exception):
+            raise state
+        return state
 
 
 class _Sleeps:
@@ -229,6 +237,78 @@ def test_ctrl_c_stops_following_leaves_the_run_going_and_says_how_to_reattach(
         "harborrag ingestions get ing_1 --watch"
     ) in err
     assert "cancel_ingestion" not in _called(fake)
+
+
+@pytest.mark.parametrize(
+    "states",
+    [
+        [_ingestion("running"), HarborUnavailableError("temporal is unavailable")],
+        [HarborUnavailableError("temporal is unavailable")],
+    ],
+    ids=["second-read", "first-read"],
+)
+def test_a_failed_read_after_the_start_keeps_the_run_id_in_the_json_envelope(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    sleeps: _Sleeps,
+    states: list[IngestionOut | Exception],
+) -> None:
+    fake = _serve(monkeypatch, _ScriptedRuns(states))
+
+    code, out, err = _run(capsys, "ingestions", "start", _REF, "--wait", "-o", "json")
+
+    assert (code, out) == (6, "")
+    error = json.loads(err)["error"]
+    assert error["code"] == "dependency_unavailable"
+    assert error["details"]["ingestion_id"] == "ing_1"
+    assert "the run started and keeps going" in error["message"]
+    assert "harborrag ingestions get ing_1 --watch" in error["message"]
+    assert "cancel_ingestion" not in _called(fake)
+
+
+def test_a_failed_read_after_the_start_is_one_table_line_naming_the_run(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sleeps: _Sleeps
+) -> None:
+    _serve(
+        monkeypatch,
+        _ScriptedRuns([_ingestion("running"), HarborUnavailableError("temporal is unavailable")]),
+    )
+
+    code, out, err = _run(capsys, "ingestions", "start", _REF, "--wait", "-o", "table")
+
+    assert code == 6
+    assert [status for status, _ in _LINE.findall(out)] == ["running"]
+    assert err.count("\n") == 1
+    assert err.startswith("error 503 dependency_unavailable: ")
+    assert "Re-attach with: harborrag ingestions get ing_1 --watch" in err
+
+
+def test_a_failed_read_while_watching_names_the_run_and_how_to_reattach(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sleeps: _Sleeps
+) -> None:
+    _serve(
+        monkeypatch,
+        _ScriptedRuns([_ingestion("running"), HarborUnavailableError("temporal is unavailable")]),
+    )
+
+    code, _, err = _run(capsys, "ingestions", "get", "ing_1", "--watch", "-o", "json")
+
+    assert code == 6
+    error = json.loads(err)["error"]
+    assert error["details"]["ingestion_id"] == "ing_1"
+    assert "harborrag ingestions get ing_1 --watch" in error["message"]
+
+
+def test_watching_a_missing_run_is_a_plain_not_found(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], sleeps: _Sleeps
+) -> None:
+    _serve(monkeypatch, _ScriptedRuns([HarborNotFoundError("ingestion 'ing_x' not found")]))
+
+    code, _, err = _run(capsys, "ingestions", "get", "ing_x", "--watch", "-o", "table")
+
+    assert code == 3
+    assert err.startswith("error 404 not_found: ingestion 'ing_x' not found (trace ")
+    assert "Re-attach" not in err
 
 
 def test_item_refs_reach_the_operation_and_its_501_exits_2(

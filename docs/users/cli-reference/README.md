@@ -88,7 +88,9 @@ option.
 
 A flag beats its environment variable, which beats the profile, which beats the built-in
 default. `HARBORRAG_TENANT_ID` is also the default tenant of the API and the workers, so
-the three act in the same tenant unless you pass `--tenant`.
+the three act in the same tenant unless you pass `--tenant`. An exported
+`HARBORRAG_TENANT_ID`, for example from sourcing the API's env file, therefore outranks
+a profile's `tenant`.
 
 Two options belong to `harborrag` itself and go before the command: `--no-color` turns
 color off (as `NO_COLOR=1` does), and `--project DIR` names a project directory (see
@@ -207,8 +209,10 @@ without a terminal or `--yes`.
 | `130` | Interrupted with Ctrl-C | none |
 
 `connections test` exits 0 even when its result says `"ok": false`, because the route
-answers `200`; read `ok` from the output. A run that succeeded with some failed items
-also exits 0.
+answers `200`; read `ok` from the output. It checks a `local_file` folder on the machine
+where the CLI runs; see
+[Manage projects and connections](#manage-projects-and-connections). A run that
+succeeded with some failed items also exits 0.
 
 ## Run from a repository checkout
 
@@ -293,15 +297,21 @@ uv run harborrag connections test engineering/jira-main -f jira-main.yaml
 uv run harborrag connections create engineering/jira-main -f jira-main.yaml
 ```
 
-- A secret is a value, or `{secret_ref: env:NAME}`, in the file. Leave it out of the file
-  and pass `--secret-prompt api_token` to type it without echo; never put a secret on the
-  command line. A secret left out on `update` keeps its stored value.
+- A secret is a value, or `{secret_ref: env:NAME}`, in the file. `connections create` and
+  `connections update` also take `--secret-prompt api_token`: leave the secret out of the
+  file and type it without echo. Never put a secret on the command line. A secret left
+  out on `update` keeps its stored value.
 - An `env:` reference can be set only from the CLI and `config/sources/connectors.yaml`;
   the HTTP API takes values. The worker reads `NAME` from its own environment.
 - `update` replaces `config` whole, and `advanced` when the file has it; start an update
   from `harborrag connections get REF -o yaml`.
 - `test` checks sign-in, reachability and a sample of items without saving. Without
   `-f` it tests the saved connection.
+- In local mode `test` runs its checks in the CLI's process, so it checks a `local_file`
+  connection's folder on the machine where the CLI runs, as `--inline` reads it. The
+  stack's `default/harborrag-workspace` names `/data/sources`, which exists only in the
+  containers, so from a checkout it answers `"ok": false` while the same test over HTTP
+  passes.
 - `delete` removes the connection's documents, stored secrets and row in the
   background, and prints the job; `--purge` also drops its ingestion history.
 
@@ -343,6 +353,17 @@ stops following, leaves the run going, prints how to re-attach and exits 130:
 ```text
 Stopped following; the run keeps going. Re-attach with: harborrag ingestions get <ingestion_id> --watch
 ```
+
+When a read of the run fails while following, for example because Temporal is
+unreachable, the command stops following and leaves the run going. It exits with that
+error's code, such as 6 for `503`, and the error says how to re-attach; in JSON its
+`details` carry the run's `ingestion_id`:
+
+```text
+error 503 dependency_unavailable: temporal is unavailable; stopped following, the run started and keeps going. Re-attach with: harborrag ingestions get <ingestion_id> --watch (trace e41dea83…)
+```
+
+A run that does not exist is `404 not_found`, exit 3, as without `--watch`.
 
 ### Pause, resume, cancel and retry
 

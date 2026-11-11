@@ -222,7 +222,10 @@ the saved connection.
 
 From a terminal, `harborrag connections test demo/demo-tickets -f demo-tickets.yaml`
 tests a body file the same way. It exits 0 even when a check fails, as the route answers
-`200`, so read `ok` from its output.
+`200`, so read `ok` from its output. The CLI runs the checks in its own process, so it
+checks a `local_file` folder on the machine where the CLI runs: from a checkout, a
+connection to `/data/sources`, which exists only in the containers, answers
+`"ok": false` while the same test over HTTP passes.
 
 ### 3. Save the connection
 
@@ -598,6 +601,8 @@ link out of it is refused too.
 - Set the same value on the API, the workers and the `harborrag` CLI. The compose files
   set it for the API and the workers. From a checkout, the CLI reads it from
   `env/.env.database`.
+- `harborrag connections test` and `harborrag ingestions start --inline` look for the
+  folder on the machine where the CLI runs, not in the containers.
 - Without a root, the API refuses `local_file` connections with `422` on
   `config.source_path`, since any file the workers can read would otherwise be accepted.
   `config/sources/connectors.yaml` and the `harborrag connections` commands can still add

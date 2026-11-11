@@ -51,7 +51,7 @@ any command builds a service. The kernel modules every command shares:
 | `paging.py` | `--limit`, `--cursor` and `--all` |
 | `tenant_guard.py` | The question before a write into a tenant with no data, and before a deletion |
 | `local_mode.py` | The local-mode principal, `cli:<os-user>` with role `owner` in every tenant |
-| `follow.py` | `--wait` and `--watch`: reads a run every 5 seconds until it ends |
+| `follow.py` | `--wait` and `--watch`: reads a run every 5 seconds until it ends; a read that fails reports the error with the run's ID and how to re-attach |
 | `inline_run.py` | `ingestions start --inline`: runs the pipeline in this process without Temporal |
 | `environment.py` | Loads the checkout's `env/` files and refuses writes to the local SQLite control database |
 | `project.py` | Finds the checkout or a `harborrag.yaml` project directory |
@@ -75,10 +75,11 @@ One module per command group in `commands/`:
 | `harborrag auth keys` | `create`, `list`, `revoke` | `commands/auth.py`, `commands/auth_keys.py` |
 | `harborrag source`, `harborrag ingest` (hidden) | the old names | `commands/legacy.py` |
 
-The legacy stubs accept any arguments, print the command that replaced the old one,
-such as `error: 'harborrag source list' was renamed; use 'harborrag connections list'`,
-and exit 2. Only the subcommands are stubs: bare `harborrag source` says
-`Missing command.`, and `--help` on a stub shows an empty help screen. `retrieve` and
+The legacy stubs accept any arguments, `--help` and `-h` included, print the command that
+replaced the old one, such as
+`error: 'harborrag source list' was renamed; use 'harborrag connections list'`, and exit
+2. A group alone, with or without `--help`, names the group that replaced it:
+`error: 'harborrag ingest' was renamed; use 'harborrag ingestions'`. `retrieve` and
 `topology` are not registered at all.
 
 ## Add or change a command

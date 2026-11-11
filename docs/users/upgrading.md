@@ -99,10 +99,11 @@ removed; [Temporal configuration](../../deploy/temporal/README.md) and
 now sets the default tenant of the API as well as the workers and the CLI. There is no
 alias: a process that still has the old name set stops at start-up with
 `HARBORRAG_INGESTION_TENANT_ID was renamed to HARBORRAG_TENANT_ID`. Rename it wherever
-it is set, such as `env/.env.api`, `env/.env.worker` and your deployment manifests. The
-compose files pass `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) to the API and the
-workers. An API credential that holds every tenant (`*`) and sends no `X-Tenant-Id`
-header now acts in that tenant instead of always `DEFAULT`.
+it is set: in `env/.env.api` and `env/.env.temporal` (the workers' file), which the
+earlier templates set to `DEFAULT`, in a shell that exports it, and in your deployment
+manifests. The compose files pass `HARBORRAG_TENANT_ID` (`DEFAULT` unless set) to the API
+and the workers. An API credential that holds every tenant (`*`) and sends no
+`X-Tenant-Id` header now acts in that tenant instead of always `DEFAULT`.
 
 ### Set the local source root
 
@@ -211,8 +212,9 @@ that calls the CLI.
 #### Rename the commands
 
 An old subcommand, such as `harborrag source list`, prints the command that replaced it
-and exits 2:
+and exits 2, with `--help` too:
 `error: 'harborrag source list' was renamed; use 'harborrag connections list'`.
+`harborrag source` and `harborrag ingest` alone name the group that replaced them.
 
 | Before | Now |
 | --- | --- |

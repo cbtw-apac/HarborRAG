@@ -76,12 +76,6 @@ def _respond(
     )
 
 
-def spec_error_body(request: Request, exc: HarborError) -> dict[str, object]:
-    """Return the error object for ``exc`` without raising it, e.g. inside a 2xx body."""
-    body = error_body(exc)
-    return error_envelope(request, body.code, body.message, body.details)["error"]  # type: ignore[return-value]
-
-
 def _field_of(location: tuple[object, ...], kind: str) -> str:
     """The dotted field a validation error names; ``body`` for an unparsable body."""
     if kind == "json_invalid":

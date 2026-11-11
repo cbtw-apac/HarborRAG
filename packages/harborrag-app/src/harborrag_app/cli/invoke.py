@@ -7,7 +7,8 @@ Handles:
 - The body on stdout and exit 0, or the exit code an ``Outcome`` names (``8`` for a followed
   run that failed); a result that cannot be printed after the operation ran is reported as
   that, exit 1, never as the operation failing; any failure as the HTTP error envelope or one
-  line on stderr, with a trace id minted per invocation, and the spec's exit code
+  line on stderr, with a trace id minted per invocation, and the spec's exit code; a
+  ``ReportedError`` as the command worded it
 - The invocation's trace id, minted once and read by a call through ``current_trace_id``
 - A failure to set up the local service (settings, composition, control-plane readiness) as
   the operator's own configuration error: ``error_body``'s status and code, with a message
@@ -112,6 +113,20 @@ def release_held_logs() -> None:
         hold.release()
 
 
+class ReportedError(Exception):
+    """A failure the command has worded itself, such as one after its write was committed.
+
+    ``run_operation`` prints ``error`` as it is, with its status's exit code.
+
+    Args:
+        error: The failure as the command reports it.
+    """
+
+    def __init__(self, error: ErrorBody) -> None:
+        super().__init__(error.code)
+        self.error = error
+
+
 class LocalSetupError(Exception):
     """The local application service could not be built or is not ready to use.
 
@@ -155,7 +170,7 @@ def run_operation(
         except _CLICK_OUTCOMES:
             raise
         except Exception as exc:  # noqa: BLE001 - the CLI's one error boundary, as HTTP's handlers
-            error = setup_error(exc.cause) if isinstance(exc, LocalSetupError) else error_body(exc)
+            error = _reported(exc)
             logger.debug("%s failed trace_id=%s", operation_id, trace_id, exc_info=exc)
             print_error(error, output=globals.output, trace_id=trace_id)
             raise typer.Exit(exit_code_for(error.status)) from None
@@ -287,6 +302,15 @@ async def _run(call: OperationCall, *, globals: Globals, write: bool) -> object:
                 operations, globals.tenant, yes=globals.yes, interactive=sys.stdin.isatty()
             )
         return await call(operations, cli_scope(globals.tenant))
+
+
+def _reported(exc: Exception) -> ErrorBody:
+    """The error to print for a failed invocation."""
+    if isinstance(exc, ReportedError):
+        return exc.error
+    if isinstance(exc, LocalSetupError):
+        return setup_error(exc.cause)
+    return error_body(exc)
 
 
 def _unwrapped(result: object) -> object:

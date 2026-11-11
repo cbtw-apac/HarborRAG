@@ -215,7 +215,8 @@ In a terminal you should see a table with one row per connection, among them:
 
 `connection_ref` is how every command names a connection: the project, a slash, then the
 connection, `PROJECT_ID/CONNECTION_ID`. The other connections in the file need credentials
-you have not set, so they may show the status `error`; this tutorial does not use them.
+you have not set, so they may show the status `error` or `needs_reauth`; this tutorial
+does not use them.
 
 ## 5. Ingest the documentation folder
 

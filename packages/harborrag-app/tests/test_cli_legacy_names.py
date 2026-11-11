@@ -49,6 +49,45 @@ def test_old_name_exits_2_and_names_the_new_command(
     )
 
 
+@pytest.mark.parametrize("flag", ["--help", "-h"])
+@pytest.mark.parametrize(("pair", "replacement"), sorted(LEGACY.items()))
+def test_help_on_an_old_name_prints_the_hint_and_exits_2(
+    pair: tuple[str, str], replacement: str, flag: str, capsys: pytest.CaptureFixture[str]
+) -> None:
+    group, action = pair
+
+    code = cli.main([group, action, flag])
+
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (2, "")
+    assert captured.err.strip() == (
+        f"error: 'harborrag {group} {action}' was renamed; use 'harborrag {replacement}'"
+    )
+
+
+@pytest.mark.parametrize("flag", [[], ["--help"], ["-h"]], ids=["bare", "--help", "-h"])
+@pytest.mark.parametrize(
+    ("group", "hint"),
+    [
+        (
+            "source",
+            "error: 'harborrag source' was renamed; use 'harborrag connections'"
+            " (and 'harborrag ingestions start' for syncs)",
+        ),
+        ("ingest", "error: 'harborrag ingest' was renamed; use 'harborrag ingestions'"),
+    ],
+    ids=["source", "ingest"],
+)
+def test_an_old_group_alone_prints_its_hint_and_exits_2(
+    group: str, hint: str, flag: list[str], capsys: pytest.CaptureFixture[str]
+) -> None:
+    code = cli.main([group, *flag])
+
+    captured = capsys.readouterr()
+    assert (code, captured.out) == (2, "")
+    assert captured.err.strip() == hint
+
+
 @pytest.mark.parametrize("argv", [["retrieve", "x"], ["topology", "status"]])
 def test_removed_commands_are_unknown(argv: list[str], capsys: pytest.CaptureFixture[str]) -> None:
     assert cli.main(argv) == 2

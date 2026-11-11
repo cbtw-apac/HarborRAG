@@ -10,6 +10,19 @@ from pathlib import Path
 import fastmcp.server.sessions  # noqa: F401
 import pytest
 
+SHELL_VARIABLES = (
+    "HARBORRAG_LOCAL_SOURCE_ROOT",
+    "HARBORRAG_TENANT_ID",
+    "HARBORRAG_INGESTION_TENANT_ID",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_from_shell(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Drop the variables a developer's shell may export; a test that needs one sets it."""
+    for name in SHELL_VARIABLES:
+        monkeypatch.delenv(name, raising=False)
+
 
 @pytest.fixture(autouse=True)
 def _isolated_audit_log(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
