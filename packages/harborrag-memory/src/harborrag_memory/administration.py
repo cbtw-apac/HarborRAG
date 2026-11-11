@@ -45,19 +45,25 @@ if TYPE_CHECKING:
 logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
 
 _PAGE = 1_000
-# Bounds a pathological purge (a store growing while it is erased) instead of
-# spinning forever; 50 pages is 50k memories for one user.
 _MAX_PASSES = 50
+"""Pages one purge may read, so a store growing while it is erased cannot loop forever.
+
+At ``_PAGE`` rows a page this bounds a purge at 50k memories for one user.
+"""
 _USER_SCOPES = (MemoryScope.USER,)
 _SESSION_SCOPES = (MemoryScope.SESSION,)
-# Scopes a user's own rows can carry that no caller-visibility query can reach
-# for them: PROJECT and TENANT key on fields other than the user. Matched on the
-# row's stored user instead.
 _AUTHORED_SCOPES = (MemoryScope.PROJECT, MemoryScope.TENANT)
-# Scopes whose rows are shared beyond their author: visible to anyone in the tenant (and
-# project) by design, but only the author -- or a caller granted the scope through
-# ``shared_scopes`` -- may delete one, and only the author sees its provenance.
+"""Scopes whose rows a caller-visibility query cannot reach for their author.
+
+PROJECT and TENANT key on fields other than the user, so they are matched on the
+row's stored user instead.
+"""
 _SHARED_SCOPES = frozenset({MemoryScope.PROJECT, MemoryScope.TENANT})
+"""Scopes whose rows are visible beyond their author, by design.
+
+Only the author, or a caller granted the scope through ``shared_scopes``, may delete
+one, and only the author sees its provenance.
+"""
 _NO_STORE = "long-term memory is not configured for this deployment"
 
 
@@ -80,6 +86,8 @@ class ErasureReport:
     conversation_messages_cleared: int = 0
 
     def as_dict(self) -> dict[str, int]:
+        """Return the counts keyed by category name."""
+
         return {
             "memories": self.memories,
             "index_points": self.index_points,
@@ -172,7 +180,11 @@ class MemoryAdministrationService:
         )
 
     async def erase_session(self, owner: MemoryOwner, *, actor: str) -> ErasureReport:
-        """Erase one session: its messages, its session memories, its vectors."""
+        """Erase one session: its messages, its session memories, its vectors.
+
+        Deletes the session itself, not only its messages: an emptied session still
+        exists, so it would keep appearing in the caller's conversation list.
+        """
 
         if owner.session_id is None or owner.principal_id is None:
             raise HarborNotFoundError("Conversation session was not found")
@@ -184,9 +196,6 @@ class MemoryAdministrationService:
         )
         if not await self._conversations.exists(identity):
             raise HarborNotFoundError("Conversation session was not found")
-        # Delete the session itself, not only its messages: an emptied session
-        # still exists, so it would keep appearing in the caller's
-        # conversation list after they deleted it.
         effect_id = await self._erasure.begin(
             SESSION_ERASURE,
             owner,
@@ -236,7 +245,9 @@ class MemoryAdministrationService:
         Runs in two passes because scope visibility is asymmetric: user-scoped
         memories are reachable from ``user_id`` alone and name the sessions
         they came from, and only then can the session-scoped rows (and the
-        conversations themselves) be addressed.
+        conversations themselves) be addressed. A final pass purges what the user
+        authored outside their own visibility key; without it a project-scoped fact
+        about the erased user would stay recallable to everyone else in that project.
         """
 
         target = owner.user_id
@@ -259,9 +270,6 @@ class MemoryAdministrationService:
             await self._conversations.clear_messages(
                 ConversationIdentity(owner.tenant_id, principal_id, session_id, target)
             )
-        # Anything the user authored outside their own visibility key. Without
-        # this pass a project-scoped fact about the erased user survives and
-        # stays recallable to everyone else in that project.
         authored = await self._purge(user_owner, _AUTHORED_SCOPES, stored_by_owner=True)
         memories += authored.memories
         points += authored.index_points
@@ -287,6 +295,12 @@ class MemoryAdministrationService:
         the way out, so a user erasure learns which conversations produced the
         facts it just removed without a second query -- and without missing
         the pages beyond the first.
+
+        Authorization is established by the search, which pins each row to this tenant
+        and user: ``delete`` re-checks visibility, and a PROJECT-scoped row is not
+        visible to an eraser holding no project_id, but the row's own owner always
+        satisfies that check. The journal retains the row's full owner so replay
+        remains possible after canonical deletion.
         """
 
         if self._memories is None:
@@ -307,14 +321,6 @@ class MemoryAdministrationService:
             if not rows:
                 return _Purged(deleted, unindexed, frozenset(conversations))
             for row in rows:
-                # ``delete`` re-checks visibility, and a PROJECT-scoped row is
-                # not visible to an eraser holding no project_id -- the same
-                # asymmetry that hides it from the query. The row's own owner
-                # always satisfies that check, and the search above already
-                # pinned the row to this tenant and user, so authorization is
-                # established before we get here rather than by this argument.
-                # Search established authorization; the journal retains the row's
-                # full owner so replay remains possible after canonical deletion.
                 unindexed += await self._erasure.erase_memory(row)
                 deleted += 1
                 principal_id = row.owner.principal_id

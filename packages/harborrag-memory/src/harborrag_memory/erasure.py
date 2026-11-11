@@ -33,6 +33,14 @@ def stored_owner(payload: Mapping[str, Any]) -> MemoryOwner:
 
 
 class MemoryErasureJournal:
+    """Record erasure intents durably so an interrupted deletion can be replayed.
+
+    Args:
+        memories: Canonical memory rows, or None when long-term memory is off.
+        index: Vector index for memories, or None when none is configured.
+        pending: Journal of pending effects, or None to erase without recovery.
+    """
+
     def __init__(
         self,
         memories: MemoryRepository | None,
@@ -44,20 +52,32 @@ class MemoryErasureJournal:
         self.pending = pending
 
     async def begin(self, kind: str, owner: MemoryOwner, **fields: object) -> str | None:
+        """Enqueue an erasure intent and return its id, or None when no journal exists.
+
+        The enqueue failure propagates before any deletion loses the recovery identifiers.
+        """
+
         if self.pending is None:
             return None
         effect = PendingControlPlaneEffect(
             id=f"eff_{uuid4().hex}", kind=kind, payload={"owner": asdict(owner), **fields}
         )
-        # Failure must propagate before any deletion loses the recovery identifiers.
         await self.pending.enqueue(effect)
         return effect.id
 
     async def complete(self, effect_id: str | None) -> None:
+        """Mark an erasure intent done; a missing id or journal is a no-op."""
+
         if effect_id is not None and self.pending is not None:
             await self.pending.complete(effect_id)
 
     async def erase_memory(self, memory: Memory) -> int:
+        """Delete one memory row and its index point, returning the points removed.
+
+        Without a journal the index is cleared first, so the canonical row survives an
+        unavailable index; with one, an index failure queues the point for retry and returns 0.
+        """
+
         effect_id = await self.begin(
             MEMORY_ERASURE,
             memory.owner,
@@ -65,7 +85,6 @@ class MemoryErasureJournal:
             index_required=self.index is not None,
         )
         if self.pending is None:
-            # Without a journal, preserve the canonical row if the index is unavailable.
             count = await self._unindex(memory.owner, memory.memory_id)
             if self.memories is not None:
                 await self.memories.delete(memory.owner, memory.memory_id)
@@ -85,6 +104,12 @@ class MemoryErasureJournal:
         return count
 
     async def replay(self, effect: PendingControlPlaneEffect) -> bool:
+        """Re-run a recorded memory erasure; return False for any other effect kind.
+
+        Raises:
+            HarborUnavailableError: The stores the intent needs are not configured.
+        """
+
         if effect.kind != MEMORY_ERASURE:
             return False
         owner = stored_owner(effect.payload["owner"])

@@ -52,6 +52,8 @@ class CitationRecord:
     page: int | None = None
 
     def __post_init__(self) -> None:
+        """Reject a citation number below 1."""
+
         if self.n < 1:
             raise ValueError("citation n starts at 1")
 
@@ -78,6 +80,8 @@ class ExchangeRecord:
     answer_id: str = field(default_factory=new_message_id)
 
     def __post_init__(self) -> None:
+        """Reject a mode outside ``CHAT_MODES``."""
+
         if self.mode not in CHAT_MODES:
             raise ValueError(f"exchange mode must be one of {', '.join(CHAT_MODES)}")
 
