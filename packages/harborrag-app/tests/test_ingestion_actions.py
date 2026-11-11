@@ -19,24 +19,24 @@ from workflow_control_fixtures import (
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
-from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
-from harborrag_app.workflow_control.control_plane.connections import (
-    ConnectionKey,
-    ConnectionService,
-)
-from harborrag_app.workflow_control.errors import IngestionActionStateError
-from harborrag_app.workflow_control.ingestion.operations import (
-    ACTION_WAIT_SECONDS,
-    IngestionOperations,
-)
-from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
 from harborrag_core.contracts.errors import HarborAlreadyRunningError, HarborConnectionError
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
+from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
+from harborrag_runtime.application.control_plane.connections import (
+    ConnectionKey,
+    ConnectionService,
+)
+from harborrag_runtime.application.errors import IngestionActionStateError
+from harborrag_runtime.application.ingestion.operations import (
+    ACTION_WAIT_SECONDS,
+    IngestionOperations,
+)
+from harborrag_runtime.application.ingestion.service import IngestionApplicationService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
     WorkflowNotFoundError,
@@ -267,7 +267,7 @@ async def test_cancelling_a_queued_run_without_a_workflow_leaves_it_queued(
 async def test_an_action_on_a_run_of_another_tenant_is_not_found(
     service_resources: _Resources,
 ) -> None:
-    from harborrag_app.workflow_control.errors import IngestionNotFoundError
+    from harborrag_runtime.application.errors import IngestionNotFoundError
 
     task_id = await _start(service_resources)
 

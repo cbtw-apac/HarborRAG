@@ -6,13 +6,13 @@ import asyncio
 
 import pytest
 
-from harborrag_app.workflow_control.memory.locks import (
+from harborrag_core.ports.conversation import ConversationIdentity
+from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.memory.locks import (
     ConversationTurnBusyError,
     ConversationTurnLeaseLostError,
     SessionLocks,
 )
-from harborrag_core.ports.conversation import ConversationIdentity
-from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

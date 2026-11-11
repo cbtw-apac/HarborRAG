@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from harborrag_app.workflow_control.chat.turn import StreamedAnswer
 from harborrag_core.models.chat import HarborChatStreamChunk, HarborChatUsage, StreamEventType
+from harborrag_runtime.application.chat.turn import StreamedAnswer
 
 
 def test_stream_retains_cost_when_later_chunks_omit_it() -> None:

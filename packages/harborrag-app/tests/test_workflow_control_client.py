@@ -24,11 +24,11 @@ from workflow_control_fixtures import (
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
-from harborrag_app.workflow_control.ingestion.client import PublicIngestionClientMixin
-from harborrag_app.workflow_control.ingestion.durable import DurableIngestionOperations
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
+from harborrag_runtime.application.ingestion.client import PublicIngestionClientMixin
+from harborrag_runtime.application.ingestion.durable import DurableIngestionOperations
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
     RuntimeConnectionError,

@@ -37,7 +37,8 @@ lists each command's options.
   See [Connections](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/connections.md)
   and [Chat](https://github.com/cbtw-apac/HarborRAG/blob/main/docs/users/chat/README.md).
 - **One set of operations** that both call. The CLI and the API never construct
-  connectors or repositories themselves.
+  connectors or repositories themselves; the application services behind the operations live in
+  [`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md).
 
 ## Run and control ingestions
 

@@ -14,11 +14,11 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from harborrag_app.workflow_control.chat.evidence import ChatEvidence
-from harborrag_app.workflow_control.chat.presenters import citation_marker, cited_results
-from harborrag_app.workflow_control.chat.prompting import prompt_text
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage, HarborChatMetadata, HarborChatRequest
+from harborrag_runtime.application.chat.evidence import ChatEvidence
+from harborrag_runtime.application.chat.presenters import citation_marker, cited_results
+from harborrag_runtime.application.chat.prompting import prompt_text
 from harborrag_runtime.chat import ChatPrompt, RuntimeChatService
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import RetrievalResponse

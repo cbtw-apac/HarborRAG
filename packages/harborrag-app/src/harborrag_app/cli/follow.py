@@ -29,8 +29,8 @@ from harborrag_app.cli.output import OutputFormat
 from harborrag_app.operations.errors import ErrorBody, error_body
 from harborrag_app.operations.port import Operations
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control.control_plane.connection_views import ingestion_status
-from harborrag_app.workflow_control.ingestion.presenters import TERMINAL_STATES
+from harborrag_runtime.application.control_plane.connection_views import ingestion_status
+from harborrag_runtime.application.ingestion.presenters import TERMINAL_STATES
 
 POLL_SECONDS = 5.0
 ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)

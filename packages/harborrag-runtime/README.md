@@ -30,6 +30,7 @@ src/harborrag_runtime/
   ingestion/                # document release, source orchestration and maintenance services
   retrieval/                # retrieval service, its composition from settings and service facades
   chat/                     # chat service, model-client composition and per-tenant chat clients
+  application/              # application services behind the HTTP API and the CLI: chat, memory, ingestion, control plane
   memory/                   # database-backed conversation memory and its composition
   scheduling/               # schedule management on top of the execution engine
   topology/                 # opt-in durable topology enrichment, independent of publication
@@ -54,6 +55,8 @@ src/harborrag_runtime/
 
 The ingestion services and their dependency rules are described in the
 [ingestion runtime notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/ingestion/README.md),
+the application services in the
+[application notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
 and chat composition in the
 [runtime chat notes](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/chat/README.md).
 

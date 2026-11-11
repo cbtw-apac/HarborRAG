@@ -17,9 +17,6 @@ from datetime import timedelta
 
 import pytest
 
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
-from harborrag_app.workflow_control.ingestion.progress_bridge import LEASE_NAME
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.settings import WorkspaceSettings
@@ -38,6 +35,9 @@ from harborrag_core.testing.control_plane_fakes import (
 )
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
+from harborrag_runtime.application.ingestion.progress_bridge import LEASE_NAME
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.events.in_process import InProcessEventBus
 

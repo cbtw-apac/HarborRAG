@@ -644,7 +644,7 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 - **`harborrag chat`** calls `POST /v1/chat/completions` and prints the new answer;
   `-o json` prints the completion body. Without `--session-id` it asks a one-off
   question; see [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
-- **SDK callers of the chat service** (`harborrag_app.workflow_control`):
+- **SDK callers of the chat service** (`harborrag_runtime.application`):
   - `ChatExecutionOptions.session_id` is optional (`None` asks a one-off question),
     `project_id` is replaced by `project_ids` (one-off questions only), and `mode`,
     `connections`, `filters` and `trace_id` are new.

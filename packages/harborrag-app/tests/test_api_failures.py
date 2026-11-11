@@ -17,11 +17,6 @@ from test_api_admin_ingestion_reads import without_offset
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.errors import (
-    IngestionNotFoundError,
-    IngestionRetryConflictError,
-)
-from harborrag_app.workflow_control.ingestion.failure_inbox import FailureInboxService
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import (
     FailurePage,
@@ -29,6 +24,11 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
     StoredFailure,
 )
+from harborrag_runtime.application.errors import (
+    IngestionNotFoundError,
+    IngestionRetryConflictError,
+)
+from harborrag_runtime.application.ingestion.failure_inbox import FailureInboxService
 
 pytestmark = pytest.mark.unit
 

@@ -24,10 +24,6 @@ from harborrag_app.cli import main as cli
 from harborrag_app.cli.commands import ingestions
 from harborrag_app.cli.invoke import Outcome
 from harborrag_app.operations import Accepted, ConnectionRef
-from harborrag_app.workflow_control import AppResponse
-from harborrag_app.workflow_control.composition import service as service_module
-from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
-from harborrag_app.workflow_control.ingestion import connection_sources
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborCapabilityError,
@@ -36,6 +32,10 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_runtime.application import AppResponse
+from harborrag_runtime.application.composition import service as service_module
+from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.ingestion import connection_sources
 from harborrag_runtime.execution import direct as runtime_direct
 
 pytestmark = pytest.mark.unit

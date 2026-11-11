@@ -8,8 +8,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.connection_sources import ConnectionSourceInputBuilder
-from harborrag_app.workflow_control.ingestion.recovery import source_from_task
 from harborrag_core.config_store import SettingsLevel, SettingsSnapshot, resolve_effective
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
@@ -17,6 +15,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
 )
+from harborrag_runtime.application.ingestion.connection_sources import ConnectionSourceInputBuilder
+from harborrag_runtime.application.ingestion.recovery import source_from_task
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 from harborrag_runtime.ingestion_contracts import RunSettings, SourceSubmission

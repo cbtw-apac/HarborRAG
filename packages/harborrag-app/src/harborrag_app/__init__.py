@@ -1,6 +1,6 @@
 from importlib.metadata import PackageNotFoundError, version
 
-from harborrag_app.workflow_control import AppResponse, BaseAppService
+from harborrag_runtime.application import AppResponse, BaseAppService
 
 try:
     __version__ = version("harborrag-app")

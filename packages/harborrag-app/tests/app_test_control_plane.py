@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.job import Job
@@ -29,6 +28,7 @@ from harborrag_core.testing.control_plane_fakes import (
 )
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.composition.service import AppService
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 
 

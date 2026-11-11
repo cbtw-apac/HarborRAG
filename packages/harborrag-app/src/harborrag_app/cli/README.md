@@ -23,7 +23,7 @@ uv run harborrag --help
 ```
 
 The base package is enough for `--help`. A command that calls an operation builds the
-whole application service in its process, so it needs the services that service uses:
+whole application service (`harborrag_runtime.application`) in its process, so it needs the services that service uses:
 the control database, Temporal for ingestion runs, and the stores and the model gateway
 for `chat`. Start the repository's development stack with:
 

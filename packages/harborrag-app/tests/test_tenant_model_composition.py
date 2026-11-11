@@ -14,9 +14,9 @@ from types import SimpleNamespace
 import pytest
 from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.resources import AppResources
-from harborrag_app.workflow_control.composition.tenant_models import tenant_model_sources
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.resources import AppResources
+from harborrag_runtime.application.composition.tenant_models import tenant_model_sources
 from harborrag_runtime.config.settings import RuntimeSettings
 
 _LOGGER = "harborrag.app.workflow_control.composition.tenant_models"

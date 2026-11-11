@@ -44,8 +44,8 @@ generated metrics scrape token and `dev.sh api` for the API alone are in the
 
 ## Composition
 
-The application lifespan builds one `AppService` through the runtime's production
-composition and closes it at process shutdown. Its control database is
+The application lifespan builds one `AppService`, defined in `harborrag_runtime.application`,
+through the runtime's production composition and closes it at process shutdown. Its control database is
 `HARBORRAG_CONTROL_DB_URL`, a local SQLite file by default. Outside
 `HARBORRAG_ENV=dev`, SQLite and `HARBORRAG_AUTH_MODE=none` are both refused at startup.
 

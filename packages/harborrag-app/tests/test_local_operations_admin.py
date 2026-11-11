@@ -22,8 +22,6 @@ from harborrag_app.operations import (
     Tagged,
     TenantForbiddenError,
 )
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
-from harborrag_app.workflow_control.control_plane.settings_service import SettingsRead
 from harborrag_core.config_store import SettingsLevel
 from harborrag_core.contracts.errors import (
     HarborAuthError,
@@ -31,6 +29,8 @@ from harborrag_core.contracts.errors import (
     HarborValidationError,
 )
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.application.control_plane.settings_service import SettingsRead
 
 pytestmark = pytest.mark.unit
 
@@ -196,7 +196,7 @@ async def test_tenant_has_data_reads_projects_connections_and_settings(
 
 @pytest.mark.asyncio
 async def test_tenants_with_data_lists_each_tenant_once_in_code_point_order() -> None:
-    from harborrag_app.workflow_control.control_plane.tenants import tenants_with_data
+    from harborrag_runtime.application.control_plane.tenants import tenants_with_data
 
     world = connection_world(
         [

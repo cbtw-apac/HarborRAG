@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_app.workflow_control.memory.context import recent_memory_context
-from harborrag_app.workflow_control.memory.identity import MemoryIdentity
 from harborrag_memory.messages import answer_message, question_message
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.memory.context import recent_memory_context
+from harborrag_runtime.application.memory.identity import MemoryIdentity
 
 IDENTITY = MemoryIdentity("ACME", "reader", "alice", "session")
 

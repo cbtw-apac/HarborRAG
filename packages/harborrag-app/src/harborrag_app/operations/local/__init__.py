@@ -18,7 +18,7 @@ from .ingestions import IngestionOps
 from .settings import SettingsOps
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 _TENANT_LEVEL = SettingsLevel("tenant")
 

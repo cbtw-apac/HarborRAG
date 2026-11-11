@@ -12,11 +12,11 @@ from chat_service_fixtures import (
 )
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.chat.presenters import citation_marker
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_runtime.application.chat import ChatExecutionOptions
+from harborrag_runtime.application.chat.presenters import citation_marker
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
 from harborrag_runtime.memory import MemoryPolicy
 
 

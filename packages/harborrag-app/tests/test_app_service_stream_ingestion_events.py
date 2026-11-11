@@ -17,10 +17,10 @@ from dataclasses import replace
 import pytest
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
 from harborrag_runtime.events.in_process import InProcessEventBus
 
 
@@ -239,7 +239,7 @@ async def test_a_live_watcher_gets_run_completed_when_the_run_ends_between_bridg
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(
-        "harborrag_app.workflow_control.composition.service._END_CHECK_SECONDS", 0.01
+        "harborrag_runtime.application.composition.service._END_CHECK_SECONDS", 0.01
     )
     task = _ended_task(IngestionTaskState.RUNNING)
     store = _EventLogStore(task)

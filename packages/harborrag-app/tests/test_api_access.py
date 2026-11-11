@@ -17,12 +17,12 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.access import api_routes, minimum_role
 from harborrag_app.api.auth.principal import ROLE_ORDER
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
-from harborrag_app.workflow_control.control_plane.settings_service import SettingsService
 from harborrag_core.config_store import SettingsRegistry
 from harborrag_core.domain.project import Project
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.security.api_key_service import VerifiedKey
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.application.control_plane.settings_service import SettingsService
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _KEY = "hrk_dev_v1_0123456789abcdef01234567." + "k" * 43

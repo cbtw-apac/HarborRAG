@@ -21,13 +21,13 @@ from harborrag_app.cli.exit_codes import RUN_FAILED
 from harborrag_app.cli.invoke import DEBUG_HINT, Outcome
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.scope import ConnectionRef, Scope
-from harborrag_app.workflow_control.ingestion.direct import new_run_id
 from harborrag_core.contracts.errors import HarborError, HarborValidationError
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_runtime.application.ingestion.direct import new_run_id
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 LOCAL_FILE = "local_file"
 SUCCEEDED_STATES = frozenset({IngestionTaskState.COMPLETED, IngestionTaskState.PARTIAL})

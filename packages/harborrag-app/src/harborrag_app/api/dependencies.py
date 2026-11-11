@@ -20,7 +20,7 @@ from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.port import Operations
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control import BaseAppService
+from harborrag_runtime.application import BaseAppService
 
 
 @dataclass(frozen=True, slots=True)

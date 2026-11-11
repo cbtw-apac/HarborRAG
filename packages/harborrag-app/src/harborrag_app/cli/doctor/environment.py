@@ -14,8 +14,8 @@ import yaml
 from pydantic import ValidationError
 
 from harborrag_app.cli.project import active_project
-from harborrag_app.workflow_control.errors import public_error_message, validation_error_detail
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_runtime.application.errors import public_error_message, validation_error_detail
 from harborrag_runtime.config import ConnectorCatalog, describe_model_catalog
 
 from .checks import Check

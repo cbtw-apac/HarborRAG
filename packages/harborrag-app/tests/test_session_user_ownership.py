@@ -21,13 +21,13 @@ from chat_service_fixtures import (
 )
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.domain.project import Project
 from harborrag_core.testing.control_plane_fakes import FakeProjectRepository
 from harborrag_memory.access import MemoryAccess
+from harborrag_runtime.application.chat import ChatExecutionOptions
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
 
 TENANT = "ACME"
 PRINCIPAL = "svc-1"

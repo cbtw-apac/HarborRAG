@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 from harborrag_app.api.auth.principal import Principal
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
 from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_runtime.application.chat import ChatExecutionOptions
 from harborrag_runtime.chat import ChatPrompt
 
 from .filters import retrieval_filters

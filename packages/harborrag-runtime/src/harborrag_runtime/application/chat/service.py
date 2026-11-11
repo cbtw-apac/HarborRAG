@@ -10,14 +10,6 @@ from dataclasses import replace
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from harborrag_app.workflow_control.errors import failure_response
-from harborrag_app.workflow_control.memory.extraction import (
-    MemoryExtractionQueue,
-)
-from harborrag_app.workflow_control.memory.identity import MemoryIdentity
-from harborrag_app.workflow_control.memory.locks import SessionLocks
-from harborrag_app.workflow_control.memory.usage import ModelCall, record_model_usage
-from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import (
     ChatModelUnavailableError,
     HarborConnectionError,
@@ -42,6 +34,14 @@ from harborrag_memory.access import MemoryAccess
 from harborrag_memory.messages import ExchangeRecord, record_exchange
 from harborrag_memory.projects import require_project
 from harborrag_memory.titles import conversation_title
+from harborrag_runtime.application.errors import failure_response
+from harborrag_runtime.application.memory.extraction import (
+    MemoryExtractionQueue,
+)
+from harborrag_runtime.application.memory.identity import MemoryIdentity
+from harborrag_runtime.application.memory.locks import SessionLocks
+from harborrag_runtime.application.memory.usage import ModelCall, record_model_usage
+from harborrag_runtime.application.schemas import AppResponse
 from harborrag_runtime.config.settings import RuntimeSettings
 
 from .citations import CitationNumbering

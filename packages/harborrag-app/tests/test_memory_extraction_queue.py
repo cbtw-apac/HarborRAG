@@ -9,19 +9,19 @@ from collections.abc import Sequence
 import pytest
 from chat_service_fixtures import FakeChatFacade, FakeMemoryFacade, FakeRuntime
 
-from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
-from harborrag_app.workflow_control.memory import MemoryIdentity
-from harborrag_app.workflow_control.memory.extraction import (
-    MemoryExtractionQueue,
-    dropped_extractions,
-    reset_dropped_extractions,
-    submit_exchange,
-)
 from harborrag_core.base import utc_now
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.ports.conversation import ConversationIdentity, ConversationMessage
 from harborrag_core.ports.memory import Memory, MemoryOwner, MemoryQuery
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.chat import ChatApplicationService, ChatExecutionOptions
+from harborrag_runtime.application.memory import MemoryIdentity
+from harborrag_runtime.application.memory.extraction import (
+    MemoryExtractionQueue,
+    dropped_extractions,
+    reset_dropped_extractions,
+    submit_exchange,
+)
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import MemoryContextRequest
 

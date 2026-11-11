@@ -16,17 +16,17 @@ from workflow_control_fixtures import (
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_app.workflow_control.errors import (
+from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
+from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
+from harborrag_runtime.application.errors import (
     IngestionAlreadyCompletedError,
     IngestionAlreadyPausedError,
     IngestionAlreadyRunningError,
     IngestionIdempotencyConflictError,
 )
-from harborrag_app.workflow_control.ingestion import service as ingestion_service
-from harborrag_app.workflow_control.ingestion.presenters import task_id as generate_task_id
-from harborrag_app.workflow_control.ingestion.service import IngestionApplicationService
-from harborrag_core.contracts.errors import HarborConflictError, HarborConnectionError
-from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
+from harborrag_runtime.application.ingestion import service as ingestion_service
+from harborrag_runtime.application.ingestion.presenters import task_id as generate_task_id
+from harborrag_runtime.application.ingestion.service import IngestionApplicationService
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
     WorkflowNotFoundError,

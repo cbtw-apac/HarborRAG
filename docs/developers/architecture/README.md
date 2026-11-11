@@ -282,6 +282,8 @@ code, not in provider adapters.
 ## App and MCP boundaries
 
 The CLI and the HTTP API both call one application service, `BaseAppService`, never adapters.
+The service lives in `harborrag_runtime.application`; `harborrag_app` holds only the transports
+and the operations layer.
 Ingestion commands and HTTP ingestion routes resolve a secret-free source contract, persist a
 pending task in PostgreSQL, and hand it to runtime's neutral `IngestionGateway`. The default
 `TemporalIngestionGateway` translates submission, retry, status and result values into

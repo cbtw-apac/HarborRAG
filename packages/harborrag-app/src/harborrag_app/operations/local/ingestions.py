@@ -29,15 +29,15 @@ from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.operations.results import Accepted
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control.control_plane.connection_views import ingestion_status
-from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
-from harborrag_app.workflow_control.ingestion.operations import ControlAction
-from harborrag_app.workflow_control.ingestion.presenters import TERMINAL_STATES
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
+from harborrag_runtime.application.control_plane.connection_views import ingestion_status
+from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.ingestion.operations import ControlAction
+from harborrag_runtime.application.ingestion.presenters import TERMINAL_STATES
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 _ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 

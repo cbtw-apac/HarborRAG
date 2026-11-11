@@ -31,17 +31,17 @@ from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.operations.port import ChatCompletion
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.chat.completion import (
+from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
+from harborrag_memory.access import MemoryAccess
+from harborrag_runtime.application.chat import ChatExecutionOptions
+from harborrag_runtime.application.chat.completion import (
     Completion,
     RetrievalFound,
     TurnCompleted,
 )
-from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
-from harborrag_memory.access import MemoryAccess
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 
 class ChatOps:

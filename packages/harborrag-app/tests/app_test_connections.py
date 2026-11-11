@@ -6,13 +6,6 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
-from harborrag_app.workflow_control.control_plane.connections import (
-    ConnectionKey,
-    ConnectionService,
-    ConnectionWrite,
-)
-from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskDocumentPage, TaskPage
@@ -32,6 +25,13 @@ from harborrag_core.testing.control_plane_fakes import (
 from harborrag_core.testing.fakes import FakeSecrets
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
+from harborrag_runtime.application.control_plane.connections import (
+    ConnectionKey,
+    ConnectionService,
+    ConnectionWrite,
+)
+from harborrag_runtime.application.ingestion.operations import IngestionOperations
 from harborrag_runtime.composition import ControlPlaneRepositories
 
 CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")

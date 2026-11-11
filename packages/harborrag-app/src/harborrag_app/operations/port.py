@@ -52,9 +52,9 @@ from harborrag_app.api.v1.ingestion.schemas import (
 from harborrag_app.api.v1.me_schemas import MeOut
 from harborrag_app.operations.results import Accepted, Saved, Tagged
 from harborrag_app.operations.scope import ConnectionRef, Scope
-from harborrag_app.workflow_control.control_plane.connections import WriteOrigin
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.connection import ConnectionStatus
+from harborrag_runtime.application.control_plane.connections import WriteOrigin
 
 
 @dataclass(frozen=True, slots=True)

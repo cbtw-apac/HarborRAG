@@ -21,8 +21,8 @@ from harborrag_app.api.auth.access import api_routes, require_role
 from harborrag_app.api.deadline import enforce_deadline
 from harborrag_app.api.rate_limit import LocalRateLimiter, RedisRateLimiter
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 

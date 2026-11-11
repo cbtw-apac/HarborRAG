@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import to_connector_config, validate
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"

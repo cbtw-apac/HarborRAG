@@ -21,7 +21,7 @@ from harborrag_app.cli.project import (
     find_legacy_checkout,
     find_project,
 )
-from harborrag_app.workflow_control import BaseAppService
+from harborrag_runtime.application import BaseAppService
 from harborrag_runtime.config import (
     ConnectorCatalog,
     load_connector_catalog,

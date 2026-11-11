@@ -10,7 +10,7 @@ from doctor_test_support import unreachable
 
 from harborrag_app.cli import invoke as cli_runner
 from harborrag_app.cli import main as cli
-from harborrag_app.workflow_control import BaseAppService
+from harborrag_runtime.application import BaseAppService
 
 # Every command below goes through the CLI's project gate; give each test its own
 # project instead of inheriting whatever directory pytest was started from.

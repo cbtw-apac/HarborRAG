@@ -15,8 +15,6 @@ from test_api_admin_ingestion_reads import without_offset
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
-from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import (
     IngestionTask,
@@ -24,6 +22,8 @@ from harborrag_core.ingestion import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
 )
+from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
+from harborrag_runtime.application.ingestion.operations import IngestionOperations
 
 _URL = "/v1/admin/ingestions/ing_1/documents"
 _ITEM_KEYS = {"document_ref", "document_id", "status", "stage", "error_category", "duration_ms"}

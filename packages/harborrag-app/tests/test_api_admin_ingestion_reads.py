@@ -15,10 +15,10 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.connection_views import IngestionLinks
-from harborrag_app.workflow_control.ingestion.operations import IngestionOperations
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskPage
+from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
+from harborrag_runtime.application.ingestion.operations import IngestionOperations
 
 _LIST = "/v1/admin/ingestions"
 _KEYS = {

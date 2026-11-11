@@ -32,12 +32,12 @@ from harborrag_app.api.rate_limit import build_rate_limiter
 from harborrag_app.api.router import register_routes
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.local import LocalOperations
-from harborrag_app.workflow_control.composition.selection import select_app_service
 from harborrag_core.contracts.errors import HarborConfigurationError
 from harborrag_core.observability.process_logging import configure_logging
+from harborrag_runtime.application.composition.selection import select_app_service
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 logger = logging.getLogger("harborrag.app.api.app")
 _SUBMISSION_RECOVERY_INTERVAL_SECONDS = 5.0

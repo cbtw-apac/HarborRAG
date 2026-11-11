@@ -7,13 +7,13 @@ from itertools import combinations
 
 import pytest
 
-from harborrag_app.workflow_control.chat.citations import (
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_runtime.application.chat.citations import (
     SNIPPET_LIMIT,
     CitationNumbering,
     citation_record,
     snippet,
 )
-from harborrag_core.domain.retrieval import RetrievalResult
 
 pytestmark = pytest.mark.unit
 

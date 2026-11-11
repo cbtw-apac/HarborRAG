@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from harborrag_app.workflow_control.memory import ConversationSessionService
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.memory import ConversationSessionService
 
 
 @pytest.mark.asyncio

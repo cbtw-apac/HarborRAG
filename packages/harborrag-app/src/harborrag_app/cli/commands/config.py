@@ -28,8 +28,8 @@ from harborrag_app.cli.globals import (
 from harborrag_app.cli.invoke import Outcome, run_operation
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
 from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_runtime.application.control_plane.settings_import import SettingsImporter
 
 app = typer.Typer(
     no_args_is_help=True,

@@ -20,12 +20,12 @@ from harborrag_app.operations import (
 )
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.errors import error_body
-from harborrag_app.workflow_control.control_plane.settings_service import (
+from harborrag_core.config_store import SettingChange, SettingsLevel
+from harborrag_core.contracts.errors import HarborAuthError, HarborValidationError
+from harborrag_runtime.application.control_plane.settings_service import (
     SettingsPatched,
     SettingsRead,
 )
-from harborrag_core.config_store import SettingChange, SettingsLevel
-from harborrag_core.contracts.errors import HarborAuthError, HarborValidationError
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 

@@ -322,7 +322,7 @@ def test_doctor_converts_an_escaping_exception_into_the_error_envelope(
 def test_an_unhealthy_temporal_blocks_readiness(tmp_path: Path, monkeypatch, capsys) -> None:
     class UnhealthyTemporal(MockAppService):
         async def runtime_health(self):
-            from harborrag_app.workflow_control import AppResponse
+            from harborrag_runtime.application import AppResponse
 
             return AppResponse(False, {}, "temporal is unreachable")
 

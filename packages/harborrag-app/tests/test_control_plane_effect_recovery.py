@@ -13,7 +13,6 @@ from dataclasses import dataclass, field
 import pytest
 from app_test_control_plane import control_plane_app_service
 
-from harborrag_app.workflow_control.control_plane.effect_recovery import log_activity, retire_refs
 from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
@@ -22,6 +21,7 @@ from harborrag_core.testing.control_plane_fakes import (
     FakePendingEffectRepository,
 )
 from harborrag_core.testing.fakes import FakeSecrets
+from harborrag_runtime.application.control_plane.effect_recovery import log_activity, retire_refs
 
 
 @dataclass(slots=True)

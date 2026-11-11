@@ -16,19 +16,6 @@ from app_test_connections import (
     running_task,
 )
 
-from harborrag_app.workflow_control.control_plane.active_runs import SETTLE_ROUNDS
-from harborrag_app.workflow_control.control_plane.connection_views import (
-    ANY_VERSION,
-    ingestion_view,
-)
-from harborrag_app.workflow_control.control_plane.connections import (
-    ConnectionKey,
-    ConnectionWrite,
-    WriteOrigin,
-)
-from harborrag_app.workflow_control.control_plane.effect_recovery import (
-    recover_pending_control_plane_effects,
-)
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborCapabilityError,
@@ -39,6 +26,19 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
+from harborrag_runtime.application.control_plane.active_runs import SETTLE_ROUNDS
+from harborrag_runtime.application.control_plane.connection_views import (
+    ANY_VERSION,
+    ingestion_view,
+)
+from harborrag_runtime.application.control_plane.connections import (
+    ConnectionKey,
+    ConnectionWrite,
+    WriteOrigin,
+)
+from harborrag_runtime.application.control_plane.effect_recovery import (
+    recover_pending_control_plane_effects,
+)
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
 from harborrag_runtime.ingestion.connections import ConnectionUnavailableError
 
@@ -713,7 +713,7 @@ async def test_a_connection_test_never_retries_and_runs_on_its_own_threads(
 ) -> None:
     import threading
 
-    from harborrag_app.workflow_control.control_plane import connections as module
+    from harborrag_runtime.application.control_plane import connections as module
     from harborrag_runtime.config.errors import ConnectorConfigurationError
 
     seen: dict[str, Any] = {}
@@ -760,8 +760,8 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
 ) -> None:
     from dataclasses import replace
 
-    from harborrag_app.workflow_control.ingestion import connection_sources
     from harborrag_core.contracts.errors import HarborUnavailableError
+    from harborrag_runtime.application.ingestion import connection_sources
     from harborrag_runtime.ingestion_contracts import SourceSubmission
 
     imports: list[object] = []

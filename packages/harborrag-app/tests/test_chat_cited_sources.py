@@ -15,7 +15,8 @@ import json
 
 import pytest
 
-from harborrag_app.workflow_control.chat.presenters import (
+from harborrag_core.domain.retrieval import RetrievalResult
+from harborrag_runtime.application.chat.presenters import (
     citation_data,
     citation_marker,
     cited_evidence,
@@ -23,7 +24,6 @@ from harborrag_app.workflow_control.chat.presenters import (
     evidence_data,
     source_heading,
 )
-from harborrag_core.domain.retrieval import RetrievalResult
 
 
 def _results(count: int) -> tuple[RetrievalResult, ...]:
@@ -180,11 +180,11 @@ async def test_completion_reports_only_the_sources_the_answer_cited() -> None:
 
     from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
-    from harborrag_app.workflow_control.chat import (
+    from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+    from harborrag_runtime.application.chat import (
         ChatApplicationService,
         ChatExecutionOptions,
     )
-    from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.memory import ConversationIdentity
 
@@ -225,13 +225,13 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
 
     from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
-    from harborrag_app.workflow_control.chat import (
-        ChatApplicationService,
-        ChatExecutionOptions,
-    )
     from harborrag_core.models.chat import HarborChatStreamChunk
     from harborrag_core.models.chat.enums import StreamEventType
     from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+    from harborrag_runtime.application.chat import (
+        ChatApplicationService,
+        ChatExecutionOptions,
+    )
     from harborrag_runtime.config.settings import RuntimeSettings
     from harborrag_runtime.memory import ConversationIdentity
 

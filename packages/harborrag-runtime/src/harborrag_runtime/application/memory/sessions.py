@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from harborrag_app.workflow_control.schemas import AppResponse
 from harborrag_core.contracts.errors import HarborConnectionError
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.completion_requests import CompletionClaim
+from harborrag_runtime.application.schemas import AppResponse
 from harborrag_runtime.memory import (
     ConversationHistoryRepository,
     ConversationIdentity,

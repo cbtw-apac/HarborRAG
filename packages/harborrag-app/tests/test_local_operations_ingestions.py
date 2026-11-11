@@ -26,8 +26,6 @@ from harborrag_app.operations import (
     Scope,
 )
 from harborrag_app.operations.errors import error_body
-from harborrag_app.workflow_control.control_plane.projects import ProjectService
-from harborrag_app.workflow_control.errors import IngestionActionStateError, IngestionNotFoundError
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborAuthError,
@@ -37,6 +35,8 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.application.errors import IngestionActionStateError, IngestionNotFoundError
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 

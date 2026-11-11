@@ -13,12 +13,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from harborrag_app.workflow_control.ingestion.progress_bridge import (
+from harborrag_core.contracts.events import HarborEvent
+from harborrag_core.ingestion import IngestionTaskState, StoredTaskDocumentResult, TaskDocumentPage
+from harborrag_runtime.application.ingestion.progress_bridge import (
     sync_ingestion_progress,
     sync_run,
 )
-from harborrag_core.contracts.events import HarborEvent
-from harborrag_core.ingestion import IngestionTaskState, StoredTaskDocumentResult, TaskDocumentPage
 from harborrag_runtime.events.in_process import InProcessEventBus
 
 
@@ -226,7 +226,7 @@ async def test_losing_the_lease_mid_tick_stops_further_pages(
     is no longer confirmed, rather than keep writing progress/done events
     for later pages alongside whatever process took the lease over next."""
     monkeypatch.setattr(
-        "harborrag_app.workflow_control.ingestion.progress_bridge._LIST_ACTIVE_PAGE_LIMIT", 1
+        "harborrag_runtime.application.ingestion.progress_bridge._LIST_ACTIVE_PAGE_LIMIT", 1
     )
     store = _PagingFakeTaskStore(
         tasks=[

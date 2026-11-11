@@ -13,13 +13,13 @@ from test_chat_service import _options
 from test_chat_service_memory import _BrokenAppendMemory, _chat_service
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.chat import ChatExecutionOptions
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatStreamChunk
 from harborrag_core.models.chat.enums import StreamEventType
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.chat import ChatExecutionOptions
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.memory import ConversationIdentity
 

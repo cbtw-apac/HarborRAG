@@ -7,14 +7,6 @@ from typing import Any
 import pytest
 from app_test_connections import JIRA_WRITE, Removal, Runs, Submitter, fake_control_plane
 
-from harborrag_app.workflow_control.control_plane.connections import (
-    ConnectionKey,
-    ConnectionService,
-)
-from harborrag_app.workflow_control.control_plane.projects import (
-    ProjectIdTakenError,
-    ProjectService,
-)
 from harborrag_core.contracts.errors import (
     HarborInUseError,
     HarborNotFoundError,
@@ -22,6 +14,14 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_core.testing.fakes import FakeSecrets
+from harborrag_runtime.application.control_plane.connections import (
+    ConnectionKey,
+    ConnectionService,
+)
+from harborrag_runtime.application.control_plane.projects import (
+    ProjectIdTakenError,
+    ProjectService,
+)
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import ConnectionValidationError
 

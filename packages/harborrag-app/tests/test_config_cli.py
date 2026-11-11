@@ -23,10 +23,10 @@ from harborrag_adapters.repositories.database.control_plane.engine import (
 from harborrag_adapters.repositories.database.control_plane.migrations import run_migrations
 from harborrag_app.cli import invoke
 from harborrag_app.cli import main as cli
-from harborrag_app.workflow_control.control_plane.settings_import import SettingsImporter
 from harborrag_core.config_store import SettingsLevel, SettingsRegistry
 from harborrag_core.config_store.documents import plan_import
 from harborrag_core.config_store.resolution import SettingChange
+from harborrag_runtime.application.control_plane.settings_import import SettingsImporter
 from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 

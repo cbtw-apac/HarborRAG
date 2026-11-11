@@ -50,18 +50,18 @@ from harborrag_app.operations.errors import ErrorBody, error_body
 from harborrag_app.operations.local import LocalOperations
 from harborrag_app.operations.results import Accepted, Saved, Tagged
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control import AppResponse, BaseAppService
-from harborrag_app.workflow_control.composition.selection import runtime_app_service
-from harborrag_app.workflow_control.errors import validation_error_detail
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborUnavailableError
 from harborrag_core.observability.process_logging import (
     LEVEL_ENV_VAR,
     ROOT_LOGGER_NAME,
     _ManagedStreamHandler,
 )
+from harborrag_runtime.application import AppResponse, BaseAppService
+from harborrag_runtime.application.composition.selection import runtime_app_service
+from harborrag_runtime.application.errors import validation_error_detail
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 type OperationCall = Callable[[LocalOperations, Scope], Awaitable[object]]
 

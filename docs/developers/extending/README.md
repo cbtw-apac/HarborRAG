@@ -196,7 +196,7 @@ of core, adapters or engine.
 
 ## Application and MCP surfaces
 
-CLI and HTTP code call `BaseAppService`. The MCP server registers the shared reader tools from
+CLI and HTTP code call `BaseAppService`, which lives in `harborrag_runtime.application`. The MCP server registers the shared reader tools from
 `harborrag_engine.tools`, bound to runtime's reader composition. Neither surface builds a
 provider client in a handler.
 

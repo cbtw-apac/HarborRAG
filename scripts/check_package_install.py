@@ -42,7 +42,7 @@ MODULES = {
     "harborrag-app": [
         "harborrag_app",
         "harborrag_app.cli.main",
-        "harborrag_app.workflow_control",
+        "harborrag_runtime.application",
     ],
     "harborrag-mcp-server": ["harborrag_mcp_server", "harborrag_mcp_server.__main__"],
     "harborrag": ["harborrag", "harborrag_app.cli.main"],

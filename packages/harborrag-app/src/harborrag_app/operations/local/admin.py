@@ -29,18 +29,18 @@ from harborrag_app.api.v1.me_schemas import MeOut, MePrincipal
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.results import Saved, Tagged
 from harborrag_app.operations.scope import ConnectionRef, Scope
-from harborrag_app.workflow_control.control_plane.connection_views import (
+from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.domain.connection import ConnectionStatus
+from harborrag_runtime.application.control_plane.connection_views import (
     etag,
     version_from_etag,
 )
-from harborrag_app.workflow_control.control_plane.connections import ConnectionWrite, WriteOrigin
-from harborrag_core.contracts.errors import HarborValidationError
-from harborrag_core.domain.connection import ConnectionStatus
+from harborrag_runtime.application.control_plane.connections import ConnectionWrite, WriteOrigin
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 
 class AdminOps:

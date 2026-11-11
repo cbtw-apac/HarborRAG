@@ -5,11 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from harborrag_app.workflow_control.control_plane.connection_views import (
+from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_runtime.application.control_plane.connection_views import (
     IngestionLinks,
     ingestion_view,
 )
-from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 
 
 def _task(

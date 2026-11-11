@@ -23,9 +23,9 @@ from harborrag_adapters.repositories.database.control_plane.migrations import ru
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.workflow_control.control_plane.settings_service import SettingsService
 from harborrag_core.config_store import SettingChange, SettingsLevel, SettingsRegistry
 from harborrag_core.domain.project import Project
+from harborrag_runtime.application.control_plane.settings_service import SettingsService
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config_store import CachedConfigProvider
 

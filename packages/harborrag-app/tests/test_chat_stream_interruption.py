@@ -22,10 +22,10 @@ from chat_service_fixtures import (
     replayed,
 )
 
-from harborrag_app.workflow_control.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_core.models.chat import HarborChatStreamChunk, HarborChatUsage
 from harborrag_core.models.chat.enums import StreamEventType
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
+from harborrag_runtime.application.chat import ChatApplicationService, ChatExecutionOptions
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 

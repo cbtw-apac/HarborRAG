@@ -13,8 +13,8 @@ from dataclasses import dataclass
 
 from harborrag_app.api.auth.principal import Principal, authorize_role
 from harborrag_app.operations.errors import TenantForbiddenError
-from harborrag_app.workflow_control.control_plane.connections import ConnectionKey
 from harborrag_core.domain.member import Role
+from harborrag_runtime.application.control_plane.connections import ConnectionKey
 
 
 @dataclass(frozen=True, slots=True)

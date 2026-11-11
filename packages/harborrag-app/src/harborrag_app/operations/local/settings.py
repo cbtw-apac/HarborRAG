@@ -16,15 +16,15 @@ from harborrag_app.api.v1.admin.settings_schemas import SettingsOut, SettingsPat
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.results import Tagged
 from harborrag_app.operations.scope import Scope
-from harborrag_app.workflow_control.control_plane.connection_views import (
+from harborrag_core.config_store import SettingsLevel, revision_label
+from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_runtime.application.control_plane.connection_views import (
     etag,
     version_from_etag,
 )
-from harborrag_core.config_store import SettingsLevel, revision_label
-from harborrag_core.contracts.errors import HarborValidationError
 
 if TYPE_CHECKING:
-    from harborrag_app.workflow_control.composition.service import AppService
+    from harborrag_runtime.application.composition.service import AppService
 
 
 class SettingsOps:

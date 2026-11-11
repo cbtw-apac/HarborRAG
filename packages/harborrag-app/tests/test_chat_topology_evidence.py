@@ -10,16 +10,16 @@ from chat_service_fixtures import FakeChatFacade, FakeRetrievalFacade, FakeRunti
 from test_chat_service import _options
 from workflow_control_fixtures import FakeComposition
 
-from harborrag_app.workflow_control.chat.evidence import ChatEvidence
-from harborrag_app.workflow_control.chat.presenters import citation_marker
-from harborrag_app.workflow_control.composition.factories import AppServiceFactories
-from harborrag_app.workflow_control.composition.service import AppService
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.models.chat import HarborChatMessage
 from harborrag_core.topology.extraction import EvidenceSpan, ExtractedAssertion
 from harborrag_core.topology.records import CanonicalAssertion
 from harborrag_core.topology.search import EvidenceBundle, EvidencePath, RetrievalMode
+from harborrag_runtime.application.chat.evidence import ChatEvidence
+from harborrag_runtime.application.chat.presenters import citation_marker
+from harborrag_runtime.application.composition.factories import AppServiceFactories
+from harborrag_runtime.application.composition.service import AppService
 from harborrag_runtime.contracts import RetrievalResponse
 from harborrag_runtime.sdk import RetrievalLane
 

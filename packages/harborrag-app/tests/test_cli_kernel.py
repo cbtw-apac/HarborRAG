@@ -39,8 +39,8 @@ from harborrag_app.cli.output import OutputFormat, print_body
 from harborrag_app.cli.tenant_guard import confirm_tenant_write
 from harborrag_app.cli.views import render
 from harborrag_app.operations import Saved
-from harborrag_app.workflow_control import AppResponse
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
+from harborrag_runtime.application import AppResponse
 from harborrag_runtime.config.connectors.models.spec import ConnectionValidationError, FieldIssue
 
 pytestmark = pytest.mark.unit
