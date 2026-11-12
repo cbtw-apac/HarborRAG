@@ -148,7 +148,7 @@ __all__ = [
 
 
 def __getattr__(name: str) -> Any:
-    """Load optional memory behavior only when a caller requests it."""
+    """Load memory behavior only when a caller requests it."""
     if name in _MEMORY_EXPORTS:
         return getattr(import_module("harborrag_memory"), name)
     module_name = _RUNTIME_EXPORTS.get(name)

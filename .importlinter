@@ -140,7 +140,7 @@ forbidden_modules =
     harborrag_runtime.temporal
 
 [importlinter:contract:13]
-name = MCP does not import optional runtime layers
+name = MCP does not import chat, memory or the SDK
 type = forbidden
 source_modules =
     harborrag_mcp_server

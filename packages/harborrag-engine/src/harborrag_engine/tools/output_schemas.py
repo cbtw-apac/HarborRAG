@@ -25,19 +25,19 @@ required and which are merely optional:
 dynamically minted ``CUSTOM_*`` members for provider-specific source items via its
 ``_missing_`` hook, so a real node's ``entity_type`` is not limited to the built-in list.
 
-Hits dropped because a better-ranked hit had identical text; the wider search window backfilled the
-page, so this is not a shortfall.
+Field notes:
 
-Not required: a lane that cannot measure similarity reports null, and older payloads predate the
-field. Unlike "score", this is the number a client may threshold -- on the hybrid lane "score" is a
-rank-fusion value whose top hit is near 1.0 however poor the match. Dense cosine similarity, clamped
-at 0; null on the sparse lane, whose BM25 score is unbounded and not comparable across queries.
-
-Connector-specific locator shape; genuinely open, unlike everything else here -- there is no fixed
-set of keys to close over.
-
-The source's own human-readable key (a Jira issue key such as DEMO-123), so callers need not parse
-it out of source_item_id.
+- ``duplicates_collapsed``: hits dropped because a better-ranked hit had identical text. The wider
+  search window backfilled the page, so this is not a shortfall.
+- ``relevance``: not required, because a lane that cannot measure similarity reports null and older
+  payloads predate the field. Unlike ``score``, this is the number a client may threshold: on the
+  hybrid lane ``score`` is a rank-fusion value whose top hit is near 1.0 however poor the match.
+  Dense cosine similarity, clamped at 0; null on the sparse lane, whose BM25 score is unbounded and
+  not comparable across queries.
+- ``citation_locator``: connector-specific locator shape. It is genuinely open, unlike everything
+  else here, because there is no fixed set of keys to close over.
+- ``issue_key``: the source's own human-readable key (a Jira issue key such as DEMO-123), so callers
+  need not parse it out of ``source_item_id``.
 """
 
 from __future__ import annotations

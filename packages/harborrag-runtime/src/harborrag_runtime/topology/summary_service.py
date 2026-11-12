@@ -441,7 +441,7 @@ class _Run:
 def _waves(plan: tuple[SummaryPlanNode, ...]) -> tuple[tuple[SummaryPlanNode, ...], ...]:
     """Group the plan by dependency depth; every node's children are in an earlier wave.
 
-    the planner emits children before parents.
+    The planner emits children before parents.
     """
     depth: dict[str, int] = {}
     for item in plan:

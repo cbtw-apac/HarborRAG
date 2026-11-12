@@ -173,14 +173,6 @@ class StorageNotFoundError(RuntimeError):
     """
 
 
-class StorageAlreadyExistsError(RuntimeError):
-    """A storage backend already holds the resource a write tried to create."""
-
-
-class StorageValidationError(RuntimeError):
-    """A storage backend rejected a request as invalid."""
-
-
 class IngestionNotFoundError(HarborNotFoundError):
     """The named ingestion does not exist for the caller's tenant."""
 
