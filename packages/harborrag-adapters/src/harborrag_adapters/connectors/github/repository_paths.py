@@ -1,13 +1,14 @@
 """Pure path, URL, MIME and payload helpers for the GitHub connector.
 
-Everything that turns a repository path, ref or git object id into a REST
-endpoint or a browser URL lives here, with no I/O. The HTTP client resolves
-``..`` segments before it sends a request, so no value spliced into an
-endpoint may climb out of the configured repository: repository paths and
-refs with a ``..`` segment, and git object ids that are not one URL path
-segment, raise ValueError.
+Every REST endpoint is built here, with no I/O. The HTTP client resolves
+``..`` segments before sending, so a path or ref with one, or a git object id
+that is not one URL path segment, must raise ValueError before it reaches an
+endpoint.
 
-Entry points: normalize_repo_path, content_endpoint, path_in_scope.
+Typical usage example:
+
+    path = normalize_repo_path("/docs/guide.md")
+    endpoint = content_endpoint("acme", "docs", path)
 """
 
 from __future__ import annotations
@@ -41,10 +42,6 @@ def parse_github_repository_url(url: str) -> tuple[str, str]:
 
     Returns:
         The owner and the repository name without its ``.git`` suffix.
-
-    Raises:
-        ValueError: The URL is not an absolute http, https or ssh URL, or its
-            path lacks an owner or repository segment.
     """
     if url.startswith("git@"):
         return _parse_ssh_url(url)
@@ -73,13 +70,10 @@ def commit_endpoint(owner: str, repo: str, ref: str) -> str:
     Args:
         owner: Repository owner from the connector config.
         repo: Repository name from the connector config.
-        ref: Branch, tag or commit SHA; valid git ref names never contain ``..``.
+        ref: Branch, tag or commit SHA. Valid git ref names never contain ``..``.
 
     Returns:
         The endpoint path relative to the API URL.
-
-    Raises:
-        ValueError: The ref has a ``..`` segment.
     """
     if _has_parent_segment(ref):
         raise ValueError("GitHub refs must not contain '..' segments")
@@ -97,10 +91,6 @@ def tree_endpoint(owner: str, repo: str, tree_sha: str) -> str:
 
     Returns:
         The endpoint path relative to the API URL.
-
-    Raises:
-        ValueError: ``tree_sha`` is not one URL path segment of letters,
-            digits, ``-`` or ``_``.
     """
     if not _is_git_object_id(tree_sha):
         raise ValueError(_GIT_OBJECT_ID_ERROR)
@@ -118,21 +108,31 @@ def blob_endpoint(owner: str, repo: str, file_sha: str) -> str:
 
     Returns:
         The endpoint path relative to the API URL.
-
-    Raises:
-        ValueError: ``file_sha`` is not one URL path segment of letters,
-            digits, ``-`` or ``_``.
     """
     if not _is_git_object_id(file_sha):
         raise ValueError(_GIT_OBJECT_ID_ERROR)
     return f"repos/{owner}/{repo}/git/blobs/{file_sha}"
 
 
+def require_git_object_id(value: str) -> None:
+    """Reject a git object id that is not safe to splice into an endpoint.
+
+    Args:
+        value: Commit or blob sha from a source record or a GitHub payload.
+
+    Raises:
+        ValueError: ``value`` is not one URL path segment of letters, digits,
+            ``-`` or ``_``.
+    """
+    if not _is_git_object_id(value):
+        raise ValueError(_GIT_OBJECT_ID_ERROR)
+
+
 def content_endpoint(owner: str, repo: str, path: str) -> str:
     """Return the contents API endpoint for one repository path.
 
-    The path is normalized by normalize_repo_path, whose ValueError for a
-    ``..`` segment passes through, then percent-encoded with ``/`` kept.
+    The path is normalized with normalize_repo_path, then percent-encoded
+    with ``/`` kept.
 
     Args:
         owner: Repository owner from the connector config.
@@ -159,9 +159,6 @@ def normalize_repo_path(path: str | None) -> str:
 
     Returns:
         The normalized path, or ``""`` for the repository root.
-
-    Raises:
-        ValueError: The path has a ``..`` segment.
     """
     if not path:
         return ""
@@ -175,10 +172,7 @@ def normalize_repo_path(path: str | None) -> str:
 
 
 def file_extension(path: str) -> str:
-    """Return the lowercased extension of a repository path, or ``""`` without one.
-
-    A ``..`` segment in ``path`` raises ValueError from normalize_repo_path.
-    """
+    """Return the lowercased extension of a repository path, or ``""`` without one."""
     name = normalize_repo_path(path)
     if "." not in PurePosixPath(name).name:
         return ""
@@ -186,7 +180,7 @@ def file_extension(path: str) -> str:
 
 
 def guess_mime_type(path: str) -> str:
-    """Infer a MIME type from a repository path, defaulting to ``application/octet-stream``."""
+    """Infer a MIME type from a path, defaulting to ``application/octet-stream``."""
     mime_type, _ = mimetypes.guess_type(path)
     return mime_type or "application/octet-stream"
 
@@ -204,12 +198,9 @@ def is_tree(item: dict[str, Any]) -> bool:
 def path_in_scope(path: str, root_path: str | None, *, recursive: bool) -> bool:
     """Return whether a repository path is the root itself or inside it.
 
-    Both values are normalized by normalize_repo_path, whose ValueError for a
-    ``..`` segment passes through.
-
     Args:
         path: Repository-relative path to test.
-        root_path: Root to test against; empty or ``None`` means the
+        root_path: Root to test against. Empty or ``None`` means the
             repository root.
         recursive: Accept paths at any depth below the root, not only its
             direct children.
@@ -234,12 +225,9 @@ def path_in_scope(path: str, root_path: str | None, *, recursive: bool) -> bool:
 def path_matches_patterns(path: str, patterns: Sequence[str]) -> bool:
     """Return whether a repository path matches any include or exclude glob.
 
-    The path and every pattern are normalized by normalize_repo_path, whose
-    ValueError for a ``..`` segment passes through.
-
     Args:
         path: Repository-relative path to test.
-        patterns: fnmatch globs; an empty sequence matches nothing.
+        patterns: fnmatch globs. An empty sequence matches nothing.
 
     Returns:
         True when at least one pattern matches the whole path.
@@ -249,15 +237,14 @@ def path_matches_patterns(path: str, patterns: Sequence[str]) -> bool:
 
 
 def path_matches_query(path: str, pattern: str | None) -> bool:
-    """Return whether a repository path matches a query glob or contains a query substring.
+    """Return whether a path matches a query glob or contains a query substring.
 
-    The comparison ignores case. The path and the pattern are normalized by
-    normalize_repo_path, whose ValueError for a ``..`` segment passes through.
+    The comparison ignores case.
 
     Args:
         path: Repository-relative path to test.
         pattern: Glob when it contains ``*``, ``?``, ``[`` or ``]``, otherwise
-            a substring; empty or ``None`` matches every path.
+            a substring. Empty or ``None`` matches every path.
 
     Returns:
         True when the path matches the glob or contains the substring.
@@ -281,9 +268,7 @@ def github_blob_url(
 ) -> str:
     """Build the browser URL of a repository file at a resolved ref.
 
-    The URL is provenance metadata and is never fetched. The path is
-    normalized by normalize_repo_path, whose ValueError for a ``..`` segment
-    passes through.
+    The URL is provenance metadata and is never fetched.
 
     Args:
         web_url: GitHub web URL from the connector config.
@@ -309,11 +294,10 @@ def github_raw_url(
 ) -> str:
     """Build the raw-content URL of a repository file for provenance metadata.
 
-    The URL is never fetched. The path is normalized by normalize_repo_path,
-    whose ValueError for a ``..`` segment passes through.
+    The URL is never fetched.
 
     Args:
-        web_url: GitHub web URL from the connector config; the public
+        web_url: GitHub web URL from the connector config. The public
             ``https://github.com`` maps to ``raw.githubusercontent.com``.
         owner: Repository owner from the connector config.
         repo: Repository name from the connector config.
