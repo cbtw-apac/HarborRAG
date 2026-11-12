@@ -38,7 +38,7 @@ from harborrag_runtime.config.settings_document import (
 from ..errors import SettingsLevelNotFoundError
 from .settings_service import require_settings_level
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("harborrag.runtime.application.control_plane.settings_import")
 
 SeedOutcome = Literal["seeded", "drift", "in_sync", "no_file", "invalid", "raced"]
 SEED_ACTOR = "system"

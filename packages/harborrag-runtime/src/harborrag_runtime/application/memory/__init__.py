@@ -1,4 +1,4 @@
-"""Conversation-history memory composition, session lifecycle, and administration."""
+"""Conversation-history memory composition, session lifecycle, context, usage and administration."""
 
 from .client import MemoryAdminClientMixin
 from .composition import (

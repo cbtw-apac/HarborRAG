@@ -15,9 +15,9 @@ imports an app or MCP-server module.
 | Path | Owns |
 | --- | --- |
 | `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results; the completion request's mode and filter refusals; `Idempotency-Key` replay |
-| `memory/` | Conversation sessions, messages, titles, usage and erasure |
+| `memory/` | Conversation sessions, recalled-memory context, usage, the identity and locks of a turn, and the long-term extraction queue; messages, titles and erasure live in `harborrag-memory` |
 | `retrieval/` | The corpus access mode that chat retrieval reads |
-| `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline execution; starting a run (`starter.py`) and following its events (`follower.py`); durable submission goes through the ingestion application service |
+| `ingestion/` | Ingestion ports, recovery, run-progress events and inline execution; presentation and the failure inbox live in `harborrag_engine.ingestion`; starting a run (`starter.py`) and following its events (`follower.py`); durable submission goes through the ingestion application service |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |
 | `control_plane/` | Projects, connections, active runs, runtime settings (the level and role rules, the PATCH refusals, import and export), tenant data checks, and recovery of control-plane side effects |
 | `composition/` | The `AppService` facade, its resource lifecycle and service selection |

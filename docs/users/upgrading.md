@@ -476,8 +476,10 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.app.api.chat` | `harborrag.runtime.application.chat.replay` |
   | `harborrag.app.workflow_control.composition.*` | `harborrag.runtime.application.composition.*` |
   | `harborrag.app.workflow_control.control_plane.*` | `harborrag.runtime.application.control_plane.*` |
+  | `harborrag_app.workflow_control.control_plane.settings_import` (named by module, outside the `harborrag` root) | `harborrag.runtime.application.control_plane.settings_import` |
   | `harborrag.app.workflow_control.ingestion` | `harborrag.runtime.application.ingestion.service` and `harborrag.engine.ingestion.failure_inbox` |
-  | `harborrag.app.workflow_control.ingestion.*` | `harborrag.runtime.application.ingestion.*` |
+  | `harborrag.app.workflow_control.ingestion.connection_sources`, `.direct` and `.progress_bridge` | the same names under `harborrag.runtime.application.ingestion` |
+  | `harborrag.app.workflow_control.ingestion.durable` and `harborrag.app.workflow_control.retrieval` | removed with their modules |
   | `harborrag.app.workflow_control.scheduling` | `harborrag.runtime.application.scheduling.service` |
   | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition`, `.context` and `.usage`, and `harborrag.memory.messages` and `harborrag.memory.titles` |
   | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
@@ -488,6 +490,48 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
   | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
   | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `vector_search` keeps its name; `graph_search` splits into `graph_search` and `graph_search_support`) |
+
+#### Python import paths and service methods
+
+These changes affect code that imports HarborRAG, such as an SDK caller or a worker
+extension. They do not affect the HTTP API, the CLI or the MCP server. The packages keep
+no alias at an old path: an old import raises `ModuleNotFoundError` or `ImportError`, and
+a script that used one must import from the new path. Rewrite an import by finding the
+old package in the first column and applying the pointer rule.
+
+| Old import path (2.0.0a2) | New import path | Pointer rule |
+| --- | --- | --- |
+| `harborrag_app.workflow_control` | `harborrag_runtime.application` | Keep the rest of the path: `workflow_control.chat.service` is `application.chat.service`, and `AppResponse`, `BaseAppService` and the `AppService` composition follow the same rule. `harborrag_app` no longer exports `AppResponse` or `BaseAppService` |
+| `harborrag_app.workflow_control.chat.memory_block` | `harborrag_engine.chat.memory_block` | Chat modules stay in `application.chat`, except this one |
+| `harborrag_app.workflow_control.ingestion.{models,presenters}` | `harborrag_engine.ingestion.{models,presenters}` | The failure inbox is `harborrag_engine.ingestion.failure_inbox` |
+| `harborrag_app.workflow_control.memory.{access,administration,erasure,messages,projects,titles}` | `harborrag_memory.<module>` | Session, context, usage and extraction modules stay in `harborrag_runtime.application.memory` |
+| `harborrag_app.api.auth.principal` | `harborrag_app.operations.principal` | |
+| `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
+| `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `service`, `facades` and `composition`, which stay. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
+| `harborrag_runtime.ingestion.document.{models,stage_models,capture_decisions,materialization_helpers,projection_coordinator}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseRequest` and `DocumentReleaseOutcome` are in `release.models`; `harborrag_runtime.ingestion` and `.ingestion.document` no longer re-export them |
+| `harborrag_runtime.ingestion.document.normalizers.*` | `harborrag_engine.ingestion.normalizers.*` | |
+| `harborrag_runtime.ingestion.maintenance.{cleanup,reindex_plan,relation_supersession}` | `harborrag_engine.ingestion.maintenance.<module>` | |
+| `harborrag_runtime.ingestion.source.{models,tasks}` | `harborrag_engine.ingestion.source.<module>` | `SourceIngestionRequest` and `SourceIngestionOutcome` are in `source.models` |
+| `harborrag_runtime.topology.{derived_cleanup,inspection,reservation_deadline}` | `harborrag_engine.topology.<module>` | |
+| `harborrag_runtime.ingestion_contracts.{SourceSubmission,PreparedSourceSubmission,IngestionRetryRequest}` | `harborrag_core.ingestion.run_contracts` | `harborrag_runtime.ingestion_contracts` keeps only the execution gateway types |
+| `harborrag_runtime.source_query`, `harborrag_runtime.ingestion.limits` | `harborrag_core.ingestion.source_query`, `harborrag_core.ingestion.limits` | `SourceQuery` and `ProcessingProfileInput` are no longer importable from `harborrag_runtime.temporal.schemas`, and `SourceSubmission` not from `harborrag_runtime.temporal.submission` |
+| `harborrag_runtime.tokenization` | `harborrag_core.chunking.tokenization` | |
+| `harborrag_runtime.memory.in_memory` | `harborrag_memory.tiers.in_memory` | |
+| `harborrag_adapters.connectors.schemas` | `harborrag_core.ingestion.connector_contracts` | `ConnectorQuery`, `ConnectorSkip`, `ConnectorMetadata` and `ConnectorCapabilities` are no longer importable from `harborrag_adapters.connectors` |
+| `harborrag_adapters.topology.{evidence,output_policy}` | `harborrag_core.topology.<module>` | `LLMEntityExtractor` stays in `harborrag_adapters.topology` |
+| `harborrag_engine.ingestion.policies` | `harborrag_core.ingestion.policies` | |
+
+Removed from `BaseAppService` (`harborrag_runtime.application.ports`; `AppService` loses
+them too). The other methods that 2.0.0a2 had on it for projects, sources, settings,
+metrics, graph conflicts, projections, agent sessions and `ingest_once` are gone as well,
+with the routes they served.
+
+| Removed method | Call instead |
+| --- | --- |
+| `start_ingestion(...)` | `submit(command, idempotency_key=...)` with a `harborrag_engine.ingestion.models.IngestionCreateCommand`; it registers the run and starts its workflow |
+| `ingestion_status(run_id)` and `ingestion_result(run_id)` | `get_task(task_id)`, which returns the run's public task document and raises `IngestionNotFoundError` for an unknown run |
+| `control_ingestion(run_id, action)` | `pause(task_id)`, `resume(task_id)` or `cancel(task_id)`, one method per action |
+| `retrieve(query, ...)` | `HarborRAG().retrieval.search(RetrievalRequest(...))` of `harborrag_runtime.sdk`, or `RuntimeRetrievalService.retrieve` |
 
 ### HTTP API changes
 
@@ -672,7 +716,8 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
 - **`harborrag chat`** calls `POST /v1/chat/completions` and prints the new answer;
   `-o json` prints the completion body. Without `--session-id` it asks a one-off
   question; see [Update scripts for CLI v2.0.0](#update-scripts-for-cli-v200).
-- **SDK callers of the chat service** (`harborrag_runtime.application`):
+- **SDK callers of the chat service** (`harborrag_app.workflow_control`, now
+  `harborrag_runtime.application`; see [Python import paths and service methods](#python-import-paths-and-service-methods)):
   - `ChatExecutionOptions.session_id` is optional (`None` asks a one-off question),
     `project_id` is replaced by `project_ids` (one-off questions only), and `mode`,
     `connections`, `filters` and `trace_id` are new.

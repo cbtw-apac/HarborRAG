@@ -1,1 +1,1 @@
-"""Vector and graph retrieval application use cases."""
+"""Corpus access mode that chat retrieval reads."""

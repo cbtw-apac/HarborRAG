@@ -23,14 +23,27 @@ harborrag_engine/
 ├── ingestion/
 │   ├── admission.py         # source change and version planning
 │   ├── normalizer.py        # canonical normalization between parser output and ingestion
+│   ├── normalizers/         # source-aware normalizer routing and builder
 │   ├── chunking/            # deterministic route and evidence chunking
 │   ├── representations/     # dense and sparse representation policy
-│   └── projections/         # vector and graph projection batches and their verification
+│   ├── projections/         # vector and graph projection batches and their verification
+│   ├── release/             # document release stage models and projection coordination
+│   ├── source/              # source ingestion request models and task records
+│   ├── maintenance/         # cleanup and reindex planning over core ports
+│   ├── operations.py        # ingestion runs as the API's `Ingestion` object
+│   ├── presenters.py        # public projections, request hashing and cursors
+│   ├── failure_inbox.py     # failed documents of a tenant and their retry
+│   └── models.py            # transport-neutral ingestion commands and cursors
 ├── retrieval/               # authoritative retrieval, fusion, evidence and the rerank port
+│   └── service/             # retrieval service contracts, reader services and PassageReranker
 ├── topology/                # evidence validation and deterministic semantic projection policies
 ├── tools/                   # reader tool catalog, schemas, handlers and checked invocation
+├── control_plane/           # connections, projects and runs in the HTTP API's shapes
 ├── security/                # rules for MCP reader keys
-└── chat/prompts/            # typed, packaged, provider-neutral chat prompts
+└── chat/
+    ├── prompts/             # typed, packaged, provider-neutral chat prompts
+    ├── scope.py             # the projects and connections a chat turn reads
+    └── memory_block.py      # recalled memory as an untrusted prompt block
 ```
 
 These boundaries hold across the package:
@@ -39,7 +52,8 @@ These boundaries hold across the package:
   repositories come in through adapters.
 - Provider writes and Temporal orchestration stay outside the engine.
 - `RetrievalPipeline` has an optional `ResultReranker` stage but holds no rerank model.
-  Production reranking is the runtime's `PassageReranker`, in `harborrag-runtime`.
+  `PassageReranker`, in `harborrag_engine.retrieval.service.reranking`, orders passages
+  through a rerank client that the runtime builds and passes in.
 - Chat prompt definitions are provider- and transport-neutral; the runtime binds the
   model clients.
 - Reader tools bind only to core reader ports. The MCP server invokes them through one
