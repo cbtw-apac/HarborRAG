@@ -129,8 +129,8 @@ changes the authority model above.
   [Rerank chat retrieval](../../users/configuration/runtime-settings.md#rerank-chat-retrieval).
 - Query rewriting is an engine port, `QueryRewriter`, that no runtime path wires yet.
 - Connectors do not synchronize permission snapshots, and 2.0.0 has no command, route or
-  tool that imports them (`harborrag topology indexing permissions-import` was removed; the
-  runtime import service remains without an operator entry point); a tenant
+  tool that imports them (the runtime function `import_permissions` in
+  `harborrag_runtime/topology/security_operations.py` has no operator entry point); a tenant
   whose corpus is deliberately shared uses `tenant_shared` instead. See
   [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 - Cleanup and relationship repair can be eventually consistent after a safe publication.

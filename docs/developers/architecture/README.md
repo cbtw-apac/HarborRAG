@@ -54,7 +54,7 @@ These rules matter more than any single provider choice:
 | `harborrag-core` | Domain records, identifiers, errors, access context and ports | Provider-independent language |
 | `harborrag-adapters` | Connectors, parsers, model clients and repository implementations | External I/O boundary |
 | `harborrag-engine` | Ingestion, retrieval, topology and chat-prompt policy, plus the reader tools MCP serves | Business behaviour and invariants |
-| `harborrag-memory` | Provider-neutral conversation state and memory policy | Required package; memory itself is optional configuration |
+| `harborrag-memory` | Provider-neutral conversation state, memory policy and the memory use cases: history records, titles, introspection and erasure | Required package; memory itself is optional configuration |
 | `harborrag-runtime` | Composition, direct and Temporal executors, lifecycle, scheduling, configuration loading and the application services behind the HTTP API and CLI | Execution boundary |
 | `harborrag-app` | HTTP API, CLI and operations layer: authentication and presentation mapping | User transport |
 | `harborrag-mcp-server` | MCP schemas, safety budgets, principal propagation, policy and audit | Agent transport |
@@ -70,13 +70,14 @@ harborrag_adapters   -> core
 harborrag_memory     -> core
 harborrag_engine     -> core
 harborrag_runtime    -> core, adapters, engine, memory
-harborrag_app        -> core, runtime, engine
+harborrag_app        -> core, runtime, engine, memory
 harborrag_mcp_server -> core, runtime, engine
 harborrag            -> any HarborRAG package
 ```
 
 The app and MCP server import `harborrag_engine` directly for the shared reader-tool layer and
-its budgets; engine imports only core, so this inverts nothing. `.importlinter` holds the
+its budgets, and the app imports `harborrag_memory` for conversation history; engine and memory
+import only core, so this inverts nothing. `.importlinter` holds the
 [import-linter](https://import-linter.readthedocs.io/en/stable/) contracts that enforce the
 same layering plus finer rules inside runtime. For example, the app may not import
 `harborrag_runtime.temporal`, and the MCP server may not import `harborrag_runtime.chat`,

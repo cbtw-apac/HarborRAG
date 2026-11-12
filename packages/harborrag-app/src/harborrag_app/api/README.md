@@ -314,7 +314,9 @@ Each `LocalOperations` method is thin: it checks the caller's role, turns the wi
 into one application-service call and maps the result onto the response model (`Tagged`,
 `Saved`, `Accepted`, an ETag or a `Location`). Existence checks, error translation,
 sequencing, chat modes and filters, and `Idempotency-Key` replay run in the application
-services, so the CLI and the routes get them from the same place.
+services, so the CLI and the routes get them from the same place; the one exception is the
+`409` for a replayed chat body stored under an older contract, which `LocalOperations`
+raises in `operations/local/chat.py`.
 
 The application services live in `harborrag_runtime.application`, which this package
 imports and which never imports it; see its

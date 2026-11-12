@@ -821,10 +821,9 @@ filters that use them.
 
 ### 6. Optional: keep entity summaries
 
-Summarization is now off by default. To keep entity summaries, set
+Summarization is now off by default. To keep entity summaries on 2.0.0a2, set
 `summarization.enabled` to `true` in `config/graph/build.yaml`, then run the 2.0.0a2
-command below. 2.0.0 removes it with the rest of `harborrag topology`.
+backfill command, `harborrag topology summaries backfill`.
 
-```bash
-harborrag topology summaries backfill
-```
+That command exists only in 2.0.0a2. 2.0.0 removed it with the rest of `harborrag topology`,
+so do not run it on 2.0.0 or later.

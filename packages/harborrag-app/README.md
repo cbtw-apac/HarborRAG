@@ -43,15 +43,16 @@ The package has three parts:
 
 - `api/` holds the HTTP routes, the authentication dependencies, the error handlers and the
   stream deadline and heartbeat of streamed responses.
-- `operations/` holds the port both transports call, the table of every operation, the
-  request and response models (`schemas/`), the `Principal`, chat dispatch (`chat/`), SSE
-  event framing (`sse.py`), the readiness checks and the in-process implementation
-  (`local/`).
+- `operations/` holds the port both transports call (`port.py`), the table of every
+  operation (`contract.py`), the request and response models (`schemas/`), the `Principal`,
+  SSE event framing (`sse.py`), the readiness checks and the in-process implementation
+  (`local/`, which covers chat, ingestions, settings and admin operations).
 - `cli/` holds the commands and the kernel that runs them.
 
 The application services behind the operations live in
-[`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
-and the retrieval, ingestion and topology use cases they run live in `harborrag-engine`.
+[`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md);
+the retrieval, ingestion and topology use cases they run live in `harborrag-engine`, and the
+conversation memory use cases live in `harborrag-memory`.
 
 ## Run and control ingestions
 

@@ -395,8 +395,8 @@ result = await server.call_tool(
 Authenticated MCP transports accept a `reader` or `owner` token for tool calls and check
 the requested tenant against the token's grant. A key or token bound to one tenant acts
 in that tenant, and a call naming another tenant is refused; local stdio without a token
-needs an explicit `tenant_id`. As with CLI retrieval, `tenant_id` cannot appear inside
-`filters`. Transport authentication and reader keys are in
+needs an explicit `tenant_id`. `tenant_id` cannot appear inside `filters`. Transport
+authentication and reader keys are in
 [MCP Setup and Integration](../detailed-guides/mcp-server/setup-and-integration.md).
 
 Tenant entries in `config/mcp/server.yaml` change the effective tool catalog and policy;
@@ -421,11 +421,10 @@ Retrieval, chat and the MCP tools apply one of two corpus access modes:
 - `source_acl` (the default): a principal reads a document only when there are current,
   trusted permission snapshots that allow it, for both the document's source and the
   document. Missing or expired snapshots deny access, and connectors do not synchronize
-  these snapshots yet. 2.0.0 has no operator entry point that imports them: the
-  `harborrag topology indexing permissions-import` and `permissions-status` commands
-  were removed, and no HTTP route or MCP tool replaces them. The runtime still contains the
-  import service, so a later release can expose it. Use `tenant_shared` for a tenant whose documents every principal may
-  read.
+  these snapshots yet. 2.0.0 has no command, route or tool that imports them. The
+  runtime still contains the import function, `import_permissions` in
+  `harborrag_runtime/topology/security_operations.py`, so a later release can expose it.
+  Use `tenant_shared` for a tenant whose documents every principal may read.
 - `tenant_shared`: every principal in one configured tenant reads all of that tenant's
   published documents. Set `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and name the
   tenant in `HARBORRAG_CORPUS_SHARED_TENANT_ID`; every other tenant stays on
@@ -627,15 +626,18 @@ A practical onboarding sequence:
 3. Grant only the required principals and roles in the token issuer.
 4. Create the tenant's projects and connections through the API, or with
    `harborrag projects create --tenant` and `harborrag connections create --tenant`;
-   `config/sources/connectors.yaml` is imported into one tenant only. Parser, model and backend settings are shared by the process and are
-   not selected per tenant.
+   `config/sources/connectors.yaml` is imported into one tenant only. Parser, model and
+   backend settings are shared by the process and are not selected per tenant.
 5. Add tenant-specific MCP policy to `config/mcp/server.yaml`, if needed.
-6. Decide the tenant's read access: import permission snapshots, or make it the shared
-   tenant (see [Read access inside a tenant](#read-access-inside-a-tenant)).
+6. Decide the tenant's read access: make it the shared tenant, since 2.0.0 has no way to
+   import permission snapshots (see
+   [Read access inside a tenant](#read-access-inside-a-tenant)).
 7. Start a tenant-scoped ingestion and keep its run ID.
 8. Compare the tenant's document and chunk counts in the stores, and run a tenant-scoped
-   retrieval, before you allow production traffic. 2.0.0 has no command, route or tool
-   that lists the projection inventory.
+   chat question, before you allow production traffic. 2.0.0 has no command, route or
+   tool that lists the projection inventory, so count with direct, tenant-named queries:
+   SQL on the control database, the Qdrant collections API, and a Cypher count in the
+   tenant's graph.
 9. Run a negative retrieval and authorization test against at least one other tenant.
 
 There is no `tenant create` command. Some resources, such as the tenant's Qdrant
@@ -653,7 +655,8 @@ When only the display name changes, keep the tenant ID and update the external d
 name. If the ID itself must change:
 
 1. stop or drain writes for the old ID;
-2. back up every authoritative store and record the tenant's document, vector and graph counts;
+2. back up every authoritative store and record the tenant's document, vector and graph
+   counts, taken with direct queries as in the onboarding step above;
 3. grant a restricted migration principal temporary access to both IDs;
 4. create the new control-plane records and policy entries;
 5. reingest from the authoritative sources, or run a purpose-built, reviewed migration

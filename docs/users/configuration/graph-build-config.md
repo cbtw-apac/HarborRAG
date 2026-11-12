@@ -28,11 +28,10 @@ For the shipped file it prints `['DEFAULT']`. An invalid file raises
 problem, such as `runtime.bogus_key` and `Extra inputs are not permitted`. Pass another
 path to check another file.
 
-The CLI has no command for this file in 2.0.0: `harborrag topology config validate` and
-`harborrag topology config apply`, which wrote the tenant and source policy to the
-control database, were removed with the rest of `harborrag topology`. The runtime code behind them remains,
-but 2.0.0 has no HTTP route or MCP tool that calls it, so the file has no operator entry
-point yet.
+The CLI, the HTTP API and the MCP tools do not read or apply this file in 2.0.0. The
+runtime functions that write its tenant and source policy to the control database remain
+in `harborrag_runtime/topology/operations.py`, but nothing calls them yet, so the file has
+no operator entry point.
 
 ## File layout
 

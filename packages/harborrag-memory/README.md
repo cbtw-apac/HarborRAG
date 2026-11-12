@@ -3,8 +3,9 @@
 Scope-aware conversation memory for chat in
 [HarborRAG](https://github.com/cbtw-apac/HarborRAG): recent turns, a rolling session
 summary, long-term memories recalled into each turn, and facts extracted from finished
-turns. This package owns the memory facade and policies; storage lives in
-`harborrag-adapters` and the contracts live in `harborrag-core`.
+turns. This package owns the memory facade, the policies and the memory use cases (history
+records, titles, introspection and erasure); the contracts live in `harborrag-core` and the
+durable storage adapters in `harborrag-adapters`.
 
 ## Install
 
@@ -12,7 +13,7 @@ turns. This package owns the memory facade and policies; storage lives in
 pip install harborrag-memory
 ```
 
-`harborrag-app` depends on this package, so every install of the
+`harborrag-runtime` and `harborrag-app` depend on this package, so every install of the
 [`harborrag`](https://pypi.org/project/harborrag/) facade already includes it.
 
 Model-driven policies take a `MemoryModel`: asynchronous `generate_text` and
@@ -22,8 +23,8 @@ conversion and window trimming; LangGraph is not required.
 
 ## Quick start
 
-The in-memory conversation store comes from `harborrag-runtime`, so install that package
-(or `harborrag`) to run this example; any `ConversationRepository` works in its place.
+This example needs only this package: the bounded in-memory conversation store ships in
+`harborrag_memory.tiers.in_memory`. Any `ConversationRepository` works in its place.
 
 ```python
 import asyncio
@@ -413,6 +414,13 @@ Where the code lives:
 - `manager.py`: `MemoryManager`, the single facade chat imports.
 - `tiers/short_term.py`: the conversation history facade.
 - `tiers/long_term.py`: the canonical repository facade for durable memory.
+- `tiers/in_memory.py`: a bounded process-local conversation store for tests and local
+  checks.
+- `access.py`: the authenticated caller's own memory isolation key.
+- `administration.py` and `erasure.py`: introspection and right-to-erasure over one
+  caller's remembered data, and the durable deletion intents behind it.
+- `messages.py`, `projects.py` and `titles.py`: per-turn message records, project
+  validation and conversation titles.
 - `schemas.py`: stable re-exports of the core-owned memory contracts.
 - `identity.py`: the one derivation of the conversation identity an owner maps to.
 - `config.py`: `MemoryManagerConfig`, including the default recent-turn limit.
