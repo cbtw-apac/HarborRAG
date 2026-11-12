@@ -25,6 +25,8 @@ from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 @dataclass(frozen=True, slots=True)
 class SourceIngestionRequest:
+    """Everything one source ingestion run needs, resolved against the connector catalog."""
+
     tenant_id: str
     task_id: str
     connector_name: str
@@ -42,6 +44,7 @@ class SourceIngestionRequest:
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
+        """Reject blank identities and out-of-range limits."""
         text_values = (
             self.tenant_id,
             self.task_id,
@@ -61,6 +64,8 @@ class SourceIngestionRequest:
 
 @dataclass(frozen=True, slots=True)
 class SourceIngestionOutcome:
+    """Counts and final state of one source ingestion run."""
+
     task_id: str
     scan_id: str
     discovered: int
@@ -74,11 +79,14 @@ class SourceIngestionOutcome:
 
 @dataclass(frozen=True, slots=True)
 class SourceDispatchSummary:
+    """Counts of document outcomes a source run has dispatched so far."""
+
     published: int = 0
     unchanged: int = 0
     failed: int = 0
 
     def __post_init__(self) -> None:
+        """Reject negative counts."""
         if min(self.published, self.unchanged, self.failed) < 0:
             raise ValueError("source dispatch counts must not be negative")
 
@@ -87,6 +95,7 @@ class SourceDispatchSummary:
         cls,
         results: tuple[DocumentIngestionOutcome, ...],
     ) -> SourceDispatchSummary:
+        """Count published, unchanged and failed outcomes."""
         if any(not isinstance(result, DocumentIngestionOutcome) for result in results):
             raise ValueError("unsupported document ingestion outcome")
         return cls(
@@ -97,15 +106,18 @@ class SourceDispatchSummary:
 
     @property
     def total(self) -> int:
+        """Documents counted across all outcomes."""
         return self.published + self.unchanged + self.failed
 
     def require_total(self, expected: int) -> None:
+        """Fail when the counted documents differ from the plan size."""
         if self.total != expected:
             raise HarborInvariantError(
                 "document outcome count does not match the source ingestion plan"
             )
 
     def merge(self, other: SourceDispatchSummary) -> SourceDispatchSummary:
+        """Add another summary's counts to this one."""
         return SourceDispatchSummary(
             published=self.published + other.published,
             unchanged=self.unchanged + other.unchanged,
@@ -114,7 +126,6 @@ class SourceDispatchSummary:
 
     def task_state(self) -> IngestionTaskState:
         """Derive the terminal task state from bounded document outcomes."""
-
         completed = self.published + self.unchanged
         if self.failed and completed:
             return IngestionTaskState.PARTIAL
@@ -125,18 +136,26 @@ class SourceDispatchSummary:
 
 @dataclass(frozen=True, slots=True)
 class PlannedDocumentRelease:
+    """A release request with the id of the document it targets."""
+
     request: DocumentReleaseRequest
     document_id: str
 
 
 @dataclass(frozen=True, slots=True)
 class SourceDiscoveryRun:
+    """Result of one discovery pass.
+
+    Args:
+        scan_id: Identity of the scan.
+        planned: Planned releases; empty for paged discovery, whose documents already live in
+            persisted pages and would otherwise outgrow a worker.
+        page_counts: Documents per persisted page, in page order; empty for connectors that
+            discover without pages, whose plan is paged afterwards.
+    """
+
     scan_id: str
-    # Empty for paged discovery: its documents already live in the persisted
-    # pages, and holding every one of them here is what outgrew a worker.
     planned: tuple[PlannedDocumentRelease, ...]
-    # Documents per persisted page, in page order; empty for connectors that
-    # discover without pages (their plan is paged after the fact).
     page_counts: tuple[int, ...] = ()
 
 
@@ -148,18 +167,22 @@ class PlannedDocuments:
     they take its pages instead of one tuple of every document: at hundreds of
     thousands of documents that tuple, and the JSON it was parsed from, no
     longer fit beside the rest of a worker.
+
+    Args:
+        document_count: Documents in the plan.
+        read_pages: Takes the page to start from, so a resumed walk skips what it already read.
     """
 
     document_count: int
-    # Takes the page to start from, so a resumed walk skips what it already read.
     read_pages: Callable[[int], AsyncIterator[tuple[PlannedDocumentRelease, ...]]]
 
     def pages(self, start: int = 0) -> AsyncIterator[tuple[PlannedDocumentRelease, ...]]:
+        """Walk the plan one page at a time, from page ``start``."""
         return self.read_pages(start)
 
     @classmethod
     def of(cls, planned: tuple[PlannedDocumentRelease, ...]) -> PlannedDocuments:
-        """An in-memory plan, for discoveries small enough to have been held whole."""
+        """Build an in-memory plan for discoveries small enough to be held whole."""
 
         async def pages(start: int) -> AsyncIterator[tuple[PlannedDocumentRelease, ...]]:
             if planned and start == 0:
@@ -186,7 +209,6 @@ class RelationRepairProgress:
     @classmethod
     def resume(cls, detail: object) -> RelationRepairProgress:
         """Progress from a prior attempt's heartbeat, or from the start when there is none."""
-
         if not isinstance(detail, dict):
             return cls()
         values = {name: detail.get(name) for name in cls.__slots__}
@@ -200,6 +222,8 @@ class RelationRepairProgress:
 
 @dataclass(frozen=True, slots=True)
 class SourcePlanPageRange:
+    """Document indexes one persisted plan page covers."""
+
     page_number: int
     start_index: int
     count: int
@@ -219,6 +243,7 @@ class SourcePlanIndex:
     pages: tuple[SourcePlanPageRange, ...]
 
     def __post_init__(self) -> None:
+        """Reject pages that are not contiguous or do not cover the document count."""
         expected = 0
         for page in self.pages:
             if page.start_index != expected or page.count < 0:
@@ -229,6 +254,7 @@ class SourcePlanIndex:
 
     @classmethod
     def from_page_counts(cls, counts: Sequence[int]) -> SourcePlanIndex:
+        """Build the index from the document count of each page in order."""
         pages = []
         start = 0
         for number, count in enumerate(counts):
@@ -238,7 +264,6 @@ class SourcePlanIndex:
 
     def locate(self, document_index: int) -> tuple[int, int]:
         """``(page_number, offset within page)`` for one document index."""
-
         if document_index < 0 or document_index >= self.document_count:
             raise IndexError(document_index)
         starts = [page.start_index for page in self.pages]
@@ -249,6 +274,8 @@ class SourcePlanIndex:
 
 @dataclass(frozen=True, slots=True)
 class SourceDiscoveryPage:
+    """One page of planned releases with the cursor to the next page."""
+
     planned: tuple[PlannedDocumentRelease, ...]
     next_cursor: str | None
     root_count: int
@@ -256,6 +283,7 @@ class SourceDiscoveryPage:
     descriptor_seconds: float = 0.0
 
     def __post_init__(self) -> None:
+        """Reject an invalid cursor or a negative root count."""
         _validate_discovery_cursor(self.next_cursor)
         if self.root_count < 0:
             raise ValueError("source discovery root count must not be negative")
@@ -263,11 +291,14 @@ class SourceDiscoveryPage:
 
 @dataclass(frozen=True, slots=True)
 class SourcePlanCheckpoint:
+    """Planned releases persisted so far with the cursor to resume from."""
+
     planned: tuple[PlannedDocumentRelease, ...]
     next_cursor: str | None
     root_count: int
 
     def __post_init__(self) -> None:
+        """Reject an invalid cursor or a negative root count."""
         _validate_discovery_cursor(self.next_cursor)
         if self.root_count < 0:
             raise ValueError("source plan checkpoint root count must not be negative")

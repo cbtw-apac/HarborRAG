@@ -12,16 +12,19 @@ MAX_RETRY_DOCUMENT_IDS = 1_000
 
 
 def validate_document_concurrency(value: int) -> None:
+    """Reject a document concurrency outside 1 to 100."""
     if not 1 <= value <= MAX_DOCUMENT_CONCURRENCY:
         raise ValueError("document_concurrency must be between 1 and 100")
 
 
 def validate_discovery_page_size(value: int) -> None:
+    """Reject a discovery page size outside 1 to 300."""
     if not 1 <= value <= MAX_DISCOVERY_PAGE_SIZE:
         raise ValueError("discovery_page_size must be between 1 and 300")
 
 
 def validate_discovery_concurrency(value: int) -> None:
+    """Reject a discovery concurrency outside 1 to 32."""
     if not 1 <= value <= MAX_DISCOVERY_CONCURRENCY:
         raise ValueError("discovery_concurrency must be between 1 and 32")
 
@@ -31,6 +34,7 @@ def validate_source_orchestration_limits(
     batch_size: int,
     continue_after_batches: int,
 ) -> None:
+    """Reject a batch size outside 1 to 300 or a batch continuation count outside 1 to 100."""
     if not 1 <= batch_size <= MAX_BATCH_SIZE:
         raise ValueError("source batch_size must be between 1 and 300")
     if not 1 <= continue_after_batches <= MAX_CONTINUE_AFTER_BATCHES:
@@ -38,5 +42,6 @@ def validate_source_orchestration_limits(
 
 
 def validate_reindex_limit(value: int) -> None:
+    """Reject a reindex limit outside 1 to 100000."""
     if not 1 <= value <= MAX_REINDEX_LIMIT:
         raise ValueError("reindex limit must be between 1 and 100000")

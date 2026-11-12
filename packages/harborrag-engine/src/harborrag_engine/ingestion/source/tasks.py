@@ -1,3 +1,5 @@
+"""Stable scan ids and pending task records for source ingestion runs."""
+
 from __future__ import annotations
 
 from hashlib import sha256
@@ -8,7 +10,6 @@ from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 
 def source_scan_id(task_id: str) -> str:
     """Build the stable scan identity used by retried discovery activities."""
-
     normalized = task_id.strip()
     if not normalized:
         raise ValueError("task_id must be non-empty")
@@ -17,7 +18,6 @@ def source_scan_id(task_id: str) -> str:
 
 def pending_source_task(request: SourceIngestionRequest) -> IngestionTask:
     """Build the one canonical, runtime-free task record for a source request."""
-
     query = request.query
     pinned = (
         {

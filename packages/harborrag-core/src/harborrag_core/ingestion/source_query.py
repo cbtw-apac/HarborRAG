@@ -24,6 +24,8 @@ _SECRET_QUERY_KEYS = frozenset(
 
 @dataclass(frozen=True, slots=True)
 class ProcessingProfileInput:
+    """Names of the parser, chunking and projection profiles a run processes with."""
+
     parser_profile: str
     normalizer_version: str
     chunk_strategy: str
@@ -33,6 +35,7 @@ class ProcessingProfileInput:
     vector_projection_schema: str = "vector-payload-v1"
 
     def __post_init__(self) -> None:
+        """Reject blank profile values."""
         if any(
             not value.strip()
             for value in (
@@ -50,6 +53,8 @@ class ProcessingProfileInput:
 
 @dataclass(frozen=True, slots=True)
 class SourceQuery:
+    """Secret-free selector of what a source scan discovers."""
+
     path: str | None = None
     pattern: str | None = None
     recursive: bool = True
@@ -59,6 +64,7 @@ class SourceQuery:
     filters_json: str = "{}"
 
     def __post_init__(self) -> None:
+        """Reject credentials in filters, a non-positive limit and a naive or malformed timestamp."""
         filters = json.loads(self.filters_json)
         if not isinstance(filters, dict):
             raise ValueError("source query filters must encode an object")

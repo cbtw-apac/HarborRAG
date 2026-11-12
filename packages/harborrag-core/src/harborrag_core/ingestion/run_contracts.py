@@ -120,6 +120,7 @@ class PreparedSourceSubmission:
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
+        """Reject blank identities, oversized task ids and out-of-range limits."""
         identities = (
             self.task_id,
             self.tenant_id,
@@ -145,6 +146,8 @@ class PreparedSourceSubmission:
 
 @dataclass(frozen=True, slots=True)
 class IngestionRetryRequest:
+    """Request to retry the named failed documents of one finished run."""
+
     retry_task_id: str
     original_task_id: str
     tenant_id: str
@@ -152,6 +155,7 @@ class IngestionRetryRequest:
     document_concurrency: int = 8
 
     def __post_init__(self) -> None:
+        """Reject blank identities, empty, duplicate or too many document ids, and bad concurrency."""
         if any(
             not value.strip()
             for value in (self.retry_task_id, self.original_task_id, self.tenant_id)

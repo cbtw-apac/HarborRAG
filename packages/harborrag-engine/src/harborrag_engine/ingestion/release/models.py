@@ -17,6 +17,8 @@ from harborrag_core.ingestion.run_contracts import RunSettings
 
 @dataclass(frozen=True, slots=True)
 class DocumentReleaseRequest:
+    """One discovered document handed to the release pipeline."""
+
     tenant_id: str
     connector_name: str
     source: SourceRecord
@@ -29,6 +31,7 @@ class DocumentReleaseRequest:
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:
+        """Reject blank tenant, connector or fingerprint and a mismatched source identity tenant."""
         if not self.tenant_id.strip() or not self.connector_name.strip():
             raise ValueError("release tenant and connector names must be non-empty")
         if (
@@ -42,6 +45,8 @@ class DocumentReleaseRequest:
 
 @dataclass(frozen=True, slots=True)
 class DocumentReleaseOutcome:
+    """Result of releasing one document."""
+
     document_id: str
     document_version_id: str | None
     decision: SourceAdmissionDecision
@@ -52,4 +57,5 @@ class DocumentReleaseOutcome:
 
     @property
     def published(self) -> bool:
+        """Whether the release published a version."""
         return self.publication is not None

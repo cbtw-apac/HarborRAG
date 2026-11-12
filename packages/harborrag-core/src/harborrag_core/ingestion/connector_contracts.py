@@ -1,3 +1,5 @@
+"""Value types a connector exchanges with ingestion: metadata, capabilities, queries, pages and skips."""
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field

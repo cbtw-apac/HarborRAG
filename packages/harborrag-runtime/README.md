@@ -42,10 +42,9 @@ src/harborrag_runtime/
   security/                 # operator-side security operations
   observability/            # telemetry shared by reader and ingestion compositions
   events/                   # runtime event contracts and publication
-  ingestion_contracts.py    # provider-neutral durable ingestion gateway and DTOs
+  ingestion_contracts.py    # provider-neutral durable ingestion gateway and its outcomes
   contracts.py              # stable request and response contracts of the SDK
   reader_contracts.py       # compatibility exports for reader contracts
-  source_query.py           # secret-free source query and processing inputs
   document_stage_catalog.py # sandbox-safe catalog of document stages
   temporal_models.py        # replay-safe routing and retry models
   plugins.py                # entry-point plugin discovery and registration
@@ -67,7 +66,7 @@ behind it. Direct and Temporal strategies use the same submission builder, so th
 execution mode does not change request identity or filtering semantics.
 
 Applications submit durable ingestion through `ingestion_contracts.IngestionGateway`. Its
-submission, retry, status and result DTOs hold no Temporal replay state or workflow
+submission, retry, status and result types hold no Temporal replay state or workflow
 options; `temporal.gateway.TemporalIngestionGateway` translates them to Temporal payloads
 and back. Connector preparation and task registration live in
 `execution/source_submission.py` and `execution/task_registry.py`, so changing the

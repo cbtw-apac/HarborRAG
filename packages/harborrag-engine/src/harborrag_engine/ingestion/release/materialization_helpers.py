@@ -15,7 +15,6 @@ def enrich_raw_document(
     request: DocumentReleaseRequest,
 ) -> RawDocument:
     """Add stable source identity without introducing runtime metadata."""
-
     source = request.source_identity
     metadata = {
         **raw.metadata,
@@ -36,7 +35,6 @@ def representation_artifact_name(
     representations: RepresentationSet,
 ) -> str:
     """Address the combined dense/sparse representation profile."""
-
     return encoded_identifier(
         "encoder-profile",
         {
