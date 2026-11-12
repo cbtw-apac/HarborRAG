@@ -16,8 +16,12 @@ from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
-
-from .schemas import ChatSessionCreateRequest, MessageList, Session, SessionList
+from harborrag_app.operations.schemas.chat import (
+    ChatSessionCreateRequest,
+    MessageList,
+    Session,
+    SessionList,
+)
 
 
 def _no_store(response: Response) -> None:

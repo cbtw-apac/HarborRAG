@@ -286,9 +286,9 @@ uv run python -m harborrag_app.api.export_openapi > openapi.json
 ```text
 api/
 ├── app.py, router.py, settings.py, serve.py, dependencies.py
-├── errors.py, middleware.py, schemas.py, sse.py   # errors.py holds the handlers
-├── auth/                 # credentials, tenants, the ordered role guard; role check in principal.py
-├── probes.py, readiness.py
+├── errors.py, middleware.py   # errors.py holds the handlers
+├── auth/                 # credentials, tenants and the ordered role guard
+├── probes.py
 ├── ops.py, metrics.py    # the ops port and its Prometheus registry
 ├── rate_limit.py, deadline.py, capacity*.py
 ├── pagination.py, openapi.py, export_openapi.py
@@ -303,6 +303,10 @@ The sibling `harborrag_app/operations/` package imports no web framework, so the
 use it too. It holds the `Operations` port (`port.py`) and its in-process implementation
 (`local/`), the role and serialization table of every operation (`contract.py`), and the
 error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
+It also owns what the routes and the commands both use: the request and response models
+(`schemas/`), the `Principal` and its role check (`principal.py`), chat request dispatch,
+replay and retrieval filters (`chat/`), SSE framing (`sse.py`) and the readiness checks
+(`readiness.py`). This package imports `operations`; `operations` never imports this one.
 
 The application services live in `harborrag_runtime.application`, which this package
 imports and which never imports it; see its

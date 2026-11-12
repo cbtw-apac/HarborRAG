@@ -11,13 +11,6 @@ from app_test_connections import ConnectionWorld, connection_world, running_task
 from app_test_fixtures import MockAppService
 from test_connection_service import JIRA_WRITE
 
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.v1.admin.connection_schemas import IngestionStartRequest
-from harborrag_app.api.v1.ingestion.schemas import (
-    FailureQuery,
-    FailureRetryRequest,
-    IngestionListQuery,
-)
 from harborrag_app.operations import (
     Accepted,
     ConnectionRef,
@@ -26,6 +19,13 @@ from harborrag_app.operations import (
     Scope,
 )
 from harborrag_app.operations.errors import error_body
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.schemas.connections import IngestionStartRequest
+from harborrag_app.operations.schemas.ingestions import (
+    FailureQuery,
+    FailureRetryRequest,
+    IngestionListQuery,
+)
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborAuthError,

@@ -14,11 +14,11 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.dependencies import ResponseContext
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.api.v1.ingestion.routes import stream_ingestion
 from harborrag_app.operations import LocalOperations, Scope
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.events import HarborEvent
 
 

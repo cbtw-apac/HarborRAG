@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from harborrag_app.api.schemas import Error
+from harborrag_app.operations.schemas.common import Error
 
 
 def error_responses(*codes: int) -> dict[int | str, dict[str, Any]]:

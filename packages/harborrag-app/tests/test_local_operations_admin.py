@@ -8,12 +8,6 @@ import pytest
 from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.v1.admin.connection_schemas import (
-    ConnectionWriteRequest,
-    ProjectPage,
-    ProjectWriteRequest,
-)
 from harborrag_app.operations import (
     ConnectionRef,
     LocalOperations,
@@ -21,6 +15,12 @@ from harborrag_app.operations import (
     Scope,
     Tagged,
     TenantForbiddenError,
+)
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.schemas.connections import (
+    ConnectionWriteRequest,
+    ProjectPage,
+    ProjectWriteRequest,
 )
 from harborrag_core.config_store import SettingsLevel
 from harborrag_core.contracts.errors import (

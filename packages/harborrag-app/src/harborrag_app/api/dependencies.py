@@ -15,10 +15,10 @@ from typing import Annotated, cast
 from fastapi import Depends, Request, Response
 
 from harborrag_app.api.auth.dependencies import get_principal
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import TenantDependency
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.port import Operations
+from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.scope import Scope
 from harborrag_runtime.application import BaseAppService
 

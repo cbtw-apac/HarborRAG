@@ -8,11 +8,6 @@ from typing import Annotated
 
 import typer
 
-from harborrag_app.api.v1.admin.connection_schemas import (
-    ConnectionPage,
-    ConnectionTestRequest,
-    ConnectionWriteRequest,
-)
 from harborrag_app.cli.bodies import read_document, read_with_secrets, validate_body
 from harborrag_app.cli.globals import (
     ConfigOption,
@@ -32,6 +27,11 @@ from harborrag_app.cli.paging import (
 )
 from harborrag_app.cli.tenant_guard import confirm_deletion
 from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.schemas.connections import (
+    ConnectionPage,
+    ConnectionTestRequest,
+    ConnectionWriteRequest,
+)
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.domain.connection import ConnectionStatus
 from harborrag_runtime.application.control_plane.connections import WriteOrigin

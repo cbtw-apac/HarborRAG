@@ -22,12 +22,12 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import replace
 from http import HTTPStatus
 
-from harborrag_app.api.v1.admin.connection_schemas import IngestionOut
 from harborrag_app.cli.exit_codes import RUN_FAILED
 from harborrag_app.cli.invoke import Outcome, ReportedError, release_held_logs
 from harborrag_app.cli.output import OutputFormat
 from harborrag_app.operations.errors import ErrorBody, error_body
 from harborrag_app.operations.port import Operations
+from harborrag_app.operations.schemas.connections import IngestionOut
 from harborrag_app.operations.scope import Scope
 from harborrag_runtime.application.control_plane.connection_views import ingestion_status
 from harborrag_runtime.application.ingestion.presenters import TERMINAL_STATES

@@ -13,11 +13,10 @@ from dataclasses import dataclass
 
 from pydantic import ValidationError
 
-from harborrag_app.api.auth.principal import Principal
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.schemas.chat import ChatCompletionRequest, ChatCompletionResponse
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ports.completion_requests import CompletionRequestStore
-
-from .schemas import ChatCompletionRequest, ChatCompletionResponse
 
 logger = logging.getLogger("harborrag.app.api.chat")
 

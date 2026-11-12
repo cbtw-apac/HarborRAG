@@ -15,9 +15,8 @@ from typing import Literal
 from fastapi import APIRouter, Request, Response, status
 from pydantic import BaseModel
 
+from harborrag_app.operations.readiness import ReadinessChecks, build_readiness_checks
 from harborrag_runtime.config.settings import RuntimeSettings
-
-from .readiness import ReadinessChecks, build_readiness_checks
 
 router = APIRouter(tags=["Probes"])
 

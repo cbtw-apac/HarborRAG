@@ -7,7 +7,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 
-from harborrag_app.api.sse import bounded_sse_frames, sse_frame
+from harborrag_app.operations.sse import bounded_sse_frames, sse_frame
 
 
 @pytest.mark.asyncio

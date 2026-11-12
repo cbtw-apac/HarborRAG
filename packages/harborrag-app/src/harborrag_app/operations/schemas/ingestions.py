@@ -8,8 +8,8 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, field_validator, model_validator
 
-from harborrag_app.api.schemas import ApiModel
-from harborrag_app.api.v1.admin.connection_schemas import IngestionOut
+from harborrag_app.operations.schemas.common import ApiModel
+from harborrag_app.operations.schemas.connections import IngestionOut
 
 
 class IngestionStatus(StrEnum):

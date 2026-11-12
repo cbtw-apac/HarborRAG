@@ -17,11 +17,11 @@ from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute
 
+from harborrag_app.operations.principal import ROLE_ORDER, Principal, authorize_role
 from harborrag_core.domain.member import Role
 
 from ..rate_limit import RateBucket, charge
 from .dependencies import get_principal
-from .principal import ROLE_ORDER, Principal, authorize_role
 from .tenancy import resolve_tenant, tenant_header
 
 _MINIMUM_ROLE = "minimum_role"

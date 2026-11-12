@@ -17,13 +17,13 @@ import pytest
 from app_test_fixtures import MockAppService
 from cli_fakes import Call, FakeOperations, serving
 
-from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
-from harborrag_app.api.v1.ingestion.schemas import IngestionListQuery, IngestionPage
 from harborrag_app.cli import follow, invoke
 from harborrag_app.cli import main as cli
 from harborrag_app.cli.commands import ingestions
 from harborrag_app.cli.invoke import Outcome
 from harborrag_app.operations import Accepted, ConnectionRef
+from harborrag_app.operations.schemas.connections import IngestionOut, IngestionStartRequest
+from harborrag_app.operations.schemas.ingestions import IngestionListQuery, IngestionPage
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborCapabilityError,

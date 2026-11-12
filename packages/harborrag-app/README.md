@@ -40,7 +40,7 @@ lists each command's options.
   never construct connectors or repositories themselves.
 
 The package holds only these three transports: `api/` for HTTP, `cli/` for the command line
-and `operations/` for the port both call. The application services behind the operations live
+and `operations/` for the port both call and the request and response models it uses. The application services behind the operations live
 in [`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
 and the retrieval, ingestion and topology use cases they run live in `harborrag-engine`.
 

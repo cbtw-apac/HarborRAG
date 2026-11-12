@@ -15,8 +15,9 @@ from typing import Any
 
 from fastapi import FastAPI
 
+from harborrag_app.operations.schemas.common import Error
+
 from .auth.access import api_routes, minimum_role, scopes_tenant
-from .schemas import Error
 
 _ERROR_REF = {"$ref": "#/components/schemas/Error"}
 _STANDARD_ERRORS: dict[int, str] = {

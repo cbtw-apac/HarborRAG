@@ -21,8 +21,6 @@ from app_test_fixtures import MockAppService
 from cli_fakes import FakeOperations, raised_in_temporal_client, serving
 from pydantic import BaseModel
 
-from harborrag_app.api.v1.admin.connection_schemas import ProjectOut, ProjectWriteRequest
-from harborrag_app.api.v1.me_schemas import MeOut, MePrincipal
 from harborrag_app.cli import invoke
 from harborrag_app.cli import main as cli
 from harborrag_app.cli.exit_codes import exit_code_for
@@ -39,6 +37,8 @@ from harborrag_app.cli.output import OutputFormat, print_body
 from harborrag_app.cli.tenant_guard import confirm_tenant_write
 from harborrag_app.cli.views import render
 from harborrag_app.operations import Saved
+from harborrag_app.operations.schemas.connections import ProjectOut, ProjectWriteRequest
+from harborrag_app.operations.schemas.me import MeOut, MePrincipal
 from harborrag_core.contracts.errors import HarborConfigurationError, HarborNotFoundError
 from harborrag_runtime.application import AppResponse
 from harborrag_runtime.config.connectors.models.spec import ConnectionValidationError, FieldIssue

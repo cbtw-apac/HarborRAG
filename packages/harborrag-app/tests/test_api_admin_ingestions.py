@@ -15,8 +15,8 @@ from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.dependencies import get_principal
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.principal import Principal
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
 

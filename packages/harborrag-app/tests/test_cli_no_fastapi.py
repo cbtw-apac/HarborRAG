@@ -36,8 +36,8 @@ def test_cli_imports_without_fastapi(monkeypatch: pytest.MonkeyPatch) -> None:
     assert importlib.import_module("harborrag_app.operations") is not None
     for name in (
         "harborrag_app.operations.contract",
-        "harborrag_app.api.v1.ingestion.schemas",
-        "harborrag_app.api.v1.chat.schemas",
+        "harborrag_app.operations.schemas.ingestions",
+        "harborrag_app.operations.schemas.chat",
     ):
         assert importlib.import_module(name) is not None
 

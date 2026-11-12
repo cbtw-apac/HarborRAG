@@ -17,7 +17,13 @@ from typing import Any
 
 from pydantic import BaseModel, TypeAdapter
 
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.operations.schemas.chat import (
+    ChatCompletionResponse,
+    MessageList,
+    Session,
+    SessionList,
+)
+from harborrag_app.operations.schemas.connections import (
     ConnectionChipPage,
     ConnectionOut,
     ConnectionPage,
@@ -28,20 +34,14 @@ from harborrag_app.api.v1.admin.connection_schemas import (
     ProjectPage,
     SourceTypePage,
 )
-from harborrag_app.api.v1.admin.settings_schemas import SettingsOut, SettingsPatchOut
-from harborrag_app.api.v1.chat.schemas import (
-    ChatCompletionResponse,
-    MessageList,
-    Session,
-    SessionList,
-)
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.operations.schemas.ingestions import (
     FailurePage,
     FailureRetryAccepted,
     IngestionDocumentPage,
     IngestionPage,
 )
-from harborrag_app.api.v1.me_schemas import MeOut
+from harborrag_app.operations.schemas.me import MeOut
+from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_core.domain.member import Role
 
 

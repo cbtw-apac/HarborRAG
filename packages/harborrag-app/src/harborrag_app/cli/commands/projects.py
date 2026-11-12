@@ -7,7 +7,6 @@ from typing import Annotated
 
 import typer
 
-from harborrag_app.api.v1.admin.connection_schemas import ProjectPage, ProjectWriteRequest
 from harborrag_app.cli.bodies import load_body
 from harborrag_app.cli.globals import (
     ConfigOption,
@@ -27,6 +26,7 @@ from harborrag_app.cli.paging import (
 )
 from harborrag_app.cli.tenant_guard import confirm_deletion
 from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.schemas.connections import ProjectPage, ProjectWriteRequest
 from harborrag_app.operations.scope import Scope
 
 app = typer.Typer(help="Manage projects.", no_args_is_help=True)

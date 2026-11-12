@@ -13,8 +13,17 @@ from collections.abc import AsyncGenerator, AsyncIterator, Mapping
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from harborrag_app.api.auth.principal import Principal
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.results import Accepted, Saved, Tagged
+from harborrag_app.operations.schemas.chat import (
+    ChatCompletionRequest,
+    ChatCompletionResponse,
+    ChatSessionCreateRequest,
+    MessageList,
+    Session,
+    SessionList,
+)
+from harborrag_app.operations.schemas.connections import (
     ConnectionChipPage,
     ConnectionOut,
     ConnectionPage,
@@ -29,16 +38,7 @@ from harborrag_app.api.v1.admin.connection_schemas import (
     ProjectWriteRequest,
     SourceTypePage,
 )
-from harborrag_app.api.v1.admin.settings_schemas import SettingsOut, SettingsPatchOut
-from harborrag_app.api.v1.chat.schemas import (
-    ChatCompletionRequest,
-    ChatCompletionResponse,
-    ChatSessionCreateRequest,
-    MessageList,
-    Session,
-    SessionList,
-)
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.operations.schemas.ingestions import (
     FailurePage,
     FailureQuery,
     FailureRetryAccepted,
@@ -49,8 +49,8 @@ from harborrag_app.api.v1.ingestion.schemas import (
     IngestionPage,
     RetryFailuresRequest,
 )
-from harborrag_app.api.v1.me_schemas import MeOut
-from harborrag_app.operations.results import Accepted, Saved, Tagged
+from harborrag_app.operations.schemas.me import MeOut
+from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.connection import ConnectionStatus

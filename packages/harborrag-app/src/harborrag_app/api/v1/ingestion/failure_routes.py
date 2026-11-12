@@ -16,8 +16,12 @@ from harborrag_app.api.capacity_dependency import require_api_capacity
 from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
-
-from .schemas import FailurePage, FailureQuery, FailureRetryAccepted, FailureRetryRequest
+from harborrag_app.operations.schemas.ingestions import (
+    FailurePage,
+    FailureQuery,
+    FailureRetryAccepted,
+    FailureRetryRequest,
+)
 
 router = APIRouter(
     prefix="/admin/failures",

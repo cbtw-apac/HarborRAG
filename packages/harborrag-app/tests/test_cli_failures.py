@@ -10,16 +10,16 @@ from pathlib import Path
 import pytest
 from cli_fakes import Call, FakeOperations, serving
 
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.cli import invoke
+from harborrag_app.cli import main as cli
+from harborrag_app.cli.views import render
+from harborrag_app.operations.schemas.ingestions import (
     FailureOut,
     FailurePage,
     FailureQuery,
     FailureRetryAccepted,
     FailureRetryFilter,
 )
-from harborrag_app.cli import invoke
-from harborrag_app.cli import main as cli
-from harborrag_app.cli.views import render
 
 pytestmark = pytest.mark.unit
 

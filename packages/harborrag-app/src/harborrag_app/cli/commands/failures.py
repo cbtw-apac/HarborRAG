@@ -6,7 +6,6 @@ from typing import Annotated
 
 import typer
 
-from harborrag_app.api.v1.ingestion.schemas import FailurePage, FailureQuery, FailureRetryRequest
 from harborrag_app.cli.bodies import comma_list, load_body, read_fields
 from harborrag_app.cli.globals import (
     ConfigOption,
@@ -25,6 +24,11 @@ from harborrag_app.cli.paging import (
     collect_pages,
 )
 from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.schemas.ingestions import (
+    FailurePage,
+    FailureQuery,
+    FailureRetryRequest,
+)
 from harborrag_app.operations.scope import Scope
 
 app = typer.Typer(help="List and retry failed items.", no_args_is_help=True)

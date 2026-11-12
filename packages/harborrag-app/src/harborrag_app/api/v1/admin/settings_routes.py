@@ -18,9 +18,9 @@ from fastapi import APIRouter, Body, Depends, Header, Query, Response
 from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
+from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 
 from .dependencies import error_responses
-from .settings_schemas import SettingsOut, SettingsPatchOut
 
 LevelQuery = Annotated[
     str | None,

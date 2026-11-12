@@ -7,12 +7,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from harborrag_app.api.auth.access import require_role
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.auth.tenancy import OptionalTenantDependency
 from harborrag_app.api.dependencies import OperationsDependency
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
-
-from .me_schemas import MeOut
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.schemas.me import MeOut
 
 router = APIRouter(tags=["Identity"])
 

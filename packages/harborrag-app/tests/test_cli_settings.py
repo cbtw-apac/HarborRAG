@@ -9,15 +9,15 @@ from pathlib import Path
 import pytest
 from cli_fakes import FakeOperations, serving
 
-from harborrag_app.api.v1.admin.settings_schemas import (
-    SettingChangeOut,
-    SettingsOut,
-    SettingsPatchOut,
-)
 from harborrag_app.cli import invoke
 from harborrag_app.cli import main as cli
 from harborrag_app.cli.commands.settings import parse_setting
 from harborrag_app.operations import Tagged
+from harborrag_app.operations.schemas.settings import (
+    SettingChangeOut,
+    SettingsOut,
+    SettingsPatchOut,
+)
 from harborrag_core.config_store import SettingsReindexRequiredError
 
 pytestmark = pytest.mark.unit

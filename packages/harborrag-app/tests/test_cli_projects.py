@@ -11,18 +11,18 @@ from pathlib import Path
 import pytest
 from cli_fakes import Call, FakeOperations, serving
 
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.cli import invoke
+from harborrag_app.cli import main as cli
+from harborrag_app.cli.output import OutputFormat, print_body
+from harborrag_app.operations import Saved, Tagged
+from harborrag_app.operations.contract import dump_body
+from harborrag_app.operations.schemas.connections import (
     JobAcceptedOut,
     ProjectOut,
     ProjectPage,
     ProjectWriteRequest,
     SourceTypePage,
 )
-from harborrag_app.cli import invoke
-from harborrag_app.cli import main as cli
-from harborrag_app.cli.output import OutputFormat, print_body
-from harborrag_app.operations import Saved, Tagged
-from harborrag_app.operations.contract import dump_body
 
 pytestmark = pytest.mark.unit
 

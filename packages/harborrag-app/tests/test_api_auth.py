@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.dependencies import authorize_tenant
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborAuthError, HarborCapabilityError
 
 SECRET = "test-secret-at-least-32-bytes-long-for-hs256"

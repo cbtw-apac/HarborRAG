@@ -10,7 +10,7 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from harborrag_app.api.auth.dependencies import get_principal
-from harborrag_app.api.auth.principal import Principal
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborConnectionError, HarborDeadlineExceeded
 
 from .capacity import ApiCapacityLimiter

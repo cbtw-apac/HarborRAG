@@ -17,8 +17,8 @@ from typing import Annotated, Any
 
 import typer
 
-from harborrag_app.api.v1.admin.connection_schemas import ConnectionPage, ProjectPage
-from harborrag_app.api.v1.ingestion.schemas import FailurePage, IngestionPage
+from harborrag_app.operations.schemas.connections import ConnectionPage, ProjectPage
+from harborrag_app.operations.schemas.ingestions import FailurePage, IngestionPage
 
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100

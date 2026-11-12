@@ -12,9 +12,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
-from harborrag_app.api.v1.admin.settings_schemas import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.results import Tagged
+from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.scope import Scope
 from harborrag_core.config_store import SettingsLevel, revision_label
 from harborrag_core.contracts.errors import HarborValidationError

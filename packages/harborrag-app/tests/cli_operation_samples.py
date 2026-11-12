@@ -10,7 +10,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, datetime
 
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.operations import Accepted, Saved, Tagged
+from harborrag_app.operations.port import ChatCompletion
+from harborrag_app.operations.schemas.chat import ChatCompletionResponse, Citation, Usage
+from harborrag_app.operations.schemas.connections import (
     CheckOut,
     ConnectionOut,
     ConnectionPage,
@@ -30,21 +33,18 @@ from harborrag_app.api.v1.admin.connection_schemas import (
     SourceTypePage,
     TriggeredByOut,
 )
-from harborrag_app.api.v1.admin.settings_schemas import (
-    SettingChangeOut,
-    SettingsOut,
-    SettingsPatchOut,
-)
-from harborrag_app.api.v1.chat.schemas import ChatCompletionResponse, Citation, Usage
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.operations.schemas.ingestions import (
     FailureOut,
     FailurePage,
     FailureRetryAccepted,
     IngestionPage,
 )
-from harborrag_app.api.v1.me_schemas import MeOut, MePrincipal
-from harborrag_app.operations import Accepted, Saved, Tagged
-from harborrag_app.operations.port import ChatCompletion
+from harborrag_app.operations.schemas.me import MeOut, MePrincipal
+from harborrag_app.operations.schemas.settings import (
+    SettingChangeOut,
+    SettingsOut,
+    SettingsPatchOut,
+)
 
 _STAMP = datetime(2026, 11, 10, tzinfo=UTC)
 _ETAG = 'W/"rev-3"'

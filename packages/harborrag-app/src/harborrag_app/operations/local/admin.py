@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, get_args
 
-from harborrag_app.api.auth.principal import Principal, authorize_role
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.operations.contract import OPERATIONS
+from harborrag_app.operations.principal import Principal, authorize_role
+from harborrag_app.operations.results import Saved, Tagged
+from harborrag_app.operations.schemas.connections import (
     ConnectionChipPage,
     ConnectionOut,
     ConnectionPage,
@@ -25,9 +27,7 @@ from harborrag_app.api.v1.admin.connection_schemas import (
     ProjectWriteRequest,
     SourceTypePage,
 )
-from harborrag_app.api.v1.me_schemas import MeOut, MePrincipal
-from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.results import Saved, Tagged
+from harborrag_app.operations.schemas.me import MeOut, MePrincipal
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.connection import ConnectionStatus

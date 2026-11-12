@@ -23,10 +23,7 @@ from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.pagination import DEFAULT_LIMIT, Page, PageDependency
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
-from harborrag_app.operations.scope import ConnectionRef
-from harborrag_runtime.config.connectors.models import source_types
-
-from .connection_schemas import (
+from harborrag_app.operations.schemas.connections import (
     ID_PATTERN,
     ConnectionChipPage,
     ConnectionOut,
@@ -42,6 +39,9 @@ from .connection_schemas import (
     SourceTypeName,
     SourceTypePage,
 )
+from harborrag_app.operations.scope import ConnectionRef
+from harborrag_runtime.config.connectors.models import source_types
+
 from .connection_templates import ConnectionTemplateBuilder
 from .dependencies import error_responses
 

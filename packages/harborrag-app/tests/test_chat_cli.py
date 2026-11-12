@@ -10,16 +10,16 @@ from pathlib import Path
 import pytest
 from cli_fakes import FakeOperations, serving
 
-from harborrag_app.api.v1.chat.dispatch import ModeUnavailableError
-from harborrag_app.api.v1.chat.schemas import (
+from harborrag_app.cli import invoke
+from harborrag_app.cli import main as cli
+from harborrag_app.operations.chat.dispatch import ModeUnavailableError
+from harborrag_app.operations.port import ChatCompletion
+from harborrag_app.operations.schemas.chat import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     Citation,
     Usage,
 )
-from harborrag_app.cli import invoke
-from harborrag_app.cli import main as cli
-from harborrag_app.operations.port import ChatCompletion
 from harborrag_core.contracts.errors import HarborNotFoundError
 
 pytestmark = pytest.mark.unit

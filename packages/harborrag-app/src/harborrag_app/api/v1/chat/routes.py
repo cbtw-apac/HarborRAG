@@ -18,8 +18,8 @@ from harborrag_app.api.dependencies import OperationsDependency, ScopeDependency
 from harborrag_app.api.errors import documented_error_responses
 from harborrag_app.api.middleware import current_trace_id
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
+from harborrag_app.operations.schemas.chat import ChatCompletionRequest
 
-from .schemas import ChatCompletionRequest
 from .sessions import router as session_router
 
 router = APIRouter(prefix="/chat", tags=["Chat"])

@@ -12,13 +12,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from harborrag_app.operations.schemas.chat import Condition, Filter
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_engine.retrieval.evidence_filters import (
     EVIDENCE_FILTER_KEYS,
     validate_evidence_filter_keys,
 )
-
-from .schemas import Condition, Filter
 
 CONNECTION_FIELD = "connection"
 SOURCE_SCOPE_FIELD = "source_scope_id"

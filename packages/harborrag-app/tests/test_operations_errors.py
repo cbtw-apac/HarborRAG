@@ -3,8 +3,8 @@
 import pytest
 from cli_fakes import raised_in_temporal_client
 
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.operations import ConnectionRef, Scope, TenantForbiddenError, error_body
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborAuthError,

@@ -8,9 +8,6 @@ from typing import Any
 import pytest
 from app_test_fixtures import MockAppService
 
-from harborrag_app.api.auth.principal import ROLE_ORDER, Principal
-from harborrag_app.api.v1.chat.dispatch import ModeUnavailableError
-from harborrag_app.api.v1.chat.schemas import ChatCompletionRequest, ChatSessionCreateRequest
 from harborrag_app.operations import (
     LocalOperations,
     Operations,
@@ -18,8 +15,11 @@ from harborrag_app.operations import (
     Scope,
     Tagged,
 )
+from harborrag_app.operations.chat.dispatch import ModeUnavailableError
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.errors import error_body
+from harborrag_app.operations.principal import ROLE_ORDER, Principal
+from harborrag_app.operations.schemas.chat import ChatCompletionRequest, ChatSessionCreateRequest
 from harborrag_core.config_store import SettingChange, SettingsLevel
 from harborrag_core.contracts.errors import HarborAuthError, HarborValidationError
 from harborrag_runtime.application.control_plane.settings_service import (

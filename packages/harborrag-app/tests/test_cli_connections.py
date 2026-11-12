@@ -12,7 +12,10 @@ from pathlib import Path
 import pytest
 from cli_fakes import Call, FakeOperations, serving
 
-from harborrag_app.api.v1.admin.connection_schemas import (
+from harborrag_app.cli import invoke
+from harborrag_app.cli import main as cli
+from harborrag_app.operations import ConnectionRef, Saved, Tagged
+from harborrag_app.operations.schemas.connections import (
     ConnectionOut,
     ConnectionPage,
     ConnectionStatsOut,
@@ -21,9 +24,6 @@ from harborrag_app.api.v1.admin.connection_schemas import (
     JobAcceptedOut,
     PreviewOut,
 )
-from harborrag_app.cli import invoke
-from harborrag_app.cli import main as cli
-from harborrag_app.operations import ConnectionRef, Saved, Tagged
 
 pytestmark = pytest.mark.unit
 

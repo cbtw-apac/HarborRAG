@@ -13,10 +13,10 @@ import copy
 import pytest
 from test_api_capacity import FakeRedis, limits, scope
 
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity import LocalApiCapacityLimiter, RedisApiCapacityLimiter
 from harborrag_app.api.capacity_dependency import capacity_scope_for
 from harborrag_app.api.capacity_scope import plan_capacity_buckets
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborRateLimitError
 
 _ALICE = scope(user="alice", principal="shared-credential")

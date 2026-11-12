@@ -12,8 +12,6 @@ from typing import Annotated, NoReturn
 import click
 import typer
 
-from harborrag_app.api.v1.admin.connection_schemas import IngestionStartRequest
-from harborrag_app.api.v1.ingestion.schemas import IngestionListQuery, IngestionPage
 from harborrag_app.cli.bodies import comma_list, load_body
 from harborrag_app.cli.commands.connections import RefArgument, parse_ref
 from harborrag_app.cli.follow import follow_ingestion, followed
@@ -36,6 +34,8 @@ from harborrag_app.cli.paging import (
     collect_pages,
 )
 from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.schemas.connections import IngestionStartRequest
+from harborrag_app.operations.schemas.ingestions import IngestionListQuery, IngestionPage
 from harborrag_app.operations.scope import ConnectionRef, Scope
 
 app = typer.Typer(help="Start, follow and control ingestion runs.", no_args_is_help=True)

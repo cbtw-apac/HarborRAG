@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import getpass
 
-from harborrag_app.api.auth.principal import Principal
+from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.scope import Scope
 
 

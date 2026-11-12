@@ -11,10 +11,10 @@ from test_api_chat_stream import _sse_frames
 
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.api.v1.chat.replay import CompletionAttempt, CompletionInProgressError
-from harborrag_app.api.v1.chat.schemas import ChatCompletionRequest
+from harborrag_app.operations.chat.replay import CompletionAttempt, CompletionInProgressError
+from harborrag_app.operations.principal import Principal
+from harborrag_app.operations.schemas.chat import ChatCompletionRequest
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.models.errors import HarborChatConnectionError
 

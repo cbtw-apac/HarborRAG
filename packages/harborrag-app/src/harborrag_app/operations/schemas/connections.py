@@ -12,7 +12,7 @@ from typing import Annotated, Any, Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, WithJsonSchema
 from pydantic.json_schema import JsonDict
 
-from harborrag_app.api.schemas import ApiModel
+from harborrag_app.operations.schemas.common import ApiModel
 
 SourceTypeName = Literal["jira", "confluence", "sharepoint", "local_file", "github"]
 ConnectionStatusName = Literal["active", "needs_reauth", "error"]

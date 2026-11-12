@@ -10,8 +10,6 @@ from pathlib import Path
 
 from pydantic import SecretStr
 
-from harborrag_app.api.readiness import Check as ReadinessCheck
-from harborrag_app.api.readiness import ReadinessChecks, build_readiness_checks
 from harborrag_app.cli.invoke import close
 from harborrag_app.cli.project import (
     PROJECT_FILE,
@@ -21,6 +19,8 @@ from harborrag_app.cli.project import (
     find_legacy_checkout,
     find_project,
 )
+from harborrag_app.operations.readiness import Check as ReadinessCheck
+from harborrag_app.operations.readiness import ReadinessChecks, build_readiness_checks
 from harborrag_runtime.application import BaseAppService
 from harborrag_runtime.config import (
     ConnectorCatalog,

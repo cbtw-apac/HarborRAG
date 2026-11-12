@@ -11,10 +11,10 @@ from fastapi.responses import StreamingResponse
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.capacity_dependency import ApiCapacityDependency, capacity_scope_for
 from harborrag_app.api.capacity_scope import SHARED_TENANT_KEY, CapacityScope
 from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.principal import Principal
 
 
 def _principal(*, tenants: frozenset[str], user_id: str = "DEFAULT_USER") -> Principal:

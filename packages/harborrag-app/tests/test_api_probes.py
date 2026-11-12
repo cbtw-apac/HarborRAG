@@ -10,14 +10,14 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from harborrag_app.api.app import create_fastapi_app
-from harborrag_app.api.readiness import (
+from harborrag_app.api.settings import ApiSettings
+from harborrag_app.operations.readiness import (
     ReadinessChecks,
     build_readiness_checks,
     http_ready,
     postgres_answers,
     redis_answers,
 )
-from harborrag_app.api.settings import ApiSettings
 from harborrag_runtime.config.settings import RuntimeSettings
 
 _SECRET = SecretStr("s" * 32)

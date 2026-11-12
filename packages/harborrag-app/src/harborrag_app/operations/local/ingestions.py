@@ -13,8 +13,11 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
-from harborrag_app.api.v1.admin.connection_schemas import IngestionOut, IngestionStartRequest
-from harborrag_app.api.v1.ingestion.schemas import (
+from harborrag_app.operations.contract import OPERATIONS
+from harborrag_app.operations.errors import ReferenceNotFoundError
+from harborrag_app.operations.results import Accepted
+from harborrag_app.operations.schemas.connections import IngestionOut, IngestionStartRequest
+from harborrag_app.operations.schemas.ingestions import (
     FailurePage,
     FailureQuery,
     FailureRetryAccepted,
@@ -25,9 +28,6 @@ from harborrag_app.api.v1.ingestion.schemas import (
     IngestionPage,
     RetryFailuresRequest,
 )
-from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.errors import ReferenceNotFoundError
-from harborrag_app.operations.results import Accepted
 from harborrag_app.operations.scope import Scope
 from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent

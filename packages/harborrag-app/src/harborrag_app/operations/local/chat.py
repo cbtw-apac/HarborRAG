@@ -16,10 +16,12 @@ import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
-from harborrag_app.api.sse import sse_frame
-from harborrag_app.api.v1.chat.dispatch import chat_options
-from harborrag_app.api.v1.chat.replay import CompletionAttempt
-from harborrag_app.api.v1.chat.schemas import (
+from harborrag_app.operations.chat.dispatch import chat_options
+from harborrag_app.operations.chat.replay import CompletionAttempt
+from harborrag_app.operations.contract import OPERATIONS
+from harborrag_app.operations.errors import ReferenceNotFoundError
+from harborrag_app.operations.port import ChatCompletion
+from harborrag_app.operations.schemas.chat import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatSessionCreateRequest,
@@ -27,10 +29,8 @@ from harborrag_app.api.v1.chat.schemas import (
     Session,
     SessionList,
 )
-from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.errors import ReferenceNotFoundError
-from harborrag_app.operations.port import ChatCompletion
 from harborrag_app.operations.scope import Scope
+from harborrag_app.operations.sse import sse_frame
 from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
 from harborrag_memory.access import MemoryAccess
 from harborrag_runtime.application.chat import ChatExecutionOptions

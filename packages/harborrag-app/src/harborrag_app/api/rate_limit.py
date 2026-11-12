@@ -24,9 +24,9 @@ from uuid import uuid4
 
 from fastapi import Request
 
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import HarborRateLimitError
 
-from .auth.principal import Principal
 from .settings import ApiSettings
 
 logger = logging.getLogger("harborrag.app.api.rate_limit")

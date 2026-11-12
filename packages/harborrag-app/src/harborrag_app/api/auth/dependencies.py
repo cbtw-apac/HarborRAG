@@ -21,9 +21,9 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from harborrag_app.api.auth.base import BaseTokenVerifier
 from harborrag_app.api.auth.hmac import HmacTokenVerifier
-from harborrag_app.api.auth.principal import Principal
 from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.errors import TenantForbiddenError
+from harborrag_app.operations.principal import Principal
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborCapabilityError,

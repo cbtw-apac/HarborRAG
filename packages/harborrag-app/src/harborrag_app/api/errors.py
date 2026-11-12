@@ -21,10 +21,10 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from harborrag_app.operations.errors import catalog_code, error_body
+from harborrag_app.operations.schemas.common import Error
 from harborrag_core.contracts.errors import HarborError, HarborRateLimitError
 
 from .middleware import TRACE_HEADER, current_trace_id
-from .schemas import Error
 
 logger = logging.getLogger("harborrag.app.api.errors")
 

@@ -6,7 +6,6 @@ from typing import Annotated
 
 import typer
 
-from harborrag_app.api.v1.chat.schemas import ChatCompletionRequest, ChatCompletionResponse
 from harborrag_app.cli.bodies import load_body
 from harborrag_app.cli.globals import (
     ConfigOption,
@@ -18,6 +17,7 @@ from harborrag_app.cli.globals import (
 )
 from harborrag_app.cli.invoke import current_trace_id, run_operation
 from harborrag_app.operations.local import LocalOperations
+from harborrag_app.operations.schemas.chat import ChatCompletionRequest, ChatCompletionResponse
 from harborrag_app.operations.scope import Scope
 from harborrag_core.invariants import HarborInvariantError
 

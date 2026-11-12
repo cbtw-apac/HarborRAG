@@ -75,18 +75,18 @@ def test_schema_modules_import_without_fastapi(monkeypatch: pytest.MonkeyPatch) 
         return real_import(name, *args, **kwargs)
 
     for name in (
-        "harborrag_app.api.v1.ingestion.schemas",
-        "harborrag_app.api.v1.chat.schemas",
-        "harborrag_app.api.v1.me_schemas",
+        "harborrag_app.operations.schemas.ingestions",
+        "harborrag_app.operations.schemas.chat",
+        "harborrag_app.operations.schemas.me",
         "harborrag_app.operations.contract",
     ):
         monkeypatch.delitem(sys.modules, name, raising=False)
     monkeypatch.setattr(builtins, "__import__", blocked)
 
     for name in (
-        "harborrag_app.api.v1.ingestion.schemas",
-        "harborrag_app.api.v1.chat.schemas",
-        "harborrag_app.api.v1.me_schemas",
+        "harborrag_app.operations.schemas.ingestions",
+        "harborrag_app.operations.schemas.chat",
+        "harborrag_app.operations.schemas.me",
         "harborrag_app.operations.contract",
     ):
         assert importlib.import_module(name) is not None
