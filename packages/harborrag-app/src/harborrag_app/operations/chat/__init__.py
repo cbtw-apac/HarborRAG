@@ -1,1 +1,1 @@
-"""Chat request dispatch, replay of completed requests, retrieval filters and SSE framing."""
+"""Chat request dispatch, replay of completed requests and retrieval filters."""

@@ -39,9 +39,18 @@ lists each command's options.
 - **One set of operations** that both call, held in `operations/`. The CLI and the API
   never construct connectors or repositories themselves.
 
-The package holds only these three transports: `api/` for HTTP, `cli/` for the command line
-and `operations/` for the port both call and the request and response models it uses. The application services behind the operations live
-in [`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
+The package has three parts:
+
+- `api/` holds the HTTP routes, the authentication dependencies, the error handlers and the
+  stream deadline and heartbeat of streamed responses.
+- `operations/` holds the port both transports call, the table of every operation, the
+  request and response models (`schemas/`), the `Principal`, chat dispatch (`chat/`), SSE
+  event framing (`sse.py`), the readiness checks and the in-process implementation
+  (`local/`).
+- `cli/` holds the commands and the kernel that runs them.
+
+The application services behind the operations live in
+[`harborrag-runtime`](https://github.com/cbtw-apac/HarborRAG/blob/main/packages/harborrag-runtime/src/harborrag_runtime/application/README.md),
 and the retrieval, ingestion and topology use cases they run live in `harborrag-engine`.
 
 ## Run and control ingestions

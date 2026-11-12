@@ -25,6 +25,7 @@ from harborrag_app.api.dependencies import (
     ScopeDependency,
 )
 from harborrag_app.api.errors import documented_error_responses
+from harborrag_app.api.sse import bounded_sse_frames, with_heartbeat
 from harborrag_app.api.v1.admin.dependencies import error_responses
 from harborrag_app.operations.contract import OPERATIONS, route_kwargs
 from harborrag_app.operations.schemas.connections import IngestionOut, IngestionStartRequest
@@ -35,7 +36,6 @@ from harborrag_app.operations.schemas.ingestions import (
     IngestionPage,
     RetryFailuresRequest,
 )
-from harborrag_app.operations.sse import bounded_sse_frames, with_heartbeat
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_runtime.application.ingestion.progress_bridge import event_prefix
 

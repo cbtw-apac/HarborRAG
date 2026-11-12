@@ -1,0 +1,100 @@
+"""HTTP stream deadline and heartbeat for Server-Sent Events responses.
+
+Owns the server-side wall-clock budget and keep-alive pings of a streamed response; the
+event framing itself lives in ``harborrag_app.operations.sse``.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections.abc import AsyncGenerator, AsyncIterator
+
+from harborrag_app.operations.sse import sse_frame
+
+logger = logging.getLogger("harborrag.app.api.sse")
+
+STREAM_DEADLINE_ERROR_CODE = "deadline_exceeded"
+
+
+async def bounded_sse_frames(
+    frames: AsyncGenerator[bytes, None],
+    *,
+    timeout_seconds: float,
+    error_message: str,
+    error_event: str = "error",
+    terminal_events: tuple[str, ...] = (),
+) -> AsyncIterator[bytes]:
+    """Relay ``frames`` until they end or ``timeout_seconds`` of wall-clock elapse.
+
+    HTTP status is fixed once the first frame is on the wire, so a stream that
+    outlives its budget must end with exactly one in-band terminal ``error``
+    frame rather than a truncated body. The timeout wraps each ``__anext__``
+    individually (not the ``yield``): ``asyncio.timeout`` converts its
+    cancellation into ``TimeoutError`` only when the cancellation lands inside
+    the guarded block, and while this generator is suspended at ``yield`` the
+    task is awaiting the transport's ``send`` instead. Time spent there still
+    counts against the deadline through the remaining-time check.
+
+    A declared terminal event ends iteration immediately after its frame is
+    delivered. Backpressure while sending that final frame must not turn an
+    already completed response into a second timeout error.
+    """
+
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout_seconds
+    terminal_prefixes = tuple(f"event: {name}\n".encode() for name in terminal_events)
+    try:
+        while True:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError
+            try:
+                async with asyncio.timeout(remaining):
+                    frame = await anext(frames)
+            except StopAsyncIteration:
+                return
+            yield frame
+            if frame.startswith(terminal_prefixes):
+                return
+    except TimeoutError:
+        logger.warning("SSE stream exceeded its %.0fs server deadline", timeout_seconds)
+        yield sse_frame(
+            error_event,
+            {"code": STREAM_DEADLINE_ERROR_CODE, "message": error_message},
+        )
+    finally:
+        await frames.aclose()
+
+
+async def with_heartbeat(
+    frames: AsyncIterator[bytes], *, interval_seconds: float
+) -> AsyncIterator[bytes]:
+    """Relay ``frames``, adding a ``: ping`` comment whenever none arrived for ``interval_seconds``.
+
+    One pending ``anext`` is kept across timeouts, because cancelling it would finalize the
+    source generator.
+    """
+
+    pending: asyncio.Future[bytes] | None = None
+    try:
+        while True:
+            if pending is None:
+                pending = asyncio.ensure_future(anext(frames))
+            done, _ = await asyncio.wait({pending}, timeout=interval_seconds)
+            if not done:
+                yield b": ping\n\n"
+                continue
+            future, pending = pending, None
+            try:
+                frame = future.result()
+            except StopAsyncIteration:
+                return
+            yield frame
+    finally:
+        if pending is not None:
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        aclose = getattr(frames, "aclose", None)
+        if aclose is not None:
+            await aclose()
