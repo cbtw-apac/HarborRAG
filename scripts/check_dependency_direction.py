@@ -52,12 +52,14 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
         "harborrag_engine",
         "harborrag_memory",
     },
-    # The transports read the shared tool layer directly. ``harborrag_engine``
-    # imports only ``harborrag_core``, so this inverts nothing: it names a
-    # sibling of adapters and memory, not a higher layer. ``.importlinter``
-    # already permits it -- neither transport's forbidden list mentions engine,
-    # and contract 13 enumerates MCP's forbidden runtime layers precisely --
-    # and ``harborrag-mcp-server`` declares the dependency in its metadata.
+    # The transports read the shared tool layer directly, and the app also reads
+    # the conversation memory package. ``harborrag_engine`` and
+    # ``harborrag_memory`` import only ``harborrag_core``, so this inverts
+    # nothing: they are siblings of adapters, not higher layers.
+    # ``.importlinter`` already permits engine for both transports -- neither
+    # forbidden list mentions it, and contract 13 enumerates MCP's forbidden
+    # runtime layers precisely, memory among them -- and
+    # ``harborrag-mcp-server`` declares the dependency in its metadata.
     # Routing these through ``harborrag_runtime`` instead would push engine's
     # tool-budget constants through a package that has no other use for them.
     "harborrag_app": {

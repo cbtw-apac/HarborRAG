@@ -33,7 +33,7 @@ def test_runner_keeps_workflow_modules_and_their_parents_sandboxed() -> None:
             "harborrag_core",
             "harborrag_core.ingestion",
             "harborrag_runtime",
-            "harborrag_runtime.ingestion_contracts",
+            "harborrag_core.ingestion.run_contracts",
             "harborrag_runtime.temporal",
             "harborrag_runtime.temporal.schemas",
             "harborrag_runtime.temporal.document_workflow",
@@ -46,7 +46,7 @@ def test_runner_keeps_workflow_modules_and_their_parents_sandboxed() -> None:
     assert runner.restrictions.passthrough_modules >= {
         "harborrag_core",
         "harborrag_core.ingestion",
-        "harborrag_runtime.ingestion_contracts",
+        "harborrag_core.ingestion.run_contracts",
         "harborrag_runtime.temporal.schemas",
     }
     for sandboxed in (

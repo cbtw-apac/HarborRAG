@@ -575,7 +575,7 @@ def _access(identity: MemoryIdentity) -> MemoryAccess:
 
 
 def _usage(options: ChatExecutionOptions, calls: Sequence[HarborChatResponse]) -> CompletionUsage:
-    """Total what the turn's model calls cost; ``cost_usd`` is ``None`` when one is unpriced."""
+    """Total the tokens and cost of the turn's model calls; ``cost_usd`` is ``None`` when one is unpriced."""
     costs = [call.estimated_cost_usd for call in calls]
     return CompletionUsage(
         mode=options.mode,
