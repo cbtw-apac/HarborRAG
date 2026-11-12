@@ -14,12 +14,12 @@ imports an app or MCP-server module.
 
 | Path | Owns |
 | --- | --- |
-| `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results |
+| `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results; the completion request's mode and filter refusals; `Idempotency-Key` replay |
 | `memory/` | Conversation sessions, messages, titles, usage and erasure |
 | `retrieval/` | The corpus access mode that chat retrieval reads |
-| `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline execution; durable submission goes through the ingestion application service |
+| `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline execution; starting a run (`starter.py`) and following its events (`follower.py`); durable submission goes through the ingestion application service |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |
-| `control_plane/` | Projects, connections, active runs, runtime settings import and export, and recovery of control-plane side effects |
+| `control_plane/` | Projects, connections, active runs, runtime settings (the level and role rules, the PATCH refusals, import and export), tenant data checks, and recovery of control-plane side effects |
 | `composition/` | The `AppService` facade, its resource lifecycle and service selection |
 | `ports.py`, `schemas.py`, `errors.py` | `BaseAppService`, `AppResponse` and secret-safe error envelopes, shared by the whole package |
 
@@ -34,4 +34,6 @@ Transport arguments go in; an `AppResponse` comes out. `get_app_service()` and
 - import an app or MCP-server module;
 - import adapter implementations;
 - implement ingestion business rules;
+- leave a use case's sequencing, existence checks or error translation to a transport:
+  an operation calls one service method and maps its result;
 - expose Temporal objects to HTTP or CLI callers.

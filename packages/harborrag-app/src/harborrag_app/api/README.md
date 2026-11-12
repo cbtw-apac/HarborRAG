@@ -305,10 +305,16 @@ use it too. It holds the `Operations` port (`port.py`) and its in-process implem
 (`local/`), the role and serialization table of every operation (`contract.py`), and the
 error catalogue with its status and code mapping (`errors.py`, `dependency_failures.py`).
 The package also holds what the routes and the commands both use: the request and
-response models (`schemas/`), the `Principal` and its role check (`principal.py`), chat
-request dispatch, replay and retrieval filters (`chat/`), SSE event framing (`sse.py`) and
-the readiness checks (`readiness.py`). The HTTP stream deadline and heartbeat stay in this
-package (`sse.py`). This package imports `operations`; `operations` never imports this one.
+response models (`schemas/`), the `Principal` and its role check (`principal.py`), SSE
+event framing (`sse.py`) and the readiness checks (`readiness.py`). The HTTP stream
+deadline and heartbeat stay in this package (`sse.py`). This package imports `operations`;
+`operations` never imports this one.
+
+Each `LocalOperations` method is thin: it checks the caller's role, turns the wire request
+into one application-service call and maps the result onto the response model (`Tagged`,
+`Saved`, `Accepted`, an ETag or a `Location`). Existence checks, error translation,
+sequencing, chat modes and filters, and `Idempotency-Key` replay run in the application
+services, so the CLI and the routes get them from the same place.
 
 The application services live in `harborrag_runtime.application`, which this package
 imports and which never imports it; see its
