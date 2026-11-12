@@ -7,7 +7,6 @@ from collections.abc import Iterator
 from dataclasses import replace
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
@@ -19,6 +18,7 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_app.operations.principal import Principal
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
 _START = "/v1/admin/ingestions"
 _TARGET = {"project_id": "cpm", "connection_id": "cpm-tickets"}

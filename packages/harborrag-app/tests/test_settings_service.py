@@ -6,7 +6,6 @@ from dataclasses import replace
 from pathlib import Path
 
 import pytest
-from app_test_connections import FakeSecrets, fake_control_plane
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from harborrag_adapters.repositories.database.control_plane.config_store import SqlSettingsStore
@@ -26,6 +25,7 @@ from harborrag_runtime.application.control_plane.settings_service import (
 from harborrag_runtime.application.errors import SettingsLevelNotFoundError
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config_store import CachedConfigProvider
+from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 

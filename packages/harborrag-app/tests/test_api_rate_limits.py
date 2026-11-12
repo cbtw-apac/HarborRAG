@@ -10,7 +10,6 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi import APIRouter, Depends
 from fastapi.testclient import TestClient
@@ -23,6 +22,7 @@ from harborrag_app.api.rate_limit import LocalRateLimiter, RedisRateLimiter
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 

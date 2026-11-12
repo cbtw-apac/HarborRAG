@@ -6,7 +6,6 @@ from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _SECRET, _token
@@ -24,6 +23,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.operations import IngestionOperations
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
 _URL = "/v1/admin/ingestions/ing_1/documents"
 _ITEM_KEYS = {"document_ref", "document_id", "status", "stage", "error_category", "duration_ms"}

@@ -4,9 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from app_test_chat import ChatServiceFixture
 from app_test_ingestion import IngestionServiceFixture
-from app_test_memory import FakeMemoryIndex, FakeMemoryStore
 from app_test_retrieval_records import retrieval_payload
 
 from harborrag_core.domain.identity import DEFAULT_USER
@@ -21,6 +19,8 @@ from harborrag_runtime.application.memory import (
     MemoryAdminClientMixin,
 )
 from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
+from harborrag_runtime.testing.chat_service_double import ChatServiceFixture
+from harborrag_runtime.testing.memory_fakes import FakeMemoryIndex, FakeMemoryStore
 
 
 class MockAppService(

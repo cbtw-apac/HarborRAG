@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _BODY, _PATH, _SECRET, _token
@@ -26,6 +25,7 @@ from harborrag_core.ingestion import (
     StoredFailure,
 )
 from harborrag_engine.ingestion.failure_inbox import FailureInboxService
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
 pytestmark = pytest.mark.unit
 

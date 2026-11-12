@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from app_test_connections import ConnectionWorld, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -28,6 +27,7 @@ from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.settings_service import SettingsService
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config_store import CachedConfigProvider
+from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
 _URL = "/v1/admin/settings"
 _SECRET_VALUE = "s3cr3t-token-value"

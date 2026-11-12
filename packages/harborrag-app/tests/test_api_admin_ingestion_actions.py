@@ -6,7 +6,6 @@ from collections.abc import Iterator
 from typing import Any, Literal
 
 import pytest
-from app_test_connections import CONNECTION_KEY, JIRA_WRITE, connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 from test_api_admin_connections import _SECRET, _token
@@ -15,6 +14,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
+from harborrag_runtime.testing.connection_fakes import CONNECTION_KEY, JIRA_WRITE, connection_world
 
 _BASE = "/v1/admin/ingestions"
 _VIEW = {

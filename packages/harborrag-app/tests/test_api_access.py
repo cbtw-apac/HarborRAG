@@ -8,7 +8,6 @@ from datetime import UTC, datetime, timedelta
 
 import jwt
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
@@ -23,6 +22,7 @@ from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.security.api_key_service import VerifiedKey
 from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.application.control_plane.settings_service import SettingsService
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _KEY = "hrk_dev_v1_0123456789abcdef01234567." + "k" * 43

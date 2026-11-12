@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Callable
 
 import pytest
-from app_test_connections import connection_world
 from fastapi.testclient import TestClient
 from test_api_admin_ingestion_reads import _App, _Runs
 
@@ -13,6 +12,7 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.ingestion import IngestionTaskState
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 _DONE = IngestionTaskState.COMPLETED
 

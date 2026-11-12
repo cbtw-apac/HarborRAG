@@ -11,13 +11,13 @@ import re
 from collections.abc import Iterator
 
 import pytest
-from app_test_chat import ANSWER
 from app_test_conversations import ALICE, auth, hmac_app
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
 from harborrag_core.models.errors import HarborChatConnectionError
 from harborrag_runtime.config.settings import RuntimeSettings
+from harborrag_runtime.testing.chat_service_double import ANSWER
 
 pytestmark = pytest.mark.blackbox
 

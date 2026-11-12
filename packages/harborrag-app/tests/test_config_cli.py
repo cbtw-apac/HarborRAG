@@ -11,7 +11,6 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from app_test_connections import FakeSecrets, fake_control_plane
 from cli_fakes import serving
 from project_test_support import scaffold
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -29,6 +28,7 @@ from harborrag_core.config_store.resolution import SettingChange
 from harborrag_runtime.application.control_plane.settings_import import SettingsImporter
 from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
+from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
 _TENANT = "DEFAULT"
 _KEY = "chunking.max_tokens"

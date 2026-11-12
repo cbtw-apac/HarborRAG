@@ -7,7 +7,6 @@ from collections.abc import Awaitable, Callable, Iterator
 
 import asyncpg
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi import APIRouter
 from fastapi.testclient import TestClient
@@ -23,6 +22,7 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
 _LIMIT = 1_048_576

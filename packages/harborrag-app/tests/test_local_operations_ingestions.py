@@ -7,9 +7,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
-from app_test_connections import ConnectionWorld, connection_world, running_task
 from app_test_fixtures import MockAppService
-from test_connection_service import JIRA_WRITE
 
 from harborrag_app.operations import (
     Accepted,
@@ -34,6 +32,12 @@ from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import (
+    JIRA_WRITE,
+    ConnectionWorld,
+    connection_world,
+    running_task,
+)
 
 pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 

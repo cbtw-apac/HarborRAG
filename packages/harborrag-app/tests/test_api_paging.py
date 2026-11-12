@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from app_test_connections import connection_world
 from app_test_fixtures import MockAppService
 from fastapi.testclient import TestClient
 
@@ -14,6 +13,7 @@ from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
+from harborrag_runtime.testing.connection_fakes import connection_world
 
 
 class _App(MockAppService):
