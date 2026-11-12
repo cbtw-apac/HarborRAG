@@ -42,12 +42,12 @@ from harborrag_engine.ingestion import (
     VectorProjectionStore,
     build_chunking_service,
 )
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 from harborrag_runtime.ingestion import (
     DocumentReleaseDependencies,
-    DocumentReleaseRequest,
     DocumentReleaseService,
     GraphRelationRepairService,
-    SourceIngestionRequest,
 )
 
 from .connectors import (

@@ -17,11 +17,9 @@ from inspection import StoreObservation, inspect_stores
 from redis.asyncio import Redis
 
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.retrieval import (
-    RetrievalOptions,
-    RuntimeRetrievalService,
-)
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 from harborrag_runtime.temporal.client import (
     IngestionTemporalClient,
 )

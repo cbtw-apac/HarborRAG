@@ -16,6 +16,7 @@ from configured_inspection import (
 )
 
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config import (
     connector_fingerprint,
     load_connector_catalog,
@@ -25,10 +26,7 @@ from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.temporal.client import (
     IngestionTemporalClient,
 )
-from harborrag_runtime.temporal.schemas import (
-    SourceIngestionInput,
-    SourceQuery,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 _MAX_LIVE_ATTACHMENTS = 2
 _SELECTION_WINDOW = 10

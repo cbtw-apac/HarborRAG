@@ -55,8 +55,9 @@ relative path is resolved from the directory you run the script in.
 import asyncio
 from pathlib import Path
 
-from harborrag_adapters.connectors import ConnectorQuery, LocalFileConfig, LocalFileConnector
+from harborrag_adapters.connectors import LocalFileConfig, LocalFileConnector
 from harborrag_adapters.parsers import HarborParserFactory, ParseRequest
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 ROOT = Path("docs")
 
@@ -90,7 +91,8 @@ developers/architecture/projection-rebuild.md markup markdown 9249
 developers/architecture/README.md markup markdown 16371
 ```
 
-Discovery is synchronous and yields `SourceRecord` objects (`id`, `source_type`,
+`ConnectorQuery` belongs to `harborrag-core`, which every connector shares. Discovery is
+synchronous and yields `SourceRecord` objects (`id`, `source_type`,
 `locator`, `metadata`, `updated_at`, `checksum`). Parsing is asynchronous: the registry
 picks a parser family, and the family picks the engine.
 

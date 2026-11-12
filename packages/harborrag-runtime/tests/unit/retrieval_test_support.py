@@ -20,7 +20,7 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.schemas.vector import VectorSearchResult
 from harborrag_engine.ingestion import BM25SparseEncoder
-from harborrag_runtime.retrieval import RetrievalPolicy, RetrievalResources
+from harborrag_engine.retrieval.service.contracts import RetrievalPolicy, RetrievalResources
 
 
 class FakeEmbedClient:

@@ -10,7 +10,8 @@ from topology_retrieval_support import ActiveVersions, CanonicalTopology, Topolo
 
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.topology.search import TopologyEvidence
-from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 
 class ContextualLane:

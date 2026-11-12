@@ -13,8 +13,9 @@ from retrieval_test_support import resources as _resources
 from harborrag_core.domain.retrieval import RetrievalResult
 from harborrag_core.indexing import VectorSearchResult
 from harborrag_core.models.rerank import HarborRerankRequest
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.reranking import RERANK_SCORE_KEY, PassageReranker
-from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 from harborrag_runtime.retrieval.service import (
     RERANK_POOL_FACTOR,
     RERANK_POOL_LIMIT,

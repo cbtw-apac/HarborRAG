@@ -7,6 +7,8 @@ from typing import Any
 
 import pytest
 
+from harborrag_core.ingestion.run_contracts import SourceSubmission
+from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.source_submission import (
@@ -14,11 +16,7 @@ from harborrag_runtime.execution.source_submission import (
     prepare_source_submission,
 )
 from harborrag_runtime.ingestion.connections import ResolvedConnection
-from harborrag_runtime.temporal.schemas import SourceQuery
-from harborrag_runtime.temporal.submission import (
-    SourceSubmission,
-    build_source_input,
-)
+from harborrag_runtime.temporal.submission import build_source_input
 from runtime_ingestion.connection_support import resolved_connection
 
 _JIRA_CREDENTIALS = {

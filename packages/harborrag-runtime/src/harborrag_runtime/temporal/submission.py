@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from harborrag_core.ingestion.run_contracts import SourceSubmission as SourceSubmission
+from harborrag_core.ingestion.run_contracts import SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.connections import ResolvedConnection

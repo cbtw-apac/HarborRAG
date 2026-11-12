@@ -15,9 +15,10 @@ from retrieval_test_support import resources as _resources
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.indexing import VectorFilter, VectorFilterCondition, VectorSearchResult
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_runtime.config.graph_build import GraphBuildConfig
 from harborrag_runtime.ingestion.field_indexes import declared_field_indexes
-from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 ISSUE = "jira://CPM/CPM-116680"
 

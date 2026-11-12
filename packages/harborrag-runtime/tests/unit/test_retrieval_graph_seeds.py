@@ -20,8 +20,9 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
     KnowledgeNodeKind,
 )
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_engine.retrieval.service.graph_observation import _MEMORY_SEED_LIMIT
-from harborrag_runtime.retrieval import RetrievalOptions, RuntimeRetrievalService
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 _ENTITY_TYPES = {
     KnowledgeNodeKind.CHUNK: GraphEntityType.CHUNK,

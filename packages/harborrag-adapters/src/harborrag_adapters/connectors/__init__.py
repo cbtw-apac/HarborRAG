@@ -33,12 +33,6 @@ from harborrag_adapters.connectors.sharepoint import (
     SharePointConnector,
     SharePointSiteConfig,
 )
-from harborrag_core.ingestion.connector_contracts import (
-    ConnectorCapabilities,
-    ConnectorMetadata,
-    ConnectorQuery,
-    ConnectorSkip,
-)
 
 connector_registry.register_provider(
     ConnectorProviderDefinition(

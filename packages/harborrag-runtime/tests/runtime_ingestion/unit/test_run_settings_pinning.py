@@ -14,6 +14,7 @@ from temporalio.converter import DataConverter
 from harborrag_core.config_store import SettingsLevel, SettingsSnapshot, resolve_effective
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ingestion.run_contracts import RunSettings, SourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -25,11 +26,7 @@ from harborrag_runtime.execution.gateway import prepare_configured_source_submis
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion.connections import ConnectionResolver
 from harborrag_runtime.ingestion.profiles import build_processing_profile
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-    SourceQuery,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 from runtime_ingestion.connection_support import connection_row
 
 pytestmark = pytest.mark.unit

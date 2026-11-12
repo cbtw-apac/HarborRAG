@@ -10,6 +10,7 @@ from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ReindexJob, ReindexJobState
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupBatch
 from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
 from harborrag_runtime.ingestion.maintenance.retention import RetiredVersionPurgeBatch
@@ -21,10 +22,7 @@ from harborrag_runtime.temporal.maintenance_schemas import (
     ProjectionCleanupResult,
     ReindexInput,
 )
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 
 def _processing() -> ProcessingProfileInput:

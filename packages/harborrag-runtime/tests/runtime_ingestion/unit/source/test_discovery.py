@@ -21,16 +21,14 @@ from harborrag_adapters.repositories.object_store import (
 )
 from harborrag_core.domain.source import SourceRecord
 from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorPage
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_runtime.ingestion import SourceIngestionService, SourcePlanRepository
 from harborrag_runtime.ingestion.connections import ConnectionHealth
 from harborrag_runtime.temporal.ingestion_activities import (
     IngestionActivities,
 )
-from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
-    SourceIngestionInput,
-)
+from harborrag_runtime.temporal.schemas import SourceIngestionInput
 
 from ...fixtures.connectors import DescriptorConnector
 from ...fixtures.release import (

@@ -17,7 +17,8 @@ from harborrag_core.ingestion import (
     SourceIdentity,
 )
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion import DocumentReleaseRequest, DocumentReleaseService
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_runtime.ingestion import DocumentReleaseService
 
 from ...fixtures.connectors import DeterministicEmbedClient, SourceConnector, TextParser
 from ...fixtures.release import (

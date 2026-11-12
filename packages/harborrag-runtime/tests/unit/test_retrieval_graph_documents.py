@@ -18,10 +18,8 @@ from harborrag_core.ingestion import (
     KnowledgeGraphTraversal,
     KnowledgeNodeKind,
 )
-from harborrag_runtime.retrieval import (
-    RetrievalOptions,
-    RuntimeRetrievalService,
-)
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 
 def _document_node(node_key: str, node_kind: KnowledgeNodeKind, **overrides) -> GraphNodeRecord:

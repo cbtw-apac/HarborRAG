@@ -19,11 +19,9 @@ from harborrag_core.ingestion import (
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_engine.ingestion import EVIDENCE_INDEX
 from harborrag_engine.retrieval import RetrievalLane
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.retrieval import (
-    RetrievalOptions,
-    RuntimeRetrievalService,
-)
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 
 @dataclass(frozen=True, slots=True)

@@ -19,6 +19,7 @@ from temporalio.exceptions import ActivityError, ApplicationError
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion.run_contracts import RunKind
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_runtime.config.temporal import (
     TemporalConnectionConfig,
     TemporalRuntimeConfig,
@@ -47,7 +48,6 @@ from harborrag_runtime.temporal.maintenance_schemas import (
     ReindexResult,
 )
 from harborrag_runtime.temporal.schemas import (
-    ProcessingProfileInput,
     ScheduledSourceIngestionInput,
     SourceIngestionInput,
     SourceIngestionResult,

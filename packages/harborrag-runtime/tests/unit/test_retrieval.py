@@ -18,10 +18,8 @@ from retrieval_test_support import (
 
 from harborrag_core.ingestion import ActiveDocumentVersion
 from harborrag_engine.retrieval import RetrievalLane
-from harborrag_runtime.retrieval import (
-    RetrievalOptions,
-    RuntimeRetrievalService,
-)
+from harborrag_engine.retrieval.service.contracts import RetrievalOptions
+from harborrag_runtime.retrieval import RuntimeRetrievalService
 
 
 @pytest.mark.asyncio

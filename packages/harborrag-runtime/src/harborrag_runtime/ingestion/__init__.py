@@ -6,15 +6,6 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from harborrag_engine.ingestion.release.models import (
-        DocumentReleaseOutcome,
-        DocumentReleaseRequest,
-    )
-    from harborrag_engine.ingestion.source.models import (
-        SourceIngestionOutcome,
-        SourceIngestionRequest,
-    )
-
     from .composition import IngestionRuntime, build_ingestion_runtime
     from .document.dependencies import DocumentReleaseDependencies
     from .document.normalizers import default_source_document_normalizer_builder
@@ -32,8 +23,6 @@ if TYPE_CHECKING:
 
 __all__ = [
     "DocumentReleaseDependencies",
-    "DocumentReleaseOutcome",
-    "DocumentReleaseRequest",
     "DocumentReleaseService",
     "DocumentReindexService",
     "GraphRelationRepairService",
@@ -43,8 +32,6 @@ __all__ = [
     "ReindexRequest",
     "RetiredVersionPurgeBatch",
     "RetiredVersionPurgeService",
-    "SourceIngestionOutcome",
-    "SourceIngestionRequest",
     "SourceIngestionService",
     "SourcePlanRepository",
     "build_ingestion_runtime",
@@ -54,8 +41,6 @@ __all__ = [
 
 _EXPORT_MODULES = {
     "DocumentReleaseDependencies": "harborrag_runtime.ingestion.document.dependencies",
-    "DocumentReleaseOutcome": "harborrag_engine.ingestion.release.models",
-    "DocumentReleaseRequest": "harborrag_engine.ingestion.release.models",
     "DocumentReleaseService": "harborrag_runtime.ingestion.document.service",
     "DocumentReindexService": "harborrag_runtime.ingestion.maintenance.reindex",
     "GraphRelationRepairService": "harborrag_runtime.ingestion.maintenance.relation_repair",
@@ -65,8 +50,6 @@ _EXPORT_MODULES = {
     "ReindexRequest": "harborrag_runtime.ingestion.maintenance.reindex",
     "RetiredVersionPurgeBatch": "harborrag_runtime.ingestion.maintenance.retention",
     "RetiredVersionPurgeService": "harborrag_runtime.ingestion.maintenance.retention",
-    "SourceIngestionOutcome": "harborrag_engine.ingestion.source.models",
-    "SourceIngestionRequest": "harborrag_engine.ingestion.source.models",
     "SourceIngestionService": "harborrag_runtime.ingestion.source.service",
     "SourcePlanRepository": "harborrag_runtime.ingestion.source.plan",
     "build_ingestion_runtime": "harborrag_runtime.ingestion.composition",

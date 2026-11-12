@@ -75,7 +75,7 @@ class RetrievalFacade:
         Returns:
             The passages, diagnostics and topology evidence.
         """
-        from ..retrieval import RetrievalOptions
+        from harborrag_engine.retrieval.service.contracts import RetrievalOptions
 
         service = await self._owner._retrieval_service()
         report = await service.retrieve(
