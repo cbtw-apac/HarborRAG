@@ -16,18 +16,20 @@ from harborrag_core.domain.source import SourceRecord
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 
 
-def test_load_decodes_blob_and_builds_metadata():
+def _readme_blob() -> dict[str, object]:
+    return {
+        "sha": "sha-readme",
+        "size": 7,
+        "encoding": "base64",
+        "content": base64.b64encode(b"# Hello").decode("ascii"),
+    }
+
+
+def test_load_record_with_sha_decodes_blob_and_builds_metadata() -> None:
+    """The loaded metadata stays JSON-serializable, commit datetimes included."""
     client = FakeGitHubClient()
     add_repo_and_commit(client)
-    client.add(
-        "repos/acme/harbor-rag/git/blobs/sha-readme",
-        {
-            "sha": "sha-readme",
-            "size": 7,
-            "encoding": "base64",
-            "content": base64.b64encode(b"# Hello").decode("ascii"),
-        },
-    )
+    client.add("repos/acme/harbor-rag/git/blobs/sha-readme", _readme_blob())
     connector = GitHubConnector(config(), client=client)
 
     document = connector.load(
@@ -58,10 +60,10 @@ def test_load_decodes_blob_and_builds_metadata():
     assert "commit_url" not in document.metadata
     assert document.metadata["commit_author"]["date"] == "2024-05-24T20:57:56+00:00"
     assert document.metadata["commit_committer"]["date"] == "2024-05-24T21:00:00+00:00"
-    json.dumps(document.metadata)  # datetimes must be JSON-serializable
+    json.dumps(document.metadata)
 
 
-def test_load_rejects_oversized_blob_before_decode():
+def test_load_blob_over_max_file_size_raises_before_decode() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -86,7 +88,8 @@ def test_load_rejects_oversized_blob_before_decode():
         )
 
 
-def test_load_rejects_oversized_single_path_lookup_without_fetching_blob():
+def test_load_oversized_content_lookup_raises_without_fetching_blob() -> None:
+    """No blob response is registered, so a blob fetch would fail with AssertionError."""
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -95,9 +98,6 @@ def test_load_rejects_oversized_single_path_lookup_without_fetching_blob():
     )
     connector = GitHubConnector(config(max_file_size_bytes=10), client=client)
 
-    # No response is registered for the blob endpoint: if load_blob were ever
-    # called, the fake client would raise AssertionError instead of the
-    # expected DocumentProcessingError, proving the blob was never fetched.
     with pytest.raises(DocumentProcessingError, match="max_file_size_bytes"):
         connector.load(
             SourceRecord(
@@ -109,7 +109,7 @@ def test_load_rejects_oversized_single_path_lookup_without_fetching_blob():
         )
 
 
-def test_load_rejects_non_base64_blob():
+def test_load_non_base64_blob_encoding_raises() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -129,22 +129,32 @@ def test_load_rejects_non_base64_blob():
         )
 
 
-def test_load_resolves_sha_via_content_api_when_record_lacks_one():
+def test_load_record_sha_with_path_segments_raises_before_fetching_blob() -> None:
+    client = FakeGitHubClient()
+    add_repo_and_commit(client)
+    connector = GitHubConnector(config(), client=client)
+
+    with pytest.raises(ValueError, match="one URL path segment"):
+        connector.load(
+            SourceRecord(
+                "github://acme/harbor-rag/README.md",
+                "text/markdown",
+                "README.md",
+                metadata={"path": "README.md", "sha": "../../other-repo/git/blobs/abc"},
+            )
+        )
+
+    assert not any("/git/blobs/" in endpoint for endpoint, _ in client.calls)
+
+
+def test_load_record_without_sha_resolves_sha_through_contents_api() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
         "repos/acme/harbor-rag/contents/README.md",
         {"type": "file", "path": "README.md", "sha": "sha-readme", "size": 7},
     )
-    client.add(
-        "repos/acme/harbor-rag/git/blobs/sha-readme",
-        {
-            "sha": "sha-readme",
-            "size": 7,
-            "encoding": "base64",
-            "content": base64.b64encode(b"# Hello").decode("ascii"),
-        },
-    )
+    client.add("repos/acme/harbor-rag/git/blobs/sha-readme", _readme_blob())
     connector = GitHubConnector(config(), client=client)
 
     document = connector.load(
@@ -159,7 +169,7 @@ def test_load_resolves_sha_via_content_api_when_record_lacks_one():
     assert document.content == b"# Hello"
 
 
-def test_load_raises_when_no_sha_can_be_resolved():
+def test_load_unresolvable_sha_raises() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -179,7 +189,7 @@ def test_load_raises_when_no_sha_can_be_resolved():
         )
 
 
-def test_load_rejects_blob_whose_declared_size_does_not_match_content():
+def test_load_blob_size_mismatch_raises() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
@@ -204,24 +214,52 @@ def test_load_rejects_blob_whose_declared_size_does_not_match_content():
         )
 
 
-def test_load_by_paths_loads_each_file():
+def test_load_record_outside_configured_root_raises_before_any_request() -> None:
+    client = FakeGitHubClient()
+    connector = GitHubConnector(config(root_path="docs"), client=client)
+    record = SourceRecord(
+        "github://acme/harbor-rag/src/app.py",
+        "text/x-python",
+        "src/app.py",
+        metadata={"path": "src/app.py", "sha": "sha-app", "size": 7},
+    )
+
+    with pytest.raises(ValueError, match="inside the configured root path"):
+        connector.load(record)
+
+    assert client.calls == []
+
+
+def test_load_by_paths_paths_inside_root_load_each_file() -> None:
     client = FakeGitHubClient()
     add_repo_and_commit(client)
     client.add(
         "repos/acme/harbor-rag/contents/README.md",
         {"type": "file", "path": "README.md", "sha": "sha-readme", "size": 7},
     )
-    client.add(
-        "repos/acme/harbor-rag/git/blobs/sha-readme",
-        {
-            "sha": "sha-readme",
-            "size": 7,
-            "encoding": "base64",
-            "content": base64.b64encode(b"# Hello").decode("ascii"),
-        },
-    )
+    client.add("repos/acme/harbor-rag/git/blobs/sha-readme", _readme_blob())
     connector = GitHubConnector(config(), client=client)
 
     documents = list(connector.load_by_paths(["README.md"]))
 
-    assert [d.content for d in documents] == [b"# Hello"]
+    assert [document.content for document in documents] == [b"# Hello"]
+
+
+def test_load_by_paths_path_outside_configured_root_raises_before_any_request() -> None:
+    client = FakeGitHubClient()
+    connector = GitHubConnector(config(root_path="docs"), client=client)
+
+    with pytest.raises(ValueError, match="inside the configured root path"):
+        list(connector.load_by_paths(["docs/guide.md", "src/app.py"]))
+
+    assert client.calls == []
+
+
+def test_load_by_paths_parent_segment_raises_before_any_request() -> None:
+    client = FakeGitHubClient()
+    connector = GitHubConnector(config(), client=client)
+
+    with pytest.raises(ValueError, match=r"must not contain '\.\.' segments"):
+        list(connector.load_by_paths(["../../other-repo/contents/x"]))
+
+    assert client.calls == []

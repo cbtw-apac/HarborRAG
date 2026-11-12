@@ -1,4 +1,15 @@
-"""SharePoint drive and site page discovery and loading orchestration."""
+"""SharePoint connector: discovery and loading of drive files and site pages.
+
+Orchestrates ``SharePointDriveAPI`` and ``SharePointPagesAPI`` against one
+configured site. Caller selectors (``query.path`` and the item ID filters) are
+untrusted: the path may only narrow the configured ``root_path``, an item
+selected by ID must sit inside it, and item and page IDs reach Graph only
+through the validated endpoints in ``drive_paths`` and ``pages``. Free-text
+log and error messages name items by ID, never by file name or page title; the
+structured skip fields owned by ``skips`` still carry ``webUrl`` and path.
+
+Start from: SharePointConnector.
+"""
 
 from __future__ import annotations
 
@@ -6,7 +17,7 @@ import hashlib
 import logging
 import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.base import BaseConnector
@@ -26,8 +37,15 @@ from harborrag_core.domain.source import SourceRecord
 
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig
+from .config_validation import validate_drive_path
 from .drive import SharePointDriveAPI
-from .drive_paths import is_drive_file, item_mime_type, item_name, stored_payload
+from .drive_paths import (
+    drive_item_endpoint,
+    is_drive_file,
+    is_within_drive_path,
+    item_mime_type,
+    stored_payload,
+)
 from .mappers import (
     build_document_metadata,
     build_page_document_metadata,
@@ -53,9 +71,9 @@ class SharePointConnector(BaseConnector):
     """Connector for SharePoint document libraries through Microsoft Graph.
 
     Discovery resolves a site and its drives in scope, then walks drive items
-    from the configured root or explicit item IDs. Loading downloads file
-    content through Graph and preserves drive metadata for downstream
-    provenance.
+    from the configured root, a caller path inside it, or explicit item IDs.
+    Loading downloads file content through Graph and preserves drive metadata
+    for downstream provenance.
 
     With ``include_pages`` on, discovery also lists the site's modern pages and
     loading renders each page's text web parts as one HTML document.
@@ -63,18 +81,27 @@ class SharePointConnector(BaseConnector):
     Items declined for a standard reason (allowlist, size, extension, deleted,
     access denied, retries exhausted) are reported through ``skipped`` and
     logged; they never stop the run. Only authentication failure, a site the
-    app cannot reach, and invalid config are fatal. On a direct load, a deleted
-    item fails as a missing source item and exhausted retries as a transient
-    failure the run does not retry again; the other reasons are declines.
+    app cannot reach, invalid config, and an unsafe caller selector are fatal.
+    On a direct load, a deleted item fails as a missing source item and
+    exhausted retries as a transient failure the run does not retry again; the
+    other reasons are declines.
 
     Every structured log entry carries ``run_id``. It defaults to a fresh ID
     per connector instance; the ingestion runtime binds its task ID through
     :meth:`bind_run_id` so connector logs join the task's own.
+
+    ``capabilities`` declares no native ``discover_page``: the inherited
+    fallback would re-walk the tree from the start for every page, so the
+    runtime streams ``discover()`` once instead.
+
+    Args:
+        config: Validated site config that sets the crawl scope.
+        client: Graph client override; a requests-based client when ``None``.
+        rate_limiter: The runtime's shared limiter, so every worker throttles
+            one Graph app registration together and reports its waits.
     """
 
     provider_name = "sharepoint"
-    # No native discover_page: the inherited fallback re-walks the tree from
-    # the start for every page, so the runtime streams discover() once instead.
     capabilities = ConnectorCapabilities(
         pagination=False,
         incremental_sync=True,
@@ -89,11 +116,6 @@ class SharePointConnector(BaseConnector):
         client: SharePointClient | None = None,
         rate_limiter: ConnectorRateLimiter | None = None,
     ) -> None:
-        """Initialize drive operations with an optional client override.
-
-        ``rate_limiter`` is the runtime's shared limiter, so every worker
-        throttles one Graph app registration together and reports its waits.
-        """
         self.config = config
         self.client = client or _RequestsGraphClient(config, rate_limiter=rate_limiter)
         self.run_id = uuid.uuid4().hex
@@ -117,7 +139,6 @@ class SharePointConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
-
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
@@ -135,6 +156,19 @@ class SharePointConnector(BaseConnector):
         both kinds. Selectors that point into a drive (item IDs, a root item, or
         a path) target files only, so they skip pages. A record is yielded at
         most once per discovery, even when two selectors reach the same item.
+
+        A ``ValueError`` for an unsafe selector (a path with empty, ``.`` or
+        ``..`` segments or outside ``root_path``, an item ID that is not one URL
+        path segment, or item IDs on a multi-drive scope) passes through before
+        the selector reaches Graph, as do fatal Graph errors. An item selected
+        by ID outside a set ``root_path`` raises ``ValueError`` once its
+        metadata is read, before it is yielded or its folder is listed.
+
+        Args:
+            query: Caller selectors and filters; an empty query when ``None``.
+
+        Yields:
+            SourceRecord: Each in-scope record once, up to ``query.limit``.
         """
         query = query or ConnectorQuery()
         self._ensure_connected()
@@ -181,6 +215,26 @@ class SharePointConnector(BaseConnector):
         drives: list[dict[str, Any]],
         query: ConnectorQuery,
     ) -> Iterator[SourceRecord]:
+        """Yield records from the query's selectors, or from the configured scope.
+
+        The caller's path is checked first, before any page listing or
+        drive-item request. The ``ValueError`` from ``_walk_path``, from the
+        item endpoints, and for an item selected by ID outside ``root_path``
+        passes through.
+
+        Args:
+            site: Resolved and allowed site payload.
+            drives: Drives in crawl scope.
+            query: Caller selectors and filters.
+
+        Yields:
+            SourceRecord: Records in discovery order, possibly repeated across
+            selectors.
+
+        Raises:
+            ValueError: Item IDs or a root item ID target a scope with several drives.
+        """
+        walk_path = self._walk_path(query)
         item_ids = self._item_ids_from_query(query) or list(self.config.item_ids or ())
         root_item_id = self._root_item_id_from_query(query)
         if (item_ids or root_item_id) and len(drives) != 1:
@@ -198,13 +252,46 @@ class SharePointConnector(BaseConnector):
                         query=query,
                     )
                 continue
+            if root_item_id:
+                yield from self._drive.walk_selected_folder(
+                    root_item_id,
+                    site=site,
+                    drive=drive,
+                    query=query,
+                )
+                continue
             yield from self._drive.walk_children(
                 site=site,
                 drive=drive,
                 query=query,
-                item_id=root_item_id,
-                path=None if root_item_id else (query.path or self.config.root_path),
+                path=walk_path,
             )
+
+    def _walk_path(self, query: ConnectorQuery) -> str | None:
+        """Return the drive path to walk: the caller's path inside ``root_path``, or ``root_path``.
+
+        ``query.path`` comes from the caller (``harborrag ingest run --path`` or
+        the SDK), so it is validated like the configured ``root_path`` and may
+        only narrow it, compared segment by segment and ignoring case. An empty
+        path such as ``/`` keeps the configured root. The ``ValueError`` from
+        ``validate_drive_path`` passes through for a path with a backslash, a
+        control character, or an empty, ``.`` or ``..`` segment.
+
+        Args:
+            query: Discovery query carrying the caller's path.
+
+        Returns:
+            The drive-relative path to walk, or ``None`` for the drive root.
+
+        Raises:
+            ValueError: The caller's path is outside the configured ``root_path``.
+        """
+        requested = validate_drive_path("SharePoint query path", query.path)
+        if requested is None:
+            return self.config.root_path
+        if not is_within_drive_path(requested, self.config.root_path):
+            raise ValueError("SharePoint query path must stay inside the configured root path")
+        return requested
 
     def _site_allowed(self, site: dict[str, Any]) -> bool:
         """Check the tenant and site allowlists, recording a skip when rejected."""
@@ -228,7 +315,20 @@ class SharePointConnector(BaseConnector):
         return True
 
     def load(self, record: SourceRecord) -> RawDocument:
-        """Load one SharePoint record: a site page as HTML, or a drive file."""
+        """Load one SharePoint record: a site page as HTML, or a drive file.
+
+        Allowlist, scope, item-level and unsafe-ID errors from the page and
+        file loaders pass through.
+
+        Args:
+            record: Record from this connector's discovery or ``load_by_ids``.
+
+        Returns:
+            The page HTML or the file bytes, with SharePoint metadata.
+
+        Raises:
+            DocumentProcessingError: The record is a page and ``include_pages`` is off.
+        """
         page = is_page_record(record)
         if page and not self.config.include_pages:
             raise DocumentProcessingError("SharePoint page loading is disabled")
@@ -239,6 +339,15 @@ class SharePointConnector(BaseConnector):
         return self._load_file(record, site)
 
     def _require_allowed_site(self, site: dict[str, Any], record: SourceRecord) -> None:
+        """Refuse a load when the tenant or site is outside its allowlist.
+
+        Args:
+            site: Resolved site payload.
+            record: Record being loaded; its locator identifies the skip.
+
+        Raises:
+            SharePointItemSkippedError: The tenant or site is not allowlisted.
+        """
         allowlist = self._drive.allowlist
         rejected = allowlist.rejected_tenant()
         detail = f"tenant {rejected!r} is not in allowed_tenant_ids"
@@ -254,7 +363,18 @@ class SharePointConnector(BaseConnector):
 
         A page with no text web parts still loads, as its title alone. The page
         exists and its title is searchable, and failing the load would report
-        an error for a page that is simply image- or link-only.
+        an error for a page that is simply image- or link-only. Item-level
+        errors from ``_fetch_or_skip`` pass through.
+
+        Args:
+            record: Page record from discovery.
+            site: Resolved and allowed site payload.
+
+        Returns:
+            The rendered page HTML with page metadata.
+
+        Raises:
+            DocumentProcessingError: The record belongs to another site.
         """
         site_id = str(site.get("id"))
         record_site_id = record.metadata.get("site_id")
@@ -284,8 +404,6 @@ class SharePointConnector(BaseConnector):
             run_id=self.run_id,
             page_id=page_id,
             site_id=site_id,
-            title=title,
-            url=page.get("webUrl"),
         )
         metadata = build_page_document_metadata(
             page,
@@ -306,9 +424,25 @@ class SharePointConnector(BaseConnector):
     def _load_file(self, record: SourceRecord, site: dict[str, Any]) -> RawDocument:
         """Download one SharePoint drive file as a raw document.
 
-        Every allowlist, size, and extension check runs on the item's metadata
-        before its content is requested, so an out-of-policy file is never
-        downloaded.
+        Every root-path, allowlist, size, and extension check runs on the
+        item's metadata before its content is requested, so an out-of-policy
+        file is never downloaded. Both requests go through
+        ``drive_item_endpoint``, so the ``ValueError`` for an unsafe item ID
+        passes through before any request, as do drive-scope and item-level
+        errors and the ``ValueError`` of ``require_inside_root`` for a file
+        outside ``root_path``.
+
+        Args:
+            record: File record from discovery or ``load_by_ids``.
+            site: Resolved and allowed site payload.
+
+        Returns:
+            The file bytes with drive metadata.
+
+        Raises:
+            DocumentProcessingError: The item is not a downloadable file.
+            SharePointItemSkippedError: The file is outside the path allowlist,
+                too large, or of a declined extension.
         """
         item_id = drive_item_id_from_record(record)
         drive = self._record_drive(record, site, item_id)
@@ -317,6 +451,7 @@ class SharePointConnector(BaseConnector):
             lambda: self._drive.get_item(drive_id, item_id),
             item_id=item_id,
         )
+        self._drive.require_inside_root(item)
 
         if not is_drive_file(item):
             raise DocumentProcessingError(
@@ -335,11 +470,10 @@ class SharePointConnector(BaseConnector):
             run_id=self.run_id,
             item_id=item_id,
             drive_id=drive_id,
-            name=item_name(item),
-            url=item.get("webUrl"),
         )
+        content_endpoint = f"{drive_item_endpoint(drive_id, item_id)}/content"
         content = self._fetch_or_skip(
-            lambda: self.client.get_bytes(f"drives/{drive_id}/items/{item_id}/content"),
+            lambda: self.client.get_bytes(content_endpoint),
             item_id=item_id,
             url=item.get("webUrl"),
         )
@@ -365,7 +499,20 @@ class SharePointConnector(BaseConnector):
         site: dict[str, Any],
         item_id: str,
     ) -> dict[str, Any]:
-        """Return the in-scope drive a file record belongs to, or refuse it."""
+        """Return the in-scope drive a file record belongs to, or refuse it.
+
+        Args:
+            record: File record whose metadata may name its drive.
+            site: Resolved and allowed site payload.
+            item_id: The record's drive item ID, for the error message.
+
+        Returns:
+            The in-scope drive payload.
+
+        Raises:
+            DocumentProcessingError: The record names a drive outside the scope,
+                or names none while the scope has several drives.
+        """
         drives = self._drive.resolve_drives(site)
         record_drive_id = record.metadata.get("drive_id")
         if record_drive_id is None:
@@ -383,8 +530,20 @@ class SharePointConnector(BaseConnector):
             )
         return drive
 
-    def _fetch_or_skip(self, fetch: Any, *, item_id: str, url: str | None = None) -> Any:
-        """Run one item-level Graph call, turning item failures into skips."""
+    def _fetch_or_skip[T](
+        self,
+        fetch: Callable[[], T],
+        *,
+        item_id: str,
+        url: str | None = None,
+    ) -> T:
+        """Run one item-level Graph call, turning item failures into typed load errors.
+
+        A deleted item becomes ``SharePointItemMissingError``, exhausted retries
+        ``SharePointItemUnavailableError`` and any other item-level reason
+        ``SharePointItemSkippedError``; each is logged as a skip first. Errors
+        that are not about one item, and any other exception, pass through.
+        """
         try:
             return fetch()
         except (AuthorizationError, FetchError) as exc:
@@ -395,12 +554,24 @@ class SharePointConnector(BaseConnector):
             raise item_load_error(reason, exc, item_id=item_id, url=url) from exc
 
     def load_by_ids(self, item_ids: list[str]) -> Iterator[RawDocument]:
-        """Load files for callers that already have drive item IDs."""
+        """Load files for callers that already have drive item IDs.
+
+        The ``ValueError`` for an unsafe item ID is raised before that item is
+        requested, and the one for an item outside a set ``root_path`` before
+        its content is downloaded; load errors pass through.
+
+        Args:
+            item_ids: Drive item IDs in the configured drive.
+
+        Yields:
+            RawDocument: One raw document per item ID, in order.
+        """
         for item_id in item_ids:
             yield self.load(self._drive.record_for_item_id(item_id))
 
     @staticmethod
     def _item_ids_from_query(query: ConnectorQuery) -> list[str]:
+        """Read the caller's item IDs from ``item_ids``, ``drive_item_ids`` or ``file_ids``."""
         values = (
             query.filters.get("item_ids")
             or query.filters.get("drive_item_ids")
@@ -414,5 +585,6 @@ class SharePointConnector(BaseConnector):
 
     @staticmethod
     def _root_item_id_from_query(query: ConnectorQuery) -> str | None:
+        """Read the caller's folder item ID from ``root_item_id`` or ``folder_item_id``."""
         value = query.filters.get("root_item_id") or query.filters.get("folder_item_id")
         return str(value) if value else None
