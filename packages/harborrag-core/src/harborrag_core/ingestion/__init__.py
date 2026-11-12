@@ -1,3 +1,8 @@
+"""Ingestion contracts shared by connectors, the engine and the runtime.
+
+Core imports no other HarborRAG package.
+"""
+
 from .artifact_contracts import (
     ArtifactReference,
     ChunkIndexEntry,

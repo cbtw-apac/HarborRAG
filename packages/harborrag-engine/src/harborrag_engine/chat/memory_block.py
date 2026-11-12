@@ -35,7 +35,6 @@ memory as the authority on the conversation's own content.
 
 def _escape(text: str) -> str:
     """Neutralize the delimiters the block itself uses."""
-
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
@@ -74,7 +73,6 @@ def memory_block(
 
     ``Memory`` rejects blank content at construction, so every memory renders.
     """
-
     elements: list[str] = []
     if summary and summary.strip():
         elements.append(_summary_element(summary, as_of=as_of))

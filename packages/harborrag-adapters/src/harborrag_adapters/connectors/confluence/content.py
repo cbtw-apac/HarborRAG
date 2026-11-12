@@ -26,10 +26,18 @@ logger = logging.getLogger("harborrag.adapters.connectors.confluence")
 
 
 class ConfluenceContentAPI:
-    """Confluence content traversal and child-resource pagination."""
+    """Confluence content traversal and child-resource pagination.
+
+    Args:
+        client: Confluence client the operations run through.
+        config: Validated space configuration.
+
+    Attributes:
+        client: Confluence client.
+        config: Validated space configuration.
+    """
 
     def __init__(self, client: ConfluenceClient, config: ConfluenceSpaceConfig) -> None:
-        """Bind content traversal to a client and validated config."""
         self.client = client
         self.config = config
 
@@ -58,8 +66,12 @@ class ConfluenceContentAPI:
         cursor: str | None,
         limit: int,
     ) -> tuple[list[dict[str, Any]], str | None]:
-        """Fetch exactly one provider page using a durable opaque cursor."""
+        """Fetch exactly one provider page using a durable opaque cursor.
 
+        Discovery needs the version and hierarchy fields later used by ConfluenceDescriptorBuilder.
+        Returning them with the search page avoids one additional content/{id} request for every
+        result.
+        """
         if limit < 1:
             raise ValueError("Confluence page limit must be positive")
         provider_limit = min(limit, self.config.page_size)
@@ -82,9 +94,6 @@ class ConfluenceContentAPI:
             limit=provider_limit,
             start=start,
             cursor=cursor_token,
-            # Discovery needs the version and hierarchy fields later used by
-            # ConfluenceDescriptorBuilder. Returning them with the search page
-            # avoids one additional content/{id} request for every result.
             expand=DESCRIPTOR_EXPAND,
         )
         response = self.client.get_json("content/search", params=params)
@@ -129,7 +138,6 @@ class ConfluenceContentAPI:
 
     def get_content_descriptor(self, content_id: str) -> dict[str, Any]:
         """Fetch source-version, hierarchy, and retrieval metadata without body."""
-
         content_id = validate_content_id(content_id)
         return self.client.get_json(
             f"content/{content_id}",
@@ -138,7 +146,6 @@ class ConfluenceContentAPI:
 
     def fetch_comments(self, content_id: str) -> list[dict[str, Any]]:
         """Fetch all comments for one content item, truncated to the configured cap."""
-
         return self._fetch_comments(content_id, expand=COMMENT_EXPAND)
 
     def list_comment_descriptors(
@@ -146,7 +153,6 @@ class ConfluenceContentAPI:
         content_id: str,
     ) -> list[dict[str, Any]]:
         """Fetch comment identities and versions without requesting comment bodies."""
-
         return self._fetch_comments(content_id, expand="history,version")
 
     def _fetch_comments(
@@ -264,13 +270,14 @@ class ConfluenceContentAPI:
 
         The expansion carries only the provider's first page of child pages,
         so a page with more children would otherwise report a partial list.
+
+        The expansion's page size is the server's, not ``page_size``: with no limit reported, trust
+        only its next link or total.
         """
         page = content.get("children", {}).get("page")
         if not isinstance(page, dict):
             return content
         results = list(page.get("results", []))
-        # The expansion's page size is the server's, not ``page_size``: with
-        # no limit reported, trust only its next link or total.
         if not _has_next_page(page, results, 0):
             return content
         content_id = validate_content_id(str(content.get("id") or ""))

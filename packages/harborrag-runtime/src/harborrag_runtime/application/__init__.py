@@ -32,7 +32,6 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     """Keep the runtime client optional until a caller requests a concrete service."""
-
     if name == "AppService":
         from .composition.service import AppService
 

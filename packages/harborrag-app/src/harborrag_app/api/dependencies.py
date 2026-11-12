@@ -25,6 +25,13 @@ from harborrag_runtime.application import BaseAppService
 
 @dataclass(frozen=True, slots=True)
 class ResponseContext:
+    """Settings and response a route needs to set headers.
+
+    Args:
+        settings: API settings.
+        response: Response being built.
+    """
+
     settings: ApiSettings
     response: Response
 

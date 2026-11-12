@@ -61,29 +61,37 @@ class Runs:
     batch_calls: list[tuple[str, ...]] = field(default_factory=list)
 
     async def latest_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
+        """Return the scripted active ingestion."""
         return self.active
 
     async def active_for_connection(self, *, tenant_id: str, connection_id: str) -> Any:
+        """Return the scripted active ingestion."""
         return self.active
 
     async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
+        """Return a fixed document count."""
         return 7
 
     async def get(self, task_id: str) -> IngestionTask | None:
+        """Return the stored task, or None."""
         return self.tasks.get(task_id)
 
     async def progress(self, task_id: str) -> dict[str, int]:
+        """Return the scripted progress and remember the call."""
         self.progress_calls.append(task_id)
         return self.counts.get(task_id, {"published": 1})
 
     async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        """Return the scripted progress per task and remember the call."""
         self.batch_calls.append(tuple(task_ids))
         return {task_id: self.counts.get(task_id, {"published": 1}) for task_id in task_ids}
 
     async def list_tasks(self, **_filters: Any) -> TaskPage:
+        """Return every stored task as one page."""
         return TaskPage(tuple(self.tasks.values()), has_more=False)
 
     async def document_results_page(self, task_id: str, **_filters: Any) -> TaskDocumentPage:
+        """Return an empty document page."""
         return TaskDocumentPage((), has_more=False)
 
 
@@ -98,6 +106,7 @@ class Submitter:
     async def submit(
         self, command: IngestionCreateCommand, *, idempotency_key: str | None
     ) -> dict[str, object]:
+        """Record the command and return a running task."""
         self.commands.append(command)
         task_id = f"ing_{len(self.commands)}"
         self.runs.tasks[task_id] = running_task(
@@ -125,6 +134,7 @@ class Removal:
     calls: list[dict[str, Any]] = field(default_factory=list)
 
     async def remove(self, **kwargs: Any) -> None:
+        """Record the call; fail once when configured to."""
         self.calls.append(kwargs)
         if self.fail:
             self.fail = False

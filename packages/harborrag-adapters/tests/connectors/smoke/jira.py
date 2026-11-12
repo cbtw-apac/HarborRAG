@@ -80,7 +80,12 @@ def _render_jira_output(
     markdown: bool,
     asset_paths: dict[str, str] | None = None,
 ) -> str:
-    """Render one loaded JIRA issue (plus any parsed attachments) for saving."""
+    """Render one loaded JIRA issue (plus any parsed attachments) for saving.
+
+    Attachment *text* is already inlined into the issue body by the connector, so unlike Confluence
+    this renderer adds no `## Attachments` section. The downloaded image bytes still need an `![]()`
+    link, or `_save_image_attachments` writes files nothing ever points at.
+    """
     attachments = (document.metadata or {}).get("attachments") or []
     body = document.text()
 
@@ -105,10 +110,6 @@ def _render_jira_output(
         body,
     ]
 
-    # Attachment *text* is already inlined into the issue body by the
-    # connector, so unlike Confluence this renderer adds no `## Attachments`
-    # section. The downloaded image bytes still need an `![]()` link, or
-    # `_save_image_attachments` writes files nothing ever points at.
     embedded = [
         (attachment, asset_rel)
         for attachment in attachments

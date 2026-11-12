@@ -44,6 +44,7 @@ class FakeUsageRepository:
         self.records: list[ModelUsageRecord] = []
 
     async def record(self, usage: ModelUsageRecord) -> None:
+        """Store the usage record, or raise the configured failure."""
         if self.failure is not None:
             raise self.failure
         self.records.append(usage)
@@ -55,6 +56,7 @@ class FakeUsageRepository:
         user_id: str | None = None,
         since: object = None,
     ) -> ModelUsageTotals:
+        """Return the totals of the stored records."""
         del since
         matching = [
             record
@@ -107,6 +109,7 @@ class FakeChatFacade:
         self.allowed_models: set[str] = {"primary"}
 
     async def validate_model(self, model: str | None, *, tenant_id: str) -> None:
+        """Remember the call and reject models outside the allowed set."""
         self.validated.append((model, tenant_id))
         if model is not None and model not in self.allowed_models:
             raise HarborValidationError(f"model {model!r} is not available", {"field": "model"})
@@ -117,6 +120,7 @@ class FakeChatFacade:
         *,
         prompt: object | None = None,
     ) -> HarborChatResponse:
+        """Return the scripted response, or raise the configured failure."""
         if self.failure is not None:
             raise self.failure
         if prompt is ChatPrompt.QUERY_GATE:
@@ -153,6 +157,7 @@ class FakeChatFacade:
         *,
         prompt: object | None = None,
     ) -> AsyncIterator[HarborChatStreamChunk]:
+        """Stream the scripted chunks."""
         del prompt
         self.request = request
         self.requests.append(request)
@@ -210,6 +215,7 @@ class FakeRetrievalFacade:
         self.diagnostics = diagnostics if diagnostics is not None else {}
 
     async def search(self, request: object) -> RetrievalResponse:
+        """Remember the request and return the scripted retrieval response."""
         self.request = request
         self.requests.append(request)
         return RetrievalResponse(
@@ -265,6 +271,7 @@ class FakeMemoryFacade:
         memories: object = None,
         index: object = None,
     ) -> MemoryContext:
+        """Return the scripted memory context."""
         self.requests.append(request)
         builder = MemoryContextBuilder(
             policy=self.policy,
@@ -351,6 +358,7 @@ class FakeRuntime:
         self.config = config or fake_runtime_config()
 
     async def aclose(self) -> None:
+        """Do nothing."""
         return None
 
 
@@ -365,6 +373,7 @@ class FakeConfigProvider:
         self.unavailable = False
 
     async def effective(self, tenant_id: str, level: SettingsLevel) -> EffectiveSettings:
+        """Return the effective settings, or raise when the store is unavailable."""
         del tenant_id
         if self.unavailable:
             raise HarborUnavailableError("settings store is unavailable")

@@ -73,14 +73,15 @@ class SharePointConnector(BaseConnector):
     """
 
     provider_name = "sharepoint"
-    # No native discover_page: the inherited fallback re-walks the tree from
-    # the start for every page, so the runtime streams discover() once instead.
     capabilities = ConnectorCapabilities(
         pagination=False,
         incremental_sync=True,
         full_sync=True,
         relationships=True,
     )
+    """No native discover_page: the inherited fallback re-walks the tree from the start for every
+    page, so the runtime streams discover() once instead.
+    """
 
     def __init__(
         self,
@@ -117,7 +118,6 @@ class SharePointConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
-
         close = getattr(self.client, "close", None)
         if callable(close):
             close()

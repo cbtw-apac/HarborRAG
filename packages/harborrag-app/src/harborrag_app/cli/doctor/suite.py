@@ -130,14 +130,17 @@ def _settings(checks: list[Check]) -> RuntimeSettings | None:
 
 
 def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
+    """Check the connector and model configuration files.
+
+    The connector loader keeps an invalid definition out of `connectors` and only raises when it is
+    looked up, so it would otherwise vanish from this report.
+    """
     checks: list[Check] = []
     catalog: ConnectorCatalog | None = None
     try:
         catalog = load_connector_catalog(settings.connector_config_path)
         enabled = catalog.names(enabled_only=True)
         detail = f"{len(enabled)} enabled: {', '.join(enabled) or 'none'}"
-        # The loader keeps an invalid definition out of `connectors` and only raises
-        # when it is looked up, so it would otherwise vanish from this report.
         if catalog.errors:
             invalid = "; ".join(
                 f"{name}: {check_error_detail(error)}"
@@ -173,7 +176,6 @@ def _configuration_checks(settings: RuntimeSettings) -> list[Check]:
 
 def _chunking_check(settings: RuntimeSettings) -> Check:
     """Validate chunking.yaml and report when code would split without its grammars."""
-
     from harborrag_runtime.config.chunking import chunking_settings_from
     from harborrag_runtime.ingestion.chunking_profile import code_grammar_problems
 
@@ -196,7 +198,6 @@ def _chunking_check(settings: RuntimeSettings) -> Check:
 
 def _control_db_check(settings: RuntimeSettings) -> Check | None:
     """Warn when a checkout would silently keep its run state in a local sqlite file."""
-
     if active_project() is not None:
         return None
     try:
@@ -221,10 +222,16 @@ def _control_db_check(settings: RuntimeSettings) -> Check | None:
 
 
 def _object_store_checks(settings: RuntimeSettings) -> list[Check]:
+    """Check that the configured object store is reachable.
+
+    The runtime never touches the S3 endpoint for non-S3 providers, so probing it could only report
+    a false failure or a false pass. Not every S3-compatible store serves MinIO's health route, so
+    the probe falls back to the port. A store that is reachable but where nothing could sign a
+    request is never reported as verified. Failures report only the S3 error code, never the key,
+    the secret or botocore's message.
+    """
     checks: list[Check] = []
     if settings.object_store_provider != "s3":
-        # The runtime never touches the S3 endpoint for these providers, so probing it
-        # could only report a false failure (or a false pass).
         checks.append(_local_object_store_check(settings))
         return checks
     endpoint = settings.object_store_endpoint_url
@@ -235,7 +242,6 @@ def _object_store_checks(settings: RuntimeSettings) -> list[Check]:
         return checks
     error = probes.http_ok(endpoint.rstrip("/") + "/minio/health/live")
     if error is not None:
-        # Not every S3-compatible store serves MinIO's health route; fall back to the port.
         host, port = probes.host_port(endpoint, default_port=9000)
         error = probes.tcp_reachable(host, port)
     if error is None:
@@ -247,7 +253,6 @@ def _object_store_checks(settings: RuntimeSettings) -> list[Check]:
             _secret(settings.object_store_session_token),
         )
         if code == probes.UNVERIFIED:
-            # Reachable, but nothing could sign a request: never report that as verified.
             checks.append(
                 Check(
                     "object store",
@@ -261,7 +266,6 @@ def _object_store_checks(settings: RuntimeSettings) -> list[Check]:
             )
             return checks
         if code is not None:
-            # Only the S3 error code: never the key, the secret or botocore's message.
             checks.append(
                 Check(
                     "object store",
@@ -303,7 +307,6 @@ def _local_object_store_check(settings: RuntimeSettings) -> Check:
 
 def _writable_directory_error(root: Path) -> str | None:
     """Whether ``root`` exists as, or can be created as, a writable directory."""
-
     candidate = root.absolute()
     while not candidate.exists():
         if candidate.parent == candidate:
@@ -324,7 +327,6 @@ def _service_check(
     name: str, target: str, error: str | None, *, hint_extra: str | None = None
 ) -> Check:
     """``target`` is shown verbatim on success, so callers pass an already-safe string."""
-
     if error is None:
         return Check(name, "services", "ok", target)
     hint = f"Start the local services: {env_hint('services')}"
@@ -336,13 +338,14 @@ def _service_check(
 async def _control_plane_check(
     service_factory: Callable[[], BaseAppService],
 ) -> tuple[BaseAppService | None, Check]:
-    """Build the service and report its control-plane health."""
+    """Build the service and report its control-plane health.
 
+    Never interpolate the raw exception: a composition failure routinely carries
+    HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
+    """
     try:
         service = await asyncio.to_thread(service_factory)
     except Exception as exc:  # noqa: BLE001
-        # Never interpolate the raw exception: a composition failure routinely carries
-        # HARBORRAG_CONTROL_DB_URL, password included. The logs keep the full detail.
         logger.debug("Control-plane service could not be built", exc_info=True)
         hint = f"Check HARBORRAG_CONTROL_DB_URL in {env_hint('settings')}."
         detail = check_error_detail(exc)
@@ -358,7 +361,6 @@ async def _control_plane_check(
 
 def _diagnostics(service: BaseAppService | None) -> dict[str, object] | None:
     """The health diagnostics block of a built service."""
-
     if service is None:
         return None
     raw = service.health().data.get("diagnostics")
@@ -369,7 +371,6 @@ async def _readiness_checks(
     settings: RuntimeSettings, service: BaseAppService | None
 ) -> list[Check]:
     """Run the checks ``/readyz`` runs; Redis is the runtime's only, as there is no API."""
-
     checks = build_readiness_checks(
         settings, capacity_redis_url=None, temporal=_temporal_probe(service)
     )
@@ -396,7 +397,6 @@ def _temporal_probe(service: BaseAppService | None) -> ReadinessCheck:
 
 async def _tenants(service: BaseAppService | None) -> tuple[tuple[str, ...], Check | None]:
     """The tenants holding data, or a failed check when the control plane cannot be read."""
-
     if service is None:
         return (), None
     try:

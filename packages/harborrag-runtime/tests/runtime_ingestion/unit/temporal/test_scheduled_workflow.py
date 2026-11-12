@@ -88,6 +88,11 @@ async def environment() -> AsyncIterator[WorkflowEnvironment]:
 async def _run(
     environment: WorkflowEnvironment, connection_id: str, *, cancel: bool = False
 ) -> tuple[_Activities, ScheduledSourceIngestionResult | BaseException]:
+    """Time skipping does not drop the cancelled outcome on a slow runner.
+
+    Time skipping would jump past the 10s metric-activity timeout while a slow runner is still
+    executing it, losing the "cancelled" outcome.
+    """
     activities = _Activities()
     async with Worker(
         environment.client,
@@ -109,8 +114,6 @@ async def _run(
                 await asyncio.sleep(0.05)
             await asyncio.sleep(0.2)
             await handle.cancel()
-            # Time skipping would jump past the 10s metric-activity timeout while a
-            # slow runner is still executing it, losing the "cancelled" outcome.
             with environment.auto_time_skipping_disabled():
                 return await _outcome(activities, handle)
         return await _outcome(activities, handle)

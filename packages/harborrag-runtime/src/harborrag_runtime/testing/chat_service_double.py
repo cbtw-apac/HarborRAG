@@ -57,6 +57,7 @@ class ProjectSets:
         self._owner = owner
 
     async def get(self, project_id: str, *, tenant_ids: frozenset[str] | None) -> object | None:
+        """Return the project when its tenant is known to the double."""
         tenants = tenant_ids or frozenset()
         if project_id in self._owner.known_projects or any(
             project_id in self._owner.tenant_projects.get(tenant, set()) for tenant in tenants
@@ -82,6 +83,7 @@ class FakeConnectionCatalog:
     async def project_connections(
         self, tenant_id: str, project_id: str
     ) -> tuple[ConnectionSources, ...]:
+        """Return the scripted connections of a project."""
         del tenant_id
         return tuple(self.projects.get(project_id, ()))
 

@@ -38,7 +38,6 @@ def split_field_filters(
 
     Returns ``(field_filter, remaining_filter)``, each ``None`` when empty.
     """
-
     if filters is None:
         return None, None
     fields: dict[str, list[VectorFilterCondition]] = {"must": [], "should": [], "must_not": []}
@@ -83,7 +82,6 @@ class SourceFieldTrace:
         context: StorageOperationContext,
     ) -> tuple[str, ...]:
         """Return the source items whose own fields satisfy the filter, already permission-scoped."""
-
         await self._require_indexed(field_filter, context=context)
         items = await self.vectors.distinct_values(
             self.index_name,
@@ -114,7 +112,6 @@ class SourceFieldTrace:
         what is indexed, is the useful answer. The cached index list is refreshed
         once before refusing, so an index added since is honoured.
         """
-
         if field_filter is None or not isinstance(self.vectors, PayloadIndexCatalog):
             return
         wanted = {
@@ -150,7 +147,6 @@ class SourceFieldTrace:
         Any ``should`` the caller already had would then be satisfied by the trace
         alone, so those are rejected rather than silently loosened.
         """
-
         remaining = rest or VectorFilter()
         if remaining.should:
             raise HarborValidationError(

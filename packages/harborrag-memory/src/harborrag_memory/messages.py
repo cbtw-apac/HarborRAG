@@ -53,7 +53,6 @@ class CitationRecord:
 
     def __post_init__(self) -> None:
         """Reject a citation number below 1."""
-
         if self.n < 1:
             raise ValueError("citation n starts at 1")
 
@@ -81,7 +80,6 @@ class ExchangeRecord:
 
     def __post_init__(self) -> None:
         """Reject a mode outside ``CHAT_MODES``."""
-
         if self.mode not in CHAT_MODES:
             raise ValueError(f"exchange mode must be one of {', '.join(CHAT_MODES)}")
 
@@ -106,7 +104,6 @@ async def record_exchange(
         HarborConflictError: Another completion holds the session's turn lease, or the
             caller's lease expired; a plain conflict, answered as ``invalid_state``.
     """
-
     created_at = utc_now()
     question = ConversationMessage(
         message_id=exchange.question_id,
@@ -134,7 +131,6 @@ def question_message(content: str) -> ConversationMessage:
     Prompt tokens are not attributable to one message, so this record carries
     no ``token_count``; the answer carries the completion count instead.
     """
-
     return ConversationMessage(
         message_id=new_message_id(),
         role="user",
@@ -158,7 +154,6 @@ def answer_message(
     otherwise, and it is a field on the canonical record so the flag survives
     a database round trip rather than only living in this process.
     """
-
     return ConversationMessage(
         message_id=new_message_id(),
         role="assistant",
@@ -183,7 +178,6 @@ async def append_exchange(
     returned so long-term extraction can cite them as provenance without
     re-deriving their identifiers.
     """
-
     persisted = tuple(messages)
     try:
         await store.append_messages(identity, persisted)
@@ -204,6 +198,5 @@ async def append_message(
     message: ConversationMessage,
 ) -> ConversationMessage | None:
     """Append one message and return it; ``None`` (never raise) on failure."""
-
     persisted = await append_exchange(store, identity, (message,))
     return None if persisted is None else persisted[0]

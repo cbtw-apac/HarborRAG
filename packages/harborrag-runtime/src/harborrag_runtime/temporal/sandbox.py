@@ -36,7 +36,6 @@ def workflow_sandbox_runner(
     its workflow modules, which would turn off the sandbox's determinism checks
     for workflow code.
     """
-
     modules = sys.modules if loaded_modules is None else loaded_modules
     sandboxed: set[str] = set()
     for workflow_type in workflows:

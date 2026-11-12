@@ -27,6 +27,8 @@ from harborrag_runtime.sdk import RetrievalLane
 
 @dataclass(frozen=True, slots=True)
 class Probe:
+    """A question with the passages the model must answer from and the terms it must or must not use."""
+
     name: str
     question: str
     passages: tuple[str, ...]
@@ -39,6 +41,8 @@ class Probe:
 
 @dataclass(frozen=True, slots=True)
 class ScopeProbe:
+    """A question whose scope the model must classify."""
+
     name: str
     question: str
     expected: str
@@ -50,7 +54,6 @@ CASE_FILE = Path(__file__).with_name("chat_quality_model_cases.json")
 
 def _load_cases(path: Path) -> tuple[tuple[Probe, ...], tuple[ScopeProbe, ...]]:
     """Load controlled questions and expected evidence from a data fixture."""
-
     data = json.loads(path.read_text(encoding="utf-8"))
     if (
         not isinstance(data, dict)
@@ -275,6 +278,7 @@ async def _run() -> int:
 
 
 def main() -> int:
+    """Run every probe and return the exit code."""
     return asyncio.run(_run())
 
 

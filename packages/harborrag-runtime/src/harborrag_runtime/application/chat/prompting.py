@@ -83,7 +83,6 @@ def build_chat_request(  # noqa: PLR0913 - explicit prompt assembly inputs
     ``trace_id`` is the request's trace id, so the model call's telemetry is
     found by the id the caller was given.
     """
-
     history = (
         evidence.history
         if evidence is not None
@@ -142,7 +141,6 @@ def prompt_text(
     everything into one labeled block keeps context and question
     unambiguous regardless of provider.
     """
-
     block = memory_block(summary, memories)
     prefix = f"{block}\n\n" if block else ""
     if not results:
@@ -169,7 +167,6 @@ def _source_label(index: int, result: RetrievalResult) -> str:
     The id is kept as well: it is what the citation refers to, and a chunk
     ingested before titles were surfaced has nothing else to be known by.
     """
-
     document_id = result.metadata.get("document_id", "unknown")
     return f"{citation_marker(index, result)} {source_heading(result)} (document_id={document_id})"
 
@@ -179,7 +176,6 @@ def history_messages(messages: Sequence[ConversationMessage]) -> tuple[HarborCha
 
     Only user and assistant turns are replayed; stored system rows are not.
     """
-
     replayed: list[HarborChatMessage] = []
     for message in messages:
         if not message.content.strip():

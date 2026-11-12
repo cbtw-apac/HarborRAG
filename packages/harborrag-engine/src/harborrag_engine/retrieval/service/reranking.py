@@ -65,6 +65,3 @@ class PassageReranker:
             )
             for ranked in response.results
         ]
-
-
-__all__ = ["RERANK_SCORE_KEY", "PassageReranker"]

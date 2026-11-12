@@ -113,7 +113,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
-
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
@@ -128,7 +127,11 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         verify_credentials(lambda: self.client.get_json("user/current"), provider="Confluence")
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Search Confluence content or materialize explicitly requested IDs."""
+        """Search Confluence content or materialize explicitly requested IDs.
+
+        Same label and live-doc filters as search. Skipping a page still walks its children, which
+        are judged alone.
+        """
         self._ensure_connected()
         query = query or ConnectorQuery()
         content_ids = self._content_ids_from_query(query)
@@ -146,8 +149,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
                     return
                 for content_id in self._content.with_children(content_ids, query):
                     record = self._record_for_id(content_id, query)
-                    # Same label and live-doc filters as search. Skipping a
-                    # page still walks its children, which are judged alone.
                     if not self._should_process_content(record.metadata[DISCOVERY_DESCRIPTOR_KEY]):
                         logger.debug("Confluence content filtered out content_id=%s", content_id)
                         continue
@@ -190,7 +191,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         page_size: int,
     ) -> ConnectorPage:
         """Use Confluence's Cloud cursor or Data Center offset directly."""
-
         self._ensure_connected()
         query = query or ConnectorQuery()
         if self._content_ids_from_query(query):
@@ -235,7 +235,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one expanded Confluence content item as an HTML raw document."""
-
         if is_attachment_record(record):
             if (
                 not self.config.include_attachments
@@ -311,7 +310,6 @@ class ConfluenceConnector(ConfluenceQueryPolicyMixin, BaseConnector):
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
         """Discover comment/attachment versions and structural relations."""
-
         descriptor = self._descriptors.describe(record)
         logger.info(
             "Confluence content described source_id=%s comments=%d attachments=%d "

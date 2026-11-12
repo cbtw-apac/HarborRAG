@@ -167,5 +167,4 @@ class SessionLocks:
 
     def active(self, identity: ConversationIdentity) -> bool:
         """Report whether a completion currently holds or awaits this session's lock."""
-
         return self._holders[identity] > 0

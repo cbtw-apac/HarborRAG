@@ -65,7 +65,6 @@ def validation_error_detail(exc: ValidationError) -> str:
     A ValidationError is a ValueError, but its text embeds the offending input values (DSNs,
     keys), so only where and why each field failed is reported.
     """
-
     errors = exc.errors(include_input=False, include_url=False)
     if not errors:
         return "invalid settings"
@@ -85,7 +84,6 @@ def public_error_message(exc: Exception) -> str:
     responses. Callers are expected to ``logger.exception`` the original so the
     full detail stays available to whoever operates the process.
     """
-
     if isinstance(exc, ValidationError):
         return validation_error_detail(exc)
     if isinstance(exc, _PUBLIC_MESSAGE_TYPES):
@@ -100,7 +98,6 @@ def failure_response(
     *args: object,
 ) -> AppResponse:
     """Log private detail while returning only a reviewed public message."""
-
     public = public_error_message(exc)
     if public == type(exc).__name__:
         logger.error(message, *args, exc_info=exc)

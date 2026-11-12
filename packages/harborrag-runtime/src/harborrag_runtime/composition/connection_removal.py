@@ -8,7 +8,7 @@ Handles:
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from harborrag_adapters.models.embed import HarborEmbedClientConfig
 from harborrag_engine.ingestion import VectorProjectionPolicy, VectorProjectionStore
@@ -26,7 +26,15 @@ from .resources import (
 )
 
 if TYPE_CHECKING:
+    from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
+    from harborrag_core.ports.storage import VectorRepositoryPort
     from harborrag_runtime.config.settings import RuntimeSettings
+
+    from .storage_providers import RuntimeKnowledgeGraphPort
+
+    type _Stores = tuple[
+        IngestionControlPlaneDatabase, VectorRepositoryPort, RuntimeKnowledgeGraphPort
+    ]
 
 
 class ConnectionRemoval:
@@ -34,7 +42,7 @@ class ConnectionRemoval:
 
     def __init__(self, settings: RuntimeSettings) -> None:
         self._settings = settings
-        self._stores: tuple[Any, Any, Any] | None = None
+        self._stores: _Stores | None = None
         self._service: ConnectionRemovalService | None = None
         self._lock = asyncio.Lock()
 

@@ -23,7 +23,6 @@ class DocumentReleaseService:
 
     async def provision(self, *, tenant_id: str) -> None:
         """Provision idempotent projection structures before worker polling."""
-
         await self._dependencies.vector_store.provision(
             context=StorageOperationContext.system(tenant_id)
         )
@@ -33,6 +32,7 @@ class DocumentReleaseService:
         request: DocumentReleaseRequest,
         connector: BaseConnector | HarborConnector,
     ) -> DocumentReleaseOutcome:
+        """Release one document through the pipeline."""
         return await self._pipeline.release(request, connector)
 
     async def replay(
@@ -41,5 +41,4 @@ class DocumentReleaseService:
         document_version_id: str,
     ) -> DocumentReleaseOutcome:
         """Resume a failed release solely from durable ingestion artifacts."""
-
         return await self._pipeline.replay(request, document_version_id)

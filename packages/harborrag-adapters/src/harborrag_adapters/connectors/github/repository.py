@@ -32,10 +32,18 @@ logger = logging.getLogger("harborrag.adapters.connectors.github")
 
 
 class GitHubRepositoryAPI:
-    """Repository-scoped GitHub traversal, filtering, and blob loading."""
+    """Repository-scoped GitHub traversal, filtering, and blob loading.
+
+    Args:
+        config: Validated repository configuration.
+        client: GitHub client the operations run through.
+
+    Attributes:
+        config: Validated repository configuration.
+        client: GitHub client.
+    """
 
     def __init__(self, config: GitHubRepositoryConfig, client: GitHubClient) -> None:
-        """Bind repository operations to a client and validated config."""
         self.config = config
         self.client = client
         self.owner = str(config.owner)
@@ -113,8 +121,11 @@ class GitHubRepositoryAPI:
         return decoded
 
     def _blob_response_limit(self) -> int:
-        """Bound base64 JSON using the configured decoded-file ceiling."""
+        """Bound base64 JSON using the configured decoded-file ceiling.
 
+        GitHub wraps base64 content at 60 characters. JSON escaping turns each newline into two
+        bytes, and a fixed allowance covers the response fields.
+        """
         configured_limit = self.config.max_file_size_bytes
         decoded_limit = (
             GITHUB_BLOB_LIMIT_BYTES
@@ -122,8 +133,6 @@ class GitHubRepositoryAPI:
             else min(configured_limit, GITHUB_BLOB_LIMIT_BYTES)
         )
         encoded_limit = 4 * ((decoded_limit + 2) // 3)
-        # GitHub wraps base64 content at 60 characters. JSON escaping turns each
-        # newline into two bytes, and a fixed allowance covers the response fields.
         line_break_overhead = 2 * ((encoded_limit + 59) // 60)
         return encoded_limit + line_break_overhead + 64 * 1024
 

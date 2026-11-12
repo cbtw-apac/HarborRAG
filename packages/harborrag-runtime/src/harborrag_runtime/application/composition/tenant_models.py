@@ -30,7 +30,6 @@ def tenant_model_sources(
     ``None`` is the default and means every tenant keeps answering from the
     process-wide ``config/models/models.yaml`` catalog, exactly as before.
     """
-
     if not settings.chat_tenant_catalogs_enabled:
         return None
     control_plane = getattr(composition, "control_plane", None)

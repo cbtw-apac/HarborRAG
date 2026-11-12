@@ -33,7 +33,6 @@ def build_ingestion_input(
     connection: ResolvedConnection,
 ) -> PreparedSourceSubmission:
     """Build the single source input shared by direct and Temporal strategies."""
-
     return prepare_configured_source_submission(
         settings,
         SourceSubmission(

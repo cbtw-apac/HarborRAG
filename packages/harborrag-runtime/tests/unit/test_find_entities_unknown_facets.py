@@ -56,11 +56,11 @@ def _search() -> tuple[EntitySummarySearch, IndexedVectors]:
 
 @pytest.mark.asyncio
 async def test_an_undeclared_facet_name_makes_the_empty_answer_incomplete() -> None:
+    """The cached index list was re-read once before calling the name unknown."""
     search, vectors = _search()
     response = await search.find(_request({"skillset": "java"}), "entities-x", (1.0, 0.0), CONTEXT)
     assert response.matches == ()
     assert response.reasons == (UNKNOWN_FACET,)
-    # The cached index list was re-read once before calling the name unknown.
     assert vectors.refreshes == 1
 
 
@@ -89,15 +89,17 @@ async def test_the_tool_reports_the_unknown_facet_as_incomplete() -> None:
 
 
 def test_a_field_name_is_not_a_facet_name() -> None:
+    """Valid callers keep working.
+
+    Direct callers that skip the schema are refused too, not searched.
+    """
     jsonschema = pytest.importorskip("jsonschema")
     schema = FIND_ENTITIES_SPEC.input_schema
-    # Valid callers keep working.
     jsonschema.validate(
         {"tenant_id": "t", "query": "q", "facets": {"skill_set": "java", "years": {"gte": 5}}},
         schema,
     )
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({"tenant_id": "t", "query": "q", "facets": {"Skill Set": "j"}}, schema)
-    # Direct callers that skip the schema are refused too, not searched.
     with pytest.raises(ValueError, match="not a facet name"):
         facet_filter_from_mapping({"Skill Set": "java"})

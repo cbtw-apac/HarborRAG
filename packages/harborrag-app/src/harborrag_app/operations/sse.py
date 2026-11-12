@@ -6,6 +6,5 @@ import json
 
 
 def sse_frame(name: str, payload: object) -> bytes:
-    """Encode one ``event: <name>\\ndata: <json>\\n\\n`` frame."""
-
+    r"""Encode one ``event: <name>\ndata: <json>\n\n`` frame."""
     return f"event: {name}\ndata: {json.dumps(payload)}\n\n".encode()

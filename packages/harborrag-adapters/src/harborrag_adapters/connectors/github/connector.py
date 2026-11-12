@@ -108,7 +108,6 @@ class GitHubConnector(BaseConnector):
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
         """Resolve an explicit path list without mixing it into tree traversal."""
-
         yielded = 0
         for path in paths:
             item = self._github.content_file_item(path, ref=ref)
@@ -127,7 +126,6 @@ class GitHubConnector(BaseConnector):
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
         """Walk one resolved Git tree and emit records that pass query policy."""
-
         root_path = normalize_repo_path(query.path or self.config.root_path)
         tree_sha = tree_sha_from_commit(commit)
         recursive = query.recursive or bool(root_path)

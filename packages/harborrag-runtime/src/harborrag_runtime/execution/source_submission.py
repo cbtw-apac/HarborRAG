@@ -1,3 +1,5 @@
+"""Prepared source submissions handed to the ingestion gateway."""
+
 from __future__ import annotations
 
 import json
@@ -96,7 +98,6 @@ def prepare_source_submission(
 
 def _require_known_local_filters(query: SourceQuery) -> None:
     """Reject filter keys the local connector would silently ignore."""
-
     from harborrag_adapters.connectors.local.filters import LOCAL_QUERY_FILTER_KEYS
 
     filters = json.loads(query.filters_json)
@@ -159,7 +160,6 @@ def _scope_query(
     query: SourceQuery, excluded_filters: frozenset[str] = frozenset()
 ) -> dict[str, object]:
     """Keep execution controls and connection config out of the stable source membership scope."""
-
     values = asdict(query)
     values.pop("include_attachments", None)
     filters = json.loads(query.filters_json)

@@ -28,7 +28,6 @@ def stored_owner(payload: Mapping[str, Any]) -> MemoryOwner:
     Returns:
         The owner, ignoring fields an earlier release wrote (``run_id``).
     """
-
     return MemoryOwner(**{key: value for key, value in payload.items() if key in _OWNER_FIELDS})
 
 
@@ -56,7 +55,6 @@ class MemoryErasureJournal:
 
         The enqueue failure propagates before any deletion loses the recovery identifiers.
         """
-
         if self.pending is None:
             return None
         effect = PendingControlPlaneEffect(
@@ -67,7 +65,6 @@ class MemoryErasureJournal:
 
     async def complete(self, effect_id: str | None) -> None:
         """Mark an erasure intent done; a missing id or journal is a no-op."""
-
         if effect_id is not None and self.pending is not None:
             await self.pending.complete(effect_id)
 
@@ -77,7 +74,6 @@ class MemoryErasureJournal:
         Without a journal the index is cleared first, so the canonical row survives an
         unavailable index; with one, an index failure queues the point for retry and returns 0.
         """
-
         effect_id = await self.begin(
             MEMORY_ERASURE,
             memory.owner,
@@ -109,7 +105,6 @@ class MemoryErasureJournal:
         Raises:
             HarborUnavailableError: The stores the intent needs are not configured.
         """
-
         if effect.kind != MEMORY_ERASURE:
             return False
         owner = stored_owner(effect.payload["owner"])

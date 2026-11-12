@@ -47,6 +47,11 @@ POLICY = SummaryPolicy(model_fingerprint="model", facets=(STAGE, YEARS, SKILLS))
 
 
 def test_the_config_declares_facets_per_scope_and_they_reach_the_policy() -> None:
+    """The vocabulary is model-affecting.
+
+    Two scopes of one tenant may run under different fingerprints -- and only the scope whose facets
+    changed regenerates.
+    """
     config = GraphBuildConfig.model_validate(
         {
             "tenants": [
@@ -70,8 +75,6 @@ def test_the_config_declares_facets_per_scope_and_they_reach_the_policy() -> Non
     scoped, plain = config.tenants[0].sources
     assert [facet.as_policy_facet().name for facet in scoped.facets] == ["stage", "skills"]
     assert plain.facets == []
-    # The vocabulary is model-affecting, so two scopes of one tenant may run under
-    # different fingerprints -- and only the scope whose facets changed regenerates.
     with_facets = SummaryPolicy(
         model_fingerprint="m", facets=tuple(f.as_policy_facet() for f in scoped.facets)
     )
@@ -81,15 +84,17 @@ def test_the_config_declares_facets_per_scope_and_they_reach_the_policy() -> Non
 @pytest.mark.parametrize(
     "payload",
     (
-        {"name": "Stage", "field": "Stage"},  # not lower-case
-        {"name": "stage"},  # copies nothing
-        # The model-read facet source is gone; a config still declaring one fails
-        # loudly instead of silently dropping the facet.
+        {"name": "Stage", "field": "Stage"},
+        {"name": "stage"},
         {"name": "skills", "from": "extracted", "hint": "technologies"},
         {"name": "stage", "from": "source_field", "field": "Stage"},
     ),
 )
 def test_incoherent_facets_are_rejected_at_load(payload: dict[str, object]) -> None:
+    """The model-read facet source is gone.
+
+    A config still declaring one fails loudly instead of silently dropping the facet.
+    """
     with pytest.raises(Exception, match="pattern|String should match|Field required|Extra inputs"):
         GraphBuildConfig.model_validate(
             {
@@ -102,6 +107,7 @@ def test_incoherent_facets_are_rejected_at_load(payload: dict[str, object]) -> N
 
 
 def test_the_issue_node_carries_its_typed_custom_fields() -> None:
+    """And the graph attribute contract accepts the shape."""
     attributes = _issue_attributes(
         {
             "issue_key": "AUTA-7",
@@ -117,7 +123,6 @@ def test_the_issue_node_carries_its_typed_custom_fields() -> None:
         {"field_id": "customfield_10001", "name": "Stage", "value": "Round 2"},
         {"field_id": "customfield_10042", "name": "Years of Experience", "value": "7"},
     ]
-    # And the graph attribute contract accepts the shape.
     GraphNodeRecord(
         node_key="k",
         node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
@@ -141,8 +146,11 @@ ISSUE_DOCUMENT = str(
 
 
 def _issue_node() -> GraphNodeRecord:
-    # A source entity never carries a document id of its own -- the graph contract
-    # reserves that for version-owned nodes -- which is why provenance is passed in.
+    """A source entity never carries a document id of its own.
+
+    The graph contract reserves that for version-owned nodes -- which is why provenance is passed
+    in.
+    """
     return GraphNodeRecord(
         node_key="node-7",
         node_kind=KnowledgeNodeKind.SOURCE_ENTITY,
@@ -161,18 +169,20 @@ def _issue_node() -> GraphNodeRecord:
 
 
 def test_source_fields_are_copied_onto_the_card() -> None:
+    """Matched by field id as well as by display name.
+
+    The issue sets no Skills field, so that facet is absent rather than guessed. No declared facets:
+    the card is untouched.
+    """
     node = _issue_node()
     card = SummaryCard(description="Senior engineer.")
     merged = _with_facets(card, node, POLICY, (ISSUE_DOCUMENT,))
     by_name = {item.name: item for item in merged.attributes}
     assert by_name["stage"].values == ("Round 2",)
     assert by_name["stage"].from_document_ids == (ISSUE_DOCUMENT,)
-    # Matched by field id as well as by display name.
     assert by_name["years_experience"].values == ("7",)
-    # The issue sets no Skills field, so that facet is absent rather than guessed.
     assert "skills" not in by_name
     assert merged.description == card.description
-    # No declared facets: the card is untouched.
     assert _with_facets(card, node, SummaryPolicy(model_fingerprint="m"), ()) is card
 
 
@@ -214,6 +224,7 @@ def test_facets_land_as_typed_filterable_payload() -> None:
 
 @pytest.mark.asyncio
 async def test_publication_indexes_each_declared_facet_under_the_dotted_path() -> None:
+    """Filterable means indexed: the spec asked for a payload index per facet."""
     vectors, embed = Vectors(), Embed()
     binding = _binding((SummaryAttribute(name="skills", values=("Java",)),))
     await EntitySummaryIndex(vectors, embed, PROFILE).publish(
@@ -223,7 +234,6 @@ async def test_publication_indexes_each_declared_facet_under_the_dotted_path() -
         entity_point_id("DEFAULT", "node-7", PROFILE.entity_fingerprint)
     ]
     assert point.payload["facet"] == {"skills": ["java"]}
-    # Filterable means indexed: the spec asked for a payload index per facet.
     assert vectors.specs == [PROFILE.entity_index_name]
 
 
@@ -270,6 +280,11 @@ class Summaries:
 
 @pytest.mark.asyncio
 async def test_with_a_facet_filter_the_lane_selects_instead_of_enriching() -> None:
+    """Enrichment: prior chunk candidates survive alongside the entity's evidence.
+
+    Selection: only evidence from entities that passed the facet filter remains. Selection with
+    nothing to embed yields nothing rather than the unfiltered set.
+    """
     from test_entity_summary_search import entity_hit, evidence_record
 
     chunk = "chunk-1"
@@ -290,20 +305,20 @@ async def test_with_a_facet_filter_the_lane_selects_instead_of_enriching() -> No
         VectorSearchResult(id=row.id, score=1.0, raw_score=1.0, payload=row.payload)
         for row in existing
     )
-    # Enrichment: prior chunk candidates survive alongside the entity's evidence.
     fused = await search.expand(prior, (1.0, 0.0), context=context)
     assert {str(item.payload["chunk_id"]) for item in fused} == {"chunk-other", chunk}
-    # Selection: only evidence from entities that passed the facet filter remains.
     selected = await search.expand(prior, (1.0, 0.0), context=context, facet_filter=unrelated)
     assert [str(item.payload["chunk_id"]) for item in selected] == [chunk]
-    # Selection with nothing to embed yields nothing rather than the unfiltered set.
     assert await search.expand(prior, None, context=context, facet_filter=unrelated) == ()
 
 
 def test_a_real_issue_observation_beats_the_placeholder_an_attachment_projects() -> None:
     """Every attachment document projects its parent issue as a placeholder stub under
     the same node key. The summary must read the issue's own observation, whichever
-    document the loader happened to read first."""
+    document the loader happened to read first.
+
+    Ties between equal observations stay order-independent.
+    """
 
     from harborrag_runtime.topology.summary_inputs import _node_rank
 
@@ -313,11 +328,14 @@ def test_a_real_issue_observation_beats_the_placeholder_an_attachment_projects()
     assert _node_rank(real) < _node_rank(stub)
     assert _node_rank(real) < _node_rank(thinner)
     assert _node_rank(thinner) < _node_rank(stub)
-    # Ties between equal observations stay order-independent.
     assert _node_rank(real) == _node_rank(real.model_copy())
 
 
 def test_a_source_field_facet_may_name_a_standard_issue_attribute() -> None:
+    """No field by this name on the node: the facet stays absent, never guessed.
+
+    One value per label, so a facet filter on either label matches.
+    """
     node = _issue_node().model_copy(
         update={
             "attributes": {**_issue_node().attributes, "status": "Placed", "labels": ["a", "b"]}
@@ -328,14 +346,12 @@ def test_a_source_field_facet_may_name_a_standard_issue_attribute() -> None:
         facets=(
             SummaryFacet(name="stage", field="status"),
             SummaryFacet(name="tags", field="labels"),
-            # No field by this name on the node: the facet stays absent, never guessed.
             SummaryFacet(name="absent", field="Notice Period"),
         ),
     )
     card = _with_facets(SummaryCard(description="c."), node, policy, (ISSUE_DOCUMENT,))
     by_name = {item.name: item for item in card.attributes}
     assert by_name["stage"].values == ("Placed",)
-    # One value per label, so a facet filter on either label matches.
     assert by_name["tags"].values == ("a", "b")
     assert set(by_name) == {"stage", "tags"}
 
@@ -378,6 +394,11 @@ def _legacy_policy_row() -> dict[str, object]:
 
 
 def test_a_policy_stored_with_model_read_facets_still_parses() -> None:
+    """A lease is built straight from the row, which is where the worker failed.
+
+    The upgraded form differs from the row, so ``configure`` rewrites the row and an in-flight lease
+    on the old one is treated as superseded.
+    """
     from harborrag_core.summaries import SummaryLease
 
     stored = _legacy_policy_row()
@@ -386,7 +407,6 @@ def test_a_policy_stored_with_model_read_facets_still_parses() -> None:
 
     assert [facet.name for facet in policy.facets] == ["stage", "years_experience"]
     assert policy.facets[1].kind == "integer"
-    # A lease is built straight from the row, which is where the worker failed.
     lease = SummaryLease(
         tenant_id="AUTA-3",
         source_scope_id="AUTA-3",
@@ -396,13 +416,14 @@ def test_a_policy_stored_with_model_read_facets_still_parses() -> None:
         lease_until=datetime.now(UTC),
     )
     assert lease.policy == policy
-    # The upgraded form differs from the row, so ``configure`` rewrites the row
-    # and an in-flight lease on the old one is treated as superseded.
     assert policy.model_dump(mode="json") != stored
 
 
 def test_a_card_stored_with_tagged_attributes_is_verified_then_upgraded() -> None:
-    """The stored hash is checked against the card as written, then re-derived."""
+    """The stored hash is checked against the card as written, then re-derived.
+
+    Tampering is still caught: the check runs against the stored form.
+    """
 
     legacy_card = {
         "description": "Candidate.",
@@ -428,6 +449,5 @@ def test_a_card_stored_with_tagged_attributes_is_verified_then_upgraded() -> Non
 
     assert [item.name for item in binding.card.attributes] == ["stage"]
     assert binding.artifact_hash == binding.card.artifact_hash
-    # Tampering is still caught: the check runs against the stored form.
     with pytest.raises(Exception, match="hash mismatch"):
         SummaryBinding.model_validate({**stored, "artifact_hash": "0" * 64})

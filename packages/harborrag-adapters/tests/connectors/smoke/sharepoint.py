@@ -38,7 +38,7 @@ def run_sharepoint(*, connection_id: str | None = None, limit: int = 10) -> int:
 
     try:
         records = list(connector.discover(ConnectorQuery(limit=limit)))
-    except ConnectorError as exc:  # smoke runner maps connector failure to exit 1
+    except ConnectorError as exc:
         print_failure("sharepoint", exc)
         return 1
     print(f"\n[sharepoint] discovered {len(records)} record(s)")

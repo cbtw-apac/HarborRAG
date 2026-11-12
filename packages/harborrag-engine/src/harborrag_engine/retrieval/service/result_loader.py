@@ -58,7 +58,6 @@ class EvidenceResultLoader:
         request_id: str,
     ) -> tuple[list[tuple[VectorSearchResult, RetrievalResult]], int]:
         """Materialize candidates concurrently, skipping malformed payloads."""
-
         load_limit = asyncio.Semaphore(_LOAD_CONCURRENCY)
 
         async def load(candidate: VectorSearchResult) -> RetrievalResult:

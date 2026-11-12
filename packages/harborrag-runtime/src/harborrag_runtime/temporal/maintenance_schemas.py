@@ -1,3 +1,5 @@
+"""Temporal payloads for maintenance workflows."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -10,14 +12,16 @@ from .schemas import ProcessingProfileInput
 
 @dataclass(frozen=True, slots=True)
 class ProjectionCleanupResult:
+    """Counts of projection cleanup work."""
+
     claimed: int
     completed: int
     cancelled: int
     failed: int
-    # Retired-version retention purge that runs after source-scope cleanup.
-    # Defaulted so results recorded in workflow histories before it existed
-    # still decode.
     purged_versions: int = 0
+    """Retired-version retention purge that runs after source-scope cleanup. Defaulted so results
+    recorded in workflow histories before it existed still decode.
+    """
     purge_failed_versions: int = 0
 
     def __post_init__(self) -> None:
@@ -37,6 +41,8 @@ class ProjectionCleanupResult:
 
 @dataclass(frozen=True, slots=True)
 class RelationRepairResult:
+    """Counts from a relation repair."""
+
     repaired_documents: int
     resolved_relations: int
     unresolved_relations: int
@@ -53,6 +59,8 @@ class RelationRepairResult:
 
 @dataclass(frozen=True, slots=True)
 class ReindexInput:
+    """Input of a reindex workflow."""
+
     reindex_job_id: str
     tenant_id: str
     processing: ProcessingProfileInput
@@ -68,6 +76,8 @@ class ReindexInput:
 
 @dataclass(frozen=True, slots=True)
 class ReindexResult:
+    """Result of a reindex workflow."""
+
     reindex_job_id: str
     status: str
     connector_call_count: int

@@ -1,4 +1,8 @@
-"""Smoke check a real local-files connection. See `run.py --connector local`."""
+"""Smoke check a real local-files connection. See `run.py --connector local`.
+
+`pdf_engine` is set for every PDF engine, including the ones that report no `source_engine` of their
+own, so it is the one row that always names the engine that ran.
+"""
 
 from __future__ import annotations
 
@@ -22,17 +26,9 @@ from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 _IMAGE_SUFFIXES = frozenset({"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp", "svg"})
 
-# Engine-specific keys are all listed here on purpose: a document is parsed by
-# exactly one engine, and `render_metadata_section` drops every field the
-# parsed document has no value for, so only the engine that actually ran
-# contributes rows. Keeping the alternatives listed means switching the enabled
-# PDF parser in `config/ingestion/parsers.yaml` needs no edit here.
 LOCAL_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Parser", "parser_name"),
     ("Parser version", "parser_version"),
-    # `pdf_engine` is set for every PDF engine, including the ones that report
-    # no `source_engine` of their own, so it is the one row that always names
-    # the engine that ran.
     ("PDF engine", "pdf_engine"),
     ("Page count", "page_count"),
     ("OCR enabled", "liteparse_ocr_enabled"),
@@ -44,6 +40,11 @@ LOCAL_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Figures extracted", "figure_count"),
     ("Warnings", "warning_count"),
 ]
+"""Engine-specific keys are all listed here on purpose: a document is parsed by exactly one engine,
+and `render_metadata_section` drops every field the parsed document has no value for, so only the
+engine that actually ran contributes rows. Keeping the alternatives listed means switching the
+enabled PDF parser in `config/ingestion/parsers.yaml` needs no edit here.
+"""
 
 
 def _local_metadata(parsed, figure_count: int) -> dict:

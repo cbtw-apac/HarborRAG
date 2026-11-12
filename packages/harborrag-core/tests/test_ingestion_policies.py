@@ -118,6 +118,10 @@ class _ObjectStoreUnavailable(Exception):
 
 
 def test_failure_classifier_retries_infrastructure_faults_in_every_stage() -> None:
+    """A domain verdict still wins.
+
+    An error merely raised while handling a timeout is not treated as the timeout.
+    """
     classifier = IngestionFailureClassifier(transient_errors=(_ObjectStoreUnavailable,))
 
     for stage in ("ParseAndNormalize", "PersistCanonical", "ChunkAndValidate"):
@@ -129,8 +133,6 @@ def test_failure_classifier_retries_infrastructure_faults_in_every_stage() -> No
         except RuntimeError as wrapped:
             assert classifier.classify(stage, wrapped).retryable is True
 
-    # A domain verdict still wins, and an error merely raised while handling a
-    # timeout is not treated as the timeout.
     assert classifier.classify("ChunkAndValidate", ChunkValidationError("bad")).retryable is False
     try:
         try:
@@ -142,12 +144,14 @@ def test_failure_classifier_retries_infrastructure_faults_in_every_stage() -> No
 
 
 def test_failure_classifier_does_not_retry_a_source_that_exhausted_its_own_retries() -> None:
+    """The connector already spent its configured retry budget.
+
+    The run moves on; the failure is still transient, so a blanket retry offers it later.
+    """
     classifier = IngestionFailureClassifier()
 
     failure = classifier.classify("FetchAndCaptureRaw", SourceRetriesExhaustedError("throttled"))
 
-    # The connector already spent its configured retry budget, so the run moves
-    # on; the failure is still transient, so a blanket retry offers it later.
     assert failure.category == FailureCategory.TRANSIENT
     assert failure.retryable is False
     assert failure.code == "source_retries_exhausted"
@@ -156,15 +160,17 @@ def test_failure_classifier_does_not_retry_a_source_that_exhausted_its_own_retri
 
 
 def test_retry_selection_codes_separate_blanket_and_explicit_retries() -> None:
-    # Outages and replay conflicts qualify for a blanket retry in any stage.
+    """Outages and replay conflicts qualify for a blanket retry in any stage.
+
+    Deterministic failures only when an operator names the document. Failures inherent to the source
+    are never offered.
+    """
     assert is_retryable_failure_code("document_release_fetchandcaptureraw_clienterror")
     assert is_retryable_failure_code("document_release_persistcanonical_operationalerror")
     assert is_retryable_failure_code("document_release_immutable_artifact_conflict")
     assert is_retryable_failure_code("document_release_publication_conflict")
-    # Deterministic failures only when an operator names the document.
     assert not is_retryable_failure_code("document_release_chunk_invalid")
     assert is_explicitly_retryable_failure_code("document_release_chunk_invalid")
-    # Failures inherent to the source are never offered.
     for code in ("document_release_document_unsupported", "parser_rejected_document"):
         assert not is_retryable_failure_code(code)
         assert not is_explicitly_retryable_failure_code(code)
@@ -172,10 +178,12 @@ def test_retry_selection_codes_separate_blanket_and_explicit_retries() -> None:
 
 
 def test_a_deleted_source_item_is_not_retried_as_an_outage() -> None:
-    # Jira answers 404 for an issue deleted after discovery listed it; that used to
-    # be "source_unavailable", retried five times, then counted as failed.
     class _GoneIssue(SourceItemNotFoundError, SourceUnavailableError):
-        """Like the connector's ItemNotFoundError: a fetch error that is a 404."""
+        """Like the connector's ItemNotFoundError: a fetch error that is a 404.
+
+        Jira answers 404 for an issue deleted after discovery listed it; that used to be
+        "source_unavailable", retried five times, then counted as failed.
+        """
 
     failure = IngestionFailureClassifier().classify("FetchAndCaptureRaw", _GoneIssue("404"))
 

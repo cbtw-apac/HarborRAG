@@ -39,7 +39,6 @@ def stream_result(
     Raises:
         ValueError: The stream delivered no model chunk.
     """
-
     chunk = answer.last_chunk
     if chunk is None:
         raise ValueError("a completed stream must contain a model chunk")

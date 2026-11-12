@@ -47,6 +47,7 @@ class SourceDiscoveryPlanner:
         *,
         scan_id: str,
     ) -> tuple[PlannedDocumentRelease, ...]:
+        """Discover the source's documents and plan a release for each."""
         if bool(getattr(getattr(connector, "capabilities", None), "pagination", False)):
             return await self._discover_native_pages(request, connector, scan_id=scan_id)
         return await self._discover_legacy(request, connector, scan_id=scan_id)
@@ -60,8 +61,11 @@ class SourceDiscoveryPlanner:
         cursor: str | None,
         page_size: int | None = None,
     ) -> SourceDiscoveryPage:
-        """Fetch, describe, and register one native provider page."""
+        """Fetch, describe, and register one native provider page.
 
+        A paged connector replays its traversal from the start, so its skips after any page cover
+        every page so far.
+        """
         bind_connector_run(connector, request.task_id)
         provider_started = perf_counter()
         page = await asyncio.to_thread(
@@ -92,8 +96,6 @@ class SourceDiscoveryPlanner:
             batch = pending[:_REGISTRATION_BATCH_SIZE]
             del pending[:_REGISTRATION_BATCH_SIZE]
             planned.extend(await self._record_batch(scan_id, batch))
-        # A paged connector replays its traversal from the start, so its skips
-        # after any page cover every page so far.
         await self._record_skips(request, connector)
         logger.info(
             "Source discovery page task_id=%s roots=%d documents=%d has_next=%s "
@@ -204,7 +206,6 @@ class SourceDiscoveryPlanner:
         concurrency: int,
     ) -> tuple[ConnectorDocumentDescriptor, ...]:
         """Describe roots concurrently while preserving provider result order."""
-
         descriptors: list[ConnectorDocumentDescriptor] = []
         for offset in range(0, len(roots), concurrency):
             batch = roots[offset : offset + concurrency]

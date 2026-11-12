@@ -128,7 +128,6 @@ class RetrievalPermissions:
         corpus is served from it rather than refused -- and, once found over the
         budget, is not made to pay for the discarded enumeration again for a while.
         """
-
         tenant_id = str(context.tenant_id)
         key = (tenant_id, context.access.principal_id, context.access.corpus_mode)
         if not self._known_over_budget(key):

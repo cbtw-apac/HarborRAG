@@ -28,6 +28,7 @@ def extraction_operation_key(value: ChunkExtractionInput, profile: ExtractionPro
 
 
 def evidence_json(value: ChunkExtractionInput, profile: ExtractionProfile) -> str:
+    """Serialize the chunk evidence sent to the extraction model."""
     return json.dumps(
         {
             "content": value.content,

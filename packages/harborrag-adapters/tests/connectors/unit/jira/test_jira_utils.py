@@ -81,11 +81,11 @@ def test_build_jql_supports_filters_without_project_keys():
 
 
 def test_build_jql_escapes_text_search_instead_of_treating_it_as_raw_jql():
+    """The malicious payload must never appear unescaped/unquoted."""
     jql = build_jql(project_keys=["ENG"], text_search='" OR project = "OPS')
 
     assert 'project in ("ENG")' in jql
     assert 'text ~ "\\" OR project = \\"OPS"' in jql
-    # The malicious payload must never appear unescaped/unquoted.
     assert 'OR project = "OPS"' not in jql.replace('\\"', "")
 
 

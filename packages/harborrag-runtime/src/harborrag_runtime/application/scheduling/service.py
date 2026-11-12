@@ -38,7 +38,6 @@ class ScheduleApplicationService:
 
     async def sync_declared(self) -> dict[str, int] | None:
         """Reconcile config/sources/schedules.yaml into the engine; None without the file."""
-
         path = self._settings.schedule_config_path
         if not path.is_file():
             logger.info("No declarative schedule file at %s; skipping schedule sync", path)

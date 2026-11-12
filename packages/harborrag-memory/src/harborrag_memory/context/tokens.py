@@ -18,7 +18,6 @@ def approximate_tokens(text: str) -> int:
     scripts frequently consume one or more model tokens per character. Empty
     text costs nothing; any non-empty text costs at least one token.
     """
-
     if not text:
         return 0
     ascii_characters = sum(ord(character) < 128 for character in text)

@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 
 def to_temporal_source(source: PreparedSourceSubmission) -> SourceIngestionInput:
     """Copy only neutral fields; replay state belongs to the Temporal adapter."""
-
     return SourceIngestionInput(
         **{field.name: getattr(source, field.name) for field in fields(PreparedSourceSubmission)}
     )
@@ -48,11 +47,13 @@ class TemporalIngestionGateway:
     async def start_ingestion(
         self, source: PreparedSourceSubmission
     ) -> IngestionExecutionReference:
+        """Start a source ingestion workflow."""
         return _reference(await self._client.start_ingestion(to_temporal_source(source)))
 
     async def start_retry_failures(
         self, request: IngestionRetryRequest
     ) -> IngestionExecutionReference:
+        """Start a retry workflow for failed documents."""
         return _reference(
             await self._client.start_retry_failures(
                 RetryFailuresInput(
@@ -66,6 +67,7 @@ class TemporalIngestionGateway:
         )
 
     async def get_status(self, task_id: str) -> IngestionExecutionStatus:
+        """Return the status of the task's workflow."""
         status = await self._client.get_status(task_id)
         return IngestionExecutionStatus(
             task_id=status.task_id,
@@ -76,6 +78,7 @@ class TemporalIngestionGateway:
         )
 
     async def result(self, task_id: str) -> IngestionExecutionResult:
+        """Return the result of the task's workflow."""
         result = await self._client.result(task_id)
         return IngestionExecutionResult(
             task_id=result.task_id,
@@ -91,19 +94,25 @@ class TemporalIngestionGateway:
         )
 
     async def get_progress(self, task_id: str) -> dict[str, int]:
+        """Return document counts of the task's workflow."""
         return await self._client.get_progress(task_id)
 
     async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
+        """Return the status of the task's workflow execution."""
         return await self._client.execution_status(task_id, kind)
 
     async def pause(self, task_id: str) -> None:
+        """Pause the task's workflow."""
         await self._client.pause(task_id)
 
     async def resume(self, task_id: str) -> None:
+        """Resume the task's workflow."""
         await self._client.resume(task_id)
 
     async def cancel(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> None:
+        """Cancel the task's workflow."""
         await self._client.cancel(task_id, kind)
 
     async def health(self) -> bool:
+        """Return whether Temporal is healthy."""
         return await self._client.health()

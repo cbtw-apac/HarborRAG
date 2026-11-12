@@ -38,7 +38,6 @@ class MemoryIdentity:
         project_id: str | None = None,
     ) -> MemoryIdentity:
         """Use the temporary shared user when no explicit SDK identity is supplied."""
-
         return cls(
             tenant_id=tenant_id,
             principal_id=principal_id,
@@ -49,7 +48,6 @@ class MemoryIdentity:
 
     def owner(self) -> MemoryOwner:
         """Return the long-term memory isolation key for this caller."""
-
         return MemoryOwner(
             tenant_id=self.tenant_id,
             project_id=self.project_id,
@@ -68,7 +66,6 @@ class MemoryIdentity:
         Raises:
             ValueError: The turn is a one-off question with no session.
         """
-
         if self.session_id is None:
             raise ValueError("a one-off question has no conversation")
         return ConversationIdentity(

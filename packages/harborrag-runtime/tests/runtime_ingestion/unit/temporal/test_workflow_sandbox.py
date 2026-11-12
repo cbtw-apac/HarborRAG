@@ -85,8 +85,6 @@ async def _first_workflow_task(handle: WorkflowHandle[Any, Any]) -> EventType.Va
 @pytest.mark.parametrize(
     ("workflow_type", "request_factory"),
     [
-        # SourceIngestionInput inherits fields annotated in a module no workflow
-        # imports by name; decoding it is what in-module passthrough broke.
         (SourceIngestionWorkflow, _source),
         (
             DocumentIngestionWorkflow,
@@ -99,6 +97,12 @@ async def test_production_runner_decodes_workflow_input_inside_the_sandbox(
     workflow_type: type,
     request_factory: Any,
 ) -> None:
+    """A workflow input that inherits fields from another module decodes.
+
+    SourceIngestionInput inherits fields annotated in a module no workflow imports by name; decoding
+    it is what in-module passthrough broke. The workflow only gets as far as scheduling its first
+    activity, which no worker here serves; a completed first task means the input decoded.
+    """
     task_queue = f"sandbox-{uuid.uuid4()}"
     async with Worker(
         environment.client,
@@ -113,8 +117,6 @@ async def test_production_runner_decodes_workflow_input_inside_the_sandbox(
             task_queue=task_queue,
         )
         try:
-            # The workflow only gets as far as scheduling its first activity, which
-            # no worker here serves; a completed first task means the input decoded.
             assert (
                 await _first_workflow_task(handle) == EventType.EVENT_TYPE_WORKFLOW_TASK_COMPLETED
             )

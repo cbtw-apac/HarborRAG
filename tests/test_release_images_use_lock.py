@@ -10,12 +10,13 @@ DOCKERFILES = {
     "worker": ROOT / "deploy/docker/Dockerfile.temporal-worker",
 }
 
-# The uv base image ships uv preinstalled, so nothing pip-installs it. It must be a
-# glibc build: the locked temporalio, PyTorch, TorchVision and ONNX Runtime releases
-# publish manylinux wheels only, so the musl (alpine) variants cannot be used.
 BASE_IMAGE = "FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim"
-# Everything after this marker is the dependency-installation block.
+"""The uv base image ships uv preinstalled, so nothing pip-installs it. It must be a glibc build:
+the locked temporalio, PyTorch, TorchVision and ONNX Runtime releases publish manylinux wheels
+only, so the musl (alpine) variants cannot be used.
+"""
 INSTALL_MARKER = "RUN uv export"
+"""Everything after this marker is the dependency-installation block."""
 
 
 @pytest.mark.parametrize("image", DOCKERFILES)
@@ -95,13 +96,15 @@ def test_release_images_run_as_the_unprivileged_application_user(image: str) -> 
 
 
 def test_mcp_image_installs_its_declared_runtime_stack() -> None:
+    """``[reader]``, not ``[mcp]``.
+
+    The ``mcp`` extra is empty, so it pulled nothing, while ``reader`` is what brings in the runtime
+    layer the server actually serves from. harborrag-memory is installed because harborrag-runtime
+    requires it; the server still never imports it (contract 13).
+    """
     dockerfile = DOCKERFILES["mcp"].read_text(encoding="utf-8")
     install_block = dockerfile.split(INSTALL_MARKER, 1)[1]
 
-    # ``[reader]``, not ``[mcp]``: the ``mcp`` extra is empty, so it pulled nothing,
-    # while ``reader`` is what brings in the runtime layer the server actually serves
-    # from. harborrag-memory is installed because harborrag-runtime requires it; the
-    # server still never imports it (contract 13).
     assert "-e 'packages/harborrag-mcp-server[reader]'" in install_block
     assert "-e packages/harborrag-app" not in install_block
     assert "-e packages/harborrag-memory" in install_block
@@ -111,10 +114,11 @@ def test_mcp_image_installs_its_declared_runtime_stack() -> None:
 
 
 def test_worker_image_excludes_torch() -> None:
-    # Docling was torch's only consumer in the resolved dependency graph, and
-    # it left the worker with the switch to LiteParse. No first-party code
-    # imports torch, and RapidOCR runs on onnxruntime, so the CPU image must
-    # not carry the ~2GB wheel back in.
+    """Docling was torch's only consumer in the resolved dependency graph.
+
+    It left the worker with the switch to LiteParse. No first-party code imports torch, and RapidOCR
+    runs on onnxruntime, so the CPU image must not carry the ~2GB wheel back in.
+    """
     dockerfile = DOCKERFILES["worker"].read_text(encoding="utf-8")
 
     assert "torch" not in dockerfile

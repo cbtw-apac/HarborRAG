@@ -15,7 +15,6 @@ def no_indexed_content() -> HarborNoIndexedContentError:
     turns into "the service is unavailable". The adapter's own message names
     the physical collection, so it is logged and never forwarded.
     """
-
     return HarborNoIndexedContentError(
         "No content has been ingested yet, so there is nothing to search"
     )
@@ -28,7 +27,6 @@ def no_entity_index() -> HarborCapabilityError:
     (``HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED``) -- a configuration choice, not a
     fault -- so the caller learns what to enable rather than that something broke.
     """
-
     return HarborCapabilityError(
         "entity search is not enabled; set HARBORRAG_SUMMARY_ENTITY_INDEX_ENABLED"
     )

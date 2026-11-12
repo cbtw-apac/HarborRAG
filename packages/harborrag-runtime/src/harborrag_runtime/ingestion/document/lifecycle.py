@@ -30,8 +30,6 @@ from ..failure_classification import ingestion_failure_classifier
 
 logger = logging.getLogger("harborrag.runtime.ingestion.version_lifecycle")
 
-# States whose replay the control plane decides. PURGING is included so its
-# transient "being purged" error reaches the activity, which then retries.
 _REPLAY_THROUGH_CONTROL = frozenset(
     {
         DocumentVersionState.FAILED,
@@ -40,6 +38,9 @@ _REPLAY_THROUGH_CONTROL = frozenset(
         DocumentVersionState.PURGED,
     }
 )
+"""States whose replay the control plane decides. PURGING is included so its transient "being purged"
+error reaches the activity, which then retries.
+"""
 _NOT_FAILABLE = frozenset(
     {
         DocumentVersionState.ACTIVE,
@@ -72,6 +73,7 @@ class DocumentVersionLifecycle:
         document_version_id: str,
         current: DocumentVersionState,
     ) -> DocumentVersionState:
+        """Reset a version left in an interrupted state so the pipeline can run it again."""
         if current not in _REPLAY_THROUGH_CONTROL:
             return current
         return await self._control.document_versions.prepare_replay(document_version_id)
@@ -85,7 +87,6 @@ class DocumentVersionLifecycle:
         context: StorageOperationContext,
     ) -> tuple[Document, DocumentVersionSnapshot]:
         """Prefer an existing immutable canonical boundary during replay."""
-
         await self.prepare_replay(document_version_id, current)
         snapshot = await self._required_snapshot(document_version_id)
         if snapshot.canonical_artifact is None:
@@ -101,6 +102,7 @@ class DocumentVersionLifecycle:
         document_version_id: str,
         reference: RawDocumentReference,
     ) -> None:
+        """Record the raw document artifact and advance the version past capture."""
         await self.advance(
             document_version_id,
             DocumentVersionState.RAW_CAPTURED,
@@ -119,6 +121,7 @@ class DocumentVersionLifecycle:
         document_version_id: str,
         artifacts: ChunkSetArtifacts,
     ) -> None:
+        """Record the chunk set artifacts and advance the version past chunking."""
         await self.advance(
             document_version_id,
             DocumentVersionState.CHUNKS_READY,
@@ -140,10 +143,13 @@ class DocumentVersionLifecycle:
         artifact_column: str | None = None,
         artifact: ArtifactReference | None = None,
     ) -> None:
+        """Move the version to ``state``, optionally recording one artifact reference.
+
+        A PURGING version raises the control plane's transient error here, so the activity retries
+        once the purge finishes.
+        """
         snapshot = await self._required_snapshot(document_version_id)
         if snapshot.state in {DocumentVersionState.FAILED, DocumentVersionState.PURGING}:
-            # A PURGING version raises the control plane's transient error here,
-            # so the activity retries once the purge finishes.
             await self._control.document_versions.prepare_replay(document_version_id)
             snapshot = await self._required_snapshot(document_version_id)
         if self._transitions.already_reached(snapshot.state, state):
@@ -163,6 +169,14 @@ class DocumentVersionLifecycle:
         context: StorageOperationContext,
         reuse: bool,
     ) -> tuple[tuple[ChunkRecord, ...], RepresentationSet | None]:
+        """Load the active version's chunks and representations for reuse.
+
+        Returns empty values when reuse is off or the stored artifacts are gone.
+
+        Reuse is an optimization, never a correctness requirement. An operator may have cleaned an
+        old object-store generation while Postgres still points at the active version. Encode the
+        new candidate from its own chunks instead of failing the ingestion.
+        """
         if (
             not reuse
             or active is None
@@ -180,10 +194,6 @@ class DocumentVersionLifecycle:
                 context=context,
             )
         except StorageNotFoundError:
-            # Reuse is an optimization, never a correctness requirement. An
-            # operator may have cleaned an old object-store generation while
-            # Postgres still points at the active version. Encode the new
-            # candidate from its own chunks instead of failing the ingestion.
             logger.warning(
                 "Previous representation artifacts are unavailable; "
                 "encoding without reuse document_version_id=%s",
@@ -200,11 +210,16 @@ class DocumentVersionLifecycle:
         stage: str,
         error: Exception,
     ) -> None:
+        """Mark the version failed and record the classified failure.
+
+        Leaves versions in a purge state untouched.
+
+        A PURGING or PURGED version belongs to the retention purge: it cannot become FAILED, and
+        re-enqueuing its completed cleanup would hide it from the purge. The caller re-raises the
+        original (transient) error.
+        """
         snapshot = await self._control.document_versions.get_version(document_version_id)
         if snapshot is None or snapshot.state in _NOT_FAILABLE:
-            # A PURGING or PURGED version belongs to the retention purge: it cannot
-            # become FAILED, and re-enqueuing its completed cleanup would hide it
-            # from the purge. The caller re-raises the original (transient) error.
             return
         failure = self._failures.classify(stage, error)
         artifact_references = await self._artifact_references(snapshot)

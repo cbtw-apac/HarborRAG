@@ -25,7 +25,6 @@ def _isoformat(value: datetime | None) -> str | None:
 
 def memory_data(memory: Memory) -> dict[str, object]:
     """Project one stored memory as the API returns it."""
-
     return {
         "memory_id": memory.memory_id,
         "scope": memory.scope.value,
@@ -45,7 +44,6 @@ def memory_data(memory: Memory) -> dict[str, object]:
 
 def conversation_summary_data(row: ConversationSummaryRow) -> dict[str, object]:
     """Project one conversation as the explorer ``Session``; an untitled one has title ``""``."""
-
     return {
         "session_id": row.session_id,
         "title": row.title or "",
@@ -64,7 +62,6 @@ def _citation(position: int, item: dict[str, object]) -> dict[str, object]:
     no ``n``, ``snippet``, ``url`` or ``page``; they read back numbered by
     position with an empty snippet.
     """
-
     n = item.get("n")
     url = item.get("url")
     page = item.get("page")
@@ -86,7 +83,6 @@ def _citations(raw: str | None) -> list[dict[str, object]]:
     predates the current shape (or was hand-edited) must read back as "no
     citations" rather than turning a history read into a 500.
     """
-
     if not raw:
         return []
     try:
@@ -107,7 +103,6 @@ def conversation_message_data(
     Only an assistant answer carries ``mode``, ``citations``, ``trace_id`` and
     ``feedback``; a user message reads ``None``, ``[]``, ``None`` and ``None``.
     """
-
     answer = message.role == "assistant"
     return {
         "message_id": message.message_id,

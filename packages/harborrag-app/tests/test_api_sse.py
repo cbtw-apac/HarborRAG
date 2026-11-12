@@ -16,6 +16,7 @@ from harborrag_app.operations.sse import sse_frame
 async def test_terminal_frame_does_not_gain_a_timeout_error_during_slow_delivery(
     terminal: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Sending the yielded bytes can take longer than the remaining deadline."""
     closed = False
 
     async def source() -> AsyncGenerator[bytes, None]:
@@ -36,7 +37,6 @@ async def test_terminal_frame_does_not_gain_a_timeout_error_during_slow_delivery
         terminal_events=(terminal,),
     )
     assert await anext(stream) == sse_frame(terminal, {"id": "answer-1"})
-    # Sending the yielded bytes can take longer than the remaining deadline.
     now += 2
     with pytest.raises(StopAsyncIteration):
         await anext(stream)
@@ -45,6 +45,7 @@ async def test_terminal_frame_does_not_gain_a_timeout_error_during_slow_delivery
 
 @pytest.mark.asyncio
 async def test_frame_production_keeps_the_consumers_task_identity() -> None:
+    """A lease heartbeat must cancel this same live task on every provider read."""
     owner = asyncio.current_task()
     observed: list[asyncio.Task[object] | None] = []
 
@@ -56,5 +57,4 @@ async def test_frame_production_keeps_the_consumers_task_identity() -> None:
 
     stream = bounded_sse_frames(source(), timeout_seconds=1, error_message="deadline exceeded")
     assert len([frame async for frame in stream]) == 3
-    # A lease heartbeat must cancel this same live task on every provider read.
     assert observed == [owner, owner, owner]

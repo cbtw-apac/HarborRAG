@@ -14,6 +14,7 @@ from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 
 
 def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionRequest:
+    """Convert a prepared submission to a source ingestion request."""
     query = source.query
     updated_after = (
         datetime.fromisoformat(query.updated_after) if query.updated_after is not None else None
@@ -48,6 +49,7 @@ def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionReques
 def to_processing_profile(
     processing: ProcessingProfileInput,
 ) -> ProcessingProfile:
+    """Convert the submitted processing input to a processing profile."""
     return ProcessingProfile(
         parser_profile=processing.parser_profile,
         normalizer_version=processing.normalizer_version,

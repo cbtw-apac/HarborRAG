@@ -52,7 +52,6 @@ class ScopeCheck:
 
 async def scope_history(resources: ChatTurnResources, access: MemoryAccess) -> ScopeHistory:
     """Return the session's last three exchanges for the scope check; none for a one-off."""
-
     if access.session_id is None:
         return []
     turns = await resources.memory.recent(

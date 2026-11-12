@@ -50,13 +50,11 @@ _dropped = 0
 
 def dropped_extractions() -> int:
     """Count the exchanges this process dropped because the queue was full."""
-
     return _dropped
 
 
 def reset_dropped_extractions() -> None:
     """Reset the drop counter (tests and long-lived process introspection)."""
-
     global _dropped
     _dropped = 0
 
@@ -115,7 +113,6 @@ class MemoryExtractionQueue:
         A queue whose pool was never started -- the CLI path -- refuses
         outright rather than accumulating work nothing will ever run.
         """
-
         global _dropped
         if self._memories is None or not messages or self._closing or not self._started:
             return False
@@ -135,7 +132,6 @@ class MemoryExtractionQueue:
 
     async def start(self) -> None:
         """Start the worker pool; a second call is a no-op."""
-
         if self._started:
             return
         self._started = True
@@ -150,7 +146,6 @@ class MemoryExtractionQueue:
 
         Idempotent, and a no-op when the pool was never started.
         """
-
         self._closing = True
         if not self._workers:
             self._started = False
@@ -185,7 +180,6 @@ class MemoryExtractionQueue:
         messages: tuple[ConversationMessage, ...],
     ) -> None:
         """Run one extraction, absorbing every failure but cancellation."""
-
         if self._memories is None:
             return
         try:
@@ -219,7 +213,6 @@ def submit_exchange(
     history, and nothing is submitted: extracted memories cite the history
     message ids as provenance, so facts must never outlive their messages.
     """
-
     if queue is None or messages is None:
         return
     queue.submit(memory_context_request(identity, query), messages)
@@ -231,7 +224,6 @@ async def drain_extraction_queue(
     timeout: float = 10.0,
 ) -> None:
     """Drain ``queue`` when one is wired, tolerating a shutdown-time failure."""
-
     if queue is None:
         return
     with contextlib.suppress(Exception):

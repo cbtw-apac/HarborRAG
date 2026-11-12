@@ -247,7 +247,11 @@ class SharePointDriveAPI:
         )
 
     def resolve_site(self) -> dict[str, Any]:
-        """Resolve and cache the configured SharePoint site."""
+        """Resolve and cache the configured SharePoint site.
+
+        The configured site itself is off limits, so nothing in scope is reachable: this is fatal
+        for the run, not a per-item skip.
+        """
         if self._site is not None:
             return self._site
 
@@ -266,8 +270,6 @@ class SharePointDriveAPI:
         try:
             site = self.client.get_json(endpoint)
         except AuthorizationError as exc:
-            # The configured site itself is off limits, so nothing in scope is
-            # reachable: this is fatal for the run, not a per-item skip.
             raise AuthorizationError(
                 f"SharePoint app is not granted access to site {self.config.site_url or endpoint!r}; "
                 "grant it Sites.Selected access to this site",
@@ -376,10 +378,12 @@ class SharePointDriveAPI:
         return self._callback_allows_file(name, int(item.get("size") or 0), item_mime_type(item))
 
     def _matches_query(self, item: dict[str, Any], query: ConnectorQuery, *, name: str) -> bool:
+        """A modern page is also an .aspx file in the Site Pages library.
+
+        With pages on, the pages API owns it, so the drive walk must not ingest the same page a
+        second time under a file identity.
+        """
         if self.config.include_pages and item_extension(item) == PAGE_FILE_EXTENSION:
-            # A modern page is also an .aspx file in the Site Pages library. With
-            # pages on, the pages API owns it, so the drive walk must not ingest
-            # the same page a second time under a file identity.
             logger.debug("Skipping SharePoint page file %s; pages API loads it", name)
             return False
         if item_hidden(item) and not self.config.include_hidden:

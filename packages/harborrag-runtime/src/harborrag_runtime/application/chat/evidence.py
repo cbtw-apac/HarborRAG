@@ -75,7 +75,6 @@ class ChatEvidence:
             HarborValidationError: The question alone does not fit the budget. This is the
                 caller's input being too long, not the service being unavailable.
         """
-
         builder = _PromptBuilder(query, max_bytes, prefix=prefix)
         bundle = response.evidence if overlay else EvidenceBundle()
         if bundle.conflicting_evidence:

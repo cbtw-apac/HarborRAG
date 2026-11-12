@@ -188,16 +188,16 @@ class GraphBuildTenantConfig(_GraphBuildModel):
     @property
     def llm_enabled(self) -> bool:
         """Resolved tenant switch; prohibition always wins."""
-
         return self.mode == "llm" and not self.prohibited
 
 
 class SummarizationBudgetConfig(_GraphBuildModel):
     """What a summarization run is allowed to spend."""
 
-    # Reserve the configured worst-case call cost before spending. Missing actual
-    # usage retains that conservative charge; missing operation ceiling blocks work.
     max_usd_per_run: Decimal | None = Field(default=None, gt=0)
+    """Reserve the configured worst-case call cost before spending. Missing actual usage retains
+    that conservative charge; missing operation ceiling blocks work.
+    """
     max_calls_per_document: int = Field(default=64, ge=1, le=10000)
 
     @field_validator("max_usd_per_run", mode="before")
@@ -230,10 +230,10 @@ class SummarizationConfig(_GraphBuildModel):
     debounce_seconds: float = Field(default=5, ge=0, le=300)
     max_wait_seconds: float = Field(default=60, ge=1, le=3600)
     tenant_enabled: bool = False
-    # None reuses the deployment's default model.
     model: str | None = Field(default=None, min_length=1, max_length=256)
-    # The size of each generated description.
+    """None reuses the deployment's default model."""
     max_description_tokens: int = Field(default=1024, ge=128, le=4096)
+    """The size of each generated description."""
     budget: SummarizationBudgetConfig = Field(default_factory=SummarizationBudgetConfig)
     input: SummarizationInputConfig = Field(default_factory=SummarizationInputConfig)
 
@@ -272,14 +272,13 @@ class GraphBuildConfig(_GraphBuildModel):
     runtime: GraphBuildRuntimeConfig = Field(default_factory=GraphBuildRuntimeConfig)
     summarization: SummarizationConfig = Field(default_factory=SummarizationConfig)
     ontologies: dict[str, str] = Field(default_factory=dict, max_length=128)
-    # Populated by the loader, which alone knows where the YAML file lives.
     resolved_ontologies: dict[str, OntologyRegistry] = Field(default_factory=dict)
+    """Populated by the loader, which alone knows where the YAML file lives."""
     tenants: list[GraphBuildTenantConfig] = Field(default_factory=list, max_length=10_000)
 
     @model_validator(mode="after")
     def validate_ontology_references(self) -> Self:
         """Reject a source naming a vocabulary the file never declares."""
-
         for tenant in self.tenants:
             for source in tenant.sources:
                 if source.ontology is not None and source.ontology not in self.ontologies:
@@ -307,7 +306,6 @@ class GraphBuildConfig(_GraphBuildModel):
     @classmethod
     def from_settings(cls, settings: RuntimeSettings) -> GraphBuildConfig:
         """Load YAML, retaining a safe no-LLM fallback outside the repository."""
-
         configured_path = Path(settings.graph_build_config_path).expanduser()
         if configured_path.is_file() or "graph_build_config_path" in settings.model_fields_set:
             return cls.from_file(configured_path)
@@ -315,7 +313,6 @@ class GraphBuildConfig(_GraphBuildModel):
 
     def effective_settings(self, settings: RuntimeSettings) -> RuntimeSettings:
         """Project the single YAML authority into internal runtime settings."""
-
         candidates = {
             settings_name: _nested_value(self, config_path)
             for settings_name, _, config_path in _RUNTIME_FIELDS
@@ -325,7 +322,6 @@ class GraphBuildConfig(_GraphBuildModel):
 
 def graph_build_runtime_view(settings: RuntimeSettings) -> dict[str, object]:
     """Return the non-secret effective runtime subset used by graph building."""
-
     return {
         view_name: getattr(settings, settings_name)
         for settings_name, view_name, _ in _RUNTIME_FIELDS

@@ -98,7 +98,6 @@ class InMemoryConversationMemory:
         An abandoned claim must not wedge its key, and nothing else ends ``in_progress``;
         past retention the key starts over.
         """
-
         identity = (tenant_id, user_id, key)
         async with self._lock:
             existing = self._completion_claims.get(identity)
@@ -128,7 +127,6 @@ class InMemoryConversationMemory:
         session_id: str | None = None,
     ) -> None:
         """Record the response for a claim held by this request hash; ignore any other."""
-
         identity = (tenant_id, user_id, key)
         async with self._lock:
             existing = self._completion_claims.get(identity)
@@ -153,7 +151,6 @@ class InMemoryConversationMemory:
         self, *, tenant_id: str, user_id: str, key: str, request_hash: str
     ) -> None:
         """Release a claim held by this request hash so the key can be retried."""
-
         identity = (tenant_id, user_id, key)
         async with self._lock:
             existing = self._completion_claims.get(identity)
@@ -175,7 +172,6 @@ class InMemoryConversationMemory:
         project_id: str | None = None,
     ) -> None:
         """Create the session if absent, evicting the least recently used past the bound."""
-
         now = utc_now()
         async with self._lock:
             self._sessions.setdefault(identity, ())
@@ -194,13 +190,11 @@ class InMemoryConversationMemory:
 
     async def exists(self, identity: ConversationIdentity) -> bool:
         """Return whether the session is stored."""
-
         async with self._lock:
             return identity in self._sessions
 
     async def delete(self, identity: ConversationIdentity) -> bool:
         """Drop the caller's own session and its messages together."""
-
         async with self._lock:
             self._require_write_access(identity)
             existed = self._sessions.pop(identity, None) is not None
@@ -250,7 +244,6 @@ class InMemoryConversationMemory:
         title_query: str | None = None,
     ) -> ConversationPage:
         """Page the identity's own conversations, newest activity first."""
-
         size = max(1, min(limit, MAX_CONVERSATION_PAGE_LIMIT))
         async with self._lock:
             rows = self._summaries(tenant_id, user_id)
@@ -270,7 +263,6 @@ class InMemoryConversationMemory:
         self, identity: ConversationIdentity
     ) -> ConversationSummaryRow | None:
         """Return the identity's conversation summary, or None when absent."""
-
         async with self._lock:
             state = self._state.get(identity)
             return None if state is None else self._summary(identity, state)
@@ -282,7 +274,6 @@ class InMemoryConversationMemory:
         title: str,
     ) -> bool:
         """Set a manual title; return False when the session is absent."""
-
         async with self._lock:
             state = self._state.get(identity)
             if state is None:
@@ -293,7 +284,6 @@ class InMemoryConversationMemory:
 
     async def set_generated_title(self, identity: ConversationIdentity, *, title: str) -> bool:
         """Set a generated title unless one was set manually; return whether it was stored."""
-
         normalized = normalize_conversation_title(title)
         async with self._lock:
             self._require_write_access(identity)
@@ -306,7 +296,6 @@ class InMemoryConversationMemory:
 
     async def get_title(self, identity: ConversationIdentity) -> str | None:
         """Return the stored title, or None when absent or unset."""
-
         async with self._lock:
             state = self._state.get(identity)
             return state.title if state else None
@@ -315,7 +304,6 @@ class InMemoryConversationMemory:
         self, identity: ConversationIdentity, *, token: str, lease_seconds: float
     ) -> bool:
         """Take the session's turn lease, or return False while another holder has it."""
-
         async with self._lock:
             state = self._state.get(identity)
             now = utc_now()
@@ -334,7 +322,6 @@ class InMemoryConversationMemory:
         self, identity: ConversationIdentity, *, token: str, lease_seconds: float
     ) -> bool:
         """Extend the lease for the holder of ``token``; return whether it was still held."""
-
         async with self._lock:
             state = self._state.get(identity)
             now = utc_now()
@@ -350,7 +337,6 @@ class InMemoryConversationMemory:
 
     async def release_turn_lease(self, identity: ConversationIdentity, *, token: str) -> None:
         """Release the lease if ``token`` still holds it."""
-
         async with self._lock:
             state = self._state.get(identity)
             if state is not None and state.lease_token == token:
@@ -381,7 +367,6 @@ class InMemoryConversationMemory:
         messages: Sequence[ConversationMessage],
     ) -> None:
         """Append messages to the session, keeping the newest ``max_messages``."""
-
         async with self._lock:
             self._require_write_access(identity)
             if identity not in self._sessions:
@@ -401,7 +386,6 @@ class InMemoryConversationMemory:
         limit: int,
     ) -> tuple[ConversationMessage, ...]:
         """Return the newest ``limit`` messages, oldest first."""
-
         _require_positive(limit)
         async with self._lock:
             return self._touch(identity)[-limit:]
@@ -418,7 +402,6 @@ class InMemoryConversationMemory:
         Raises:
             ValueError: ``after_message_id`` is not in the session.
         """
-
         _require_positive(limit)
         async with self._lock:
             messages = self._touch(identity)
@@ -441,7 +424,6 @@ class InMemoryConversationMemory:
         Raises:
             ValueError: ``before_message_id`` is not in the history.
         """
-
         _require_positive(limit)
         async with self._lock:
             history = tuple(reversed([m for m in self._touch(identity) if _in_history(m)]))
@@ -454,7 +436,6 @@ class InMemoryConversationMemory:
 
     async def clear_messages(self, identity: ConversationIdentity) -> None:
         """Remove every message of the session, keeping the session itself."""
-
         async with self._lock:
             self._require_write_access(identity)
             if identity in self._sessions:
@@ -464,7 +445,6 @@ class InMemoryConversationMemory:
         self, identity: ConversationIdentity, *, limit: int = 3
     ) -> tuple[ConversationMessage, ...]:
         """Return the newest complete user and assistant pairs, oldest first."""
-
         _require_positive(limit)
         async with self._lock:
             return complete_message_pairs(self._touch(identity), limit=limit)
@@ -476,7 +456,6 @@ class InMemoryConversationMemory:
         limit: int = 2,
     ) -> tuple[ConversationTurn, ...]:
         """Return the newest ``limit`` completed turns, oldest first."""
-
         _require_positive(limit)
         async with self._lock:
             messages = self._touch(identity)
@@ -488,7 +467,6 @@ class InMemoryConversationMemory:
         turn: ConversationTurn,
     ) -> None:
         """Append one completed turn as a user and assistant message pair."""
-
         now = utc_now()
         await self.append_messages(
             identity,
@@ -500,5 +478,4 @@ class InMemoryConversationMemory:
 
     async def clear(self, identity: ConversationIdentity) -> None:
         """Remove the session's messages."""
-
         await self.clear_messages(identity)

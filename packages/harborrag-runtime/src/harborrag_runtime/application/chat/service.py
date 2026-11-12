@@ -140,7 +140,6 @@ class ChatApplicationService:
         catalog and the process-wide one. Callers ask up front so a rejected
         name is a validation failure rather than a provider error mid-stream.
         """
-
         await self._resources.runtime().chat.validate_model(model, tenant_id=tenant_id)
 
     async def validate_project(self, project_id: str | None, *, tenant_id: str) -> None:
@@ -149,7 +148,6 @@ class ChatApplicationService:
         Raises:
             HarborNotFoundError: ``project_id`` does not exist in ``tenant_id``.
         """
-
         await require_project(self._projects, project_id, tenant_id=tenant_id)
 
     async def complete(
@@ -166,7 +164,6 @@ class ChatApplicationService:
             HarborError: As ``answer`` raises; any other failure is answered as an
                 unavailable chat service.
         """
-
         events = self.answer(query, tenant_id=tenant_id, principal_id=principal_id, options=options)
         try:
             async with contextlib.aclosing(events):
@@ -206,7 +203,6 @@ class ChatApplicationService:
             ChatModelUnavailableError: The chat model did not answer, or answered nothing.
             HarborConnectionError: The answer could not be stored in the session.
         """
-
         trace_id = options.trace_id or uuid4().hex
         options = replace(options, trace_id=trace_id)
         identity, scope = await self._admit(tenant_id, principal_id, options)
@@ -247,7 +243,6 @@ class ChatApplicationService:
         self, tenant_id: str, principal_id: str, options: ChatExecutionOptions
     ) -> tuple[MemoryIdentity, RetrievalScope]:
         """Find the session and the scope it reads, refusing before any model call."""
-
         await self.validate_model(options.model, tenant_id=tenant_id)
         if options.session_id is None:
             projects = tuple(dict.fromkeys(options.project_ids))
@@ -298,7 +293,6 @@ class ChatApplicationService:
     @asynccontextmanager
     async def _turn(self, identity: MemoryIdentity) -> AsyncIterator[None]:
         """Hold the session for the turn, refusing at once when another turn holds it."""
-
         if identity.session_id is None:
             yield
             return
@@ -309,7 +303,6 @@ class ChatApplicationService:
         self, identity: MemoryIdentity, options: ChatExecutionOptions
     ) -> ScopeHistory | None:
         """Classic only: the history the scope check reads, read before any model call."""
-
         if options.mode != "classic":
             return None
         return await scope_history(self._resources, _access(identity))
@@ -322,7 +315,6 @@ class ChatApplicationService:
         history: ScopeHistory | None,
     ) -> ScopeCheck | None:
         """Classic only: the scope check's call and, out of scope, the refusal to answer with."""
-
         if history is None:
             return None
         try:
@@ -341,7 +333,6 @@ class ChatApplicationService:
         self, prepared: PreparedTurn, identity: MemoryIdentity, options: ChatExecutionOptions
     ) -> HarborChatResponse:
         """Call the answer model and account for the call, whatever it answered."""
-
         try:
             response = await self._resources.runtime().chat.complete(
                 prepared.request, prompt=options.system
@@ -359,7 +350,6 @@ class ChatApplicationService:
         answer_tokens: int | None,
     ) -> None:
         """Store a session's exchange under the completion's id, with the answer's own tokens."""
-
         if identity.session_id is None:
             return
         owner = identity.conversation()
@@ -404,7 +394,6 @@ class ChatApplicationService:
         collector -- is what lets it persist the text it already delivered,
         still holding this session's lock.
         """
-
         try:
             identity = _identity(tenant_id, principal_id, options)
             await self._require_scope(identity)
@@ -528,7 +517,6 @@ class ChatApplicationService:
         cancelled hard. See the ``except BaseException`` handler in
         ``_stream_locked`` for what that costs.
         """
-
         answer = await remember_answer(
             self._resources,
             identity,
@@ -540,7 +528,6 @@ class ChatApplicationService:
 
     async def _require_scope(self, identity: MemoryIdentity) -> None:
         """Both the session and the optional project must exist for this caller."""
-
         if not await self._resources.memory.exists(identity.conversation()):
             raise HarborNotFoundError("Conversation session was not found")
         await require_project(self._projects, identity.project_id, tenant_id=identity.tenant_id)

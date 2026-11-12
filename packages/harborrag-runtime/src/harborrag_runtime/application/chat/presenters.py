@@ -13,7 +13,6 @@ from harborrag_core.models.cost import ModelCost
 
 def citation_data(result: RetrievalResult) -> dict[str, object]:
     """Project one retrieval result with human-readable source provenance."""
-
     metadata = result.metadata
     section = _citation_section(metadata.get("section_path"))
     citation: dict[str, object] = {
@@ -35,14 +34,12 @@ def citation_data(result: RetrievalResult) -> dict[str, object]:
 
 def citation_marker(index: int, result: RetrievalResult) -> str:
     """Return the ``[n]`` label the model cites passage ``index`` of its prompt with."""
-
     del result
     return f"[{index}]"
 
 
 def source_heading(result: RetrievalResult) -> str:
     """Name the passage's document title and section (or page) as a reader would."""
-
     metadata = result.metadata
     title = (
         display_text(metadata.get("document_title"), 256)
@@ -56,7 +53,6 @@ def source_heading(result: RetrievalResult) -> str:
 
 def evidence_data(index: int, result: RetrievalResult) -> dict[str, object]:
     """Return bounded authorized evidence to clients, never to telemetry metadata."""
-
     return {
         **citation_data(result),
         "marker": citation_marker(index, result),
@@ -69,7 +65,6 @@ def cited_evidence(
     answer: str, results: Sequence[RetrievalResult]
 ) -> tuple[dict[str, object], ...]:
     """Return the evidence entries of the results whose ``[n]`` marker appears in ``answer``."""
-
     return tuple(
         evidence_data(index, result)
         for index, result in enumerate(results, start=1)
@@ -79,7 +74,6 @@ def cited_evidence(
 
 def display_text(value: object, limit: int) -> str | None:
     """Return ``value`` without control characters, whitespace collapsed, at most ``limit`` long."""
-
     if not isinstance(value, str):
         return None
     safe = "".join(
@@ -121,7 +115,6 @@ def _citation_location(value: object) -> str | None:
 
 def citation_uri(value: object) -> str | None:
     """Expose a bounded source page when a chunk has no heading or page range."""
-
     if not isinstance(value, dict):
         return None
     raw = value.get("uri")
@@ -163,7 +156,6 @@ def cited_results(
     marker is model output, and a hallucinated number must not become a
     citation of the wrong document.
     """
-
     if not results:
         return ()
     cited: list[RetrievalResult] = []
@@ -192,7 +184,6 @@ def chat_response_data(
     returned: retrieval hands back its top-k regardless of relevance, so
     reporting all of it claims evidence the answer never used.
     """
-
     return {
         "completion_id": response.id,
         "created": response.created,
@@ -218,7 +209,6 @@ def chat_response_data(
 
 def chat_stream_chunk_data(chunk: HarborChatStreamChunk) -> dict[str, object]:
     """Project one stream chunk without leaking deployment/provider-error metadata."""
-
     return {
         "event": chunk.event.value,
         "model": chunk.logical_model,

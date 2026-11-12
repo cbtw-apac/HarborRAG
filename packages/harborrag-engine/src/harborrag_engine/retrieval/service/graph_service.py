@@ -39,7 +39,6 @@ class RuntimeGraphRetrievalMixin:
         entity resolution, for one -- must be able to ask before calling
         rather than catch ``HarborCapabilityError`` as control flow.
         """
-
         return self._graph_search is not None
 
     async def search_graph_triplets(

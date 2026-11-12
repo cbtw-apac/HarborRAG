@@ -29,6 +29,14 @@ credentials) exactly like `harborrag_app` would -- see each suite's
 
 Usage:
     python scripts/check_dependency_direction.py
+
+The transports read the shared tool layer directly, and the app also reads the conversation memory
+package. ``harborrag_engine`` and ``harborrag_memory`` import only ``harborrag_core``, so this
+inverts nothing: they are siblings of adapters, not higher layers. ``.importlinter`` already permits
+engine for both transports -- neither forbidden list mentions it, and contract 13 enumerates MCP's
+forbidden runtime layers precisely, memory among them -- and ``harborrag-mcp-server`` declares the
+dependency in its metadata. Routing these through ``harborrag_runtime`` instead would push engine's
+tool-budget constants through a package that has no other use for them.
 """
 
 from __future__ import annotations
@@ -52,16 +60,6 @@ ALLOWED_IMPORTS: dict[str, set[str]] = {
         "harborrag_engine",
         "harborrag_memory",
     },
-    # The transports read the shared tool layer directly, and the app also reads
-    # the conversation memory package. ``harborrag_engine`` and
-    # ``harborrag_memory`` import only ``harborrag_core``, so this inverts
-    # nothing: they are siblings of adapters, not higher layers.
-    # ``.importlinter`` already permits engine for both transports -- neither
-    # forbidden list mentions it, and contract 13 enumerates MCP's forbidden
-    # runtime layers precisely, memory among them -- and
-    # ``harborrag-mcp-server`` declares the dependency in its metadata.
-    # Routing these through ``harborrag_runtime`` instead would push engine's
-    # tool-budget constants through a package that has no other use for them.
     "harborrag_app": {
         "harborrag_core",
         "harborrag_runtime",
@@ -146,8 +144,9 @@ def _assigned_names(target: ast.AST) -> Iterator[str]:
 def _function_local_shadow_names(
     scope: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda,
 ) -> set[str]:
-    """Names a parameter, assignment, for/with/except target, or walrus
-    operator binds directly within this function/lambda's own scope.
+    """Return names bound directly in this function or lambda's own scope.
+
+    That covers parameters, assignments, for/with/except targets and walrus targets.
 
     Deliberately excludes names bound by ``import``/``from ... import``: an
     import statement establishes the real dynamic-import binding this
@@ -166,8 +165,9 @@ def _function_local_shadow_names(
         names.add(args.kwarg.arg)
 
     def walk(node: ast.AST) -> None:
+        """Collect names bound by the node, skipping nested scopes whose bindings do not leak out."""
         if isinstance(node, _NESTED_SCOPE_NODES):
-            return  # separate scope; its own bindings do not leak out here
+            return
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 names.update(_assigned_names(target))
@@ -199,8 +199,9 @@ def _function_local_shadow_names(
 def _iter_calls_with_enclosing_scopes(
     tree: ast.AST,
 ) -> Iterator[tuple[ast.Call, list[set[str]]]]:
-    """Yield every Call node paired with the local-shadow-name sets of all
-    its enclosing function/lambda scopes (innermost first).
+    """Yield each Call node with the local-shadow name sets of its enclosing scopes.
+
+    The sets run innermost first.
 
     A parameter or reassignment inside some unrelated function elsewhere in
     the file must not make a call inside *this* function look like a real
@@ -225,7 +226,11 @@ def _iter_calls_with_enclosing_scopes(
 
 
 def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
-    """Yield every top-level module name a file imports, statically or dynamically."""
+    """Yield every top-level module name a file imports, statically or dynamically.
+
+    A call whose callee is shadowed by a parameter or reassignment in an enclosing function cannot
+    refer to the real importlib binding, so it is skipped whatever the file imports at module scope.
+    """
     module_aliases, function_aliases = _importlib_bindings(tree)
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -247,9 +252,6 @@ def _iter_imported_modules(tree: ast.AST) -> Iterator[tuple[str, int]]:
             )
         )
         if callee_name is not None and any(callee_name in scope for scope in enclosing_scopes):
-            # Shadowed by a parameter/reassignment in an enclosing function:
-            # this call cannot refer to the real importlib binding, no
-            # matter what the file imports at module scope.
             continue
         is_real_dynamic_import = (
             isinstance(callee, ast.Name)
@@ -274,12 +276,15 @@ def _scan_directory(
     allowed: set[str],
     exempt_subdirs: frozenset[str] = frozenset(),
 ) -> list[str]:
+    """Return the import violations of one package directory.
+
+    Exempt subdirectories match directory components only, never the file name itself, so a module
+    called smoke.py stays subject to the rule.
+    """
     violations: list[str] = []
     if not directory.is_dir():
         return violations
     for path in sorted(directory.rglob("*.py")):
-        # Match directory components only, never the file name itself, so a
-        # module called smoke.py stays subject to the rule.
         if exempt_subdirs and exempt_subdirs.intersection(path.relative_to(directory).parts[:-1]):
             continue
         try:
@@ -298,6 +303,7 @@ def _scan_directory(
 
 
 def find_violations() -> list[str]:
+    """Return one message per import that breaks the package direction rules."""
     violations: list[str] = []
     for module, package_dir in MODULE_TO_PACKAGE_DIR.items():
         package_root = REPO_ROOT / "packages" / package_dir
@@ -311,6 +317,7 @@ def find_violations() -> list[str]:
 
 
 def main() -> int:
+    """Print violations and return the exit code."""
     violations = find_violations()
     if violations:
         print("Dependency direction violations found:")

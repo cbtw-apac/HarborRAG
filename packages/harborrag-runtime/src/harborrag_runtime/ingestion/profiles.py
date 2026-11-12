@@ -1,3 +1,5 @@
+"""Digests that identify the configuration files an ingestion ran with."""
+
 from __future__ import annotations
 
 from hashlib import sha256
@@ -14,9 +16,10 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from .chunking_profile import chunk_strategy_fingerprint
 from .document.normalization import CANONICAL_NORMALIZER_VERSION
 
-# Source assertions and metadata observations have independent document supports.
-# Legacy scope-owned assertions are rejected on reads until rebuilt and retired.
 GRAPH_PROJECTION_VERSION = "graph-v5-unique-visible-edges"
+"""Source assertions and metadata observations have independent document supports. Legacy
+scope-owned assertions are rejected on reads until rebuilt and retired.
+"""
 VECTOR_PROJECTION_SCHEMA = "vector-v2"
 
 
@@ -33,7 +36,6 @@ def build_processing_profile(
     choice always comes from the file (or its defaults). ``run_settings`` overrides
     change the identity only when they change the effective parser or limits.
     """
-
     chunking = chunking_settings_from(settings)
     chunk_config = chunking_config or chunking.config
     parser_profile = configuration_file_digest("parser", settings.parser_config_path)
@@ -62,5 +64,6 @@ def build_processing_profile(
 
 
 def configuration_file_digest(prefix: str, path: Path) -> str:
+    """Return ``prefix`` plus a short digest of the file's bytes."""
     digest = sha256(path.read_bytes()).hexdigest()[:16]
     return f"{prefix}-{digest}"

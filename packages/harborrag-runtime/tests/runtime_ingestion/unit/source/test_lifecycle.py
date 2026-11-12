@@ -259,9 +259,13 @@ async def test_direct_source_ingestion_persists_terminal_discovery_failure(
 async def test_direct_ingestion_cancelled_during_discovery_releases_task_and_scan(
     tmp_path: Path,
 ) -> None:
-    # Ctrl-C on `harborrag ingestions start --inline` reaches the run as CancelledError, which an
-    # `except Exception` never sees; the scan must not stay STARTED and block the scope.
     class InterruptedConnector(DescriptorConnector):
+        """Ctrl-C during an inline ingestion leaves no scan stuck in STARTED.
+
+        Ctrl-C on `harborrag ingestions start --inline` reaches the run as CancelledError, which an
+        `except Exception` never sees; the scan must not stay STARTED and block the scope.
+        """
+
         def discover(self, query):
             del query
             raise asyncio.CancelledError
@@ -456,8 +460,11 @@ async def test_inline_tasks_are_never_outbox_candidates(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # An inline run creates its task in-process; if it stops before RUNNING, the
-    # API outbox must not mistake the PENDING row for an unsubmitted durable run.
+    """An inline run creates its task in-process.
+
+    If it stops before RUNNING, the API outbox must not mistake the PENDING row for an unsubmitted
+    durable run.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:
@@ -533,8 +540,10 @@ async def test_other_provision_validation_errors_propagate_unchanged(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # Only the ensure_index schema mismatch is a configuration verdict; other
-    # validation failures (e.g. an invalid tenant or index name) keep their type.
+    """Only the ensure_index schema mismatch is a configuration verdict.
+
+    Other validation failures (e.g. an invalid tenant or index name) keep their type.
+    """
     control = build_control_plane(tmp_path)
     resources = build_release_resources(control)
     async with control, resources.store:

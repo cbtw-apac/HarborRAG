@@ -29,7 +29,6 @@ async def retryable_document_ids(
     Returns:
         The distinct IDs of the documents to retry, in the order they were read.
     """
-
     requested_set = set(requested)
     selected: list[str] = []
     after_updated_at: datetime | None = None

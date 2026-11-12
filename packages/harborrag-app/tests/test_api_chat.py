@@ -40,6 +40,7 @@ def test_a_completion_in_a_session_runs_as_the_sessions_owner_in_its_tenant(
     client: TestClient,
     service: MockAppService,
 ) -> None:
+    """auth_mode=none: the implicit dev principal is also the end user."""
     session_id = _session(client, "ACME", "demo")
 
     response = client.post(
@@ -56,7 +57,6 @@ def test_a_completion_in_a_session_runs_as_the_sessions_owner_in_its_tenant(
     assert response.headers["cache-control"] == "no-store"
     request = service.chat.requests[0]
     assert request.metadata.tenant_id == "ACME"
-    # auth_mode=none: the implicit dev principal is also the end user.
     assert request.metadata.user_id == "DEFAULT_USER"
     assert request.metadata.conversation_id == session_id
     assert service.chat.prompts == [ChatPrompt.DEFAULT]

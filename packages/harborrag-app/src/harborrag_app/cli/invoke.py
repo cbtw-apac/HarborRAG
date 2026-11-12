@@ -203,6 +203,8 @@ def _print_result(
 async def local_operations() -> AsyncIterator[LocalOperations]:
     """Build the application service, and close it once the caller is done.
 
+    runtime composition builds one.
+
     Yields:
         The operations, run in this process over that service.
 
@@ -217,7 +219,7 @@ async def local_operations() -> AsyncIterator[LocalOperations]:
     try:
         if control_plane_failure(service) is not None:
             raise LocalSetupError(HarborUnavailableError(CONTROL_PLANE_NOT_READY))
-        yield LocalOperations(cast("AppService", service))  # runtime composition builds one
+        yield LocalOperations(cast("AppService", service))
     finally:
         await close(service)
 

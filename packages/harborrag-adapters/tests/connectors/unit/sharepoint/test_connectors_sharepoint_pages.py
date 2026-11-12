@@ -169,6 +169,11 @@ def test_discover_drive_selectors_skip_pages():
 
 
 def test_drive_walk_never_ingests_page_files_as_files():
+    """Pages off: .aspx has no parser, so it is a reported unsupported file.
+
+    Pages on: the pages API owns the page, so the drive copy is not a skip.
+    """
+
     def run(include_pages: bool) -> tuple[list[str], list[str]]:
         client = FakeGraphClient()
         add_site_and_default_drive(client)
@@ -181,9 +186,7 @@ def test_drive_walk_never_ingests_page_files_as_files():
         records = [record.id for record in connector.discover()]
         return records, [skip.reason for skip in connector.skipped]
 
-    # Pages off: .aspx has no parser, so it is a reported unsupported file.
     assert run(False) == (["sharepoint://site1/drive1/file1"], ["UNSUPPORTED_EXTENSION"])
-    # Pages on: the pages API owns the page, so the drive copy is not a skip.
     assert run(True) == (
         ["sharepoint://site1/pages/page1", "sharepoint://site1/drive1/file1"],
         [],

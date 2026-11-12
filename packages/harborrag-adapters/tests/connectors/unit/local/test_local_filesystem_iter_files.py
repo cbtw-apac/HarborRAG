@@ -26,6 +26,12 @@ def test_files_from_query_source_is_a_single_file(tmp_path: Path):
 
 
 def test_iter_files_raises_for_dangling_or_missing_start_path(tmp_path: Path):
+    """A dangling symlink entry is skipped silently.
+
+    A dangling symlink as a directory *entry* is silently skipped (neither is_dir() nor is_file()
+    match), so raise only fires when it's the traversal start path itself (via an explicit
+    query.path).
+    """
     target = tmp_path / "missing_target.md"
     link = tmp_path / "dangling.md"
     try:
@@ -33,9 +39,6 @@ def test_iter_files_raises_for_dangling_or_missing_start_path(tmp_path: Path):
     except (NotImplementedError, OSError):
         pass
 
-    # A dangling symlink as a directory *entry* is silently skipped (neither
-    # is_dir() nor is_file() match), so raise only fires when it's the
-    # traversal start path itself (via an explicit query.path).
     connector = LocalFileConnector(config(tmp_path, follow_symlinks=True))
 
     with pytest.raises(DocumentProcessingError, match="not a file or directory"):

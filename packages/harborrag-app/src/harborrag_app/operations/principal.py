@@ -43,6 +43,7 @@ class Principal:
         return "api_key" if self.token_kind == "api_key" else "user"
 
     def can_access_tenant(self, tenant_id: str) -> bool:
+        """Return whether the principal may act on the tenant."""
         return "*" in self.tenant_ids or tenant_id in self.tenant_ids
 
     @property

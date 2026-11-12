@@ -1,3 +1,5 @@
+"""HarborRAG HTTP, CLI and operations layer on top of the runtime package."""
+
 from importlib.metadata import PackageNotFoundError, version
 
 from harborrag_runtime.application import AppResponse, BaseAppService

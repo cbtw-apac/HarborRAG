@@ -84,7 +84,6 @@ async def record_control_action(
     for it. The event sits in the run's event log, where anyone asking "why
     did this stop" already looks; the HTTP event stream does not carry it.
     """
-
     await store.append_task_event(
         task_id,
         HarborEvent(
@@ -143,7 +142,6 @@ class IngestionApplicationService:
             HarborConnectionError: The workflow service could not take the submission.
             HarborValidationError: The connection's settings cannot build its connector.
         """
-
         source = await self._build_source(command)
         hashed_request = request_hash(command.public_request)
         store = await self._task_store_provider()
@@ -216,7 +214,6 @@ class IngestionApplicationService:
         Raises:
             IngestionNotFoundError: No such run.
         """
-
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         counts = await store.progress(task_id)
@@ -238,7 +235,6 @@ class IngestionApplicationService:
         Returns:
             The number of tasks whose workflow was started.
         """
-
         store = await self._task_store_provider()
         recovered = 0
         for task in await store.pending_submissions(limit=limit):
@@ -296,7 +292,6 @@ class IngestionApplicationService:
             IngestionAlreadyPausedError: The run is already paused.
             HarborConnectionError: The workflow service could not take the request.
         """
-
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         _refuse_retry_run(task, "paused")
@@ -325,7 +320,6 @@ class IngestionApplicationService:
             IngestionAlreadyRunningError: The run is already running.
             HarborConnectionError: The workflow service could not take the request.
         """
-
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         _refuse_retry_run(task, "resumed")
@@ -354,7 +348,6 @@ class IngestionApplicationService:
             IngestionAlreadyCompletedError: The run already ended.
             HarborConnectionError: The workflow service could not take the request.
         """
-
         store = await self._task_store_provider()
         task = await self._required_task(store, task_id)
         if task.status in TERMINAL_STATES:
@@ -458,7 +451,6 @@ class IngestionApplicationService:
             IngestionRetryConflictError: The run is not finished or has no retryable failures.
             HarborConnectionError: The workflow service could not take the retry.
         """
-
         store = await self._task_store_provider()
         original = await self._required_task(store, task_id)
         if original.status not in TERMINAL_STATES:

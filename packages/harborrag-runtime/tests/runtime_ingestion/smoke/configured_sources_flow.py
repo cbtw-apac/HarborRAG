@@ -81,6 +81,10 @@ class SourceSelection:
 
 
 async def run_configured_smoke() -> dict[str, object]:
+    """A Confluence/Jira locator is an ID that rarely appears in chunk content.
+
+    Sparse term matching needs the title.
+    """
     configuration = load_smoke_configuration()
     run_token = uuid4().hex
     configuration = replace(
@@ -116,8 +120,6 @@ async def run_configured_smoke() -> dict[str, object]:
                 connection_id=selected.connection_id,
                 source_item_id=selected.source_item_id,
                 dense_query=selected.title,
-                # A Confluence/Jira locator is an ID that rarely appears in
-                # chunk content; sparse term matching needs the title.
                 sparse_query=selected.title,
                 expected_documents=result.discovered,
             )

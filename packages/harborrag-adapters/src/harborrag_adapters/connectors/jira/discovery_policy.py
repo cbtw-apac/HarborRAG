@@ -22,6 +22,7 @@ from .query import build_jql, validate_issue_key
 
 
 def issue_keys_from_query(query: ConnectorQuery) -> list[str]:
+    """Return the explicit issue keys a query asks for, empty when it names none."""
     values = query.filters.get("issue_keys") or query.filters.get("keys")
     if values is None:
         return []
@@ -31,6 +32,13 @@ def issue_keys_from_query(query: ConnectorQuery) -> list[str]:
 
 
 class JiraDiscoveryPolicy:
+    """Decide which Jira projects and issues a query may discover.
+
+    Args:
+        config: Project configuration that scopes discovery.
+        base_url: Jira base URL used to build record locations.
+    """
+
     def __init__(self, config: JiraProjectConfig, *, base_url: str) -> None:
         self._config = config
         self._base_url = base_url
@@ -44,6 +52,7 @@ class JiraDiscoveryPolicy:
         )
 
     def jql(self, query: ConnectorQuery) -> str:
+        """Build the JQL for a query, limited to the effective projects."""
         filters = query.filters
         return build_jql(
             project_keys=self.effective_project_keys(query),
@@ -65,6 +74,7 @@ class JiraDiscoveryPolicy:
         )
 
     def record_for_key(self, issue_key: str, query: ConnectorQuery) -> SourceRecord:
+        """Build the source record for one issue key inside the configured scope."""
         issue_key = validate_issue_key(issue_key)
         project_key = issue_key.split("-", 1)[0]
         self._check_project_scope(project_key, issue_key)
@@ -85,6 +95,7 @@ class JiraDiscoveryPolicy:
 
     @staticmethod
     def apply_query(record: SourceRecord, query: ConnectorQuery) -> SourceRecord:
+        """Copy the query's attachment and comment choices into the record metadata."""
         record.metadata["include_attachments"] = query.include_attachments
         record.metadata["include_comments"] = bool(query.filters.get("include_comments", True))
         record.metadata["build_graph"] = bool(query.filters.get("build_graph", True))
@@ -94,6 +105,7 @@ class JiraDiscoveryPolicy:
         return record
 
     def validate_issue(self, issue: dict[str, Any], issue_key: str) -> None:
+        """Check that a fetched issue carries the fields the connector needs."""
         fields = issue.get("fields", {})
         missing = [
             name

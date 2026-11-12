@@ -40,7 +40,6 @@ async def bounded_sse_frames(
     delivered. Backpressure while sending that final frame must not turn an
     already completed response into a second timeout error.
     """
-
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout_seconds
     terminal_prefixes = tuple(f"event: {name}\n".encode() for name in terminal_events)
@@ -75,7 +74,6 @@ async def with_heartbeat(
     One pending ``anext`` is kept across timeouts, because cancelling it would finalize the
     source generator.
     """
-
     pending: asyncio.Future[bytes] | None = None
     try:
         while True:

@@ -71,7 +71,6 @@ class StreamedAnswer:
 
     def observe(self, chunk: HarborChatStreamChunk) -> None:
         """Fold one chunk in, keeping the newest model identity and usage."""
-
         self.last_chunk = chunk
         if chunk.estimated_cost_usd is not None:
             self.estimated_cost_usd = chunk.estimated_cost_usd
@@ -86,7 +85,6 @@ class StreamedAnswer:
 
     def delivered(self) -> DeliveredAnswer:
         """Return the answer as it stands, partial unless the stream said COMPLETED."""
-
         return DeliveredAnswer(
             "".join(self.parts),
             ModelCall.from_stream(
@@ -131,7 +129,6 @@ class RememberedTurn:
         reporting that as a memory failure would tell the caller its healthy
         store was broken.
         """
-
         if self.question is None:
             return False
         return self.answer is not None or self.empty
@@ -154,7 +151,6 @@ async def remember_question(
     Called after the memory context has been built and before the model is
     called, so the window this turn replayed never contains this question.
     """
-
     return await append_message(
         resources.memory,
         identity.conversation(),
@@ -175,7 +171,6 @@ async def remember_answer(
     produced no answer, and a blank assistant message would pair with the
     question as a completed turn and be replayed as one.
     """
-
     if not answer.text:
         return None
     return await append_message(
@@ -202,5 +197,4 @@ async def record_turn_usage(
     A partial answer's tokens were bought at the same price as a complete
     one's, so they are recorded whenever the provider reported them.
     """
-
     return await record_model_usage(resources.usage, identity, answer.call)

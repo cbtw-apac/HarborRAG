@@ -68,6 +68,7 @@ def _search(records: tuple[VectorIndexRecord, ...], released, hits) -> tuple:
 
 @pytest.mark.asyncio
 async def test_enrichment_keeps_the_callers_scope_filter() -> None:
+    """The scope is pushed into the entity ranking too, and the lane stays enrichment."""
     hr2025 = _evidence("hr2025-chunk", source_scope_id="HR-2025")
     hr2024 = _evidence("hr2024-chunk", source_scope_id="HR-2024")
     search, vectors = _search(
@@ -82,7 +83,6 @@ async def test_enrichment_keeps_the_callers_scope_filter() -> None:
     )
 
     assert {row.payload["source_scope_id"] for row in out} == {"HR-2025"}
-    # The scope is pushed into the entity ranking too, and the lane stays enrichment.
     query = vectors.queries[-1]
     assert [c.field for c in query.filters.must] == ["embedding_profile", "source_scope_id"]
     assert query.top_k == search.max_entities
@@ -90,6 +90,7 @@ async def test_enrichment_keeps_the_callers_scope_filter() -> None:
 
 @pytest.mark.asyncio
 async def test_selection_keeps_only_entity_evidence_the_fields_trace_allows() -> None:
+    """What retrieve() builds from ``fields.skill_set == banking`` once traced to AUTA-1."""
     banking = _evidence("banking-chunk", source_item_id="AUTA-1")
     retail = _evidence("retail-chunk", source_item_id="AUTA-2")
     search, _ = _search(
@@ -98,7 +99,6 @@ async def test_selection_keeps_only_entity_evidence_the_fields_trace_allows() ->
         (entity_hit("node-a"), entity_hit("node-b")),
     )
     facet = VectorFilter(must=[VectorFilterCondition(field="facet.stage", value="round 2")])
-    # What retrieve() builds from ``fields.skill_set == banking`` once traced to AUTA-1.
     traced = SourceFieldTrace.scope(("AUTA-1",), None)
 
     out = await search.expand(
@@ -124,6 +124,7 @@ def test_retrieve_folds_facet_values_like_find_entities() -> None:
 
 
 def test_a_payload_is_read_the_way_the_vector_store_reads_it() -> None:
+    """A boolean is not the number one."""
     payload = {
         "source_scope_id": "HR-2025",
         "labels": ["java", "python"],
@@ -143,7 +144,6 @@ def test_a_payload_is_read_the_way_the_vector_store_reads_it() -> None:
     assert not matches(cond("labels", "go"))
     assert matches(cond("fields.years", 5, FilterOperator.GREATER_THAN_OR_EQUAL))
     assert not matches(cond("fields.years", 7, FilterOperator.GREATER_THAN))
-    # A boolean is not the number one.
     assert not matches(cond("fields.remote", 1))
     assert matches(should=[cond("source_scope_id", "X"), cond("source_scope_id", "HR-2025")])
     assert not matches(should=[cond("source_scope_id", "X")])
@@ -164,6 +164,7 @@ class RecordingEntities:
 
 @pytest.mark.asyncio
 async def test_retrieve_hands_the_entity_lane_the_rest_of_the_callers_filter() -> None:
+    """The chunk filter the lane receives is the caller's, not the permission-scoped one."""
     from dataclasses import replace
 
     from retrieval_test_support import policy, resources
@@ -190,7 +191,6 @@ async def test_retrieve_hands_the_entity_lane_the_rest_of_the_callers_filter() -
 
     (call,) = entities.calls
     assert [(c.field, c.value) for c in call["facet_filter"].must] == [("facet.stage", "round 2")]
-    # The chunk filter the lane receives is the caller's, not the permission-scoped one.
     assert [(c.field, c.value) for c in call["chunk_filter"].must] == [
         ("source_scope_id", "HR-2025")
     ]

@@ -77,6 +77,8 @@ _MAX_SUBGRAPH_EDGES = 40
 
 @dataclass(slots=True)
 class GraphTripletSearchTool(BaseTool):
+    """Search graph triplets around entities."""
+
     runtime: ReaderServices | None = None
     graph_reader: GraphReader | None = None
     spec = ToolSpec(
@@ -114,6 +116,7 @@ class GraphTripletSearchTool(BaseTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return triplets matching the entity and relationship filters."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -160,6 +163,8 @@ class GraphTripletSearchTool(BaseTool):
 
 @dataclass(slots=True)
 class GraphPathSearchTool(BaseTool):
+    """Search graph paths between two entities."""
+
     runtime: ReaderServices | None = None
     graph_reader: GraphReader | None = None
     spec = ToolSpec(
@@ -201,6 +206,7 @@ class GraphPathSearchTool(BaseTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the paths found between the two entities."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:
@@ -248,6 +254,8 @@ class GraphPathSearchTool(BaseTool):
 
 @dataclass(slots=True)
 class GraphSubgraphSearchTool(BaseTool):
+    """Search the graph neighbourhood of entities."""
+
     runtime: ReaderServices | None = None
     graph_reader: GraphReader | None = None
     spec = ToolSpec(
@@ -301,6 +309,7 @@ class GraphSubgraphSearchTool(BaseTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return the subgraph around the entities."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:

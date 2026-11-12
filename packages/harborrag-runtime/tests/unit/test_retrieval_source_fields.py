@@ -59,6 +59,10 @@ def _filters() -> VectorFilter:
 
 @pytest.mark.asyncio
 async def test_the_fields_filter_selects_issues_then_searches_them_and_their_attachments():
+    """Step one: which issues have those field values -- by their own fields only.
+
+    Step two: their evidence, or evidence attached to them; other conditions still hold.
+    """
     vectors = TracingVectors((ISSUE,))
 
     await _service(vectors).retrieve(
@@ -68,12 +72,10 @@ async def test_the_fields_filter_selects_issues_then_searches_them_and_their_att
         options=RetrievalOptions(filters=_filters()),
     )
 
-    # Step one: which issues have those field values -- by their own fields only.
     [(index, field, resolved, _)] = vectors.facets
     assert (index, field) == ("evidence", "source_item_id")
     assert resolved is not None
     assert {c.field for c in resolved.must} == {"fields.skill_set", "fields.years_of_experience"}
-    # Step two: their evidence, or evidence attached to them; other conditions still hold.
     [(query, _)] = vectors.queries
     assert {(c.field, tuple(c.value)) for c in query.filters.should} == {
         ("source_item_id", (ISSUE,)),

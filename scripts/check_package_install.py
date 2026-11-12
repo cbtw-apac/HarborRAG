@@ -83,6 +83,7 @@ print(f'{package}: bare installed-wheel imports and resources passed')
 
 
 def main() -> None:
+    """Install the requested wheel in a fresh environment and smoke-test it."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("package", choices=MODULES)
     parser.add_argument("--wheel-dir", type=Path, default=Path("dist"))

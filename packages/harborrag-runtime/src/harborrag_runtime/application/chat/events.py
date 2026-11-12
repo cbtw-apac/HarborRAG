@@ -28,7 +28,6 @@ def error_event(exc: Exception, message: str) -> dict[str, object]:
     provider failure are different things to a caller, and collapsing both into
     one "service unavailable" frame tells them the wrong one.
     """
-
     failure = failure_response(logger, exc, message)
     return {
         "kind": "error",
@@ -54,7 +53,6 @@ def cited_event(
     client that appends instead of overwriting, and every existing client
     keeps the semantics it was written against.
     """
-
     return {
         "kind": "cited_sources",
         "citations": cited_evidence(answer, prepared.results),

@@ -12,9 +12,10 @@ from harborrag_app.cli import invoke as cli_runner
 from harborrag_app.cli import main as cli
 from harborrag_runtime.application import BaseAppService
 
-# Every command below goes through the CLI's project gate; give each test its own
-# project instead of inheriting whatever directory pytest was started from.
 pytestmark = pytest.mark.usefixtures("cli_project")
+"""Every command below goes through the CLI's project gate; give each test its own project instead
+of inheriting whatever directory pytest was started from.
+"""
 
 
 class BrokenService(BaseAppService):
@@ -36,10 +37,10 @@ def _offline(monkeypatch, tmp_path) -> None:
 
 
 def test_doctor_uses_runtime_service_and_stable_json(monkeypatch, capsys, tmp_path) -> None:
+    """An empty directory has no catalogs, so required checks fail and the exit code is 1."""
     _offline(monkeypatch, tmp_path)
     monkeypatch.setattr(cli_runner, "runtime_app_service", MockAppService)
 
-    # An empty directory has no catalogs, so required checks fail and the exit code is 1.
     assert cli.main(["doctor", "-o", "json"]) == 1
 
     payload = json.loads(capsys.readouterr().out)

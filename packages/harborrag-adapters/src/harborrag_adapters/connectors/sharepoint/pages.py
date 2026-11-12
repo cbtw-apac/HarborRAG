@@ -38,10 +38,18 @@ PAGE_SELECT = ",".join(
 
 
 class SharePointPagesAPI:
-    """SharePoint modern site page listing and canvas helpers."""
+    """SharePoint modern site page listing and canvas helpers.
+
+    Args:
+        client: SharePoint client the operations run through.
+        config: Validated site configuration.
+
+    Attributes:
+        client: SharePoint client.
+        config: Validated site configuration.
+    """
 
     def __init__(self, client: SharePointClient, config: SharePointSiteConfig) -> None:
-        """Bind page operations to a client and validated config."""
         self.client = client
         self.config = config
 

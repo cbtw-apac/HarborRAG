@@ -55,6 +55,7 @@ class Retrieval:
 
 @pytest.mark.asyncio
 async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> None:
+    """More qualified than the limit: the caller is told, not left to assume."""
     retrieval = Retrieval()
     tool = FindEntitiesTool(retrieval=retrieval, references=KnowledgeReferenceStore())
     result = await tool.call(
@@ -78,7 +79,6 @@ async def test_the_tool_passes_facets_through_and_reports_partial_coverage() -> 
     assert match["coverage_mode"] == "partial"
     assert match["attributes"][0]["values"] == ["round 2"]
     assert match["evidence_chunk_ids"] == ["chunk-1", "chunk-2"]
-    # More qualified than the limit: the caller is told, not left to assume.
     assert result["completion"] == {"complete": False, "reasons": ["candidate_limit"]}
 
 
@@ -142,12 +142,12 @@ class Unindexed(Retrieval):
 
 @pytest.mark.asyncio
 async def test_a_missing_index_is_an_incomplete_answer_not_an_empty_one() -> None:
+    """ "Could not look" must never read as "nothing matched"."""
     tool = FindEntitiesTool(retrieval=Unindexed(), references=KnowledgeReferenceStore())
     result = await tool.call({"tenant_id": "AUTA-5", "query": "java"}, principal_id="p")
     assert result["ok"] is True
     assert result["matches"] == []
     assert result["withheld_entity_count"] == 0
-    # "Could not look" must never read as "nothing matched".
     assert result["completion"] == {"complete": False, "reasons": [ENTITY_INDEX_UNAVAILABLE]}
     jsonschema = pytest.importorskip("jsonschema")
     jsonschema.validate(result, tool.spec.output_schema)

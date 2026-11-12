@@ -73,7 +73,6 @@ class ConversationDirectoryService:
         Raises:
             HarborValidationError: The cursor is malformed or not the caller's.
         """
-
         try:
             page = await self._repository.list_conversations(
                 tenant_id=access.tenant_id,
@@ -113,7 +112,6 @@ class ConversationDirectoryService:
             HarborNotFoundError: The session does not exist or is not the caller's.
             HarborValidationError: The cursor is malformed or not from this session.
         """
-
         identity = self._identity(access)
         if not await self._repository.exists(identity):
             raise HarborNotFoundError(_NOT_FOUND)
@@ -136,7 +134,6 @@ class ConversationDirectoryService:
 
     async def rename(self, access: MemoryAccess, *, title: str) -> dict[str, object]:
         """Retitle the caller's conversation; blank clears the title."""
-
         renamed = await self._repository.rename_conversation(
             self._identity(access),
             title=title,
@@ -150,7 +147,6 @@ class ConversationDirectoryService:
 
     async def delete(self, access: MemoryAccess) -> dict[str, object]:
         """Erase the conversation, its memories, and their vector points."""
-
         report = await self._administration.erase_session(
             access.owner(),
             actor=access.principal_id,
@@ -160,7 +156,6 @@ class ConversationDirectoryService:
     @staticmethod
     def _identity(access: MemoryAccess) -> ConversationIdentity:
         """Return the conversation isolation key; a missing session is a 404, not a 500."""
-
         if access.session_id is None:
             raise HarborNotFoundError(_NOT_FOUND)
         return ConversationIdentity(

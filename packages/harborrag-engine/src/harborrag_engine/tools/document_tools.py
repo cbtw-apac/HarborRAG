@@ -45,6 +45,8 @@ _DOCUMENT = {
 
 @dataclass(slots=True)
 class ListDocumentsTool(ReaderTool):
+    """List readable active documents without a semantic query."""
+
     spec = ToolSpec(
         "list_documents",
         "Discover readable active documents without a semantic query. Results are ordered "
@@ -82,6 +84,7 @@ class ListDocumentsTool(ReaderTool):
         principal_id: str,
         context: ToolInvocationContext | None = None,
     ) -> dict[str, object]:
+        """Return one page of readable documents for the principal."""
         if context is not None and principal_id != context.access.principal_id:
             raise PermissionError("tool principal does not match invocation context")
         try:

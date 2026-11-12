@@ -102,7 +102,6 @@ class JiraCustomFieldMetadata:
     @property
     def is_searchable_prose(self) -> bool:
         """Return whether the field belongs in independent dense evidence."""
-
         return self.value_kind == JiraCustomFieldKind.PROSE
 
 

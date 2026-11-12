@@ -1,3 +1,5 @@
+"""Client for starting, querying and controlling ingestion workflows in Temporal."""
+
 from __future__ import annotations
 
 import asyncio
@@ -58,7 +60,6 @@ _NATIVE_EXECUTION_STATUSES = {8: "paused"}
 
 def _failure_message(label: str, code: str) -> str:
     """Authored text plus the safe error code of a failed workflow run."""
-
     if code.startswith("discoversourceitems_") and code.endswith(
         ("_keyerror", "_connectorconfigurationerror")
     ):
@@ -85,12 +86,14 @@ class IngestionTemporalClient:
         cls,
         config: TemporalRuntimeConfig,
     ) -> IngestionTemporalClient:
+        """Connect to Temporal and return a client."""
         return cls(await connect_temporal_client(config), config)
 
     async def start(
         self,
         request: SourceIngestionInput,
     ) -> WorkflowHandle[SourceIngestionInput, SourceIngestionResult]:
+        """Start a source ingestion workflow and return its handle."""
         request = replace(request, workflow_options=self._config.workflow_options())
         try:
             return await self._client.start_workflow(
@@ -116,6 +119,7 @@ class IngestionTemporalClient:
         self,
         request: SourceIngestionInput,
     ) -> RuntimeWorkflowRef:
+        """Start a source ingestion workflow and return a reference to it."""
         handle = await self.start(request)
         return RuntimeWorkflowRef(
             run_id=request.task_id,
@@ -127,6 +131,7 @@ class IngestionTemporalClient:
         self,
         request: RetryFailuresInput,
     ) -> RuntimeWorkflowRef:
+        """Start a retry workflow for failed documents and return a reference to it."""
         request = replace(request, workflow_options=self._config.workflow_options())
         workflow_id = RunKind.RETRY.workflow_id(request.retry_task_id)
         try:
@@ -155,27 +160,32 @@ class IngestionTemporalClient:
         )
 
     async def health(self) -> bool:
+        """Return whether Temporal answers a health check."""
         try:
             return bool(await self._client.service_client.check_health())
         except (RPCError, OSError, RuntimeError) as error:
             raise RuntimeConnectionError("Temporal workflow service health check failed") from error
 
     async def result(self, task_id: str) -> SourceIngestionResult:
+        """Return the result of a finished source ingestion workflow."""
         return await self._operation(
             f"read result for ingestion task {task_id!r}",
             self._source_handle(task_id).result(),
         )
 
     async def progress(self, task_id: str) -> dict[str, int]:
+        """Return document counts of a source ingestion workflow."""
         return await self.get_progress(task_id)
 
     async def get_progress(self, task_id: str) -> dict[str, int]:
+        """Query the workflow for its document counts."""
         return await self._operation(
             f"read progress for ingestion task {task_id!r}",
             self._source_handle(task_id).query("get_progress", result_type=dict),
         )
 
     async def get_status(self, task_id: str) -> SourceIngestionStatus:
+        """Query the workflow for its status."""
         return await self._operation(
             f"read status for ingestion task {task_id!r}",
             self._source_handle(task_id).query(
@@ -185,6 +195,10 @@ class IngestionTemporalClient:
         )
 
     async def execution_status(self, task_id: str, kind: RunKind = RunKind.SOURCE) -> str:
+        """Return the status of the task's workflow execution.
+
+        The SDK enum lacks statuses newer than itself, e.g. PAUSED (8), and raises.
+        """
         workflow_id = kind.workflow_id(task_id)
         label = f"describe ingestion task {task_id!r}"
         try:
@@ -192,7 +206,6 @@ class IngestionTemporalClient:
                 label, self._client.get_workflow_handle(workflow_id).describe()
             )
         except ValueError as error:
-            # The SDK enum lacks statuses newer than itself, e.g. PAUSED (8), and raises.
             if "WorkflowExecutionStatus" not in str(error):
                 raise
             return await self._raw_execution_status(label, workflow_id)
@@ -238,6 +251,7 @@ class IngestionTemporalClient:
         await self._wait_for_pause_relay(task_id)
 
     async def resume(self, task_id: str) -> None:
+        """Signal the workflow to resume and unpause its execution."""
         await self._signal(task_id, "resume")
         await self._unpause_execution(
             self._workflow_id(task_id),
@@ -279,6 +293,7 @@ class IngestionTemporalClient:
         self,
         request: ReindexInput,
     ) -> WorkflowHandle[ReindexInput, ReindexResult]:
+        """Start a reindex workflow and return its handle."""
         request = replace(request, workflow_options=self._config.workflow_options())
         workflow_id = f"harborrag-reindex:{request.reindex_job_id}"
         try:
@@ -305,6 +320,7 @@ class IngestionTemporalClient:
         self,
         reindex_job_id: str,
     ) -> ReindexResult:
+        """Return the result of a finished reindex workflow."""
         handle = self._client.get_workflow_handle(
             f"harborrag-reindex:{reindex_job_id}",
             result_type=ReindexResult,
@@ -367,7 +383,6 @@ class IngestionTemporalClient:
         for minutes, but the signal is recorded and the run will honour it, so the
         request is accepted rather than reported as an outage.
         """
-
         status = None
         for _ in range(300):
             status = await self.get_status(task_id)

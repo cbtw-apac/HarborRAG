@@ -120,7 +120,6 @@ class JiraConnector(BaseConnector):
 
     def close(self) -> None:
         """Release the client session when the connector owns one."""
-
         close = getattr(self.client, "close", None)
         if callable(close):
             close()
@@ -187,7 +186,6 @@ class JiraConnector(BaseConnector):
         page_size: int,
     ) -> ConnectorPage:
         """Use Jira's native page token or offset without replaying prior pages."""
-
         self._ensure_connected()
         query = query or ConnectorQuery()
         if issue_keys_from_query(query):
@@ -229,7 +227,6 @@ class JiraConnector(BaseConnector):
 
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one JIRA issue as a text/markdown raw document."""
-
         if is_attachment_record(record):
             if (
                 not self.config.include_attachments
@@ -304,7 +301,6 @@ class JiraConnector(BaseConnector):
         record: SourceRecord,
     ) -> ConnectorDocumentDescriptor:
         """Discover comment/attachment versions and explicit issue relations."""
-
         descriptor = self._descriptors.describe(record)
         logger.info(
             "JIRA issue described source_id=%s comments=%d attachments=%d "

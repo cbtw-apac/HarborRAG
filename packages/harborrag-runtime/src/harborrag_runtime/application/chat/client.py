@@ -52,7 +52,6 @@ class ChatClientMixin:
         Raises:
             HarborNotFoundError: ``project_id`` does not exist in ``tenant_id``.
         """
-
         await self._chat.validate_project(project_id, tenant_id=tenant_id)
         return await self._sessions.create(
             tenant_id=tenant_id,
@@ -78,7 +77,6 @@ class ChatClientMixin:
                 ``project_id``).
             HarborConnectionError: The chat service did not create the session.
         """
-
         try:
             result = await self.create_chat_session(
                 tenant_id=tenant_id,
@@ -118,7 +116,6 @@ class ChatClientMixin:
             HarborConflictError: The first request with the key failed.
             HarborConnectionError: The turn ended without its answer.
         """
-
         options = chat_options(request, user_id=caller.user_id)
         attempt = CompletionAttempt(
             self._sessions,
@@ -151,7 +148,6 @@ class ChatClientMixin:
         user_id: str | None = None,
     ) -> bool:
         """Report whether the caller owns the chat session ``session_id``."""
-
         return await self._sessions.exists(
             session_id,
             tenant_id=tenant_id,
@@ -204,7 +200,6 @@ class ChatClientMixin:
         options: ChatExecutionOptions,
     ) -> AsyncGenerator[dict[str, object], None]:
         """Stream one completion as ``{"kind": ...}`` events."""
-
         return self._chat.stream(
             query,
             tenant_id=tenant_id,

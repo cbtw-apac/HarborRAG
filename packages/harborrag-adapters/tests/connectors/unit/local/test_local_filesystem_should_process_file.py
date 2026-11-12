@@ -157,6 +157,11 @@ def test_should_process_file_no_size_limit_configured(tmp_path: Path):
 
 
 def test_should_process_file_rejects_oversized_file(tmp_path: Path, caplog):
+    """Rejecting the file is only half the contract.
+
+    It must be *reported*, both in the run log and in the structured skip report, never silently
+    omitted.
+    """
     write_file(tmp_path / "big.txt", b"way too large")
     connector = LocalFileConnector(config(tmp_path, max_file_size_bytes=3))
 
@@ -164,8 +169,6 @@ def test_should_process_file_rejects_oversized_file(tmp_path: Path, caplog):
         records = list(connector.discover())
 
     assert records == []
-    # Rejecting the file is only half the contract: it must be *reported*, both
-    # in the run log and in the structured skip report, never silently omitted.
     assert "big.txt" in caplog.text
     assert "max_file_size_bytes 3" in caplog.text
     assert [(Path(s.path).name, s.reason) for s in connector.skipped] == [

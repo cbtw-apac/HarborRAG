@@ -26,15 +26,18 @@ class FakeMemoryStore:
         self.rows: dict[str, Memory] = {}
 
     async def save(self, memory: Memory) -> None:
+        """Store the memory."""
         self.rows[memory.memory_id] = memory
 
     async def get(self, caller: MemoryOwner, memory_id: str) -> Memory | None:
+        """Return the memory when visible to the caller."""
         memory = self.rows.get(memory_id)
         if memory is None or not visible_to(memory.scope, memory.owner, caller):
             return None
         return memory
 
     async def search(self, query: MemoryQuery) -> tuple[Memory, ...]:
+        """Return memories that match the query."""
         scopes = query.scopes or tuple(MemoryScope)
 
         def matches(memory: Memory) -> bool:
@@ -57,6 +60,7 @@ class FakeMemoryStore:
         return tuple(found[: query.limit])
 
     async def delete(self, caller: MemoryOwner, memory_id: str) -> None:
+        """Delete the memory when visible to the caller."""
         memory = self.rows.get(memory_id)
         if memory is not None and visible_to(memory.scope, memory.owner, caller):
             del self.rows[memory_id]
@@ -71,14 +75,17 @@ class FakeMemoryIndex:
         self.failure = failure
 
     async def index_memory(self, memory: Memory, *, embedding: object = None) -> None:
+        """Remember the indexed memory ID."""
         del embedding
         self.indexed.append(memory.memory_id)
 
     async def search_memories(self, query: MemoryQuery, *, embedding: object = None) -> tuple[()]:
+        """Return no results."""
         del query, embedding
         return ()
 
     async def delete_memory(self, owner: MemoryOwner, memory_id: str) -> None:
+        """Raise the configured failure, if any."""
         del owner
         if self.failure is not None:
             raise self.failure

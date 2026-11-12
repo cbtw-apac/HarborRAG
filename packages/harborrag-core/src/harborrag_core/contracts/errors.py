@@ -1,3 +1,6 @@
+"""Base and shared HarborRAG error types."""
+
+
 class HarborError(Exception):
     """Base HarborRAG error."""
 
@@ -124,7 +127,8 @@ class HarborAuthError(HarborError):
     """Authentication failed, or the principal lacks the required role.
 
     forbidden=False -> not authenticated (401); True -> authenticated
-    but not allowed (403)"""
+    but not allowed (403)
+    """
 
     def __init__(self, message: str, forbidden: bool = False) -> None:
         super().__init__(message)

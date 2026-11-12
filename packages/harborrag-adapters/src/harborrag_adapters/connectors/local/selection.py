@@ -47,7 +47,6 @@ class LocalFileSelector:
 
     def should_process_file(self, path: Path, query: ConnectorQuery) -> bool:
         """Apply all configured selection policy to one candidate path."""
-
         if not self._is_candidate(path):
             return False
         file_stat = self._candidate_stat(path)

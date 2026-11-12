@@ -47,7 +47,6 @@ class ModelCall:
     @classmethod
     def from_response(cls, response: HarborChatResponse) -> ModelCall:
         """Describe a completed call from the response the provider returned."""
-
         return cls(
             logical_model=response.logical_model,
             provider=response.provider,
@@ -72,7 +71,6 @@ class ModelCall:
         tokens are simply unknown, and a zero-token record would be
         indistinguishable from a free request in the totals.
         """
-
         if chunk is None or usage is None:
             return None
         return cls(
@@ -99,7 +97,6 @@ async def record_model_usage(
     of zero tokens is indistinguishable from a free request and would corrupt
     the totals it exists to support.
     """
-
     if repository is None or call is None:
         return False
     try:

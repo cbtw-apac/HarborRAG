@@ -1,3 +1,5 @@
+"""Storage error types that carry sanitized diagnostic context."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field

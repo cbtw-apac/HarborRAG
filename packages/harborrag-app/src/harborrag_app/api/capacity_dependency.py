@@ -48,6 +48,9 @@ async def hold_api_capacity(
     Request-scoped (FastAPI's default for yield dependencies): the lease is
     released only after the response -- for ``StreamingResponse`` bodies, after
     the last frame -- so in-flight streams keep counting against the caller.
+
+    Redis leases expire automatically. Do not replace an otherwise successful response merely
+    because best-effort cleanup failed.
     """
     limiter: ApiCapacityLimiter = request.app.state.api_capacity_limiter
     scope = capacity_scope_for(principal)
@@ -58,8 +61,6 @@ async def hold_api_capacity(
         try:
             await limiter.release(scope, lease_id)
         except HarborConnectionError:
-            # Redis leases expire automatically. Do not replace an otherwise
-            # successful response merely because best-effort cleanup failed.
             logger.exception("Failed to release API capacity lease")
 
 

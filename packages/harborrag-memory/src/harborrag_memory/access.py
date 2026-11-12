@@ -26,7 +26,6 @@ class MemoryAccess:
 
     def owner(self) -> MemoryOwner:
         """The long-term memory isolation key for this caller."""
-
         return MemoryOwner(
             tenant_id=self.tenant_id,
             project_id=self.project_id,
@@ -41,7 +40,6 @@ class MemoryAccess:
         Used only by the administrative erasure path, where the actor and the
         subject of the erasure are different people.
         """
-
         return MemoryOwner(
             tenant_id=self.tenant_id,
             principal_id=self.principal_id,

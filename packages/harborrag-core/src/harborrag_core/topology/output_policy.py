@@ -21,10 +21,16 @@ OUTPUT_POLICY_VERSION = "bounded-graph-text-v2-reject"
 
 
 class OutputPolicyViolation(ValueError):
-    """A complete model response contained candidates HarborRAG cannot accept."""
+    """A complete model response contained candidates HarborRAG cannot accept.
+
+    Args:
+        reasons: Why the candidates were rejected.
+
+    Attributes:
+        reasons: Why the candidates were rejected.
+    """
 
     def __init__(self, reasons: tuple[str, ...]) -> None:
-        """Build the error from the violation reasons, kept on ``reasons``."""
         self.reasons = reasons
         super().__init__(
             f"semantic output rejected ({len(reasons)} violation(s)): " + ", ".join(reasons)

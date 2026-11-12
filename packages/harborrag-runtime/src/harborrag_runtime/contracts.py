@@ -111,12 +111,16 @@ from harborrag_runtime.reader_contracts import (
 
 
 class ExecutionMode(StrEnum):
+    """How an ingestion runs: in this process or through Temporal."""
+
     DIRECT = "direct"
     TEMPORAL = "temporal"
 
 
 @dataclass(frozen=True, slots=True)
 class IngestionRequest:
+    """Everything needed to start one ingestion."""
+
     access: AccessContext
     connector_name: str
     task_id: str = field(default_factory=lambda: f"ingest-{uuid4().hex}")
@@ -146,12 +150,16 @@ class IngestionRequest:
 
 @dataclass(frozen=True, slots=True)
 class IngestionTaskReference:
+    """Handle to a submitted ingestion task."""
+
     task_id: str
     workflow_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class IngestionResult:
+    """Outcome of a finished ingestion."""
+
     task_id: str
     status: str
     discovered: int
@@ -162,6 +170,8 @@ class IngestionResult:
 
 @dataclass(frozen=True, slots=True)
 class IngestionStatus:
+    """Current state of an ingestion task."""
+
     task_id: str
     status: str
     paused: bool = False
@@ -170,6 +180,8 @@ class IngestionStatus:
 
 @dataclass(frozen=True, slots=True)
 class MemoryContextRequest:
+    """Identity and query context for loading memory."""
+
     tenant_id: str
     principal_id: str
     user_id: str

@@ -77,7 +77,6 @@ def facet_filter_from_mapping(
     caller's ``Java`` finds a card's ``java``. A name that no scope could have
     declared (``Skill Set`` instead of ``skill_set``) is refused, not searched.
     """
-
     must: list[VectorFilterCondition] = []
     for name, value in sorted(facets.items()):
         if not _FACET_NAME.fullmatch(name):
@@ -117,7 +116,6 @@ def _folded(value: object) -> object:
 
 def _folded_condition(condition: VectorFilterCondition) -> VectorFilterCondition:
     """Fold a ``facet.*`` condition's text the way ``facet_filter_from_mapping`` does."""
-
     value = condition.value
     folded = (
         [_folded(item) for item in value] if isinstance(value, list | tuple) else _folded(value)
@@ -154,7 +152,6 @@ def split_facet_filters(
     so ``facet.stage == "Round 2"`` matches here exactly as it does in
     ``find_entities``.
     """
-
     if filters is None:
         return None, None
     facet: dict[str, list[VectorFilterCondition]] = {"must": [], "should": [], "must_not": []}
@@ -210,7 +207,6 @@ class EntitySummarySearch:
         narrow the entity ranking without turning enrichment into selection, so
         the mode's own entity ceiling stays.
         """
-
         if dense_vector is None or len(dense_vector) != self.profile.dimension:
             return candidates if facet_filter is None else ()
         node_keys = await self.matching_entities(
@@ -244,7 +240,6 @@ class EntitySummarySearch:
         limit: int | None = None,
     ) -> tuple[str, ...]:
         """Rank entity node keys by similarity, within the facet filter if any."""
-
         return tuple(
             hit.node_key
             for hit in await self.ranked_entities(dense_vector, context, facet_filter, limit=limit)
@@ -264,7 +259,6 @@ class EntitySummarySearch:
         authority's call, made per request by the caller that holds the access.
         A missing index ranks nothing here; ``find`` is where that is reported.
         """
-
         return await self._rank(dense_vector, context, facet_filter, limit=limit) or ()
 
     async def find(
@@ -288,7 +282,6 @@ class EntitySummarySearch:
         would tell a principal how many entities they may not see match their
         facets, so those hits stay silently absent, as the authority intends.
         """
-
         facet_filter = facet_filter_from_mapping(request.facets, request.source_scope_ids)
         hits = await self._rank(dense_vector, context, facet_filter, limit=request.limit + 1)
         if hits is None:
@@ -363,7 +356,6 @@ class EntitySummarySearch:
         only match nothing, which is not the same answer as "no entity qualifies".
         The cached index list is refreshed once before calling a name unknown.
         """
-
         if not facets or not isinstance(self.vectors, PayloadIndexCatalog):
             return ()
         index = self.profile.entity_index_name
@@ -384,7 +376,6 @@ class EntitySummarySearch:
         limit: int | None,
     ) -> tuple[EntityHit, ...] | None:
         """Ranked hits, or ``None`` when this tenant has no entity index at all."""
-
         index = self.profile.entity_index_name
         if not await self.vectors.index_exists(index, context=context):
             return None
@@ -511,7 +502,6 @@ def payload_matches(payload: Mapping[str, object], filters: VectorFilter) -> boo
     field matches when any member does, and ``should`` needs one of its
     conditions when it has any. An operator this cannot evaluate fails closed.
     """
-
     return (
         all(_condition_matches(payload, item) for item in filters.must)
         and (not filters.should or any(_condition_matches(payload, i) for i in filters.should))

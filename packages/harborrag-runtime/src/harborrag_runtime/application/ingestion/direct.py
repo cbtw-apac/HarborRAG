@@ -26,7 +26,6 @@ CLI_PRINCIPAL = "harborrag-cli"
 
 def new_run_id() -> str:
     """Return a new run ID for an inline ingestion."""
-
     return f"ingest-{uuid4().hex}"
 
 
@@ -58,7 +57,6 @@ class DirectIngestionOperations:
         force_reprocess: bool = False,
     ) -> AppResponse:
         """Execute one ingestion inline and return its final result, or a failure envelope."""
-
         try:
             request = IngestionRequest(
                 access=AccessContext(principal_id=CLI_PRINCIPAL, tenant_id=TenantId(tenant_id)),
@@ -105,7 +103,6 @@ class DirectIngestionClientMixin:
         force_reprocess: bool = False,
     ) -> AppResponse:
         """Execute one ingestion inline and return its final result, or a failure envelope."""
-
         return await self._direct.run_ingestion(
             tenant_id=tenant_id,
             connector_name=connector_name,

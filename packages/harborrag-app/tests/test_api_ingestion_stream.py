@@ -172,7 +172,7 @@ async def test_stream_closes_the_app_service_generator_on_early_disconnect() -> 
             del task_id, after_seq
             try:
                 yield progress_event
-                await asyncio.Event().wait()  # never resolves -- simulates a live tail
+                await asyncio.Event().wait()
             finally:
                 closed["value"] = True
 

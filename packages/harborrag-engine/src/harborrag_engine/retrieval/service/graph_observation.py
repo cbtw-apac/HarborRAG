@@ -85,7 +85,6 @@ class GraphObserver:
         so the structure around them is summarised even when no vector result
         landed on them.
         """
-
         try:
             return await self._observe(candidates, context=context, memory_seeds=memory_seeds)
         except Exception:
@@ -156,7 +155,6 @@ def _document_neighborhoods(
     still belongs to that document's neighborhood -- it is how the result reached it. Requiring
     both endpoints would silently drop the connecting edge from both sides of the boundary.
     """
-
     related: dict[str, list[GraphResultNeighborhood]] = {}
     for result_id, traversal in seeded_traversals:
         nodes_by_key = {node.node_key: node for node in traversal.nodes}
@@ -208,7 +206,6 @@ def _summarise_documents(
     vector payload. ``related_results`` replays, per document, which vector result
     reached it and the exact nodes/relations within its 2-hop walk that belong to it.
     """
-
     titles: dict[str, str] = {}
     sections: dict[str, list[str]] = {}
     order: list[str] = []

@@ -56,7 +56,9 @@ class RateLimiter(Protocol):
         """Record one call; return the seconds to wait when the window is full, else ``None``."""
         ...
 
-    async def aclose(self) -> None: ...
+    async def aclose(self) -> None:
+        """Release the limiter's resources."""
+        ...
 
 
 @dataclass(slots=True)

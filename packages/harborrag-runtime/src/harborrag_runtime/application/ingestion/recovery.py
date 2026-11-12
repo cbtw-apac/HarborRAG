@@ -21,7 +21,6 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
     The pinned ``ingestion.concurrency`` is restored from the run's settings; without
     one the workflow default applies.
     """
-
     request = task.request
     processing = _mapping(request.get("processing"), "processing")
     query = _mapping(request.get("query"), "query")
@@ -60,7 +59,6 @@ def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:
 
 def retry_from_task(task: IngestionTask) -> IngestionRetryRequest:
     """Rebuild a safe retry workflow input from its durable task request."""
-
     request = task.request
     original_task_id = request.get("retry_of")
     document_ids = request.get("document_ids")

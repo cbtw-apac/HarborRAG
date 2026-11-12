@@ -25,6 +25,8 @@ from harborrag_runtime.serialization import to_json_value
 
 @dataclass(frozen=True, slots=True)
 class PendingSourceRelease:
+    """A discovered item paired with the release planned for it."""
+
     item: DiscoveredSourceItem
     release: PlannedDocumentRelease
 
@@ -41,6 +43,7 @@ class SourceDescriptorMapper:
         request: SourceIngestionRequest,
         descriptor: ConnectorDocumentDescriptor,
     ) -> tuple[PendingSourceRelease, ...]:
+        """Map a connector descriptor to the releases it contributes."""
         sources = (
             (descriptor.source, descriptor.admission),
             *((bound, self._bound_admission(bound)) for bound in descriptor.bound_records),

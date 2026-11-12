@@ -42,6 +42,8 @@ from .summary_products import summary_parents
 
 @dataclass(frozen=True)
 class DerivedRuntimeFactory:
+    """Build the derived-content pieces of a topology build."""
+
     settings: RuntimeSettings
     control: IngestionControlPlaneDatabase
     graph: ParentProjectionPort
@@ -56,7 +58,6 @@ class DerivedRuntimeFactory:
         context: StorageOperationContext,
     ) -> int:
         """Open vector storage only for an explicit retired-projection cleanup."""
-
         if not records:
             return 0
         vectors = build_vector_repository(self.settings)
@@ -71,6 +72,7 @@ class DerivedRuntimeFactory:
             await vectors.close()
 
     async def complete(self, tenant_id: str, build_id: str) -> dict[str, str]:
+        """Finish the derived stages of a build and return the status of each."""
         if not self.settings.topology_derived_enabled:
             return {"contextual": "disabled", "parents": "disabled"}
         repository = self.control.topology

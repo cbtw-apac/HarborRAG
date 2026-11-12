@@ -37,6 +37,11 @@ def test_discover_datacenter_searches_jql_with_start_at_pagination():
 
 
 def test_discover_cloud_uses_search_jql_token_pagination():
+    """Cloud must use the token endpoint and forward nextPageToken.
+
+    Jira Cloud's search/jql endpoint rejects the request outright (400) if an `expand` key is
+    present at all, so it must never be sent in this body.
+    """
     client = FakeJiraClient()
     client.add_post(
         "search/jql",
@@ -56,9 +61,6 @@ def test_discover_cloud_uses_search_jql_token_pagination():
         "ENG-2",
         "ENG-3",
     ]
-    # Cloud must use the token endpoint and forward nextPageToken. Jira Cloud's
-    # search/jql endpoint rejects the request outright (400) if an `expand`
-    # key is present at all, so it must never be sent in this body.
     assert client.post_calls[0][0] == "search/jql"
     assert client.post_calls[1][1]["nextPageToken"] == "tok2"
     assert "expand" not in client.post_calls[0][1]
@@ -122,6 +124,7 @@ def test_discover_carries_exact_attachment_selection_to_admission():
 
 
 def test_discover_stops_once_query_limit_reached_during_search():
+    """Only one page should have been fetched since the limit was hit mid-page."""
     client = FakeJiraClient()
     client.add_post(
         "search/jql",
@@ -136,7 +139,6 @@ def test_discover_stops_once_query_limit_reached_during_search():
     records = list(connector.discover(ConnectorQuery(limit=1)))
 
     assert [record.metadata["issue_key"] for record in records] == ["ENG-1"]
-    # Only one page should have been fetched since the limit was hit mid-page.
     assert len(client.post_calls) == 1
 
 

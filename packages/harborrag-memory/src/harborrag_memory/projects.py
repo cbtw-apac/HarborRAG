@@ -12,7 +12,6 @@ PROJECT_NOT_FOUND = "Project was not found"
 
 def project_lookup(composition: Any) -> ProjectRepositoryPort | None:
     """The control-plane project repository, or None when no database is wired."""
-
     control_plane = getattr(composition, "control_plane", None)
     projects: ProjectRepositoryPort | None = getattr(control_plane, "projects", None)
     return projects
@@ -30,7 +29,6 @@ async def require_project(
     from a missing one (404), and without a control-plane database no project
     can be confirmed, so every ``project_id`` is unknown there.
     """
-
     if project_id is None:
         return
     if projects is None:

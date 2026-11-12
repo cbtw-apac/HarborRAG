@@ -130,7 +130,7 @@ class IngestionServiceFixture:
         filters: Mapping[str, object] | None = None,
         force_reprocess: bool = False,
     ) -> AppResponse:
-        # Every option `ingest run` forwards, so a test can assert the request it made.
+        """Every option `ingest run` forwards, so a test can assert the request it made."""
         self.direct_runs.append(
             {
                 "tenant_id": tenant_id,

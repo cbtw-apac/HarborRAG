@@ -20,7 +20,6 @@ def memory_context_request(identity: MemoryIdentity, question: str) -> MemoryCon
     Raises:
         ValueError: The turn is a one-off question with no session.
     """
-
     if identity.session_id is None:
         raise ValueError("a one-off question has no conversation memory")
     return MemoryContextRequest(
@@ -44,7 +43,6 @@ async def recent_memory_context(
     unmatched questions, and tool messages are excluded from model context.
     This policy needs no summarization, query rewrite, or long-term recall.
     """
-
     context = empty_memory_context(question)
     try:
         messages = await repository.recent_complete_messages(
@@ -63,7 +61,6 @@ async def recent_memory_context(
 
 def empty_memory_context(question: str) -> MemoryContext:
     """Return the no-history context a failed memory lookup degrades to."""
-
     return MemoryContext(
         messages=(),
         summary=None,

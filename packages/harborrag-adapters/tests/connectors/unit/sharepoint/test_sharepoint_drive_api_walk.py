@@ -71,6 +71,7 @@ def test_records_from_item_id_file_filtered_out_yields_nothing():
 
 
 def test_walk_children_skips_folder_without_id():
+    """No recursive call for the id-less folder means only the root page was fetched."""
     client = FakeGraphClient()
     client.add(
         "drives/drive1/root/children",
@@ -80,7 +81,6 @@ def test_walk_children_skips_folder_without_id():
 
     records = list(api.walk_children(site=site(), drive=drive(), query=ConnectorQuery()))
     assert records == []
-    # No recursive call for the id-less folder means only the root page was fetched.
     assert len(client.calls) == 1
 
 

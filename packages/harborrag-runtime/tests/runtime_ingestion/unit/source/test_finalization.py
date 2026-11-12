@@ -72,6 +72,11 @@ def _paged_plan(*pages: tuple[str, ...]) -> PlannedDocuments:
 
 @pytest.mark.asyncio
 async def test_finalization_repairs_relations_page_by_page_and_sums_the_results() -> None:
+    """Then the reverse pass, once, after every page.
+
+    Declarers elsewhere whose link targets are now published. It never adds to the plan's unresolved
+    count.
+    """
     tasks = _Recorder(document_results_page=_NO_RESULTS)
     control = SimpleNamespace(
         tasks=tasks,
@@ -98,8 +103,6 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
     )
 
     assert repair.pages == [("a", "b"), ("c",)]
-    # Then the reverse pass, once, after every page: declarers elsewhere whose link
-    # targets are now published. It never adds to the plan's unresolved count.
     assert repair.reverse_calls == [
         {"tenant_id": "tenant-1", "graph_projection_version": "graph-v2"}
     ]
@@ -112,8 +115,10 @@ async def test_finalization_repairs_relations_page_by_page_and_sums_the_results(
 
 @pytest.mark.asyncio
 async def test_finalization_resumes_relation_repair_after_the_pages_already_done() -> None:
-    # A retry must not repeat hours of repair: pages a prior attempt finished are
-    # skipped, and their totals still count toward the outcome.
+    """A retry must not repeat hours of repair.
+
+    Pages a prior attempt finished are skipped, and their totals still count toward the outcome.
+    """
     control = SimpleNamespace(
         tasks=_Recorder(document_results_page=_NO_RESULTS),
         source_scans=_Recorder(reconcile_removals=()),
@@ -151,8 +156,11 @@ async def test_finalization_resumes_relation_repair_after_the_pages_already_done
 
 @pytest.mark.asyncio
 async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
-    # Discovery skips are already on the task; a document that failed while
-    # parsing is an extraction skip, and one that failed elsewhere is not.
+    """Discovery skips are already on the task.
+
+    A document that failed while parsing is an extraction skip, and one that failed elsewhere is
+    not.
+    """
     failed = TaskDocumentPage(
         items=(
             _failed_result("doc-1", stage="ParseAndNormalize"),
@@ -205,6 +213,7 @@ async def test_finalization_summary_breaks_skips_down_by_reason() -> None:
 
 @pytest.mark.asyncio
 async def test_run_skip_summary_counts_item_load_skips_once() -> None:
+    """A retried finalization sees the same task summary and must not double count."""
     failed = TaskDocumentPage(
         items=(
             _failed_result("doc-1", stage="FetchAndCaptureRaw", skip_reason="ACCESS_DENIED"),
@@ -217,7 +226,6 @@ async def test_run_skip_summary_counts_item_load_skips_once() -> None:
     control = SimpleNamespace(tasks=_Recorder(get=task, document_results_page=failed))
 
     first = await run_skip_summary(cast(Any, control), "task-1")
-    # A retried finalization sees the same task summary and must not double count.
     second = await run_skip_summary(cast(Any, control), "task-1")
 
     assert first == second
@@ -251,6 +259,7 @@ def _failed_result(
 
 
 def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
+    """Earlier attempts heartbeated a plain string; anything malformed starts over."""
     assert RelationRepairProgress.resume(
         {
             "next_page": 4,
@@ -259,7 +268,6 @@ def test_repair_progress_resumes_only_from_a_well_formed_heartbeat() -> None:
             "unresolved_relations": 1,
         }
     ) == RelationRepairProgress(4, 9, 3, 1)
-    # Earlier attempts heartbeated a plain string; anything malformed starts over.
     assert RelationRepairProgress.resume("finalize-source") == RelationRepairProgress()
     assert RelationRepairProgress.resume({"next_page": -1}) == RelationRepairProgress()
 

@@ -249,6 +249,7 @@ async def test_evidence_read_fails_closed_when_access_changes_before_return() ->
 
 @pytest.mark.asyncio
 async def test_document_context_is_ordered_paged_and_version_bound() -> None:
+    """The title comes from the window's own chunks, on every page."""
     reader = _reader()
     first = await reader.document_context(
         DocumentContextRequest(ACCESS, "document-1", limit=1, include_outline=True)
@@ -273,7 +274,6 @@ async def test_document_context_is_ordered_paged_and_version_bound() -> None:
     assert [item.chunk_id for item in first.chunks] == ["chunk-1"]
     assert first.next_offset == 1
     assert [item.chunk_id for item in second.chunks] == ["chunk-2"]
-    # The title comes from the window's own chunks, on every page.
     assert first.document_title == second.document_title == "Guide"
     assert changed.outcome == "version_changed"
     assert changed.chunks == ()

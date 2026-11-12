@@ -5,6 +5,10 @@ Handles:
 - ``GET`` and ``GET /{ingestion_id}`` (editor): list runs and read one
 - ``GET /{ingestion_id}/documents|events`` (editor): a run's documents and its event stream
 - ``POST /{ingestion_id}/pause|resume|cancel|retry-failures`` (editor): control a run
+
+Function scope, like the chat router: with the default request scope the server deadline stays armed
+across a StreamingResponse body and hard-cancels the SSE stream mid-flight with no terminal error
+frame. The capacity lease is still held until the last frame; streams carry their own deadline.
 """
 
 from __future__ import annotations
@@ -45,10 +49,6 @@ _SSE_HEADERS = {"Cache-Control": "no-store", "X-Accel-Buffering": "no"}
 router = APIRouter(
     prefix="/admin/ingestions",
     tags=["Ingestion"],
-    # Function scope, like the chat router: with the default request scope the server
-    # deadline stays armed across a StreamingResponse body and hard-cancels the SSE
-    # stream mid-flight with no terminal error frame. The capacity lease is still held
-    # until the last frame; streams carry their own deadline.
     dependencies=[Depends(require_api_capacity, scope="function")],
 )
 
@@ -61,14 +61,15 @@ ERROR_RESPONSES = documented_error_responses(
         503: "Ingestion service unavailable",
     }
 )
-# A listing has no single task to miss and no task state to conflict with, so it
-# never answers 404 or 409 -- documenting them would only mislead callers.
 LIST_ERROR_RESPONSES = documented_error_responses(
     {
         422: "Invalid listing query or cursor",
         503: "Ingestion service unavailable",
     }
 )
+"""A listing has no single task to miss and no task state to conflict with, so it never answers 404
+or 409 -- documenting them would only mislead callers.
+"""
 
 
 @router.post(

@@ -37,6 +37,7 @@ def test_default_capacity_limits_give_the_tenant_room_for_several_users() -> Non
 
 
 def test_a_tenant_override_inherits_every_tier_it_does_not_set() -> None:
+    """Unset tiers keep the global default, and no other tenant is affected."""
     settings = ApiSettings(
         api_tenant_capacity_overrides={
             "enterprise": {"user_requests_per_minute": 120, "tenant_requests_per_minute": 6_000}
@@ -49,7 +50,6 @@ def test_a_tenant_override_inherits_every_tier_it_does_not_set() -> None:
     enterprise = overrides["enterprise"]
     assert enterprise.user.requests_per_minute == 120
     assert enterprise.tenant.requests_per_minute == 6_000
-    # Unset tiers keep the global default, and no other tenant is affected.
     assert enterprise.principal == settings.default_capacity_limits().principal
     assert enterprise.tenant.max_inflight == 40
 
@@ -144,9 +144,11 @@ def test_a_streamed_body_holds_its_lease_while_the_handler_deadline_is_disarmed(
     @app.get("/stream")
     async def stream(_lease: ApiCapacityDependency) -> StreamingResponse:
         async def frames() -> AsyncIterator[bytes]:
+            """Together the frames outlive api_request_timeout_seconds.
+
+            A request-scoped deadline would cancel the body mid-flight.
+            """
             for index in range(2):
-                # Together the frames outlive api_request_timeout_seconds: a
-                # request-scoped deadline would cancel the body mid-flight.
                 await asyncio.sleep(0.6)
                 events.append(f"frame-{index}")
                 yield f"frame-{index}\n".encode()

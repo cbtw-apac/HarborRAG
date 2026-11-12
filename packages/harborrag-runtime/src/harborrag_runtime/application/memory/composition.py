@@ -25,7 +25,6 @@ def _require_in_memory_mode(composition: Any, repository_name: str) -> None:
 
 def conversation_memory(composition: Any) -> ConversationHistoryRepository:
     """Use persistent composition memory, with a test-double fallback."""
-
     control_plane = getattr(composition, "control_plane", None)
     persistent: ConversationHistoryRepository | None = getattr(
         control_plane, "conversation_memory", None
@@ -49,7 +48,6 @@ def long_term_memories(composition: Any) -> MemoryRepository | None:
     rolling summaries or recall older facts. That degrades an enhancement
     rather than breaking chat, so a missing store warns instead of raising.
     """
-
     control_plane = getattr(composition, "control_plane", None)
     repository: MemoryRepository | None = getattr(control_plane, "memories", None)
     if repository is None and getattr(composition, "mode", None) not in _IN_MEMORY_MODES:
@@ -67,7 +65,6 @@ def long_term_memory_index(composition: Any) -> MemoryIndex | None:
     dedup fall back to the repository's lexical filter, which is a weaker
     ranking rather than a broken turn.
     """
-
     control_plane = getattr(composition, "control_plane", None)
     index: MemoryIndex | None = getattr(control_plane, "memory_index", None)
     if index is None:
@@ -83,7 +80,6 @@ def model_usage_records(composition: Any) -> ModelUsageRepository | None:
     development, so a missing ledger warns rather than falling back to a
     store nobody could bill from.
     """
-
     control_plane = getattr(composition, "control_plane", None)
     repository: ModelUsageRepository | None = getattr(control_plane, "model_usage", None)
     if repository is None and getattr(composition, "mode", None) not in _IN_MEMORY_MODES:

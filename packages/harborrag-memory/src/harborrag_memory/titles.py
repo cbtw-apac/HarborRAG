@@ -21,7 +21,6 @@ async def conversation_title(
     repository's compare-and-set gives manual edits precedence across workers.
     Title failures are advisory: they must never discard a completed answer.
     """
-
     try:
         if prompt is not None:
             title = " ".join(prompt.split()[:10])[:80].rstrip()

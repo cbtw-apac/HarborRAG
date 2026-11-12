@@ -139,10 +139,16 @@ def skip_reason_for_error(error: Exception) -> str | None:
 
 
 class SharePointSkipRecorder:
-    """Collect and log the items one discovery traversal declined."""
+    """Collect and log the items one discovery traversal declined.
+
+    Args:
+        run_id: Tags every skip log entry; None leaves entries untagged.
+
+    Attributes:
+        run_id: Run tag for skip log entries.
+    """
 
     def __init__(self, run_id: str | None = None) -> None:
-        """Start with no recorded skips; ``run_id`` tags every skip log entry."""
         self.run_id = run_id
         self._skips: dict[tuple[str, str], ConnectorSkip] = {}
 
@@ -209,9 +215,10 @@ def log_event(level: int, event: str, *, run_id: str | None, **fields: object) -
     The message itself is JSON so the entry stays machine-readable whatever
     formatter the host process installs; the same fields are attached as
     ``extra`` for handlers that read record attributes.
+
+    ``logging`` refuses ``extra`` keys that collide with LogRecord attributes, so every attached
+    field carries a provider prefix.
     """
     payload = {"event": event, "run_id": run_id, **fields}
-    # ``logging`` refuses ``extra`` keys that collide with LogRecord attributes,
-    # so every attached field carries a provider prefix.
     extra = {f"sharepoint_{key}": value for key, value in payload.items()}
     logger.log(level, json.dumps(payload, default=str, sort_keys=True), extra=extra)

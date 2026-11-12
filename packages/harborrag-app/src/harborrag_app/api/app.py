@@ -56,7 +56,6 @@ def _redirect_root(request: Request) -> RedirectResponse:
 
 async def _recover_pending_submissions(app: FastAPI) -> None:
     """Continuously drain the durable workflow-submission outbox."""
-
     while True:
         try:
             recovered = await app.state.app_service.recover_pending_submissions()
@@ -71,7 +70,6 @@ async def _recover_pending_submissions(app: FastAPI) -> None:
 
 async def _sync_ingestion_progress(app: FastAPI) -> None:
     """Continuously fan active ingestion tasks' progress out via the event bus."""
-
     while True:
         try:
             await app.state.app_service.sync_ingestion_progress()
@@ -84,7 +82,6 @@ async def _sync_ingestion_progress(app: FastAPI) -> None:
 
 async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
     """Continuously drain the durable secret-retirement/audit-logging outbox."""
-
     while True:
         try:
             recovered = await app.state.app_service.recover_pending_control_plane_effects()
@@ -99,7 +96,6 @@ async def _recover_pending_control_plane_effects(app: FastAPI) -> None:
 
 async def _import_connectors_once(service: object) -> None:
     """Carry an existing ``config/sources/connectors.yaml`` into the database on the first start."""
-
     importer = getattr(service, "import_connectors_once", None)
     if importer is None:
         return
@@ -116,7 +112,6 @@ async def _import_connectors_once(service: object) -> None:
 
 async def _seed_settings_once(service: object) -> None:
     """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
-
     seeder = getattr(service, "seed_settings_once", None)
     if seeder is None:
         return
@@ -128,7 +123,6 @@ async def _seed_settings_once(service: object) -> None:
 
 async def _resume_connection_removals(app: FastAPI) -> None:
     """Finish connection and project removals a crash or failure left unfinished."""
-
     while True:
         try:
             resumed = await app.state.app_service.resume_connection_removals()
@@ -148,7 +142,6 @@ async def _sync_declared_schedules(app: FastAPI) -> None:
     Invalid configuration (``ValueError``) and a missing Temporal SDK
     (``ImportError``) cannot heal without a redeploy, so they stop the loop.
     """
-
     while True:
         try:
             await app.state.app_service.sync_declared_schedules()
@@ -172,18 +165,19 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     Runs in a worker thread: production composition executes Alembic
     migrations and a DB probe, which drive their own event loops.
+
+    selection composes an AppService; tests pass a double.
+
+    Long-term memory extraction runs on a bounded in-process worker pool owned by this process, so
+    it starts with the app and is drained -- not cancelled -- on shutdown, letting queued exchanges
+    finish.
     """
     service, mode = await asyncio.to_thread(select_app_service)
     app.state.app_service = service
-    app.state.operations = LocalOperations(
-        cast("AppService", service)  # selection composes an AppService; tests pass a double
-    )
+    app.state.operations = LocalOperations(cast("AppService", service))
     app.state.composition_mode = mode
     app.state.default_tenant_id = getattr(service, "default_tenant_id", DEFAULT_TENANT_ID)
     logger.info("Application service composed in %s mode", mode)
-    # Long-term memory extraction runs on a bounded in-process worker pool
-    # owned by this process, so it starts with the app and is drained -- not
-    # cancelled -- on shutdown, letting queued exchanges finish.
     if hasattr(service, "start_config_provider"):
         await service.start_config_provider()
     owns_memory_extraction = getattr(service, "has_memory_extraction", False)
@@ -222,10 +216,15 @@ async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
-    """Build the Control Plane API app from (env-derived) settings."""
+    """Build the Control Plane API app from (env-derived) settings.
+
+    uvicorn configures the root logger, not the "harborrag" namespace; this attaches the namespace
+    handler so runtime and route logs are emitted.
+
+    A lease spans the whole response, including streamed bodies, so it must outlive the longer of
+    the two server-owned deadlines.
+    """
     settings = settings or ApiSettings()
-    # uvicorn configures the root logger, not the "harborrag" namespace; this
-    # attaches the namespace handler so runtime and route logs are emitted.
     configure_logging()
     app = FastAPI(
         title="HarborRAG Control Plane API",
@@ -248,8 +247,6 @@ def create_fastapi_app(settings: ApiSettings | None = None) -> FastAPI:
         redis_url=redis_url,
         limits=settings.default_capacity_limits(),
         tenant_overrides=settings.tenant_capacity_limits(),
-        # A lease spans the whole response, including streamed bodies, so it
-        # must outlive the longer of the two server-owned deadlines.
         lease_seconds=(
             max(settings.api_request_timeout_seconds, settings.api_stream_timeout_seconds) + 5
         ),

@@ -59,7 +59,6 @@ class AppResources:
 
     async def runtime_client(self) -> IngestionGateway:
         """Return the ingestion gateway, connecting on first use."""
-
         if self._client is not None:
             return self._client
         async with self._client_lock:
@@ -69,7 +68,6 @@ class AppResources:
 
     async def schedule_backend(self) -> ScheduleBackend:
         """Return the schedule backend, connecting on first use."""
-
         if self._schedule_backend is not None:
             return self._schedule_backend
         async with self._schedule_backend_lock:
@@ -84,7 +82,6 @@ class AppResources:
         ports, not configuration -- so they are handed to the SDK right after
         it is constructed and before any turn can reach it.
         """
-
         if self._retrieval_runtime is None:
             self._retrieval_runtime = self._factories.retrieval_runtime(self._settings)
             if self._tenant_models is not None:
@@ -93,7 +90,6 @@ class AppResources:
 
     async def task_registry(self) -> TaskRegistry:
         """Return the task registry, connecting on first use."""
-
         if self._task_registry is not None:
             return self._task_registry
         async with self._task_registry_lock:
@@ -103,7 +99,6 @@ class AppResources:
 
     async def public_task_store(self) -> PublicTaskStore:
         """Return the task registry as the public task store."""
-
         return await self.task_registry()
 
     def connection_removal(self) -> ConnectionRemoval:
@@ -114,7 +109,6 @@ class AppResources:
 
     def event_bus(self) -> EventBusPort:
         """Return the event bus, created on first use."""
-
         if self._event_bus is None:
             self._event_bus = self._factories.event_bus()
         return self._event_bus
@@ -129,7 +123,6 @@ class AppResources:
         Raises:
             ExceptionGroup: One or more resources failed to close.
         """
-
         closers = [
             resource
             for resource in (

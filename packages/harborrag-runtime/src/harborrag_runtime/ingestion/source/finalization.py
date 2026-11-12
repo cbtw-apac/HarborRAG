@@ -20,9 +20,10 @@ from .skips import run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")
 
-# Comfortably under the smallest supported control-plane pool, so retirement
-# never competes with the rest of the task for connections.
 _MAX_CONCURRENT_RETIREMENTS = 4
+"""Comfortably under the smallest supported control-plane pool, so retirement never competes with
+the rest of the task for connections.
+"""
 
 
 class SourceFinalizationService:
@@ -46,6 +47,7 @@ class SourceFinalizationService:
         summary: SourceDispatchSummary,
         repair_progress: RelationRepairProgress | None = None,
     ) -> SourceIngestionOutcome:
+        """Repair relations, reconcile removals and close the source ingestion."""
         summary.require_total(planned.document_count)
         logger.info(
             "Source finalization started task_id=%s scan_id=%s documents=%d",
@@ -120,23 +122,26 @@ class SourceFinalizationService:
         summary: SourceDispatchSummary,
         progress: RelationRepairProgress,
     ) -> RelationRepairResult | None:
+        """Repair relations that point at documents this run published.
+
+        Repairs page by page: every document is already published, so no repair depends on another
+        page's, and memory stays bounded by one page. ``progress`` is updated in place after each
+        page; the caller may persist it (the Temporal activity heartbeats it) to resume there. A
+        reverse pass then covers documents outside this plan whose links point at something this
+        run, or an earlier one, has now published. It is not folded into ``progress``: it is
+        idempotent, so a retried attempt re-runs it rather than resuming totals it would count
+        twice. The result keeps the plan's own unresolved count, because the reverse pass only
+        reduces it and its declarers belong to other runs' summaries.
+        """
         if self._relations is None:
             return None
         try:
-            # Page by page: every document is already published, so no repair
-            # depends on another page's, and memory stays bounded by one page.
-            # ``progress`` is updated in place after each page; the caller may
-            # persist it (the Temporal activity heartbeats it) to resume here.
             async for page in planned.pages(progress.next_page):
                 result = await self._relations.repair(page, tenant_id=request.tenant_id)
                 progress.repaired_documents += result.repaired_documents
                 progress.resolved_relations += result.resolved_relations
                 progress.unresolved_relations += result.unresolved_relations
                 progress.next_page += 1
-            # Then the reverse direction: documents outside this plan whose links point
-            # at something this run (or any earlier one) has now published. Not folded
-            # into ``progress``: it is idempotent, so a retried attempt simply re-runs it
-            # rather than resuming totals it would then count twice.
             reverse = await self._relations.repair_resolvable(
                 tenant_id=request.tenant_id,
                 graph_projection_version=request.processing.graph_projection_version,
@@ -144,8 +149,6 @@ class SourceFinalizationService:
             return RelationRepairResult(
                 repaired_documents=progress.repaired_documents + reverse.repaired_documents,
                 resolved_relations=progress.resolved_relations + reverse.resolved_relations,
-                # The plan's own count: the reverse pass only ever reduces what is
-                # unresolved, and its declarers belong to other runs' summaries.
                 unresolved_relations=progress.unresolved_relations,
             )
         except Exception as error:
@@ -171,7 +174,6 @@ class SourceFinalizationService:
         control_db_max_overflow`` (15 by default), timed out, and marked the
         task FAILED even though every document had already been published.
         """
-
         slots = asyncio.Semaphore(_MAX_CONCURRENT_RETIREMENTS)
 
         async def retire(document_id: str) -> None:
@@ -188,8 +190,8 @@ class SourceFinalizationService:
         planned: PlannedDocuments,
         summary: SourceDispatchSummary,
     ) -> tuple[str, ...]:
+        """A deliberately partial scan cannot tell "not in scope" from "gone"."""
         if request.query.limit is not None or request.query.updated_after is not None:
-            # A deliberately partial scan cannot tell "not in scope" from "gone".
             logger.info(
                 "Skipping removal reconciliation for a partial scan task_id=%s "
                 "(limit/updated_after set)",

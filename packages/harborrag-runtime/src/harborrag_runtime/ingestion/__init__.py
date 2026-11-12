@@ -79,7 +79,6 @@ _EXPORT_MODULES = {
 
 def __getattr__(name: str) -> Any:
     """Import an ingestion service only when a caller requests that service."""
-
     try:
         module_name = _EXPORT_MODULES[name]
     except KeyError as error:
@@ -91,5 +90,4 @@ def __getattr__(name: str) -> Any:
 
 def __dir__() -> list[str]:
     """Include lazy public exports in interactive discovery."""
-
     return sorted(set(globals()) | set(__all__))

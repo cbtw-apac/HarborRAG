@@ -87,7 +87,6 @@ class ErasureReport:
 
     def as_dict(self) -> dict[str, int]:
         """Return the counts keyed by category name."""
-
         return {
             "memories": self.memories,
             "index_points": self.index_points,
@@ -133,7 +132,6 @@ class MemoryAdministrationService:
         without provenance: which session and messages produced another user's
         fact is that user's business, not the reader's.
         """
-
         rows = await self._store().search(
             MemoryQuery(owner=owner, scopes=scopes, limit=limit, include_invalid=True)
         )
@@ -157,7 +155,6 @@ class MemoryAdministrationService:
         takes being its author, or ``shared_scopes`` naming its scope (the
         caller's role grants moderation of that scope). Otherwise ``403``.
         """
-
         store = self._store()
         memory = await store.get(owner, memory_id)
         if memory is None:
@@ -185,7 +182,6 @@ class MemoryAdministrationService:
         Deletes the session itself, not only its messages: an emptied session still
         exists, so it would keep appearing in the caller's conversation list.
         """
-
         if owner.session_id is None or owner.principal_id is None:
             raise HarborNotFoundError("Conversation session was not found")
         identity = ConversationIdentity(
@@ -216,7 +212,6 @@ class MemoryAdministrationService:
 
     async def recover_erasure(self, effect: PendingControlPlaneEffect) -> bool:
         """Replay authorized durable intents even after their session/row disappeared."""
-
         if await self._erasure.replay(effect):
             return True
         if effect.kind != SESSION_ERASURE:
@@ -249,7 +244,6 @@ class MemoryAdministrationService:
         authored outside their own visibility key; without it a project-scoped fact
         about the erased user would stay recallable to everyone else in that project.
         """
-
         target = owner.user_id
         if target is None:
             raise HarborNotFoundError("User was not found")
@@ -302,7 +296,6 @@ class MemoryAdministrationService:
         satisfies that check. The journal retains the row's full owner so replay
         remains possible after canonical deletion.
         """
-
         if self._memories is None:
             return _Purged()
         deleted = 0
@@ -338,7 +331,6 @@ class MemoryAdministrationService:
 
 def _authored_by(memory: Memory, caller: MemoryOwner) -> bool:
     """Whether ``caller`` is the end user ``memory`` was stored under."""
-
     return (
         memory.owner.tenant_id == caller.tenant_id
         and memory.owner.user_id is not None
@@ -354,7 +346,6 @@ def _log_erasure(
     report: ErasureReport,
 ) -> None:
     """Record one erasure with identifiers and counts only -- never content."""
-
     logger.info(
         "Memory erasure kind=%s tenant=%s actor=%s target=%s %s",
         kind,

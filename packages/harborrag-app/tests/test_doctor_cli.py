@@ -97,7 +97,7 @@ def test_doctor_ignores_variables_in_commented_out_model_config(
 def test_doctor_scans_model_config_the_way_the_model_loader_reads_it(
     tmp_path: Path, monkeypatch, capsys
 ) -> None:
-    # The model loader uses yaml.safe_load, which accepts a repeated key (last wins).
+    """The model loader uses yaml.safe_load, which accepts a repeated key (last wins)."""
     project(tmp_path, monkeypatch, api_key="sk-test")
     models = tmp_path / "config" / "models" / "models.yaml"
     models.write_text(

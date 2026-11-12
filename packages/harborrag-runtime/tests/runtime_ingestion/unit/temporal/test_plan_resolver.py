@@ -75,10 +75,10 @@ async def test_indexed_plan_reads_only_the_page_that_holds_the_document() -> Non
     resolver = PlanDocumentResolver(cast(Any, plans))
 
     assert await resolver.get(_request(4)) == "d4"
-    assert await resolver.get(_request(3)) == "d3"  # same page, cached
+    assert await resolver.get(_request(3)) == "d3"
     assert await resolver.get(_request(5)) == "d5"
 
-    assert plans.index_reads == 1  # once per plan, then cached
+    assert plans.index_reads == 1
     assert plans.page_reads == [1, 2]
     assert plans.whole_reads == 0
 
@@ -104,7 +104,7 @@ async def test_plan_without_index_falls_back_to_the_whole_plan_once() -> None:
     assert await resolver.get(_request(5)) == "d5"
 
     assert plans.index_reads == 1
-    assert plans.whole_reads == 1  # cached after the first read
+    assert plans.whole_reads == 1
     assert plans.page_reads == []
 
 
@@ -123,7 +123,7 @@ def test_index_locates_pages_and_validates_contiguity() -> None:
     assert index.document_count == 5
     assert index.locate(0) == (0, 0)
     assert index.locate(2) == (0, 2)
-    assert index.locate(3) == (2, 0)  # the empty page 1 is skipped
+    assert index.locate(3) == (2, 0)
     assert index.locate(4) == (2, 1)
     with pytest.raises(IndexError):
         index.locate(5)

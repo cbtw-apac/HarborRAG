@@ -18,10 +18,9 @@ logger = logging.getLogger("harborrag.adapters.connectors.local")
 
 
 class LocalSkipReport:
-    """Accumulates the paths traversal dropped for a reportable reason."""
+    """Accumulates the paths traversal dropped for a reportable reason, starting empty."""
 
     def __init__(self) -> None:
-        """Start an empty report."""
         self._skips: dict[tuple[str, str], ConnectorSkip] = {}
 
     def __len__(self) -> int:

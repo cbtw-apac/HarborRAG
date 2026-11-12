@@ -98,6 +98,7 @@ def _service(graph: FakeGraphRepository) -> RuntimeRetrievalService:
 
 @pytest.mark.asyncio
 async def test_memory_seeds_widen_the_walk_beyond_the_vector_results() -> None:
+    """Both the result chunk and the memory-established entity were walked."""
     graph = _SeededGraph()
 
     report = await _service(graph).retrieve(
@@ -106,7 +107,6 @@ async def test_memory_seeds_widen_the_walk_beyond_the_vector_results() -> None:
         options=RetrievalOptions(observe_graph=True, graph_seeds=("node-atlas",)),
     )
 
-    # Both the result chunk and the memory-established entity were walked.
     assert [key for key, _ in graph.queries] == ["chunk-1", "node-atlas"]
     documents = {document.document_id for document in report.diagnostics.graph_documents}
     assert documents == {"document-1", "document-2"}
@@ -131,6 +131,7 @@ async def test_a_memory_seeded_document_carries_no_related_result() -> None:
 
 @pytest.mark.asyncio
 async def test_seeds_are_deduplicated_against_the_results_blanks_dropped_and_capped() -> None:
+    """The result's own chunk is walked once, not twice as a seed."""
     graph = _SeededGraph()
 
     await _service(graph).retrieve(
@@ -149,7 +150,6 @@ async def test_seeds_are_deduplicated_against_the_results_blanks_dropped_and_cap
     )
     walked = [key for key, _ in graph.queries]
 
-    # The result's own chunk is walked once, not twice as a seed.
     assert walked.count("chunk-1") == 1
     assert walked.count("node-atlas") == 1
     assert len(walked) == 1 + _MEMORY_SEED_LIMIT

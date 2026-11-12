@@ -1,3 +1,8 @@
+"""Ingestion use cases: admission, normalization, chunking and indexing.
+
+Engine depends on core only.
+"""
+
 from harborrag_engine.ingestion.admission import (
     CanonicalVersionPlanner,
     PlannedDocumentVersion,

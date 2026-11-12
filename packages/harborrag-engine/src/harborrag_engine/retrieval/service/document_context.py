@@ -106,7 +106,6 @@ class DocumentContextReader:
         Every chunk of a version carries the same ``document_title``, so the first
         validated one supplies it and callers need no separate metadata read.
         """
-
         chunks: list[DocumentContextChunk] = []
         used_bytes = 0
         next_offset: int | None = None

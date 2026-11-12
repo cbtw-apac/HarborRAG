@@ -12,7 +12,6 @@ from collections.abc import Mapping
 
 def optional_text(payload: Mapping[str, object], key: str) -> str:
     """Return a payload string, or empty when absent -- never a missing key."""
-
     value = payload.get(key)
     return value.strip() if isinstance(value, str) else ""
 
@@ -23,7 +22,6 @@ def section_path(payload: Mapping[str, object]) -> list[str]:
     Confluence writes this as a real list, but older rows stored a repr of
     one; both degrade to an empty trail rather than failing the turn.
     """
-
     value = payload.get("section_path")
     if isinstance(value, str):
         value = [value] if value.strip().startswith("[") is False else []
