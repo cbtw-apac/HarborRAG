@@ -18,7 +18,7 @@ Role = Literal["owner", "admin", "editor", "reader"]
 ROLE_ORDER: dict[Role, int] = {"reader": 0, "editor": 1, "admin": 2, "owner": 3}
 
 
-def require_role(role: Role, minimum: Role) -> None:
+def ensure_role(role: Role, minimum: Role) -> None:
     """Refuse a role below ``minimum``.
 
     Args:

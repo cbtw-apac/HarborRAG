@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from harborrag_core.domain.identity import DEFAULT_USER
-from harborrag_core.domain.member import Role, require_role
+from harborrag_core.domain.member import Role, ensure_role
 
 
 @dataclass(slots=True, frozen=True)
@@ -63,4 +63,4 @@ def authorize_role(principal: Principal, minimum: Role) -> None:
     Raises:
         HarborAuthError: The principal's role is below ``minimum``.
     """
-    require_role(principal.role, minimum)
+    ensure_role(principal.role, minimum)

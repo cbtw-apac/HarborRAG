@@ -28,7 +28,7 @@ from harborrag_core.contracts.errors import (
     HarborUnavailableError,
     HarborValidationError,
 )
-from harborrag_core.domain.member import Role, require_role
+from harborrag_core.domain.member import Role, ensure_role
 from harborrag_core.ports.config_store import SettingsStore
 from harborrag_engine.control_plane.connection_views import ANY_VERSION
 from harborrag_runtime.composition import ControlPlaneRepositories
@@ -124,7 +124,7 @@ class SettingsService:
         """
         parsed = SettingsLevel.parse(level)
         if parsed.kind != "connection":
-            require_role(role, "admin")
+            ensure_role(role, "admin")
         store = self._store()
         await require_settings_level(self._control_plane(), tenant_id, parsed)
         snapshot = await store.load(tenant_id)
