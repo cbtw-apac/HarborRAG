@@ -79,7 +79,7 @@ _NO_CANDIDATES = AuthoritativeSearchDiagnostics(
     exhausted=True,
 )
 
-logger = logging.getLogger("harborrag.runtime.retrieval")
+logger = logging.getLogger("harborrag.runtime.retrieval.service")
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

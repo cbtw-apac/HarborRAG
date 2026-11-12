@@ -483,11 +483,11 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
   | `harborrag.app.workflow_control.memory.administration` | `harborrag.memory.administration` and `harborrag.memory.erasure` |
   | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
-  | `harborrag.runtime.retrieval` | `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
+  | `harborrag.runtime.retrieval` | `harborrag.runtime.retrieval.service`, `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
   | `harborrag.runtime.retrieval.permissions` | `harborrag.engine.retrieval.service.permissions` |
   | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
   | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
-  | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `graph_search` and `vector_search` keep their names) |
+  | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `vector_search` keeps its name; `graph_search` splits into `graph_search` and `graph_search_support`) |
 
 ### HTTP API changes
 
