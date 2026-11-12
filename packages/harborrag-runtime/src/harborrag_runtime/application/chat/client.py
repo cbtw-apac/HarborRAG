@@ -10,7 +10,6 @@ from harborrag_core.contracts.errors import (
     HarborNotFoundError,
     UnknownReferenceError,
 )
-from harborrag_core.ports.completion_requests import CompletionClaim
 
 from ..memory import ConversationSessionService
 from ..schemas import AppResponse
@@ -32,48 +31,6 @@ class ChatClientMixin:
 
     _chat: ChatApplicationService
     _sessions: ConversationSessionService
-
-    async def claim_completion(
-        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
-    ) -> CompletionClaim:
-        """Claim an idempotency key for a completion; see ``CompletionRequestStore``."""
-
-        return await self._sessions.claim_completion(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            key=key,
-            request_hash=request_hash,
-        )
-
-    async def finish_completion(  # noqa: PLR0913 - mirrors CompletionRequestStore
-        self,
-        *,
-        tenant_id: str,
-        user_id: str,
-        key: str,
-        request_hash: str,
-        response_json: str | None,
-        session_id: str | None = None,
-    ) -> None:
-        """Record the terminal outcome of a claimed completion; see ``CompletionRequestStore``."""
-
-        await self._sessions.finish_completion(
-            tenant_id=tenant_id,
-            user_id=user_id,
-            key=key,
-            request_hash=request_hash,
-            response_json=response_json,
-            session_id=session_id,
-        )
-
-    async def release_completion(
-        self, *, tenant_id: str, user_id: str, key: str, request_hash: str
-    ) -> None:
-        """Free a claimed key whose request never reached a model."""
-
-        await self._sessions.release_completion(
-            tenant_id=tenant_id, user_id=user_id, key=key, request_hash=request_hash
-        )
 
     async def create_chat_session(  # noqa: PLR0913 - one component of the new session per argument
         self,

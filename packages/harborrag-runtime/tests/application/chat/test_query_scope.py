@@ -6,12 +6,16 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from harborrag_core.contracts.errors import HarborUnavailableError, HarborValidationError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.models.chat import HarborChatMessage, HarborChatResponse, HarborChatUsage
 from harborrag_core.ports.conversation import ConversationTurn
 from harborrag_memory.access import MemoryAccess
 from harborrag_runtime.application.chat.preparation import ChatTurnResources
-from harborrag_runtime.application.chat.query_scope import require_query_scope
+from harborrag_runtime.application.chat.query_scope import (
+    ScopeCheck,
+    check_query_scope,
+    scope_history,
+)
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.config.settings import RuntimeSettings
 
@@ -45,12 +49,18 @@ def resources(answer, *, failure=None):
     )
 
 
+async def gate(configured, query, access, *, model) -> ScopeCheck:
+    history = await scope_history(configured, access)
+    return await check_query_scope(configured, query, access, history=history, model=model)
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("scope", ["knowledge", "conversation"])
 async def test_gate_uses_selected_model_bounded_owned_history_and_records_cost(scope):
     configured, chat, memory, usage = resources(json.dumps({"scope": scope}))
     access = MemoryAccess("ACME", "credential", "human", session_id="session-1")
-    await require_query_scope(configured, "What is my name?", access, model="tenant-model")
+    check = await gate(configured, "What is my name?", access, model="tenant-model")
+    assert check.refusal is None
     request = chat.complete.call_args.args[0]
     assert chat.complete.call_args.kwargs["prompt"] is ChatPrompt.QUERY_GATE
     assert request.logical_model == "tenant-model" and request.sensitive
@@ -67,13 +77,13 @@ async def test_gate_uses_selected_model_bounded_owned_history_and_records_cost(s
 @pytest.mark.asyncio
 async def test_unsupported_snake_game_decision_blocks_and_accounts_without_history():
     configured, chat, memory, usage = resources('{"scope":"unsupported"}')
-    with pytest.raises(HarborValidationError, match="unrelated content"):
-        await require_query_scope(
-            configured,
-            "Give me Python code for a snake game",
-            MemoryAccess("ACME", "credential", "human"),
-            model=None,
-        )
+    check = await gate(
+        configured,
+        "Give me Python code for a snake game",
+        MemoryAccess("ACME", "credential", "human"),
+        model=None,
+    )
+    assert check.refusal is not None and "unrelated content" in check.refusal
     memory.recent.assert_not_awaited()
     assert chat.complete.await_count == 1
     assert usage.record.await_count == 1
@@ -86,9 +96,7 @@ async def test_unsupported_snake_game_decision_blocks_and_accounts_without_histo
 async def test_invalid_gate_output_never_falls_through_to_generation(answer):
     configured, _, _, usage = resources(answer)
     with pytest.raises(HarborUnavailableError):
-        await require_query_scope(
-            configured, "Question", MemoryAccess("ACME", "c", "u"), model=None
-        )
+        await gate(configured, "Question", MemoryAccess("ACME", "c", "u"), model=None)
     usage.record.assert_awaited_once()
 
 
@@ -96,7 +104,5 @@ async def test_invalid_gate_output_never_falls_through_to_generation(answer):
 async def test_usage_outage_cannot_turn_a_rejection_into_acceptance():
     configured, _, _, usage = resources('{"scope":"unsupported"}')
     usage.record.side_effect = RuntimeError("storage unavailable")
-    with pytest.raises(HarborValidationError):
-        await require_query_scope(
-            configured, "Write a game", MemoryAccess("ACME", "c", "u"), model=None
-        )
+    check = await gate(configured, "Write a game", MemoryAccess("ACME", "c", "u"), model=None)
+    assert check.refusal is not None

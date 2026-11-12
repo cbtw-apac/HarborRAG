@@ -238,7 +238,7 @@ def test_a_result_stored_by_an_older_release_is_not_replayed(client, service):
     body = {"message": "Explain the release"}
     request = ChatCompletionRequest.model_validate(body)
     attempt = CompletionAttempt(
-        service, "DEFAULT", DEFAULT_USER, "old-1", request.idempotency_hash()
+        service.conversations, "DEFAULT", DEFAULT_USER, "old-1", request.idempotency_hash()
     )
     old = {"completion_id": "chat-1", "message": {"role": "assistant", "content": "Answer"}}
 

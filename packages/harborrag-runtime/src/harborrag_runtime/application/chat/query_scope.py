@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
-from harborrag_core.contracts.errors import HarborUnavailableError, HarborValidationError
+from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.models.chat import (
     HarborChatMessage,
     HarborChatMetadata,
@@ -48,33 +48,6 @@ class ScopeCheck:
 
     response: HarborChatResponse
     refusal: str | None = None
-
-
-async def require_query_scope(
-    resources: ChatTurnResources,
-    query: str,
-    access: MemoryAccess,
-    *,
-    model: str | None,
-    trace_id: str | None = None,
-) -> None:
-    """Refuse a request that is neither about indexed knowledge nor about the conversation.
-
-    Raises:
-        HarborValidationError: The request is out of scope (``details.reason`` is
-            ``out_of_scope``).
-        HarborUnavailableError: The model's decision could not be read.
-    """
-    check = await check_query_scope(
-        resources,
-        query,
-        access,
-        history=await scope_history(resources, access),
-        model=model,
-        trace_id=trace_id,
-    )
-    if check.refusal is not None:
-        raise HarborValidationError(check.refusal, {"reason": "out_of_scope"})
 
 
 async def scope_history(resources: ChatTurnResources, access: MemoryAccess) -> ScopeHistory:

@@ -135,7 +135,9 @@ async def test_a_key_reused_with_another_body_is_refused(service: MockAppService
 
 
 async def test_a_duplicate_while_the_first_runs_is_session_busy(service: MockAppService) -> None:
-    first = CompletionAttempt(service, "DEFAULT", "alex@example.com", "concurrent-1", _HASH)
+    first = CompletionAttempt(
+        service.conversations, "DEFAULT", "alex@example.com", "concurrent-1", _HASH
+    )
     assert await first.claim() is None
 
     with pytest.raises(CompletionInProgressError) as busy:
