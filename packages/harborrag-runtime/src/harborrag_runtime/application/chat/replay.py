@@ -22,7 +22,7 @@ from harborrag_core.ports.completion_requests import CompletionRequestStore
 
 from .completion import Completion, RetrievalFound, TurnCompleted, TurnEvent
 
-logger = logging.getLogger("harborrag.app.api.chat")
+logger = logging.getLogger("harborrag.runtime.application.chat.replay")
 
 
 @dataclass(slots=True)

@@ -11,7 +11,7 @@ from harborrag_core.ports.usage import ModelUsageRepository
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.memory import ConversationHistoryRepository
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory")
+logger = logging.getLogger("harborrag.runtime.application.memory.composition")
 _IN_MEMORY_MODES = frozenset({"development", "test"})
 
 

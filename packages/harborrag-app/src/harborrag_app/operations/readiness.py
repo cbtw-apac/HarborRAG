@@ -24,7 +24,7 @@ from pydantic import SecretStr
 
 from harborrag_runtime.config.settings import RuntimeSettings
 
-logger = logging.getLogger("harborrag.app.api.readiness")
+logger = logging.getLogger("harborrag.app.operations.readiness")
 
 Check = Callable[[], Awaitable[bool]]
 

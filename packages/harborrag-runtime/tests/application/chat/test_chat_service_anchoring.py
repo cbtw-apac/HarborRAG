@@ -124,7 +124,7 @@ async def test_an_unavailable_anchoring_service_does_not_affect_public_chat(
     memory_facade.anchor_failure = RuntimeError("recall backend gone")
     service = await _service(retrieval, memory_facade, memories=_Memories(_memory()))
 
-    with caplog.at_level(logging.WARNING, logger="harborrag.app.workflow_control.chat"):
+    with caplog.at_level(logging.WARNING, logger="harborrag.runtime.application.chat.service"):
         await _complete(service)
 
     assert memory_facade.anchored == []

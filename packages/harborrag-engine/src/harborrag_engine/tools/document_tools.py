@@ -19,7 +19,7 @@ from .reader_catalog import reader_success_schema
 from .reader_support import cursor_payload, failure, success
 from .retrieval_inputs import TENANT_PROPERTY, access, integer, optional_text, text
 
-logger = logging.getLogger("harborrag.runtime.tools.documents")
+logger = logging.getLogger("harborrag.engine.tools.document_tools")
 
 _DOCUMENT = {
     "type": "object",

@@ -68,7 +68,7 @@ from .retrieval_inputs import (
 if TYPE_CHECKING:
     from harborrag_core.ports.reader import GraphReader, ReaderServices
 
-logger = logging.getLogger("harborrag.runtime.tools.graph_search")
+logger = logging.getLogger("harborrag.engine.tools.graph_search")
 _MAX_RESULTS = MAX_TOOL_RESULTS
 _MAX_PATHS = 5
 _MAX_PILOT_DEPTH = 4

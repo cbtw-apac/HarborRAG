@@ -11,7 +11,7 @@ from harborrag_runtime.scheduling import ScheduleBackend, ScheduleService, load_
 
 from ..ingestion.ports import SourceInputBuilder
 
-logger = logging.getLogger("harborrag.app.workflow_control.scheduling")
+logger = logging.getLogger("harborrag.runtime.application.scheduling.service")
 
 type ScheduleBackendProvider = Callable[[], Awaitable[ScheduleBackend]]
 

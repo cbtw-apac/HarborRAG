@@ -72,7 +72,7 @@ if TYPE_CHECKING:
     from harborrag_core.models.chat import HarborChatResponse
     from harborrag_core.ports.config_store import ConfigProvider
 
-logger = logging.getLogger("harborrag.app.workflow_control.chat")
+logger = logging.getLogger("harborrag.runtime.application.chat.service")
 
 MEMORY_WARNING = "conversation_memory_unavailable"
 STREAM_ERROR = "ChatStreamError"

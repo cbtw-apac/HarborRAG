@@ -42,7 +42,7 @@ if TYPE_CHECKING:
 type RuntimeProvider = Callable[[], "HarborRAG"]
 type _Item = tuple["MemoryContextRequest", tuple["ConversationMessage", ...]]
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory.extraction")
+logger = logging.getLogger("harborrag.runtime.application.memory.extraction")
 
 _DEFAULT_ITEM_TIMEOUT_SECONDS = 60.0
 _dropped = 0

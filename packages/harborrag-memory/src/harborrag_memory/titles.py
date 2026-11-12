@@ -6,7 +6,7 @@ import logging
 
 from harborrag_core.ports.conversation import ConversationHistoryRepository, ConversationIdentity
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory")
+logger = logging.getLogger("harborrag.memory.titles")
 
 
 async def conversation_title(

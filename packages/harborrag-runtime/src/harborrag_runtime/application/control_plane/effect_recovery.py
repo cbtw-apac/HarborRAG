@@ -22,7 +22,7 @@ from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_runtime.composition import ControlPlaneRepositories
 
-logger = logging.getLogger("harborrag.app.workflow_control.control_plane.effect_recovery")
+logger = logging.getLogger("harborrag.runtime.application.control_plane.effect_recovery")
 
 _RETIRE_SECRET_KIND = "retire_secret"
 _RETIRE_WHEN_IDLE_KIND = "retire_secret_when_idle"

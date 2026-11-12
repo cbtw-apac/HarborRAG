@@ -113,6 +113,7 @@ action.
 - **Breaking:** `HARBORRAG_INGESTION_TENANT_ID` is renamed `HARBORRAG_TENANT_ID` (setting `RuntimeSettings.tenant_id`) and also sets the API's default tenant, so the API, the workers and the CLI share one; the old name has no alias and stops startup
 - **Breaking:** model variables with the `HARBOR_CHAT_`, `HARBOR_EMBED_` and `HARBOR_MEMORY_` prefixes, such as those the model smoke tests read, are renamed `HARBORRAG_CHAT_`, `HARBORRAG_EMBED_` and `HARBORRAG_MEMORY_`
 - **Breaking:** `harborrag-runtime` depends on `harborrag-memory` directly and its `memory` extra is removed; `pip install harborrag-runtime[memory]` installs the same packages and prints a warning about the unknown extra
+- **Breaking:** loggers named `harborrag.app.workflow_control.*`, `harborrag.app.api.chat`, `harborrag.app.api.readiness`, `harborrag.runtime.retrieval*`, `harborrag.runtime.ingestion.cleanup` and `harborrag.runtime.tools.*` are renamed after the module that owns them (`harborrag.runtime.application.*`, `harborrag.engine.*`, `harborrag.memory.*`, `harborrag.app.operations.readiness`); log filters and alert rules that select them by name need the new names, see the [upgrade guide](docs/users/upgrading.md#logger-names)
 - Config YAML files hold values only; their explanations moved to the configuration pages. `config/ingestion/parsers.yaml` keeps its comments because its bytes are the parser identity
 
 #### Deployment

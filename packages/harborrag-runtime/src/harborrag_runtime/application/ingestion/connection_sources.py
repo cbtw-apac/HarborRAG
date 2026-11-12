@@ -16,7 +16,7 @@ from harborrag_runtime.ingestion.connections import ConnectionResolver, Resolved
 
 type SourcePreparation = Callable[..., PreparedSourceSubmission]
 
-logger = logging.getLogger("harborrag.app.workflow_control.ingestion.connection_sources")
+logger = logging.getLogger("harborrag.runtime.application.ingestion.connection_sources")
 
 
 class ConnectionSourceInputBuilder:

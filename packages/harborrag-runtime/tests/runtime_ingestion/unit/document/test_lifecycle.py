@@ -97,7 +97,7 @@ async def test_cleanup_removes_retired_vector_and_graph_projections(
             ),
             connector,
         )
-        with caplog.at_level(logging.INFO, logger="harborrag.runtime.ingestion.cleanup"):
+        with caplog.at_level(logging.INFO, logger="harborrag.engine.ingestion.maintenance.cleanup"):
             result = await ProjectionCleanupService(
                 control=control,
                 vector_store=dependencies.vector_store,

@@ -24,7 +24,7 @@ from harborrag_core.ports.usage import ModelUsageRecord, ModelUsageRepository
 
 from .identity import MemoryIdentity
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory")
+logger = logging.getLogger("harborrag.runtime.application.memory.usage")
 
 
 @dataclass(frozen=True, slots=True)

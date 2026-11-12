@@ -27,7 +27,7 @@ from harborrag_engine.ingestion.operations import (
     source_keys_for,
 )
 
-logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
+logger = logging.getLogger("harborrag.engine.ingestion.failure_inbox")
 
 FAILURE_ID_PREFIX = "fail_"
 MAX_RETRY_FAILURES = 1000

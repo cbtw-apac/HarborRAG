@@ -30,7 +30,7 @@ from .retrieval_inputs import (
     text,
 )
 
-logger = logging.getLogger("harborrag.runtime.tools.entities")
+logger = logging.getLogger("harborrag.engine.tools.find_entities")
 
 _FACET_VALUE = {
     "oneOf": [

@@ -38,7 +38,7 @@ from harborrag_runtime.config.connectors.models import ConnectionValidationError
 from .connections import ConnectionRuns, ConnectionService
 from .effect_recovery import log_activity
 
-logger = logging.getLogger("harborrag.app.workflow_control.control_plane.projects")
+logger = logging.getLogger("harborrag.runtime.application.control_plane.projects")
 
 
 class ProjectIdTakenError(HarborConflictError):

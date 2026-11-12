@@ -24,7 +24,7 @@ from harborrag_engine.ingestion.presenters import TERMINAL_STATES
 
 from .ports import PublicTaskStore
 
-logger = logging.getLogger("harborrag.app.workflow_control.ingestion.progress_bridge")
+logger = logging.getLogger("harborrag.runtime.application.ingestion.progress_bridge")
 
 _SNAPSHOT_KEY = "_last_progress_snapshot"
 _FAILURE_CURSOR_KEY = "_last_failure_cursor"

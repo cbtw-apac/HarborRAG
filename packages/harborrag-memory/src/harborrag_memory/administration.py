@@ -42,7 +42,7 @@ if TYPE_CHECKING:
     from harborrag_core.ports.conversation import ConversationHistoryRepository
     from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryRepository
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
+logger = logging.getLogger("harborrag.memory.administration")
 
 _PAGE = 1_000
 _MAX_PASSES = 50

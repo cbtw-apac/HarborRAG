@@ -34,7 +34,7 @@ from harborrag_core.storage import StorageOperationContext
 from .contracts import GraphDocumentSummary, GraphResultNeighborhood, KnowledgeGraphReader
 from .validation import required_text
 
-logger = logging.getLogger("harborrag.runtime.retrieval")
+logger = logging.getLogger("harborrag.engine.retrieval.service.graph_observation")
 
 _GRAPH_SEED_LIMIT = 10
 _GRAPH_OBSERVE_DEPTH = 2

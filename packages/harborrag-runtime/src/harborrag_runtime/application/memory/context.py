@@ -11,7 +11,7 @@ from harborrag_runtime.memory import MemoryContext, MemoryContextRequest
 from .identity import MemoryIdentity
 
 RECENT_EXCHANGES = 3
-logger = logging.getLogger("harborrag.app.workflow_control.memory")
+logger = logging.getLogger("harborrag.runtime.application.memory.context")
 
 
 def memory_context_request(identity: MemoryIdentity, question: str) -> MemoryContextRequest:

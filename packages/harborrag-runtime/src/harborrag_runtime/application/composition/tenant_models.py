@@ -18,7 +18,7 @@ from harborrag_core.ports.secrets import SecretsPort
 from harborrag_runtime.chat import TenantModelSources
 from harborrag_runtime.config.settings import RuntimeSettings
 
-logger = logging.getLogger("harborrag.app.workflow_control.composition.tenant_models")
+logger = logging.getLogger("harborrag.runtime.application.composition.tenant_models")
 
 
 def tenant_model_sources(

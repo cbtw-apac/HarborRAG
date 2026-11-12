@@ -20,7 +20,7 @@ from .reader_catalog import LIST_SOURCES_SPEC
 from .reader_support import cursor_payload, failure, match_cursor_value, source, success
 from .retrieval_inputs import access, integer, optional_text, string_list, text
 
-logger = logging.getLogger("harborrag.runtime.tools.sources")
+logger = logging.getLogger("harborrag.engine.tools.source_list_tool")
 
 
 @dataclass(slots=True)

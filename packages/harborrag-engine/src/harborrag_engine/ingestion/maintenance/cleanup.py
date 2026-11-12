@@ -19,7 +19,7 @@ from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import VectorProjectionStore
 
-logger = logging.getLogger("harborrag.runtime.ingestion.cleanup")
+logger = logging.getLogger("harborrag.engine.ingestion.maintenance.cleanup")
 
 
 @dataclass(frozen=True, slots=True)

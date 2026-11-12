@@ -72,7 +72,7 @@ from .effect_recovery import defer_retirement, log_activity, retire_refs
 if TYPE_CHECKING:
     from harborrag_runtime.composition.connection_removal import ConnectionRemoval
 
-logger = logging.getLogger("harborrag.app.workflow_control.control_plane.connections")
+logger = logging.getLogger("harborrag.runtime.application.control_plane.connections")
 
 TEST_TIMEOUT_SECONDS = 15.0
 _DELETE_CONNECTION_JOB: Final = "delete_connection"

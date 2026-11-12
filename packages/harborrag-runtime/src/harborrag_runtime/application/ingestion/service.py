@@ -56,7 +56,7 @@ from .progress_bridge import CONTROL_AUDIT, event_prefix
 from .recovery import retry_from_task, source_from_task
 from .retry_selection import retryable_document_ids
 
-logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
+logger = logging.getLogger("harborrag.runtime.application.ingestion.service")
 
 _SUBMISSION_STATE_KEY = "submission_state"
 _SUBMITTED = "submitted"

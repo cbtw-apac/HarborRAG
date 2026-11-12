@@ -46,7 +46,7 @@ from .reader_support import (
 from .retrieval_inputs import access, boolean, integer, optional_text, string_list, text
 from .source_list_tool import ListSourcesTool as ListSourcesTool
 
-logger = logging.getLogger("harborrag.runtime.tools.readers")
+logger = logging.getLogger("harborrag.engine.tools.reader_tools")
 
 
 @dataclass(slots=True)

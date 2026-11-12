@@ -19,7 +19,7 @@ from harborrag_runtime.sdk import HarborRAG, IngestionRequest
 from ..errors import failure_response
 from ..schemas import AppResponse
 
-logger = logging.getLogger("harborrag.app.workflow_control.ingestion.direct")
+logger = logging.getLogger("harborrag.runtime.application.ingestion.direct")
 
 CLI_PRINCIPAL = "harborrag-cli"
 

@@ -13,7 +13,7 @@ from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.ports.control_plane import PendingEffectRepositoryPort
 from harborrag_core.ports.memory import Memory, MemoryIndex, MemoryOwner, MemoryRepository
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory.administration")
+logger = logging.getLogger("harborrag.memory.erasure")
 MEMORY_ERASURE = "erase_memory"
 SESSION_ERASURE = "erase_memory_session"
 _OWNER_FIELDS = frozenset(field.name for field in fields(MemoryOwner))

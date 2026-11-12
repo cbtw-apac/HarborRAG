@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from harborrag_core.contracts.reader import RetrievalResponse
     from harborrag_core.ports.reader import ReaderServices, RetrievalReader
 
-logger = logging.getLogger("harborrag.runtime.tools.vector_search")
+logger = logging.getLogger("harborrag.engine.tools.vector_search")
 
 _DEFAULT_TOP_K = 5
 _MAX_TOP_K = MAX_TOOL_RESULTS

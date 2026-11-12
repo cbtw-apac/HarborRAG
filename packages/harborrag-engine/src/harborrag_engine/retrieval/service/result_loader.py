@@ -17,7 +17,7 @@ from .validation import required_text
 
 _LOAD_CONCURRENCY = 8
 
-logger = logging.getLogger("harborrag.runtime.retrieval")
+logger = logging.getLogger("harborrag.engine.retrieval.service.result_loader")
 
 
 class EvidenceResultLoader:

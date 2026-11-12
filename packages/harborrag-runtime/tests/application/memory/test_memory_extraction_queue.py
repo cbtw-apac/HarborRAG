@@ -152,7 +152,7 @@ async def test_a_full_queue_drops_with_a_warning_instead_of_raising(
             return ()
 
     queue = _queue(FakeRuntime(FakeChatFacade(), memory=_Blocking()), max_queue=1, workers=1)
-    logger = "harborrag.app.workflow_control.memory.extraction"
+    logger = "harborrag.runtime.application.memory.extraction"
     await queue.start()
 
     with caplog.at_level(logging.WARNING, logger=logger):
@@ -175,7 +175,7 @@ async def test_a_failing_exchange_does_not_kill_the_worker_pool(
     memory = FakeMemoryFacade()
     memory.extract_failure = RuntimeError("model gone")
     queue = _queue(FakeRuntime(FakeChatFacade(), memory=memory), workers=1)
-    logger = "harborrag.app.workflow_control.memory.extraction"
+    logger = "harborrag.runtime.application.memory.extraction"
     await queue.start()
 
     with caplog.at_level(logging.WARNING, logger=logger):

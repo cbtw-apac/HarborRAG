@@ -16,7 +16,7 @@ from .options import ChatExecutionOptions
 from .preparation import PreparedTurn
 from .presenters import cited_evidence
 
-logger = logging.getLogger("harborrag.app.workflow_control.chat")
+logger = logging.getLogger("harborrag.runtime.application.chat.events")
 
 
 def error_event(exc: Exception, message: str) -> dict[str, object]:

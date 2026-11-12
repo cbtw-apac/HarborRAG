@@ -21,7 +21,7 @@ from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFa
 
 pytestmark = pytest.mark.unit
 
-_LOGGER = "harborrag.app.workflow_control.composition.tenant_models"
+_LOGGER = "harborrag.runtime.application.composition.tenant_models"
 
 
 class _Catalog:

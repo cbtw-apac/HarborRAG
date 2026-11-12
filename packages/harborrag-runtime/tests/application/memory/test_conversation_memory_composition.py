@@ -26,7 +26,7 @@ def test_conversation_memory_falls_back_to_in_memory_and_warns(caplog) -> None:
         control_plane=SimpleNamespace(conversation_memory=None),
     )
 
-    with caplog.at_level("WARNING", logger="harborrag.app.workflow_control.memory"):
+    with caplog.at_level("WARNING", logger="harborrag.runtime.application.memory.composition"):
         memory = conversation_memory(composition)
 
     assert isinstance(memory, InMemoryConversationMemory)
@@ -38,7 +38,7 @@ def test_conversation_memory_falls_back_to_in_memory_and_warns(caplog) -> None:
 def test_conversation_memory_falls_back_in_explicit_development_mode(caplog) -> None:
     composition = SimpleNamespace(mode="development")
 
-    with caplog.at_level("WARNING", logger="harborrag.app.workflow_control.memory"):
+    with caplog.at_level("WARNING", logger="harborrag.runtime.application.memory.composition"):
         memory = conversation_memory(composition)
 
     assert isinstance(memory, InMemoryConversationMemory)

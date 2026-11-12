@@ -69,7 +69,7 @@ from .resources import AppResources
 
 REMOVAL_RECOVERY_LEASE_NAME = "connection_removal_recovery"
 
-logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
+logger = logging.getLogger("harborrag.runtime.application.composition.service")
 
 
 class AppService(

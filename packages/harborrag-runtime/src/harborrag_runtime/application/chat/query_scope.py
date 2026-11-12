@@ -23,7 +23,7 @@ from harborrag_runtime.chat import ChatPrompt
 
 from .preparation import ChatTurnResources
 
-logger = logging.getLogger("harborrag.app.workflow_control.chat.query_scope")
+logger = logging.getLogger("harborrag.runtime.application.chat.query_scope")
 
 
 class ScopeDecision(BaseModel):

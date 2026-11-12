@@ -462,6 +462,33 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   HarborRAG records the run as `cancelled` when you next cancel it or start an ingestion
   of its connection.
 
+#### Logger names
+
+- **Loggers that moved with their code are renamed.** A log filter, alert rule or
+  dashboard query that selects records by logger name needs the new name. Messages and
+  levels are unchanged. Each logger is now named after the module that owns it, so a prefix
+  that covered several modules becomes one name per module.
+
+  | Old logger | New logger |
+  | --- | --- |
+  | `harborrag.app.workflow_control.chat` | `harborrag.runtime.application.chat.service` and `harborrag.runtime.application.chat.events` |
+  | `harborrag.app.workflow_control.chat.query_scope` | `harborrag.runtime.application.chat.query_scope` |
+  | `harborrag.app.api.chat` | `harborrag.runtime.application.chat.replay` |
+  | `harborrag.app.workflow_control.composition.*` | `harborrag.runtime.application.composition.*` |
+  | `harborrag.app.workflow_control.control_plane.*` | `harborrag.runtime.application.control_plane.*` |
+  | `harborrag.app.workflow_control.ingestion` | `harborrag.runtime.application.ingestion.service` and `harborrag.engine.ingestion.failure_inbox` |
+  | `harborrag.app.workflow_control.ingestion.*` | `harborrag.runtime.application.ingestion.*` |
+  | `harborrag.app.workflow_control.scheduling` | `harborrag.runtime.application.scheduling.service` |
+  | `harborrag.app.workflow_control.memory` | `harborrag.runtime.application.memory.composition`, `.context` and `.usage`, and `harborrag.memory.messages` and `harborrag.memory.titles` |
+  | `harborrag.app.workflow_control.memory.extraction` | `harborrag.runtime.application.memory.extraction` |
+  | `harborrag.app.workflow_control.memory.administration` | `harborrag.memory.administration` and `harborrag.memory.erasure` |
+  | `harborrag.app.api.readiness` | `harborrag.app.operations.readiness` |
+  | `harborrag.runtime.retrieval` | `harborrag.engine.retrieval.service.graph_observation` and `harborrag.engine.retrieval.service.result_loader` |
+  | `harborrag.runtime.retrieval.permissions` | `harborrag.engine.retrieval.service.permissions` |
+  | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
+  | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
+  | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `graph_search` and `vector_search` keep their names) |
+
 ### HTTP API changes
 
 #### Routes, errors and limits

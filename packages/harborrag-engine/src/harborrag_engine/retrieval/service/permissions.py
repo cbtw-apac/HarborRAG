@@ -32,7 +32,7 @@ from harborrag_core.indexing import (
 from harborrag_core.storage import StorageOperationContext
 from harborrag_core.topology.search import TopologySearchPort
 
-logger = logging.getLogger("harborrag.runtime.retrieval.permissions")
+logger = logging.getLogger("harborrag.engine.retrieval.service.permissions")
 
 _ENUMERATION_BUDGET = 10000
 _LOOKUP_TIMEOUT_SECONDS = 2.0

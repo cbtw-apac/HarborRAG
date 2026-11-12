@@ -27,7 +27,7 @@ from .contracts import RetrievalOptions
 from .evidence import evidence_metadata
 from .topology_validation import eligible_semantic_candidates
 
-logger = logging.getLogger("harborrag.runtime.retrieval.topology")
+logger = logging.getLogger("harborrag.engine.retrieval.service.topology")
 
 
 @dataclass(frozen=True, slots=True)

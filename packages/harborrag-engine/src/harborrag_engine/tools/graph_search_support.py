@@ -13,7 +13,7 @@ from harborrag_engine.ingestion.projections.graph.source_projector_support impor
 
 from .retrieval_inputs import string_list
 
-logger = logging.getLogger("harborrag.runtime.tools.graph_search")
+logger = logging.getLogger("harborrag.engine.tools.graph_search_support")
 
 COMPLETION_SCHEMA: dict[str, object] = {
     "type": "object",

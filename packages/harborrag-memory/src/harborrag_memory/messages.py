@@ -28,7 +28,7 @@ from harborrag_core.ports.conversation import (
     new_message_id,
 )
 
-logger = logging.getLogger("harborrag.app.workflow_control.memory")
+logger = logging.getLogger("harborrag.memory.messages")
 
 ChatMode = Literal["instant", "classic"]
 """The answer modes chat runs in this release."""
