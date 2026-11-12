@@ -10,6 +10,7 @@ from .composition import connect_topology_authority
 async def configure_indexing(
     settings: RuntimeSettings, config: TenantIndexingConfig
 ) -> dict[str, object]:
+    """Store a tenant's indexing configuration and enqueue the jobs it affects."""
     async with connect_topology_authority(settings) as control:
         state = await control.topology.configure_indexing(config)
         count = await control.topology.reconcile(config.tenant_id)
@@ -17,6 +18,7 @@ async def configure_indexing(
 
 
 async def indexing_status(settings: RuntimeSettings, tenant_id: str) -> dict[str, object]:
+    """Return a tenant's stored indexing configuration state."""
     async with connect_topology_authority(settings) as control:
         state = await control.topology.get_indexing(tenant_id)
     return state.model_dump(mode="json")
@@ -24,7 +26,6 @@ async def indexing_status(settings: RuntimeSettings, tenant_id: str) -> dict[str
 
 async def permission_coverage(settings: RuntimeSettings, tenant_id: str) -> dict[str, object]:
     """Return aggregate active-corpus ACL coverage without source or principal identifiers."""
-
     async with connect_topology_authority(settings) as control:
         report = await control.topology.permission_coverage(tenant_id)
     return report.model_dump(mode="json")
@@ -33,6 +34,7 @@ async def permission_coverage(settings: RuntimeSettings, tenant_id: str) -> dict
 async def import_permissions(
     settings: RuntimeSettings, snapshot: ResolvedPermissionSnapshot
 ) -> dict[str, object]:
+    """Store one resolved permission snapshot and enqueue the jobs it affects."""
     async with connect_topology_authority(settings) as control:
         await control.topology.set_permissions(snapshot)
         count = await control.topology.reconcile(snapshot.tenant_id)

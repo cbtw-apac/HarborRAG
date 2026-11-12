@@ -29,7 +29,7 @@ async def configure(
     settings: RuntimeSettings,
     policy: TopologyPolicy,
 ) -> dict[str, object]:
-    """Changing source policy creates topology jobs, never new document versions."""
+    """Store a source's topology policy and enqueue jobs for it, never new document versions."""
     if policy.enabled:
         pinned_configuration(
             HarborChatClientConfig.from_file(settings.model_config_path), policy.profile
@@ -47,12 +47,14 @@ async def configure(
 
 
 def make_profile(settings: RuntimeSettings, model: str | None = None) -> ExtractionProfile:
+    """Build the default extraction profile from the model catalog."""
     return default_extraction_profile(
         HarborChatClientConfig.from_file(settings.model_config_path), model
     )
 
 
 async def disable(settings: RuntimeSettings, tenant_id: str, scope: str) -> dict[str, object]:
+    """Turn off topology enrichment for one source scope."""
     async with connect_topology_authority(settings) as control:
         policy = await control.topology.get_policy(tenant_id, scope)
         if policy is None:
@@ -64,6 +66,7 @@ async def disable(settings: RuntimeSettings, tenant_id: str, scope: str) -> dict
 
 
 async def status(settings: RuntimeSettings, tenant_id: str) -> list[dict[str, object]]:
+    """List the tenant's topology jobs with their state and accepted build."""
     async with connect_topology_authority(settings) as control:
         jobs = await control.topology.list_jobs(tenant_id)
         return [
@@ -106,7 +109,6 @@ async def run(
 
 async def apply_graph_build_config(settings: RuntimeSettings) -> dict[str, object]:
     """Validate and synchronize the desired graph-build policy explicitly."""
-
     config = GraphBuildConfig.from_settings(settings)
     effective = config.effective_settings(settings)
     async with connect_topology_authority(effective) as control:
@@ -160,6 +162,7 @@ async def entities(
     *,
     principal_id: str | None = None,
 ) -> list[dict[str, object]]:
+    """List up to 100 active entity mentions, filtered by label and the principal's access."""
     async with connect_topology_authority(settings) as control:
         mentions = await control.topology.active_mentions(
             tenant_id,
@@ -190,13 +193,15 @@ async def inspect_build(
     principal_id: str,
     limit: int = 20,
 ) -> dict[str, object]:
-    """Return generated topology and exact evidence only after canonical ACL checks."""
+    """Return generated topology and exact evidence only after canonical ACL checks.
+
+    One error covers missing, retired, stale-ACL and forbidden builds.
+    """
     access = AccessContext(principal_id=principal_id, tenant_id=TenantId(tenant_id))
     async with connect_topology_authority(settings) as control:
         repo = control.topology
         eligible = await repo.eligible_build_ids(tenant_id, (build_id,), access=access)
         if build_id not in eligible:
-            # One error covers missing, retired, stale-ACL, and forbidden builds.
             raise ValueError("topology build is unavailable")
         topology = await repo.get_build(tenant_id, build_id)
         if topology is None:
@@ -242,6 +247,7 @@ async def derive(settings: RuntimeSettings, tenant_id: str, build_id: str) -> ob
 
 
 async def resolve(settings: RuntimeSettings, request: ResolutionRequest) -> dict[str, object]:
+    """Record an entity resolution decision and enqueue the jobs it affects."""
     async with connect_topology_authority(settings) as control:
         decision = await control.topology.record_resolution(request)
         count = await control.topology.reconcile(request.tenant_id)
@@ -249,6 +255,7 @@ async def resolve(settings: RuntimeSettings, request: ResolutionRequest) -> dict
 
 
 async def resolutions(settings: RuntimeSettings, tenant_id: str) -> list[dict[str, object]]:
+    """List the tenant's recorded entity resolution decisions."""
     async with connect_topology_authority(settings) as control:
         return [
             item.model_dump(mode="json")

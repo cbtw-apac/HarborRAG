@@ -12,6 +12,8 @@ from harborrag_core.topology.records import TopologyBuildContent
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.topology import operations
 
+pytestmark = pytest.mark.unit
+
 
 def _connect(value):
     @asynccontextmanager

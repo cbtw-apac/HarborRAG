@@ -31,6 +31,7 @@ class TopologyInspectionBuilder:
 
         Returns:
             JSON-ready mapping of build identity, generation provenance and evidence.
+
         """
         bounded = max(1, min(limit, 100))
         mentions = self.topology.mentions[:bounded]

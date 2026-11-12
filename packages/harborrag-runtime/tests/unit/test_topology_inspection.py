@@ -13,6 +13,8 @@ from harborrag_core.topology.permissions import ResolvedPermissionSnapshot
 from harborrag_engine.topology.inspection import TopologyInspectionBuilder
 from harborrag_runtime.topology import operations
 
+pytestmark = pytest.mark.unit
+
 
 async def _permit_reader(harness: Harness, document_id: str) -> None:
     now = utc_now()
