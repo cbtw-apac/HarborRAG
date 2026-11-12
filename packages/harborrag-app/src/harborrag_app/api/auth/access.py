@@ -17,8 +17,8 @@ from fastapi.dependencies.models import Dependant
 from fastapi.routing import APIRoute
 from starlette.routing import BaseRoute
 
-from harborrag_app.operations.principal import ROLE_ORDER, Principal, authorize_role
-from harborrag_core.domain.member import Role
+from harborrag_app.operations.principal import Principal, authorize_role
+from harborrag_core.domain.member import ROLE_ORDER, Role
 
 from ..rate_limit import RateBucket, charge
 from .dependencies import get_principal

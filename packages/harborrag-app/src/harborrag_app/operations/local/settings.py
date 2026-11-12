@@ -1,7 +1,6 @@
 """In-process runtime settings operations.
 
 Handles:
-- The ``level`` text as a ``SettingsLevel``, and the admin rule for levels other than a connection's
 - ``If-Match`` as the service's expected revision; a revision as the ETag and its ``rev_<N>`` label
 
 Does NOT set the ``ETag`` header or status codes; the transport does.
@@ -16,12 +15,12 @@ from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.results import Tagged
 from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.scope import Scope
-from harborrag_core.config_store import SettingsLevel, revision_label
-from harborrag_core.contracts.errors import HarborValidationError
+from harborrag_core.config_store import revision_label
 from harborrag_runtime.application.control_plane.connection_views import (
     etag,
     version_from_etag,
 )
+from harborrag_runtime.application.control_plane.settings_service import SettingsPatch
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
@@ -56,11 +55,11 @@ class SettingsOps:
             SettingsLevelNotFoundError: The project or connection of ``level`` does not exist.
         """
         scope.require(OPERATIONS["read_settings"].role)
-        parsed = SettingsLevel.parse(level)
-        if parsed.kind != "connection":
-            scope.require("admin")
         result = await self._app_service.settings_service.read(
-            tenant_id=scope.tenant_id, level=parsed, effective=effective
+            tenant_id=scope.tenant_id,
+            level=level,
+            effective=effective,
+            role=scope.principal.role,
         )
         body = SettingsOut(
             level=result.level, revision=revision_label(result.revision), values=result.values
@@ -97,20 +96,15 @@ class SettingsOps:
             SettingsReindexRequiredError: A key of ``body`` needs a reindex.
         """
         scope.require(OPERATIONS["patch_settings"].role)
-        parsed = SettingsLevel.parse(level)
-        if reindex:
-            raise HarborValidationError(
-                "reindex cannot be started from a settings change", details={"field": "reindex"}
-            )
-        expected = version_from_etag(if_match)
-        if expected is None:
-            raise HarborValidationError("If-Match is required", details={"field": "If-Match"})
         result = await self._app_service.settings_service.patch(
             tenant_id=scope.tenant_id,
-            level=parsed,
-            body=body,
-            expected_revision=expected,
-            dry_run=dry_run,
+            request=SettingsPatch(
+                level=level,
+                body=body,
+                expected_revision=version_from_etag(if_match),
+                dry_run=dry_run,
+                reindex=reindex,
+            ),
             actor=scope.actor,
         )
         patched = SettingsPatchOut.model_validate(

@@ -147,3 +147,15 @@ class ChatModelUnavailableError(HarborUnavailableError):
     """No chat model answered: none is configured, or the provider is down."""
 
     error_code = "llm_unavailable"
+
+
+class ModeUnavailableError(HarborValidationError):
+    """The chat mode is not enabled on this install."""
+
+    error_code = "mode_unavailable"
+
+
+class CompletionInProgressError(HarborConflictError):
+    """The first request with this idempotency key is still being answered."""
+
+    error_code = "session_busy"

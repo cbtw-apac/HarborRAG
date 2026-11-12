@@ -2,14 +2,28 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncGenerator
 
+from harborrag_core.contracts.errors import (
+    HarborConnectionError,
+    HarborNotFoundError,
+    UnknownReferenceError,
+)
 from harborrag_core.ports.completion_requests import CompletionClaim
 
 from ..memory import ConversationSessionService
 from ..schemas import AppResponse
 from .completion import TurnEvent
+from .completion_request import (
+    CompletionCaller,
+    CompletionOutcome,
+    CompletionRequest,
+    ReplayKey,
+    chat_options,
+)
 from .options import ChatExecutionOptions
+from .replay import CompletionAttempt
 from .service import ChatApplicationService
 
 
@@ -90,6 +104,86 @@ class ChatClientMixin:
             title=title,
             project_id=project_id,
         )
+
+    async def start_chat_session(
+        self,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        user_id: str | None,
+        title: str | None,
+        project_id: str | None,
+    ) -> AppResponse:
+        """Create a chat session, a project that does not exist being a reference error.
+
+        Raises:
+            UnknownReferenceError: ``project_id`` does not exist in ``tenant_id`` (field
+                ``project_id``).
+            HarborConnectionError: The chat service did not create the session.
+        """
+
+        try:
+            result = await self.create_chat_session(
+                tenant_id=tenant_id,
+                principal_id=principal_id,
+                user_id=user_id,
+                title=title,
+                project_id=project_id,
+            )
+        except HarborNotFoundError as exc:
+            raise UnknownReferenceError(str(exc), {"field": "project_id"}) from exc
+        if not result.ok:
+            raise HarborConnectionError("Chat service is unavailable")
+        return result
+
+    async def complete_chat_request(
+        self, request: CompletionRequest, *, caller: CompletionCaller, replay: ReplayKey
+    ) -> CompletionOutcome:
+        """Answer one completion request once, replaying the stored answer for a repeated key.
+
+        Every refusal of the request comes before the key is claimed and before any model
+        call. A repeated ``replay.key`` with the same body returns the stored completion
+        without a model call.
+
+        Args:
+            request: The question and its narrowing.
+            caller: Who asks, from verified claims.
+            replay: The idempotency key and the hash of the request body.
+
+        Returns:
+            The completion as JSON, and whether it was replayed.
+
+        Raises:
+            ModeUnavailableError: ``request.mode`` is ``advanced`` or ``auto``.
+            HarborValidationError: ``request.filters`` cannot be applied, or the key was
+                used with another body.
+            CompletionInProgressError: The first request with the key is still being answered.
+            HarborConflictError: The first request with the key failed.
+            HarborConnectionError: The turn ended without its answer.
+        """
+
+        options = chat_options(request, user_id=caller.user_id)
+        attempt = CompletionAttempt(
+            self._sessions,
+            caller.tenant_id,
+            caller.user_id or caller.principal_id,
+            replay.key,
+            replay.request_hash,
+        )
+        stored = await attempt.claim()
+        if stored is not None:
+            return CompletionOutcome(stored, replayed=True)
+        completion = await attempt.settle(
+            self._chat.answer(
+                request.message,
+                tenant_id=caller.tenant_id,
+                principal_id=caller.principal_id,
+                options=options,
+            )
+        )
+        body = json.dumps(completion.data(), ensure_ascii=False, separators=(",", ":"))
+        await attempt.finish(body, session_id=completion.session_id)
+        return CompletionOutcome(body, replayed=False)
 
     async def chat_session_exists(
         self,

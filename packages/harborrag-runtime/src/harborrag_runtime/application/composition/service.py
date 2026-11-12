@@ -29,12 +29,13 @@ from ..control_plane.effect_recovery import (
 from ..control_plane.projects import ProjectService
 from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
-from ..control_plane.tenants import tenants_with_data
+from ..control_plane.tenants import tenant_has_data, tenants_with_data
 from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.failure_inbox import FailureInboxService
+from ..ingestion.follower import IngestionFollower
 from ..ingestion.operations import IngestionOperations
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
@@ -48,6 +49,7 @@ from ..ingestion.progress_bridge import (
     sync_run,
 )
 from ..ingestion.service import IngestionApplicationService
+from ..ingestion.starter import IngestionStarter
 from ..memory import (
     ConversationDirectoryService,
     ConversationSessionService,
@@ -191,6 +193,14 @@ class AppService(
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
+        self._ingestion_starter = IngestionStarter(
+            projects=self._project_service,
+            connections=self._connection_service,
+            runs=self._ingestion_operations,
+        )
+        self._ingestion_follower = IngestionFollower(
+            runs=self._ingestion_operations, events=self.stream_ingestion_events
+        )
         settings_registry = registry_for(self._settings)
         self._settings_service = SettingsService(
             control_plane=self._control_plane, registry=settings_registry
@@ -208,6 +218,16 @@ class AppService(
     def ingestion_operations(self) -> IngestionOperations:
         """Run reads behind the ``/v1/admin/ingestions`` routes."""
         return self._ingestion_operations
+
+    @property
+    def ingestion_starter(self) -> IngestionStarter:
+        """Starts the ingestions behind ``POST /v1/admin/ingestions``."""
+        return self._ingestion_starter
+
+    @property
+    def ingestion_follower(self) -> IngestionFollower:
+        """Follows the run events behind ``/v1/admin/ingestions/{ingestion_id}/events``."""
+        return self._ingestion_follower
 
     @property
     def failure_inbox(self) -> FailureInboxService:
@@ -308,6 +328,10 @@ class AppService(
     async def tenants_with_data(self) -> list[str]:
         """List the tenants holding a project or a connection."""
         return await tenants_with_data(self._control_plane())
+
+    async def tenant_has_data(self, tenant_id: str) -> bool:
+        """Whether the tenant holds a project, a connection or a saved settings revision."""
+        return await tenant_has_data(self._control_plane(), tenant_id)
 
     async def sync_declared_schedules(self) -> dict[str, int] | None:
         """Reconcile the declared schedules into the schedule engine; ``None`` when it has none."""

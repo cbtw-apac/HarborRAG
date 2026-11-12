@@ -16,8 +16,8 @@ from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.auth.access import api_routes, minimum_role
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.operations.principal import ROLE_ORDER
 from harborrag_core.config_store import SettingsRegistry
+from harborrag_core.domain.member import ROLE_ORDER
 from harborrag_core.domain.project import Project
 from harborrag_core.ports.api_keys import AuthStoreUnavailable
 from harborrag_engine.security.api_key_service import VerifiedKey

@@ -22,7 +22,6 @@ from harborrag_app.operations.schemas.connections import (
     ProjectPage,
     ProjectWriteRequest,
 )
-from harborrag_core.config_store import SettingsLevel
 from harborrag_core.contracts.errors import (
     HarborAuthError,
     HarborPreconditionFailedError,
@@ -30,7 +29,6 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
-from harborrag_runtime.application.control_plane.settings_service import SettingsRead
 
 pytestmark = pytest.mark.unit
 
@@ -62,6 +60,11 @@ class _AdminApp(MockAppService):
             runs=world.service._runs,
             connections=world.service,
         )
+        self.asked: list[str] = []
+
+    async def tenant_has_data(self, tenant_id: str) -> bool:
+        self.asked.append(tenant_id)
+        return tenant_id == "acme"
 
 
 def _scope(role: Any = "editor", tenant_id: str = "acme") -> Scope:
@@ -171,27 +174,13 @@ async def test_deleting_an_empty_project_starts_no_job(operations: LocalOperatio
     assert await operations.delete_project(_scope("admin"), "demo", cascade=False) is None
 
 
-class _Revisions:
-    """Settings service double answering a fixed tenant revision per tenant."""
-
-    def __init__(self, revisions: dict[str, int]) -> None:
-        self.revisions = revisions
-
-    async def read(self, *, tenant_id: str, level: SettingsLevel, effective: bool) -> SettingsRead:
-        return SettingsRead(str(level), self.revisions.get(tenant_id, 0), {})
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("tenant_id", "expected"), [("acme", True), ("tuned", True), ("new", False)]
-)
-async def test_tenant_has_data_reads_projects_connections_and_settings(
-    tenant_id: str, expected: bool
-) -> None:
+async def test_tenant_has_data_asks_the_application_service_about_the_tenant() -> None:
     app = _AdminApp()
-    app.settings_service = _Revisions({"tuned": 2})
 
-    assert await LocalOperations(app).tenant_has_data(tenant_id) is expected
+    assert await LocalOperations(app).tenant_has_data("acme") is True
+    assert await LocalOperations(app).tenant_has_data("new") is False
+    assert app.asked == ["acme", "new"]
 
 
 @pytest.mark.asyncio

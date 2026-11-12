@@ -9,9 +9,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+from harborrag_core.contracts.errors import HarborAuthError
+
 from .validation import require_id, require_tenant_id
 
 Role = Literal["owner", "admin", "editor", "reader"]
+
+ROLE_ORDER: dict[Role, int] = {"reader": 0, "editor": 1, "admin": 2, "owner": 3}
+
+
+def require_role(role: Role, minimum: Role) -> None:
+    """Refuse a role below ``minimum``.
+
+    Args:
+        role: The caller's effective role.
+        minimum: The lowest role that may proceed.
+
+    Raises:
+        HarborAuthError: ``role`` is below ``minimum`` (forbidden, not unauthenticated).
+    """
+    if ROLE_ORDER[role] < ROLE_ORDER[minimum]:
+        raise HarborAuthError(f"requires {minimum} role", forbidden=True)
 
 
 @dataclass(slots=True)

@@ -18,11 +18,13 @@ from harborrag_app.operations import (
 from harborrag_app.operations.chat.dispatch import ModeUnavailableError
 from harborrag_app.operations.contract import OPERATIONS
 from harborrag_app.operations.errors import error_body
-from harborrag_app.operations.principal import ROLE_ORDER, Principal
+from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.schemas.chat import ChatCompletionRequest, ChatSessionCreateRequest
-from harborrag_core.config_store import SettingChange, SettingsLevel
-from harborrag_core.contracts.errors import HarborAuthError, HarborValidationError
+from harborrag_core.config_store import SettingChange
+from harborrag_core.contracts.errors import HarborAuthError
+from harborrag_core.domain.member import ROLE_ORDER
 from harborrag_runtime.application.control_plane.settings_service import (
+    SettingsPatch,
     SettingsPatched,
     SettingsRead,
 )
@@ -38,19 +40,20 @@ class _Settings:
     """Settings service double that records what the operations asked for."""
 
     def __init__(self) -> None:
-        self.reads: list[SettingsLevel] = []
+        self.reads: list[dict[str, Any]] = []
         self.patches: list[dict[str, Any]] = []
 
-    async def read(self, *, tenant_id: str, level: SettingsLevel, effective: bool) -> SettingsRead:
-        self.reads.append(level)
-        return SettingsRead(str(level), 3, {"chunking.max_tokens": 384})
+    async def read(self, **request: Any) -> SettingsRead:
+        self.reads.append(request)
+        return SettingsRead(request["level"] or "tenant", 3, {"chunking.max_tokens": 384})
 
     async def patch(self, **request: Any) -> SettingsPatched:
         self.patches.append(request)
+        patch: SettingsPatch = request["request"]
         change = SettingChange(
-            str(request["level"]), "chunking.max_tokens", 384, 300, "next_ingestion"
+            patch.level or "tenant", "chunking.max_tokens", 384, 300, "next_ingestion"
         )
-        return SettingsPatched(4, request["dry_run"], (change,))
+        return SettingsPatched(4, patch.dry_run, (change,))
 
     def schema(self) -> dict[str, Any]:
         return {"groups": []}
@@ -87,43 +90,17 @@ def operations(app: _App) -> LocalOperations:
     return LocalOperations(app)
 
 
-async def test_an_editor_may_not_read_tenant_settings(
+async def test_read_settings_passes_the_callers_role_and_tags_the_revision(
     operations: LocalOperations, app: _App
-) -> None:
-    with pytest.raises(HarborAuthError) as refused:
-        await operations.read_settings(_scope("editor"), level="tenant", effective=False)
-
-    assert error_body(refused.value).status == 403
-    assert app.settings_service.reads == []
-
-
-async def test_an_editor_may_read_a_connections_settings_with_their_etag(
-    operations: LocalOperations,
 ) -> None:
     read = await operations.read_settings(_scope("editor"), level=_WORKSPACE, effective=False)
 
     assert isinstance(read, Tagged)
+    assert app.settings_service.reads == [
+        {"tenant_id": "acme", "level": _WORKSPACE, "effective": False, "role": "editor"}
+    ]
     assert read.etag == 'W/"rev-3"'
     assert (read.body.level, read.body.revision) == (_WORKSPACE, "rev_3")
-
-
-async def test_patch_settings_without_if_match_is_refused_on_that_field(
-    operations: LocalOperations, app: _App
-) -> None:
-    with pytest.raises(HarborValidationError) as refused:
-        await operations.patch_settings(
-            _scope("admin"),
-            {"chunking.max_tokens": 300},
-            level="project:engineering",
-            dry_run=False,
-            reindex=False,
-            if_match=None,
-        )
-
-    body = error_body(refused.value)
-    assert (body.status, body.code) == (422, "validation_error")
-    assert body.details == [{"field": "If-Match", "issue": "If-Match is required"}]
-    assert app.settings_service.patches == []
 
 
 async def test_patch_settings_tags_the_new_revision_and_records_the_actor(
@@ -147,7 +124,7 @@ async def test_patch_settings_tags_the_new_revision_and_records_the_actor(
         "applies": "next_ingestion",
     }
     assert app.settings_service.patches[0]["actor"] == "u_demo"
-    assert app.settings_service.patches[0]["expected_revision"] == 3
+    assert app.settings_service.patches[0]["request"].expected_revision == 3
 
 
 async def test_advanced_mode_is_unavailable_before_any_model_call(
