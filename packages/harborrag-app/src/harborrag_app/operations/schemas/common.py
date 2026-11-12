@@ -1,4 +1,4 @@
-"""Schemas shared by every HTTP API feature."""
+"""Strict base model shared by every request and response schema."""
 
 from __future__ import annotations
 

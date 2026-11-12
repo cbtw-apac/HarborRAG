@@ -9,10 +9,8 @@ from pydantic import ConfigDict, Field, StringConstraints, field_validator, mode
 
 from harborrag_app.operations.schemas.common import ApiModel
 
-# Titles are trimmed and truncated by the domain (``normalize_conversation_title``)
-# rather than rejected, so the schema cap is only input hygiene, well above the
-# stored length.
 MAX_TITLE_INPUT = 1_000
+"""Input-hygiene cap on a session title, well above the stored length; the domain trims and truncates titles."""
 VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 
 

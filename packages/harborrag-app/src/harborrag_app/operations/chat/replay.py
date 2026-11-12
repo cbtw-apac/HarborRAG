@@ -132,7 +132,6 @@ class CompletionAttempt:
                 session_id=session_id,
             )
         except Exception:  # noqa: BLE001 - never discard an already paid-for result
-            # The outstanding claim continues to suppress duplicate spend.
             logger.exception("Completion replay state could not be saved")
         finally:
             self.claimed = False

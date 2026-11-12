@@ -17,14 +17,22 @@ ROLE_ORDER: dict[Role, int] = {"reader": 0, "editor": 1, "admin": 2, "owner": 3}
 
 @dataclass(slots=True, frozen=True)
 class Principal:
-    """Who is calling: auth subject, effective role, and how they proved it."""
+    """Who is calling: auth subject, effective role, and how they proved it.
+
+    Args:
+        subject: Authenticated subject of the credential.
+        role: Effective role after the credential's role is applied.
+        tenant_ids: Tenants the credential may act in.
+        token_kind: Credential kind, ``jwt`` unless it is an API key.
+        user_id: Trusted end-user claim supplied by the verifier; callers without
+            one, such as unauthenticated local development, keep the default.
+        name: Display name of the caller, empty when unknown.
+    """
 
     subject: str
     role: Role
     tenant_ids: frozenset[str]
     token_kind: str = "jwt"
-    # The verifier supplies a trusted end-user claim for authenticated calls.
-    # Direct callers and unauthenticated local development retain the default.
     user_id: str = DEFAULT_USER
     name: str = ""
 
