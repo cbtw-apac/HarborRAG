@@ -2,7 +2,7 @@
 
 Find where the application services behind the HTTP API and the CLI live, and what they
 must not do. The `harborrag_runtime.application` package turns a transport's arguments into
-one use case (chat, memory, retrieval, ingestion or a control-plane read or write) and
+one use case (chat, memory, ingestion or a control-plane read or write) and
 returns one transport-neutral `AppResponse` envelope. Durable ingestion reaches Temporal
 through the runtime client; nothing in this package hands a Temporal object to a caller.
 
@@ -16,8 +16,8 @@ imports an app or MCP-server module.
 | --- | --- |
 | `chat/` | Grounded chat turns: scope, retrieval, prompting, citations and streaming results |
 | `memory/` | Conversation sessions, messages, titles, usage and erasure |
-| `retrieval/` | The vector and hybrid retrieval use case of `AppService.retrieve`, and the corpus access mode that chat retrieval reads |
-| `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline or durable execution |
+| `retrieval/` | The corpus access mode that chat retrieval reads |
+| `ingestion/` | Ingestion commands, ports, presentation, recovery, the failure inbox and inline execution; durable submission goes through the ingestion application service |
 | `scheduling/` | Reconciling `config/sources/schedules.yaml` into the schedule engine |
 | `control_plane/` | Projects, connections, active runs, runtime settings import and export, and recovery of control-plane side effects |
 | `composition/` | The `AppService` facade, its resource lifecycle and service selection |

@@ -3,12 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-import getpass
 import logging
-import socket
 import uuid
-from collections.abc import AsyncGenerator, Mapping
-from typing import cast, get_args
+from collections.abc import AsyncGenerator
 
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
@@ -33,13 +30,12 @@ from ..control_plane.projects import ProjectService
 from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
 from ..control_plane.settings_service import SettingsService
 from ..control_plane.tenants import tenants_with_data
-from ..errors import IngestionNotFoundError, failure_response
+from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
-from ..ingestion.durable import DurableIngestionOperations
 from ..ingestion.failure_inbox import FailureInboxService
-from ..ingestion.operations import ControlAction, IngestionOperations
+from ..ingestion.operations import IngestionOperations
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import (
@@ -64,7 +60,6 @@ from ..memory import (
 )
 from ..memory.locks import SessionLocks
 from ..ports import BaseAppService
-from ..retrieval.client import RetrievalClientMixin
 from ..scheduling.service import ScheduleApplicationService
 from ..schemas import AppResponse
 from .factories import AppServiceFactories
@@ -75,17 +70,11 @@ REMOVAL_RECOVERY_LEASE_NAME = "connection_removal_recovery"
 logger = logging.getLogger("harborrag.app.workflow_control.composition.service")
 
 
-def _operator() -> str:
-    """Return the local operator for the run's event trail; access control is the DB credential."""
-    return f"{getpass.getuser()}@{socket.gethostname()}"
-
-
 class AppService(
     ChatClientMixin,
     MemoryAdminClientMixin,
     PublicIngestionClientMixin,
     DirectIngestionClientMixin,
-    RetrievalClientMixin,
     BaseAppService,
 ):
     """Application service that keeps transport concerns outside the ingestion execution path.
@@ -173,12 +162,6 @@ class AppService(
             catalog=ControlPlaneConnectionCatalog(
                 lambda: self._control_plane().connections, self._resources.task_registry
             ),
-        )
-        self._durable = DurableIngestionOperations(
-            self._settings,
-            runtime_client=self._resources.runtime_client,
-            task_registry=self._resources.task_registry,
-            source_input_builder=self._source_input_builder,
         )
         self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
         self._connection_service = ConnectionService(
@@ -432,78 +415,6 @@ class AppService(
         finally:
             if tail is not None:
                 await tail.close()
-
-    async def start_ingestion(  # noqa: PLR0913 - stable service port
-        self,
-        *,
-        tenant_id: str,
-        connector_name: str,
-        run_id: str | None = None,
-        connection_id: str | None = None,
-        source_scope_id: str | None = None,
-        path: str | None = None,
-        pattern: str | None = None,
-        recursive: bool = True,
-        updated_after: str | None = None,
-        max_artifacts: int | None = None,
-        include_attachments: bool = True,
-        filters: Mapping[str, object] | None = None,
-        force_reprocess: bool = False,
-        batch_size: int | None = None,
-        document_concurrency: int | None = None,
-        wait: bool = False,
-    ) -> AppResponse:
-        """Submit a durable ingestion run; wait for its result when ``wait`` is set."""
-        return await self._durable.start_ingestion(
-            tenant_id=tenant_id,
-            connector_name=connector_name,
-            run_id=run_id,
-            connection_id=connection_id,
-            source_scope_id=source_scope_id,
-            path=path,
-            pattern=pattern,
-            recursive=recursive,
-            updated_after=updated_after,
-            max_artifacts=max_artifacts,
-            include_attachments=include_attachments,
-            filters=filters,
-            force_reprocess=force_reprocess,
-            batch_size=batch_size,
-            document_concurrency=document_concurrency,
-            wait=wait,
-        )
-
-    async def ingestion_status(self, run_id: str) -> AppResponse:
-        """Return the status of the durable run ``run_id``."""
-        return await self._durable.ingestion_status(run_id)
-
-    async def ingestion_result(self, run_id: str) -> AppResponse:
-        """Return the final result of the durable run ``run_id``."""
-        return await self._durable.ingestion_result(run_id)
-
-    async def control_ingestion(self, run_id: str, action: str) -> AppResponse:
-        """Pause, resume or cancel a run on the same rules as the HTTP routes.
-
-        The acting principal is the local operator; a run the database does not know
-        is not found, as over HTTP.
-        """
-        try:
-            if action not in get_args(ControlAction):
-                raise ValueError(f"unsupported ingestion action: {action!r}")
-            task = await (await self._resources.task_registry()).get(run_id)
-            tenant_id = task.request.get("tenant_id") if task is not None else None
-            if not isinstance(tenant_id, str) or not tenant_id:
-                raise IngestionNotFoundError(f"ingestion {run_id!r} not found")
-            await self._ingestion_operations.act(
-                tenant_id=tenant_id,
-                ingestion_id=run_id,
-                action=cast(ControlAction, action),  # membership in ControlAction checked above
-                actor=_operator(),
-            )
-            logger.info("Applied %r to ingestion run %r", action, run_id)
-            return AppResponse(True, {"run_id": run_id, "action": action})
-        except Exception as exc:  # noqa: BLE001 - stable error envelope
-            return failure_response(logger, exc, "apply %r to ingestion run %r", action, run_id)
 
     async def start_config_provider(self) -> None:
         """Start the composition's configuration provider."""

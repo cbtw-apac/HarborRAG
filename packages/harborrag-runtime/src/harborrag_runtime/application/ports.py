@@ -10,7 +10,6 @@ from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, Mapping
 
 from harborrag_memory.access import MemoryAccess
-from harborrag_runtime.sdk import RetrievalLane, RetrievalMode
 
 from .chat.options import ChatExecutionOptions
 from .schemas import AppResponse
@@ -149,31 +148,7 @@ class BaseAppService(ABC):
 
         raise NotImplementedError
 
-    async def start_ingestion(  # noqa: PLR0913 - legacy CLI port
-        self,
-        *,
-        tenant_id: str,
-        connector_name: str,
-        run_id: str | None = None,
-        connection_id: str | None = None,
-        source_scope_id: str | None = None,
-        path: str | None = None,
-        pattern: str | None = None,
-        recursive: bool = True,
-        updated_after: str | None = None,
-        max_artifacts: int | None = None,
-        include_attachments: bool = True,
-        filters: Mapping[str, object] | None = None,
-        force_reprocess: bool = False,
-        batch_size: int | None = None,
-        document_concurrency: int | None = None,
-        wait: bool = False,
-    ) -> AppResponse:
-        """Submit one ingestion run; with ``wait``, also wait for its result."""
-
-        raise NotImplementedError
-
-    async def run_ingestion(  # noqa: PLR0913 - mirrors start_ingestion
+    async def run_ingestion(  # noqa: PLR0913 - the inline run options
         self,
         *,
         tenant_id: str,
@@ -196,43 +171,5 @@ class BaseAppService(ABC):
 
     async def get_task(self, task_id: str) -> dict[str, object]:
         """Public task document for ``task_id``; raises IngestionNotFoundError when absent."""
-
-        raise NotImplementedError
-
-    async def ingestion_status(self, run_id: str) -> AppResponse:
-        """Return the status of the ingestion run ``run_id``."""
-
-        raise NotImplementedError
-
-    async def ingestion_result(self, run_id: str) -> AppResponse:
-        """Return the final result of the ingestion run ``run_id``."""
-
-        raise NotImplementedError
-
-    async def retrieve(  # noqa: PLR0913 - explicit retrieval policy is transport-neutral
-        self,
-        query: str,
-        *,
-        tenant_id: str | None = None,
-        principal_id: str = "harborrag-cli",
-        top_k: int = 10,
-        filters: Mapping[str, object] | None = None,
-        lane: RetrievalLane = RetrievalLane.HYBRID,
-        mode: RetrievalMode = RetrievalMode.FLAT,
-        observe_graph: bool = False,
-        include_content: bool = False,
-        include_metadata: bool = False,
-        score_threshold: float = 0.0,
-    ) -> AppResponse:
-        """Run one retrieval against the tenant's index and return the ranked results."""
-
-        raise NotImplementedError
-
-    async def control_ingestion(
-        self,
-        run_id: str,
-        action: str,
-    ) -> AppResponse:
-        """Apply the control ``action`` (pause, resume or cancel) to the run ``run_id``."""
 
         raise NotImplementedError

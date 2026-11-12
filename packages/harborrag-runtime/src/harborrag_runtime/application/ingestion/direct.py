@@ -1,8 +1,8 @@
 """Direct (in-process) ingestion behind ``harborrag ingestions start --inline``.
 
-Mirrors TemporalIngestionOperations for the SDK's ExecutionMode.DIRECT: the run happens
-inside this process through the same use-case graph the worker uses, so it needs Qdrant,
-FalkorDB and the object store but neither Temporal nor a worker.
+The SDK's ExecutionMode.DIRECT: the run happens inside this process through the same
+use-case graph the worker uses, so it needs Qdrant, FalkorDB and the object store but neither
+Temporal nor a worker.
 """
 
 from __future__ import annotations
