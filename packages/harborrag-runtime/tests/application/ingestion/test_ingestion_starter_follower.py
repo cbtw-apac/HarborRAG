@@ -17,7 +17,7 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
-from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
 from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.application.ingestion.follower import IngestionFollower
 from harborrag_runtime.application.ingestion.starter import IngestionStarter

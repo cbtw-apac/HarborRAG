@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, get_args
 
 from harborrag_app.operations.contract import OPERATIONS
+from harborrag_app.operations.etags import etag, version_from_etag
 from harborrag_app.operations.principal import Principal, authorize_role
 from harborrag_app.operations.results import Saved, Tagged
 from harborrag_app.operations.schemas.connections import (
@@ -31,8 +32,10 @@ from harborrag_app.operations.schemas.me import MeOut, MePrincipal
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.domain.connection import ConnectionStatus
-from harborrag_engine.control_plane.connection_views import etag, version_from_etag
-from harborrag_runtime.application.control_plane.connections import ConnectionWrite, WriteOrigin
+from harborrag_runtime.application.control_plane.connection_models import (
+    ConnectionWrite,
+    WriteOrigin,
+)
 from harborrag_runtime.config.connectors.models import source_types
 from harborrag_runtime.config.connectors.models.spec import Category
 

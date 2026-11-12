@@ -35,7 +35,8 @@ from harborrag_engine.control_plane.connection_views import project_view, resolv
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import ConnectionValidationError, FieldIssue
 
-from .connections import ConnectionRuns, ConnectionService
+from .connection_models import ConnectionRuns
+from .connections import ConnectionService
 from .effect_recovery import log_activity
 
 logger = logging.getLogger("harborrag.runtime.application.control_plane.projects")

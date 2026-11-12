@@ -3,16 +3,14 @@
 Handles:
 - the spec's ``Connection`` object, secrets reduced to ``SecretStatus``
 - the spec's ``Ingestion`` object from a durable ingestion task
-- weak ETags of the form ``W/"rev-<version>"``
 """
 
 from __future__ import annotations
 
-import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
 
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project
@@ -20,7 +18,6 @@ from harborrag_core.ingestion import IngestionTask, IngestionTaskState
 from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_core.security.secret_refs import credentials_view
 
-_ETAG = re.compile(r'^(?:W/)?"rev-(\d+)"$')
 ANY_VERSION = -2
 
 _INGESTION_STATUS = {
@@ -37,21 +34,6 @@ INGESTION_STATES = {
     status: tuple(state.value for state, name in _INGESTION_STATUS.items() if name == status)
     for status in dict.fromkeys(_INGESTION_STATUS.values())
 }
-
-
-def etag(version: int) -> str:
-    """Return the weak ETag of a resource version."""
-    return f'W/"rev-{version}"'
-
-
-def version_from_etag(value: str | None) -> int | None:
-    """Parse ``If-Match``: ``None`` absent, ``ANY_VERSION`` for ``*``, ``-1`` for a foreign tag."""
-    if value is None:
-        return None
-    if value.strip() == "*":
-        return ANY_VERSION
-    match = _ETAG.match(value.strip())
-    return int(match.group(1)) if match else -1
 
 
 def resolve_any_version(expected: int | None, current: int | None) -> int | None:
@@ -243,14 +225,31 @@ def _count(summary: Mapping[str, Any], key: str) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) else 0
 
 
+class ConnectionViewRuns(Protocol):
+    """The run registry reads a connection view needs."""
+
+    async def latest_for_connection(
+        self, *, tenant_id: str, connection_id: str
+    ) -> IngestionTask | None:
+        """Return the connection's most recently submitted run, or ``None`` when it has none."""
+
+    async def progress(self, task_id: str) -> dict[str, int]:
+        """Return the run's document counts by result status."""
+
+    async def progress_for_tasks(self, task_ids: Sequence[str]) -> dict[str, dict[str, int]]:
+        """Return the document counts by result status for each of ``task_ids``."""
+
+    async def connection_document_count(self, *, tenant_id: str, connection_id: str) -> int:
+        """Count the documents the connection's runs have recorded."""
+
+
 async def read_connection_views(
-    runs: Any, connections: Sequence[Connection], *, batch: bool
+    runs: ConnectionViewRuns, connections: Sequence[Connection], *, batch: bool
 ) -> list[dict[str, Any]]:
     """Return the ``Connection`` view of each connection with its latest run and counts.
 
     Args:
-        runs: Run registry with ``latest_for_connection``, ``progress``, ``progress_for_tasks``
-            and ``connection_document_count``.
+        runs: Run registry that reports each connection's latest run and document count.
         connections: Connections to view.
         batch: Read the result counts of all latest runs in one query.
     """

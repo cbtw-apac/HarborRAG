@@ -34,7 +34,7 @@ from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_runtime.application import AppResponse
 from harborrag_runtime.application.composition import service as service_module
-from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
 from harborrag_runtime.application.ingestion import connection_sources
 from harborrag_runtime.execution import direct as runtime_direct
 

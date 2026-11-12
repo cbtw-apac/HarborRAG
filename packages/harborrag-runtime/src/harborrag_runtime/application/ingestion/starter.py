@@ -15,7 +15,8 @@ from typing import Any
 from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
 from harborrag_engine.ingestion.operations import IngestionOperations
 
-from ..control_plane.connections import ConnectionKey, ConnectionService
+from ..control_plane.connection_models import ConnectionKey
+from ..control_plane.connections import ConnectionService
 from ..control_plane.projects import ProjectService
 
 

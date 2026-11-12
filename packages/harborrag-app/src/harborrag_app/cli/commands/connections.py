@@ -34,7 +34,7 @@ from harborrag_app.operations.schemas.connections import (
 )
 from harborrag_app.operations.scope import ConnectionRef, Scope
 from harborrag_core.domain.connection import ConnectionStatus
-from harborrag_runtime.application.control_plane.connections import WriteOrigin
+from harborrag_runtime.application.control_plane.connection_models import WriteOrigin
 
 app = typer.Typer(help="Manage connections.", no_args_is_help=True)
 

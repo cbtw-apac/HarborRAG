@@ -30,7 +30,7 @@ from harborrag_app.operations.schemas.ingestions import (
 from harborrag_app.operations.scope import Scope
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_engine.ingestion.operations import ControlAction
-from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService

@@ -13,10 +13,8 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.project import Project
 from harborrag_core.testing.fakes import FakeSecrets
-from harborrag_runtime.application.control_plane.connections import (
-    ConnectionKey,
-    ConnectionService,
-)
+from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
+from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.application.control_plane.projects import (
     ProjectIdTakenError,
     ProjectService,

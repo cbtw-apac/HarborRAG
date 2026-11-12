@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING
 from harborrag_core.ingestion import IngestionTask
 
 if TYPE_CHECKING:
-    from .connections import ConnectionRuns, IngestionSubmitter
+    from .connection_models import ConnectionRuns, IngestionSubmitter
 
 SETTLE_ROUNDS = 5
 

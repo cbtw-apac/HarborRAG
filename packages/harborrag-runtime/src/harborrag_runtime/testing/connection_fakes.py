@@ -30,11 +30,11 @@ from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
-from harborrag_runtime.application.control_plane.connections import (
+from harborrag_runtime.application.control_plane.connection_models import (
     ConnectionKey,
-    ConnectionService,
     ConnectionWrite,
 )
+from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.composition import ControlPlaneRepositories
 
 CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")

@@ -16,7 +16,7 @@ from harborrag_adapters.repositories.database.control_plane.migrations import ru
 from harborrag_core.config_store import SettingChange
 from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.domain.project import Project
-from harborrag_runtime.application.control_plane.connections import ConnectionKey
+from harborrag_runtime.application.control_plane.connection_models import ConnectionKey
 from harborrag_runtime.application.control_plane.tenants import tenant_has_data
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.testing.connection_fakes import (
