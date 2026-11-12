@@ -93,7 +93,7 @@ provider-name branch; see
 | `filters` | `{}` | Provider-specific selectors, such as IDs, labels, file paths or extensions |
 
 ```python
-from harborrag_adapters.connectors import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 recent_docs = ConnectorQuery(
     path="docs",

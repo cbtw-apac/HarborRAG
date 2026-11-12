@@ -509,7 +509,7 @@ old package in the first column and applying the pointer rule.
 | `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
 | `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `service`, `facades` and `composition`, which stay. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
 | `harborrag_runtime.ingestion.document.{models,stage_models,capture_decisions,materialization_helpers,projection_coordinator}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseRequest` and `DocumentReleaseOutcome` are in `release.models`; `harborrag_runtime.ingestion` and `.ingestion.document` no longer re-export them |
-| `harborrag_runtime.ingestion.document.normalizers.*` | `harborrag_engine.ingestion.normalizers.*` | |
+| `harborrag_runtime.ingestion.document.normalizers.{builder,router}` | `harborrag_engine.ingestion.normalizers.<module>` | `builtins` and `transform` stay in `harborrag_runtime.ingestion.document.normalizers` |
 | `harborrag_runtime.ingestion.maintenance.{cleanup,reindex_plan,relation_supersession}` | `harborrag_engine.ingestion.maintenance.<module>` | |
 | `harborrag_runtime.ingestion.source.{models,tasks}` | `harborrag_engine.ingestion.source.<module>` | `SourceIngestionRequest` and `SourceIngestionOutcome` are in `source.models` |
 | `harborrag_runtime.topology.{derived_cleanup,inspection,reservation_deadline}` | `harborrag_engine.topology.<module>` | |
@@ -524,7 +524,8 @@ old package in the first column and applying the pointer rule.
 Removed from `BaseAppService` (`harborrag_runtime.application.ports`; `AppService` loses
 them too). The other methods that 2.0.0a2 had on it for projects, sources, settings,
 metrics, graph conflicts, projections, agent sessions and `ingest_once` are gone as well,
-with the routes they served.
+with the routes they served. The replacements are methods of `AppService`; of them,
+`BaseAppService` declares only `get_task`.
 
 | Removed method | Call instead |
 | --- | --- |
