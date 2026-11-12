@@ -107,6 +107,7 @@ class GraphBuildBudgetConfig(_GraphBuildModel):
     @field_validator("daily_cost_usd", mode="before")
     @classmethod
     def parse_money(cls, value: object) -> Decimal:
+        """Parse ``daily_cost_usd`` into a finite, unpadded decimal."""
         if isinstance(value, bool) or not isinstance(value, (str, int, float, Decimal)):
             raise ValueError("daily_cost_usd must be a decimal number")
         if isinstance(value, str) and (not value or value != value.strip()):
@@ -143,10 +144,13 @@ class GraphBuildFacetConfig(_GraphBuildModel):
     type: Literal["text", "integer"] = "text"
 
     def as_policy_facet(self) -> SummaryFacet:
+        """Return the summary policy facet this configuration declares."""
         return SummaryFacet(name=self.name, field=self.field, kind=self.type)
 
 
 class GraphBuildSourceConfig(_GraphBuildModel):
+    """Graph-build settings of one source scope."""
+
     source_scope_id: str = Field(min_length=1, max_length=128)
     enabled: bool = True
     model: str = Field(default="primary", min_length=1, max_length=256)
@@ -156,6 +160,7 @@ class GraphBuildSourceConfig(_GraphBuildModel):
 
     @model_validator(mode="after")
     def validate_unique_facets(self) -> Self:
+        """Reject two facets with the same name."""
         names = [facet.name for facet in self.facets]
         if len(names) != len(set(names)):
             raise ValueError(f"source {self.source_scope_id!r} declares duplicate facet names")
@@ -163,6 +168,8 @@ class GraphBuildSourceConfig(_GraphBuildModel):
 
 
 class GraphBuildTenantConfig(_GraphBuildModel):
+    """Graph-build settings of one tenant and its source scopes."""
+
     tenant_id: str = Field(min_length=1, max_length=128)
     mode: Literal["deterministic", "llm"] = "deterministic"
     prohibited: bool = False
@@ -172,6 +179,7 @@ class GraphBuildTenantConfig(_GraphBuildModel):
 
     @model_validator(mode="after")
     def validate_unique_sources(self) -> Self:
+        """Reject two sources with the same source scope ID."""
         source_ids = [source.source_scope_id for source in self.sources]
         if len(source_ids) != len(set(source_ids)):
             raise ValueError(f"tenant {self.tenant_id!r} has duplicate source_scope_id values")
@@ -195,6 +203,7 @@ class SummarizationBudgetConfig(_GraphBuildModel):
     @field_validator("max_usd_per_run", mode="before")
     @classmethod
     def parse_run_budget(cls, value: object) -> Decimal | None:
+        """Parse the optional per-run budget into a decimal."""
         if value is None:
             return None
         return GraphBuildBudgetConfig.parse_money(value)
@@ -237,6 +246,8 @@ class GraphBuildDerivedConfig(_GraphBuildModel):
 
 
 class GraphBuildRuntimeConfig(_GraphBuildModel):
+    """Runtime limits of graph building: timeouts, concurrency and budgets."""
+
     operation_timeout_seconds: float = Field(default=120, gt=0, le=3600)
     job_timeout_seconds: float = Field(default=3600, gt=0, le=86_400)
     lease_seconds: int = Field(default=300, ge=3, le=3600)
@@ -249,6 +260,7 @@ class GraphBuildRuntimeConfig(_GraphBuildModel):
     @field_validator("llm_operation_cost_usd", mode="before")
     @classmethod
     def parse_optional_money(cls, value: object) -> Decimal | None:
+        """Parse an optional money amount into a decimal."""
         if value is None:
             return None
         return GraphBuildBudgetConfig.parse_money(value)
@@ -279,6 +291,7 @@ class GraphBuildConfig(_GraphBuildModel):
 
     @model_validator(mode="after")
     def validate_unique_tenants(self) -> Self:
+        """Reject two tenants with the same tenant ID."""
         tenant_ids = [tenant.tenant_id for tenant in self.tenants]
         if len(tenant_ids) != len(set(tenant_ids)):
             raise ValueError("graph-build configuration has duplicate tenant_id values")
@@ -286,6 +299,7 @@ class GraphBuildConfig(_GraphBuildModel):
 
     @classmethod
     def from_file(cls, path: str | Path) -> GraphBuildConfig:
+        """Load the graph-build configuration from the YAML file at ``path``."""
         from harborrag_runtime.config.graph_build_loading import load_graph_build_config
 
         return load_graph_build_config(path)
