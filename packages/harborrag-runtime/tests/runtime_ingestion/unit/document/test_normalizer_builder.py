@@ -12,9 +12,9 @@ from harborrag_adapters.connectors.registry import (
     ConnectorProviderDefinition,
     connector_registry,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain import Document, DocumentElement, ParsedDocument, RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_engine.ingestion import BaseDocumentNormalizer
 from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
 from harborrag_runtime.ingestion.document.normalizers import (

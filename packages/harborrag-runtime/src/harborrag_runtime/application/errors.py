@@ -17,9 +17,9 @@ from logging import Logger
 from pydantic import ValidationError
 
 from harborrag_core.contracts.errors import (
-    HarborConflictError,
-    HarborNotFoundError,
     HarborValidationError,
+    IngestionActionStateError,
+    IngestionNotFoundError,
 )
 from harborrag_runtime.errors import (
     MissingOptionalDependencyError as MissingOptionalDependencyError,
@@ -36,60 +36,6 @@ from harborrag_runtime.errors import (
 )
 
 from .schemas import AppResponse
-
-
-class IngestionNotFoundError(HarborNotFoundError):
-    """The named ingestion does not exist for the caller's tenant."""
-
-    error_code = "not_found"
-
-
-class IngestionAlreadyCompletedError(HarborConflictError):
-    """The ingestion already reached a terminal state."""
-
-    error_code = "invalid_state"
-
-
-class IngestionAlreadyPausedError(HarborConflictError):
-    """The ingestion is already paused."""
-
-    error_code = "invalid_state"
-
-
-class IngestionAlreadyRunningError(HarborConflictError):
-    """The ingestion is already running."""
-
-    error_code = "already_running"
-
-
-class IngestionActionStateError(HarborConflictError):
-    """The requested action is not allowed in the ingestion's current state."""
-
-    error_code = "invalid_state"
-
-
-class IngestionIdempotencyConflictError(HarborConflictError):
-    """An idempotency key was reused for a different ingestion request."""
-
-    error_code = "invalid_state"
-
-
-class IngestionRetryConflictError(HarborConflictError):
-    """There is nothing to retry, or the run is not yet complete enough to retry."""
-
-    error_code = "invalid_state"
-
-
-class IngestionCursorError(HarborValidationError):
-    """A pagination cursor is malformed or does not match the request filters."""
-
-    error_code = "validation_error"
-
-
-class IngestionFailureIdError(HarborValidationError):
-    """A failure ID is malformed."""
-
-    error_code = "validation_error"
 
 
 class SettingsLevelNotFoundError(HarborValidationError):

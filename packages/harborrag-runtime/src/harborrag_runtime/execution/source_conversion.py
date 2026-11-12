@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_runtime.ingestion.source.models import SourceIngestionRequest
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import ProcessingProfileInput
 
 
 def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionRequest:

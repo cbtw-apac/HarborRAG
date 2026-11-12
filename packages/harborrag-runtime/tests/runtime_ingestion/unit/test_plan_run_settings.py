@@ -14,9 +14,9 @@ from harborrag_adapters.repositories.object_store import (
     ImmutableArtifactWriter,
     MemoryObjectStore,
 )
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_runtime.ingestion.source.plan import SourcePlanRepository
-from harborrag_runtime.ingestion_contracts import RunSettings
 from runtime_ingestion.unit.source.test_plan import _planned
 
 pytestmark = pytest.mark.unit

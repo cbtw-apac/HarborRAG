@@ -5,13 +5,15 @@ from __future__ import annotations
 from dataclasses import fields
 from typing import TYPE_CHECKING
 
+from harborrag_core.ingestion.run_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    RunKind,
+)
 from harborrag_runtime.ingestion_contracts import (
     IngestionExecutionReference,
     IngestionExecutionResult,
     IngestionExecutionStatus,
-    IngestionRetryRequest,
-    PreparedSourceSubmission,
-    RunKind,
 )
 
 from .schemas import RetryFailuresInput, SourceIngestionInput

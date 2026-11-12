@@ -23,6 +23,7 @@ from temporalio.common import WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
+from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
@@ -31,7 +32,6 @@ from harborrag_runtime.errors import (
     WorkflowOperationError,
     WorkflowSubmissionError,
 )
-from harborrag_runtime.ingestion_contracts import RunKind
 
 from .connection import connect_temporal_client
 from .failure_handling import terminal_failure_code

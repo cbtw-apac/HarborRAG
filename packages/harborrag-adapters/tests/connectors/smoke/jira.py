@@ -19,7 +19,7 @@ from bootstrap import (
     save_output,
 )
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 JIRA_METADATA_FIELDS: list[tuple[str, str]] = [
     ("Issue key", "issue_key"),

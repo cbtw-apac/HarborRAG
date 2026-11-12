@@ -4,12 +4,12 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_core.ingestion import ProcessingProfile
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion.chunking import ChunkingConfig, ChunkStrategy
 from harborrag_engine.ingestion.chunking.config import cap_chunking_config
 from harborrag_runtime.config.chunking import chunking_settings_from
 from harborrag_runtime.config.parsers import load_parser_catalog
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 from .chunking_profile import chunk_strategy_fingerprint
 from .document.normalization import CANONICAL_NORMALIZER_VERSION

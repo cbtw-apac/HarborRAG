@@ -11,13 +11,13 @@ from harborrag_adapters.connectors.exceptions import (
     DocumentProcessingError,
     FetchError,
 )
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorQuery,
     ConnectorSkip,
 )
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .config import LocalFileConfig
 from .filesystem import LocalFileSystem

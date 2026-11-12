@@ -10,6 +10,13 @@ from harborrag_adapters.repositories.backends.sqlalchemy import SQLAlchemyDBClie
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState, TaskRegistration
+from harborrag_core.ingestion.run_contracts import (
+    IngestionRetryRequest,
+    PreparedSourceSubmission,
+    RunKind,
+    SourceSubmission,
+)
+from harborrag_core.ingestion.source_query import ProcessingProfileInput
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.application.composition.factories import AppServiceFactories
 from harborrag_runtime.application.composition.service import AppService
@@ -19,12 +26,7 @@ from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
 from harborrag_runtime.ingestion_contracts import (
     IngestionExecutionReference,
     IngestionExecutionStatus,
-    IngestionRetryRequest,
-    PreparedSourceSubmission,
-    RunKind,
-    SourceSubmission,
 )
-from harborrag_runtime.source_query import ProcessingProfileInput
 
 
 class FakeRuntimeClient:

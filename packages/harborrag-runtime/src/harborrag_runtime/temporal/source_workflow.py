@@ -17,7 +17,7 @@ from temporalio.exceptions import (
 )
 from temporalio.workflow import ParentClosePolicy
 
-from harborrag_runtime.ingestion_contracts import RunKind
+from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_runtime.temporal.failure_handling import durable_failure
 
 from .maintenance_schemas import ProjectionCleanupResult

@@ -2,16 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harborrag_runtime.ingestion.limits import (
-    MAX_RETRY_DOCUMENT_IDS,
-)
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission
-from harborrag_runtime.source_query import (
-    ProcessingProfileInput as ProcessingProfileInput,
-)
-from harborrag_runtime.source_query import (
-    SourceQuery as SourceQuery,
-)
+from harborrag_core.ingestion.limits import MAX_RETRY_DOCUMENT_IDS
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
+from harborrag_core.ingestion.source_query import ProcessingProfileInput as ProcessingProfileInput
+from harborrag_core.ingestion.source_query import SourceQuery as SourceQuery
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .dispatch import DocumentDispatchSummary

@@ -12,6 +12,7 @@ from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ingestion.run_contracts import SourceSubmission
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -26,7 +27,6 @@ from harborrag_runtime.config.connectors.importing import (
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.execution.source_submission import prepare_source_submission
 from harborrag_runtime.ingestion.connections import ConnectionResolver
-from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .conftest import REPO_ROOT
 

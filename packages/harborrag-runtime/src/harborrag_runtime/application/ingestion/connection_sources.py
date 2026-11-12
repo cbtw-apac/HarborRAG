@@ -7,12 +7,12 @@ import logging
 from collections.abc import Callable
 
 from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 
 type SourcePreparation = Callable[..., PreparedSourceSubmission]
 

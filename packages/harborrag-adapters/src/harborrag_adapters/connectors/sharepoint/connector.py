@@ -16,13 +16,13 @@ from harborrag_adapters.connectors.exceptions import (
     FetchError,
 )
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorQuery,
     ConnectorSkip,
 )
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .client import SharePointClient, _RequestsGraphClient
 from .config import SharePointSiteConfig

@@ -7,8 +7,8 @@ from collections.abc import Iterator
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import AuthorizationError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .allowlist import SharePointAllowlist
 from .client import SharePointClient

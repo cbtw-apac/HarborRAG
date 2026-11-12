@@ -21,8 +21,8 @@ from typing import Any, Literal
 from harborrag_adapters.connectors.exceptions import RateLimitError
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.policies.network import BlockedDestinationError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_core.ingestion.errors import (
     SourceAuthenticationError,
     SourceAuthorizationError,

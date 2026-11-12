@@ -8,7 +8,7 @@ from enum import StrEnum
 from typing import Any, ClassVar
 
 from harborrag_adapters.connectors.attachments.processing import AttachmentMetadata
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
+from harborrag_core.ingestion.connector_contracts import ConnectorMetadata
 
 
 @dataclass(slots=True)

@@ -15,8 +15,8 @@ from typing import Protocol
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.database.ingestion_control import UnresolvedSourceRelation
-from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_core.chunking import ChunkRecord
+from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ActiveSourceDocument,
@@ -360,7 +360,7 @@ class GraphRelationRepairService:
                     context=context,
                 ),
             )
-        except HarborStorageNotFoundError:
+        except StorageNotFoundError:
             logger.warning(
                 "Skipping relation repair because active artifacts are unavailable "
                 "document_id=%s document_version_id=%s",

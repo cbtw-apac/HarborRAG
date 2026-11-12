@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
 from harborrag_core.ingestion import DocumentIngestionOutcome
+from harborrag_core.ingestion.run_contracts import SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
@@ -15,7 +16,6 @@ from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
 from harborrag_runtime.ingestion.document.run_tools import ParserUnavailableError
 from harborrag_runtime.ingestion.observability import IngestionTelemetry
-from harborrag_runtime.ingestion_contracts import SourceSubmission
 
 from .activity_observability import ActivityObservability
 from .conversion import (

@@ -6,13 +6,10 @@ from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, cast
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
-from harborrag_runtime.ingestion_contracts import (
-    IngestionGateway,
-    PreparedSourceSubmission,
-    SourceSubmission,
-)
+from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.temporal.optional import load_temporal_attribute
 

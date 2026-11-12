@@ -8,8 +8,10 @@ from time import perf_counter
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
-from harborrag_core.contracts.errors import HarborAuthorizationUnavailableError
+from harborrag_core.contracts.errors import (
+    HarborAuthorizationUnavailableError,
+    StorageNotFoundError,
+)
 from harborrag_core.contracts.reader import (
     EntityFindRequest,
     EntityFindResponse,
@@ -308,7 +310,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
                 if traced != ()
                 else AuthoritativeSearchResult((), _NO_CANDIDATES)
             )
-        except HarborStorageNotFoundError as exc:
+        except StorageNotFoundError as exc:
             logger.info(
                 "Retrieval found no index for the tenant",
                 extra={"request_id": request_id, "tenant_id": tenant_id},

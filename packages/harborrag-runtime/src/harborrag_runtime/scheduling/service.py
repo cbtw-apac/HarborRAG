@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Protocol
 
 from harborrag_core.contracts.errors import HarborConflictError, HarborValidationError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 
 from .config import ScheduleCatalog
 from .errors import (

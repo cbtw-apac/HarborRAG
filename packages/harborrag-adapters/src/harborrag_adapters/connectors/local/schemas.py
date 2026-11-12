@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import ClassVar
 
-from harborrag_adapters.connectors.schemas import ConnectorMetadata
+from harborrag_core.ingestion.connector_contracts import ConnectorMetadata
 
 
 @dataclass(slots=True, kw_only=True)

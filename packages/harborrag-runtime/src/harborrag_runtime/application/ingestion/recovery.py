@@ -7,12 +7,12 @@ from collections.abc import Mapping
 
 from harborrag_core.contracts.errors import HarborValidationError
 from harborrag_core.ingestion import IngestionTask
-from harborrag_runtime.ingestion_contracts import (
+from harborrag_core.ingestion.run_contracts import (
     IngestionRetryRequest,
     PreparedSourceSubmission,
     RunSettings,
 )
-from harborrag_runtime.source_query import ProcessingProfileInput, SourceQuery
+from harborrag_core.ingestion.source_query import ProcessingProfileInput, SourceQuery
 
 
 def source_from_task(task: IngestionTask) -> PreparedSourceSubmission:

@@ -8,8 +8,8 @@ from html import escape
 from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .client import SharePointClient
 from .config import SharePointSiteConfig

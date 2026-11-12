@@ -26,7 +26,6 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.limits import DEFAULT_ALLOWED_EXTENSIONS
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_adapters.connectors.sharepoint.permissions import reject_broad_permissions
 from harborrag_adapters.connectors.sharepoint.skips import SharePointItemSkippedError
 from harborrag_core.domain.source import SourceRecord
@@ -35,6 +34,7 @@ from harborrag_core.ingestion import (
     SourceUnavailableError,
     UnsupportedDocumentError,
 )
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

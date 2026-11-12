@@ -10,7 +10,7 @@ from harborrag_adapters.connectors.confluence.query import (
     CLOUD_CONTENT_EXPAND,
     CONTENT_EXPAND,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

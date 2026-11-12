@@ -16,7 +16,7 @@ A connector discovers and loads items from one kind of source system. Add a prov
 from collections.abc import Iterator
 
 from harborrag_adapters.connectors.base import BaseConnector
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
 

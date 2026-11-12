@@ -32,6 +32,7 @@ from harborrag_core.contracts.errors import HarborConflictError, HarborValidatio
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.connection_snapshot import ConnectionSnapshot
 from harborrag_core.ingestion.errors import SourceAuthenticationError, SourceAuthorizationError
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports.control_plane import (
     ConnectionRepositoryPort,
     ConnectionRevisionRepositoryPort,
@@ -44,7 +45,6 @@ from harborrag_runtime.config.connectors.models import (
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config_store.run_settings import RunSettingsResolver
 from harborrag_runtime.connections import SecretResolver
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 logger = logging.getLogger("harborrag.runtime.ingestion.connections")
 

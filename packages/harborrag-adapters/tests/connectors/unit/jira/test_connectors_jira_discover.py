@@ -9,7 +9,7 @@ from jira_test_helpers import CLOUD_BASE, FakeJiraClient, cloud_config, dc_confi
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
 from harborrag_adapters.connectors.jira import JiraConnector
 from harborrag_adapters.connectors.jira.issues import DISCOVERY_FIELDS
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
 

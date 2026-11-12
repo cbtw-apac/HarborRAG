@@ -29,15 +29,15 @@ from harborrag_adapters.connectors.registry import (
     ConnectorProviderDefinition,
     connector_registry,
 )
-from harborrag_adapters.connectors.schemas import (
+from harborrag_adapters.connectors.sharepoint import (
+    SharePointConnector,
+    SharePointSiteConfig,
+)
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorMetadata,
     ConnectorQuery,
     ConnectorSkip,
-)
-from harborrag_adapters.connectors.sharepoint import (
-    SharePointConnector,
-    SharePointSiteConfig,
 )
 
 connector_registry.register_provider(

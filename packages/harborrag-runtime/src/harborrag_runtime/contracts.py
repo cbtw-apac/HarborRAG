@@ -69,12 +69,12 @@ from harborrag_core.contracts.reader import (
 from harborrag_core.contracts.reader import (
     SemanticPathResponse as SemanticPathResponse,
 )
-from harborrag_core.security import AccessContext
-from harborrag_runtime.ingestion.limits import (
+from harborrag_core.ingestion.limits import (
     validate_discovery_concurrency,
     validate_discovery_page_size,
     validate_document_concurrency,
 )
+from harborrag_core.security import AccessContext
 from harborrag_runtime.reader_contracts import (
     DocumentContextChunk as DocumentContextChunk,
 )

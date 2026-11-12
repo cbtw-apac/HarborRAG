@@ -9,9 +9,9 @@ import pytest
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_adapters.connectors.registry import connector_registry
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorQuery
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

@@ -21,14 +21,14 @@ from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.policies.http import verify_credentials
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
 from harborrag_adapters.connectors.rate_limiting import ConnectorRateLimiter
-from harborrag_adapters.connectors.schemas import (
+from harborrag_adapters.parsers import HarborParserRegistry
+from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
     ConnectorCapabilities,
     ConnectorPage,
     ConnectorQuery,
 )
-from harborrag_adapters.parsers import HarborParserRegistry
-from harborrag_core.domain.raw_document import RawDocument
-from harborrag_core.domain.source import SourceRecord
 
 from .client import JiraClient, _RequestsJiraClient
 from .config import JiraProjectConfig

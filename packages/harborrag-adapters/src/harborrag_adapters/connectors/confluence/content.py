@@ -8,7 +8,7 @@ from typing import Any
 
 from harborrag_adapters.connectors.exceptions import FetchError
 from harborrag_adapters.connectors.policies.validation import truncate_with_limit
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .client import ConfluenceClient
 from .config import ConfluenceSpaceConfig

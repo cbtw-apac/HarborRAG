@@ -6,22 +6,22 @@ from bisect import bisect_right
 from collections.abc import AsyncIterator, Callable, Sequence
 from dataclasses import dataclass, field
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.chunking import ConnectorType
 from harborrag_core.ingestion import (
     DocumentIngestionOutcome,
     IngestionTaskState,
     ProcessingProfile,
 )
-from harborrag_core.invariants import HarborInvariantError
-from harborrag_runtime.ingestion_contracts import RunSettings
-
-from ..document.models import DocumentReleaseRequest
-from ..limits import (
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
+from harborrag_core.ingestion.limits import (
     validate_discovery_concurrency,
     validate_discovery_page_size,
     validate_document_concurrency,
 )
+from harborrag_core.ingestion.run_contracts import RunSettings
+from harborrag_core.invariants import HarborInvariantError
+
+from ..document.models import DocumentReleaseRequest
 
 
 @dataclass(frozen=True, slots=True)

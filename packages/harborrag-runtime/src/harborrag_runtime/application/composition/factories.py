@@ -21,9 +21,7 @@ from harborrag_runtime.execution.gateway import (
     connect_temporal_client as connect_temporal_client,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-from harborrag_runtime.ingestion_contracts import (
-    IngestionGateway,
-)
+from harborrag_runtime.ingestion_contracts import IngestionGateway
 from harborrag_runtime.scheduling import ScheduleBackend
 from harborrag_runtime.sdk import HarborRAG, HarborRAGConfig
 

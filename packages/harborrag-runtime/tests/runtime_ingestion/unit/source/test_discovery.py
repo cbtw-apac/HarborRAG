@@ -13,7 +13,6 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from harborrag_adapters.connectors.descriptors import ConnectorDocumentDescriptor
-from harborrag_adapters.connectors.schemas import ConnectorCapabilities, ConnectorPage
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     ImmutableArtifactReader,
@@ -21,6 +20,7 @@ from harborrag_adapters.repositories.object_store import (
     IngestionArtifactLayout,
 )
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorCapabilities, ConnectorPage
 from harborrag_core.schemas.storage import StorageOperationContext
 from harborrag_runtime.ingestion import SourceIngestionService, SourcePlanRepository
 from harborrag_runtime.ingestion.connections import ConnectionHealth

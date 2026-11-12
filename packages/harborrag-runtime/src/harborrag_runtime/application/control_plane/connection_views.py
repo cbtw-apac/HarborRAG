@@ -17,8 +17,8 @@ from typing import Any
 from harborrag_core.domain.connection import Connection
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion.run_contracts import RunKind
 from harborrag_core.security.secret_refs import credentials_view
-from harborrag_runtime.ingestion_contracts import RunKind
 
 _ETAG = re.compile(r'^(?:W/)?"rev-(\d+)"$')
 ANY_VERSION = -2

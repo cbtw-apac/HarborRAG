@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
+from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.contracts import IngestionRequest
 from harborrag_runtime.execution.gateway import prepare_configured_source_submission
 from harborrag_runtime.ingestion.connections import ConnectionResolver, ResolvedConnection
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
-from harborrag_runtime.source_query import SourceQuery
 
 
 def request_source_key(request: IngestionRequest) -> str:

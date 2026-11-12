@@ -23,6 +23,7 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     identity_for_source,
 )
+from harborrag_core.ingestion.limits import validate_reindex_limit
 from harborrag_core.schemas.ids import DocumentId
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
@@ -39,7 +40,6 @@ from ..document.dependencies import DocumentReleaseDependencies
 from ..document.lifecycle import DocumentVersionLifecycle
 from ..document.models import DocumentReleaseRequest
 from ..document.pipeline import DocumentStagePipeline
-from ..limits import validate_reindex_limit
 from .reindex_reuse import ChunkReuseCoordinator
 
 logger = logging.getLogger("harborrag.runtime.ingestion.reindex")

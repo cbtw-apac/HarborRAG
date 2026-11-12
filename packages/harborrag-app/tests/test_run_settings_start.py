@@ -11,6 +11,7 @@ import pytest
 from harborrag_core.config_store import SettingsLevel, SettingsSnapshot, resolve_effective
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
+from harborrag_core.ingestion.run_contracts import RunSettings, SourceSubmission
 from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
@@ -19,7 +20,6 @@ from harborrag_runtime.application.ingestion.connection_sources import Connectio
 from harborrag_runtime.application.ingestion.recovery import source_from_task
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
-from harborrag_runtime.ingestion_contracts import RunSettings, SourceSubmission
 
 pytestmark = pytest.mark.unit
 

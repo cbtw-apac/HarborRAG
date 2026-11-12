@@ -3,6 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+from harborrag_core.contracts.errors import (
+    StorageAlreadyExistsError,
+    StorageNotFoundError,
+    StorageValidationError,
+)
 from harborrag_core.storage import StorageFamily
 
 
@@ -113,19 +118,19 @@ class HarborStorageConflictError(HarborStorageError):
     pass
 
 
-class HarborStorageNotFoundError(HarborStorageError):
+class HarborStorageNotFoundError(HarborStorageError, StorageNotFoundError):
     """Raised when a storage operation fails because of not found."""
 
     pass
 
 
-class HarborStorageAlreadyExistsError(HarborStorageError):
+class HarborStorageAlreadyExistsError(HarborStorageError, StorageAlreadyExistsError):
     """Raised when a storage operation fails because of already exists."""
 
     pass
 
 
-class HarborStorageValidationError(HarborStorageError):
+class HarborStorageValidationError(HarborStorageError, StorageValidationError):
     """Raised when a storage operation fails because of validation."""
 
     pass

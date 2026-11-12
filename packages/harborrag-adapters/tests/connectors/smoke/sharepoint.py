@@ -11,8 +11,8 @@ from bootstrap import (
 )
 
 from harborrag_adapters.connectors.exceptions import ConnectorError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 
 def run_sharepoint(*, connection_id: str | None = None, limit: int = 10) -> int:

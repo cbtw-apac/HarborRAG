@@ -8,13 +8,18 @@ from itertools import islice
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
+    ConnectorCapabilities,
+    ConnectorPage,
+    ConnectorQuery,
+    ConnectorSkip,
+)
 
 from .descriptors import (
     ConnectorDocumentDescriptor,
     default_document_descriptor,
 )
 from .exceptions import AuthenticationError
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 logger = logging.getLogger("harborrag.adapters.connectors.base")
 

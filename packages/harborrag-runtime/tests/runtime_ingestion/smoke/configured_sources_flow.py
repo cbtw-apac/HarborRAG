@@ -15,7 +15,7 @@ from configured_inspection import (
     inspect_configured_source,
 )
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_runtime.config import (
     connector_fingerprint,
     load_connector_catalog,

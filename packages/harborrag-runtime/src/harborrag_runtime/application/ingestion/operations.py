@@ -8,6 +8,11 @@ from datetime import datetime
 from hashlib import sha256
 from typing import Any, Literal, Protocol
 
+from harborrag_core.contracts.errors import (
+    IngestionActionStateError,
+    IngestionCursorError,
+    IngestionNotFoundError,
+)
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import (
     IngestionTask,
@@ -22,7 +27,6 @@ from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
 
 from ..control_plane.connection_views import INGESTION_STATES, IngestionLinks, ingestion_view
-from ..errors import IngestionActionStateError, IngestionCursorError, IngestionNotFoundError
 from .presenters import (
     TERMINAL_STATES,
     decode_cursor,

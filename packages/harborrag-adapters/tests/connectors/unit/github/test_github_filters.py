@@ -9,7 +9,7 @@ import pytest
 from github_test_helpers import commit, config, tree_item
 
 from harborrag_adapters.connectors.github import filters as github_filters
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

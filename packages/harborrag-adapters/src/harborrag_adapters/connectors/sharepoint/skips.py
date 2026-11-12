@@ -13,8 +13,8 @@ from harborrag_adapters.connectors.exceptions import (
     ItemNotFoundError,
     RateLimitError,
 )
-from harborrag_adapters.connectors.schemas import ConnectorSkip
 from harborrag_core.ingestion import SourceRetriesExhaustedError, UnsupportedDocumentError
+from harborrag_core.ingestion.connector_contracts import ConnectorSkip
 
 logger = logging.getLogger("harborrag.adapters.connectors.sharepoint")
 

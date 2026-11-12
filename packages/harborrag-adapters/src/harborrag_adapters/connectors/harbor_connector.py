@@ -5,10 +5,15 @@ from typing import Any
 
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import (
+    ConnectorCapabilities,
+    ConnectorPage,
+    ConnectorQuery,
+    ConnectorSkip,
+)
 
 from .descriptors import ConnectorDocumentDescriptor
 from .registry import connector_registry
-from .schemas import ConnectorCapabilities, ConnectorPage, ConnectorQuery, ConnectorSkip
 
 
 class HarborConnector:

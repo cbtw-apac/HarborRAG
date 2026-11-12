@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import LocalFileConfig
 

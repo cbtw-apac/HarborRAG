@@ -5,12 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from harborrag_core.contracts.errors import HarborConfigurationError
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion import BaseChunker
 from harborrag_engine.ingestion.chunking import ChunkingConfig
 from harborrag_engine.ingestion.chunking.config import cap_chunking_config
 from harborrag_runtime.config.chunking import ChunkingSettings
 from harborrag_runtime.config.parsers import ParserCatalog
-from harborrag_runtime.ingestion_contracts import RunSettings
 
 from .dependencies import DocumentParserPort
 

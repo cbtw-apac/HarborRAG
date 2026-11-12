@@ -12,7 +12,7 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     SourceIdentity,
 )
-from harborrag_runtime.ingestion_contracts import RunSettings
+from harborrag_core.ingestion.run_contracts import RunSettings
 
 
 @dataclass(frozen=True, slots=True)

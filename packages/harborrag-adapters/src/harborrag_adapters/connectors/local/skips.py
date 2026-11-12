@@ -6,7 +6,7 @@ import logging
 from collections.abc import Iterator
 from pathlib import Path
 
-from harborrag_adapters.connectors.schemas import (
+from harborrag_core.ingestion.connector_contracts import (
     SKIP_REASON_CALLBACK_REJECTED,
     SKIP_REASON_OUT_OF_SCOPE,
     SKIP_REASON_SIZE_LIMIT_EXCEEDED,

@@ -17,8 +17,8 @@ from bootstrap import (
 )
 
 from harborrag_adapters.connectors.local.mappers import path_from_record
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.parser import ParseInput
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 _IMAGE_SUFFIXES = frozenset({"png", "jpg", "jpeg", "tif", "tiff", "bmp", "gif", "webp", "svg"})
 

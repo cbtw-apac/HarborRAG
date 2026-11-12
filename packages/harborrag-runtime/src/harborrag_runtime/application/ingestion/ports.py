@@ -17,12 +17,9 @@ from harborrag_core.ingestion import (
     TaskPage,
     TaskRegistration,
 )
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion_contracts import (
-    IngestionGateway,
-    PreparedSourceSubmission,
-    SourceSubmission,
-)
+from harborrag_runtime.ingestion_contracts import IngestionGateway
 
 type ClientProvider = Callable[[], Awaitable[IngestionGateway]]
 type TaskStoreProvider = Callable[[], Awaitable["PublicTaskStore"]]

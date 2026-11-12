@@ -17,7 +17,11 @@ from workflow_control_fixtures import (
 )
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
-from harborrag_core.contracts.errors import HarborAlreadyRunningError, HarborConnectionError
+from harborrag_core.contracts.errors import (
+    HarborAlreadyRunningError,
+    HarborConnectionError,
+    IngestionActionStateError,
+)
 from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
@@ -27,7 +31,6 @@ from harborrag_runtime.application.control_plane.connections import (
     ConnectionKey,
     ConnectionService,
 )
-from harborrag_runtime.application.errors import IngestionActionStateError
 from harborrag_runtime.application.ingestion.operations import (
     ACTION_WAIT_SECONDS,
     IngestionOperations,
@@ -262,7 +265,7 @@ async def test_cancelling_a_queued_run_without_a_workflow_leaves_it_queued(
 async def test_an_action_on_a_run_of_another_tenant_is_not_found(
     service_resources: _Resources,
 ) -> None:
-    from harborrag_runtime.application.errors import IngestionNotFoundError
+    from harborrag_core.contracts.errors import IngestionNotFoundError
 
     task_id = await _start(service_resources)
 

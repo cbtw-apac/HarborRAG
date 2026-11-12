@@ -23,8 +23,8 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     reject_runtime_fields,
 )
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion_contracts import RunSettings
 from harborrag_runtime.serialization import to_json_value
 
 from ..document.models import DocumentReleaseRequest

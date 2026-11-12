@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import logging
 
-from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_core.chunking import ChunkRecord
+from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.domain.document import Document
 from harborrag_core.ingestion import (
     ArtifactReference,
@@ -179,7 +179,7 @@ class DocumentVersionLifecycle:
                 active.representation_artifact,
                 context=context,
             )
-        except HarborStorageNotFoundError:
+        except StorageNotFoundError:
             # Reuse is an optimization, never a correctness requirement. An
             # operator may have cleaned an old object-store generation while
             # Postgres still points at the active version. Encode the new

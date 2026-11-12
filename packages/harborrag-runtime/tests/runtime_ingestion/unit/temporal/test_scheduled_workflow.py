@@ -18,10 +18,10 @@ from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config.temporal import TemporalRuntimeConfig
 from harborrag_runtime.ingestion.connections import ConnectionNotFoundError
-from harborrag_runtime.ingestion_contracts import PreparedSourceSubmission, SourceSubmission
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal.schemas import (
     ScheduledRunMetricInput,

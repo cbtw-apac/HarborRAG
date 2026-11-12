@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from harborrag_runtime.ingestion.limits import validate_reindex_limit
+from harborrag_core.ingestion.limits import validate_reindex_limit
 from harborrag_runtime.temporal_models import TemporalWorkflowOptions
 
 from .schemas import ProcessingProfileInput

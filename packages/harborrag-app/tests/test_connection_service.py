@@ -761,8 +761,8 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
     from dataclasses import replace
 
     from harborrag_core.contracts.errors import HarborUnavailableError
+    from harborrag_core.ingestion.run_contracts import SourceSubmission
     from harborrag_runtime.application.ingestion import connection_sources
-    from harborrag_runtime.ingestion_contracts import SourceSubmission
 
     imports: list[object] = []
 

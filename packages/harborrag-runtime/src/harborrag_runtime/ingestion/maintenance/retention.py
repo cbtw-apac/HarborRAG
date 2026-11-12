@@ -18,12 +18,12 @@ from datetime import datetime, timedelta
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_adapters.repositories.database.ingestion_control.retention import PurgeClaim
-from harborrag_adapters.repositories.errors import HarborStorageNotFoundError
 from harborrag_adapters.repositories.object_store import (
     ARTIFACT_BUCKET,
     IngestionArtifactLayout,
 )
 from harborrag_core.base import utc_now
+from harborrag_core.contracts.errors import StorageNotFoundError
 from harborrag_core.ingestion import PurgeableDocumentVersion
 from harborrag_core.ports.storage import ObjectStorePort
 from harborrag_core.storage import StorageOperationContext
@@ -320,7 +320,7 @@ class RetiredVersionPurgeService:
     async def _delete(self, bucket: str, key: str, run: _PurgeRun) -> None:
         try:
             existed = await self._store.delete(bucket, key, context=run.context)
-        except HarborStorageNotFoundError:
+        except StorageNotFoundError:
             # Already deleted by an earlier, interrupted purge.
             return
         run.removed += int(existed)

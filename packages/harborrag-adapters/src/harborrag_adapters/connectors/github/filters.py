@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import GitHubRepositoryConfig
 from .mappers import commit_timestamp

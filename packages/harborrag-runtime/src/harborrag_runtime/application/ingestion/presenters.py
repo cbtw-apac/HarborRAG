@@ -8,14 +8,13 @@ from datetime import datetime
 from hashlib import sha256
 from uuid import uuid4
 
+from harborrag_core.contracts.errors import IngestionCursorError
 from harborrag_core.ingestion import (
     IngestionTask,
     IngestionTaskState,
 )
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
-
-from ..errors import IngestionCursorError
 
 TERMINAL_STATES = frozenset(
     {

@@ -14,7 +14,7 @@ from harborrag_adapters.connectors.jira.query import (
     is_cloud_hostname,
     search_body,
 )
-from harborrag_adapters.connectors.schemas import ConnectorQuery
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 pytestmark = [pytest.mark.unit, pytest.mark.whitebox]
 

@@ -11,13 +11,17 @@ from datetime import datetime
 from hashlib import sha256
 from typing import Any, Protocol
 
-from harborrag_core.contracts.errors import HarborError
+from harborrag_core.contracts.errors import (
+    HarborError,
+    IngestionCursorError,
+    IngestionFailureIdError,
+    IngestionRetryConflictError,
+)
 from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import FailurePage, IngestionTask, StoredFailure
 from harborrag_core.ingestion.stages import SPEC_STAGES, internal_stages, spec_stage
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
 
-from ..errors import IngestionCursorError, IngestionFailureIdError, IngestionRetryConflictError
 from .operations import IngestionActions, connection_index, source_keys_for
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")

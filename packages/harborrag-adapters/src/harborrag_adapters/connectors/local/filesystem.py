@@ -9,8 +9,8 @@ from hashlib import sha256
 from pathlib import Path
 
 from harborrag_adapters.connectors.exceptions import DocumentProcessingError, FetchError
-from harborrag_adapters.connectors.schemas import ConnectorQuery
 from harborrag_core.domain.source import SourceRecord
+from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 
 from .config import LocalFileConfig
 from .filesystem_paths import (
