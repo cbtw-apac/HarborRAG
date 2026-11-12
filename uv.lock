@@ -2423,6 +2423,7 @@ dependencies = [
     { name = "harborrag-adapters" },
     { name = "harborrag-core" },
     { name = "harborrag-engine" },
+    { name = "harborrag-memory" },
     { name = "jsonschema" },
     { name = "opentelemetry-api" },
     { name = "prometheus-client" },
@@ -2437,9 +2438,6 @@ chat = [
 ]
 dev = [
     { name = "types-pyyaml" },
-]
-memory = [
-    { name = "harborrag-memory" },
 ]
 production = [
     { name = "harborrag-adapters", extra = ["chunking", "chunking-code", "control-plane", "falkordb", "langfuse", "llm", "opentelemetry", "parsers", "pdf-liteparse", "postgres", "qdrant", "redis", "s3", "tables"] },
@@ -2461,7 +2459,7 @@ requires-dist = [
     { name = "harborrag-adapters", extras = ["llm"], marker = "extra == 'chat'", editable = "packages/harborrag-adapters" },
     { name = "harborrag-core", editable = "packages/harborrag-core" },
     { name = "harborrag-engine", editable = "packages/harborrag-engine" },
-    { name = "harborrag-memory", marker = "extra == 'memory'", editable = "packages/harborrag-memory" },
+    { name = "harborrag-memory", editable = "packages/harborrag-memory" },
     { name = "jsonschema", specifier = ">=4.26,<5" },
     { name = "opentelemetry-api", specifier = ">=1.45.1,<2" },
     { name = "prometheus-client", specifier = ">=0.19,<1" },
@@ -2471,7 +2469,7 @@ requires-dist = [
     { name = "temporalio", marker = "extra == 'temporal'", specifier = ">=1.30,<2" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
-provides-extras = ["reader", "chat", "memory", "temporal", "production", "dev"]
+provides-extras = ["reader", "chat", "temporal", "production", "dev"]
 
 [[package]]
 name = "harborrag-workspace"

@@ -100,10 +100,11 @@ def test_mcp_image_installs_its_declared_runtime_stack() -> None:
 
     # ``[reader]``, not ``[mcp]``: the ``mcp`` extra is empty, so it pulled nothing,
     # while ``reader`` is what brings in the runtime layer the server actually serves
-    # from. The image also drops harborrag-memory, which contract 13 forbids MCP.
+    # from. harborrag-memory is installed because harborrag-runtime requires it; the
+    # server still never imports it (contract 13).
     assert "-e 'packages/harborrag-mcp-server[reader]'" in install_block
     assert "-e packages/harborrag-app" not in install_block
-    assert "-e packages/harborrag-memory" not in install_block
+    assert "-e packages/harborrag-memory" in install_block
     assert "-e 'packages/harborrag-runtime[reader]'" in install_block
     assert "COPY config ./config" in dockerfile
     assert 'ENTRYPOINT ["python", "-m", "harborrag_mcp_server"]' in dockerfile

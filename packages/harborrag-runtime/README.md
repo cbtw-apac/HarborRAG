@@ -17,9 +17,10 @@ facade instead, which re-exports this package's SDK.
 pip install "harborrag-runtime[temporal]"
 ```
 
-The `temporal` extra adds the Temporal client that durable ingestion needs. `reader` adds
-the clients retrieval needs, `production` the clients the ingestion worker needs, `chat`
-the model client and `memory` the `harborrag-memory` package.
+The install brings `harborrag-core`, `harborrag-engine`, `harborrag-adapters` and
+`harborrag-memory`. The `temporal` extra adds the Temporal client that durable ingestion
+needs. `reader` adds the clients retrieval needs, `production` the clients the ingestion
+worker needs and `chat` the model client.
 
 ## Find your way around the package
 
