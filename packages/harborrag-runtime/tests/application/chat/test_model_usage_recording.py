@@ -89,7 +89,7 @@ async def test_a_completed_chat_turn_records_exactly_one_attributed_usage_row() 
 
 @pytest.mark.asyncio
 async def test_usage_totals_are_readable_per_tenant_and_per_user() -> None:
-    """A scope check and an answer each nobody else spent anything in this tenant."""
+    """Usage totals count each user's requests: another user of the tenant has none."""
     memory = await _session()
     usage = FakeUsageRepository()
     service = _service(memory, usage=usage, cost=0.0042)

@@ -122,7 +122,7 @@ def runs() -> _Runs:
         2,
         failure_stage="ParseAndNormalize",
         safe_error_code="parse_failed",
-        title="Alex Example CV",
+        title="Alex Example Runbook",
     )
     stored.add("doc-d", "removed", 3)
     stored.add("doc-e", "cancelled", 4)

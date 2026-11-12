@@ -86,7 +86,7 @@ def test_a_garbage_chat_session_cursor_names_its_field(client: TestClient) -> No
 
 def test_an_etag_cycle_refuses_a_stale_write(client: TestClient) -> None:
     etag = client.get("/v1/admin/projects/p01").headers["etag"]
-    body = {"project_name": "DEMO candidates"}
+    body = {"project_name": "DEMO runbooks"}
 
     first = client.put(
         "/v1/admin/projects/p01",

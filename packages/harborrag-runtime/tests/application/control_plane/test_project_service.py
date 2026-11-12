@@ -78,7 +78,7 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
     _, created, version = await projects.put(
         tenant_id="acme",
         project_id="demo",
-        name="DEMO candidates",
+        name="DEMO runbooks",
         description="Tickets",
         actor="u",
         expected_version=1,
