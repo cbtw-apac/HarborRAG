@@ -22,8 +22,8 @@ from harborrag_core.ingestion import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
 )
-from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
-from harborrag_runtime.application.ingestion.operations import IngestionOperations
+from harborrag_engine.control_plane.connection_views import IngestionLinks
+from harborrag_engine.ingestion.operations import IngestionOperations
 
 _URL = "/v1/admin/ingestions/ing_1/documents"
 _ITEM_KEYS = {"document_ref", "document_id", "status", "stage", "error_category", "duration_ms"}

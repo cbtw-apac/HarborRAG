@@ -10,10 +10,14 @@ from itertools import islice
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.ingestion import BindingKind, DocumentIngestionOutcome
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.source.models import (
+    PlannedDocumentRelease,
+    SourceDispatchSummary,
+    SourceIngestionRequest,
+)
 
-from ..document.models import DocumentReleaseOutcome
 from .documents import SourceDocumentService
-from .models import PlannedDocumentRelease, SourceDispatchSummary, SourceIngestionRequest
 from .retry import SourceRetryService
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")

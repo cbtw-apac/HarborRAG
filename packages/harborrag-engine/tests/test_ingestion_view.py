@@ -6,10 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
-from harborrag_runtime.application.control_plane.connection_views import (
-    IngestionLinks,
-    ingestion_view,
-)
+from harborrag_engine.control_plane.connection_views import IngestionLinks, ingestion_view
 
 
 def _task(

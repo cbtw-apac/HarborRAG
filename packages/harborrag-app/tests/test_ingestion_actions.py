@@ -26,14 +26,11 @@ from harborrag_core.domain.connection import ConnectionBuilder
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
-from harborrag_runtime.application.control_plane.connection_views import IngestionLinks
+from harborrag_engine.control_plane.connection_views import IngestionLinks
+from harborrag_engine.ingestion.operations import ACTION_WAIT_SECONDS, IngestionOperations
 from harborrag_runtime.application.control_plane.connections import (
     ConnectionKey,
     ConnectionService,
-)
-from harborrag_runtime.application.ingestion.operations import (
-    ACTION_WAIT_SECONDS,
-    IngestionOperations,
 )
 from harborrag_runtime.application.ingestion.service import IngestionApplicationService
 from harborrag_runtime.errors import (

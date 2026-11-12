@@ -20,8 +20,7 @@ from harborrag_core.ingestion.limits import (
 )
 from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.invariants import HarborInvariantError
-
-from ..document.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 
 @dataclass(frozen=True, slots=True)

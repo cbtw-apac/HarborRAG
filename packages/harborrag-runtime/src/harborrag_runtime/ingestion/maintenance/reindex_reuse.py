@@ -6,12 +6,12 @@ from harborrag_core.ingestion import DocumentVersionSnapshot, DocumentVersionSta
 from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import ChunkVersionRebinder
 from harborrag_engine.ingestion.maintenance.reindex_plan import ReindexPlan
+from harborrag_engine.ingestion.release.materialization_helpers import representation_artifact_name
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
 
 from ..document.dependencies import DocumentReleaseDependencies
 from ..document.lifecycle import DocumentVersionLifecycle
-from ..document.materialization_helpers import representation_artifact_name
-from ..document.models import DocumentReleaseRequest
 from ..document.pipeline import DocumentStagePipeline
 
 

@@ -13,14 +13,14 @@ from harborrag_core.ingestion.task_query_contracts import (
     StoredTaskDocumentResult,
     TaskDocumentPage,
 )
-from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
-from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     PlannedDocuments,
     RelationRepairProgress,
     SourceDispatchSummary,
 )
+from harborrag_runtime.ingestion.maintenance.relation_repair import RelationRepairResult
+from harborrag_runtime.ingestion.source.finalization import SourceFinalizationService
 from harborrag_runtime.ingestion.source.skips import discovery_skip_summary, run_skip_summary
 
 

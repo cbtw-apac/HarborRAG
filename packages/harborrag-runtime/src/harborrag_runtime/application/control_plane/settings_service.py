@@ -30,10 +30,10 @@ from harborrag_core.contracts.errors import (
 )
 from harborrag_core.domain.member import Role, require_role
 from harborrag_core.ports.config_store import SettingsStore
+from harborrag_engine.control_plane.connection_views import ANY_VERSION
 from harborrag_runtime.composition import ControlPlaneRepositories
 
 from ..errors import SettingsLevelNotFoundError
-from .connection_views import ANY_VERSION
 
 
 @dataclass(frozen=True, slots=True)

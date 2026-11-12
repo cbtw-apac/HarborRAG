@@ -12,14 +12,7 @@ from harborrag_adapters.repositories.database import (
 )
 from harborrag_adapters.repositories.errors import HarborStorageValidationError
 from harborrag_core.ingestion import IngestionTaskState
-
-from ...errors import VectorIndexSchemaError
-from ..document.service import DocumentReleaseService
-from ..maintenance.relation_repair import GraphRelationRepairService
-from .discovery import SourceDiscoveryPlanner
-from .documents import SourceDocumentService
-from .finalization import SourceFinalizationService
-from .models import (
+from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
     SourceDiscoveryPage,
@@ -28,9 +21,16 @@ from .models import (
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
+
+from ...errors import VectorIndexSchemaError
+from ..document.service import DocumentReleaseService
+from ..maintenance.relation_repair import GraphRelationRepairService
+from .discovery import SourceDiscoveryPlanner
+from .documents import SourceDocumentService
+from .finalization import SourceFinalizationService
 from .operations import SourceDocumentOperations
 from .retry import SourceRetryService
-from .tasks import pending_source_task, source_scan_id
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source")
 

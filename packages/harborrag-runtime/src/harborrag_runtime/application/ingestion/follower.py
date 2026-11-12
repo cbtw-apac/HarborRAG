@@ -13,10 +13,9 @@ from collections.abc import AsyncGenerator
 from typing import Protocol
 
 from harborrag_core.contracts.events import HarborEvent
-
-from ..control_plane.connection_views import ingestion_status
-from .operations import IngestionOperations
-from .presenters import TERMINAL_STATES
+from harborrag_engine.control_plane.connection_views import ingestion_status
+from harborrag_engine.ingestion.operations import IngestionOperations
+from harborrag_engine.ingestion.presenters import TERMINAL_STATES
 
 _ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 

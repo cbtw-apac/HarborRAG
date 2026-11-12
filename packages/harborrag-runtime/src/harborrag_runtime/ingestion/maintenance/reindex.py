@@ -35,10 +35,10 @@ from harborrag_engine.ingestion.maintenance.reindex_plan import (
     ReindexPlan,
     processing_profile_from_canonical,
 )
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 from ..document.dependencies import DocumentReleaseDependencies
 from ..document.lifecycle import DocumentVersionLifecycle
-from ..document.models import DocumentReleaseRequest
 from ..document.pipeline import DocumentStagePipeline
 from .reindex_reuse import ChunkReuseCoordinator
 

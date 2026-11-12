@@ -24,10 +24,13 @@ from harborrag_core.ingestion import (
 from harborrag_core.ingestion.stages import spec_stage
 from harborrag_core.invariants import require
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
+from harborrag_engine.control_plane.connection_views import (
+    INGESTION_STATES,
+    IngestionLinks,
+    ingestion_view,
+)
 from harborrag_engine.ingestion.models import DocumentPageCursor, TaskPageCursor
-
-from ..control_plane.connection_views import INGESTION_STATES, IngestionLinks, ingestion_view
-from .presenters import (
+from harborrag_engine.ingestion.presenters import (
     TERMINAL_STATES,
     decode_cursor,
     decode_task_cursor,

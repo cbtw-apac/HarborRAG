@@ -10,7 +10,7 @@ from harborrag_core.ingestion import ProcessingProfile
 from harborrag_core.ingestion.connector_contracts import ConnectorQuery
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_core.ingestion.source_query import ProcessingProfileInput
-from harborrag_runtime.ingestion.source.models import SourceIngestionRequest
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 
 
 def to_source_request(source: PreparedSourceSubmission) -> SourceIngestionRequest:

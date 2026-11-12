@@ -16,10 +16,7 @@ from harborrag_app.operations.results import Tagged
 from harborrag_app.operations.schemas.settings import SettingsOut, SettingsPatchOut
 from harborrag_app.operations.scope import Scope
 from harborrag_core.config_store import revision_label
-from harborrag_runtime.application.control_plane.connection_views import (
-    etag,
-    version_from_etag,
-)
+from harborrag_engine.control_plane.connection_views import etag, version_from_etag
 from harborrag_runtime.application.control_plane.settings_service import SettingsPatch
 
 if TYPE_CHECKING:

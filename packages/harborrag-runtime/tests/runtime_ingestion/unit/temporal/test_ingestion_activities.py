@@ -11,7 +11,7 @@ import pytest
 from temporalio.service import RPCError, RPCStatusCode
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
-from harborrag_runtime.ingestion.source.models import PlannedDocuments
+from harborrag_engine.ingestion.source.models import PlannedDocuments
 from harborrag_runtime.temporal import ingestion_activities as activity_module
 from harborrag_runtime.temporal import source_activities as source_activities_module
 from harborrag_runtime.temporal.ingestion_activities import IngestionActivities

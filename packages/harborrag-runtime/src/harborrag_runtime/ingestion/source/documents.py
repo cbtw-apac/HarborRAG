@@ -15,11 +15,11 @@ from harborrag_core.ingestion import (
     is_retryable_failure_code,
 )
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 
-from ..document.models import DocumentReleaseOutcome
 from ..document.service import DocumentReleaseService
 from ..failure_classification import ingestion_failure_classifier
-from .models import PlannedDocumentRelease
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_documents")
 

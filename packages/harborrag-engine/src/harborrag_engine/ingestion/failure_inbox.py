@@ -21,8 +21,11 @@ from harborrag_core.domain.connection import Connection
 from harborrag_core.ingestion import FailurePage, IngestionTask, StoredFailure
 from harborrag_core.ingestion.stages import SPEC_STAGES, internal_stages, spec_stage
 from harborrag_core.ports.control_plane import ConnectionRepositoryPort
-
-from .operations import IngestionActions, connection_index, source_keys_for
+from harborrag_engine.ingestion.operations import (
+    IngestionActions,
+    connection_index,
+    source_keys_for,
+)
 
 logger = logging.getLogger("harborrag.app.workflow_control.ingestion")
 

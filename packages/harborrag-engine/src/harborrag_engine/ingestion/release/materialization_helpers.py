@@ -7,8 +7,7 @@ from dataclasses import replace
 from harborrag_core.chunking.identity import encoded_identifier
 from harborrag_core.domain.raw_document import RawDocument
 from harborrag_core.ingestion import RepresentationSet
-
-from .models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 
 def enrich_raw_document(

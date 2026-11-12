@@ -7,7 +7,7 @@ from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ArtifactReference
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion.source.models import PlannedDocumentRelease, SourcePlanIndex
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourcePlanIndex
 from harborrag_runtime.ingestion.source.plan import SourcePlanRepository
 
 from .conversion import to_artifact_reference

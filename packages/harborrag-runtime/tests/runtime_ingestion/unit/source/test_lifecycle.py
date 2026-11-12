@@ -18,12 +18,12 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
 )
 from harborrag_core.storage import StorageFamily
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.errors import RuntimeConfigurationError
 from harborrag_runtime.ingestion import (
     DocumentReleaseService,
     SourceIngestionService,
 )
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
 
 from ...fixtures.connectors import DescriptorConnector
 from ...fixtures.release import (

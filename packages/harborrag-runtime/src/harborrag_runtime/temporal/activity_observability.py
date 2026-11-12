@@ -17,11 +17,11 @@ from temporalio.exceptions import ApplicationError
 from harborrag_core.ingestion import IngestionFailureClassifier
 from harborrag_core.invariants import HarborInvariantError
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
 from harborrag_engine.ingestion.release.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
 )
-from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
 from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 from harborrag_runtime.ingestion.observability import (
     ArtifactMetricKind,

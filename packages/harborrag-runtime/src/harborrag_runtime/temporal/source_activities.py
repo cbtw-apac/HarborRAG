@@ -14,8 +14,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.storage import StorageOperationContext
-from harborrag_runtime.ingestion.composition import IngestionRuntime
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.source.models import (
     RelationRepairProgress,
     SourceDiscoveryRun,
     SourceDispatchSummary,
@@ -23,7 +22,8 @@ from harborrag_runtime.ingestion.source.models import (
     SourcePlanCheckpoint,
     SourcePlanIndex,
 )
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
+from harborrag_engine.ingestion.source.tasks import source_scan_id
+from harborrag_runtime.ingestion.composition import IngestionRuntime
 
 from .activity_observability import ActivityObservability
 from .conversion import to_artifact_reference, to_source_request, to_workflow_artifact

@@ -4,10 +4,10 @@ from temporalio import activity
 
 from harborrag_core.ingestion import DocumentIngestionOutcome
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.ingestion.source.models import SourceDispatchSummary
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.ingestion.composition import IngestionRuntime
 from harborrag_runtime.ingestion.connections import require_fingerprint
-from harborrag_runtime.ingestion.source.models import SourceDispatchSummary
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
 
 from .activity_observability import ActivityObservability
 from .conversion import to_workflow_artifact

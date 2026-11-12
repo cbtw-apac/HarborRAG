@@ -10,6 +10,7 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
 )
 from harborrag_engine.ingestion.chunking.schemas import ChunkingStatistics
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
@@ -18,7 +19,6 @@ from harborrag_engine.ingestion.release.stage_models import (
 from .capture import DocumentCaptureStages
 from .dependencies import DocumentReleaseDependencies
 from .materialization import DocumentMaterializationStages
-from .models import DocumentReleaseRequest
 
 
 class DocumentPreparationStages:

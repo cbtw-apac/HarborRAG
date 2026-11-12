@@ -36,6 +36,7 @@ from harborrag_core.domain.connection import (
 from harborrag_core.domain.job import Job, JobStatus
 from harborrag_core.ingestion import IngestionTask
 from harborrag_core.security.secret_refs import SecretSource, all_refs, stored_refs
+from harborrag_engine.control_plane import connection_views as cv
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import (
@@ -66,7 +67,6 @@ from harborrag_runtime.ingestion.connections import (
 )
 
 from .active_runs import active_run
-from .connection_views import ingestion_view, read_connection_views, resolve_any_version
 from .effect_recovery import defer_retirement, log_activity, retire_refs
 
 if TYPE_CHECKING:
@@ -222,7 +222,7 @@ class ConnectionService:
             limit=limit,
             cursor=cursor,
         )
-        views = await read_connection_views(await self._runs(), connections, batch=True)
+        views = await cv.read_connection_views(await self._runs(), connections, batch=True)
         return views, next_cursor
 
     async def searchable(self, *, tenant_id: str, project_id: str) -> list[dict[str, Any]]:
@@ -341,7 +341,7 @@ class ConnectionService:
         existing = await control_plane.connections.get(
             tenant_id=key.tenant_id, project_id=key.project_id, connection_id=key.connection_id
         )
-        expected_version = resolve_any_version(
+        expected_version = cv.resolve_any_version(
             expected_version, existing.version if existing else None
         )
         _check_preconditions(existing, spec, expected_version, create_only)
@@ -527,7 +527,7 @@ class ConnectionService:
         if task is None:
             raise HarborUnavailableError("the ingestion was accepted but cannot be read back")
         await self._record(connection, "synced", actor, None, summary=f"Started a {mode} sync")
-        return ingestion_view(
+        return cv.ingestion_view(
             task, connection=connection, progress=await runs.progress(task.task_id), mode=mode
         )
 
@@ -714,7 +714,7 @@ class ConnectionService:
 
     async def _view(self, connection: Connection) -> dict[str, Any]:
         """Return the API view with the latest run and document count."""
-        views = await read_connection_views(await self._runs(), [connection], batch=False)
+        views = await cv.read_connection_views(await self._runs(), [connection], batch=False)
         return views[0]
 
     async def _retire_replaced(self, connection: Connection, refs: list[str]) -> None:

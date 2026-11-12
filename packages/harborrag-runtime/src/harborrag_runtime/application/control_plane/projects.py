@@ -31,10 +31,10 @@ from harborrag_core.domain.activity import ActivityEntry
 from harborrag_core.domain.connection import CONNECTION_ID_PATTERN, Connection
 from harborrag_core.domain.job import Job
 from harborrag_core.domain.project import Project
+from harborrag_engine.control_plane.connection_views import project_view, resolve_any_version
 from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config.connectors.models import ConnectionValidationError, FieldIssue
 
-from .connection_views import project_view, resolve_any_version
 from .connections import ConnectionRuns, ConnectionService
 from .effect_recovery import log_activity
 

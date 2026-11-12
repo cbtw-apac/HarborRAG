@@ -18,13 +18,13 @@ from harborrag_adapters.repositories.database import (
     IngestionControlPlaneDatabase,
 )
 from harborrag_core.domain.source import SourceRecord
-
-from .descriptor_mapping import PendingSourceRelease, SourceDescriptorMapper
-from .models import (
+from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     SourceDiscoveryPage,
     SourceIngestionRequest,
 )
+
+from .descriptor_mapping import PendingSourceRelease, SourceDescriptorMapper
 from .skips import bind_connector_run, discovery_skip_summary
 
 _LEGACY_ROOT_BATCH_SIZE = 50

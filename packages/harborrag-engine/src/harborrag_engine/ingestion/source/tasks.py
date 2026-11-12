@@ -3,8 +3,7 @@ from __future__ import annotations
 from hashlib import sha256
 
 from harborrag_core.ingestion import IngestionTask, IngestionTaskState
-
-from .models import SourceIngestionRequest
+from harborrag_engine.ingestion.source.models import SourceIngestionRequest
 
 
 def source_scan_id(task_id: str) -> str:

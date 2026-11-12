@@ -13,10 +13,10 @@ from __future__ import annotations
 from typing import Any
 
 from harborrag_core.contracts.errors import HarborNotFoundError, UnknownReferenceError
+from harborrag_engine.ingestion.operations import IngestionOperations
 
 from ..control_plane.connections import ConnectionKey, ConnectionService
 from ..control_plane.projects import ProjectService
-from .operations import IngestionOperations
 
 
 class IngestionStarter:

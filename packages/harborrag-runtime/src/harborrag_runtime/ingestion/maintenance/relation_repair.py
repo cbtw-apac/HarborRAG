@@ -34,8 +34,7 @@ from harborrag_engine.ingestion import (
     target_connector_type,
 )
 from harborrag_engine.ingestion.maintenance.relation_supersession import document_relations
-
-from ..document.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 
 logger = logging.getLogger("harborrag.runtime.ingestion.relation_repair")
 

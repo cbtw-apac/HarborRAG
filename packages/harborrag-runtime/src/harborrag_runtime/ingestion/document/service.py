@@ -3,9 +3,9 @@
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
 from harborrag_core.storage import StorageOperationContext
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
 
 from .dependencies import DocumentReleaseDependencies
-from .models import DocumentReleaseOutcome, DocumentReleaseRequest
 from .pipeline import DocumentStagePipeline
 
 

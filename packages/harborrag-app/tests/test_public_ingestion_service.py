@@ -25,8 +25,9 @@ from harborrag_core.contracts.errors import (
     IngestionIdempotencyConflictError,
 )
 from harborrag_core.ingestion import IngestionTaskState, TaskDocumentResult
+from harborrag_engine.ingestion.presenters import task_id as generate_task_id
+from harborrag_engine.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.application.ingestion import service as ingestion_service
-from harborrag_runtime.application.ingestion.presenters import task_id as generate_task_id
 from harborrag_runtime.application.ingestion.service import IngestionApplicationService
 from harborrag_runtime.errors import (
     RuntimeConnectionError,
@@ -35,7 +36,6 @@ from harborrag_runtime.errors import (
     WorkflowSubmissionError,
 )
 from harborrag_runtime.execution.task_registry import IngestionTaskRegistry
-from harborrag_runtime.ingestion.source.tasks import source_scan_id
 from harborrag_runtime.temporal.identity import RuntimeWorkflowRef
 from harborrag_runtime.temporal.schemas import SourceIngestionInput
 

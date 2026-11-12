@@ -29,6 +29,13 @@ from harborrag_core.ingestion.run_contracts import (
 from harborrag_core.ingestion.source_query import SourceQuery
 from harborrag_core.invariants import require
 from harborrag_engine.ingestion.models import IngestionCreateCommand
+from harborrag_engine.ingestion.presenters import (
+    STATUS_NAMES,
+    TERMINAL_STATES,
+    request_hash,
+    task_id,
+    task_response,
+)
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
@@ -44,13 +51,6 @@ from .ports import (
     SourceInputBuilder,
     TaskIdFactory,
     TaskStoreProvider,
-)
-from .presenters import (
-    STATUS_NAMES,
-    TERMINAL_STATES,
-    request_hash,
-    task_id,
-    task_response,
 )
 from .progress_bridge import CONTROL_AUDIT, event_prefix
 from .recovery import retry_from_task, source_from_task

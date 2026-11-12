@@ -1,7 +1,8 @@
 """Document release contracts, stages, and lifecycle services."""
 
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
+
 from .dependencies import DocumentReleaseDependencies
-from .models import DocumentReleaseOutcome, DocumentReleaseRequest
 from .pipeline import DocumentStagePipeline
 from .service import DocumentReleaseService
 

@@ -25,7 +25,7 @@ from harborrag_core.ingestion import (
     IngestionTaskState,
     StoredFailure,
 )
-from harborrag_runtime.application.ingestion.failure_inbox import FailureInboxService
+from harborrag_engine.ingestion.failure_inbox import FailureInboxService
 
 pytestmark = pytest.mark.unit
 

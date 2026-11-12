@@ -13,8 +13,8 @@ from harborrag_core.ingestion import (
     SourceAdmissionDecision,
     TaskDocumentResult,
 )
-from harborrag_runtime.ingestion.document.models import DocumentReleaseOutcome
-from harborrag_runtime.ingestion.source.models import PlannedDocumentRelease
+from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease
 from harborrag_runtime.ingestion.source.service import SourceIngestionService
 
 from ...fixtures.release import build_control_plane, release_request

@@ -18,10 +18,9 @@ from harborrag_core.ingestion import (
     SourceIdentity,
     SourceRelationDescriptor,
 )
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import PlannedDocumentRelease, SourceIngestionRequest
 from harborrag_runtime.serialization import to_json_value
-
-from ..document.models import DocumentReleaseRequest
-from .models import PlannedDocumentRelease, SourceIngestionRequest
 
 
 @dataclass(frozen=True, slots=True)

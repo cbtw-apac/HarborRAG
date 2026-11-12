@@ -22,9 +22,9 @@ from harborrag_core.ingestion import (
 )
 from harborrag_core.ingestion.run_contracts import PreparedSourceSubmission
 from harborrag_core.invariants import HarborInvariantError
+from harborrag_engine.ingestion.source.tasks import pending_source_task, source_scan_id
 from harborrag_runtime.composition.resources import build_ingestion_control
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.ingestion.source.tasks import pending_source_task, source_scan_id
 
 from .source_conversion import to_source_request
 

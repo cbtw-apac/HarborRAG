@@ -6,7 +6,7 @@ import pytest
 
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.invariants import HarborInvariantError
-from harborrag_runtime.ingestion.source.models import SourceDispatchSummary
+from harborrag_engine.ingestion.source.models import SourceDispatchSummary
 
 
 @pytest.mark.parametrize(

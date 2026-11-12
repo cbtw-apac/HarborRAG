@@ -8,7 +8,7 @@ import pytest
 from temporalio.exceptions import ApplicationError
 
 from harborrag_core.ingestion import ArtifactReference
-from harborrag_runtime.ingestion.source.models import SourcePlanIndex
+from harborrag_engine.ingestion.source.models import SourcePlanIndex
 from harborrag_runtime.ingestion.source.plan import SourcePlanRepository
 from harborrag_runtime.temporal.conversion import to_workflow_artifact
 from harborrag_runtime.temporal.plan_resolver import PlanDocumentResolver

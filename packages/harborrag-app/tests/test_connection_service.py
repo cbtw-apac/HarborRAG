@@ -26,11 +26,8 @@ from harborrag_core.contracts.errors import (
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_core.testing.control_plane_fakes import FakeConnectionRepository
+from harborrag_engine.control_plane.connection_views import ANY_VERSION, ingestion_view
 from harborrag_runtime.application.control_plane.active_runs import SETTLE_ROUNDS
-from harborrag_runtime.application.control_plane.connection_views import (
-    ANY_VERSION,
-    ingestion_view,
-)
 from harborrag_runtime.application.control_plane.connections import (
     ConnectionKey,
     ConnectionWrite,

@@ -18,7 +18,7 @@ from harborrag_app.operations.errors import error_body
 from harborrag_core.config_store import SettingsRegistry
 from harborrag_core.contracts.errors import HarborAuthError, HarborValidationError
 from harborrag_core.domain.project import Project
-from harborrag_runtime.application.control_plane.connection_views import ANY_VERSION
+from harborrag_engine.control_plane.connection_views import ANY_VERSION
 from harborrag_runtime.application.control_plane.settings_service import (
     SettingsPatch,
     SettingsService,

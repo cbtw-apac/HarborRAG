@@ -17,8 +17,8 @@ from harborrag_core.ingestion import (
     SourceIdentity,
 )
 from harborrag_core.schemas.storage import StorageOperationContext
-from harborrag_runtime.ingestion.document.models import DocumentReleaseRequest
-from harborrag_runtime.ingestion.source.models import (
+from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
+from harborrag_engine.ingestion.source.models import (
     PlannedDocumentRelease,
     SourcePlanCheckpoint,
     SourcePlanIndex,

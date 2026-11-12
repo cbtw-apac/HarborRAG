@@ -7,15 +7,15 @@ import logging
 
 from harborrag_adapters.repositories.database import IngestionControlPlaneDatabase
 from harborrag_core.ingestion import BindingKind, IngestionTaskState
-
-from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
-from .models import (
+from harborrag_engine.ingestion.source.models import (
     PlannedDocuments,
     RelationRepairProgress,
     SourceDispatchSummary,
     SourceIngestionOutcome,
     SourceIngestionRequest,
 )
+
+from ..maintenance.relation_repair import GraphRelationRepairService, RelationRepairResult
 from .skips import run_skip_summary
 
 logger = logging.getLogger("harborrag.runtime.ingestion.source_finalization")

@@ -11,6 +11,10 @@ from harborrag_core.contracts.errors import HarborUnavailableError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.ports.events import EventBusPort
 from harborrag_engine.chat.scope import ControlPlaneConnectionCatalog
+from harborrag_engine.control_plane.connection_views import IngestionLinks
+from harborrag_engine.ingestion.failure_inbox import FailureInboxService
+from harborrag_engine.ingestion.operations import IngestionOperations
+from harborrag_engine.ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from harborrag_memory.administration import MemoryAdministrationService
 from harborrag_memory.projects import project_lookup
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
@@ -19,7 +23,6 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 
 from ..chat import ChatApplicationService, ChatClientMixin
-from ..control_plane.connection_views import IngestionLinks
 from ..control_plane.connections import ConnectionService
 from ..control_plane.effect_recovery import (
     EFFECT_RECOVERY_LEASE_NAME,
@@ -34,11 +37,8 @@ from ..errors import failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
-from ..ingestion.failure_inbox import FailureInboxService
 from ..ingestion.follower import IngestionFollower
-from ..ingestion.operations import IngestionOperations
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
-from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
 from ..ingestion.progress_bridge import (
     LEASE_NAME,
     LEASE_TTL_SECONDS,
