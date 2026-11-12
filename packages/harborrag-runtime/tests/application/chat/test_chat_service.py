@@ -20,6 +20,8 @@ from harborrag_runtime.testing.chat_fakes import (
 
 from ..application_fixtures import FakeComposition
 
+pytestmark = pytest.mark.unit
+
 
 async def _options(
     service: AppService,
@@ -36,8 +38,10 @@ async def _options(
 
 @pytest.mark.asyncio
 async def test_chat_completion_attaches_access_metadata_and_projects_response() -> None:
-    # Cites the one retrieved source, so the projected citations are non-empty:
-    # only sources an answer actually cites are reported.
+    """Cites the one retrieved source, so the projected citations are non-empty: only sources an answer
+    actually cites are reported. The scope check's call and the answer's call, two tokens in and one
+    out each.
+    """
     results = (
         RetrievalResult(
             id="chunk-1",
@@ -76,7 +80,6 @@ async def test_chat_completion_attaches_access_metadata_and_projects_response() 
     )
     assert chat.request.messages[0].content.endswith("Question: Hello")
     assert response.data["answer"] == answer
-    # The scope check's call and the answer's call, two tokens in and one out each.
     assert response.data["usage"]["prompt_tokens"] == 4
     assert response.data["usage"]["completion_tokens"] == 2
     assert response.data["citations"] == [

@@ -17,6 +17,8 @@ from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFa
 
 from ..application_fixtures import FakeComposition
 
+pytestmark = pytest.mark.unit
+
 
 async def _service_and_options(
     chat: FakeChatFacade,
@@ -53,6 +55,7 @@ async def test_the_chosen_model_lands_on_the_chat_request() -> None:
 
 @pytest.mark.asyncio
 async def test_omitting_the_model_leaves_the_request_unchanged() -> None:
+    """Unset, so the client resolves its configured default exactly as before."""
     chat = FakeChatFacade()
     service, options = await _service_and_options(chat, model=None)
 
@@ -61,7 +64,6 @@ async def test_omitting_the_model_leaves_the_request_unchanged() -> None:
     )
 
     assert chat.request is not None
-    # Unset, so the client resolves its configured default exactly as before.
     assert chat.request.logical_model is None
 
 

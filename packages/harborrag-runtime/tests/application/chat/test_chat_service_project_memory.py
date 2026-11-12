@@ -17,6 +17,8 @@ from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 from harborrag_runtime.testing.chat_service_double import FakeConnectionCatalog
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 RESULTS = (
     RetrievalResult(
@@ -71,6 +73,7 @@ def _service(
 
 @pytest.mark.asyncio
 async def test_chat_completion_writes_user_and_assistant_messages_with_citations() -> None:
+    """The turn view (phase-1 history reads) stays derivable from the message log."""
     memory = InMemoryConversationMemory()
     await memory.create(IDENTITY)
     answer = f"Hello {citation_marker(1, RESULTS[0])}"
@@ -113,7 +116,6 @@ async def test_chat_completion_writes_user_and_assistant_messages_with_citations
     )
     assert assistant.message_id == response.data["completion_id"]
     assert user.message_id != assistant.message_id
-    # The turn view (phase-1 history reads) stays derivable from the message log.
     (turn,) = await memory.recent(IDENTITY, limit=2)
     assert (turn.user_content, turn.assistant_content) == ("Hello", answer)
 
@@ -249,12 +251,13 @@ async def test_validate_project_rejects_unknown_or_foreign_project(project_id: s
 
 @pytest.mark.asyncio
 async def test_validate_project_accepts_a_known_project_and_costs_nothing_without_one() -> None:
+    """Only the real project was looked up: every turn without one would otherwise pay for a control-
+    plane read that can only answer "none".
+    """
     projects = FakeProjects(_project("proj-1"))
     service = _service(InMemoryConversationMemory(), projects=projects)
 
     await service.validate_project("proj-1", tenant_id="ACME")
     await service.validate_project(None, tenant_id="ACME")
 
-    # Only the real project was looked up: every turn without one would
-    # otherwise pay for a control-plane read that can only answer "none".
     assert projects.calls == [("proj-1", frozenset({"ACME"}))]

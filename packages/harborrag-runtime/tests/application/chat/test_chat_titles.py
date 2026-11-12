@@ -11,6 +11,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader", "session-title", DEFAULT_USER)
 OPTIONS = ChatExecutionOptions(session_id=IDENTITY.session_id)
 
@@ -25,6 +27,7 @@ async def setup(chat: FakeChatFacade):
 
 @pytest.mark.asyncio
 async def test_title_is_generated_after_first_exchange_and_stays_stable():
+    """Title generation makes no additional model call."""
     chat = FakeChatFacade()
     service, memory = await setup(chat)
     assert await memory.get_title(IDENTITY) is None
@@ -42,7 +45,7 @@ async def test_title_is_generated_after_first_exchange_and_stays_stable():
     )
     assert first.ok and second.ok
     assert await memory.get_title(IDENTITY) == "Explain the release policy"
-    assert len(chat.requests) == 2  # Title generation makes no additional model call.
+    assert len(chat.requests) == 2
 
 
 @pytest.mark.asyncio

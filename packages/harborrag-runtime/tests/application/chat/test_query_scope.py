@@ -15,6 +15,8 @@ from harborrag_runtime.application.chat.query_scope import require_query_scope
 from harborrag_runtime.chat import ChatPrompt
 from harborrag_runtime.config.settings import RuntimeSettings
 
+pytestmark = pytest.mark.unit
+
 
 def resources(answer, *, failure=None):
     response = HarborChatResponse(

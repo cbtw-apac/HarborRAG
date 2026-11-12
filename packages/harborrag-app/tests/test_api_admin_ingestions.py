@@ -20,6 +20,8 @@ from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
+pytestmark = pytest.mark.unit
+
 _START = "/v1/admin/ingestions"
 _TARGET = {"project_id": "cpm", "connection_id": "cpm-tickets"}
 

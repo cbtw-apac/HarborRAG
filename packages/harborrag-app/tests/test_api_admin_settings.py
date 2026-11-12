@@ -29,6 +29,8 @@ from harborrag_runtime.composition import ControlPlaneRepositories
 from harborrag_runtime.config_store import CachedConfigProvider
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
+pytestmark = pytest.mark.unit
+
 _URL = "/v1/admin/settings"
 _SECRET_VALUE = "s3cr3t-token-value"
 _TICKETS = "connection:cpm/cpm-tickets"

@@ -25,6 +25,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import MemoryContextRequest
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeMemoryFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 
 class FakeMemories:
     """The narrowest ``MemoryRepository`` the queue needs to consider itself wired."""

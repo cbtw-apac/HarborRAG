@@ -1,5 +1,8 @@
-"""Chat behaviour of the shared application-service test double: the real chat pipeline
-over a fake model, fake retrieval and the double's in-memory conversation store."""
+"""Chat behaviour of the shared application-service test double.
+
+Runs the real chat pipeline over a fake model, fake retrieval and the double's in-memory
+conversation store. Test support only: nothing in production imports this module.
+"""
 
 from __future__ import annotations
 
@@ -99,7 +102,6 @@ class ChatServiceFixture:
 
     def use_chat_settings(self, settings: RuntimeSettings) -> None:
         """Rebuild the chat service with ``settings``, keeping every store and fake."""
-
         self._sessions = ConversationSessionService(self.conversations)
         self._chat = ChatApplicationService(
             lambda: self.chat_runtime,  # type: ignore[arg-type, return-value]

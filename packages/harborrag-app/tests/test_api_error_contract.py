@@ -24,6 +24,8 @@ from harborrag_core.domain.project import Project
 from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.testing.connection_fakes import connection_world
 
+pytestmark = pytest.mark.unit
+
 _TRACE_ID = re.compile(r"^[0-9a-f]{32}$")
 _LIMIT = 1_048_576
 

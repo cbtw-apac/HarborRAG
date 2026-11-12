@@ -24,6 +24,8 @@ from ..application_fixtures import FakeComposition
 from .test_chat_service import _options
 from .test_chat_service_memory import _BrokenAppendMemory, _chat_service
 
+pytestmark = pytest.mark.unit
+
 
 def _service(runtime: _Runtime) -> AppService:
     return AppService(
@@ -165,6 +167,9 @@ class _AdapterLikeChat(_ChatFacade):
 
 @pytest.mark.asyncio
 async def test_chat_stream_emits_exactly_one_error_when_adapter_yields_error_then_raises() -> None:
+    """The caller saw "Hel" and paid for it, so the turn survives the failure instead of being
+    discarded, with the answer marked as unfinished.
+    """
     memory = InMemoryConversationMemory()
     identity = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
     await memory.create(identity)
@@ -187,8 +192,6 @@ async def test_chat_stream_emits_exactly_one_error_when_adapter_yields_error_the
         "error_type": "ChatStreamError",
     }
     assert "secret provider response" not in str(events)
-    # The caller saw "Hel" and paid for it, so the turn survives the failure
-    # instead of being discarded, with the answer marked as unfinished.
     user, assistant = await memory.recent_messages(identity, limit=10)
     assert (user.role, user.content) == ("user", "Hello")
     assert (assistant.role, assistant.content) == ("assistant", "Hel")

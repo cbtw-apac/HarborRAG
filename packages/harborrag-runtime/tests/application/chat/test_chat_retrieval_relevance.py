@@ -19,6 +19,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 
 RESULTS = (
@@ -32,7 +34,7 @@ RESULTS = (
     RetrievalResult(
         id="off-topic",
         text="The activity timeout is 30 seconds.",
-        score=0.99,  # ranked first by fusion, but barely similar
+        score=0.99,
         relevance=0.52,
         metadata={"document_id": "ops-runbook"},
     ),
@@ -67,12 +69,12 @@ async def _complete(min_relevance: float) -> tuple[FakeChatFacade, dict]:
 
 @pytest.mark.asyncio
 async def test_below_threshold_results_reach_neither_prompt_nor_citations() -> None:
+    """Never offered to the model, so it can never become a citation either."""
     chat, data = await _complete(0.6)
     prompt = chat.requests[0].messages[-1].content
 
     assert "Release approvals require two reviewers." in prompt
     assert "The activity timeout is 30 seconds." not in prompt
-    # Never offered to the model, so it can never become a citation either.
     assert citation_marker(2, RESULTS[1]) not in prompt
     assert [citation["chunk_id"] for citation in data["citations"]] == ["on-topic"]
 

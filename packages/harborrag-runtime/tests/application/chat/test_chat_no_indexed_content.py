@@ -17,6 +17,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 
 

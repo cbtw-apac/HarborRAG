@@ -30,6 +30,13 @@ class MockAppService(
     MemoryAdminClientMixin,
     BaseAppService,
 ):
+    """The application service over in-memory doubles, for route and CLI tests.
+
+    ``conversation_sessions`` holds ``(tenant, principal, user, session_id)`` because a
+    conversation belongs to the end user. Long-term memory administration runs against the
+    real service over in-memory doubles, so route tests exercise production visibility.
+    """
+
     def __init__(self) -> None:
         self.submissions: list[IngestionCreateCommand] = []
         self.idempotency: dict[str, str] = {}
@@ -37,10 +44,7 @@ class MockAppService(
         self.retrieval_calls: list[dict[str, object]] = []
         self.known_projects: set[str] = {"proj-1"}
         self.tenant_projects: dict[str, set[str]] = {}
-        # (tenant, principal, user, session_id): a conversation belongs to the end user.
         self.conversation_sessions: set[tuple[str, str, str, str]] = set()
-        # Long-term memory administration runs against the real service over
-        # in-memory doubles, so route tests exercise production visibility.
         self.memory_store = FakeMemoryStore()
         self.memory_index = FakeMemoryIndex()
         self.conversations = InMemoryConversationMemory()

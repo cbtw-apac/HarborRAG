@@ -14,6 +14,8 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_core.ingestion import IngestionTaskState
 from harborrag_runtime.testing.connection_fakes import connection_world
 
+pytestmark = pytest.mark.unit
+
 _DONE = IngestionTaskState.COMPLETED
 
 

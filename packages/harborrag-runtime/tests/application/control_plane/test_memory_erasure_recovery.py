@@ -17,6 +17,8 @@ from harborrag_runtime.application.control_plane.effect_recovery import (
 )
 from harborrag_runtime.testing.memory_fakes import FakeMemoryIndex, FakeMemoryStore, memory
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def stores():
@@ -38,7 +40,7 @@ def administration(stores, *, journal=True):
 
 
 async def recover(stores):
-    # Reconstruct the service: recovery cannot depend on request-local memory.
+    """Reconstruct the service: recovery cannot depend on request-local memory."""
     return await recover_pending_control_plane_effects(
         stores, erasure_handler=administration(stores).recover_erasure
     )
@@ -134,14 +136,15 @@ async def test_recovery_does_not_forget_required_index_after_configuration_chang
 
 @pytest.mark.asyncio
 async def test_session_recovery_remains_authorized_when_session_was_already_deleted(stores):
+    """The durable owner was authorized before deletion; retry must not depend on a conversation row
+    that may already be gone after interrupted cleanup.
+    """
     from dataclasses import asdict
 
     from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 
     row = memory("memory-1", scope=MemoryScope.SESSION, session_id="session-1")
     await stores.memories.save(row)
-    # The durable owner was authorized before deletion; retry must not depend
-    # on a conversation row that may already be gone after interrupted cleanup.
     await stores.pending_effects.enqueue(
         PendingControlPlaneEffect(
             id="interrupted-session-erasure",

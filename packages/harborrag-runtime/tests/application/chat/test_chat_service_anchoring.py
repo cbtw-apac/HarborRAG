@@ -20,6 +20,8 @@ from harborrag_runtime.testing.chat_fakes import (
     graph_diagnostics,
 )
 
+pytestmark = pytest.mark.unit
+
 
 class _Memories:
     """The narrowest ``MemoryRepository`` these tests need: one recallable row."""

@@ -24,6 +24,8 @@ from harborrag_runtime.application.control_plane.effect_recovery import log_acti
 
 from .control_plane_fixtures import control_plane_app_service
 
+pytestmark = pytest.mark.unit
+
 
 @dataclass(slots=True)
 class _FlakyActivityRepository:

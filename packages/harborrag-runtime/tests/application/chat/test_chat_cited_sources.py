@@ -25,6 +25,8 @@ from harborrag_runtime.application.chat.presenters import (
     source_heading,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def _results(count: int) -> tuple[RetrievalResult, ...]:
     return tuple(
@@ -224,6 +226,9 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
     can only ever be "what retrieval found". A second one after the answer
     carries what was actually used, giving a client that overwrites its
     sources panel the same meaning the JSON field has.
+
+    The opening frame keeps its meaning: everything retrieval found. The closing frame is a distinct
+    kind, so a client that appends rather than overwrites cannot mistake one for the other.
     """
 
     from harborrag_core.models.chat import HarborChatStreamChunk
@@ -281,12 +286,9 @@ async def test_stream_ends_with_the_sources_the_answer_cited() -> None:
     ]
 
     kinds = [event["kind"] for event in events]
-    # The opening frame keeps its meaning: everything retrieval found.
     assert kinds[0] == "citations"
     opening = events[0]
     assert [c["chunk_id"] for c in opening["citations"]] == ["chunk-1", "chunk-2", "chunk-3"]
-    # The closing frame is a distinct kind, so a client that appends rather
-    # than overwrites cannot mistake one for the other.
     assert kinds[-2:] == ["cited_sources", "result"]
     assert [c["chunk_id"] for c in events[-2]["citations"]] == ["chunk-2"]
     assert events[-1]["result"]["citations"] == events[-2]["citations"]

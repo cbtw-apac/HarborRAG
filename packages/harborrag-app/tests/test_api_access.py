@@ -24,6 +24,8 @@ from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.application.control_plane.settings_service import SettingsService
 from harborrag_runtime.testing.connection_fakes import connection_world
 
+pytestmark = pytest.mark.unit
+
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _KEY = "hrk_dev_v1_0123456789abcdef01234567." + "k" * 43
 _PATH_VALUES = {

@@ -25,6 +25,8 @@ from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
+pytestmark = pytest.mark.unit
+
 _URL = "/v1/admin/ingestions/ing_1/documents"
 _ITEM_KEYS = {"document_ref", "document_id", "status", "stage", "error_category", "duration_ms"}
 _T0 = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)

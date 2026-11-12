@@ -15,6 +15,8 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 
 class _BrokenAppendMemory(InMemoryConversationMemory):
     async def append_messages(

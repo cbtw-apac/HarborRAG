@@ -18,10 +18,10 @@ from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.memory import ConversationIdentity
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 
-# What retrieval returns for a personal question against a corpus about
-# something else -- the ordinary case, not a contrived one.
 UNRELATED = (
     RetrievalResult(
         id="chunk-1",
@@ -53,12 +53,13 @@ async def _ask(*prompts: str) -> FakeChatFacade:
 
 @pytest.mark.asyncio
 async def test_follow_up_is_not_scoped_away_from_the_conversation() -> None:
+    """The earlier turn is still replayed as its own message... ...and nothing in the final turn tells
+    the model to disregard it.
+    """
     chat = await _ask("My name is A.", "What is my name?")
     final = chat.requests[1].messages[-1].content
 
-    # The earlier turn is still replayed as its own message...
     assert any("My name is A." in message.content for message in chat.requests[1].messages[:-1])
-    # ...and nothing in the final turn tells the model to disregard it.
     assert "Use the retrieved context below to answer the question" not in final
     assert "Answer from this conversation" in final
 

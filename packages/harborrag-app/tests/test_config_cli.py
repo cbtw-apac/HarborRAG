@@ -30,6 +30,8 @@ from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
+pytestmark = pytest.mark.unit
+
 _TENANT = "DEFAULT"
 _KEY = "chunking.max_tokens"
 _STORED = f"{_KEY}: 384\n"

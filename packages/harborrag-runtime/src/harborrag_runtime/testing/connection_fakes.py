@@ -1,4 +1,7 @@
-"""In-memory doubles for the connection and project service tests."""
+"""In-memory doubles for the connection and project service tests.
+
+Test support only: nothing in production imports this module.
+"""
 
 from __future__ import annotations
 
@@ -136,6 +139,7 @@ def running_task(
     actor: str | None = None,
     actor_type: str | None = None,
 ) -> IngestionTask:
+    """Build an ingestion task for the sample connection in the given state."""
     return IngestionTask(
         task_id=task_id,
         source_scope_id="scope-1",
@@ -151,6 +155,8 @@ def running_task(
 
 @dataclass
 class ConnectionWorld:
+    """A ``ConnectionService`` over fakes, with the doubles it was built from."""
+
     service: ConnectionService
     control_plane: ControlPlaneRepositories
     secrets: FakeSecrets
@@ -193,7 +199,7 @@ def fake_control_plane(projects: list[Project], secrets: FakeSecrets) -> Control
 
 
 def connection_world(projects: list[Project]) -> ConnectionWorld:
-    """A ``ConnectionService`` over fakes, with its doubles exposed."""
+    """Build a ``ConnectionService`` over fakes, with its doubles exposed."""
     secrets = FakeSecrets()
     runs = Runs()
     removal = Removal()

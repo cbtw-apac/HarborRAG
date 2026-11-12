@@ -7,6 +7,8 @@ import pytest
 from harborrag_memory.tiers.in_memory import InMemoryConversationMemory
 from harborrag_runtime.application.memory import ConversationSessionService
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_session_creation_shares_default_user_but_preserves_explicit_scope() -> None:

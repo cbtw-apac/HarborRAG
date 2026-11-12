@@ -41,6 +41,8 @@ from ..application_fixtures import (
     service_resources as service_resources,
 )
 
+pytestmark = pytest.mark.unit
+
 _TENANT = "ACME"
 _Resources = tuple[IngestionApplicationService, IngestionControlPlaneDatabase, FakeTemporalClient]
 

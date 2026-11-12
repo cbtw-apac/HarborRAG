@@ -25,6 +25,8 @@ from harborrag_core.testing.control_plane_fakes import (
 
 from .control_plane_fixtures import control_plane_app_service
 
+pytestmark = pytest.mark.unit
+
 
 def _pending_activity_effect() -> PendingControlPlaneEffect:
     return PendingControlPlaneEffect(
@@ -75,7 +77,12 @@ async def test_only_the_lease_holder_drains_when_two_processes_share_a_database(
 @pytest.mark.asyncio
 async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     """A process that stops draining (crash, restart) must not permanently
-    starve every other instance of the lease."""
+    starve every other instance of the lease.
+
+    Process a acquires the lease but its replay of this effect fails, so nothing is recovered
+    yet; the point is only that a becomes the holder. Then a's lease lapses (crash, restart or a
+    machine clock rolling forward past the ttl) and b takes over.
+    """
     project = Project(id="proj-a", name="A", collection="a", tenant_id="DEFAULT")
     lease_repository = FakeLeaseRepository()
     pending = FakePendingEffectRepository()
@@ -95,10 +102,7 @@ async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
         leases=lease_repository,
     )
 
-    # a acquires the lease but its replay of this effect fails, so nothing
-    # is recovered yet -- the point here is just that a becomes the holder.
     assert await process_a.recover_pending_control_plane_effects() == 1
-    # a's lease lapses (crash / restart / a machine clock rolling forward past ttl):
     lease_repository.leases.clear()
     pending.effects["eff_2"] = PendingControlPlaneEffect(
         id="eff_2",
@@ -115,4 +119,4 @@ async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
         },
     )
 
-    assert await process_b.recover_pending_control_plane_effects() == 1  # b takes over
+    assert await process_b.recover_pending_control_plane_effects() == 1

@@ -22,6 +22,8 @@ from harborrag_runtime.testing.chat_fakes import (
     replayed,
 )
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 

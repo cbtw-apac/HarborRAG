@@ -30,6 +30,8 @@ from harborrag_runtime.testing.chat_fakes import (
 
 from ..application_fixtures import FakeComposition
 
+pytestmark = pytest.mark.unit
+
 TENANT = "ACME"
 PRINCIPAL = "svc-1"
 USER = "alice@example.com"
@@ -112,7 +114,10 @@ def _access(user_id: str = USER, session_id: str | None = None) -> MemoryAccess:
 
 @pytest.mark.asyncio
 async def test_a_named_session_is_listed_for_its_owner_only() -> None:
-    """The composed service wires the directory over the same conversations."""
+    """The composed service wires the directory over the same conversations.
+
+    Another person on the same credential has no conversations at all.
+    """
 
     service = _service(FakeRuntime(FakeChatFacade(), FakeRetrievalFacade()))
 
@@ -130,7 +135,6 @@ async def test_a_named_session_is_listed_for_its_owner_only() -> None:
     assert [(row["session_id"], row["title"]) for row in conversations] == [
         (session_id, "Runbook triage")
     ]
-    # Another person on the same credential has no conversations at all.
     other = await service.list_conversations(_access("bob@example.com"))
     assert other.data["items"] == []
 

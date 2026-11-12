@@ -20,6 +20,8 @@ from harborrag_runtime.application.control_plane.projects import ProjectService
 from harborrag_runtime.config.connectors.models import to_connector_config, validate
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
+pytestmark = pytest.mark.unit
+
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _PATH = "/v1/admin/projects/cpm/connections/cpm-tickets"
 _ROUTE = "/v1/admin/projects/{project_id}/connections/{connection_id}"

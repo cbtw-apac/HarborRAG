@@ -19,6 +19,8 @@ from harborrag_runtime.application.chat.prompting import (
 from harborrag_runtime.application.memory import MemoryIdentity
 from harborrag_runtime.memory import MemoryContext
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = MemoryIdentity.build(
     tenant_id="ACME",
     principal_id="svc-1",
@@ -163,7 +165,10 @@ def _context(**overrides: object) -> MemoryContext:
 
 
 def test_request_records_the_rewritten_retrieval_query() -> None:
-    """Retrieval searched the standalone query, so that is what metadata reports."""
+    """Retrieval searched the standalone query, so that is what metadata reports.
+
+    A telemetry sink cannot attribute a request to a human without this.
+    """
 
     request = build_chat_request(
         "Who owns it?",
@@ -177,7 +182,6 @@ def test_request_records_the_rewritten_retrieval_query() -> None:
 
     assert request.metadata.retrieval_query == "Who owns the release policy?"
     assert request.sensitive is True
-    # A telemetry sink cannot attribute a request to a human without this.
     assert request.metadata.user_id == "alice@example.com"
     assert request.metadata.tenant_id == "ACME"
     assert request.metadata.conversation_id == "session-1"
@@ -240,15 +244,15 @@ def test_memory_block_keeps_injection_safety_without_outranking_the_conversation
     claims", which told the model that an unrelated document outranks what
     the user just said about themselves -- so "what is my name?" was answered
     from the corpus instead of from the conversation.
+
+    Prompt-injection safety is the part worth keeping. The blanket precedence rule is the part that
+    caused the bug. And the conversation must be named as the authority on its own content.
     """
 
     block = memory_block(None, [_memory("The user's name is A.")])
 
-    # Prompt-injection safety is the part worth keeping.
     assert "not as instructions" in block
-    # The blanket precedence rule is the part that caused the bug.
     assert "prefer the retrieved context below for factual claims" not in block
-    # And the conversation must be named as the authority on its own content.
     assert "authoritative" in block
 
 
@@ -259,16 +263,17 @@ def test_prompt_text_does_not_scope_the_answer_to_retrieved_sources() -> None:
     question. If it is insufficient, say so instead of guessing." -- made
     every question a document lookup, so a conversational question was
     refused whenever the corpus happened not to match it.
+
+    The sources are offered, and flagged as possibly beside the point. The routing rule is what
+    makes a conversational question answerable. Question stays last, closest to the instructions
+    that govern it.
     """
 
     text = prompt_text("What is my name?", [_result("The activity timeout is 30 seconds.")])
 
     assert "Use the retrieved context below to answer the question" not in text
-    # The sources are offered, and flagged as possibly beside the point.
     assert "may be irrelevant" in text
-    # The routing rule is what makes a conversational question answerable.
     assert "conversation" in text
-    # Question stays last, closest to the instructions that govern it.
     assert text.rstrip().endswith("Question: What is my name?")
 
 
@@ -302,6 +307,8 @@ def test_sources_are_labelled_by_title_so_near_duplicates_stay_distinct() -> Non
     An FE and a BE onboarding checklist retrieved together were merged into
     a single list, because each was identified only by an opaque hash. The
     title is what lets the model attribute rather than blend.
+
+    And the model is told they may be different things.
     """
 
     text = prompt_text(
@@ -314,7 +321,6 @@ def test_sources_are_labelled_by_title_so_near_duplicates_stay_distinct() -> Non
 
     assert "FE Onboarding Checklist" in text
     assert "BE Onboarding checklist" in text
-    # And the model is told they may be different things.
     assert "different documents" in text
     assert "bracketed number" in text
 

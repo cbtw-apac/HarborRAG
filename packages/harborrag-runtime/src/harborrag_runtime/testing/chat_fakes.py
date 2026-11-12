@@ -1,4 +1,7 @@
-"""Shared fakes for chat application-service tests."""
+"""Shared fakes for chat application-service tests.
+
+Test support only: nothing in production imports this module.
+"""
 
 from __future__ import annotations
 
@@ -73,7 +76,10 @@ class FakeChatFacade:
     Gate calls are recorded in ``gate_requests`` and answer calls in ``requests``, so a
     test can tell which of a turn's model calls happened. ``failure`` fails both.
     ``hold`` keeps every answer call waiting until it is set; ``answering`` is set as
-    soon as one is waiting.
+    soon as one is waiting. Citations are reported only for the sources an answer cites, so a
+    test that needs them must have the model actually cite. ``validated`` holds
+    ``(model, tenant_id)`` for every validation the app asked the runtime for, and
+    ``allowed_models`` the names this fake accepts.
     """
 
     def __init__(  # noqa: PLR0913 - one behaviour of the fake per argument
@@ -86,8 +92,6 @@ class FakeChatFacade:
         scope: str = "knowledge",
         hold: asyncio.Event | None = None,
     ) -> None:
-        # Citations are reported only for the sources an answer cites, so a
-        # test that needs them must have the model actually cite.
         self.answer = answer
         self.failure = failure
         self.stream_failure = stream_failure
@@ -99,8 +103,6 @@ class FakeChatFacade:
         self.requests: list[HarborChatRequest] = []
         self.prompts: list[object] = []
         self.gate_requests: list[HarborChatRequest] = []
-        # (model, tenant_id) for every validation the app asked the runtime
-        # for, plus the names this fake accepts.
         self.validated: list[tuple[str | None, str]] = []
         self.allowed_models: set[str] = {"primary"}
 
@@ -188,13 +190,14 @@ def replayed(request: HarborChatRequest) -> list[str]:
     belongs to the prompt layer and has its own tests; comparing it verbatim
     here would make every window test a prompt test too.
     """
-
     contents = [str(message.content) for message in request.messages]
     contents[-1] = contents[-1].rsplit("Question: ", 1)[-1].strip()
     return contents
 
 
 class FakeRetrievalFacade:
+    """A retrieval facade that returns fixed ``results`` and records each request."""
+
     def __init__(
         self,
         results: tuple[RetrievalResult, ...] = (),
@@ -218,8 +221,7 @@ class FakeRetrievalFacade:
 
 
 def graph_diagnostics(*node_keys: str) -> dict[str, object]:
-    """The ``graph_documents`` provenance shape a graph-observing search returns."""
-
+    """Build the ``graph_documents`` provenance a graph-observing search returns."""
     return {
         "graph_documents": [
             {
@@ -289,7 +291,6 @@ class FakeMemoryFacade:
         anchor_entity_ids: Sequence[str] = (),
     ) -> MemoryContext:
         """Record the anchors and echo them back; the real re-rank has its own tests."""
-
         del memories, index
         anchors = tuple(anchor_entity_ids)
         self.anchored.append((request, anchors))
@@ -306,7 +307,6 @@ class FakeMemoryFacade:
         index: object = None,
     ) -> tuple[object, ...]:
         """Record one extraction request; the real extractor has its own tests."""
-
         del memories, index
         if self.extract_failure is not None:
             raise self.extract_failure
@@ -319,14 +319,13 @@ def fake_runtime_config(
     corpus_access_mode: str = "source_acl",
     corpus_shared_tenant_id: str | None = None,
 ) -> SimpleNamespace:
-    """The slice of ``RuntimeSettings`` chat retrieval reads off the runtime.
+    """Build the slice of ``RuntimeSettings`` chat retrieval reads off the runtime.
 
     Chat resolves a turn's corpus mode from ``runtime.config.runtime``, so any
     double standing in for the runtime has to carry it. The defaults mirror ``RuntimeSettings``: a tenant is
     ``source_acl`` unless it is *the* shared one, and there is no shared tenant
     unless a deployment names one.
     """
-
     return SimpleNamespace(
         runtime=SimpleNamespace(
             corpus_access_mode=corpus_access_mode,
@@ -336,6 +335,8 @@ def fake_runtime_config(
 
 
 class FakeRuntime:
+    """The runtime handle chat reads: a chat facade, a retrieval facade and optional extras."""
+
     def __init__(
         self,
         chat: FakeChatFacade,

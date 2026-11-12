@@ -25,7 +25,7 @@ from harborrag_runtime.config.settings_document import load_settings_document
 from harborrag_runtime.config_store import CachedConfigProvider
 from harborrag_runtime.testing.connection_fakes import FakeSecrets, fake_control_plane
 
-pytestmark = pytest.mark.asyncio
+pytestmark = [pytest.mark.unit, pytest.mark.asyncio]
 
 _TENANT = "acme"
 _KEY = "chunking.max_tokens"

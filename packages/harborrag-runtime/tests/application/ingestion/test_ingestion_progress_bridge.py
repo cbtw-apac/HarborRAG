@@ -21,6 +21,8 @@ from harborrag_runtime.application.ingestion.progress_bridge import (
 )
 from harborrag_runtime.events.in_process import InProcessEventBus
 
+pytestmark = pytest.mark.unit
+
 
 @dataclass
 class _FakeTask:
@@ -41,11 +43,12 @@ class FakeTaskStore:
         *,
         finish_on_progress: dict[str, IngestionTaskState] | None = None,
     ) -> None:
+        """Simulates a worker finishing the task in the window between this tick's list_active() and
+        its own re-check of current status -- exactly the race sync_ingestion_progress's re-fetch is
+        there to catch.
+        """
         self._tasks = {task.task_id: task for task in tasks}
         self._counts = counts
-        # Simulates a worker finishing the task in the window between this
-        # tick's list_active() and its own re-check of current status --
-        # exactly the race sync_ingestion_progress's re-fetch is there to catch.
         self._finish_on_progress = dict(finish_on_progress or {})
         self.appended: list[tuple[str, HarborEvent]] = []
         self.failed_documents: dict[str, list[StoredTaskDocumentResult]] = {}
@@ -164,15 +167,16 @@ async def test_progress_change_emits_run_status_and_stage_progress_with_explorer
 
 @pytest.mark.asyncio
 async def test_unchanged_progress_publishes_nothing_on_the_next_tick() -> None:
+    """First tick: publishes + records the snapshot second tick: same counts, nothing new."""
     store = FakeTaskStore(
         [_FakeTask("t1", IngestionTaskState.RUNNING)],
         {"t1": {"succeeded": 1}},
     )
     bus = InProcessEventBus()
-    await sync_ingestion_progress(store, bus)  # first tick: publishes + records the snapshot
+    await sync_ingestion_progress(store, bus)
 
     subscriber = bus.subscribe("task.t1.")
-    await sync_ingestion_progress(store, bus)  # second tick: same counts, nothing new
+    await sync_ingestion_progress(store, bus)
 
     with pytest.raises(TimeoutError):
         import asyncio
@@ -224,7 +228,10 @@ async def test_losing_the_lease_mid_tick_stops_further_pages(
     """still_leader is re-checked before every page. A tick spanning enough
     active tasks to outlive the lease's ttl must stop as soon as ownership
     is no longer confirmed, rather than keep writing progress/done events
-    for later pages alongside whatever process took the lease over next."""
+    for later pages alongside whatever process took the lease over next.
+
+    Only t1's page was processed. The lease was checked before page 1, then again before the (aborted) page 2.
+    """
     monkeypatch.setattr(
         "harborrag_runtime.application.ingestion.progress_bridge._LIST_ACTIVE_PAGE_LIMIT", 1
     )
@@ -239,14 +246,15 @@ async def test_losing_the_lease_mid_tick_stops_further_pages(
     leader_calls = 0
 
     async def still_leader() -> bool:
+        """Loses the lease right after the first page."""
         nonlocal leader_calls
         leader_calls += 1
-        return leader_calls == 1  # loses the lease right after the first page
+        return leader_calls == 1
 
     examined = await sync_ingestion_progress(store, bus, still_leader=still_leader)
 
-    assert examined == 1  # only t1's page was processed
-    assert leader_calls == 2  # checked before page 1, then again before the (aborted) page 2
+    assert examined == 1
+    assert leader_calls == 2
 
 
 @pytest.mark.asyncio

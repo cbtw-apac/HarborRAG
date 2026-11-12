@@ -24,6 +24,8 @@ from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFa
 from ..application_fixtures import FakeComposition
 from .test_chat_service import _options
 
+pytestmark = pytest.mark.unit
+
 _RAW = "According to Alice, A may not depend on B after 2025 if the pilot succeeds."
 
 

@@ -19,6 +19,8 @@ from harborrag_runtime.application.composition.tenant_models import tenant_model
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.testing.chat_fakes import FakeChatFacade, FakeRetrievalFacade, FakeRuntime
 
+pytestmark = pytest.mark.unit
+
 _LOGGER = "harborrag.app.workflow_control.composition.tenant_models"
 
 
@@ -105,6 +107,9 @@ def test_the_sdk_is_told_about_tenant_catalogs_when_they_are_wired() -> None:
 
 
 def test_the_sdk_is_left_alone_when_no_catalogs_are_wired() -> None:
+    """No ``configure_tenant_models`` on the double at all: this must not be reached for a deployment
+    that never opted in.
+    """
     runtime = FakeRuntime(FakeChatFacade(), FakeRetrievalFacade())
     settings = RuntimeSettings()
     resources = AppResources(
@@ -115,6 +120,4 @@ def test_the_sdk_is_left_alone_when_no_catalogs_are_wired() -> None:
         composition=_composition(catalog=_Catalog(), secrets=_Secrets()),
     )
 
-    # No ``configure_tenant_models`` on the double at all: this must not be
-    # reached for a deployment that never opted in.
     assert resources.runtime_sdk() is runtime

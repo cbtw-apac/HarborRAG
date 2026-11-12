@@ -31,6 +31,8 @@ from harborrag_runtime.testing.connection_fakes import (
     fake_control_plane,
 )
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.fixture
 def services() -> tuple[ProjectService, ConnectionService, ControlPlaneRepositories, Removal]:

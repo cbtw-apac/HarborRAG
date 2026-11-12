@@ -10,6 +10,8 @@ from harborrag_core.testing.fakes import FakeSecrets
 
 from .control_plane_fixtures import control_plane_app_service
 
+pytestmark = pytest.mark.unit
+
 
 @pytest.mark.asyncio
 async def test_a_retirement_queued_before_tenant_scoping_retires_the_default_secret() -> None:

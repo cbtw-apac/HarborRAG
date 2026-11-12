@@ -41,6 +41,8 @@ from harborrag_runtime.application.ingestion.progress_bridge import LEASE_NAME
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.events.in_process import InProcessEventBus
 
+pytestmark = pytest.mark.unit
+
 
 @dataclass
 class _FakeTask:
@@ -124,7 +126,10 @@ def _build_service(
 async def test_only_the_lease_holder_ticks_when_two_processes_share_a_database() -> None:
     """Two AppService instances (simulating two processes) share one lease
     repository, task store, and event bus -- the shape of the same database
-    seen by two API processes. Only one of them should ever tick."""
+    seen by two API processes. Only one of them should ever tick.
+
+    The non-leader never touched the store at all.
+    """
 
     lease_repository = FakeLeaseRepository()
     task = _FakeTask("t1", IngestionTaskState.RUNNING)
@@ -137,14 +142,19 @@ async def test_only_the_lease_holder_ticks_when_two_processes_share_a_database()
     examined_b = await process_b.sync_ingestion_progress()
 
     assert (examined_a, examined_b) == (1, 0)
-    assert task_store.tick_count == 1  # the non-leader never touched the store at all
+    assert task_store.tick_count == 1
 
 
 @pytest.mark.asyncio
 async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     """A process that stops ticking (crash, restart) must not permanently
     starve every other instance of the lease -- once its lease's recorded
-    expiry has passed, a live contender takes over."""
+    expiry has passed, a live contender takes over.
+
+    Process a becomes leader. Its lease then lapses (crash, restart or its own clock rolling
+    forward past the ttl), modeled by backdating the existing row's expiry: lease rows are never
+    removed, so this is the state production reaches. Then b takes over.
+    """
 
     lease_repository = FakeLeaseRepository()
     task = _FakeTask("t1", IngestionTaskState.RUNNING)
@@ -153,12 +163,9 @@ async def test_the_lease_fails_over_once_the_holder_stops_renewing() -> None:
     process_a = _build_service(lease_repository=lease_repository, task_store=task_store, bus=bus)
     process_b = _build_service(lease_repository=lease_repository, task_store=task_store, bus=bus)
 
-    assert await process_a.sync_ingestion_progress() == 1  # a becomes leader
+    assert await process_a.sync_ingestion_progress() == 1
 
-    # a's lease lapses (crash / restart / its own clock rolling forward past
-    # ttl). Modeled by backdating the existing row's expiry: lease rows are
-    # never removed, so this is the state production reaches.
     holder, _ = lease_repository.leases[LEASE_NAME]
     lease_repository.leases[LEASE_NAME] = (holder, utc_now() - timedelta(seconds=1))
 
-    assert await process_b.sync_ingestion_progress() == 1  # b takes over
+    assert await process_b.sync_ingestion_progress() == 1

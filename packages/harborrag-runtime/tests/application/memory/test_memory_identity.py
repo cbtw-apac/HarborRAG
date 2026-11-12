@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.ports.conversation import ConversationIdentity
 from harborrag_core.ports.memory import MemoryOwner
 from harborrag_runtime.application.memory import MemoryIdentity
+
+pytestmark = pytest.mark.unit
 
 
 def test_identity_projects_owner_and_conversation_keys() -> None:

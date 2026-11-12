@@ -29,6 +29,8 @@ from harborrag_runtime.testing.chat_fakes import (
     replayed,
 )
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "reader-1", "session-1", "reader-1")
 OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="reader-1")
 
@@ -98,6 +100,7 @@ async def _session() -> InMemoryConversationMemory:
 
 @pytest.mark.asyncio
 async def test_a_stream_that_raises_still_persists_the_question_and_partial_answer() -> None:
+    """Those four completion tokens were bought, so they are accounted for."""
     memory = await _session()
     usage = FakeUsageRepository()
     service = _service(memory, _PartialChat(), usage=usage)
@@ -118,7 +121,6 @@ async def test_a_stream_that_raises_still_persists_the_question_and_partial_answ
     assert (question.role, question.content) == ("user", "What is the release policy?")
     assert (answer.role, answer.content) == ("assistant", "Half an ")
     assert answer.partial is True  # type: ignore[attr-defined]
-    # Those four completion tokens were bought, so they are accounted for.
     assert [record.completion_tokens for record in usage.records] == [4]
 
 

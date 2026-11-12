@@ -38,8 +38,10 @@ class FakeMemoryStore:
         scopes = query.scopes or tuple(MemoryScope)
 
         def matches(memory: Memory) -> bool:
-            # Mirrors SqlMemoryRepository: erasure matches the row's stored
-            # tenant/user, reads match caller visibility.
+            """Match as SqlMemoryRepository does.
+
+            Erasure matches the row's stored tenant and user; reads match caller visibility.
+            """
             if query.stored_by_owner:
                 return (
                     query.owner.user_id is not None
@@ -98,7 +100,6 @@ def memory(  # noqa: PLR0913 - a record builder, one argument per stored field
     source_message_ids: tuple[str, ...] = (),
 ) -> Memory:
     """One stored memory for a route or erasure test."""
-
     return Memory(
         memory_id=memory_id,
         scope=scope,

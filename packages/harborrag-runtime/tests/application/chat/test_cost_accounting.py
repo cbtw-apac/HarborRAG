@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import pytest
+
 from harborrag_core.models.chat import HarborChatStreamChunk, HarborChatUsage, StreamEventType
 from harborrag_runtime.application.chat.turn import StreamedAnswer
+
+pytestmark = pytest.mark.unit
 
 
 def test_stream_retains_cost_when_later_chunks_omit_it() -> None:

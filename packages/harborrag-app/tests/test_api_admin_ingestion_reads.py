@@ -20,6 +20,8 @@ from harborrag_engine.control_plane.connection_views import IngestionLinks
 from harborrag_engine.ingestion.operations import IngestionOperations
 from harborrag_runtime.testing.connection_fakes import ConnectionWorld, connection_world
 
+pytestmark = pytest.mark.unit
+
 _LIST = "/v1/admin/ingestions"
 _KEYS = {
     "ingestion_id",

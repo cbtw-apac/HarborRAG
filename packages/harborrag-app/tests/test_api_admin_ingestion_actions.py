@@ -16,6 +16,8 @@ from harborrag_app.api.settings import ApiSettings
 from harborrag_core.domain.project import Project
 from harborrag_runtime.testing.connection_fakes import CONNECTION_KEY, JIRA_WRITE, connection_world
 
+pytestmark = pytest.mark.unit
+
 _BASE = "/v1/admin/ingestions"
 _VIEW = {
     "ingestion_id": "ing_9",

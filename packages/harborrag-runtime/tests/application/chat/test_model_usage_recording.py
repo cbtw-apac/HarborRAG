@@ -23,6 +23,8 @@ from harborrag_runtime.testing.chat_fakes import (
     FakeUsageRepository,
 )
 
+pytestmark = pytest.mark.unit
+
 IDENTITY = ConversationIdentity("ACME", "svc-1", "session-1", "alice@example.com")
 OPTIONS = ChatExecutionOptions(session_id="session-1", user_id="alice@example.com")
 
@@ -59,6 +61,7 @@ async def _complete(service: ChatApplicationService) -> object:
 
 @pytest.mark.asyncio
 async def test_a_completed_chat_turn_records_exactly_one_attributed_usage_row() -> None:
+    """The scope check and the answer cost 0.0042 each."""
     memory = await _session()
     usage = FakeUsageRepository()
 
@@ -81,12 +84,12 @@ async def test_a_completed_chat_turn_records_exactly_one_attributed_usage_row() 
     assert (record.prompt_tokens, record.completion_tokens, record.total_tokens) == (2, 1, 3)
     assert record.estimated_cost_usd == 0.0042
     assert record.finish_reason == "stop"
-    # The scope check and the answer cost 0.0042 each.
     assert response.data["usage"]["cost_usd"] == pytest.approx(0.0084)  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio
 async def test_usage_totals_are_readable_per_tenant_and_per_user() -> None:
+    """A scope check and an answer each nobody else spent anything in this tenant."""
     memory = await _session()
     usage = FakeUsageRepository()
     service = _service(memory, usage=usage, cost=0.0042)
@@ -95,10 +98,8 @@ async def test_usage_totals_are_readable_per_tenant_and_per_user() -> None:
     await _complete(service)
 
     totals = await usage.totals(tenant_id="ACME", user_id="alice@example.com")
-    assert (totals.requests, totals.total_tokens) == (4, 12)  # a scope check and an answer each
-    assert await usage.totals(tenant_id="ACME", user_id="bob@example.com") == (
-        type(totals)()  # nobody else spent anything in this tenant
-    )
+    assert (totals.requests, totals.total_tokens) == (4, 12)
+    assert await usage.totals(tenant_id="ACME", user_id="bob@example.com") == (type(totals)())
 
 
 @pytest.mark.asyncio

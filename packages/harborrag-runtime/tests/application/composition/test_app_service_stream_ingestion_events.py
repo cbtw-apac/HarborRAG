@@ -24,6 +24,8 @@ from harborrag_runtime.events.in_process import InProcessEventBus
 
 from ..application_fixtures import FakeComposition
 
+pytestmark = pytest.mark.unit
+
 
 class _FakeTaskStore:
     """Just enough of PublicTaskStore for stream_ingestion_events to drive."""
@@ -65,7 +67,10 @@ def _build_service(
 
 @pytest.mark.asyncio
 async def test_abandoning_the_stream_mid_backlog_deregisters_the_live_subscription() -> None:
-    """Cancelling the caller before any live event arrives must still unsubscribe."""
+    """Cancelling the caller before any live event arrives must still unsubscribe.
+
+    Let it run: empty backlog, then block awaiting a live event.
+    """
     bus = InProcessEventBus()
     task = IngestionTask(
         task_id="t1",
@@ -81,7 +86,7 @@ async def test_abandoning_the_stream_mid_backlog_deregisters_the_live_subscripti
 
     events = service.stream_ingestion_events("t1")
     consume = asyncio.ensure_future(events.__anext__())
-    await asyncio.sleep(0)  # let it run: empty backlog, then block awaiting a live event
+    await asyncio.sleep(0)
     assert len(bus._subscribers) == 1
 
     consume.cancel()
@@ -316,6 +321,7 @@ async def test_run_completed_is_sent_even_when_a_later_duplicate_was_delivered_f
 
 @pytest.mark.asyncio
 async def test_events_the_live_tail_skipped_are_read_back_from_the_store() -> None:
+    """Events 1 and 2 never reached this subscriber."""
     bus = InProcessEventBus()
     store = _EventLogStore(_ended_task(IngestionTaskState.RUNNING))
     service = _service_over(store, bus)
@@ -329,7 +335,7 @@ async def test_events_the_live_tail_skipped_are_read_back_from_the_store() -> No
     consume = asyncio.ensure_future(_collect(service.stream_ingestion_events("t1")))
     await asyncio.sleep(0.01)
     store.events.extend(stored)
-    await bus.publish(stored[2])  # events 1 and 2 never reached this subscriber
+    await bus.publish(stored[2])
     await bus.publish(stored[3])
     received = await asyncio.wait_for(consume, timeout=2)
 

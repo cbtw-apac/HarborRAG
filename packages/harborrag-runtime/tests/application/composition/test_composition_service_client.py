@@ -28,9 +28,7 @@ from ..application_fixtures import (
     service_resources as service_resources,
 )
 
-# --------------------------------------------------------------------------
-# Composition-level health
-# --------------------------------------------------------------------------
+pytestmark = pytest.mark.unit
 
 
 def test_health_reports_ready_from_composition_diagnostics() -> None:
@@ -54,11 +52,6 @@ def test_health_reports_not_ready_for_any_unusable_diagnostics(diagnostics: obje
 
     assert response.ok is False
     assert response.error == "runtime not ready"
-
-
-# --------------------------------------------------------------------------
-# Runtime calls
-# --------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio

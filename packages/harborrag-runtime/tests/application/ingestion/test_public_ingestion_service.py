@@ -40,6 +40,8 @@ from ..application_fixtures import (
     service_resources as service_resources,
 )
 
+pytestmark = pytest.mark.unit
+
 
 def test_generated_task_id_is_uuid4() -> None:
     parsed = UUID(generate_task_id())
@@ -162,8 +164,9 @@ async def test_recovery_claims_the_task_before_starting_it(
         FakeTemporalClient,
     ],
 ) -> None:
-    # The race: recovery starts the workflow, then a connect failure on the original
-    # submit path fails the still-PENDING row, and the started run hits FAILED -> RUNNING.
+    """The race: recovery starts the workflow, then a connect failure on the original submit path fails
+    the still-PENDING row, and the started run hits FAILED -> RUNNING.
+    """
     service, control, temporal = service_resources
     task_id = await _unsubmitted_task(service, temporal)
     original_start = temporal.start_ingestion
@@ -198,7 +201,7 @@ async def test_recovery_releases_the_claim_when_it_cannot_connect(
         FakeTemporalClient,
     ],
 ) -> None:
-    # No client means nothing was started, so the next pass may retry at once.
+    """No client means nothing was started, so the next pass may retry at once."""
     service, control, _temporal = service_resources
     task_id = await _unsubmitted_task(service, _temporal)
     connect = service._client_provider
@@ -231,8 +234,9 @@ async def test_recovery_keeps_the_claim_when_the_start_is_ambiguous(
         FakeTemporalClient,
     ],
 ) -> None:
-    # A failed start call may still have created the workflow: the claim stays until it
-    # goes stale, so the submit path cannot fail a run that is starting.
+    """A failed start call may still have created the workflow: the claim stays until it goes stale, so
+    the submit path cannot fail a run that is starting.
+    """
     service, control, temporal = service_resources
     task_id = await _unsubmitted_task(service, temporal)
 
@@ -323,12 +327,12 @@ async def test_cancel_and_retry_apply_postgres_state_rules(
         FakeTemporalClient,
     ],
 ) -> None:
+    """Who asked is now on the run's own trail, next to its progress events."""
     service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
     await service.cancel(task_id, actor="ops@laptop")
     assert temporal.cancelled == [task_id]
-    # Who asked is now on the run's own trail, next to its progress events.
     control_events = [
         event
         for event in await control.task_events.list_events(task_id)
@@ -390,9 +394,9 @@ async def test_retry_of_named_documents_reruns_deterministic_but_not_source_fail
         FakeTemporalClient,
     ],
 ) -> None:
-    # A blanket retry skips chunk_invalid; once a fix is deployed the operator
-    # can still re-run that document by naming it. An unsupported document
-    # fails the same way whatever runs it.
+    """A blanket retry skips chunk_invalid; once a fix is deployed the operator can still re-run that
+    document by naming it. An unsupported document fails the same way whatever runs it.
+    """
     service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
@@ -432,6 +436,9 @@ async def test_pause_and_resume_forward_to_temporal(
         FakeTemporalClient,
     ],
 ) -> None:
+    """The Temporal activity settles the durable lifecycle asynchronously. The Temporal activity
+    settles the durable lifecycle asynchronously.
+    """
     service, control, temporal = service_resources
     accepted = await service.submit(_command(), idempotency_key=None)
     task_id = str(accepted["task_id"])
@@ -442,7 +449,6 @@ async def test_pause_and_resume_forward_to_temporal(
     assert paused["status"] == "RUNNING"
     assert paused["message"] == "Pause requested"
 
-    # The Temporal activity settles the durable lifecycle asynchronously.
     await control.tasks.transition(task_id, IngestionTaskState.PAUSED)
     assert (await control.tasks.get(task_id)).status is IngestionTaskState.PAUSED
 
@@ -461,7 +467,6 @@ async def test_pause_and_resume_forward_to_temporal(
     assert temporal.resumed == [task_id]
     assert resumed["status"] == "RUNNING"
     assert resumed["message"] == "Resume requested"
-    # The Temporal activity settles the durable lifecycle asynchronously.
     await control.tasks.transition(task_id, IngestionTaskState.RUNNING)
     assert (await control.tasks.get(task_id)).status is IngestionTaskState.RUNNING
 
