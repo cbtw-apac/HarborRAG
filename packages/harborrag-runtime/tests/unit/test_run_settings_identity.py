@@ -18,7 +18,7 @@ pytestmark = pytest.mark.unit
 REPO_ROOT = Path(__file__).resolve().parents[4]
 GOLDEN_PARSER_PROFILE = "parser-f325dde1d1ed01ca"
 GOLDEN_CHUNK_STRATEGY = (
-    "chunking-v3-c8b988021028d46534f990f2445e1f3925b7fe79992f592567aa2af0eaddbb31"
+    "chunking-v3-2fc4aa978b823200b44cf8cd9d658cfb42a4ff8cbe846f58eeab81ec53c916c4"
 )
 
 
