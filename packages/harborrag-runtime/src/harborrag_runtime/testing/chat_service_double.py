@@ -23,29 +23,30 @@ from harborrag_runtime.testing.chat_fakes import (
 
 PASSAGES = (
     RetrievalResult(
-        id="chk_4502",
-        text="Seven years of Go services and Kubernetes operators in Hanoi.",
+        id="chk_1",
+        text="The deploy runbook lists the steps that promote a release to production.",
         score=0.82,
         metadata={
-            "document_id": "doc_4502",
-            "document_title": "CPM-4502 Platform engineer, Hanoi",
-            "citation_locator": {"uri": "https://jira.example.test/browse/CPM-4502"},
+            "document_id": "doc_1",
+            "document_title": "DEMO-1 Deploy runbook",
+            "citation_locator": {"uri": "https://jira.example.test/browse/DEMO-1"},
         },
     ),
     RetrievalResult(
-        id="chk_4411",
-        text="Five years of Go and Kubernetes, led the migration of the billing service. " * 8,
+        id="chk_2",
+        text="Roll the billing service back to the previous release tag, then check its health. "
+        * 8,
         score=0.91,
         metadata={
-            "document_id": "doc_4411",
-            "document_title": "CPM-4411 Senior Go engineer, Hanoi",
+            "document_id": "doc_2",
+            "document_title": "DEMO-2 Rollback runbook",
             "citation_locator": {"page_start": 2, "page_end": 2},
         },
     ),
 )
-"""Two candidate passages of project ``cpm``; the second is longer than a snippet."""
+"""Two passages of project ``demo``; the second is longer than a snippet."""
 
-ANSWER = "Two candidates match: CPM-4411 [2] and CPM-4502 [1]; see also [9]. CPM-4411 [2] led it."
+ANSWER = "Two runbooks match: DEMO-2 [2] and DEMO-1 [1]; see also [9]. DEMO-2 [2] covers rollback."
 """Cites retrieval passage 2 first, then 1, then a passage that was never retrieved."""
 
 

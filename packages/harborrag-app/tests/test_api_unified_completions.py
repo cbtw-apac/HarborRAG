@@ -24,8 +24,8 @@ PATH = "/v1/chat/completions"
 @pytest.fixture
 def service() -> MockAppService:
     double = MockAppService()
-    double.known_projects = {"cpm", "fresh"}
-    double.catalog.add("cpm", "cpm/tickets", ("scope-tickets",), documents=3)
+    double.known_projects = {"demo", "fresh"}
+    double.catalog.add("demo", "demo/tickets", ("scope-tickets",), documents=3)
     return double
 
 

@@ -42,7 +42,7 @@ from harborrag_runtime.testing.connection_fakes import (
 
 @pytest.fixture
 def world() -> ConnectionWorld:
-    return connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    return connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
 
 
 @pytest.mark.asyncio
@@ -53,7 +53,7 @@ async def test_put_creates_a_connection_and_reads_secrets_back_as_status(
 
     view = result.connection
     assert (result.created, result.version) == (True, 1)
-    assert view["connection_ref"] == "cpm/cpm-tickets" and view["name"] == "CPM tickets"
+    assert view["connection_ref"] == "demo/demo-tickets" and view["name"] == "DEMO tickets"
     assert view["credentials"]["api_token"] == {
         "set": True,
         "last4": "9f2c",
@@ -83,7 +83,7 @@ async def test_put_overwrites_keeping_rotating_and_clearing_secrets(world: Conne
     assert (kept.created, kept.version) == (False, 2)
     assert kept.connection["credentials"]["api_token"]["last4"] == "9f2c"
     assert kept.connection["config"] == {}
-    assert kept.connection["name"] == "cpm-tickets"
+    assert kept.connection["name"] == "demo-tickets"
 
     await world.service.put(
         CONNECTION_KEY,
@@ -171,13 +171,13 @@ async def test_sync_starts_one_ingestion_at_a_time(world: ConnectionWorld) -> No
     assert ingestion["ingestion_id"] == "ing_1"
     assert (ingestion["tenant_id"], ingestion["project_id"], ingestion["connection_id"]) == (
         "acme",
-        "cpm",
-        "cpm-tickets",
+        "demo",
+        "demo-tickets",
     )
     assert ingestion["status"] == "queued"
     assert ingestion["triggered_by"] == {"principal_type": "user", "principal_id": "u_huy"}
     command = world.submitter.commands[0]
-    assert (command.connection_id, command.force_reprocess) == ("cpm/cpm-tickets", True)
+    assert (command.connection_id, command.force_reprocess) == ("demo/demo-tickets", True)
 
     world.runs.active = world.runs.tasks["ing_1"]
     with pytest.raises(HarborAlreadyRunningError) as running:
@@ -200,7 +200,7 @@ async def test_stored_returns_the_row_with_its_pinned_source_key(world: Connecti
     stored = await world.service.stored(CONNECTION_KEY)
 
     assert (stored.ref, stored.source_key, stored.source_type) == (
-        "cpm/cpm-tickets",
+        "demo/demo-tickets",
         "jira-main",
         "jira",
     )
@@ -261,7 +261,7 @@ async def test_a_run_whose_workflow_ended_unrecorded_no_longer_blocks(
     world.runs.active = running_task("ing_0", IngestionTaskState.RUNNING)
     world.submitter.ended.add("ing_0")
 
-    assert not await world.service.connection_busy("acme", "cpm/cpm-tickets")
+    assert not await world.service.connection_busy("acme", "demo/demo-tickets")
     ingestion = await world.service.sync(CONNECTION_KEY, actor="u")
 
     assert ingestion["ingestion_id"] == "ing_1"
@@ -280,7 +280,7 @@ async def test_a_connection_whose_runs_keep_settling_stays_busy_after_the_bound(
 
     monkeypatch.setattr(world.submitter, "settle_if_ended", always_settles)
 
-    assert await world.service.connection_busy("acme", "cpm/cpm-tickets") is True
+    assert await world.service.connection_busy("acme", "demo/demo-tickets") is True
     assert len(settles) == SETTLE_ROUNDS
 
 
@@ -315,7 +315,7 @@ async def test_delete_removes_documents_then_secrets_then_the_row(world: Connect
     await world.service.aclose()
 
     assert world.removal.calls == [
-        {"tenant_id": "acme", "source_key": "cpm/cpm-tickets", "purge": True}
+        {"tenant_id": "acme", "source_key": "demo/demo-tickets", "purge": True}
     ]
     assert world.secrets.values == {}
     with pytest.raises(HarborNotFoundError):
@@ -407,15 +407,15 @@ async def test_list_and_searchable_hide_nothing_but_secrets(world: ConnectionWor
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
 
     items, cursor = await world.service.list_page(tenant_id="acme")
-    chips = await world.service.searchable(tenant_id="acme", project_id="cpm")
+    chips = await world.service.searchable(tenant_id="acme", project_id="demo")
 
-    assert [item["connection_ref"] for item in items] == ["cpm/cpm-tickets"] and cursor is None
+    assert [item["connection_ref"] for item in items] == ["demo/demo-tickets"] and cursor is None
     assert chips == [
         {
-            "connection_ref": "cpm/cpm-tickets",
-            "connection_id": "cpm-tickets",
+            "connection_ref": "demo/demo-tickets",
+            "connection_id": "demo-tickets",
             "source_type": "jira",
-            "name": "CPM tickets",
+            "name": "DEMO tickets",
             "documents": 7,
         }
     ]
@@ -460,7 +460,7 @@ async def test_a_reference_sent_back_does_not_carry_a_secret_to_a_new_host(
     else:
         await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
     stored = await world.control_plane.connections.get(
-        tenant_id="acme", project_id="cpm", connection_id="cpm-tickets"
+        tenant_id="acme", project_id="demo", connection_id="demo-tickets"
     )
     assert stored is not None
     echoed = {"secret_ref": stored.credentials["api_token"]["secret_ref"]}
@@ -492,7 +492,7 @@ async def test_a_test_cannot_borrow_another_connections_stored_secret(
 ) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
     stored = await world.control_plane.connections.get(
-        tenant_id="acme", project_id="cpm", connection_id="cpm-tickets"
+        tenant_id="acme", project_id="demo", connection_id="demo-tickets"
     )
     assert stored is not None
     borrowed = ConnectionWrite(
@@ -506,7 +506,9 @@ async def test_a_test_cannot_borrow_another_connections_stored_secret(
     )
 
     with pytest.raises(ConnectionValidationError) as caught:
-        await world.service.test(ConnectionKey("acme", "cpm", "brand-new"), borrowed, origin=origin)
+        await world.service.test(
+            ConnectionKey("acme", "demo", "brand-new"), borrowed, origin=origin
+        )
 
     assert [issue.field for issue in caught.value.issues] == ["credentials.api_token"]
     assert "stored references are not supported" in caught.value.issues[0].issue
@@ -516,7 +518,7 @@ async def test_a_test_cannot_borrow_another_connections_stored_secret(
 async def test_switching_auth_method_drops_and_retires_the_old_secret(
     world: ConnectionWorld,
 ) -> None:
-    key = ConnectionKey("acme", "cpm", "handbook")
+    key = ConnectionKey("acme", "demo", "handbook")
     first = await world.service.put(
         key,
         ConnectionWrite("github", {"method": "pat", "token": "ghp_secret_1234"}, _REPO),
@@ -594,7 +596,7 @@ async def test_a_write_that_changes_nothing_stores_nothing(world: ConnectionWorl
 async def test_sending_the_same_token_again_clears_needs_reauth(world: ConnectionWorld) -> None:
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="u")
     await world.control_plane.connections.set_status(
-        tenant_id="acme", source_key="cpm/cpm-tickets", status="needs_reauth"
+        tenant_id="acme", source_key="demo/demo-tickets", status="needs_reauth"
     )
     stored = dict(world.secrets.values)
 
@@ -619,7 +621,7 @@ async def test_an_unchanged_write_still_starts_sync_now(world: ConnectionWorld) 
 async def test_settings_the_connector_refuses_are_field_errors(world: ConnectionWorld) -> None:
     with pytest.raises(ConnectionValidationError) as caught:
         await world.service.put(
-            ConnectionKey("acme", "cpm", "site"),
+            ConnectionKey("acme", "demo", "site"),
             ConnectionWrite(
                 "sharepoint",
                 {"method": "pat", "access_token": "eyJ0eXAi-token"},
@@ -680,7 +682,7 @@ _SITE = {"site_url": "https://acme.sharepoint.com/sites/knowledge"}
 
 @pytest.mark.asyncio
 async def test_only_operators_set_the_sharepoint_token_cache_path(world: ConnectionWorld) -> None:
-    key = ConnectionKey("acme", "cpm", "knowledge")
+    key = ConnectionKey("acme", "demo", "knowledge")
     with_path = ConnectionWrite(
         "sharepoint", {**_DELEGATED, "token_cache_path": "/var/lib/harborrag/kb.json"}, _SITE
     )
@@ -778,8 +780,8 @@ async def test_a_broken_connectors_yaml_does_not_block_submits(
     submission = SourceSubmission(
         task_id="t",
         tenant_id="acme",
-        connector_name="cpm/cpm-tickets",
-        connection_id="cpm/cpm-tickets",
+        connector_name="demo/demo-tickets",
+        connection_id="demo/demo-tickets",
     )
 
     for _ in range(2):
@@ -879,7 +881,7 @@ async def test_stats_errors_is_zero_for_a_connection_that_never_ran(
 @pytest.mark.asyncio
 async def test_list_batches_the_progress_of_every_latest_run(world: ConnectionWorld) -> None:
     for name in ("one", "two", "three"):
-        key = replace(CONNECTION_KEY, connection_id=f"cpm-{name}")
+        key = replace(CONNECTION_KEY, connection_id=f"demo-{name}")
         await world.service.put(key, JIRA_WRITE, actor="u_huy")
     world.runs.active = running_task("ing_7", IngestionTaskState.FAILED)
     world.runs.counts["ing_7"] = {"failed": 4}

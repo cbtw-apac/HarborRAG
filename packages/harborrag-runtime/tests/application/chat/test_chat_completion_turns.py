@@ -35,7 +35,7 @@ READER = "reader-1"
 
 
 class _Projects:
-    known_projects = {"cpm"}
+    known_projects = {"demo"}
     tenant_projects: dict[str, set[str]] = {}
 
 
@@ -51,10 +51,10 @@ async def _service(
         memory = InMemoryConversationMemory()
         for session_id in ("ses_a", "ses_b"):
             await memory.create(
-                ConversationIdentity(TENANT, READER, session_id, READER), project_id="cpm"
+                ConversationIdentity(TENANT, READER, session_id, READER), project_id="demo"
             )
     catalog = FakeConnectionCatalog()
-    catalog.add("cpm", "cpm/cpm-tickets", ("scope-cpm-tickets",), documents=4)
+    catalog.add("demo", "demo/demo-tickets", ("scope-demo-tickets",), documents=4)
     retrieval = FakeRetrievalFacade(PASSAGES)
     runtime = FakeRuntime(chat, retrieval)
     kwargs: dict[str, object] = {
@@ -119,12 +119,12 @@ async def test_another_session_answers_while_one_is_busy() -> None:
 
 @pytest.mark.asyncio
 async def test_a_session_turn_reads_top_k_at_the_sessions_project_level() -> None:
-    provider = FakeConfigProvider({"project:cpm": 2, "tenant": 7})
+    provider = FakeConfigProvider({"project:demo": 2, "tenant": 7})
     service, _, retrieval = await _service(FakeChatFacade(answer=ANSWER), provider)
 
     await _ask(service, "ses_a")
     first = retrieval.request.top_k  # type: ignore[union-attr]
-    provider.overrides = {"project:cpm": 3, "tenant": 7}
+    provider.overrides = {"project:demo": 3, "tenant": 7}
     await _ask(service, "ses_a")
     second = retrieval.request.top_k  # type: ignore[union-attr]
 

@@ -244,7 +244,7 @@ def test_export_leaves_out_a_deleted_connection_and_imports_back(
     world: _World, capsys: pytest.CaptureFixture[str]
 ) -> None:
     world.seed(f"{_KEY}: 512\n")
-    gone = "connection:cpm/gone"
+    gone = "connection:demo/gone"
     change = SettingChange(gone, "ingestion.concurrency", None, 4, "next_ingestion")
     asyncio.run(
         world.store.write(

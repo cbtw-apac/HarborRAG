@@ -131,7 +131,7 @@ def runs() -> _Runs:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, runs: _Runs) -> Iterator[TestClient]:
-    world = connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     monkeypatch.setattr(api_app, "select_app_service", lambda: (_App(world, runs), "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
     with TestClient(app) as test_client:

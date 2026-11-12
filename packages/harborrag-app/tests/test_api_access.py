@@ -29,8 +29,8 @@ pytestmark = pytest.mark.unit
 _SECRET = "test-secret-at-least-32-bytes-long-for-hs256"
 _KEY = "hrk_dev_v1_0123456789abcdef01234567." + "k" * 43
 _PATH_VALUES = {
-    "project_id": "cpm",
-    "connection_id": "cpm-tickets",
+    "project_id": "demo",
+    "connection_id": "demo-tickets",
     "session_id": "session-1",
     "ingestion_id": "ing_1",
 }
@@ -70,7 +70,7 @@ class _AccessApp(MockAppService):
         super().__init__()
         self.world = connection_world(
             [
-                Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme"),
+                Project(id="demo", name="DEMO", collection="demo", tenant_id="acme"),
                 Project(id="gx1", name="Globex", collection="gx1", tenant_id="globex"),
             ]
         )
@@ -172,8 +172,8 @@ def test_a_role_below_the_routes_minimum_is_forbidden(
             method,
             path,
             headers=headers,
-            params={"tenant_id": "acme", "level": "connection:cpm/cpm-tickets"},
-            json={"tenant_id": "acme", "prompt": "hello", "connection_id": "cpm-tickets"},
+            params={"tenant_id": "acme", "level": "connection:demo/demo-tickets"},
+            json={"tenant_id": "acme", "prompt": "hello", "connection_id": "demo-tickets"},
         )
         if ROLE_ORDER[role] < ROLE_ORDER[minimum]:  # type: ignore[index]
             assert response.status_code == 403, (method, path)
@@ -189,10 +189,10 @@ def test_every_v1_route_declares_its_minimum_role(client: TestClient) -> None:
 
     assert roles[("GET", "/v1/me")] == "reader"
     assert roles[("GET", "/v1/admin/source-types")] == "editor"
-    assert roles[("PUT", "/v1/admin/projects/cpm/connections/cpm-tickets")] == "editor"
-    assert roles[("DELETE", "/v1/admin/projects/cpm")] == "admin"
+    assert roles[("PUT", "/v1/admin/projects/demo/connections/demo-tickets")] == "editor"
+    assert roles[("DELETE", "/v1/admin/projects/demo")] == "admin"
     assert roles[("POST", "/v1/chat/completions")] == "reader"
-    assert roles[("GET", "/v1/projects/cpm/connections")] == "reader"
+    assert roles[("GET", "/v1/projects/demo/connections")] == "reader"
     assert roles[("GET", "/v1/admin/settings")] == "editor"
     assert roles[("PATCH", "/v1/admin/settings")] == "admin"
     assert roles[("GET", "/v1/admin/settings/schema")] == "editor"

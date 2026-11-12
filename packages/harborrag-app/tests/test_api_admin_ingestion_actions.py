@@ -22,8 +22,8 @@ _BASE = "/v1/admin/ingestions"
 _VIEW = {
     "ingestion_id": "ing_9",
     "tenant_id": "acme",
-    "project_id": "cpm",
-    "connection_id": "cpm-tickets",
+    "project_id": "demo",
+    "connection_id": "demo-tickets",
     "mode": "incremental",
     "status": "paused",
     "counters": {"discovered": 0, "processed": 0, "skipped": 0, "failed": 0},
@@ -130,7 +130,7 @@ def test_a_reader_cannot_control_a_run(client: TestClient) -> None:
 @pytest.mark.asyncio
 @pytest.mark.parametrize("actor_type", ["api_key", "user"])
 async def test_a_sync_hands_the_caller_to_the_stored_run(actor_type: str) -> None:
-    world = connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     await world.service.put(CONNECTION_KEY, JIRA_WRITE, actor="seed")
 
     await world.service.sync(CONNECTION_KEY, actor="key_1", actor_type=actor_type)

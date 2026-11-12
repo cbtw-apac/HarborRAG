@@ -37,16 +37,16 @@ from harborrag_runtime.application.control_plane.connection_models import (
 from harborrag_runtime.application.control_plane.connections import ConnectionService
 from harborrag_runtime.composition import ControlPlaneRepositories
 
-CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="cpm", connection_id="cpm-tickets")
+CONNECTION_KEY = ConnectionKey(tenant_id="acme", project_id="demo", connection_id="demo-tickets")
 JIRA_WRITE = ConnectionWrite(
     source_type="jira",
-    name="CPM tickets",
+    name="DEMO tickets",
     credentials={
         "base_url": "https://acme.atlassian.net",
         "email": "bot@acme.com",
         "api_token": "ATATT3xFfGF0-sentinel-9f2c",
     },
-    config={"jql": "project = CPM"},
+    config={"jql": "project = DEMO"},
 )
 
 
@@ -146,7 +146,7 @@ def running_task(
         status=status,
         request={
             "tenant_id": "acme",
-            "connection_id": "cpm/cpm-tickets",
+            "connection_id": "demo/demo-tickets",
             "force_reprocess": force,
             **({"actor": actor, "actor_type": actor_type or "user"} if actor else {}),
         },

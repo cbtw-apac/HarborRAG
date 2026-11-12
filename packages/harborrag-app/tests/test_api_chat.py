@@ -15,8 +15,8 @@ from harborrag_runtime.chat import ChatPrompt
 @pytest.fixture
 def service() -> MockAppService:
     double = MockAppService()
-    double.tenant_projects = {"ACME": {"cpm"}}
-    double.catalog.add("cpm", "cpm/cpm-tickets", ("scope-cpm-tickets",), documents=2)
+    double.tenant_projects = {"ACME": {"demo"}}
+    double.catalog.add("demo", "demo/demo-tickets", ("scope-demo-tickets",), documents=2)
     return double
 
 
@@ -40,7 +40,7 @@ def test_a_completion_in_a_session_runs_as_the_sessions_owner_in_its_tenant(
     client: TestClient,
     service: MockAppService,
 ) -> None:
-    session_id = _session(client, "ACME", "cpm")
+    session_id = _session(client, "ACME", "demo")
 
     response = client.post(
         "/v1/chat/completions",
@@ -50,7 +50,7 @@ def test_a_completion_in_a_session_runs_as_the_sessions_owner_in_its_tenant(
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["answer"].startswith("Two candidates match")
+    assert payload["answer"].startswith("Two runbooks match")
     assert payload["session_id"] == session_id
     assert "user_id" not in payload
     assert response.headers["cache-control"] == "no-store"
@@ -60,7 +60,7 @@ def test_a_completion_in_a_session_runs_as_the_sessions_owner_in_its_tenant(
     assert request.metadata.user_id == "DEFAULT_USER"
     assert request.metadata.conversation_id == session_id
     assert service.chat.prompts == [ChatPrompt.DEFAULT]
-    assert service.retrieval.request.filters == {"source_scope_id": ["scope-cpm-tickets"]}  # type: ignore[union-attr]
+    assert service.retrieval.request.filters == {"source_scope_id": ["scope-demo-tickets"]}  # type: ignore[union-attr]
 
 
 def test_chat_completion_rejects_get_to_keep_the_message_out_of_the_url(

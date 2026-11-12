@@ -62,7 +62,7 @@ class _App(MockAppService):
     def __init__(self) -> None:
         super().__init__()
         world = connection_world(
-            [Project(id="cpm", name="CPM", collection="cpm", tenant_id="DEFAULT")]
+            [Project(id="demo", name="DEMO", collection="demo", tenant_id="DEFAULT")]
         )
         self.connection_service = world.service
         self.project_service = ProjectService(

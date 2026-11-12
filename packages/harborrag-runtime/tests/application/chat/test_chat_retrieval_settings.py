@@ -35,7 +35,7 @@ async def _complete(
         ConversationIdentity("ACME", "reader-1", "session-1", "reader-1"), project_id=project_id
     )
     catalog = FakeConnectionCatalog()
-    catalog.add("cpm", "cpm/docs", ("scope-docs",), documents=1)
+    catalog.add("demo", "demo/docs", ("scope-docs",), documents=1)
     retrieval = FakeRetrievalFacade()
     runtime = FakeRuntime(FakeChatFacade(answer="Hello"), retrieval)
     service = ChatApplicationService(
@@ -64,9 +64,9 @@ async def _search_top_k(
 
 @pytest.mark.asyncio
 async def test_chat_uses_project_top_k() -> None:
-    provider = FakeConfigProvider({"project:cpm": 7, "tenant": 3})
+    provider = FakeConfigProvider({"project:demo": 7, "tenant": 3})
 
-    assert await _search_top_k(provider, project_id="cpm") == 7
+    assert await _search_top_k(provider, project_id="demo") == 7
 
 
 @pytest.mark.asyncio
@@ -76,21 +76,21 @@ async def test_chat_uses_tenant_top_k_without_a_project() -> None:
 
 @pytest.mark.asyncio
 async def test_chat_default_keeps_env_top_k() -> None:
-    assert await _search_top_k(FakeConfigProvider(), project_id="cpm", env_top_k=9) == 9
+    assert await _search_top_k(FakeConfigProvider(), project_id="demo", env_top_k=9) == 9
 
 
 @pytest.mark.asyncio
 async def test_chat_reranks_when_the_project_turns_it_on() -> None:
-    provider = FakeConfigProvider(rerank={"project:cpm": True, "tenant": False})
+    provider = FakeConfigProvider(rerank={"project:demo": True, "tenant": False})
 
-    _, retrieval = await _complete(provider, project_id="cpm")
+    _, retrieval = await _complete(provider, project_id="demo")
 
     assert retrieval.request.rerank is True  # type: ignore[union-attr]
 
 
 @pytest.mark.asyncio
 async def test_chat_does_not_rerank_by_default() -> None:
-    _, retrieval = await _complete(FakeConfigProvider(), project_id="cpm")
+    _, retrieval = await _complete(FakeConfigProvider(), project_id="demo")
 
     assert retrieval.request.rerank is False  # type: ignore[union-attr]
 

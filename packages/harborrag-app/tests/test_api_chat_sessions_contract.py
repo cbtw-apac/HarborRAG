@@ -37,10 +37,10 @@ MESSAGE_FIELDS = {
 CITATION = CitationRecord(
     n=1,
     chunk_id="chk_9f31",
-    document_id="doc_4411",
-    title="CPM-4411 · Senior Go engineer, Hanoi",
-    snippet="Five years of Go and Kubernetes.",
-    url="https://example.test/browse/CPM-4411",
+    document_id="doc_2",
+    title="DEMO-2 · Rollback runbook",
+    snippet="Roll back to the previous release tag.",
+    url="https://example.test/browse/DEMO-2",
     page=None,
 )
 
@@ -48,8 +48,8 @@ CITATION = CitationRecord(
 @pytest.fixture
 def service() -> MockAppService:
     double = MockAppService()
-    double.tenant_projects = {"DEFAULT": {"cpm"}, "GLOBEX": {"globex-hr"}}
-    double.catalog.add("cpm", "cpm/cpm-tickets", ("scope-cpm-tickets",), documents=1)
+    double.tenant_projects = {"DEFAULT": {"demo"}, "GLOBEX": {"globex-hr"}}
+    double.catalog.add("demo", "demo/demo-tickets", ("scope-demo-tickets",), documents=1)
     return double
 
 
@@ -71,8 +71,8 @@ async def _two_turns(service: MockAppService, session_id: str) -> tuple[str, str
         service.conversations,
         owner,
         ExchangeRecord(
-            question="Who knows Go?",
-            answer="CPM-4411 [1].",
+            question="Which runbook covers rollback?",
+            answer="DEMO-2 [1].",
             mode="classic",
             trace_id="0af7651916cd43dd8448eb211c80319c",
             citations=(CITATION,),
@@ -82,8 +82,8 @@ async def _two_turns(service: MockAppService, session_id: str) -> tuple[str, str
         service.conversations,
         owner,
         ExchangeRecord(
-            question="And Kubernetes in Hanoi?",
-            answer="Two candidates match: CPM-4411 [1].",
+            question="And the billing service?",
+            answer="One runbook matches: DEMO-2 [1].",
             mode="instant",
             trace_id="4bf92f3577b34da6a3ce929d0e0e4736",
             citations=(CITATION,),
@@ -109,7 +109,7 @@ def test_an_empty_body_creates_an_unscoped_session(client: TestClient) -> None:
 def test_a_titled_project_session_answers_the_explorer_session(client: TestClient) -> None:
     response = client.post(
         CONVERSATIONS,
-        json={"title": "Go candidates in Hanoi", "project_id": "cpm"},
+        json={"title": "Rollback runbooks", "project_id": "demo"},
         headers=auth(),
     )
 
@@ -117,8 +117,8 @@ def test_a_titled_project_session_answers_the_explorer_session(client: TestClien
     session = response.json()
     assert set(session) == SESSION_FIELDS
     assert session["session_id"].startswith("ses_")
-    assert session["title"] == "Go candidates in Hanoi"
-    assert session["project_id"] == "cpm"
+    assert session["title"] == "Rollback runbooks"
+    assert session["project_id"] == "demo"
     assert session["profile_id"] is None
     assert session["message_count"] == 0
     created = datetime.fromisoformat(session["created_at"])
@@ -167,7 +167,7 @@ def test_retired_session_fields_are_refused(client: TestClient, retired: dict[st
 async def test_history_after_two_turns_is_newest_first_with_citations(
     client: TestClient, service: MockAppService
 ) -> None:
-    session_id = _create(client, {"title": "Go candidates in Hanoi", "project_id": "cpm"})
+    session_id = _create(client, {"title": "Rollback runbooks", "project_id": "demo"})
     _, newest_answer = await _two_turns(service, session_id)
 
     response = client.get(f"{CONVERSATIONS}/{session_id}/messages", headers=auth())
@@ -183,7 +183,7 @@ async def test_history_after_two_turns_is_newest_first_with_citations(
     assert newest["message_id"] == newest_answer
     assert newest["message_id"].startswith("msg_")
     assert newest["session_id"] == session_id
-    assert newest["content"] == "Two candidates match: CPM-4411 [1]."
+    assert newest["content"] == "One runbook matches: DEMO-2 [1]."
     assert newest["mode"] == "instant"
     assert newest["trace_id"] == "4bf92f3577b34da6a3ce929d0e0e4736"
     assert newest["feedback"] is None
@@ -191,10 +191,10 @@ async def test_history_after_two_turns_is_newest_first_with_citations(
         {
             "n": 1,
             "chunk_id": "chk_9f31",
-            "document_id": "doc_4411",
-            "title": "CPM-4411 · Senior Go engineer, Hanoi",
-            "snippet": "Five years of Go and Kubernetes.",
-            "url": "https://example.test/browse/CPM-4411",
+            "document_id": "doc_2",
+            "title": "DEMO-2 · Rollback runbook",
+            "snippet": "Roll back to the previous release tag.",
+            "url": "https://example.test/browse/DEMO-2",
             "page": None,
         }
     ]
@@ -306,7 +306,7 @@ def test_an_unknown_session_is_not_found(client: TestClient) -> None:
 
 
 def test_the_list_answers_items_of_sessions_with_a_null_last_cursor(client: TestClient) -> None:
-    session_id = _create(client, {"title": "Go candidates in Hanoi", "project_id": "cpm"})
+    session_id = _create(client, {"title": "Rollback runbooks", "project_id": "demo"})
 
     response = client.get(CONVERSATIONS, headers=auth())
 
@@ -316,7 +316,7 @@ def test_the_list_answers_items_of_sessions_with_a_null_last_cursor(client: Test
     assert page["next_cursor"] is None
     assert [set(item) for item in page["items"]] == [SESSION_FIELDS]
     assert page["items"][0]["session_id"] == session_id
-    assert page["items"][0]["project_id"] == "cpm"
+    assert page["items"][0]["project_id"] == "demo"
 
 
 def test_the_list_is_newest_first_and_only_the_callers_own(client: TestClient) -> None:
@@ -330,15 +330,15 @@ def test_the_list_is_newest_first_and_only_the_callers_own(client: TestClient) -
 
 
 def test_the_list_searches_titles(client: TestClient) -> None:
-    hanoi = _create(client, {"title": "Go candidates in Hanoi"})
-    _create(client, {"title": "Rust contractors"})
+    rollback = _create(client, {"title": "Rollback runbooks"})
+    _create(client, {"title": "Deploy checklist"})
     _create(client, {"title": "100%_literal"})
 
-    matched = client.get(CONVERSATIONS, params={"q": "hanoi"}, headers=auth()).json()
+    matched = client.get(CONVERSATIONS, params={"q": "rollback"}, headers=auth()).json()
     literal = client.get(CONVERSATIONS, params={"q": "0%_"}, headers=auth()).json()
     wildcard = client.get(CONVERSATIONS, params={"q": "%"}, headers=auth()).json()
 
-    assert [item["session_id"] for item in matched["items"]] == [hanoi]
+    assert [item["session_id"] for item in matched["items"]] == [rollback]
     assert [item["title"] for item in literal["items"]] == ["100%_literal"]
     assert [item["title"] for item in wildcard["items"]] == ["100%_literal"]
 
@@ -358,11 +358,11 @@ def test_the_list_pages_with_a_cursor(client: TestClient) -> None:
 
 
 def test_a_session_from_the_new_route_still_answers_completions(client: TestClient) -> None:
-    session_id = _create(client, {"project_id": "cpm"})
+    session_id = _create(client, {"project_id": "demo"})
 
     response = client.post(
         "/v1/chat/completions",
-        json={"session_id": session_id, "message": "Who knows Go?"},
+        json={"session_id": session_id, "message": "Which runbook covers rollback?"},
         headers=auth(),
     )
 

@@ -61,13 +61,13 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
     projects, *_ = services
 
     view, created, version = await projects.put(
-        tenant_id="acme", project_id="cpm", name="CPM", description=None, actor="u"
+        tenant_id="acme", project_id="demo", name="DEMO", description=None, actor="u"
     )
     assert (created, version) == (True, 1)
     assert view == {
-        "project_id": "cpm",
+        "project_id": "demo",
         "tenant_id": "acme",
-        "project_name": "CPM",
+        "project_name": "DEMO",
         "project_description": None,
         "connection_count": 0,
         "document_count": 0,
@@ -77,8 +77,8 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
 
     _, created, version = await projects.put(
         tenant_id="acme",
-        project_id="cpm",
-        name="CPM candidates",
+        project_id="demo",
+        name="DEMO candidates",
         description="Tickets",
         actor="u",
         expected_version=1,
@@ -87,7 +87,7 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
     with pytest.raises(HarborPreconditionFailedError):
         await projects.put(
             tenant_id="acme",
-            project_id="cpm",
+            project_id="demo",
             name="x",
             description=None,
             actor="u",
@@ -96,7 +96,7 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
     with pytest.raises(HarborPreconditionFailedError):
         await projects.put(
             tenant_id="acme",
-            project_id="cpm",
+            project_id="demo",
             name="x",
             description=None,
             actor="u",
@@ -132,22 +132,26 @@ async def test_list_pages_by_id_and_filters_by_name(services: Any) -> None:
 @pytest.mark.asyncio
 async def test_delete_needs_cascade_once_connections_exist(services: Any) -> None:
     projects, connections, control_plane, removal = services
-    await projects.put(tenant_id="acme", project_id="cpm", name="CPM", description=None, actor="u")
-    assert await projects.delete(tenant_id="acme", project_id="cpm", actor="u") is None
-    await projects.put(tenant_id="acme", project_id="cpm", name="CPM", description=None, actor="u")
-    await connections.put(ConnectionKey("acme", "cpm", "cpm-tickets"), JIRA_WRITE, actor="u")
+    await projects.put(
+        tenant_id="acme", project_id="demo", name="DEMO", description=None, actor="u"
+    )
+    assert await projects.delete(tenant_id="acme", project_id="demo", actor="u") is None
+    await projects.put(
+        tenant_id="acme", project_id="demo", name="DEMO", description=None, actor="u"
+    )
+    await connections.put(ConnectionKey("acme", "demo", "demo-tickets"), JIRA_WRITE, actor="u")
 
     with pytest.raises(HarborInUseError) as in_use:
-        await projects.delete(tenant_id="acme", project_id="cpm", actor="u")
-    assert in_use.value.details == {"connection_refs": ["cpm/cpm-tickets"]}
+        await projects.delete(tenant_id="acme", project_id="demo", actor="u")
+    assert in_use.value.details == {"connection_refs": ["demo/demo-tickets"]}
 
-    job_id = await projects.delete(tenant_id="acme", project_id="cpm", actor="u", cascade=True)
+    job_id = await projects.delete(tenant_id="acme", project_id="demo", actor="u", cascade=True)
     await connections.aclose()
 
     assert job_id is not None
     assert removal.calls[0]["purge"] is True
     with pytest.raises(HarborNotFoundError):
-        await projects.get(tenant_id="acme", project_id="cpm")
+        await projects.get(tenant_id="acme", project_id="demo")
     job = await control_plane.jobs.get(job_id, tenant_ids=None)
     assert job is not None and job.status == "succeeded"
 
@@ -155,19 +159,21 @@ async def test_delete_needs_cascade_once_connections_exist(services: Any) -> Non
 @pytest.mark.asyncio
 async def test_a_cascade_that_hits_a_failure_finishes_on_resume(services: Any) -> None:
     projects, connections, control_plane, removal = services
-    await projects.put(tenant_id="acme", project_id="cpm", name="CPM", description=None, actor="u")
-    for connection_id in ("cpm-tickets", "cpm-wiki"):
-        await connections.put(ConnectionKey("acme", "cpm", connection_id), JIRA_WRITE, actor="u")
+    await projects.put(
+        tenant_id="acme", project_id="demo", name="DEMO", description=None, actor="u"
+    )
+    for connection_id in ("demo-tickets", "demo-wiki"):
+        await connections.put(ConnectionKey("acme", "demo", connection_id), JIRA_WRITE, actor="u")
     removal.fail = True
 
-    job_id = await projects.delete(tenant_id="acme", project_id="cpm", actor="u", cascade=True)
+    job_id = await projects.delete(tenant_id="acme", project_id="demo", actor="u", cascade=True)
     await connections.aclose()
     assert job_id is not None
     interrupted = await control_plane.jobs.get(job_id, tenant_ids=None)
 
     await connections.resume_deletions()
     after_connections = await control_plane.jobs.get(job_id, tenant_ids=None)
-    still_there = await control_plane.projects.get("cpm", tenant_ids=None)
+    still_there = await control_plane.projects.get("demo", tenant_ids=None)
     await projects.resume_deletions()
     finished = await control_plane.jobs.get(job_id, tenant_ids=None)
 
@@ -176,4 +182,4 @@ async def test_a_cascade_that_hits_a_failure_finishes_on_resume(services: Any) -
     assert after_connections is not None and after_connections.status == "running"
     assert still_there is not None
     assert finished is not None and finished.status == "succeeded"
-    assert await control_plane.projects.get("cpm", tenant_ids=None) is None
+    assert await control_plane.projects.get("demo", tenant_ids=None) is None

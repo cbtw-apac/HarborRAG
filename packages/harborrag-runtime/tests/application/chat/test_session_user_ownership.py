@@ -171,7 +171,7 @@ async def test_a_session_is_scoped_only_to_a_project_of_its_tenant() -> None:
     composition.control_plane = SimpleNamespace(  # type: ignore[assignment]
         projects=FakeProjectRepository(
             {
-                "cpm": Project(id="cpm", name="cpm", collection="c-cpm", tenant_id=TENANT),
+                "demo": Project(id="demo", name="demo", collection="c-demo", tenant_id=TENANT),
                 "globex-hr": Project(
                     id="globex-hr", name="globex-hr", collection="c-hr", tenant_id="GLOBEX"
                 ),
@@ -188,7 +188,7 @@ async def test_a_session_is_scoped_only_to_a_project_of_its_tenant() -> None:
     )
 
     created = await service.create_chat_session(
-        tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER, project_id="cpm"
+        tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER, project_id="demo"
     )
     for foreign in ("globex-hr", "nope"):
         with pytest.raises(HarborNotFoundError):
@@ -196,6 +196,6 @@ async def test_a_session_is_scoped_only_to_a_project_of_its_tenant() -> None:
                 tenant_id=TENANT, principal_id=PRINCIPAL, user_id=USER, project_id=foreign
             )
 
-    assert created.data["project_id"] == "cpm"
+    assert created.data["project_id"] == "demo"
     listed = await service.list_conversations(_access())
-    assert [row["project_id"] for row in listed.data["items"]] == ["cpm"]
+    assert [row["project_id"] for row in listed.data["items"]] == ["demo"]

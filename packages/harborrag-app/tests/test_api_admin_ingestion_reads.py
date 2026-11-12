@@ -130,7 +130,7 @@ def runs() -> _Runs:
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, runs: _Runs) -> Iterator[TestClient]:
-    world = connection_world([Project(id="cpm", name="CPM", collection="cpm", tenant_id="acme")])
+    world = connection_world([Project(id="demo", name="DEMO", collection="demo", tenant_id="acme")])
     app_service = _App(world, runs)
     monkeypatch.setattr(api_app, "select_app_service", lambda: (app_service, "test"))
     app = create_fastapi_app(ApiSettings(auth_mode="hmac", auth_secret=_SECRET))
@@ -138,16 +138,16 @@ def client(monkeypatch: pytest.MonkeyPatch, runs: _Runs) -> Iterator[TestClient]
         test_client.headers["Authorization"] = f"Bearer {_token('editor', ['acme', 'globex'])}"
         test_client.headers["X-Tenant-Id"] = "acme"
         assert test_client.put(_PATH, json=_BODY).status_code == 201
-        wiki = "/v1/admin/projects/cpm/connections/cpm-wiki"
+        wiki = "/v1/admin/projects/demo/connections/demo-wiki"
         assert test_client.put(wiki, json=_BODY).status_code == 201
         keys = {
             c.connection_id: c.source_key
             for c in world.control_plane.connections.connections.values()
         }
         done, failed = IngestionTaskState.COMPLETED, IngestionTaskState.FAILED
-        runs.add("ing_old", tenant="acme", source_key=keys["cpm-tickets"], status=done, age=0)
-        runs.add("ing_bad", tenant="acme", source_key=keys["cpm-tickets"], status=failed, age=1)
-        runs.add("ing_wiki", tenant="acme", source_key=keys["cpm-wiki"], status=done, age=2)
+        runs.add("ing_old", tenant="acme", source_key=keys["demo-tickets"], status=done, age=0)
+        runs.add("ing_bad", tenant="acme", source_key=keys["demo-tickets"], status=failed, age=1)
+        runs.add("ing_wiki", tenant="acme", source_key=keys["demo-wiki"], status=done, age=2)
         runs.add("ing_other", tenant="globex", source_key="x/y", status=done, age=3)
         yield test_client
 
@@ -162,7 +162,7 @@ def test_list_returns_the_ingestion_shape_newest_first_for_the_tenant(client: Te
     assert response.status_code == 200
     assert _ids(response) == ["ing_wiki", "ing_bad", "ing_old"]
     assert set(response.json()["items"][0]) == _KEYS
-    assert response.json()["items"][0]["connection_id"] == "cpm-wiki"
+    assert response.json()["items"][0]["connection_id"] == "demo-wiki"
     assert response.json()["next_cursor"] is None
 
 
@@ -178,16 +178,16 @@ def test_status_outside_the_spec_enum_is_a_422_on_status(client: TestClient) -> 
 
 
 def test_connection_ref_and_project_filters(client: TestClient) -> None:
-    assert _ids(client.get(_LIST, params={"connection_ref": "cpm/cpm-tickets"})) == [
+    assert _ids(client.get(_LIST, params={"connection_ref": "demo/demo-tickets"})) == [
         "ing_bad",
         "ing_old",
     ]
-    assert _ids(client.get(_LIST, params={"project_id": "cpm"})) == [
+    assert _ids(client.get(_LIST, params={"project_id": "demo"})) == [
         "ing_wiki",
         "ing_bad",
         "ing_old",
     ]
-    assert _ids(client.get(_LIST, params={"connection_ref": "cpm/missing"})) == []
+    assert _ids(client.get(_LIST, params={"connection_ref": "demo/missing"})) == []
     assert _ids(client.get(_LIST, params={"project_id": "nope"})) == []
 
 
@@ -261,7 +261,7 @@ def test_get_reads_one_run_with_its_connection(client: TestClient) -> None:
     assert response.status_code == 200
     assert set(response.json()) == _KEYS
     assert response.json()["status"] == "failed"
-    assert response.json()["project_id"] == "cpm"
+    assert response.json()["project_id"] == "demo"
 
 
 def test_a_run_of_another_tenant_is_not_found_and_not_listed(client: TestClient) -> None:
