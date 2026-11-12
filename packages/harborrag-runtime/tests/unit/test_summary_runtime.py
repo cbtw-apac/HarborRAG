@@ -1,5 +1,6 @@
 """Runtime wiring for independently scheduled summary projection."""
 
+from contextlib import asynccontextmanager
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
@@ -23,11 +24,19 @@ from harborrag_runtime.config.graph_build import (
     GraphBuildTenantConfig,
 )
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.topology import derived_factory, summary_factory
+from harborrag_runtime.topology import derived_factory, summary_factory, summary_operations
 from harborrag_runtime.topology.derived_factory import DerivedRuntimeFactory
 from harborrag_runtime.topology.summary_factory import SummaryRuntimeFactory
 from harborrag_runtime.topology.summary_inputs import SummaryInputLoader
 from harborrag_runtime.topology.summary_policy import build_summary_policy
+
+
+def _authority(control):
+    @asynccontextmanager
+    async def connect(*_args, **_kwargs):
+        yield control
+
+    return connect
 
 
 @pytest.mark.asyncio
@@ -141,6 +150,105 @@ def test_summary_factory_pins_generator_policy_and_composes_service(monkeypatch)
     )
     with pytest.raises(ValueError, match="configuration changed"):
         factory.generator(lease)
+
+
+@pytest.mark.asyncio
+async def test_connect_summaries_builds_store_and_initializes_factory(monkeypatch):
+    settings = RuntimeSettings()
+    effective = settings.model_copy(update={"summary_task_queue": "effective"})
+    config = Mock()
+    config.effective_settings.return_value = effective
+    monkeypatch.setattr(
+        summary_operations.GraphBuildConfig, "from_settings", lambda _settings: config
+    )
+    control = Mock()
+    monkeypatch.setattr(summary_operations, "connect_topology_authority", _authority(control))
+    store = SimpleNamespace(
+        connect=AsyncMock(),
+        ensure_buckets=AsyncMock(),
+        close=AsyncMock(),
+    )
+    monkeypatch.setattr(summary_operations, "build_object_store", lambda _settings: store)
+    factory = SimpleNamespace(initialize=AsyncMock())
+    constructor = Mock(return_value=factory)
+    monkeypatch.setattr(summary_operations, "SummaryRuntimeFactory", constructor)
+
+    async with summary_operations.connect_summaries(settings, "tenant") as connected:
+        assert connected is factory
+
+    store.connect.assert_awaited_once()
+    store.ensure_buckets.assert_awaited_once_with((summary_operations.ARTIFACT_BUCKET,))
+    store.close.assert_awaited_once()
+    factory.initialize.assert_awaited_once_with("tenant")
+    assert constructor.call_args.args[0:2] == (effective, control)
+
+
+@pytest.mark.asyncio
+async def test_summary_administration_operations_delegate_to_composed_ports(monkeypatch):
+    settings = RuntimeSettings()
+    summaries = SimpleNamespace(
+        status=AsyncMock(return_value=("ready",)),
+        backfill=AsyncMock(return_value=3),
+        reconcile=AsyncMock(),
+        cleanup=AsyncMock(return_value={"removed": 2}),
+    )
+    control = SimpleNamespace(summaries=summaries)
+    monkeypatch.setattr(summary_operations, "connect_topology_authority", _authority(control))
+    service = SimpleNamespace(run_once=AsyncMock(return_value="current"))
+    factory = SimpleNamespace(
+        settings=settings,
+        control=control,
+        synchronize=AsyncMock(),
+        service=Mock(return_value=service),
+    )
+
+    @asynccontextmanager
+    async def connect(_settings, _tenant_id):
+        yield factory
+
+    monkeypatch.setattr(summary_operations, "connect_summaries", connect)
+    temporal = object()
+    monkeypatch.setattr(
+        summary_operations, "connect_temporal_client", AsyncMock(return_value=temporal)
+    )
+    watch = AsyncMock()
+    monkeypatch.setattr(summary_operations, "watch_summaries", watch)
+
+    assert await summary_operations.status(settings, "tenant") == {
+        "scopes": ("ready",),
+        "limit": 100,
+    }
+    assert await summary_operations.backfill(settings, "tenant", "scope") == {"enqueued": 3}
+    assert await summary_operations.run_once(settings, "tenant") == {"state": "current"}
+    await summary_operations.worker(settings, "tenant")
+    assert await summary_operations.cleanup(settings, "tenant", retention_days=7, apply=True) == {
+        "removed": 2
+    }
+
+    assert factory.synchronize.await_count == 2
+    summaries.reconcile.assert_awaited_once_with("tenant")
+    watch.assert_awaited_once_with(temporal, factory, "tenant")
+    summaries.cleanup.assert_awaited_once_with("tenant", retention_days=7, apply=True)
+
+
+@pytest.mark.asyncio
+async def test_summary_temporal_adapters_are_loaded_on_demand(monkeypatch):
+    from harborrag_runtime.temporal import connection
+    from harborrag_runtime.topology import summary_worker
+
+    config = Mock()
+    client = object()
+    connect = AsyncMock(return_value=client)
+    watch = AsyncMock()
+    monkeypatch.setattr(connection, "connect_temporal_client", connect)
+    monkeypatch.setattr(summary_worker, "watch_summaries", watch)
+    factory = Mock()
+
+    assert await summary_operations.connect_temporal_client(config) is client
+    await summary_operations.watch_summaries(client, factory, "tenant")
+
+    connect.assert_awaited_once_with(config)
+    watch.assert_awaited_once_with(client, factory, "tenant")
 
 
 def test_summary_policy_loads_catalog_only_when_not_supplied(monkeypatch):

@@ -3,15 +3,21 @@
 import asyncio
 from contextlib import asynccontextmanager
 from dataclasses import replace
+from types import SimpleNamespace
 
 import pytest
 from topology_service_support import Harness
 
 from harborrag_core.models.errors import HarborChatStructuredOutputError
 from harborrag_core.topology import (
+    CanonicalMention,
+    EvidenceSpan,
+    ExtractedEntity,
     ExtractionOutput,
 )
+from harborrag_core.topology.records import TopologyBuildContent
 from harborrag_core.topology.resolution import ResolutionRequest
+from harborrag_runtime.topology.operations import _topology_content_digest
 from harborrag_runtime.topology.service import TopologyEnrichmentService, _failure_code
 
 pytestmark = [pytest.mark.unit, pytest.mark.graybox]
@@ -23,6 +29,30 @@ def test_failure_code_unwraps_groups_and_sanitized_model_errors():
         original_exception=ValueError("private provider output"),
     )
     assert _failure_code(ExceptionGroup("task group", [error])) == "ValueError"
+
+
+def test_frozen_build_comparison_ignores_database_record_order():
+    entity = ExtractedEntity(
+        local_id="local",
+        name="Harbor",
+        entity_type="service",
+        span=EvidenceSpan(start=0, end=6, quote="Harbor"),
+    )
+    common = {
+        "tenant_id": "DEFAULT",
+        "build_id": "build",
+        "document_id": "document",
+        "document_version_id": "version",
+        "chunk_id": "chunk",
+        "observation": entity,
+    }
+    later = CanonicalMention(mention_id="z", entity_id="entity-z", **common)
+    earlier = CanonicalMention(mention_id="a", entity_id="entity-a", **common)
+    frozen = TopologyBuildContent(
+        build_id="build", job_id="job", chunk_ids=("chunk",), mentions=(later, earlier)
+    )
+    canonical = frozen.model_copy(update={"mentions": (earlier, later)})
+    assert _topology_content_digest(frozen) == _topology_content_digest(canonical)
 
 
 @pytest.mark.asyncio
@@ -125,6 +155,25 @@ async def test_operation_deadline_stops_work_without_acceptance(tmp_path):
         service = TopologyEnrichmentService(h.resources, job_seconds=0.05)
         assert (await service.run_once("DEFAULT")).state == "failed"
         assert not await h.control.topology.active_mentions("DEFAULT", access=h.access)
+
+
+@pytest.mark.asyncio
+async def test_rebuild_checks_frozen_manifest_without_calling_model(tmp_path, monkeypatch):
+    from harborrag_runtime.topology import operations
+
+    async with Harness(tmp_path) as h:
+        await h.publish()
+        result = await h.service.run_once("DEFAULT")
+        h.graph.builds.clear()
+
+        @asynccontextmanager
+        async def runtime(_settings):
+            yield SimpleNamespace(control=h.control, projection=h.graph, artifact_reader=h.reader)
+
+        monkeypatch.setattr(operations, "connect_topology_runtime", runtime)
+        rebuilt = await operations.rebuild(None, "DEFAULT", result.build_id)
+        assert rebuilt["verified"] and rebuilt["eligible"]
+        assert h.model.calls == 1
 
 
 @pytest.mark.asyncio

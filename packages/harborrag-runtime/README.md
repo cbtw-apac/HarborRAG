@@ -136,6 +136,14 @@ resolving a connection also saves a connection revision to the control database.
 client's `start_ingestion` returns a reference whose `run_id` is the task ID that
 `get_status` takes.
 
+## Topology operator services
+
+`topology/` holds the operator services for topology enrichment: tenant configuration,
+status, runs, rebuild, entity and build inspection, summary projection, cleanup and ACL
+snapshot import, plus `ingestion/maintenance/projection_admin.py` for the projection
+inventory. The `harborrag topology` commands that called them were removed in 2.0.0, and
+no HTTP route or MCP tool calls them yet, so they have no operator entry point.
+
 ## Use the SDK from Python
 
 `harborrag_runtime.sdk.HarborRAG`, re-exported by the `harborrag` package, is an async

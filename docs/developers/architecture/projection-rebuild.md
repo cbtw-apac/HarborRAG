@@ -124,8 +124,9 @@ returns candidates. Missing or expired permission snapshots deny access.
 `AuthoritativeProjectionSearch` handles version activeness; the surrounding retrieval service
 applies access control.
 
-Connectors do not synchronize permission snapshots yet, and 2.0.0 has no command that imports
-them (`harborrag topology indexing permissions-import` was removed). Run a tenant whose corpus
+Connectors do not synchronize permission snapshots yet, and 2.0.0 has no command, route or tool that
+imports them (`harborrag topology indexing permissions-import` was removed; the runtime
+import service remains without an operator entry point). Run a tenant whose corpus
 is deliberately shared in `tenant_shared` mode; see
 [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 

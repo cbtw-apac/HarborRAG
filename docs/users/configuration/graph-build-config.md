@@ -30,7 +30,9 @@ path to check another file.
 
 The CLI has no command for this file in 2.0.0: `harborrag topology config validate` and
 `harborrag topology config apply`, which wrote the tenant and source policy to the
-control database, were removed with the rest of `harborrag topology`.
+control database, were removed with the rest of `harborrag topology`. The runtime code behind them remains,
+but 2.0.0 has no HTTP route or MCP tool that calls it, so the file has no operator entry
+point yet.
 
 ## File layout
 

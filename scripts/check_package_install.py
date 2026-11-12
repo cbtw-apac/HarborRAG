@@ -37,6 +37,7 @@ MODULES = {
         "harborrag_runtime",
         "harborrag_runtime.sdk",
         "harborrag_runtime.config.settings",
+        "harborrag_runtime.topology.summary_operations",
     ],
     "harborrag-app": [
         "harborrag_app",

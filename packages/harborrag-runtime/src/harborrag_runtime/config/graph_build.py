@@ -323,6 +323,15 @@ class GraphBuildConfig(_GraphBuildModel):
         return settings.model_copy(update=candidates)
 
 
+def graph_build_runtime_view(settings: RuntimeSettings) -> dict[str, object]:
+    """Return the non-secret effective runtime subset used by graph building."""
+
+    return {
+        view_name: getattr(settings, settings_name)
+        for settings_name, view_name, _ in _RUNTIME_FIELDS
+    }
+
+
 def _nested_value(root: object, path: tuple[str, ...]) -> object:
     value = root
     for attribute in path:

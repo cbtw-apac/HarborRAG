@@ -237,7 +237,8 @@ These commands are removed, with no replacement in the CLI:
   `harborrag chat`.
 - `harborrag topology` and every command under it, including
   `topology summaries backfill`, `topology config validate` and `apply`, and
-  `topology indexing permissions-import`.
+  `topology indexing permissions-import`. The runtime services behind them remain, but
+  2.0.0 has no HTTP route or MCP tool that exposes them.
 - `harborrag init`, with its scaffold templates. A project directory an earlier `init`
   created keeps working through its `harborrag.yaml`, or with `--project DIR`. Set up a
   new install from a repository checkout, as the

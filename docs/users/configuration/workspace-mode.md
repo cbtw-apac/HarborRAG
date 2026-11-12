@@ -421,9 +421,10 @@ Retrieval, chat and the MCP tools apply one of two corpus access modes:
 - `source_acl` (the default): a principal reads a document only when there are current,
   trusted permission snapshots that allow it, for both the document's source and the
   document. Missing or expired snapshots deny access, and connectors do not synchronize
-  these snapshots yet. 2.0.0 has no command that imports them: the
+  these snapshots yet. 2.0.0 has no operator entry point that imports them: the
   `harborrag topology indexing permissions-import` and `permissions-status` commands
-  are removed. Use `tenant_shared` for a tenant whose documents every principal may
+  were removed, and no HTTP route or MCP tool replaces them. The runtime still contains the
+  import service, so a later release can expose it. Use `tenant_shared` for a tenant whose documents every principal may
   read.
 - `tenant_shared`: every principal in one configured tenant reads all of that tenant's
   published documents. Set `HARBORRAG_CORPUS_ACCESS_MODE=tenant_shared` and name the
@@ -632,8 +633,9 @@ A practical onboarding sequence:
 6. Decide the tenant's read access: import permission snapshots, or make it the shared
    tenant (see [Read access inside a tenant](#read-access-inside-a-tenant)).
 7. Start a tenant-scoped ingestion and keep its run ID.
-8. Check the tenant's projection inventory and run a tenant-scoped retrieval before you
-   allow production traffic.
+8. Compare the tenant's document and chunk counts in the stores, and run a tenant-scoped
+   retrieval, before you allow production traffic. 2.0.0 has no command, route or tool
+   that lists the projection inventory.
 9. Run a negative retrieval and authorization test against at least one other tenant.
 
 There is no `tenant create` command. Some resources, such as the tenant's Qdrant
@@ -651,7 +653,7 @@ When only the display name changes, keep the tenant ID and update the external d
 name. If the ID itself must change:
 
 1. stop or drain writes for the old ID;
-2. back up every authoritative store and record the projection inventory;
+2. back up every authoritative store and record the tenant's document, vector and graph counts;
 3. grant a restricted migration principal temporary access to both IDs;
 4. create the new control-plane records and policy entries;
 5. reingest from the authoritative sources, or run a purpose-built, reviewed migration

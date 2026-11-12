@@ -128,8 +128,9 @@ changes the authority model above.
   `vector_search` tool does not. See
   [Rerank chat retrieval](../../users/configuration/runtime-settings.md#rerank-chat-retrieval).
 - Query rewriting is an engine port, `QueryRewriter`, that no runtime path wires yet.
-- Connectors do not synchronize permission snapshots, and 2.0.0 has no command that
-  imports them (`harborrag topology indexing permissions-import` was removed); a tenant
+- Connectors do not synchronize permission snapshots, and 2.0.0 has no command, route or
+  tool that imports them (`harborrag topology indexing permissions-import` was removed; the
+  runtime import service remains without an operator entry point); a tenant
   whose corpus is deliberately shared uses `tenant_shared` instead. See
   [MCP Setup and Integration](../../users/detailed-guides/mcp-server/setup-and-integration.md).
 - Cleanup and relationship repair can be eventually consistent after a safe publication.
