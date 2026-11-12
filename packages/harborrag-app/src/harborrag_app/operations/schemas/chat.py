@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -209,6 +210,10 @@ class ChatCompletionRequest(ApiModel):
         if value != "off":
             raise ValueError("reasoning other than off is not available until v2.1.0")
         return value
+
+    def idempotency_hash(self) -> str:
+        """Hash of the body without ``stream``, so a streamed and a JSON retry replay each other."""
+        return hashlib.sha256(self.model_dump_json(exclude={"stream"}).encode()).hexdigest()
 
 
 class Usage(ApiModel):

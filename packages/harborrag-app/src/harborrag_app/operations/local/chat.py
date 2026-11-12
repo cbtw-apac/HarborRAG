@@ -1,44 +1,45 @@
 """In-process chat completion and session operations.
 
 Handles:
-- The completion's mode, filters and connections as chat options, refused before any model call
-- ``Idempotency-Key`` replay: the key is claimed, given back on a refusal before the first
-  model call, and spent after it
+- The completion request as the chat service's plain request, caller and idempotency key
+- The stored answer as the wire response, or as SSE frames for ``stream=true``
 - The caller's conversation key, built from the verified principal, never from request fields
 
-Does NOT set headers or wrap event frames in a response; the transport does.
+Does NOT refuse modes or filters, replay answers or run the turn, which the chat service
+does, or set headers and wrap event frames in a response, which the transport does.
 """
 
 from __future__ import annotations
 
-import contextlib
 import json
 from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
-from harborrag_app.operations.chat.dispatch import chat_options
-from harborrag_app.operations.chat.replay import CompletionAttempt
+from pydantic import ValidationError
+
 from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.operations.port import ChatCompletion
 from harborrag_app.operations.schemas.chat import (
     ChatCompletionRequest,
     ChatCompletionResponse,
     ChatSessionCreateRequest,
+    Condition,
+    Filter,
     MessageList,
     Session,
     SessionList,
 )
 from harborrag_app.operations.scope import Scope
 from harborrag_app.operations.sse import sse_frame
-from harborrag_core.contracts.errors import HarborConnectionError, HarborNotFoundError
+from harborrag_core.contracts.errors import HarborConflictError
 from harborrag_memory.access import MemoryAccess
-from harborrag_runtime.application.chat import ChatExecutionOptions
-from harborrag_runtime.application.chat.completion import (
-    Completion,
-    RetrievalFound,
-    TurnCompleted,
+from harborrag_runtime.application.chat.completion_request import (
+    CompletionCaller,
+    CompletionOutcome,
+    CompletionRequest,
+    ReplayKey,
 )
+from harborrag_runtime.application.chat.request_filters import FilterCondition, FilterGroup
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
@@ -47,8 +48,7 @@ if TYPE_CHECKING:
 class ChatOps:
     """The chat completion and session operations of ``LocalOperations``.
 
-    ``LocalOperations`` sets ``_app_service``, whose chat, conversation and completion-request
-    services run them.
+    ``LocalOperations`` sets ``_app_service``, whose chat and conversation services run them.
     """
 
     _app_service: AppService
@@ -88,27 +88,19 @@ class ChatOps:
             HarborConnectionError: The turn ended without its answer.
         """
         scope.require(OPERATIONS["create_chat_completion"].role)
-        options = chat_options(body, scope.principal, trace_id=trace_id)
-        attempt = CompletionAttempt.for_request(
-            self._app_service,
-            body,
-            tenant_id=scope.tenant_id,
-            principal=scope.principal,
-            key=idempotency_key,
+        outcome = await self._app_service.complete_chat_request(
+            _completion_request(body, trace_id),
+            caller=CompletionCaller(
+                scope.tenant_id, scope.principal.subject, scope.principal.user_id
+            ),
+            replay=ReplayKey(idempotency_key, body.idempotency_hash()),
         )
-        answer_json = await attempt.claim()
-        replayed = answer_json is not None
-        if answer_json is None:
-            completion = await self._answer(scope, body, options, attempt)
-            answer_json = ChatCompletionResponse.model_validate(completion.data()).model_dump_json()
-            await attempt.finish(answer_json, session_id=completion.session_id)
+        answer = _stored_answer(outcome)
         if body.stream:
             return ChatCompletion(
-                None, _completion_frames(answer_json, replayed=replayed), replayed
+                None, _completion_frames(answer, replayed=outcome.replayed), outcome.replayed
             )
-        return ChatCompletion(
-            ChatCompletionResponse.model_validate_json(answer_json), None, replayed
-        )
+        return ChatCompletion(answer, None, outcome.replayed)
 
     async def create_chat_session(self, scope: Scope, body: ChatSessionCreateRequest) -> Session:
         """Start a session, scoped to one project of the tenant for its whole life.
@@ -121,22 +113,17 @@ class ChatOps:
             The new session.
 
         Raises:
-            ReferenceNotFoundError: ``project_id`` does not exist in the tenant.
+            UnknownReferenceError: ``project_id`` does not exist in the tenant.
             HarborConnectionError: The chat service did not create the session.
         """
         scope.require(OPERATIONS["create_chat_session"].role)
-        try:
-            result = await self._app_service.create_chat_session(
-                tenant_id=scope.tenant_id,
-                principal_id=scope.principal.subject,
-                user_id=scope.principal.user_id,
-                title=body.title,
-                project_id=body.project_id,
-            )
-        except HarborNotFoundError as exc:
-            raise ReferenceNotFoundError(str(exc), {"field": "project_id"}) from exc
-        if not result.ok:
-            raise HarborConnectionError("Chat service is unavailable")
+        result = await self._app_service.start_chat_session(
+            tenant_id=scope.tenant_id,
+            principal_id=scope.principal.subject,
+            user_id=scope.principal.user_id,
+            title=body.title,
+            project_id=body.project_id,
+        )
         return Session.model_validate(result.data)
 
     async def list_chat_sessions(
@@ -180,43 +167,6 @@ class ChatOps:
         )
         return MessageList.model_validate(result.data)
 
-    async def _answer(
-        self,
-        scope: Scope,
-        body: ChatCompletionRequest,
-        options: ChatExecutionOptions,
-        attempt: CompletionAttempt,
-    ) -> Completion:
-        """Run the turn, giving the key back on a failure before any model call and spending it after.
-
-        The turn yields ``RetrievalFound`` after every read and check it makes before its
-        first model call, so a failure until then (a store or retrieval outage, a busy
-        session, a refused request, a caller that went away) leaves the key reusable. From
-        then on a model may have been paid for, and a failure records the key as failed.
-
-        Raises:
-            HarborConnectionError: The turn ended without its answer.
-        """
-        spent = False
-        events = self._app_service.chat_answer(
-            body.message,
-            tenant_id=scope.tenant_id,
-            principal_id=scope.principal.subject,
-            options=options,
-        )
-        try:
-            async with contextlib.aclosing(events):
-                async for event in events:
-                    if isinstance(event, RetrievalFound):
-                        spent = True
-                    elif isinstance(event, TurnCompleted):
-                        return event.completion
-        except BaseException:
-            await (attempt.finish() if spent else attempt.release())
-            raise
-        await attempt.finish()
-        raise HarborConnectionError("The chat turn ended without its answer")
-
 
 def _access(scope: Scope, session_id: str | None = None) -> MemoryAccess:
     """The caller's own conversation key, built only from verified claims."""
@@ -228,10 +178,54 @@ def _access(scope: Scope, session_id: str | None = None) -> MemoryAccess:
     )
 
 
+def _completion_request(body: ChatCompletionRequest, trace_id: str) -> CompletionRequest:
+    """The chat service's request for a completion body."""
+    return CompletionRequest(
+        message=body.message,
+        session_id=body.session_id,
+        mode=body.mode,
+        filters=_filter_group(body.filters) if body.filters is not None else None,
+        project_ids=tuple(body.project_ids or ()),
+        connections=tuple(body.connections or ()),
+        trace_id=trace_id,
+    )
+
+
+def _filter_group(wire: Filter) -> FilterGroup:
+    """An explorer filter as the chat service's filter group."""
+    if wire.all_of is not None:
+        return FilterGroup("and", tuple(_filter_item(item) for item in wire.all_of))
+    return FilterGroup("or", tuple(_filter_item(item) for item in wire.any_of or ()))
+
+
+def _filter_item(wire: Condition | Filter) -> FilterCondition | FilterGroup:
+    if isinstance(wire, Condition):
+        return FilterCondition(wire.field, wire.op, wire.value)
+    return _filter_group(wire)
+
+
+def _stored_answer(outcome: CompletionOutcome) -> ChatCompletionResponse:
+    """The stored completion as the wire response.
+
+    Raises:
+        HarborConflictError: A replayed body was stored by a release with another contract.
+    """
+    try:
+        return ChatCompletionResponse.model_validate_json(outcome.body)
+    except ValidationError:
+        if not outcome.replayed:
+            raise
+        raise HarborConflictError(
+            "The result stored for this Idempotency-Key predates this API version; use a new key"
+        ) from None
+
+
 # TODO: stream the answer as it is generated, with the Story 5 event names (Task 7).
-async def _completion_frames(answer_json: str, *, replayed: bool) -> AsyncGenerator[bytes, None]:
+async def _completion_frames(
+    answer: ChatCompletionResponse, *, replayed: bool
+) -> AsyncGenerator[bytes, None]:
     """Frame a finished answer as ``response.started``, one delta, then ``response.completed``."""
-    completion = json.loads(answer_json)
+    completion = json.loads(answer.model_dump_json())
     yield sse_frame(
         "response.started",
         {"session_id": completion["session_id"], "mode": completion["mode"], "replayed": replayed},

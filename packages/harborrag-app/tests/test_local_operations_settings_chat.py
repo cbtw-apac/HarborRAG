@@ -11,13 +11,10 @@ from app_test_fixtures import MockAppService
 from harborrag_app.operations import (
     LocalOperations,
     Operations,
-    ReferenceNotFoundError,
     Scope,
     Tagged,
 )
-from harborrag_app.operations.chat.dispatch import ModeUnavailableError
 from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.errors import error_body
 from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.schemas.chat import ChatCompletionRequest, ChatSessionCreateRequest
 from harborrag_core.config_store import SettingChange
@@ -127,23 +124,8 @@ async def test_patch_settings_tags_the_new_revision_and_records_the_actor(
     assert app.settings_service.patches[0]["request"].expected_revision == 3
 
 
-async def test_advanced_mode_is_unavailable_before_any_model_call(
-    operations: LocalOperations, app: _App
-) -> None:
-    advanced = ChatCompletionRequest.model_validate(
-        {"message": "Explain the release", "mode": "advanced"}
-    )
-
-    with pytest.raises(ModeUnavailableError):
-        await operations.create_chat_completion(
-            _scope(), advanced, idempotency_key=None, trace_id="trace-demo"
-        )
-
-    assert app.chat.requests == []
-
-
-async def test_a_repeated_idempotency_key_replays_the_same_body(
-    operations: LocalOperations, app: _App
+async def test_a_replayed_completion_is_flagged_and_answers_the_same_body(
+    operations: LocalOperations,
 ) -> None:
     first = await operations.create_chat_completion(
         _scope(), _QUESTION, idempotency_key="request-1", trace_id="trace-1"
@@ -156,7 +138,6 @@ async def test_a_repeated_idempotency_key_replays_the_same_body(
     assert first.body is not None
     assert again.body is not None
     assert again.body.model_dump_json() == first.body.model_dump_json()
-    assert len(app.chat.requests) == 1
 
 
 async def test_a_streamed_completion_is_framed_as_events(operations: LocalOperations) -> None:
@@ -176,18 +157,6 @@ async def test_a_streamed_completion_is_framed_as_events(operations: LocalOperat
         b"event: response.output_text.delta",
         b"event: response.completed",
     ]
-
-
-async def test_create_chat_session_in_an_unknown_project_names_the_field(
-    operations: LocalOperations,
-) -> None:
-    with pytest.raises(ReferenceNotFoundError) as refused:
-        await operations.create_chat_session(
-            _scope(), ChatSessionCreateRequest(project_id="nowhere")
-        )
-
-    assert refused.value.details["field"] == "project_id"
-    assert error_body(refused.value).status == 422
 
 
 async def test_chat_sessions_are_listed_for_their_own_user_only(

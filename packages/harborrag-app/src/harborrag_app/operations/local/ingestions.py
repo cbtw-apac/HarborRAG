@@ -1,9 +1,9 @@
 """In-process ingestion run and failure inbox operations.
 
 Handles:
-- Starting runs through the connection service and reading them back through the run reads
-- The tenant guard on a run's event stream, which the event iterator itself does not carry
-- Run actions and the failure inbox, with the caller recorded as the actor
+- Run starts, event streams, actions and the failure inbox, each as one application-service
+  call with the caller recorded as the actor
+- A started run as the response body and the path that follows it
 
 Does NOT frame events as SSE or set status codes and headers; the transport does.
 """
@@ -14,7 +14,6 @@ from collections.abc import AsyncGenerator
 from typing import TYPE_CHECKING
 
 from harborrag_app.operations.contract import OPERATIONS
-from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_app.operations.results import Accepted
 from harborrag_app.operations.schemas.connections import IngestionOut, IngestionStartRequest
 from harborrag_app.operations.schemas.ingestions import (
@@ -29,24 +28,19 @@ from harborrag_app.operations.schemas.ingestions import (
     RetryFailuresRequest,
 )
 from harborrag_app.operations.scope import Scope
-from harborrag_core.contracts.errors import HarborNotFoundError
 from harborrag_core.contracts.events import HarborEvent
-from harborrag_runtime.application.control_plane.connection_views import ingestion_status
 from harborrag_runtime.application.control_plane.connections import ConnectionKey
 from harborrag_runtime.application.ingestion.operations import ControlAction
-from harborrag_runtime.application.ingestion.presenters import TERMINAL_STATES
 
 if TYPE_CHECKING:
     from harborrag_runtime.application.composition.service import AppService
-
-_ENDED_STATUSES = frozenset(ingestion_status(state) for state in TERMINAL_STATES)
 
 
 class IngestionOps:
     """The ingestion run and failure operations of ``LocalOperations``.
 
-    ``LocalOperations`` sets ``_app_service``, whose run reads, failure inbox and connection
-    services run them.
+    ``LocalOperations`` sets ``_app_service``, whose run starter, follower, reads and failure
+    inbox run them.
     """
 
     _app_service: AppService
@@ -64,31 +58,19 @@ class IngestionOps:
             The queued run and the path that follows it.
 
         Raises:
-            ReferenceNotFoundError: The project or the connection does not exist; the
+            UnknownReferenceError: The project or the connection does not exist; the
                 ``field`` detail names which.
             HarborAlreadyRunningError: The connection already has a run in progress.
             HarborCapabilityError: ``item_refs`` on a source that cannot ingest items.
         """
         scope.require(OPERATIONS["start_ingestion"].role)
-        try:
-            await self._app_service.project_service.get(
-                tenant_id=scope.tenant_id, project_id=body.project_id
-            )
-        except HarborNotFoundError as exc:
-            raise ReferenceNotFoundError(str(exc), {"field": "project_id"}) from exc
-        try:
-            started = await self._app_service.connection_service.sync(
-                ConnectionKey(scope.tenant_id, body.project_id, body.connection_id),
-                actor=scope.actor,
-                actor_type=scope.actor_type,
-                mode=body.mode,
-                item_refs=tuple(body.item_refs),
-                updated_after=body.updated_after.isoformat() if body.updated_after else None,
-            )
-        except HarborNotFoundError as exc:
-            raise ReferenceNotFoundError(str(exc), {"field": "connection_id"}) from exc
-        ingestion = await self._app_service.ingestion_operations.get(
-            tenant_id=scope.tenant_id, ingestion_id=started["ingestion_id"]
+        ingestion = await self._app_service.ingestion_starter.start(
+            ConnectionKey(scope.tenant_id, body.project_id, body.connection_id),
+            actor=scope.actor,
+            actor_type=scope.actor_type,
+            mode=body.mode,
+            item_refs=tuple(body.item_refs),
+            updated_after=body.updated_after.isoformat() if body.updated_after else None,
         )
         return Accepted(
             IngestionOut.model_validate(ingestion),
@@ -154,9 +136,6 @@ class IngestionOps:
     ) -> AsyncGenerator[HarborEvent, None] | None:
         """Follow a run's stored events, then its live ones, until ``run.completed``.
 
-        The run is read first, which is the only tenant guard the event iterator has. A run
-        that has ended is read for its first event before returning, so its wait is bounded.
-
         Args:
             scope: Caller and tenant.
             ingestion_id: The run to follow.
@@ -169,17 +148,9 @@ class IngestionOps:
             IngestionNotFoundError: No such run in the tenant.
         """
         scope.require(OPERATIONS["stream_ingestion"].role)
-        run = await self._app_service.ingestion_operations.get(
-            tenant_id=scope.tenant_id, ingestion_id=ingestion_id
+        return await self._app_service.ingestion_follower.follow(
+            tenant_id=scope.tenant_id, ingestion_id=ingestion_id, after_seq=after_seq
         )
-        events = self._app_service.stream_ingestion_events(ingestion_id, after_seq=after_seq)
-        if run["status"] not in _ENDED_STATUSES:
-            return events
-        try:
-            first = await events.__anext__()
-        except StopAsyncIteration:
-            return None
-        return _after_first(first, events)
 
     async def pause_ingestion(self, scope: Scope, ingestion_id: str) -> IngestionOut:
         """Pause a run.
@@ -281,15 +252,3 @@ class IngestionOps:
                 actor=scope.actor,
             )
         )
-
-
-async def _after_first(
-    first: HarborEvent, rest: AsyncGenerator[HarborEvent, None]
-) -> AsyncGenerator[HarborEvent, None]:
-    """Yield ``first``, then ``rest``, closing ``rest`` when the caller stops."""
-    try:
-        yield first
-        async for event in rest:
-            yield event
-    finally:
-        await rest.aclose()

@@ -89,12 +89,6 @@ class TenantRequiredError(HarborError):
     error_code = "tenant_required"
 
 
-class ReferenceNotFoundError(HarborValidationError):
-    """An ID in the body or query does not exist or is not visible to the caller."""
-
-    error_code = "reference_not_found"
-
-
 class TenantForbiddenError(HarborAuthError):
     """The request names a tenant the credential does not hold."""
 

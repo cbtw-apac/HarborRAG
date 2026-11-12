@@ -9,7 +9,6 @@ Start from: Operations, LocalOperations, Scope, error_body.
 
 from .errors import CATALOG as CATALOG
 from .errors import ErrorBody as ErrorBody
-from .errors import ReferenceNotFoundError as ReferenceNotFoundError
 from .errors import TenantForbiddenError as TenantForbiddenError
 from .errors import TenantRequiredError as TenantRequiredError
 from .errors import error_body as error_body

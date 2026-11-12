@@ -12,11 +12,11 @@ from test_api_chat_stream import _sse_frames
 from harborrag_app.api import app as api_app
 from harborrag_app.api.app import create_fastapi_app
 from harborrag_app.api.settings import ApiSettings
-from harborrag_app.operations.chat.replay import CompletionAttempt, CompletionInProgressError
-from harborrag_app.operations.principal import Principal
 from harborrag_app.operations.schemas.chat import ChatCompletionRequest
 from harborrag_core.contracts.errors import HarborUnavailableError
+from harborrag_core.domain.identity import DEFAULT_USER
 from harborrag_core.models.errors import HarborChatConnectionError
+from harborrag_runtime.application.chat.replay import CompletionAttempt
 
 PATH = "/v1/chat/completions"
 
@@ -237,12 +237,8 @@ def test_a_store_failure_after_the_answer_spends_the_key(client, service, monkey
 def test_a_result_stored_by_an_older_release_is_not_replayed(client, service):
     body = {"message": "Explain the release"}
     request = ChatCompletionRequest.model_validate(body)
-    attempt = CompletionAttempt.for_request(
-        service,
-        request,
-        tenant_id="DEFAULT",
-        principal=Principal("dev", "owner", frozenset({"*"})),
-        key="old-1",
+    attempt = CompletionAttempt(
+        service, "DEFAULT", DEFAULT_USER, "old-1", request.idempotency_hash()
     )
     old = {"completion_id": "chat-1", "message": {"role": "assistant", "content": "Answer"}}
 
@@ -256,24 +252,6 @@ def test_a_result_stored_by_an_older_release_is_not_replayed(client, service):
     assert replayed.status_code == 409
     assert replayed.json()["error"]["code"] == "invalid_state"
     assert not service.chat.requests
-
-
-@pytest.mark.asyncio
-async def test_a_duplicate_while_the_first_runs_is_session_busy() -> None:
-    service = MockAppService()
-    request = ChatCompletionRequest.model_validate({"message": "One paid call"})
-    principal = Principal("dev", "owner", frozenset({"*"}))
-
-    def attempt() -> CompletionAttempt:
-        return CompletionAttempt.for_request(
-            service, request, tenant_id="DEFAULT", principal=principal, key="concurrent-1"
-        )
-
-    assert await attempt().claim() is None
-    with pytest.raises(CompletionInProgressError) as busy:
-        await attempt().claim()
-
-    assert busy.value.error_code == "session_busy"
 
 
 def test_client_user_identity_is_rejected(client):

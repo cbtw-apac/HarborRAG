@@ -29,13 +29,13 @@ from harborrag_app.cli.commands.legacy import LEGACY
 from harborrag_app.cli.exit_codes import exit_code_for
 from harborrag_app.cli.reference import render_reference
 from harborrag_app.cli.registry import CLI_ONLY, COMMAND_OPERATIONS, HTTP_ONLY
-from harborrag_app.operations.errors import ReferenceNotFoundError
 from harborrag_core.contracts.errors import (
     HarborAlreadyRunningError,
     HarborAuthError,
     HarborCapabilityError,
     HarborNotFoundError,
     HarborPreconditionFailedError,
+    UnknownReferenceError,
 )
 from harborrag_runtime.config.connectors.models.spec import ConnectionValidationError, FieldIssue
 
@@ -87,7 +87,7 @@ _ERRORS = [
         id="not_found",
     ),
     pytest.param(
-        lambda: ReferenceNotFoundError("project engineering not found"),
+        lambda: UnknownReferenceError("project engineering not found"),
         (422, "reference_not_found"),
         id="reference_not_found",
     ),

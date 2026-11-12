@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from typing import Any
 
 import pytest
@@ -15,7 +15,6 @@ from harborrag_app.operations import (
     Accepted,
     ConnectionRef,
     LocalOperations,
-    ReferenceNotFoundError,
     Scope,
 )
 from harborrag_app.operations.errors import error_body
@@ -26,12 +25,7 @@ from harborrag_app.operations.schemas.ingestions import (
     FailureRetryRequest,
     IngestionListQuery,
 )
-from harborrag_core.contracts.errors import (
-    HarborAlreadyRunningError,
-    HarborAuthError,
-    HarborCapabilityError,
-    HarborNotFoundError,
-)
+from harborrag_core.contracts.errors import HarborAuthError
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.project import Project
 from harborrag_core.ingestion import IngestionTaskState
@@ -73,12 +67,10 @@ class _IngestionApp(MockAppService):
         )
         self.ingestion_operations = world.operations
         self.failure_inbox = _Inbox()
-        self.read_events: list[str] = []
 
-    async def stream_ingestion_events(  # type: ignore[override]  # an async generator, as the service
+    async def stream_ingestion_events(
         self, task_id: str, *, after_seq: int | None = None
-    ) -> AsyncIterator[HarborEvent]:
-        self.read_events.append(task_id)
+    ) -> AsyncGenerator[HarborEvent, None]:
         yield HarborEvent(
             name=f"ingestion.{task_id}.run.completed", trace_id=task_id, payload={}, seq=1
         )
@@ -111,70 +103,12 @@ async def test_start_ingestion_answers_where_the_run_can_be_followed(
     assert accepted.body.triggered_by.principal_id == "u_demo"
 
 
-async def test_start_ingestion_of_an_unknown_project_names_the_field(
-    operations: LocalOperations,
-) -> None:
-    with pytest.raises(ReferenceNotFoundError) as refused:
-        await operations.start_ingestion(
-            _scope(), IngestionStartRequest(project_id="nowhere", connection_id="jira-main")
-        )
-
-    assert refused.value.details["field"] == "project_id"
-    assert error_body(refused.value).status == 422
-
-
-async def test_start_ingestion_of_an_unknown_connection_names_the_field(
-    operations: LocalOperations,
-) -> None:
-    with pytest.raises(ReferenceNotFoundError) as refused:
-        await operations.start_ingestion(
-            _scope(), IngestionStartRequest(project_id="engineering", connection_id="missing")
-        )
-
-    assert refused.value.details["field"] == "connection_id"
-
-
-async def test_start_ingestion_with_item_refs_is_refused_when_the_source_cannot(
-    operations: LocalOperations,
-) -> None:
-    with pytest.raises(HarborCapabilityError):
-        await operations.start_ingestion(
-            _scope(),
-            IngestionStartRequest(
-                project_id="engineering", connection_id="jira-main", item_refs=["DEMO-1"]
-            ),
-        )
-
-
-async def test_a_second_start_while_one_runs_is_refused(
-    operations: LocalOperations, world: ConnectionWorld
-) -> None:
-    started = await operations.start_ingestion(_scope(), _START)
-    world.runs.active = world.runs.tasks[started.body.ingestion_id]
-
-    with pytest.raises(HarborAlreadyRunningError):
-        await operations.start_ingestion(_scope(), _START)
-
-
 async def test_a_reader_may_not_start_an_ingestion(operations: LocalOperations) -> None:
     with pytest.raises(HarborAuthError):
         await operations.start_ingestion(_scope("reader"), _START)
 
 
-async def test_stream_ingestion_of_another_tenants_run_reads_no_event(
-    operations: LocalOperations, world: ConnectionWorld
-) -> None:
-    world.runs.tasks["ing_x"] = running_task("ing_x", IngestionTaskState.RUNNING)
-    app = operations._app_service
-    assert isinstance(app, _IngestionApp)
-
-    with pytest.raises(HarborNotFoundError):
-        await operations.stream_ingestion(_scope(tenant_id="other"), "ing_x", after_seq=None)
-
-    assert app.read_events == []
-
-
-async def test_stream_ingestion_yields_the_events_of_an_ended_run_from_the_first(
+async def test_stream_ingestion_follows_a_run_of_the_scopes_tenant(
     operations: LocalOperations, world: ConnectionWorld
 ) -> None:
     world.runs.tasks["ing_done"] = running_task("ing_done", IngestionTaskState.COMPLETED)
@@ -183,6 +117,8 @@ async def test_stream_ingestion_yields_the_events_of_an_ended_run_from_the_first
 
     assert events is not None
     assert [event.seq async for event in events] == [1]
+    with pytest.raises(IngestionNotFoundError):
+        await operations.stream_ingestion(_scope(tenant_id="other"), "ing_done", after_seq=None)
 
 
 async def test_pause_ingestion_of_a_finished_run_is_an_invalid_state_conflict(

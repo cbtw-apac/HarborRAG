@@ -12,7 +12,6 @@ from cli_fakes import FakeOperations, serving
 
 from harborrag_app.cli import invoke
 from harborrag_app.cli import main as cli
-from harborrag_app.operations.chat.dispatch import ModeUnavailableError
 from harborrag_app.operations.port import ChatCompletion
 from harborrag_app.operations.schemas.chat import (
     ChatCompletionRequest,
@@ -20,7 +19,7 @@ from harborrag_app.operations.schemas.chat import (
     Citation,
     Usage,
 )
-from harborrag_core.contracts.errors import HarborNotFoundError
+from harborrag_core.contracts.errors import HarborNotFoundError, ModeUnavailableError
 
 pytestmark = pytest.mark.unit
 

@@ -2,17 +2,20 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import AsyncGenerator, Mapping
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+from harborrag_core.contracts.events import HarborEvent
 from harborrag_engine.ingestion.models import IngestionCreateCommand
 from harborrag_runtime.application.errors import (
     IngestionActionStateError,
     IngestionAlreadyCompletedError,
     IngestionNotFoundError,
 )
+from harborrag_runtime.application.ingestion.follower import IngestionFollower
+from harborrag_runtime.application.ingestion.starter import IngestionStarter
 from harborrag_runtime.application.schemas import AppResponse
 
 
@@ -86,6 +89,29 @@ class IngestionServiceFixture:
     direct_runs: list[dict[str, object]]
     direct_final_status: str = "completed"
     ingestion_operations: Any = FixtureIngestionOperations()
+    connection_service: Any
+    project_service: Any
+    stream_ingestion_events: Any
+
+    @property
+    def ingestion_starter(self) -> IngestionStarter:
+        """The real starter over the double's project, connection and run services, once it has them."""
+        return IngestionStarter(
+            projects=self.project_service,
+            connections=self.connection_service,
+            runs=self.ingestion_operations,
+        )
+
+    @property
+    def ingestion_follower(self) -> IngestionFollower:
+        """The real follower over the double's run reads and its ``stream_ingestion_events``."""
+        return IngestionFollower(runs=self.ingestion_operations, events=self._ingestion_events)
+
+    def _ingestion_events(
+        self, task_id: str, *, after_seq: int | None = None
+    ) -> AsyncGenerator[HarborEvent, None]:
+        """The events of a run from the subclass's ``stream_ingestion_events``, when it has one."""
+        return self.stream_ingestion_events(task_id, after_seq=after_seq)  # type: ignore[no-any-return]
 
     async def run_ingestion(  # noqa: PLR0913 - mirrors the service port
         self,
