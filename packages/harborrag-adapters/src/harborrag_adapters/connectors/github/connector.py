@@ -1,12 +1,13 @@
-"""GitHub connector: repository discovery and raw-blob loading orchestration.
+"""Connector that discovers and loads files from one GitHub repository.
 
-Owns the ingestion-facing surface for one configured repository. The
-configured ``root_path`` is a ceiling: a caller's query path and explicit
-file paths must stay inside it, and are checked before any GitHub request.
-REST calls go through GitHubRepositoryAPI; filters, payload mapping and
-endpoint building live in the sibling modules.
+Every caller-supplied path is checked against the configured root before any
+GitHub request. A blob is loaded only after its commit's tree shows it at the
+record's path, so a hand-built record cannot read a file outside the root.
 
-Entry point: GitHubConnector.
+Typical usage example:
+
+    with GitHubConnector(config) as connector:
+        documents = [connector.load(record) for record in connector.discover()]
 """
 
 from __future__ import annotations
@@ -38,22 +39,26 @@ from .repository_paths import (
     is_blob,
     normalize_repo_path,
     path_in_scope,
+    require_git_object_id,
 )
 
 logger = logging.getLogger("harborrag.adapters.connectors.github")
 
 
 class GitHubConnector(BaseConnector):
-    """Connector for GitHub repository file ingestion through the REST API.
+    """Connector for the files of one GitHub repository, read over the REST API.
 
-    Discovery resolves one repository ref and walks Git trees to produce file
-    records. Loading fetches blob bytes by SHA so the loaded content matches the
-    discovered commit instead of whatever the branch points to later.
+    Discovery walks the Git tree of one resolved commit. Load fetches each blob
+    by sha, so content matches the discovered commit even after the branch
+    moves.
 
     Args:
-        config: Repository, ref, root path, filters and HTTP limits for one source.
-        client: GitHub HTTP client; defaults to a requests client built from
-            ``config``.
+        config: Repository, ref, root path, filters and HTTP limits.
+        client: GitHub HTTP client. Defaults to one built from ``config``.
+
+    Attributes:
+        provider_name: Name of the source provider.
+        capabilities: Sync features this connector supports.
     """
 
     provider_name = "github"
@@ -78,7 +83,7 @@ class GitHubConnector(BaseConnector):
         self._github = GitHubRepositoryAPI(config, self.client)
 
     def connect(self) -> None:
-        """Read the repository once: proves the API answers and the token can see it."""
+        """Check that the API answers and the token can read the repository."""
         self._github.resolve_repository()
 
     def close(self) -> None:
@@ -88,16 +93,16 @@ class GitHubConnector(BaseConnector):
             close()
 
     def discover(self, query: ConnectorQuery | None = None) -> Iterator[SourceRecord]:
-        """Discover repository file records from explicit paths or a tree walk.
+        """Yield a record for each repository file that passes the filters.
 
-        Explicit ``file_paths``, ``paths`` or ``files`` filters are resolved one
-        by one through the contents API; otherwise the commit's tree is walked
-        under the query path. Both stay inside the configured ``root_path``: a
-        path outside it or with a ``..`` segment raises ValueError from the
-        first iteration, before any GitHub request.
+        Explicit ``file_paths``, ``paths`` or ``files`` filters are looked up
+        one by one. Otherwise the tree is walked under the query path, which can
+        narrow the configured ``root_path`` but not leave it. An explicit path
+        that is not a file, or a symlink to another file, raises
+        DocumentProcessingError.
 
         Args:
-            query: Caller query; ``None`` discovers everything under the
+            query: Caller query. ``None`` discovers everything under the
                 configured root.
 
         Yields:
@@ -130,20 +135,16 @@ class GitHubConnector(BaseConnector):
         yield from self._discover_tree(query, root_path=root_path, ref=ref, commit=commit)
 
     def _scoped_root_path(self, query: ConnectorQuery) -> str:
-        """Return the tree root to walk: the query path, kept inside the configured root.
+        """Return the query path as the directory to walk, or the configured root.
 
-        An empty query path (``None``, ``""`` or ``"/"``) means no narrowing,
-        so the configured root applies.
+        An empty query path (``None``, ``""``, ``"/"`` or ``"."``) keeps the
+        configured root.
 
         Args:
             query: Caller query whose ``path`` may narrow the configured root.
 
         Returns:
-            The normalized root to walk; ``""`` means the whole repository.
-
-        Raises:
-            ValueError: The query path is outside the configured root path or
-                has a ``..`` segment.
+            The normalized directory to walk. ``""`` means the whole repository.
         """
         configured_root = normalize_repo_path(self.config.root_path)
         requested_root = normalize_repo_path(query.path)
@@ -175,7 +176,7 @@ class GitHubConnector(BaseConnector):
         ref: str,
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
-        """Resolve an explicit path list without mixing it into tree traversal."""
+        """Yield records for explicit paths that pass the filters, up to the limit."""
         yielded = 0
         for path in paths:
             item = self._github.content_file_item(path, ref=ref)
@@ -194,7 +195,7 @@ class GitHubConnector(BaseConnector):
         ref: str,
         commit: dict[str, Any],
     ) -> Iterator[SourceRecord]:
-        """Walk one resolved Git tree under ``root_path`` and emit records that pass the filters."""
+        """Yield records for tree files under ``root_path`` that pass the filters."""
         tree_sha = tree_sha_from_commit(commit)
         recursive = query.recursive or bool(root_path)
         yielded = 0
@@ -214,10 +215,10 @@ class GitHubConnector(BaseConnector):
     def load(self, record: SourceRecord) -> RawDocument:
         """Load one repository blob as a raw document.
 
-        A record without a blob sha is resolved through the contents API first.
-        A record path outside the configured ``root_path`` or with a ``..``
-        segment raises ValueError before any GitHub request, and a sha that is
-        not one URL path segment raises it before the blob is fetched.
+        A record without a blob sha is looked up through the contents API.
+        Otherwise the blob must match the tree of the record's commit
+        (``metadata["commit_sha"]``, else the resolved commit) before it is
+        fetched. Each commit's tree is fetched once per connector.
 
         Args:
             record: Source record from discover, or one built for a known path.
@@ -226,7 +227,9 @@ class GitHubConnector(BaseConnector):
             The blob bytes with GitHub provenance metadata.
 
         Raises:
-            DocumentProcessingError: No blob sha could be resolved for the record.
+            DocumentProcessingError: The record's blob cannot be resolved or
+                does not match its commit's tree, its path is not a file or is
+                a symlink to another file, or the blob is too large or invalid.
         """
         path = file_path_from_record(record)
         self._require_inside_root([path])
@@ -239,6 +242,7 @@ class GitHubConnector(BaseConnector):
             item = self._github.content_file_item(path, ref=ref)
             sha = str(item.get("sha") or "")
         else:
+            self._require_blob_in_commit(record, path=path, sha=sha, commit=commit)
             item = {
                 "path": path,
                 "sha": sha,
@@ -282,12 +286,42 @@ class GitHubConnector(BaseConnector):
             raw=item,
         )
 
+    def _require_blob_in_commit(
+        self,
+        record: SourceRecord,
+        *,
+        path: str,
+        sha: str,
+        commit: dict[str, Any],
+    ) -> None:
+        """Reject a record whose blob is not the one its commit's tree holds at its path.
+
+        The commit is the record's ``commit_sha``, else the resolved commit.
+        The record's own ``tree_sha`` is never trusted.
+
+        Args:
+            record: Source record being loaded, named in the error.
+            path: The record's normalized repository path.
+            sha: The record's blob sha.
+            commit: Commit resolved for this run.
+
+        Raises:
+            DocumentProcessingError: The commit's tree holds no blob or another
+                blob at ``path``.
+        """
+        require_git_object_id(sha)
+        commit_sha = str(record.metadata.get("commit_sha") or commit.get("sha") or "")
+        if self._github.blob_sha_at_commit(path, commit_sha=commit_sha) != sha:
+            raise DocumentProcessingError(
+                f"GitHub source record {record.id!r} does not match the tree of its commit"
+            )
+
     def load_by_paths(self, paths: Sequence[str]) -> Iterator[RawDocument]:
         """Load files for callers that already know their repository paths.
 
-        Every path must stay inside the configured ``root_path``: one outside
-        it or with a ``..`` segment raises ValueError from the first iteration,
-        before any GitHub request.
+        Every path is checked against the configured ``root_path`` before the
+        first request. A path that is not a file, or a symlink to another file,
+        raises DocumentProcessingError.
 
         Args:
             paths: Repository-relative file paths.

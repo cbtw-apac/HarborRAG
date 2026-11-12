@@ -14,6 +14,7 @@ from github_test_helpers import (
 )
 
 from harborrag_adapters.connectors import GitHubConnector
+from harborrag_adapters.connectors.exceptions import DocumentProcessingError
 from harborrag_adapters.connectors.github.repository_paths import guess_mime_type
 from harborrag_adapters.connectors.schemas import ConnectorQuery
 
@@ -178,6 +179,23 @@ def test_discover_file_path_inside_configured_root_returns_record() -> None:
     query = ConnectorQuery(filters={"file_paths": ["docs/guide.md"]})
 
     assert _discovered_paths(connector, query) == ["docs/guide.md"]
+
+
+def test_discover_file_path_through_symlink_to_other_file_raises() -> None:
+    """GitHub answers a symlink with its target, here a file outside the root."""
+    client = FakeGitHubClient()
+    add_repo_and_commit(client)
+    client.add(
+        "repos/acme/harbor-rag/contents/docs/link.md",
+        {"type": "file", "path": "src/notes.md", "sha": "sha-notes", "size": 7},
+    )
+    connector = GitHubConnector(config(root_path="docs"), client=client)
+    query = ConnectorQuery(filters={"file_paths": ["docs/link.md"]})
+
+    with pytest.raises(DocumentProcessingError, match="symlink") as raised:
+        list(connector.discover(query))
+
+    assert "src/notes.md" not in str(raised.value)
 
 
 def test_discover_query_path_outside_configured_root_raises_before_any_request() -> None:
