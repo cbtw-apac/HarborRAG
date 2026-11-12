@@ -76,7 +76,7 @@ async def create_chat_completion(  # noqa: PLR0913 - the route's dependencies
                     "description": "Use a session_id from POST /v1/chat/sessions.",
                     "value": {
                         "session_id": "ses_0b9c1f2e3d4a5b6c7d8e9f0a1b2c3d4e",
-                        "message": "Who has Go and Kubernetes experience in Hanoi?",
+                        "message": "Which runbooks describe the Kubernetes rollback procedure?",
                         "mode": "classic",
                         "stream": False,
                     },

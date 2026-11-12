@@ -18,7 +18,7 @@ VerbatimText = Annotated[str, StringConstraints(strip_whitespace=False)]
 class ChatSessionCreateRequest(ApiModel):
     """``POST /v1/chat/sessions`` body; every field is optional."""
 
-    model_config = ConfigDict(json_schema_extra={"examples": [{"title": "Go candidates in Hanoi"}]})
+    model_config = ConfigDict(json_schema_extra={"examples": [{"title": "DEMO runbooks"}]})
 
     title: str | None = Field(
         default=None,
@@ -112,7 +112,7 @@ class Condition(ApiModel):
 
     model_config = ConfigDict(
         json_schema_extra={
-            "examples": [{"field": "connection", "op": "in", "value": ["cpm/cpm-tickets"]}]
+            "examples": [{"field": "connection", "op": "in", "value": ["demo/demo-tickets"]}]
         }
     )
 
@@ -130,7 +130,7 @@ class Filter(ApiModel):
             "examples": [
                 {
                     "and": [
-                        {"field": "connection", "op": "in", "value": ["cpm/cpm-tickets"]},
+                        {"field": "connection", "op": "in", "value": ["demo/demo-tickets"]},
                         {"field": "document_kind", "op": "eq", "value": "jira_issue"},
                     ]
                 }
@@ -156,7 +156,7 @@ class ChatCompletionRequest(ApiModel):
         json_schema_extra={
             "examples": [
                 {
-                    "message": "Who has Go and Kubernetes experience in Hanoi?",
+                    "message": "Which runbooks describe the Kubernetes rollback procedure?",
                     "mode": "classic",
                     "stream": False,
                 }

@@ -244,7 +244,7 @@ class RuntimeRetrievalService(RuntimeGraphRetrievalMixin, RuntimeReaderRetrieval
         A ``fields.*`` filter names an item's own fields, such as a Jira issue's
         custom fields, which its attachments do not carry. It is resolved to the
         matching items first and applied as their evidence or evidence attached to
-        them, so a CV is reached through the issue it belongs to. When no item has
+        them, so an attached document is reached through the issue it belongs to. When no item has
         those values nothing can qualify, no entity's evidence either, and an empty
         membership condition is not one every backend accepts, so the search is
         skipped.

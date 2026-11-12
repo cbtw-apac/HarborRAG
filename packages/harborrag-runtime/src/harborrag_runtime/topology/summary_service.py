@@ -499,7 +499,7 @@ def _with_facets(
 ) -> SummaryCard:
     """Copy the connector's structured fields onto the card as its facets.
 
-    A Jira *Stage* field is the recruiter's own statement, so it is copied as-is
+    A Jira *Stage* field is the editor's own statement, so it is copied as-is
     rather than read back out of the content by a model. ``document_ids`` is the
     provenance to record: a source entity node carries no document id of its own,
     so the caller names the document(s) the fields came from.
@@ -573,7 +573,7 @@ class _CoverageLedger:
     An attachment still in OCR, or one whose file type nothing can parse, is
     discovered long before it is parsed. Reading the gap from discovery rather
     than from what published is what lets a card say it is partial instead of
-    silently describing a candidate without their CV.
+    silently describing an issue without its attached design document.
     """
 
     by_parent: dict[str, tuple[str, ...]]

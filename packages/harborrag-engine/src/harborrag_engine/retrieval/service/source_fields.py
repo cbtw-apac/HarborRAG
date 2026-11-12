@@ -1,8 +1,8 @@
 """Filter evidence by a source item's own fields, and reach what is attached to it.
 
-A Jira issue carries its typed custom fields (``fields.skill_set``); the CV
-attached to it is a document of its own and carries none of them. Copying the
-issue's fields onto every attachment would go stale the moment a recruiter edits
+A Jira issue carries its typed custom fields (``fields.skill_set``); the design
+document attached to it is a document of its own and carries none of them. Copying the
+issue's fields onto every attachment would go stale the moment an editor edits
 the issue, and re-ingesting -- re-OCRing -- attachments on every field edit is the
 wrong price for keeping them current. So the fields stay where they belong, and
 retrieval follows the attachment link instead: first the items whose fields

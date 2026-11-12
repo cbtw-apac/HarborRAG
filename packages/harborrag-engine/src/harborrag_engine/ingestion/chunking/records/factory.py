@@ -256,7 +256,7 @@ class CanonicalChunkFactory:
     @classmethod
     def _metadata(cls, values: CanonicalChunkInput) -> dict[str, object]:
         # An attachment is its own document, and most strategies copy nothing from
-        # provenance onto its chunks. Its parent's item id is what links a CV back
+        # provenance onto its chunks. Its parent's item id is what links a design document back
         # to the issue whose fields describe it, so every chunk carries it.
         parent = values.request.document.provenance.extra.get("parent_source_item_id")
         return {

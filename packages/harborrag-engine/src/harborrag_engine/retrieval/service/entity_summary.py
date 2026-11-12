@@ -1,8 +1,8 @@
 """Let a question about a whole source entity reach that entity's evidence.
 
 Chunk search answers "find the sentence about Kubernetes". It answers "which
-candidates cleared the second round and have banking experience" badly, because
-that answer is spread across an issue's body, its comments and an attached CV --
+issues passed review and concern the payments service" badly, because
+that answer is spread across an issue's body, its comments and an attached design doc --
 three documents, no single chunk. The source-entity summary is the object such a
 question is really about, so it is searched first and then expanded back into the
 ordinary evidence chunks that can be cited.
