@@ -14,16 +14,18 @@ from harborrag_engine.ingestion import (
     VectorProjectionBuilder,
     VectorProjectionInput,
 )
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.lifecycle import DocumentVersionLifecycle
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
 from harborrag_engine.ingestion.release.projection_coordinator import (
     DocumentProjectionCoordinator,
     ProjectionVerificationRequest,
 )
+from harborrag_engine.ingestion.release.projection_material import (
+    ProjectionMaterialLoader,
+    vector_batch,
+)
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
-
-from .dependencies import DocumentReleaseDependencies
-from .lifecycle import DocumentVersionLifecycle
-from .projection_material import ProjectionMaterialLoader, vector_batch
 
 
 class DocumentProjectionStages:

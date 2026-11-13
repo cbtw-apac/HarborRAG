@@ -36,6 +36,7 @@ from harborrag_engine.ingestion import (
 )
 from harborrag_engine.ingestion.maintenance.cleanup import ProjectionCleanupService
 from harborrag_engine.ingestion.normalizers.builder import SourceDocumentNormalizerBuilder
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
 from harborrag_runtime.composition.config_store import build_config_provider
 from harborrag_runtime.composition.connection_stores import build_connection_stores
 from harborrag_runtime.composition.resources import (
@@ -59,7 +60,6 @@ from harborrag_runtime.rate_limiting import build_connector_rate_limiter
 from .chunking_profile import build_refiner, default_chunking_config
 from .composition import IngestionRuntime
 from .connections import ConnectionHealth, ConnectionResolver, ConnectorPool
-from .document.dependencies import DocumentReleaseDependencies
 from .document.normalizers import default_source_document_normalizer_builder
 from .document.pipeline import DocumentStagePipeline
 from .document.run_tools import RunTools

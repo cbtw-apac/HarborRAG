@@ -27,15 +27,14 @@ from harborrag_engine.ingestion import (
     with_title_as_content,
 )
 from harborrag_engine.ingestion.release.capture_decisions import active_candidate
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
+from harborrag_engine.ingestion.release.lifecycle import DocumentVersionLifecycle
 from harborrag_engine.ingestion.release.materialization_helpers import enrich_raw_document
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.stage_models import (
     PreparedDocumentStage,
     RawCaptureStageResult,
 )
-
-from .dependencies import DocumentReleaseDependencies
-from .lifecycle import DocumentVersionLifecycle
 
 logger = logging.getLogger("harborrag.runtime.ingestion.capture")
 

@@ -27,7 +27,7 @@ from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
 
-logger = logging.getLogger("harborrag.runtime.ingestion.version_lifecycle")
+logger = logging.getLogger("harborrag.engine.ingestion.release.lifecycle")
 
 _REPLAY_THROUGH_CONTROL = frozenset(
     {

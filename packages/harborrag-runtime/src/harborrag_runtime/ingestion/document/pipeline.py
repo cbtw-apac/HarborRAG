@@ -8,13 +8,13 @@ from time import perf_counter
 
 from harborrag_adapters.connectors.base import BaseConnector
 from harborrag_adapters.connectors.harbor_connector import HarborConnector
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
 from harborrag_engine.ingestion.release.models import DocumentReleaseOutcome, DocumentReleaseRequest
+from harborrag_engine.ingestion.release.projection import DocumentProjectionStages
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
 from harborrag_runtime.document_stage_catalog import DOCUMENT_STAGE_CATALOG
 
-from .dependencies import DocumentReleaseDependencies
 from .preparation import DocumentPreparationStages
-from .projection import DocumentProjectionStages
 
 logger = logging.getLogger("harborrag.runtime.ingestion.document_pipeline")
 

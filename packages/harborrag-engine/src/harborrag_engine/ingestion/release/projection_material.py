@@ -19,11 +19,10 @@ from harborrag_core.storage import StorageOperationContext
 from harborrag_engine.ingestion import (
     GraphProjectionBatch,
 )
+from harborrag_engine.ingestion.release.dependencies import DocumentReleaseDependencies
 from harborrag_engine.ingestion.release.models import DocumentReleaseRequest
 from harborrag_engine.ingestion.release.projection_coordinator import DocumentProjectionCoordinator
 from harborrag_engine.ingestion.release.stage_models import PreparedDocumentStage
-
-from .dependencies import DocumentReleaseDependencies
 
 
 @dataclass(frozen=True, slots=True)

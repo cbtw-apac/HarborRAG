@@ -489,6 +489,7 @@ connection with `"method": "api_token"` and the `email`; the stored token is kep
   | `harborrag.runtime.retrieval.permissions` | `harborrag.engine.retrieval.service.permissions` |
   | `harborrag.runtime.retrieval.topology` | `harborrag.engine.retrieval.service.topology` |
   | `harborrag.runtime.ingestion.cleanup` | `harborrag.engine.ingestion.maintenance.cleanup` |
+  | `harborrag.runtime.ingestion.version_lifecycle` | `harborrag.engine.ingestion.release.lifecycle` |
   | `harborrag.runtime.tools.*` | `harborrag.engine.tools.<module>` (`documents` is `document_tools`, `entities` is `find_entities`, `readers` is `reader_tools`, `sources` is `source_list_tool`; `vector_search` keeps its name; `graph_search` splits into `graph_search` and `graph_search_support`) |
 
 #### Python import paths and service methods
@@ -509,6 +510,7 @@ old package in the first column and applying the pointer rule.
 | `harborrag_app.api.*` request and response models | `harborrag_app.operations.schemas.<resource>` | One module per resource: `chat`, `connections`, `ingestions`, `me`, `settings` and `common`. The models changed with the HTTP API, so check each field |
 | `harborrag_runtime.retrieval.<module>` | `harborrag_engine.retrieval.service.<module>` | Applies to every module except `service`, `facades` and `composition`, which stay. `RetrievalOptions`, `RetrievalPolicy`, `RetrievalResources` and the other types of `contracts` are in `harborrag_engine.retrieval.service.contracts`; `harborrag_runtime.retrieval` no longer re-exports them |
 | `harborrag_runtime.ingestion.document.{models,stage_models,capture_decisions,materialization_helpers,projection_coordinator}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseRequest` and `DocumentReleaseOutcome` are in `release.models`; `harborrag_runtime.ingestion` and `.ingestion.document` no longer re-export them |
+| `harborrag_runtime.ingestion.document.{lifecycle,dependencies,projection_material,materialization,projection}` | `harborrag_engine.ingestion.release.<module>` | `DocumentReleaseDependencies` is in `release.dependencies`, and `harborrag_runtime.ingestion` and `.ingestion.document` no longer export it. It now requires a `failures` classifier, and `parser_for` and `chunker_for` callables replace its `run_tools` field. `DocumentVersionLifecycle` requires `failures` too. `capture`, `preparation`, `pipeline`, `service` and `run_tools` stay in `harborrag_runtime.ingestion.document` |
 | `harborrag_runtime.ingestion.document.normalizers.{builder,router}` | `harborrag_engine.ingestion.normalizers.<module>` | `builtins` and `transform` stay in `harborrag_runtime.ingestion.document.normalizers` |
 | `harborrag_runtime.ingestion.maintenance.{cleanup,reindex_plan,relation_supersession}` | `harborrag_engine.ingestion.maintenance.<module>` | |
 | `harborrag_runtime.ingestion.source.{models,tasks}` | `harborrag_engine.ingestion.source.<module>` | `SourceIngestionRequest` and `SourceIngestionOutcome` are in `source.models` |

@@ -9,10 +9,9 @@ from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_engine.ingestion import BaseChunker
 from harborrag_engine.ingestion.chunking import ChunkingConfig
 from harborrag_engine.ingestion.chunking.config import cap_chunking_config
+from harborrag_engine.ingestion.release.dependencies import DocumentParserPort
 from harborrag_runtime.config.chunking import ChunkingSettings
 from harborrag_runtime.config.parsers import ParserCatalog
-
-from .dependencies import DocumentParserPort
 
 
 class ParserUnavailableError(HarborConfigurationError):

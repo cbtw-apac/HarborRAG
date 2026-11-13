@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from .composition import IngestionRuntime, build_ingestion_runtime
-    from .document.dependencies import DocumentReleaseDependencies
     from .document.normalizers import default_source_document_normalizer_builder
     from .document.service import DocumentReleaseService
     from .maintenance.reindex import (
@@ -22,7 +21,6 @@ if TYPE_CHECKING:
     from .source.service import SourceIngestionService
 
 __all__ = [
-    "DocumentReleaseDependencies",
     "DocumentReleaseService",
     "DocumentReindexService",
     "GraphRelationRepairService",
@@ -40,7 +38,6 @@ __all__ = [
 ]
 
 _EXPORT_MODULES = {
-    "DocumentReleaseDependencies": "harborrag_runtime.ingestion.document.dependencies",
     "DocumentReleaseService": "harborrag_runtime.ingestion.document.service",
     "DocumentReindexService": "harborrag_runtime.ingestion.maintenance.reindex",
     "GraphRelationRepairService": "harborrag_runtime.ingestion.maintenance.relation_repair",
