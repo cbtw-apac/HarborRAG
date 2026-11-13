@@ -141,10 +141,15 @@ class ProjectService:
             return await self._view(created), True, created.version
         if create_only:
             raise HarborPreconditionFailedError("project already exists")
-        updated = await projects.update(
-            replace(existing, name=name, description=description or ""),
-            expected_version=resolve_any_version(expected_version, existing.version),
-        )
+        replacement = replace(existing, name=name, description=description or "")
+        expected = resolve_any_version(expected_version, existing.version)
+        if replacement.name == existing.name and replacement.description == existing.description:
+            # A body that changes nothing stores nothing: keep the version and
+            # skip the activity entry, but still honour a stale If-Match.
+            if expected is not None and expected != existing.version:
+                raise HarborPreconditionFailedError("project changed since it was read")
+            return await self._view(existing), False, existing.version
+        updated = await projects.update(replacement, expected_version=expected)
         await self._record(updated, "updated", actor)
         return await self._view(updated), False, updated.version
 
