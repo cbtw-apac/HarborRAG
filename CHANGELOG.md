@@ -109,6 +109,10 @@ action.
 
 ### Removed
 
+#### harborrag-adapters
+
+- **Breaking:** GitHub, Confluence, Jira and SharePoint configs built in Python no longer read credentials from environment variables; pass them explicitly
+
 #### harborrag-app
 
 - **Breaking:** `harborrag init` and its scaffold templates are removed with no replacement; run the CLI from a repository checkout. Projects an earlier `init` created keep working through their `harborrag.yaml` or `--project DIR`
@@ -132,6 +136,7 @@ action.
 
 #### harborrag-runtime
 
+- A `parsers.yaml` definition for one format, such as `docx` or `csv`, replaces only that format's engine, so the other formats of its family, such as DOC, ODT, EPUB or Excel, still parse
 - Starting against a control database a newer build already migrated names both schema revisions and how to recover, instead of only "migrations failed"
 - The first-start import gives a Jira or Confluence Cloud entry without its email the `api_token` method, instead of the Data Center `pat` method, so a `PUT` of the email fixes it
 - Cancelling a run keeps its summary, so the run's `discovered` count no longer drops when it is cancelled

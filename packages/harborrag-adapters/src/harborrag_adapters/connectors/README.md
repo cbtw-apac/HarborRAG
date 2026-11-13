@@ -117,14 +117,14 @@ The runtime builds connections from the control database and from
 format and the `harborrag_runtime.config` loader are described in
 [Connector configuration](../../../../../docs/users/configuration/connector-config.md#load-and-build).
 
-You can also construct a provider config directly. A credential left as `None` then
-falls back to a process environment variable, shown in the comments below; a Jira or
-Confluence config with neither the value nor the variable fails validation. These
-fallbacks apply only to direct construction: the runtime builds every configured
-connection inside `without_environment_defaults()` (`environment.py`), so a stored
-connection never borrows the operator's credentials.
+You can also construct a provider config directly. A config never reads credentials
+from the process environment: pass each one as an argument. A GitHub config without a
+token reads public repositories anonymously; a Jira, Confluence or SharePoint config
+without credentials fails validation.
 
 ```python
+import os
+
 from harborrag_adapters.connectors import (
     ConfluenceConnector,
     ConfluenceSpaceConfig,
@@ -152,7 +152,7 @@ github = GitHubConnector(
         repo="knowledge-base",
         branch="main",
         root_path="docs",
-        token=None,  # GITHUB_TOKEN; a public repository needs no token
+        token=None,  # anonymous: public repositories only
     )
 )
 
@@ -162,8 +162,8 @@ confluence = ConfluenceConnector(
         base_url="https://example.atlassian.net/wiki",
         include_comments=True,
         include_attachments=True,
-        token=None,  # CONFLUENCE_TOKEN
-        email=None,  # CONFLUENCE_EMAIL, for Cloud
+        token=os.environ["CONFLUENCE_TOKEN"],
+        email=os.environ["CONFLUENCE_EMAIL"],  # Cloud only
     )
 )
 
@@ -173,8 +173,8 @@ jira = JiraConnector(
         project_keys=["DEMO"],
         include_comments=True,
         include_changelog=True,
-        token=None,  # JIRA_TOKEN, then JIRA_API_TOKEN
-        email=None,  # JIRA_EMAIL, for Cloud
+        token=os.environ["JIRA_TOKEN"],
+        email=os.environ["JIRA_EMAIL"],  # Cloud only
     )
 )
 
@@ -183,15 +183,15 @@ sharepoint = SharePointConnector(
         site_url="https://example.sharepoint.com/sites/Knowledge",
         drive_name="Documents",
         root_path="Shared Documents",
-        access_token=None,  # MICROSOFT_GRAPH_TOKEN
+        access_token=os.environ["MICROSOFT_GRAPH_TOKEN"],
     )
 )
 ```
 
-`SharePointSiteConfig` also falls back to `MICROSOFT_TENANT_ID`, `MICROSOFT_CLIENT_ID`
-and `MICROSOFT_CLIENT_SECRET` for app-only sign-in. With `auth_mode="device_code"` it
-never falls back to `MICROSOFT_GRAPH_TOKEN` or `MICROSOFT_CLIENT_SECRET`: delegated
-access uses only the signed-in user's token. The sign-in methods each source supports
+For app-only SharePoint sign-in, pass `tenant_id`, `client_id` and `client_secret`
+instead of `access_token`. With `auth_mode="device_code"`, pass `tenant_id`,
+`client_id` and either `token_cache_path` or `harborrag_tenant_id`; delegated access
+uses only the signed-in user's token. The sign-in methods each source supports
 are listed in
 [Connections: pick the source type](../../../../../docs/users/connections.md#1-pick-the-source-type).
 

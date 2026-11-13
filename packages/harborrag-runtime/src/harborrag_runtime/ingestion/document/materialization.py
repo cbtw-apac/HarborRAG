@@ -93,11 +93,15 @@ class DocumentMaterializationStages:
                 content_type=document.content_type,
             ),
         )
+        # An earlier attempt may have written this key before a chunk-metadata change
+        # (e.g. local created_at/updated_at), so the retry re-chunks to different
+        # bytes. The stored object is adopted, never replaced, and its index is rebuilt.
         artifacts = await self._dependencies.chunk_writer.put(
             document_id=prepared.document_id,
             document_version_id=prepared.document_version_id,
             chunks=chunking.chunks,
             context=self._context(request),
+            adopt_existing=True,
         )
         await self._lifecycle.record_chunks(
             prepared.document_version_id,

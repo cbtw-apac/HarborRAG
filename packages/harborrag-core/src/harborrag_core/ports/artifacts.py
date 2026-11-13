@@ -108,6 +108,7 @@ class ChunkArtifactWriterPort(Protocol):
         document_version_id: str,
         chunks: Sequence[ChunkRecord],
         context: StorageOperationContext,
+        adopt_existing: bool = False,
     ) -> ChunkSetArtifacts: ...
 
 
