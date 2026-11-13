@@ -47,6 +47,7 @@ class DocumentProjectionStages:
             canonical_artifacts=dependencies.canonical_artifacts,
             chunk_reader=dependencies.chunk_reader,
             projection_artifacts=dependencies.projection_artifacts,
+            failures=dependencies.failures,
         )
         self._material = ProjectionMaterialLoader(
             dependencies,

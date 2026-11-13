@@ -64,6 +64,7 @@ from .document.normalizers import default_source_document_normalizer_builder
 from .document.pipeline import DocumentStagePipeline
 from .document.run_tools import RunTools
 from .document.service import DocumentReleaseService
+from .failure_classification import ingestion_failure_classifier
 from .field_indexes import declared_field_indexes
 from .maintenance.reindex import DocumentReindexService
 from .maintenance.relation_repair import GraphRelationRepairService
@@ -138,6 +139,17 @@ class IngestionRuntimeBuilder:
             artifact_reader,
         )
         chunk_reader = ChunkArtifactReader(artifact_reader)
+        run_tools = RunTools(
+            parser=parser,
+            chunker=boot_chunker,
+            chunking=boot_chunking,
+            parsers=parser_catalog,
+            build_chunker=lambda config: build_default_chunker(
+                config=config,
+                additional_strategies=self._chunking_strategies,
+                refiner=chunking.refiner,
+            ),
+        )
         dependencies = DocumentReleaseDependencies(
             parser=parser,
             normalizer=self.build_document_normalizer(),
@@ -172,17 +184,9 @@ class IngestionRuntimeBuilder:
             ),
             vector_store=vector_store,
             graph_store=graph,
-            run_tools=RunTools(
-                parser=parser,
-                chunker=boot_chunker,
-                chunking=boot_chunking,
-                parsers=parser_catalog,
-                build_chunker=lambda config: build_default_chunker(
-                    config=config,
-                    additional_strategies=self._chunking_strategies,
-                    refiner=chunking.refiner,
-                ),
-            ),
+            failures=ingestion_failure_classifier(),
+            parser_for=run_tools.parser_for,
+            chunker_for=run_tools.chunker_for,
         )
 
         stages = DocumentStagePipeline(dependencies)

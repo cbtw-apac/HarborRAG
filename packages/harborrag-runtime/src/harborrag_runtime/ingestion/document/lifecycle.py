@@ -14,6 +14,7 @@ from harborrag_core.ingestion import (
     DocumentVersionSnapshot,
     DocumentVersionState,
     DocumentVersionTransitionPolicy,
+    IngestionFailureClassifier,
     RawDocumentReference,
     RepresentationSet,
 )
@@ -25,8 +26,6 @@ from harborrag_core.ports.artifacts import (
 from harborrag_core.ports.document_release import DocumentControlPort
 from harborrag_core.schemas.ids import DocumentId, DocumentVersionId
 from harborrag_core.storage import StorageOperationContext
-
-from ..failure_classification import ingestion_failure_classifier
 
 logger = logging.getLogger("harborrag.runtime.ingestion.version_lifecycle")
 
@@ -60,12 +59,13 @@ class DocumentVersionLifecycle:
         canonical_artifacts: CanonicalDocumentArtifactPort,
         chunk_reader: ChunkArtifactReaderPort,
         projection_artifacts: ProjectionArtifactPort,
+        failures: IngestionFailureClassifier,
     ) -> None:
         self._control = control
         self._canonical_artifacts = canonical_artifacts
         self._chunk_reader = chunk_reader
         self._projection_artifacts = projection_artifacts
-        self._failures = ingestion_failure_classifier()
+        self._failures = failures
         self._transitions = DocumentVersionTransitionPolicy()
 
     async def prepare_replay(

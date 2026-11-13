@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from harborrag_core.domain.parser import ParsedDocument
 from harborrag_core.domain.raw_document import RawDocument
+from harborrag_core.ingestion import IngestionFailureClassifier
+from harborrag_core.ingestion.run_contracts import RunSettings
 from harborrag_core.ports import KnowledgeGraphRepositoryPort
 from harborrag_core.ports.artifacts import (
     CanonicalCommentArtifactPort,
@@ -24,9 +27,6 @@ from harborrag_engine.ingestion import (
     RepresentationReuseService,
     VectorProjectionStore,
 )
-
-if TYPE_CHECKING:
-    from .run_tools import RunTools
 
 
 class DocumentParserPort(Protocol):
@@ -51,4 +51,6 @@ class DocumentReleaseDependencies:
     projection_artifacts: ProjectionArtifactPort
     vector_store: VectorProjectionStore
     graph_store: KnowledgeGraphRepositoryPort
-    run_tools: RunTools | None = None
+    failures: IngestionFailureClassifier
+    parser_for: Callable[[RunSettings | None], DocumentParserPort] | None = None
+    chunker_for: Callable[[RunSettings | None], BaseChunker] | None = None

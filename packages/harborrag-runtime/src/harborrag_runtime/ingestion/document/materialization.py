@@ -35,6 +35,7 @@ class DocumentMaterializationStages:
             canonical_artifacts=dependencies.canonical_artifacts,
             chunk_reader=dependencies.chunk_reader,
             projection_artifacts=dependencies.projection_artifacts,
+            failures=dependencies.failures,
         )
 
     async def sync_content_units(
@@ -98,8 +99,8 @@ class DocumentMaterializationStages:
         document = await self._canonical(prepared, request=request)
         chunker = (
             self._dependencies.chunker
-            if self._dependencies.run_tools is None
-            else self._dependencies.run_tools.chunker_for(request.run_settings)
+            if self._dependencies.chunker_for is None
+            else self._dependencies.chunker_for(request.run_settings)
         )
         chunking = await asyncio.to_thread(
             chunker.chunk,

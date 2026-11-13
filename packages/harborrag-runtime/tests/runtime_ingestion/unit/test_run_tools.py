@@ -142,8 +142,9 @@ async def test_chunk_stage_uses_run_cap() -> None:
     run_tools.chunker_for.return_value = chunker
     chunk_writer = SimpleNamespace(put=AsyncMock())
     dependencies = SimpleNamespace(
-        run_tools=run_tools,
+        chunker_for=run_tools.chunker_for,
         chunker=object(),
+        failures=object(),
         control=SimpleNamespace(),
         canonical_artifacts=None,
         chunk_reader=None,

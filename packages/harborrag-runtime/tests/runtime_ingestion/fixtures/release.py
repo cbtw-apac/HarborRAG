@@ -49,6 +49,7 @@ from harborrag_runtime.ingestion import (
     DocumentReleaseService,
     GraphRelationRepairService,
 )
+from harborrag_runtime.ingestion.failure_classification import ingestion_failure_classifier
 
 from .connectors import (
     DeterministicEmbedClient,
@@ -157,6 +158,7 @@ def build_dependencies(
             VectorProjectionPolicy(dimension=3),
         ),
         graph_store=resources.graph,
+        failures=ingestion_failure_classifier(),
     )
 
 

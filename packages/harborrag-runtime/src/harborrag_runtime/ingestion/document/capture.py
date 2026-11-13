@@ -58,6 +58,7 @@ class DocumentCaptureStages:
             canonical_artifacts=dependencies.canonical_artifacts,
             chunk_reader=dependencies.chunk_reader,
             projection_artifacts=dependencies.projection_artifacts,
+            failures=dependencies.failures,
         )
 
     async def fetch_and_capture(
@@ -142,8 +143,8 @@ class DocumentCaptureStages:
             marks.append(perf_counter())
             parser = (
                 self._dependencies.parser
-                if self._dependencies.run_tools is None
-                else self._dependencies.run_tools.parser_for(request.run_settings)
+                if self._dependencies.parser_for is None
+                else self._dependencies.parser_for(request.run_settings)
             )
             parsed = await asyncio.to_thread(parser.parse, raw)
             marks.append(perf_counter())
