@@ -116,6 +116,25 @@ def test_sharepoint_access_token_raises_on_error_status():
         client._access_token()
 
 
+def test_sharepoint_access_token_error_never_echoes_the_client_secret():
+    from harborrag_adapters.connectors.exceptions import AuthenticationError
+
+    secret = "Xq8~SecretValue.123"
+    client = client_credentials_sharepoint_client(client_secret=secret)
+    client.session = FakeSession(
+        responses=[
+            FakeResponse(
+                status_code=401,
+                text=f"rejected client secret {secret} by policy",
+            )
+        ]
+    )
+    with pytest.raises(AuthenticationError) as error:
+        client._access_token()
+    assert secret not in str(error.value)
+    assert "<redacted>" in str(error.value)
+
+
 def test_sharepoint_access_token_raises_on_non_json_response():
     from harborrag_adapters.connectors.exceptions import AuthenticationError
 

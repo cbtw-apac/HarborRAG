@@ -17,12 +17,14 @@ from harborrag_adapters.connectors.exceptions import (
     RateLimitError,
 )
 from harborrag_adapters.connectors.policies.http import (
+    DEFAULT_ERROR_BODY_READ_LIMIT,
     DEFAULT_MAX_RETRY_DELAY_SECONDS,
     ResponseTooLargeError,
     read_capped_content,
     read_capped_json,
     require_same_origin_url,
     retry_delay_seconds,
+    safe_error_detail,
     safe_response_error_detail,
 )
 from harborrag_adapters.connectors.policies.network import guarded_session
@@ -288,6 +290,23 @@ class _RequestsGraphClient:
             client_id=str(self.config.client_id),
         )
 
+    def _token_error_detail(self, response: requests.Response) -> str:
+        """Return a token-endpoint error body with this connector's secrets scrubbed first.
+
+        Generic redaction only catches labelled or well-known token shapes, so a
+        client secret echoed back in an unlabelled form would survive it. The
+        configured values are removed from the raw body before truncation.
+        """
+        try:
+            body = read_capped_content(response, DEFAULT_ERROR_BODY_READ_LIMIT)
+        except ResponseTooLargeError:
+            return "response body exceeded safe diagnostic limit"
+        text = body.decode("utf-8", errors="replace")
+        for secret in (self.config.client_secret, self.config.access_token, self._token):
+            if secret and len(str(secret)) >= 4:
+                text = text.replace(str(secret), "<redacted>")
+        return safe_error_detail(text)
+
     def _request_token(self, form: dict[str, str]) -> requests.Response:
         """POST for an OAuth token, retrying transient failures and 429/5xx."""
         token_url = identity_url(str(self.config.tenant_id), "token")
@@ -309,10 +328,10 @@ class _RequestsGraphClient:
 
             if response.status_code not in _RETRYABLE_STATUS:
                 if response.status_code >= 400:
-                    raise AuthenticationError(safe_response_error_detail(response))
+                    raise AuthenticationError(self._token_error_detail(response))
                 return response
             if attempt == self.config.max_retries:
-                raise AuthenticationError(safe_response_error_detail(response))
+                raise AuthenticationError(self._token_error_detail(response))
 
             last_error = AuthenticationError(
                 f"Microsoft identity token request returned HTTP {response.status_code}"
