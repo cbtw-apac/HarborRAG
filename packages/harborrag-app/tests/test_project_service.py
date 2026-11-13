@@ -107,6 +107,41 @@ async def test_put_creates_then_updates_under_preconditions(services: Any) -> No
 
 
 @pytest.mark.asyncio
+async def test_put_with_an_unchanged_body_keeps_version_and_activity(services: Any) -> None:
+    projects, _, control_plane, _ = services
+    await projects.put(
+        tenant_id="acme", project_id="qc1347-bug", name="Bug repro", description=None, actor="u"
+    )
+    activity_before = len(control_plane.activity.entries)
+
+    for _ in range(2):
+        view, created, version = await projects.put(
+            tenant_id="acme",
+            project_id="qc1347-bug",
+            name="Bug repro",
+            description=None,
+            actor="u",
+        )
+        assert (created, version) == (False, 1)
+
+    assert view["project_name"] == "Bug repro"
+    assert len(control_plane.activity.entries) == activity_before
+    stored = await control_plane.projects.get("qc1347-bug", tenant_ids=None)
+    assert stored is not None
+    assert stored.version == 1
+
+    with pytest.raises(HarborPreconditionFailedError):
+        await projects.put(
+            tenant_id="acme",
+            project_id="qc1347-bug",
+            name="Bug repro",
+            description=None,
+            actor="u",
+            expected_version=0,
+        )
+
+
+@pytest.mark.asyncio
 async def test_list_pages_by_id_and_filters_by_name(services: Any) -> None:
     projects, *_ = services
     for project_id, name in (("b", "Beta"), ("a", "Alpha"), ("c", "Gamma")):
