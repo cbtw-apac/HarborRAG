@@ -161,6 +161,7 @@ async def test_chunk_stage_uses_run_cap() -> None:
     request = SimpleNamespace(
         tenant_id="tenant-1",
         run_settings=run,
+        chunking_max_tokens=None,
         source_identity=SimpleNamespace(connector_type=SimpleNamespace(value="local")),
     )
     prepared = SimpleNamespace(

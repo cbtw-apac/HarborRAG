@@ -101,6 +101,18 @@ class IngestionGroup(StrictModel):
         description="Documents processed at once by one ingestion run",
         json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
     )
+    activity_timeout: str = Field(
+        "PT10M",
+        description="ISO 8601 duration bounding one activity attempt",
+        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
+    )
+    max_attempts: int = Field(
+        3,
+        ge=1,
+        le=10,
+        description="Retries per activity",
+        json_schema_extra=_extra(["tenant", "connection"], "next_ingestion"),
+    )
 
 
 class ModelsGroup(StrictModel):

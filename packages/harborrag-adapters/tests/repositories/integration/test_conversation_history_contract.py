@@ -80,7 +80,7 @@ def test_migration_0047_adds_and_removes_the_contract_columns(tmp_path: Path) ->
 
     for table, added in _COLUMNS.items():
         assert added <= columns(table)
-    command.downgrade(_build_config(dsn), "0046")
+    command.downgrade(_build_config(dsn), "0047")
     for table, added in _COLUMNS.items():
         assert not added & columns(table)
     run_migrations(dsn)

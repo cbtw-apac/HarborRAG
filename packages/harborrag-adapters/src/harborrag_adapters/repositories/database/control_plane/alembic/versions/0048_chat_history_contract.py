@@ -1,7 +1,7 @@
 """Store a chat session's project and an answer's mode, trace and feedback.
 
-Revision ID: 0047
-Revises: 0046
+Revision ID: 0048
+Revises: 0047
 
 Phase: expand
 Reversible: yes; the downgrade drops the four columns and the values stored in them
@@ -16,8 +16,8 @@ from __future__ import annotations
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0047"
-down_revision = "0046"
+revision = "0048"
+down_revision = "0047"
 branch_labels = None
 depends_on = None
 

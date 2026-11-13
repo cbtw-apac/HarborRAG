@@ -21,6 +21,8 @@ from harborrag_core.ports.control_plane import (
     PendingEffectRepositoryPort,
     ProjectRepositoryPort,
     ProviderRepositoryPort,
+    SettingOverrideRepositoryPort,
+    SettingScopeRevisionRepositoryPort,
     SettingsRepositoryPort,
 )
 from harborrag_core.ports.conversation import ConversationHistoryRepository
@@ -35,7 +37,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.config_store import CachedConfigProvider
+    from harborrag_core.ports.config_store import ConfigProvider
 
 logger = logging.getLogger("harborrag.runtime.composition")
 
@@ -67,6 +69,8 @@ class ControlPlaneRepositories:
     # not wire one, in which case every tenant uses the process-wide catalog.
     model_catalog: TenantModelCatalogPort | None = None
     connection_revisions: ConnectionRevisionRepositoryPort | None = None
+    setting_overrides: SettingOverrideRepositoryPort | None = None
+    setting_scope_revisions: SettingScopeRevisionRepositoryPort | None = None
     config_store: SettingsStore | None = None
     config: ConfigProvider | None = None
 
@@ -81,7 +85,7 @@ class CompositionRoot:
     control_db: dict[str, Any] = field(default_factory=dict)
     mode: str = "production"
     _control_db_engine: AsyncEngine | None = field(default=None, repr=False)
-    _config_provider: CachedConfigProvider | None = field(default=None, repr=False)
+    _config_provider: ConfigProvider | None = field(default=None, repr=False)
 
     async def start(self) -> None:
         """Start the settings provider.
@@ -147,6 +151,12 @@ class CompositionRoot:
         )
         from harborrag_adapters.repositories.database.control_plane.secrets import (
             SqlSecretsRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
+            SqlSettingOverrideRepository,
+        )
+        from harborrag_adapters.repositories.database.control_plane.setting_scope_revisions import (
+            SqlSettingScopeRevisionRepository,
         )
         from harborrag_adapters.repositories.database.control_plane.usage import (
             SqlModelUsageRepository,
@@ -231,6 +241,8 @@ class CompositionRoot:
             memories=SqlMemoryRepository(sessions),
             model_usage=SqlModelUsageRepository(sessions),
             model_catalog=SqlTenantModelCatalog(sessions),
+            setting_overrides=SqlSettingOverrideRepository(sessions),
+            setting_scope_revisions=SqlSettingScopeRevisionRepository(sessions),
             config_store=config_store,
             config=config_provider,
         )

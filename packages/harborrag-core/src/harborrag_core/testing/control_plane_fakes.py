@@ -28,7 +28,10 @@ from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.setting_override import SettingOverride
+from harborrag_core.domain.setting_registry import ScopeLevel
 from harborrag_core.domain.settings import WorkspaceSettings
+from harborrag_core.ports.control_plane import ScopeRevisionRecord
 from harborrag_core.testing.control_plane_fakes_graph_conflicts import (
     FakeGraphConflictRepository as FakeGraphConflictRepository,
 )
@@ -355,6 +358,91 @@ class FakeSettingsRepository:
         """Replace the settings document."""
         self.settings = settings
         return settings
+
+
+@dataclass(slots=True)
+class FakeSettingOverrideRepository:
+    """Dict-backed SettingOverrideRepositoryPort, keyed by (tenant, level, scope_id, key)."""
+
+    overrides: dict[tuple[str, str, str, str], SettingOverride] = field(default_factory=dict)
+
+    async def get_at(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> dict[str, Any]:
+        """Raw overrides stored at exactly this scope (no merging with other levels)."""
+        return {
+            o.key: o.value
+            for (t, level, scope, _key), o in self.overrides.items()
+            if t == tenant_id and level == scope_level and scope == scope_id
+        }
+
+    async def list_for_tenant(self, tenant_id: str) -> list[SettingOverride]:
+        """Every override in ``tenant_id``, across all scopes."""
+        return [o for o in self.overrides.values() if o.tenant_id == tenant_id]
+
+    async def put(
+        self, override: SettingOverride, *, expected_version: int | None
+    ) -> SettingOverride:
+        """Upsert one override; advances `version`."""
+        identity = (override.tenant_id, override.scope_level, override.scope_id, override.key)
+        existing = self.overrides.get(identity)
+        if existing is None:
+            if expected_version is not None:
+                raise HarborPreconditionFailedError("setting override does not exist yet")
+            stored = replace(override, version=1)
+        else:
+            if expected_version is not None and expected_version != existing.version:
+                raise HarborPreconditionFailedError("setting override version does not match")
+            stored = replace(override, version=existing.version + 1, created_at=existing.created_at)
+        self.overrides[identity] = stored
+        return stored
+
+    async def delete(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str, key: str
+    ) -> None:
+        """Remove one override; a missing row is not an error."""
+        self.overrides.pop((tenant_id, scope_level, scope_id, key), None)
+
+    async def count_all(self) -> int:
+        """Total override rows across every tenant."""
+        return len(self.overrides)
+
+
+@dataclass(slots=True)
+class FakeSettingScopeRevisionRepository:
+    """Dict-backed SettingScopeRevisionRepositoryPort, keyed by (tenant, level, scope_id)."""
+
+    revisions: dict[tuple[str, str, str], int] = field(default_factory=dict)
+    records: dict[tuple[str, str, str], ScopeRevisionRecord] = field(default_factory=dict)
+
+    async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
+        """Current revision, or 0 when the scope has never been written."""
+        return self.revisions.get((tenant_id, scope_level, scope_id), 0)
+
+    async def get_record(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> ScopeRevisionRecord | None:
+        """Revision plus ``source``/``actor`` of the last bump, or ``None`` if never written."""
+        return self.records.get((tenant_id, scope_level, scope_id))
+
+    async def bump_if_match(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None = None,
+    ) -> int:
+        """Advance the scope's revision by one and return it."""
+        identity = (tenant_id, scope_level, scope_id)
+        current = self.revisions.get(identity, 0)
+        if expected_revision != current:
+            raise HarborPreconditionFailedError("setting scope revision does not match")
+        self.revisions[identity] = current + 1
+        self.records[identity] = {"revision": current + 1, "source": source, "actor": actor}
+        return current + 1
 
 
 @dataclass(slots=True)

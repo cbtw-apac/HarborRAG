@@ -186,7 +186,7 @@ def ingestion_view(  # noqa: PLR0913 - keyword-only view inputs the callers supp
         },
         "settings_revision": str(
             request.get("settings_revision") or request.get("configuration_fingerprint") or ""
-        ),
+        ).removeprefix("rev_"),
         "workflow_id": workflow_id,
         "run_id": task.task_id,
         "trace_id": "",

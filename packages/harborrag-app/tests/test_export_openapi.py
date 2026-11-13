@@ -28,7 +28,6 @@ def test_export_produces_stable_schema_with_the_v2_surface() -> None:
         "/readyz",
         "/v1/admin/connections",
         "/v1/admin/failures",
-        "/v1/admin/failures/retry",
         "/v1/admin/ingestions",
         "/v1/admin/ingestions/{ingestion_id}",
         "/v1/admin/ingestions/{ingestion_id}/cancel",

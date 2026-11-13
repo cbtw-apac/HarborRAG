@@ -16,7 +16,7 @@ from harborrag_core.ports.events import EventBusPort
 from harborrag_runtime.composition import CompositionRoot, ControlPlaneRepositories
 from harborrag_runtime.config.connectors.importing import import_connectors_once
 from harborrag_runtime.config.settings import RuntimeSettings
-from harborrag_runtime.config_store.defaults import registry_for
+from harborrag_runtime.config.settings_seed import seed_setting_overrides_once
 
 from ..chat import ChatApplicationService, ChatClientMixin
 from ..chat.scope import ControlPlaneConnectionCatalog
@@ -28,14 +28,14 @@ from ..control_plane.effect_recovery import (
     recover_pending_control_plane_effects,
 )
 from ..control_plane.projects import ProjectService
-from ..control_plane.settings_import import SeedOutcome, SettingsImporter, seed_settings_once
-from ..control_plane.settings_service import SettingsService
+from ..control_plane.settings import SettingsService
 from ..errors import IngestionNotFoundError, failure_response
 from ..ingestion.client import PublicIngestionClientMixin
 from ..ingestion.connection_sources import ConnectionSourceInputBuilder
 from ..ingestion.direct import DirectIngestionClientMixin, DirectIngestionOperations
 from ..ingestion.durable import DurableIngestionOperations
 from ..ingestion.failure_inbox import FailureInboxService
+from ..ingestion.failures import FailuresService
 from ..ingestion.operations import ControlAction, IngestionOperations
 from ..ingestion.ports import PublicTaskStore, SourceInputBuilder
 from ..ingestion.presenters import STATUS_NAMES, TERMINAL_STATES
@@ -172,6 +172,7 @@ class AppService(
             source_input_builder=self._source_input_builder,
         )
         self._direct = DirectIngestionOperations(self._resources.runtime_sdk)
+        self._failures = FailuresService(task_registry=self._resources.task_registry)
         self._connection_service = ConnectionService(
             control_plane=self._control_plane,
             runs=self._resources.task_registry,
@@ -199,13 +200,7 @@ class AppService(
             runs=self._resources.task_registry,
             connections=self._connection_service,
         )
-        settings_registry = registry_for(self._settings)
-        self._settings_service = SettingsService(
-            control_plane=self._control_plane, registry=settings_registry
-        )
-        self._settings_importer = SettingsImporter(
-            control_plane=self._control_plane, registry=settings_registry
-        )
+        self._settings_service = SettingsService(control_plane=self._control_plane)
 
     @property
     def ingestion_operations(self) -> IngestionOperations:
@@ -228,14 +223,14 @@ class AppService(
         return self._settings_service
 
     @property
-    def settings_importer(self) -> SettingsImporter:
-        """Settings file import, export and seeding."""
-        return self._settings_importer
-
-    @property
     def project_service(self) -> ProjectService:
         """Project use cases behind the ``/v1/admin/projects`` routes."""
         return self._project_service
+
+    @property
+    def failures_service(self) -> FailuresService:
+        """Document-failure listing behind the ``/v1/admin/failures`` route."""
+        return self._failures
 
     async def import_connectors_once(self) -> int:
         """Import ``connectors.yaml`` on the first start of a fresh install."""
@@ -249,13 +244,19 @@ class AppService(
         )
         return len(plan.writes) if plan is not None else 0
 
-    async def seed_settings_once(self) -> SeedOutcome:
-        """Seed ``config/settings.yaml`` into an empty settings log, else report drift."""
-        return await seed_settings_once(
-            self._settings_importer,
-            self._settings.settings_seed_path,
-            tenant_id=self._settings.ingestion_tenant_id,
+    async def seed_setting_overrides_once(self) -> int:
+        """Seed `setting_overrides` from `config/settings.yaml` on the first start of a fresh install."""
+        control_plane = self._control_plane()
+        if control_plane.setting_overrides is None or control_plane.setting_scope_revisions is None:
+            return 0
+        planned = await seed_setting_overrides_once(
+            self._settings.settings_seed_config_path,
+            overrides=control_plane.setting_overrides,
+            workspace=control_plane.settings,
+            revisions=control_plane.setting_scope_revisions,
+            default_tenant_id=self._settings.ingestion_tenant_id,
         )
+        return len(planned) if planned is not None else 0
 
     async def resume_connection_removals(self) -> int:
         """Finish removals a previous process left running; one API process at a time."""

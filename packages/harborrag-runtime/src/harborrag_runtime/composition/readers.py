@@ -15,8 +15,8 @@ from harborrag_runtime.retrieval.facades import GraphFacade, KnowledgeFacade, Re
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_runtime.config.settings import RuntimeSettings
-    from harborrag_runtime.config_store import CachedConfigProvider
     from harborrag_runtime.retrieval.service import RuntimeRetrievalService
 
 _POSTGRES_DSN_PREFIX = "postgresql"
@@ -29,7 +29,7 @@ class ReaderApplication:
     settings: RuntimeSettings
     references: KnowledgeReferenceStore = field(default_factory=KnowledgeReferenceStore)
     _service: RuntimeRetrievalService | None = field(default=None, init=False, repr=False)
-    config_provider: CachedConfigProvider | None = field(default=None, init=False, repr=False)
+    config_provider: ConfigProvider | None = field(default=None, init=False, repr=False)
     _config_engine: AsyncEngine | None = field(default=None, init=False, repr=False)
     _lock: asyncio.Lock = field(default_factory=asyncio.Lock, init=False, repr=False)
 

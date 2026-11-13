@@ -47,6 +47,12 @@ def prepare_source_submission(
     *,
     connection: ResolvedConnection,
     defaults: SourceSubmissionDefaults = SourceSubmissionDefaults(),
+    settings_revision: int = 0,
+    pdf_engine: str | None = None,
+    chunking_max_tokens: int | None = None,
+    ingestion_concurrency: int | None = None,
+    ingestion_activity_timeout_seconds: int | None = None,
+    ingestion_max_attempts: int | None = None,
 ) -> PreparedSourceSubmission:
     """Turn a resolved connection and a submission into a provider-neutral run input.
 
@@ -59,10 +65,49 @@ def prepare_source_submission(
         submission: What the caller asked to ingest.
         connection: The connection snapshot the run will use.
         defaults: Batch and concurrency policy of the execution provider.
+        settings_revision: The connection scope's setting-override revision at
+            submission time, carried onto the run for `GET .../ingestions`.
+        pdf_engine: An explicit `parsing.pdf_parser` override, or `None` to use
+            the worker's configured PDF profile and fallback chain.
+        chunking_max_tokens: An explicit `chunking.max_tokens` override, or
+            `None` to use the connector's configured chunking profile.
+        ingestion_concurrency: An explicit `ingestion.concurrency` override, or
+            `None` to use the execution provider's configured concurrency.
+        ingestion_activity_timeout_seconds: An explicit `ingestion.activity_timeout`
+            override (already parsed to seconds), or `None` to use the worker's
+            configured document activity timeout.
+        ingestion_max_attempts: An explicit `ingestion.max_attempts` override, or
+            `None` to use the worker's configured document retry policy.
 
     Returns:
         The deterministic input every activity of the run receives.
     """
+    run_settings = connection.run_settings
+    if run_settings is not None:
+        # An explicit kwarg always wins; otherwise fall back to the connection's
+        # resolved run settings, so a caller that already resolved `connection`
+        # (and therefore its `run_settings`) does not have to re-derive and pass
+        # every override field itself.
+        settings_revision = settings_revision or int(
+            run_settings.settings_revision.removeprefix("rev_")
+        )
+        pdf_engine = pdf_engine if pdf_engine is not None else run_settings.pdf_parser
+        chunking_max_tokens = (
+            chunking_max_tokens if chunking_max_tokens is not None else run_settings.chunk_max_tokens
+        )
+        ingestion_concurrency = (
+            ingestion_concurrency
+            if ingestion_concurrency is not None
+            else run_settings.document_concurrency
+        )
+        ingestion_activity_timeout_seconds = (
+            ingestion_activity_timeout_seconds
+            if ingestion_activity_timeout_seconds is not None
+            else run_settings.activity_timeout_seconds
+        )
+        ingestion_max_attempts = (
+            ingestion_max_attempts if ingestion_max_attempts is not None else run_settings.max_attempts
+        )
     if connection.provider == "local":
         _require_known_local_filters(submission.query)
     source_key = connection.snapshot.source_key
@@ -74,15 +119,27 @@ def prepare_source_submission(
         connection_id=source_key,
         query=_without_empty_query_fields(submission.query, connection.spec.query_fields),
     )
-    run_settings = connection.run_settings
-    processing = build_processing_profile(settings, run_settings=run_settings)
+    processing = build_processing_profile(settings)
+    parser_profile = processing.parser_profile
+    chunk_strategy = processing.chunk_strategy
+    if pdf_engine is not None:
+        # Folded into the identity `admission.processing_fingerprint` hashes:
+        # an override that changes between runs must produce a new document
+        # version, or a force-reprocess of unchanged content would reuse the
+        # prior chunk/canonical artifacts and never apply it (chunk/canonical
+        # caching is keyed on content + processing identity, not force_reprocess).
+        parser_profile = f"{parser_profile}:pdf_engine={pdf_engine}"
+    if chunking_max_tokens is not None:
+        chunk_strategy = f"{chunk_strategy}:max_tokens={chunking_max_tokens}"
     batch_size = submission.batch_size if submission.batch_size is not None else defaults.batch_size
     document_concurrency = (
         submission.document_concurrency
         if submission.document_concurrency is not None
-        else run_settings.document_concurrency
-        if run_settings is not None and run_settings.document_concurrency is not None
-        else defaults.document_concurrency
+        else (
+            ingestion_concurrency
+            if ingestion_concurrency is not None
+            else defaults.document_concurrency
+        )
     )
     return PreparedSourceSubmission(
         task_id=submission.task_id,
@@ -93,9 +150,9 @@ def prepare_source_submission(
         source_scope_id=source_scope_id,
         configuration_fingerprint=connection.fingerprint,
         processing=ProcessingProfileInput(
-            parser_profile=processing.parser_profile,
+            parser_profile=parser_profile,
             normalizer_version=processing.normalizer_version,
-            chunk_strategy=processing.chunk_strategy,
+            chunk_strategy=chunk_strategy,
             dense_encoder_profile=processing.dense_encoder_profile,
             sparse_encoder_profile=processing.sparse_encoder_profile,
             graph_projection_version=processing.graph_projection_version,
@@ -109,6 +166,11 @@ def prepare_source_submission(
         missing_threshold=submission.missing_threshold,
         batch_size=batch_size,
         continue_after_batches=submission.continue_after_batches,
+        settings_revision=settings_revision,
+        pdf_engine=pdf_engine,
+        chunking_max_tokens=chunking_max_tokens,
+        ingestion_activity_timeout_seconds=ingestion_activity_timeout_seconds,
+        ingestion_max_attempts=ingestion_max_attempts,
         run_settings=run_settings,
     )
 

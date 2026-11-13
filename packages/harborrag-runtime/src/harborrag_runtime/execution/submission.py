@@ -34,6 +34,7 @@ def build_ingestion_input(
 ) -> PreparedSourceSubmission:
     """Build the single source input shared by direct and Temporal strategies."""
 
+    run_settings = getattr(connection, "run_settings", None)
     return prepare_configured_source_submission(
         settings,
         SourceSubmission(
@@ -62,4 +63,18 @@ def build_ingestion_input(
             document_concurrency=request.document_concurrency,
         ),
         connection=connection,
+        settings_revision=(
+            int(run_settings.settings_revision.removeprefix("rev_"))
+            if run_settings is not None
+            else 0
+        ),
+        pdf_engine=run_settings.pdf_parser if run_settings is not None else None,
+        chunking_max_tokens=run_settings.chunk_max_tokens if run_settings is not None else None,
+        ingestion_concurrency=(
+            run_settings.document_concurrency if run_settings is not None else None
+        ),
+        ingestion_activity_timeout_seconds=(
+            run_settings.activity_timeout_seconds if run_settings is not None else None
+        ),
+        ingestion_max_attempts=run_settings.max_attempts if run_settings is not None else None,
     )

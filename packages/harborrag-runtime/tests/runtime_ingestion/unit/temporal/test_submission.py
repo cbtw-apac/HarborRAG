@@ -73,6 +73,39 @@ def test_submission_builds_deterministic_secret_free_source_identity(
     assert first.discovery_concurrency == 4
 
 
+def test_pdf_engine_and_chunking_max_tokens_change_the_processing_identity(
+    tmp_path: Path,
+) -> None:
+    """AC8: a `parsing.pdf_parser`/`chunking.max_tokens` override must change
+    `processing.{parser_profile,chunk_strategy}` so a force-reprocess of
+    unchanged content gets a new document version instead of silently reusing
+    the canonical/chunk artifacts a prior (different-settings) run wrote."""
+    settings = _settings(tmp_path)
+
+    plain = prepare_source_submission(settings, _submission(), connection=_jira())
+    overridden = prepare_source_submission(
+        settings,
+        _submission(),
+        connection=_jira(),
+        pdf_engine="docling",
+        chunking_max_tokens=64,
+    )
+
+    assert overridden.processing.parser_profile != plain.processing.parser_profile
+    assert overridden.processing.chunk_strategy != plain.processing.chunk_strategy
+    assert "docling" in overridden.processing.parser_profile
+    assert "64" in overridden.processing.chunk_strategy
+    # An unrelated override value changes the identity again, not just presence.
+    again = prepare_source_submission(
+        settings,
+        _submission(),
+        connection=_jira(),
+        pdf_engine="docling",
+        chunking_max_tokens=128,
+    )
+    assert again.processing.chunk_strategy != overridden.processing.chunk_strategy
+
+
 def test_a_rotated_secret_reference_changes_the_fingerprint_but_not_the_scope(
     tmp_path: Path,
 ) -> None:

@@ -40,6 +40,9 @@ class SourceIngestionRequest:
     discovery_concurrency: int = 4
     document_concurrency: int = 8
     missing_threshold: int = 2
+    settings_revision: int = 0
+    pdf_engine: str | None = None
+    chunking_max_tokens: int | None = None
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:

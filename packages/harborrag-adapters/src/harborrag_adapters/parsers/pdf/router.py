@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from types import MappingProxyType
+
 from harborrag_adapters.parsers.common.models import ParseRequest
 from harborrag_adapters.parsers.errors import (
     DuplicatePDFEngineError,
@@ -41,16 +44,24 @@ class PDFEngineRouter:
         self,
         registry: PDFEngineRegistry,
         config: PDFRouterConfig,
+        *,
+        override_engines: Mapping[str, HarborPDFEngine] | None = None,
     ) -> None:
         self._registry = registry
         self._config = config
+        self._override_engines = override_engines or MappingProxyType({})
 
     def resolve_candidates(
         self,
         request: ParseRequest,
     ) -> tuple[HarborPDFEngine, ...]:
         if request.engine:
-            return (self._registry.get(request.engine),)
+            try:
+                return (self._registry.get(request.engine),)
+            except UnknownPDFEngineError:
+                if request.engine in self._override_engines:
+                    return (self._override_engines[request.engine],)
+                raise
 
         profile_name = str(request.options.get("profile", self._config.default_profile)).lower()
         try:

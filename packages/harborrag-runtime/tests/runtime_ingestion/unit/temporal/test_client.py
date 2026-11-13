@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -469,6 +470,54 @@ async def test_client_embeds_configured_queues_and_retries_in_root_input() -> No
     assert call.kwargs["task_queue"] == "test-discovery"
     assert submitted.workflow_options.task_queues == queues
     assert submitted.workflow_options.retries == retries
+
+
+@pytest.mark.asyncio
+async def test_client_overlays_a_connections_activity_timeout_and_max_attempts() -> None:
+    """AC9: a connection's `ingestion.activity_timeout`/`max_attempts` reach the
+    workflow's history, without losing the deployment's other defaults."""
+    sdk = _SdkClient()
+    queues = TaskQueueConfig(
+        discovery="test-discovery",
+        transform="test-transform",
+        io="test-io",
+        parser="test-parser",
+        model="test-model",
+        index="test-index",
+    )
+    client = IngestionTemporalClient(
+        sdk,
+        TemporalRuntimeConfig(task_queues=queues),
+    )
+    source = replace(
+        _source(),
+        ingestion_activity_timeout_seconds=120,
+        ingestion_max_attempts=2,
+    )
+
+    await client.start(source)
+
+    submitted = sdk.start_workflow.await_args.args[1]
+    assert submitted.workflow_options.timeouts.document_seconds == 120
+    assert submitted.workflow_options.retries.document.maximum_attempts == 2
+    # Everything else the deployment configures stays untouched by the overlay.
+    assert submitted.workflow_options.task_queues == queues
+    assert submitted.workflow_options.timeouts.discovery_seconds == 1_800
+
+
+@pytest.mark.asyncio
+async def test_client_leaves_workflow_options_at_deployment_defaults_without_overrides() -> None:
+    """A run whose connection has no `ingestion.*` override keeps the worker's
+    own configured document timeout and retry policy exactly."""
+    sdk = _SdkClient()
+    config = TemporalRuntimeConfig()
+    client = IngestionTemporalClient(sdk, config)
+
+    await client.start(_source())
+
+    submitted = sdk.start_workflow.await_args.args[1]
+    assert submitted.workflow_options.timeouts == config.timeouts
+    assert submitted.workflow_options.retries == config.retries
 
 
 @pytest.mark.asyncio

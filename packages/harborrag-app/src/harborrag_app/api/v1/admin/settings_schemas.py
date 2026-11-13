@@ -1,36 +1,89 @@
-"""Request and response bodies of the ``/v1/admin/settings`` routes."""
+"""Request and response models of `/v1/admin/settings[/schema]`."""
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
+from harborrag_app.api.schemas import ApiModel
 
-class SettingsOut(BaseModel):
-    """Settings at one level and the revision they were read at."""
-
-    level: str = Field(description="tenant, project:<id> or connection:<project_id>/<id>")
-    revision: str = Field(description="Tenant revision, rev_<N>; also the ETag")
-    values: dict[str, Any] = Field(
-        description="Overrides by key; {value, origin} by key when effective=true"
-    )
+ScopeLevelName = Literal["tenant", "project", "connection"]
+SettingTypeName = Literal["string", "integer", "number", "boolean", "enum", "model_ref", "array"]
+ApplyModeName = Literal["live", "next_ingestion", "reindex"]
 
 
-class SettingChangeOut(BaseModel):
-    """One override change of a PATCH."""
+class SettingSchemaOut(ApiModel):
+    """One key's declared shape, from `SETTING_REGISTRY`.
 
-    model_config = ConfigDict(populate_by_name=True)
+    ``min``/``max``/``enum``/``items_type`` are omitted entirely (not sent as
+    null) when a key is not bounded, not enumerated, or not array-typed --
+    the route serializes this with ``response_model_exclude_none``.
+    """
 
     key: str
-    from_value: Any = Field(alias="from", description="Effective value at the level before")
-    to: Any = Field(description="New override; null when removed")
-    applies: str = Field(description="live, next_ingestion or reindex")
+    type: SettingTypeName
+    default: Any
+    min: int | float | None = None
+    max: int | float | None = None
+    enum: tuple[Any, ...] | None = None
+    items_type: SettingTypeName | None = None
+    levels: list[ScopeLevelName]
+    applies: ApplyModeName
+    description: str
 
 
-class SettingsPatchOut(BaseModel):
-    """Outcome of a PATCH: the revision after it and what changed."""
+class SettingGroupOut(ApiModel):
+    """One stage's settings, as `GET /v1/admin/settings/schema` groups them."""
+
+    name: str
+    title: str
+    settings: list[SettingSchemaOut]
+
+
+class SettingsSchemaOut(ApiModel):
+    """`GET /v1/admin/settings/schema` response body."""
+
+    groups: list[SettingGroupOut]
+
+
+class EffectiveValueOut(ApiModel):
+    """One key's resolved value plus where it came from, for `effective=true`."""
+
+    value: Any
+    origin: Literal["default", "tenant", "project", "connection"]
+
+
+class SettingsReadOut(ApiModel):
+    """`GET /v1/admin/settings` response body (`effective=false`): raw overrides."""
+
+    level: str
+    revision: str
+    values: dict[str, Any]
+
+
+class SettingsEffectiveReadOut(ApiModel):
+    """`GET /v1/admin/settings?effective=true` response body."""
+
+    level: str
+    revision: str
+    values: dict[str, EffectiveValueOut]
+
+
+class SettingsChangeOut(ApiModel):
+    """One key's before/after in a `PATCH /v1/admin/settings` response."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, populate_by_name=True)
+
+    key: str
+    before: Any = Field(alias="from", serialization_alias="from")
+    after: Any = Field(alias="to", serialization_alias="to")
+    applies: ApplyModeName
+
+
+class SettingsChangeOutEnvelope(ApiModel):
+    """`PATCH /v1/admin/settings` response body."""
 
     revision: str
     dry_run: bool
-    changed: list[SettingChangeOut]
+    changed: list[SettingsChangeOut]

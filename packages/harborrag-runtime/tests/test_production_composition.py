@@ -36,10 +36,10 @@ def test_production_composition_migrates_and_reports_ready(tmp_path: Path, caplo
     assert runtime["ready"] is True
     control_db = runtime["control_db"]
     assert control_db["ping"] == "ok"
-    assert control_db["migrations"] == "0047"
+    assert control_db["migrations"] == "0048"
     assert control_db["scheme"] == "sqlite+aiosqlite"
     assert "Control-plane composition completed" in caplog.text
-    assert "database_scheme=sqlite+aiosqlite ready=True migration=0047" in caplog.text
+    assert "database_scheme=sqlite+aiosqlite ready=True migration=0048" in caplog.text
 
 
 @pytest.mark.asyncio
@@ -282,15 +282,13 @@ def test_the_key_file_supplies_the_encryption_key(tmp_path: Path) -> None:
 
 @pytest.mark.whitebox
 def test_production_composition_exposes_config_store(tmp_path: Path) -> None:
-    """With SQLite the provider polls only: it is built without a change feed."""
-    from harborrag_adapters.repositories.database.control_plane.config_store import (
-        SqlSettingsStore,
+    """config_store and config are the same adapter over setting_overrides/setting_scope_revisions."""
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
     )
-    from harborrag_runtime.config_store import CachedConfigProvider
 
     control_plane = _production(tmp_path).control_plane
 
     assert control_plane is not None
-    assert isinstance(control_plane.config_store, SqlSettingsStore)
-    assert isinstance(control_plane.config, CachedConfigProvider)
-    assert control_plane.config.has_feed is False
+    assert isinstance(control_plane.config_store, SettingOverridesConfigStore)
+    assert control_plane.config is control_plane.config_store

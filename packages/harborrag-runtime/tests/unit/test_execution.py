@@ -417,7 +417,7 @@ def test_submission_maps_public_request_without_losing_query_controls(
 
     connection = object()
 
-    def capture(_settings, source, *, connection: object):
+    def capture(_settings, source, *, connection: object, **_overrides: object):
         nonlocal captured
         captured = (source, connection)
         return expected

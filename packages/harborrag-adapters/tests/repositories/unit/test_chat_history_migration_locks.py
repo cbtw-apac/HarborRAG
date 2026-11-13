@@ -1,4 +1,4 @@
-"""Migration 0047 bounds its lock wait on Postgres in both directions."""
+"""Migration 0048 bounds its lock wait on Postgres in both directions."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ import harborrag_adapters.repositories.database.control_plane as control_plane
 pytestmark = pytest.mark.unit
 
 _MIGRATION = (
-    Path(control_plane.__file__).parent / "alembic" / "versions" / "0047_chat_history_contract.py"
+    Path(control_plane.__file__).parent / "alembic" / "versions" / "0048_chat_history_contract.py"
 )
 
 

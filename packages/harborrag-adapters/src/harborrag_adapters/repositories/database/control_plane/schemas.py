@@ -57,6 +57,52 @@ class ProjectRow(Base):
     version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
 
 
+class SettingOverrideRow(Base):
+    """runtime_settings: one key's value at one scope, resolved default -> tenant -> project -> connection."""
+
+    __tablename__ = "runtime_settings"
+
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
+    scope_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    key: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    value: Mapped[Any] = mapped_column(JSONVariant, nullable=False)
+    version: Mapped[int] = mapped_column(sa.Integer, default=1, server_default="1", nullable=False)
+    created_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    updated_by: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "scope_level IN ('tenant', 'project', 'connection')",
+            name="ck_runtime_settings_scope_level",
+        ),
+        sa.Index("ix_runtime_settings_tenant_key", "tenant_id", "key"),
+    )
+
+
+class SettingScopeRevisionRow(Base):
+    """runtime_setting_revisions: one monotonic revision per scope, for ETag/If-Match."""
+
+    __tablename__ = "runtime_setting_revisions"
+
+    tenant_id: Mapped[str] = mapped_column(sa.String(128), primary_key=True)
+    scope_level: Mapped[str] = mapped_column(sa.String(16), primary_key=True)
+    scope_id: Mapped[str] = mapped_column(sa.Text, primary_key=True)
+    revision: Mapped[int] = mapped_column(sa.Integer, default=0, server_default="0", nullable=False)
+    source: Mapped[str] = mapped_column(sa.String(32), nullable=False)
+    actor: Mapped[str | None] = mapped_column(sa.String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(UTCDateTime(), nullable=False)
+
+    __table_args__ = (
+        sa.CheckConstraint(
+            "scope_level IN ('tenant', 'project', 'connection')",
+            name="ck_runtime_setting_revisions_scope_level",
+        ),
+    )
+
+
 class SourceRow(Base):
     """sources: one editable connection per row; credentials store secret refs only."""
 
@@ -349,7 +395,6 @@ class GraphConflictRow(Base):
 # required for Alembic autogenerate and the metadata-drift test to see them.
 from . import schemas_completion_requests as _schemas_completion_requests  # noqa: E402, F401
 from . import schemas_conversation_memory as _schemas_conversation_memory  # noqa: E402, F401
-from . import schemas_settings as _schemas_settings  # noqa: E402, F401
 from . import schemas_usage as _schemas_usage  # noqa: E402, F401
 
 

@@ -1,53 +1,66 @@
-"""Composition of the settings store and its cached provider."""
+"""Composition of the settings store and its config provider.
+
+Both ``build_settings_store`` and ``build_config_provider`` are backed by
+``setting_overrides``/``setting_scope_revisions`` (the same tables
+``/v1/admin/settings`` reads and writes) through
+``SettingOverridesConfigStore``, so chat, the MCP server, and ingestion's
+``RunSettingsResolver`` see exactly the overrides an admin set through the
+HTTP API, at the same per-scope revision -- one settings store, not two.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from harborrag_runtime.config_store import CachedConfigProvider
-from harborrag_runtime.config_store.defaults import registry_for
-
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from harborrag_core.ports.config_store import SettingsStore
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
+    )
+    from harborrag_core.ports.config_store import ConfigProvider, SettingsStore
     from harborrag_runtime.config.settings import RuntimeSettings
-
-_POSTGRESQL = "postgresql"
 
 
 def build_settings_store(engine: AsyncEngine) -> SettingsStore:
-    """Return the SQL settings store over ``engine``."""
-    from harborrag_adapters.repositories.database.control_plane.config_store import (
-        SqlSettingsStore,
+    """Return the settings store over ``engine``."""
+    return _build(engine)
+
+
+def _build(engine: AsyncEngine) -> SettingOverridesConfigStore:
+    from harborrag_adapters.repositories.database.control_plane.config_store_adapter import (
+        SettingOverridesConfigStore,
     )
     from harborrag_adapters.repositories.database.control_plane.engine import (
         create_session_factory,
     )
+    from harborrag_adapters.repositories.database.control_plane.setting_overrides import (
+        SqlSettingOverrideRepository,
+    )
+    from harborrag_adapters.repositories.database.control_plane.setting_scope_revisions import (
+        SqlSettingScopeRevisionRepository,
+    )
 
-    return SqlSettingsStore(create_session_factory(engine))
+    sessions = create_session_factory(engine)
+    return SettingOverridesConfigStore(
+        overrides=SqlSettingOverrideRepository(sessions),
+        revisions=SqlSettingScopeRevisionRepository(sessions),
+    )
 
 
 def build_config_provider(
     settings: RuntimeSettings, *, engine: AsyncEngine, store: SettingsStore | None = None
-) -> CachedConfigProvider:
-    """Build the provider; on Postgres it also listens for change notifications.
+) -> ConfigProvider:
+    """Build the provider.
 
     Args:
-        settings: Runtime settings with the control database URL and model configuration.
-        engine: Control-plane engine; its dialect decides whether a feed is attached.
+        settings: Unused; kept so existing callers do not need updating.
+        engine: Control-plane engine the store reads from when ``store`` is not given.
         store: Settings store to read; defaults to one over ``engine``.
 
     Returns:
-        A provider that is not started.
+        A ``ConfigProvider`` ready to use immediately (nothing to start: every
+        read goes straight to Postgres, there is no cache to warm).
     """
-    feed = None
-    if engine.dialect.name == _POSTGRESQL:
-        from harborrag_adapters.repositories.database.control_plane.config_store_feed import (
-            PostgresSettingsChangeFeed,
-        )
-
-        feed = PostgresSettingsChangeFeed(settings.control_db_url.get_secret_value())
-    return CachedConfigProvider(
-        store or build_settings_store(engine), registry_for(settings), feed=feed
-    )
+    del settings
+    return store if store is not None else _build(engine)  # type: ignore[return-value]

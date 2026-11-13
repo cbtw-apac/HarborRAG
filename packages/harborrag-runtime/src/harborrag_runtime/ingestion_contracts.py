@@ -63,12 +63,16 @@ class RunSettings:
         pdf_parser: PDF backend override.
         chunk_max_tokens: Cap on every chunking profile's hard maximum.
         document_concurrency: Concurrent documents override.
+        activity_timeout_seconds: Document activity start-to-close timeout override.
+        max_attempts: Document activity retry count override.
     """
 
     settings_revision: str
     pdf_parser: str | None = None
     chunk_max_tokens: int | None = None
     document_concurrency: int | None = None
+    activity_timeout_seconds: int | None = None
+    max_attempts: int | None = None
 
     def to_json(self) -> dict[str, object]:
         """Return the JSON-safe form stored in task requests and plans."""
@@ -77,6 +81,8 @@ class RunSettings:
             "pdf_parser": self.pdf_parser,
             "chunk_max_tokens": self.chunk_max_tokens,
             "document_concurrency": self.document_concurrency,
+            "activity_timeout_seconds": self.activity_timeout_seconds,
+            "max_attempts": self.max_attempts,
         }
 
     @classmethod
@@ -88,14 +94,20 @@ class RunSettings:
         pdf_parser = value.get("pdf_parser")
         max_tokens = value.get("chunk_max_tokens")
         concurrency = value.get("document_concurrency")
+        activity_timeout_seconds = value.get("activity_timeout_seconds")
+        max_attempts = value.get("max_attempts")
         if (
             not isinstance(revision, str)
             or not (pdf_parser is None or isinstance(pdf_parser, str))
             or not (max_tokens is None or isinstance(max_tokens, int))
             or not (concurrency is None or isinstance(concurrency, int))
+            or not (activity_timeout_seconds is None or isinstance(activity_timeout_seconds, int))
+            or not (max_attempts is None or isinstance(max_attempts, int))
         ):
             return None
-        return cls(revision, pdf_parser, max_tokens, concurrency)
+        return cls(
+            revision, pdf_parser, max_tokens, concurrency, activity_timeout_seconds, max_attempts
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,6 +130,11 @@ class PreparedSourceSubmission:
     missing_threshold: int = 2
     batch_size: int = 200
     continue_after_batches: int = 25
+    settings_revision: int = 0
+    pdf_engine: str | None = None
+    chunking_max_tokens: int | None = None
+    ingestion_activity_timeout_seconds: int | None = None
+    ingestion_max_attempts: int | None = None
     run_settings: RunSettings | None = None
 
     def __post_init__(self) -> None:

@@ -7,7 +7,7 @@ never on the adapter classes.
 
 from __future__ import annotations
 
-from typing import Any, Protocol, TypeVar
+from typing import Any, Protocol, TypedDict, TypeVar
 
 from harborrag_core.contracts.events import HarborEvent
 from harborrag_core.domain.activity import ActivityEntry
@@ -19,6 +19,8 @@ from harborrag_core.domain.member import Member
 from harborrag_core.domain.pending_effect import PendingControlPlaneEffect
 from harborrag_core.domain.project import Project
 from harborrag_core.domain.provider import Provider
+from harborrag_core.domain.setting_override import SettingOverride
+from harborrag_core.domain.setting_registry import ScopeLevel
 from harborrag_core.domain.settings import WorkspaceSettings
 from harborrag_core.security.context import AccessContext
 
@@ -228,6 +230,77 @@ class SettingsRepositoryPort(Protocol):
 
     async def put(self, settings: WorkspaceSettings) -> WorkspaceSettings:
         """Replace the settings document and return it."""
+
+
+class SettingOverrideRepositoryPort(Protocol):
+    """Per-scope runtime config overrides: default -> tenant -> project -> connection."""
+
+    async def get_at(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> dict[str, Any]:
+        """Raw overrides stored at exactly this scope (no merging with other levels)."""
+
+    async def list_for_tenant(self, tenant_id: str) -> list[SettingOverride]:
+        """Every override in ``tenant_id``, across all scopes, for resolution and export."""
+
+    async def put(
+        self, override: SettingOverride, *, expected_version: int | None
+    ) -> SettingOverride:
+        """Upsert one override; advances `version`.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_version`` is set and does not
+                match the stored version (or the row does not exist yet and
+                ``expected_version`` is not ``None``).
+        """
+
+    async def delete(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str, key: str
+    ) -> None:
+        """Remove one override; a missing row is not an error."""
+
+    async def count_all(self) -> int:
+        """Total override rows across every tenant, for the empty-database seed guard."""
+
+
+class ScopeRevisionRecord(TypedDict):
+    """Who/what produced a scope's current revision."""
+
+    revision: int
+    source: str
+    actor: str | None
+
+
+class SettingScopeRevisionRepositoryPort(Protocol):
+    """One monotonic revision per scope; the ETag/If-Match for `PATCH /v1/admin/settings`."""
+
+    async def get(self, tenant_id: str, scope_level: ScopeLevel, scope_id: str) -> int:
+        """Current revision, or 0 when the scope has never been written."""
+
+    async def get_record(
+        self, tenant_id: str, scope_level: ScopeLevel, scope_id: str
+    ) -> ScopeRevisionRecord | None:
+        """Revision plus ``source``/``actor`` of the last bump, or ``None`` if never written."""
+
+    async def bump_if_match(
+        self,
+        tenant_id: str,
+        scope_level: ScopeLevel,
+        scope_id: str,
+        *,
+        expected_revision: int,
+        source: str,
+        actor: str | None = None,
+    ) -> int:
+        """Advance the scope's revision by one and return it.
+
+        ``source`` identifies what caused the bump (``"api"``, ``"seed"``, ...);
+        ``actor`` is the acting principal's subject, when there is one.
+
+        Raises:
+            HarborPreconditionFailedError: ``expected_revision`` does not match
+                the stored revision (0 when the scope has never been written).
+        """
 
 
 class ProviderRepositoryPort(Protocol):

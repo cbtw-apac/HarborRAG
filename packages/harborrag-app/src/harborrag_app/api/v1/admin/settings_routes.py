@@ -1,123 +1,185 @@
-"""Runtime settings per tenant, project and connection.
+"""`/v1/admin/settings[/schema]`: read, patch and introspect runtime setting overrides.
 
 Handles:
-- ``GET /v1/admin/settings`` (admin; editor for ``connection:`` levels)
-- ``PATCH /v1/admin/settings`` (admin)
-- ``GET /v1/admin/settings/schema`` (editor)
+- ``GET /v1/admin/settings/schema`` (editor): the full key catalog, for a settings UI
+- ``GET /v1/admin/settings?level=`` (admin; editor for ``connection:`` levels): raw or
+  effective values at one scope
+- ``PATCH /v1/admin/settings?level=`` (admin): upsert or remove overrides, ``If-Match``
+  required, optimistic-locked on the scope's revision
 
-Routes translate HTTP to the settings service: the tenant from the credential,
-the ``level`` query, ``ETag`` and the required ``If-Match``.
+Routes translate HTTP to ``SettingsService``: the tenant from the credential or
+``X-Tenant-Id``, ``level`` into ``(scope_level, scope_id)``, ``ETag``/``If-Match``.
 """
 
 from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Body, Header, Query, Response
+from fastapi import APIRouter, Body, Depends, Header, Query, Response
 
+from harborrag_app.api.auth.access import require_role
 from harborrag_app.api.auth.dependencies import authorize_role
 from harborrag_app.api.auth.tenancy import TenantDependency
-from harborrag_app.workflow_control.control_plane.connection_views import (
-    etag,
-    version_from_etag,
+from harborrag_app.workflow_control.control_plane.connection_views import etag, version_from_etag
+from harborrag_app.workflow_control.control_plane.settings import parse_level
+from harborrag_core.domain.setting_registry import settings_schema_groups
+
+from .dependencies import Admin, Administration, Editor, error_responses
+from .settings_schemas import (
+    EffectiveValueOut,
+    SettingGroupOut,
+    SettingsChangeOut,
+    SettingsChangeOutEnvelope,
+    SettingSchemaOut,
+    SettingsEffectiveReadOut,
+    SettingsReadOut,
+    SettingsSchemaOut,
 )
-from harborrag_core.config_store import SettingsLevel, revision_label
-from harborrag_core.contracts.errors import HarborValidationError
 
-from .dependencies import Admin, Editor, SettingsDependency, error_responses
-from .settings_schemas import SettingsOut, SettingsPatchOut
+_errors = error_responses
 
-LevelQuery = Annotated[
-    str | None,
-    Query(description="tenant (default), project:<id> or connection:<project_id>/<id>"),
+LevelParam = Annotated[
+    str,
+    Query(
+        description="tenant, project:{project_id} or connection:{project_id}/{connection_id}",
+        examples=["tenant", "project:cpm", "connection:cpm/cpm-tickets"],
+    ),
 ]
-IfMatch = Annotated[
-    str | None,
+IfMatchRequired = Annotated[
+    str,
     Header(
         alias="If-Match",
-        description="ETag from your last read, or *; the write fails with 412 if settings changed since",
+        description="ETag from your last read; the write fails with 412 if someone changed it since",
     ),
 ]
 
-router = APIRouter(prefix="/admin/settings", tags=["Settings"])
-
-
-@router.get(
-    "",
-    summary="Read settings at a level",
-    response_model=SettingsOut,
-    responses=error_responses(403, 422),
+settings_editor_router = APIRouter(
+    prefix="/admin",
+    tags=["Settings"],
+    dependencies=[Depends(require_role("editor"))],
 )
-async def read_settings(  # noqa: PLR0913 - tenant, caller, level, view and response header
-    service: SettingsDependency,
+settings_admin_router = APIRouter(
+    prefix="/admin",
+    tags=["Settings"],
+    dependencies=[Depends(require_role("admin"))],
+)
+
+
+def _revision_str(revision: int) -> str:
+    return f"rev_{revision}"
+
+
+@settings_editor_router.get(
+    "/settings/schema",
+    summary="Setting schema",
+    response_model=SettingsSchemaOut,
+    response_model_exclude_none=True,
+)
+async def get_settings_schema() -> SettingsSchemaOut:
+    """Every runtime setting with its type, default, allowed levels and apply timing."""
+    groups = [
+        SettingGroupOut(
+            name=group.name,
+            title=group.title,
+            settings=[
+                SettingSchemaOut(
+                    key=spec.key,
+                    type=spec.type,
+                    default=spec.default,
+                    min=spec.minimum,
+                    max=spec.maximum,
+                    enum=spec.enum,
+                    items_type=spec.items_type,
+                    levels=sorted(spec.levels),
+                    applies=spec.applies,
+                    description=spec.description,
+                )
+                for spec in group.settings
+            ],
+        )
+        for group in settings_schema_groups()
+    ]
+    return SettingsSchemaOut(groups=groups)
+
+
+@settings_editor_router.get(
+    "/settings",
+    summary="Read settings",
+    responses=_errors(403, 422),
+)
+async def get_settings(
+    service: Administration,
     tenant: TenantDependency,
     principal: Editor,
     response: Response,
-    level: LevelQuery = None,
-    effective: bool = False,
+    level: LevelParam = "tenant",
+    effective: Annotated[
+        bool, Query(description="Merge all levels and show where each value comes from")
+    ] = False,
 ) -> dict[str, Any]:
-    """Overrides stored at the level, or every key's effective value with its origin."""
-    parsed = SettingsLevel.parse(level)
-    if parsed.kind != "connection":
+    """Editors may read ``level=connection:...`` for connections in their projects.
+
+    Everything else (``tenant`` and ``project:...``) requires ``admin``.
+    """
+    scope_level, scope_id = parse_level(level)
+    if scope_level != "connection":
         authorize_role(principal, "admin")
-    result = await service.read(tenant_id=tenant, level=parsed, effective=effective)
+    result = await service.settings_service.read(tenant, scope_level, scope_id, effective=effective)
     response.headers["ETag"] = etag(result.revision)
-    return {
-        "level": result.level,
-        "revision": revision_label(result.revision),
-        "values": result.values,
-    }
+    if effective:
+        return SettingsEffectiveReadOut(
+            level=result.level,
+            revision=_revision_str(result.revision),
+            values={
+                key: EffectiveValueOut(value=v["value"], origin=v["origin"])
+                for key, v in result.values.items()
+            },
+        ).model_dump()
+    return SettingsReadOut(
+        level=result.level, revision=_revision_str(result.revision), values=result.values
+    ).model_dump()
 
 
-@router.patch(
-    "",
-    summary="Change settings at a level",
-    response_model=SettingsPatchOut,
-    responses=error_responses(403, 409, 412, 422),
+@settings_admin_router.patch(
+    "/settings",
+    summary="Change settings",
+    response_model=SettingsChangeOutEnvelope,
+    responses=_errors(409, 412, 422),
 )
-async def patch_settings(  # noqa: PLR0913 - body, level, flags, precondition and caller
-    service: SettingsDependency,
+async def patch_settings(
+    service: Administration,
     tenant: TenantDependency,
     principal: Admin,
     body: Annotated[
-        dict[str, Any], Body(description="Key to new value; null removes the override")
+        dict[str, Any], Body(description="Setting key -> new value, or null to remove")
     ],
     response: Response,
-    level: LevelQuery = None,
-    dry_run: bool = False,
-    reindex: bool = False,
-    if_match: IfMatch = None,
-) -> dict[str, Any]:
-    """Save the changes as the next revision; nothing is saved when any key is refused."""
-    parsed = SettingsLevel.parse(level)
-    if reindex:
-        raise HarborValidationError(
-            "reindex cannot be started from a settings change", details={"field": "reindex"}
-        )
-    expected = version_from_etag(if_match)
-    if expected is None:
-        raise HarborValidationError("If-Match is required", details={"field": "If-Match"})
-    result = await service.patch(
-        tenant_id=tenant,
-        level=parsed,
-        body=body,
-        expected_revision=expected,
-        dry_run=dry_run,
+    if_match: IfMatchRequired,
+    level: LevelParam = "tenant",
+    dry_run: Annotated[bool, Query(description="Preview only")] = False,
+) -> SettingsChangeOutEnvelope:
+    """``live`` changes apply within seconds; ``next_ingestion`` changes apply to future runs."""
+    scope_level, scope_id = parse_level(level)
+    result = await service.settings_service.patch(
+        tenant,
+        scope_level,
+        scope_id,
+        body,
+        expected_revision=version_from_etag(if_match) or 0,
         actor=principal.subject,
+        dry_run=dry_run,
     )
     response.headers["ETag"] = etag(result.revision)
-    return {
-        "revision": revision_label(result.revision),
-        "dry_run": result.dry_run,
-        "changed": [change.as_dict() for change in result.changed],
-    }
+    return SettingsChangeOutEnvelope(
+        revision=_revision_str(result.revision),
+        dry_run=result.dry_run,
+        changed=[
+            SettingsChangeOut.model_validate(
+                {"key": c.key, "from": c.before, "to": c.after, "applies": c.applies}
+            )
+            for c in result.changed
+        ],
+    )
 
 
-@router.get(
-    "/schema",
-    summary="JSON schema of every setting",
-    responses=error_responses(403),
-)
-async def settings_schema(service: SettingsDependency, _principal: Editor) -> dict[str, Any]:
-    """The registry's settings by group: type, range, levels, when a change applies, description."""
-    return service.schema()
+routers = (settings_editor_router, settings_admin_router)

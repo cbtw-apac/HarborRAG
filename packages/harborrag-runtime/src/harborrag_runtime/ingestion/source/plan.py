@@ -358,6 +358,8 @@ class SourcePlanRepository:
                     else None
                 ),
                 "force_reprocess": request.force_reprocess,
+                "pdf_engine": request.pdf_engine,
+                "chunking_max_tokens": request.chunking_max_tokens,
                 "run_settings": (
                     request.run_settings.to_json() if request.run_settings is not None else None
                 ),
@@ -406,6 +408,14 @@ class SourcePlanRepository:
                     SourceAdmissionDecision(str(decision)) if decision is not None else None
                 ),
                 force_reprocess=bool(request.get("force_reprocess", False)),
+                pdf_engine=(
+                    str(request["pdf_engine"]) if request.get("pdf_engine") is not None else None
+                ),
+                chunking_max_tokens=(
+                    int(str(request["chunking_max_tokens"]))
+                    if request.get("chunking_max_tokens") is not None
+                    else None
+                ),
                 run_settings=RunSettings.from_json(request.get("run_settings")),
             ),
         )

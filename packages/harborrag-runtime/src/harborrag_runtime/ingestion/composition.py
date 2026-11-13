@@ -32,8 +32,8 @@ from .source.plan import SourcePlanRepository
 from .source.service import SourceIngestionService
 
 if TYPE_CHECKING:
+    from harborrag_core.ports.config_store import ConfigProvider
     from harborrag_engine.ingestion import ChunkingConfig, ChunkStrategy
-    from harborrag_runtime.config_store import CachedConfigProvider
 
     from .document.normalizers import SourceDocumentNormalizerBuilder
 
@@ -83,7 +83,7 @@ class IngestionRuntime:
     resource_targets: Mapping[str, str] = field(default_factory=dict)
     # What to check per resource label for the configured providers; same path.
     resource_hints: Mapping[str, str] = field(default_factory=dict)
-    config: CachedConfigProvider | None = None
+    config: ConfigProvider | None = None
     _started: bool = field(default=False, init=False)
 
     async def start(self) -> None:

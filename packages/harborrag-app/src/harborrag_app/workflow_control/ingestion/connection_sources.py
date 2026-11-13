@@ -44,7 +44,26 @@ class ConnectionSourceInputBuilder:
         """
         await self._import_once(settings)
         connection = await self.resolve(submission)
-        return self._prepare(settings, submission, connection=connection)
+        run_settings = connection.run_settings
+        return self._prepare(
+            settings,
+            submission,
+            connection=connection,
+            settings_revision=(
+                int(run_settings.settings_revision.removeprefix("rev_"))
+                if run_settings is not None
+                else 0
+            ),
+            pdf_engine=run_settings.pdf_parser if run_settings is not None else None,
+            chunking_max_tokens=run_settings.chunk_max_tokens if run_settings is not None else None,
+            ingestion_concurrency=(
+                run_settings.document_concurrency if run_settings is not None else None
+            ),
+            ingestion_activity_timeout_seconds=(
+                run_settings.activity_timeout_seconds if run_settings is not None else None
+            ),
+            ingestion_max_attempts=run_settings.max_attempts if run_settings is not None else None,
+        )
 
     async def _import_once(self, settings: RuntimeSettings) -> None:
         """Run the one-time ``connectors.yaml`` import before this process's first submit.
