@@ -30,12 +30,37 @@ from harborrag_engine.ingestion import (
 
 
 class DocumentParserPort(Protocol):
-    def parse(self, source: RawDocument, /) -> ParsedDocument: ...
+    """Parse one raw document into its structured form."""
+
+    def parse(self, source: RawDocument, /) -> ParsedDocument:
+        """Return the parsed form of ``source``."""
+        ...
 
 
 @dataclass(frozen=True, slots=True)
 class DocumentReleaseDependencies:
-    """Explicit ports required to publish one document version."""
+    """Explicit ports required to publish one document version.
+
+    Args:
+        parser: Parser used when ``parser_for`` is not set.
+        normalizer: Builds the canonical document from the parsed one.
+        chunker: Chunker used when ``chunker_for`` is not set.
+        representations: Reuses or encodes chunk representations.
+        control: Control plane that stores version state.
+        raw_artifacts: Raw document artifact store.
+        canonical_artifacts: Canonical document artifact store.
+        comment_artifacts: Canonical comment artifact store.
+        table_artifacts: Canonical table artifact store.
+        chunk_writer: Chunk artifact writer.
+        chunk_reader: Chunk artifact reader.
+        projection_artifacts: Relation and representation artifact store.
+        vector_store: Vector projection store.
+        graph_store: Knowledge graph repository.
+        failures: Classifier that decides whether a stage error is retryable. Required
+            so runtime supplies the infrastructure error types it treats as transient.
+        parser_for: Picks the parser for a run's pinned settings.
+        chunker_for: Picks the chunker for a run's pinned settings.
+    """
 
     parser: DocumentParserPort
     normalizer: BaseDocumentNormalizer

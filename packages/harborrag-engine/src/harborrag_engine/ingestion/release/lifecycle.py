@@ -50,7 +50,15 @@ _NOT_FAILABLE = frozenset(
 
 
 class DocumentVersionLifecycle:
-    """Own durable version transitions, replay boundaries, and compensation."""
+    """Own durable version transitions, replay boundaries, and compensation.
+
+    Args:
+        control: Control plane that stores version state and failures.
+        canonical_artifacts: Reads the canonical document of a version.
+        chunk_reader: Reads the stored chunks of a version.
+        projection_artifacts: Reads the stored representations of a version.
+        failures: Classifies a stage error into a retryable or permanent failure.
+    """
 
     def __init__(
         self,
