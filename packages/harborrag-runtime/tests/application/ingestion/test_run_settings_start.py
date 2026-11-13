@@ -16,8 +16,8 @@ from harborrag_core.testing.control_plane_fakes import (
     FakeConnectionRepository,
     FakeConnectionRevisionRepository,
 )
+from harborrag_engine.ingestion.recovery import source_from_task
 from harborrag_runtime.application.ingestion.connection_sources import ConnectionSourceInputBuilder
-from harborrag_runtime.application.ingestion.recovery import source_from_task
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.config_store.defaults import registry_for
 

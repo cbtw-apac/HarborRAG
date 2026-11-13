@@ -36,6 +36,7 @@ from harborrag_engine.ingestion.presenters import (
     task_id,
     task_response,
 )
+from harborrag_engine.ingestion.recovery import retry_from_task, source_from_task
 from harborrag_runtime.config.errors import ConnectorConfigurationError
 from harborrag_runtime.config.settings import RuntimeSettings
 from harborrag_runtime.errors import (
@@ -53,7 +54,6 @@ from .ports import (
     TaskStoreProvider,
 )
 from .progress_bridge import CONTROL_AUDIT, event_prefix
-from .recovery import retry_from_task, source_from_task
 from .retry_selection import retryable_document_ids
 
 logger = logging.getLogger("harborrag.runtime.application.ingestion.service")
